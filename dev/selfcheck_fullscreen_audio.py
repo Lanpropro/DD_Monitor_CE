@@ -34,6 +34,9 @@ class Player:
     def release(self):
         pass
 
+    def set_volume_normalization(self, enabled):
+        pass
+
 
 def main():
     app_module.StatusPoller = SilentPoller
@@ -54,7 +57,6 @@ def main():
     window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner",
                         state={"plugins_enabled": []})
     window.start_tile = lambda _tile: None
-    window._grab_fullscreen_frame = lambda: None
     window.show()
     app.processEvents()
     tiles = list(window.wall.tiles)

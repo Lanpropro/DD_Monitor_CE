@@ -437,7 +437,7 @@ def main():
     with ExitStack() as stack:
         for method in ("start_tile", "refresh_status", "refresh_stats", "refresh_account",
                        "sync_danmaku", "load_avatars_for", "load_room_avatars",
-                       "load_cached_covers", "load_cached_avatars", "_hold_fullscreen_frame",
+                       "load_cached_covers", "load_cached_avatars",
                        "_check_startup_update"):
             stack.enter_context(patch.object(MainWindow, method))
         stack.enter_context(patch.object(app_module, "StatusPoller", SilentPoller))

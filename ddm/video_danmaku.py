@@ -6,12 +6,13 @@ import sys
 from time import perf_counter
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion, QTextCharFormat, QTextCursor, QTextDocument
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from . import motion, theme
-from .danmaku_content import content_runs, content_html
+from .danmaku_content import content_runs
+from .danmaku_raster import CommentRaster, CommentRasterJob
 from .images import AvatarLoader
 from .badge_surface import BadgeSurface
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
@@ -398,6 +399,8 @@ class _Comment:
     message: str = ''
     held: bool = False
     event: dict = field(default_factory=dict)
+    raster_key: tuple = ()
+    rasters: dict = field(default_factory=dict)
 
 
 class VideoDanmaku(QWidget):
@@ -425,6 +428,10 @@ class VideoDanmaku(QWidget):
         self.settings = {}
         self._comment_width = self.width()
         self.comments: list[_Comment] = []
+        self._comment_resize_timer = QTimer(self)
+        self._comment_resize_timer.setSingleShot(True)
+        self._comment_resize_timer.timeout.connect(self._queue_comment_raster)
+        self._comment_raster_job = None
         self.super_chats: list[dict] = []
         self.super_chat_overlay = SuperChatOverlay(parent)
         self.super_chat_overlay.bind(self)
@@ -688,6 +695,8 @@ class VideoDanmaku(QWidget):
                 self.attach_quick_layer(ensure_layer())
         comment = _Comment(image, float(self.width()), lane, speed, text, color, runs,
                            self_sent=self_sent, message=str(event.get('text') or ''), event=dict(event))
+        comment.raster_key = self._comment_renderer().key(text, color, runs, self_sent)
+        comment.rasters[comment.raster_key] = image.toImage()
         if self._quick_layer is not None and self._quick_group is not None:
             comment.render_id = self._quick_layer.add(
                 self._quick_group, image.toImage(), comment.x,
@@ -729,6 +738,7 @@ class VideoDanmaku(QWidget):
         self.update()
 
     def clear_comments(self) -> None:
+        self._comment_resize_timer.stop()
         self._stop_timer()
         self.comments.clear()
         self.super_chat_overlay.hide()
@@ -762,110 +772,92 @@ class VideoDanmaku(QWidget):
         if any(url == image_url for comment in self.comments for _, image_url in comment.runs):
             self._resize_comments()
 
+    def _comment_renderer(self):
+        return CommentRaster(self._font(), self.outline_width(),
+            self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE,
+            max(128, self.width() * 2), self._images)
+
     def _render_content(self, text, color, runs, self_sent=False) -> QPixmap:
         if not any(url in self._images for _, url in runs if url):
             return self._render_text(text, color, self_sent)
-        outline = self.outline_width()
-        pad = (9 if self_sent else 4) + math.ceil(outline)
-        document = QTextDocument()
-        document.setDefaultFont(self._font())
-        document.setDocumentMargin(0)
-        for _, url in runs:
-            if url in self._images:
-                document.addResource(QTextDocument.ImageResource, QUrl(url), self._images[url])
-        body = content_html(runs, self._images, QFontMetrics(self._font()).height())
-        document.setHtml(f'<span style="color:{color.name()}">{body}</span>')
-        if outline:
-            style = QTextCharFormat()
-            style.setTextOutline(QPen(Qt.black, outline * 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            cursor = QTextCursor(document)
-            cursor.select(QTextCursor.Document)
-            cursor.mergeCharFormat(style)
-            transparent = QImage(1, 1, QImage.Format_ARGB32_Premultiplied)
-            transparent.fill(Qt.transparent)
-            for _, url in runs:
-                if url in self._images:
-                    document.addResource(QTextDocument.ImageResource, QUrl(url), transparent)
-        document.adjustSize()
-        document.setTextWidth(-1)  # A rolling comment stays on one line.
-        scale = self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE
-        width = min(document.idealWidth(), max(128, self.width() * 2)) + pad * 2
-        image = QPixmap(math.ceil(width * scale), math.ceil((document.size().height() + pad * 2) * scale))
-        image.setDevicePixelRatio(scale)
-        image.fill(Qt.transparent)
-        painter = QPainter(image)
-        painter.save()
-        painter.translate(pad, pad)
-        document.drawContents(painter)
-        if outline:
-            # Qt's text-outline pass covers thin glyph interiors; paint the
-            # original colored text over it. Images are drawn only in this pass
-            # so translucent emotes retain their original alpha.
-            style.setTextOutline(QPen(Qt.NoPen))
-            cursor.select(QTextCursor.Document)
-            cursor.mergeCharFormat(style)
-            for _, url in runs:
-                if url in self._images:
-                    document.addResource(QTextDocument.ImageResource, QUrl(url), self._images[url])
-            document.drawContents(painter)
-        painter.restore()
-        if self_sent:
-            self._draw_self_sent_box(painter, image)
-        painter.end()
-        return image
+        return QPixmap.fromImage(self._comment_renderer()._render_content(text, color, runs, self_sent))
 
-    @staticmethod
-    def _draw_self_sent_box(painter, image):
-        scale = image.devicePixelRatioF()
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor(255, 255, 255, 225), 1.6))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(QRectF(1.6, 1.6, image.width() / scale - 3.2,
-                                     image.height() / scale - 3.2), 6, 6)
+    def _render_text(self, text, color, self_sent=False) -> QPixmap:
+        return QPixmap.fromImage(self._comment_renderer()._render_text(text, color, self_sent))
 
-    def _render_text(self, text: str, color: QColor, self_sent=False) -> QPixmap:
-        font = self._font()
-        metrics = QFontMetrics(font)
-        text = metrics.elidedText(text, Qt.ElideRight, max(128, self.width() * 2))
-        path = QPainterPath()
-        path.addText(0, 0, font, text)
-        bounds = path.boundingRect()
-        left = min(0, bounds.left())
-        top = min(-metrics.ascent(), bounds.top())
-        outline = self.outline_width()
-        pad = (9 if self_sent else 4) + math.ceil(outline)
-        width = max(metrics.horizontalAdvance(text), bounds.right()) - left + pad * 2
-        height = max(metrics.descent(), bounds.bottom()) - top + pad * 2
-        # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
-        scale = self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE
-        image = QPixmap(math.ceil(width * scale), math.ceil(height * scale))
-        image.setDevicePixelRatio(scale)
-        image.fill(Qt.transparent)
-        painter = QPainter(image)
-        painter.setRenderHint(QPainter.Antialiasing)
-        if outline:
-            painter.save()
-            painter.translate(pad - left, pad - top)
-            painter.strokePath(path, QPen(Qt.black, outline * 2, Qt.SolidLine,
-                                         Qt.RoundCap, Qt.RoundJoin))
-            painter.restore()
-        # drawText keeps Qt's font fallback and colour Unicode emoji glyphs.
-        painter.setPen(color)
-        painter.setFont(font)
-        painter.drawText(QPointF(pad - left, pad - top), text)
-        if self_sent:
-            self._draw_self_sent_box(painter, image)
-        painter.end()
-        return image
+    def _queue_comment_raster(self):
+        if self._comment_raster_job is not None:
+            return  # The active batch will request the latest geometry when it returns.
+        renderer = self._comment_renderer()
+        cached, rows = [], []
+        for comment in self.comments:
+            key = renderer.key(comment.text, comment.color, comment.runs, comment.self_sent)
+            if key == comment.raster_key:
+                continue
+            if key in comment.rasters:
+                cached.append((id(comment), key, comment.rasters[key]))
+            else:
+                rows.append((id(comment), key, comment.text, QColor(comment.color),
+                             tuple(comment.runs), comment.self_sent))
+        self._apply_comment_rasters(cached)
+        if rows:
+            job = self._comment_raster_job = CommentRasterJob(renderer, rows)
+            job.signals.finished.connect(self._finish_comment_raster, Qt.QueuedConnection)
+            QThreadPool.globalInstance().start(job)
 
-    def _resize_comments(self) -> None:
+    def _finish_comment_raster(self, images):
+        self._comment_raster_job = None
+        if images is None:
+            return
+        self._apply_comment_rasters(images)
+        self._queue_comment_raster()
+
+    def _apply_comment_rasters(self, images):
+        if not images or not self.comments:
+            return
+        renderer = self._comment_renderer()
+        images = {identifier: (key, image) for identifier, key, image in images}
+        if self._quick_animated() and self.timer.isActive():
+            self._tick()
+        for comment in self.comments:
+            result = images.get(id(comment))
+            if result is None or result[0] == comment.raster_key:
+                continue
+            key, image = result
+            if key != renderer.key(comment.text, comment.color, comment.runs, comment.self_sent):
+                continue  # Ignore an old size, changed settings or newly loaded emoticons.
+            distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
+            progress = (self.width() - comment.x) / max(1, distance)
+            comment.image = QPixmap.fromImage(image)
+            comment.raster_key = key
+            if len(comment.rasters) == 2 and key not in comment.rasters:
+                comment.rasters.pop(next(iter(comment.rasters)))
+            comment.rasters[key] = image
+            width = comment.image.width() / comment.image.devicePixelRatioF()
+            comment.x = self.width() - progress * (self.width() + width)
+            comment.speed = (self.width() + width) / 8 * int(self.settings.get('video_danmaku_speed') or 100) / 100
+            if self._quick_layer is not None and self._quick_group is not None:
+                self._quick_layer.update(comment.render_id, image, comment.x,
+                    comment.lane * self.lane_height(), width,
+                    comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+        self._prune_lanes()
+        if self._quick_layer is None:
+            self.update()
+
+    def _resize_comments(self, *, redraw=True) -> None:
+        if redraw:
+            self._comment_resize_timer.stop()
         if self._quick_animated() and self.timer.isActive():
             self._tick()
         for comment in self.comments:
             old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
             progress = (self._comment_width - comment.x) / max(1, old_distance)
-            comment.image = self._render_content(comment.text, comment.color, comment.runs,
-                                                 comment.self_sent)
+            if redraw:
+                comment.image = self._render_content(comment.text, comment.color, comment.runs,
+                                                     comment.self_sent)
+                comment.raster_key = self._comment_renderer().key(
+                    comment.text, comment.color, comment.runs, comment.self_sent)
+                comment.rasters = {comment.raster_key: comment.image.toImage()}
             distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
             comment.x = self.width() - progress * distance
             comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
@@ -873,11 +865,15 @@ class VideoDanmaku(QWidget):
         self._prune_lanes()
         if self._quick_layer is not None and self._quick_group is not None:
             for comment in self.comments:
-                self._quick_layer.update(
-                    comment.render_id, comment.image.toImage(), comment.x,
-                    comment.lane * self.lane_height(),
-                    comment.image.width() / comment.image.devicePixelRatioF(),
-                    comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+                if redraw:
+                    self._quick_layer.update(
+                        comment.render_id, comment.image.toImage(), comment.x,
+                        comment.lane * self.lane_height(),
+                        comment.image.width() / comment.image.devicePixelRatioF(),
+                        comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+                else:
+                    self._quick_layer.move(comment.render_id, comment.x,
+                        comment.lane * self.lane_height(), comment.speed)
         else:
             self.update()
 
@@ -1114,7 +1110,7 @@ class VideoDanmaku(QWidget):
         # QWidget move/resize events run before its native child windows settle.
         # Coalesce updates after that move, rather than submitting Quick geometry inside it.
         if self._quick_layer is not None and self._quick_group is not None:
-            point = self.mapTo(self._quick_layer.parent, QPoint())
+            point = self._quick_origin()
             self._quick_layer.begin_group_move(
                 self._quick_group, point.x(), point.y(), self.width(), self.height())
             self._quick_geometry_timer.start(0)
@@ -1122,9 +1118,15 @@ class VideoDanmaku(QWidget):
     def _sync_quick_geometry(self) -> None:
         if self._quick_layer is None or self._quick_group is None:
             return
-        point = self.mapTo(self._quick_layer.parent, QPoint())
+        point = self._quick_origin()
         self._quick_layer.set_group_geometry(
             self._quick_group, point.x(), point.y(), self.width(), self.height())
+
+    def _quick_origin(self):
+        parent = self._quick_layer.parent
+        if self.window() is parent.window():
+            return self.mapTo(parent, QPoint())
+        return parent.mapFromGlobal(self.mapToGlobal(QPoint()))
 
     def set_quick_rounded(self, rounded: bool) -> None:
         rounded = bool(rounded)
@@ -1211,7 +1213,10 @@ class VideoDanmaku(QWidget):
         super().hideEvent(event)
 
     def resizeEvent(self, event) -> None:
-        self._resize_comments()
+        # Fullscreen changes several geometries in one turn. Rasterize glyphs
+        # once at the final size, outside synchronous native window resizing.
+        self._resize_comments(redraw=False)
+        self._comment_resize_timer.start(0)
         self.super_chat_overlay.sync(self)
         self.schedule_quick_geometry()
         super().resizeEvent(event)

@@ -210,11 +210,17 @@ def main():
                     QTest.qWait(30)
                     assert corner._alpha_uploaded, 'Corner must use per-pixel alpha in both themes'
             assert all(corner.isVisible() for corner in tile.video_corners)
-        with patch.object(window, '_grab_fullscreen_frame', return_value=None), \
-                patch.object(window, '_upgrade_fullscreen_quality'), \
-                patch('ddm.app.window_fullscreen.enter', wraps=app_module.window_fullscreen.enter) if '--desktop' in sys.argv else \
-                patch('ddm.app.window_fullscreen.enter', side_effect=lambda owner: owner.resize(1100, 800)):
-            window._on_fullscreen(tile)
+        if app.platformName() == 'windows':
+            enter = window._fullscreen_presentation.enter
+            with patch.object(window, '_upgrade_fullscreen_quality'), \
+                    patch.object(window._fullscreen_presentation, 'enter',
+                                 side_effect=lambda target: enter(target, None if '--desktop' in sys.argv else QRect(-20000, -20000, 1100, 800))):
+                window._on_fullscreen(tile)
+        else:
+            # Motion/layout checks use a child tile. Native promotion and its
+            # lifecycle are covered by the Windows fullscreen/Quick checks.
+            window._fullscreen_tile = tile
+            window.wall.set_fullscreen_tile(tile)
         cursor.stop()
         assert tile.bottom.updatesEnabled(), 'Real fullscreen entry must restore bottom-bar painting'
         app.processEvents()
@@ -339,8 +345,11 @@ def main():
                 cursor.update_cursor()
                 assert not cursor.hidden and QApplication.overrideCursor() is None, 'Leaving from idle must release the cursor'
             cursor.stop()
-        window._fullscreen_tile = None
-        window.wall.set_fullscreen_tile(None)
+        if window._fullscreen_presentation.tile is not None:
+            window._exit_fullscreen()
+        else:
+            window._fullscreen_tile = None
+            window.wall.set_fullscreen_tile(None)
         assert not tile.bottom.property('fullscreen')
         assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
         assert not tile.bottom.isWindow(), 'Leaving fullscreen must restore the ordinary child bar'

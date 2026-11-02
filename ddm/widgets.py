@@ -6805,6 +6805,8 @@ class Tile(QFrame):
 
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
+        if getattr(self, '_presentation_changing', False):
+            return
         width, height = self.width(), self.height()
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
@@ -7530,6 +7532,7 @@ class WallGrid(QWidget):
         #: 退出全屏时「布局先算好、格子分批露面」用的状态（见 reveal_tiles_staggered）
         self._defer_show = False
         self._pending_reveal: list[Tile] = []
+        self._fullscreen_layout_pending = False
         self._stagger_first: Tile | None = None
         self._sidebar_animating = False
         self._sidebar_layout = None
@@ -7618,6 +7621,8 @@ class WallGrid(QWidget):
             self._quick_danmaku_layer = QuickDanmakuLayer(self)
             for tile in self.tiles:
                 tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
+            if self.fullscreen_tile is not None and self.fullscreen_tile.isWindow():
+                self._quick_danmaku_layer.set_presentation_window(self.fullscreen_tile)
                 tile._update_quick_danmaku_mask()
             if self.isVisible():
                 self._quick_danmaku_layer.show()
@@ -7670,14 +7675,17 @@ class WallGrid(QWidget):
         if previous is not None and previous is not tile:
             previous.setProperty("fullscreen", False)
             _repolish(previous)
-            previous._layout_areas()
+            if not self._fullscreen_layout_pending:
+                previous._layout_areas()
         if tile is not None:
             tile.setProperty("fullscreen", True)
             _repolish(tile)
-            tile._layout_areas()
+            if not self._fullscreen_layout_pending:
+                tile._layout_areas()
         margin = 0 if tile else 16
         self.grid.setContentsMargins(margin, margin, margin, margin)
-        self.relayout(force=True)
+        if not self._fullscreen_layout_pending:
+            self.relayout(force=True)
 
     def reveal_tiles_staggered(self, chunk: int = 2) -> None:
         """把「布局算好了但还没露面」的格子分批显示，每批一帧。
@@ -7917,6 +7925,8 @@ class WallGrid(QWidget):
                 self.setUpdatesEnabled(self._sidebar_updates_enabled)
 
     def relayout(self, force: bool = False) -> None:
+        if self._fullscreen_layout_pending:
+            return
         self.sync_sc_placement()
         if self._sidebar_animating:
             return
@@ -8478,6 +8488,8 @@ class WallGrid(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if getattr(self, '_fullscreen_layout_pending', False):
+            return
         if self._sidebar_animating:
             if self._quick_danmaku_layer is not None:
                 self._quick_danmaku_layer.move_window()

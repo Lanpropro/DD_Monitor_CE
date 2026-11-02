@@ -238,6 +238,7 @@ class QuickDanmakuLayer(QObject):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        self._presentation_window = None
         self._surface_reset = QTimer(self)
         self._surface_reset.setSingleShot(True)
         self._surface_reset.timeout.connect(self._restore_surface)
@@ -313,7 +314,8 @@ class QuickDanmakuLayer(QObject):
         if isinstance(self.parent, QWidget) and not isValid(self.parent):
             return False
         kind = event.type()
-        if watched is not self.parent and watched is not self.parent.window():
+        if (watched is not self.parent and watched is not self.parent.window()
+                and watched is not self._presentation_window):
             if (isinstance(watched, QWidget) and watched.isWindow()
                     and _owned_by(watched, self.parent.window())
                     and kind in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.Close)):
@@ -356,8 +358,9 @@ class QuickDanmakuLayer(QObject):
         self.resize()
         has_items = any(self.groups[record["group"]].isVisible()
                         for record in self.items.values())
-        if (not has_items or not self.parent.isVisible()
-                or self.parent.window().isMinimized()):
+        owner = self._presentation_window or self.parent.window()
+        if (not has_items or not self.parent.isVisible() or not owner.isVisible()
+                or owner.isMinimized()):
             self.window.hide()
             return
         if self._surface_dirty:
@@ -373,11 +376,13 @@ class QuickDanmakuLayer(QObject):
     def _update_occlusion(self):
         # Owned native windows can be raised above sibling dialogs and notices.
         # Clip their regions out so comments cannot paint over application UI.
-        origin = self.parent.mapToGlobal(QPoint())
-        region = QRegion(self.parent.rect())
+        canvas = self._presentation_window or self.parent
+        origin = canvas.mapToGlobal(QPoint())
+        region = QRegion(canvas.rect())
         owner = self.parent.window()
         for widget in QApplication.topLevelWidgets():
-            if widget is owner or not widget.isVisible() or not _owned_by(widget, owner):
+            if (widget is owner or widget is self._presentation_window
+                    or not widget.isVisible() or not _owned_by(widget, owner)):
                 continue
             geometry = widget.frameGeometry()
             region -= QRegion(QRect(geometry.topLeft() - origin, geometry.size()))
@@ -385,11 +390,24 @@ class QuickDanmakuLayer(QObject):
         return not region.isEmpty()
 
     def move_window(self):
-        self.window.setPosition(self.parent.mapToGlobal(QPoint()))
+        owner = self._presentation_window or self.parent
+        self.window.setPosition(owner.mapToGlobal(QPoint()))
+
+    def set_presentation_window(self, widget):
+        self.window.hide()
+        self._presentation_window = widget
+        owner = widget or self.parent.window()
+        owner.winId()
+        self.window.setTransientParent(owner.windowHandle())
+        self.resize()
 
     def resize(self):
-        point = self.parent.mapToGlobal(QPoint())
-        self.window.setGeometry(point.x(), point.y(), self.parent.width(), self.parent.height())
+        owner = self._presentation_window or self.parent
+        point = owner.mapToGlobal(QPoint())
+        self.window.setGeometry(point.x(), point.y(), owner.width(), owner.height())
+        offset = self.parent.mapToGlobal(QPoint()) - point
+        self.stage.setX(offset.x())
+        self.stage.setY(offset.y())
         self.stage.setWidth(self.parent.width())
         self.stage.setHeight(self.parent.height())
         if self._surface_reset.isActive():

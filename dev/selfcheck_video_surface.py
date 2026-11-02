@@ -227,8 +227,6 @@ def main():
                         return (int(widget.winId()), 0, (0, 0, 0, 0))
                     interactions.enter_context(patch.object(window_fullscreen, 'enter', side_effect=enter))
                     interactions.enter_context(patch.object(window_fullscreen, 'exit'))
-                    window._hold_fullscreen_frame = lambda: None
-                    window._release_fullscreen_frame = lambda: None
                 else:
                     window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
                 window.isActiveWindow = lambda: True
@@ -277,7 +275,6 @@ def main():
                     if not args.background:
                         wait(app, lambda: check_pixels(tile))
                     window._on_fullscreen(tile)
-                    window._clear_fullscreen_cover()
                     if not args.background:
                         window.activateWindow()
                     wait(app, lambda: check_regions(tile))
@@ -316,7 +313,6 @@ def main():
                     app.processEvents()
                     check_controls(tile)
                     window._exit_fullscreen()
-                    window._clear_fullscreen_cover()
                     player.play(source, profile='web' if platform == 'bilibili' else platform)
                     wait(app, lambda: (player._prop("time-pos", 0) * 1000) > 0 and check_regions(tile))
                     check_danmaku_region(tile)
