@@ -5129,6 +5129,7 @@ class Sidebar(QFrame):
         self.setUpdatesEnabled(False)
         self._collapse_animating = True
         self.collapseAnimationChanged.emit(True)
+        prepared = False
         try:
             for item in items:
                 item.thumb.stop()
@@ -5136,14 +5137,18 @@ class Sidebar(QFrame):
             self.collapsed = collapsed
             self._apply_collapsed_controls()
             self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            prepared = True
         finally:
             self._collapse_animating = False
             for item in items:
                 item.thumb.set_cover_hold(False)
             try:
-                self.collapseAnimationChanged.emit(False)
-            finally:
                 self.setUpdatesEnabled(updates_enabled)
+                if prepared and updates_enabled and self.isVisible():
+                    # 左栏完整绘制后才调整原生视频窗口，避免缩放开销卡住左栏显示。
+                    self.repaint()
+            finally:
+                self.collapseAnimationChanged.emit(False)
         self.collapsedChanged.emit(collapsed)
 
     def _apply_collapsed_controls(self) -> None:

@@ -23,7 +23,10 @@ class ResizeCounter(QObject):
         self.count = 0
         self.sidebar = None
         self.frames = []
+        self.sidebar_paints = 0
     def eventFilter(self, watched, event):
+        if watched is self.sidebar and event.type() == QEvent.Paint:
+            self.sidebar_paints += 1
         if event.type() == QEvent.Resize:
             if watched is self.sidebar:
                 self.frames.append((time.perf_counter(), event.size().width()))
@@ -121,6 +124,12 @@ def main():
         finally:
             finishes.append((time.perf_counter()-started)*1000)
     sidebar._finish_collapse = finish
+    original_geometry = wall._relayout_preset
+    geometry_observations = []
+    def geometry_after_sidebar(*args, **kwargs):
+        geometry_observations.append((counter.sidebar_paints > 0, sidebar.updatesEnabled()))
+        return original_geometry(*args, **kwargs)
+    wall._relayout_preset = geometry_after_sidebar
     previous_layer = wall._quick_danmaku_layer
     quick = Mock(wraps=previous_layer) if previous_layer is not None else Mock()
     wall._quick_danmaku_layer = quick
@@ -129,6 +138,8 @@ def main():
             calls.clear()
             counter.count = 0
             counter.frames.clear()
+            counter.sidebar_paints = 0
+            geometry_observations.clear()
             finishes.clear()
             surfaces = [int(tile.video.winId()) for tile in wall.tiles]
             quick.reset_mock()
@@ -137,6 +148,8 @@ def main():
             elapsed = (time.perf_counter() - started) * 1000
             assert not sidebar._collapse_animating and not wall._sidebar_animating
             assert wall.updatesEnabled() and wall.grid.isEnabled() and sidebar.updatesEnabled()
+            assert geometry_observations and all(painted and enabled for painted, enabled in geometry_observations), \
+                'Final sidebar must paint before player geometry changes'
             assert quick.resize.called, 'Quick surface must settle before the call returns'
             assert sidebar.width() == (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
             assert len(counter.frames) == 1, 'Width must change directly to its final value'

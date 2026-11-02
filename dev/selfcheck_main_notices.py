@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
@@ -60,7 +60,7 @@ class MainNoticesTests(unittest.TestCase):
         def check_updates(enabled):
             if enabled:
                 self.assertFalse(sidebar._collapse_animating)
-                self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+                self.assertTrue(wall._sidebar_animating)
                 self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                 for item in sidebar.items():
                     self.assertEqual(item._compact, sidebar.collapsed)
@@ -89,6 +89,37 @@ class MainNoticesTests(unittest.TestCase):
         QTest.qWait(300)
         self.assertEqual(sidebar.width(), width)
         self.assertFalse(sidebar._collapse_animating)
+
+    def test_sidebar_final_paint_precedes_player_resize(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        sidebar, wall = window.sidebar, window.wall
+        paints = []
+
+        class PaintRecorder(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Paint:
+                    paints.append((sidebar.collapsed, sidebar.width()))
+                return False
+
+        recorder = PaintRecorder(sidebar)
+        sidebar.installEventFilter(recorder)
+        original = wall._relayout_preset
+        observations = []
+        def resize_after_paint():
+            expected = (sidebar.collapsed,
+                        theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+            observations.append((expected in paints, sidebar.updatesEnabled()))
+            return original()
+
+        with patch.object(wall, '_relayout_preset', side_effect=resize_after_paint) as resize:
+            for collapsed in (True, False) * 3:
+                paints.clear()
+                sidebar.set_collapsed(collapsed)
+                self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
+                self.assertFalse(wall._sidebar_animating)
+            self.assertEqual(resize.call_count, 6)
+        self.assertEqual(observations, [(True, True)] * 6,
+                         'Final sidebar paint must precede native player resize')
 
     def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
         window = self.window([dict(room_id='1001', uname='Fixture')])
