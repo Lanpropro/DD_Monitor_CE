@@ -132,6 +132,15 @@ class ProbeTests(unittest.TestCase):
         self.assertIsNone(capture.record)
         self.assertFalse(capture.timer.isActive())
         self.assertNotIn('private-error', json.dumps(self.records()))
+        from PySide6.QtCore import QEvent, QPropertyAnimation, QPoint
+        from PySide6.QtWidgets import QWidget
+        target = QWidget(sidebar.list_box)
+        animation = QPropertyAnimation(target, b'pos', target)
+        animation.setEndValue(QPoint(0, 30))
+        sidebar.list_box._animations[target] = animation
+        target.deleteLater()
+        app.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertIsInstance(capture.running_animations(), int)
         sidebar.close()
 
     def test_thread_stop_is_idempotent_and_wrappers_stop_recording(self):

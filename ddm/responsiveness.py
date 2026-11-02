@@ -219,8 +219,7 @@ class FolderMotionCapture:
         record = self.record
         if record is None or self.probe.stopped.is_set():
             return self.relayout(*args, **kwargs)
-        box = self.sidebar.list_box
-        running = sum(a.state().name == 'Running' for a in box._animations.values())
+        running = self.running_animations()
         started = time.perf_counter()
         callers = stack_locations(sys._getframe(1))[:6]
         try:
@@ -231,6 +230,15 @@ class FolderMotionCapture:
                     'duration_ms': round((time.perf_counter() - started) * 1000, 3),
                     'animate': bool(kwargs.get('animate', args[0] if args else False)),
                     'running_before': running, 'callers': callers})
+
+    def running_animations(self):
+        running = 0
+        for animation in self.sidebar.list_box._animations.values():
+            try:
+                running += animation.state().name == 'Running'
+            except RuntimeError:  # Removing a room/folder deletes its child animations.
+                continue
+        return running
 
     def frame(self):
         record = self.record
@@ -263,7 +271,7 @@ class FolderMotionCapture:
                 break
         record['frames'].append({'at_ms': round(elapsed, 3), 'scroll': bar.value(),
             'scroll_max': bar.maximum(), 'content': [sidebar.list_box.width(), sidebar.list_box.height()],
-            'running': sum(a.state().name == 'Running' for a in sidebar.list_box._animations.values()),
+            'running': self.running_animations(),
             'rows': rows})
         if elapsed >= 600 or len(record['frames']) >= 40:
             self.finish('complete')
