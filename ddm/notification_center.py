@@ -14,6 +14,13 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushB
 from . import motion, theme
 
 
+def live_notice_action(parent):
+    wall = getattr(parent, 'wall', None)
+    if wall is not None and not any(not tile.room.get('room_id') for tile in wall.visible_tiles()):
+        return '替换'
+    return '放入画面墙'
+
+
 def reveal_file(path):
     path = Path(path)
     if sys.platform == 'win32' and path.is_file():
@@ -451,7 +458,7 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
         message = message + Path(str(file_path).replace('\\', '/')).name
     else:
         callback = on_click
-        action = '放入画面墙' if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
+        action = live_notice_action(parent) if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
     center = sidebar.notification_button.center
     entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms,
                        key=notice_key, replace=notice_key is not None, file_path=file_path)
