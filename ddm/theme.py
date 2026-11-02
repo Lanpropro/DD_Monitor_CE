@@ -16,7 +16,7 @@ from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -424,6 +424,8 @@ def apply(value):
         properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
+        elif isinstance(widget, QLineEdit) and not properties_changed:
+            _refresh_widget_palette(widget, invalidate=True, defer=True)
         elif styled and not properties_changed:
             _refresh_widget_palette(widget, defer=True)
         _styles[widget] = (source, colors, styled)

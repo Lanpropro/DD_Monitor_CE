@@ -10,6 +10,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 from ddm import theme  # noqa: E402
+from ddm.follow_folders import UNCLASSIFIED
 from ddm.widgets import Sidebar  # noqa: E402
 
 
@@ -19,6 +20,7 @@ def main() -> None:
     rooms = [{"room_id": room_id, "uname": room_id.upper()} for room_id in
              ("p1", "p2", "a", "b", "c", "d")]
     sidebar = Sidebar(rooms)
+    sidebar.rename_folder(UNCLASSIFIED, "Items")
     sidebar.setGeometry(-8000, -8000, 248, 600)
     sidebar.show()
     app.processEvents()

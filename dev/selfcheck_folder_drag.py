@@ -21,6 +21,7 @@ def main():
     rooms = [{"room_id": rid, "uname": rid, "live": False}
              for rid in ("1", "2", "huya:a", "3")]
     sidebar = Sidebar(rooms, auto_compact=False)
+    sidebar.rename_folder(UNCLASSIFIED, "分类默认")
     sidebar.resize(248, 900)
     sidebar.show()
     first = sidebar.create_folder("分类甲")
