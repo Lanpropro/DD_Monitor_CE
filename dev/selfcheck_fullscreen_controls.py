@@ -204,6 +204,21 @@ def main():
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
         check_transparent_bar(app, tile)
         if '--desktop' in sys.argv:
+            with patch('ddm.motion.enabled', return_value=True):
+                tile.set_fullscreen_controls_hidden(True)
+                QTest.qWait(220)
+                assert not tile.bottom.isVisible()
+                tile.set_fullscreen_controls_hidden(False)
+                anchor = tile.bottom.geometry()
+                middle = []
+                for _ in range(6):
+                    QTest.qWait(20)
+                    middle.append(tile.bottom.windowOpacity())
+                    assert tile.bottom.geometry() == anchor, f'Reveal changed geometry: anchor={anchor}, actual={tile.bottom.geometry()}, expected={tile.bottom._tile_rect}, dpr={tile.bottom.devicePixelRatioF()}'
+                    assert tile.bottom.devicePixelRatioF() == tile.devicePixelRatioF(), 'Reveal changed the native bar DPI'
+                    native_bar_image(tile.bottom)
+                assert any(0 < opacity < 1 for opacity in middle), 'Reveal must retain its fade animation'
+                assert tile.bottom.windowOpacity() == 1.0
             print('PASS: real fullscreen desktop pixels retain input and controls during typing')
             return
         if app.platformName() == 'windows':
@@ -241,11 +256,17 @@ def main():
             cursor.update_cursor()
             assert cursor.hidden
             QTest.qWait(60)
-            assert normal_y < tile.bottom.tile_y() < tile.height(), 'Bar must slide down'
+            if tile.bottom.qt_composited:
+                assert tile.bottom.tile_y() == normal_y and 0 < tile.bottom.windowOpacity() < 1, 'Native bar must fade at a fixed position'
+            else:
+                assert normal_y < tile.bottom.tile_y() < tile.height(), 'Bar must slide down'
             halfway = tile.bottom.tile_y()
+            opacity = tile.bottom.windowOpacity()
             cursor._position = point - QPoint(1, 0)
             cursor.update_cursor()
             assert not cursor.hidden and abs(tile.bottom.tile_y() - halfway) <= 1, 'Reversal jumped'
+            if tile.bottom.qt_composited:
+                assert abs(tile.bottom.windowOpacity() - opacity) < .01, 'Opacity reversal jumped'
             QTest.qWait(220)
             assert tile.bottom.tile_y() == normal_y and tile.bottom.isVisible()
             assert tile.video.geometry() == geometry, 'Animation resized native video'
@@ -314,7 +335,7 @@ def main():
         cursor.stop()
         window.close()
         app.processEvents()
-    print('PASS: corner alpha, fullscreen slide, reversal, screen exit/return, cursor visibility, switch and cleanup')
+    print('PASS: corner alpha, fullscreen animation, reversal, screen exit/return, cursor visibility, switch and cleanup')
 
 
 if __name__ == '__main__':

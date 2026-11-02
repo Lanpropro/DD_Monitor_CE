@@ -52,6 +52,8 @@ class FullscreenBar(QWidget):
     def set_fullscreen(self, enabled):
         if enabled == self.property('fullscreen'):
             return
+        if self.qt_composited:
+            self.setWindowOpacity(1.0)
         visible = self.isVisible()
         local = QRect(self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())), self.size())
         focus = QApplication.focusWidget()
