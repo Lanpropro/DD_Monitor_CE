@@ -7,7 +7,7 @@
 免费、开源的 Windows 多窗口直播观看与监控工具。
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-0.5.2-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
+[![版本](https://img.shields.io/badge/版本-0.7-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
 [下载软件](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
