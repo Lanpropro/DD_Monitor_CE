@@ -76,6 +76,10 @@ if __name__ == "__main__":
         theme_probe = install_theme_capture(os.path.join(config.data_root(), 'logs', 'theme-switch.jsonl'),
                                            profile_calls='--diagnose-responsiveness' in sys.argv)
         install_theme_animation_capture(theme_probe)
+    if os.environ.get('DDM_FULLSCREEN_CAPTURE') == '1' or '--diagnose-fullscreen' in sys.argv:
+        from ddm.fullscreen_diagnostics import install as install_fullscreen_capture
+        install_fullscreen_capture(os.path.join(config.data_root(), 'logs', 'fullscreen.jsonl'),
+                                   profile_calls='--diagnose-fullscreen' in sys.argv)
     if '--diagnose-responsiveness' in sys.argv:
         from ddm.responsiveness import install
         install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))

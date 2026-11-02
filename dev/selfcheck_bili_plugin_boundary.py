@@ -63,9 +63,7 @@ class BiliPluginBoundaryTests(unittest.TestCase):
             self.assertEqual(tile.room.get('room_id'), room.get('room_id'))
             self.assertTrue(tile.danmaku_settings_button.isEnabled())
         self.window._on_fullscreen(tile)
-        self.window._clear_fullscreen_cover()
         self.window._exit_fullscreen()
-        self.window._clear_fullscreen_cover()
         self.assertIsNone(self.window._fullscreen_tile)
         saved = self.window.current_state()
         self.assertEqual((saved['sessdata'], saved['bili_jct'], saved['buvid3']),

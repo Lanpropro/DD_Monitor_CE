@@ -76,7 +76,6 @@ def check_top_overlays(window, tile, app):
     for fullscreen in (False, True):
         if fullscreen:
             window._on_fullscreen(tile)
-            window._clear_fullscreen_cover()
         tile.danmaku_button.setChecked(False)
         QCursor.setPos(tile.video.mapToGlobal(tile.video.rect().center()))
         tile.set_controls_visible(True)
@@ -96,7 +95,6 @@ def check_top_overlays(window, tile, app):
                 ("弹幕开关不能遮黑顶部按钮、LIVE 和房间名", fullscreen, enabled, before, after, str(shot))
         if fullscreen:
             window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             settle(app)
     print("开启/关闭弹幕后，普通和全屏模式的顶部控制栏、LIVE、房间名均保持可见：通过")
 
@@ -181,13 +179,11 @@ def main():
             target.danmaku_settings_menu.controls["video_danmaku_opacity"].setValue(100)
             QTest.keyClick(target.danmaku_settings_menu, Qt.Key_Escape)
             window._on_fullscreen(target)
-            window._clear_fullscreen_cover()
             settle(app)
             assert overlay.comments[0] is comment, "进入全屏不能通过清屏后重新发弹幕来恢复画面"
             assert int(target.video.winId()) == handle
             assert brightest_text(capture(target), target) > 200
             window._exit_fullscreen()
-            window._clear_fullscreen_cover()
             settle(app)
             assert overlay.comments[0] is comment, "退出全屏也应保留当前弹幕"
             # 原生播放窗口重建后，弹幕仍应在上面，播放器本身不需要换掉。
