@@ -51,7 +51,9 @@ class SingleInstance(QObject):
                 socket.flush()
                 # A fast peer may have drained the write already. Its reply,
                 # rather than waitForBytesWritten(), confirms delivery.
-                if not socket.bytesAvailable() and not socket.waitForReadyRead(5000):
+                if not socket.bytesAvailable():
+                    socket.waitForReadyRead(5000)
+                if bytes(socket.readAll()) != b'ok\n':
                     raise RuntimeError('已运行的软件暂时未响应，请稍后重试。')
                 socket.disconnectFromServer()
                 return False
