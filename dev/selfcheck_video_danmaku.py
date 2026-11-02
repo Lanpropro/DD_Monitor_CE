@@ -239,7 +239,7 @@ def check_quick_occlusion(app):
     unrelated = QWidget()
     unrelated.setGeometry(400, 400, 100, 100)
     unrelated.show()
-    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock())
+    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(), _presentation_window=None)
     try:
         for widget in (dialog, notice):
             widget.show()
@@ -275,7 +275,7 @@ def check_quick_surface_recovery(app):
     parent.mapToGlobal.return_value = QPoint(120, 80)
     parent.isVisible.return_value = True
     parent.window.return_value.isMinimized.return_value = False
-    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(),
+    layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(), _presentation_window=None,
                             _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
                             _update_occlusion=Mock(return_value=True),
                             _occlusion_timer=Mock(),

@@ -14,7 +14,7 @@ os.environ["DDM_QTQUICK_DANMAKU"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QColor, QCursor, QImage, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from PySide6.QtTest import QTest
@@ -394,7 +394,9 @@ def main():
                 assert held.x == before, 'Hovered Quick comment must remain still'
                 overlay._set_hover(None)
                 settle(app, .15)
-                assert held.x < before and not layer.items[held.render_id].get('held')
+                assert held.x < before and not layer.items[held.render_id].get('held'), (
+                    held.x, before, overlay.timer.isActive(), overlay.paused,
+                    overlay._last_tick, len(overlay.comments), layer._presentation_window)
                 overlay.set_paused(True)
                 held.x = 36
                 layer.move(held.render_id, held.x, held.lane * overlay.lane_height())
@@ -619,14 +621,32 @@ def main():
             assert not target.paused and not target.pause_button.paused, "暂停按钮必须恢复播放"
 
             group = overlay._quick_group
+            saved_geometry = QRect(window.geometry())
+            pane_geometries = [QRect(tile.geometry()) for tile in window.wall.tiles]
+            video_hwnd = int(target.video.winId())
+            cores = [player.player for player in players]
+            sessions = [player.play_session for player in players]
+            enter = window._fullscreen_presentation.enter
             if visible:
                 window._on_fullscreen(target)
             else:
-                window.wall.set_fullscreen_tile(target)
+                with patch.object(window._fullscreen_presentation, 'enter',
+                                  side_effect=lambda tile: enter(tile, QRect(-20000, -20000, 1600, 900))):
+                    window._on_fullscreen(target)
             target.set_controls_visible(True)
             target._controls_hide_timer.stop()
             settle(app)
             assert overlay._quick_group == group and not layer.groups[group].property("rounded")
+            assert window.geometry() == saved_geometry
+            assert target.isWindow() and int(target.video.winId()) == video_hwnd
+            assert [player.player for player in players] == cores and [player.play_session for player in players] == sessions
+            assert all(tile.geometry() == saved for tile, saved in zip(window.wall.tiles, pane_geometries) if tile is not target)
+            assert layer._presentation_window is target
+            assert layer.window.size() == target.size()
+            expected = target.video_danmaku.mapToGlobal(QPoint()) - layer.window.position()
+            actual = layer.groups[group].mapToScene(QPointF())
+            assert abs(actual.x()-expected.x()) < 1 and abs(actual.y()-expected.y()) < 1
+            assert layer._update_occlusion(), 'The independent video window must not clip away its own comments'
             mask_key = layer.group_masks[group]
             mask_image = layer.images.images[mask_key]
             pause_global = target.pause_button.mapToGlobal(target.pause_button.rect().center())
@@ -639,12 +659,12 @@ def main():
                            and not native_mask.contains(layer.window.mapFromGlobal(pause_global)))
             assert texture_hole or native_hole, \
                 "Quick 遮罩必须给全屏暂停按钮留透明区域"
-            if visible:
-                window._exit_fullscreen()
-            else:
-                window.wall.set_fullscreen_tile(None)
+            window._exit_fullscreen()
             settle(app)
             assert layer.groups[group].property("rounded")
+            assert layer._presentation_window is None and int(target.video.winId()) == video_hwnd
+            assert [tile.geometry() for tile in window.wall.tiles] == pane_geometries
+            assert window.geometry() == saved_geometry
 
             for tile in window.wall.tiles:
                 tile.video_danmaku.clear()

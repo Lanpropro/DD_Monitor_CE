@@ -142,6 +142,9 @@ class SystemTray(QObject):
         self.window.raise_()
         self.window.activateWindow()
         if self.window._fullscreen_tile is not None:
+            owner = self.window._fullscreen_tile.window()
+            owner.raise_()
+            owner.activateWindow()
             self.window._fullscreen_cursor.start()
 
     def request_exit(self):

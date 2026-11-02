@@ -75,14 +75,14 @@ def main() -> None:
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
     assert window._fullscreen_tile is target
-    assert window.isFullScreen() or window._native_fullscreen_state is not None
+    assert target.isWindow() and window._fullscreen_presentation.tile is target
     assert int(window.winId()) == window_hwnd
     assert int(target.video.winId()) == video_hwnd
     assert window.current_state()["geometry"] == saved_geometry
     assert window.centralWidget().updatesEnabled()
     assert not window.wall._relayout_timer.isActive()
     if app.platformName() == "windows":
-        assert window.size() == app.primaryScreen().geometry().size()
+        assert target.size() == window.screen().geometry().size() and window.size() == normal_size
     assert window.wall.fullscreen_tile is target
     assert target.property("fullscreen") is True
     assert target.property("focused") is True
@@ -90,14 +90,14 @@ def main() -> None:
     assert not hasattr(target, "fullscreen_danmaku")
     assert not hasattr(target, "fullscreen_danmaku_button")
     assert window._danmaku is None, "普通布局全屏时不应额外连接弹幕"
-    assert not window.sidebar.isVisible()
+    assert window.sidebar.isVisible(), "The original sidebar stays in place behind the independent presentation"
     assert window.wall.layout_id == "corner"
 
     QTest.keyClick(window, Qt.Key_F)
     app.processEvents()
     assert window._fullscreen_tile is None and window.wall.fullscreen_tile is None, \
         "全屏时再按 F 应与 Esc 一样退出"
-    assert window._native_fullscreen_state is None
+    assert window._fullscreen_presentation.tile is None
     assert target.property("fullscreen") is False
     assert target.property("focused") is True
     assert window.centralWidget().updatesEnabled()

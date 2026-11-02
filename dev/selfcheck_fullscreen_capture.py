@@ -117,12 +117,17 @@ class CaptureTests(unittest.TestCase):
             for _ in range(1000):
                 capture.frame()
                 capture.stage('WallGrid.relayout', capture.started)
+                capture.eventFilter(self.window.wall, diag.QEvent(diag.QEvent.Resize))
         capture.finish()
         row = self.rows()[-1]
         self.assertEqual(len(row['frames']), 80)
         self.assertEqual(len(row['players']), 2)
         self.assertEqual(len(row['players'][0]['samples']), 120)
         self.assertEqual(len(row['events']), 64)
+        self.assertEqual(len(row['geometry']), 96)
+        self.assertEqual({entry['role'] for entry in row['geometry']}, {'wall'})
+        self.assertTrue(all(len(entry['rect']) == 4 for entry in row['geometry']))
+        self.assertFalse(capture.geometry_widgets)
         self.assertEqual(row['stages']['WallGrid.relayout']['calls'], 1000)
         self.assertTrue(all(not handlers for player in self.window.players.values() for handlers in player.player.handlers.values()))
         late('time-pos', 9000)

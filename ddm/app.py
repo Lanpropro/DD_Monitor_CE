@@ -5,7 +5,6 @@
 """
 import faulthandler
 from copy import deepcopy
-from contextlib import contextmanager
 import os
 from pathlib import Path
 import sys
@@ -73,6 +72,8 @@ RESIZE_SETTLE_MS = 150
 RETRY_BASE_SECONDS = 5           # 断流后的重连间隔（指数退避）
 RETRY_MAX_SECONDS = 60
 FREEZE_RETRY_SECONDS = 5         # 自动刷新后仍静止时的再次刷新间隔
+from .fullscreen_presentation import FullscreenPresentation
+
 DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 
@@ -159,10 +160,8 @@ class MainWindow(QMainWindow):
         self._freeze_retry_timers: dict[object, QTimer] = {}
         self._fullscreen_tile: Tile | None = None
         self._fullscreen_cursor = FullscreenCursor(self)
+        self._fullscreen_presentation = FullscreenPresentation(self)
         self._fullscreen_audio_saved: dict[Tile, bool] = {}
-        self._fullscreen_was_maximized = False
-        self._native_fullscreen_state = None
-        self._fullscreen_saved_geometry = None
         self._danmaku: DanmakuClient | None = None      # 弹幕格当前连的那一路
         self._danmaku_room = ""
         self._danmaku_clients: dict[str, object] = {}
@@ -1163,7 +1162,7 @@ class MainWindow(QMainWindow):
             "watch_history": self.sidebar.watch_history.state(),
             "settings": dict(self.settings),
             "emoticon_order": deepcopy(self.state.get("emoticon_order", {})),
-            "geometry": str((self._fullscreen_saved_geometry or self.saveGeometry()).toBase64(),
+            "geometry": str(self.saveGeometry().toBase64(),
                             "ASCII"),
             # 插件自己的配置项，以及「启用了哪些插件」（None = 全启用）
             "plugins": self.plugins.plugin_settings,
@@ -1196,11 +1195,10 @@ class MainWindow(QMainWindow):
             dialog.close()
         for dialog in list(self._stream_info_dialogs.values()):
             dialog.close()
+        if self._fullscreen_tile is not None:
+            self._exit_fullscreen()
         self._fullscreen_cursor.stop()
         self.hide()
-        if self._native_fullscreen_state is not None:
-            window_fullscreen.exit(self, self._native_fullscreen_state)
-            self._native_fullscreen_state = None
         hide_ms = (time.perf_counter() - t0) * 1000
         # 迟到的取流回调不得访问正在释放的播放器。
         self._closing = True
@@ -2539,31 +2537,6 @@ class MainWindow(QMainWindow):
         print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
               file=sys.stderr, flush=True)
 
-    @contextmanager
-    def _fullscreen_layout_change(self, tile):
-        central = self.centralWidget()
-        layout = central.layout()
-        central.setUpdatesEnabled(False)
-        layout.setEnabled(False)
-        self.wall.grid.setEnabled(False)
-        self.wall._fullscreen_layout_pending = True
-        try:
-            yield
-        finally:
-            try:
-                layout.setEnabled(True)
-                layout.activate()
-                self.wall._fullscreen_layout_pending = False
-                self.wall.relayout(force=True)
-                self.wall.grid.setEnabled(True)
-                self.wall.grid.activate()
-                tile._layout_areas()
-            finally:
-                self.wall._fullscreen_layout_pending = False
-                self.wall.grid.setEnabled(True)
-                central.setUpdatesEnabled(True)
-                tile.bottom.setUpdatesEnabled(True)
-
     def _report_fullscreen_cost(self, action: str, started: float, covered: float,
                                 switched: float, done: float) -> None:
         """打一行分段耗时。
@@ -2615,8 +2588,6 @@ class MainWindow(QMainWindow):
             return
         started = time.perf_counter()
         covered = time.perf_counter()
-        self._fullscreen_was_maximized = self.isMaximized()
-        self._fullscreen_saved_geometry = self.saveGeometry()
         print(f"[全屏音频] 进入原格子={self.wall.tiles.index(tile)+1} "
               f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
               f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
@@ -2626,15 +2597,9 @@ class MainWindow(QMainWindow):
                 notice.dismiss(animate=False)
         self._sync_input_shortcuts()
         self._sync_fullscreen_audio()
-        with self._fullscreen_layout_change(tile):
-            self.sidebar.hide()
-            self.empty_hint.hide()
-            self.wall.set_fullscreen_tile(tile)
-            tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
-            if sys.platform == "win32" and QApplication.platformName() == "windows":
-                self._native_fullscreen_state = window_fullscreen.enter(self)
-            else:
-                self.showFullScreen()
+        self._fullscreen_presentation.enter(tile)
+        tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
+        self._refresh_shortcuts()
         self.sync_danmaku()
         finished = time.perf_counter()
         self._fullscreen_cursor.start()
@@ -2650,25 +2615,14 @@ class MainWindow(QMainWindow):
             return
         started = time.perf_counter()
         covered = time.perf_counter()
-        with self._fullscreen_layout_change(tile):
-            if self._native_fullscreen_state is not None:
-                window_fullscreen.exit(self, self._native_fullscreen_state)
-                self._native_fullscreen_state = None
-            elif self._fullscreen_was_maximized:
-                self.showMaximized()
-            else:
-                self.showNormal()
-            switched = time.perf_counter()
-            self._fullscreen_tile = None
-            self._sync_input_shortcuts()
-            self.refresh_theme()
-            self._sync_fullscreen_audio()
-            self._fullscreen_saved_geometry = None
-            self.sidebar.show()
-            self.wall.set_fullscreen_tile(None)
+        self._fullscreen_presentation.leave()
+        switched = time.perf_counter()
+        self._fullscreen_tile = None
+        self.refresh_theme()
+        self._refresh_shortcuts()
+        self._sync_fullscreen_audio()
+        self.sync_danmaku()
         laid_out = time.perf_counter()
-        self._resize_dirty = True
-        self._resize_idle_timer.start()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
         self._refresh_meta()
         self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
@@ -3546,7 +3500,7 @@ class MainWindow(QMainWindow):
         for sequence in dict.fromkeys(sequences):
             if not sequence:
                 continue
-            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut = QShortcut(QKeySequence(sequence), self._fullscreen_tile or self)
             shortcut.setContext(Qt.WindowShortcut)
             shortcut.setAutoRepeat(False)
             shortcut.setProperty("danmakuInput", sequence in (
@@ -3575,7 +3529,8 @@ class MainWindow(QMainWindow):
         就是这个。改成拿光标全局坐标和每个格子的矩形比，跟画面是不是原生窗口无关。
         """
         point = QCursor.pos()
-        tiles = self.wall.tiles if hasattr(self, "wall") else []
+        tiles = ([self._fullscreen_tile] if self._fullscreen_tile is not None else
+                 self.wall.tiles if hasattr(self, "wall") else [])
         for tile in tiles:
             if not tile.isVisible():
                 continue

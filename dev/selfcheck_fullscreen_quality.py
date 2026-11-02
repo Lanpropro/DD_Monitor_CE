@@ -14,6 +14,7 @@ from ddm import bili
 from ddm.app import MainWindow
 from ddm.auto_quality import AUTO_QUALITY
 from ddm.player import TilePlayer
+from ddm.fullscreen_presentation import FullscreenPresentation
 from selfcheck_live_platforms import settle
 
 
@@ -195,4 +196,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # This checks tier selection/resolver wiring; native promotion and HWND
+    # lifetime are exercised by the Windows fullscreen/Quick integration checks.
+    with patch.object(FullscreenPresentation, 'enter'), patch.object(FullscreenPresentation, 'leave'):
+        main()

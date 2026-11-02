@@ -1110,7 +1110,7 @@ class VideoDanmaku(QWidget):
         # QWidget move/resize events run before its native child windows settle.
         # Coalesce updates after that move, rather than submitting Quick geometry inside it.
         if self._quick_layer is not None and self._quick_group is not None:
-            point = self.mapTo(self._quick_layer.parent, QPoint())
+            point = self._quick_origin()
             self._quick_layer.begin_group_move(
                 self._quick_group, point.x(), point.y(), self.width(), self.height())
             self._quick_geometry_timer.start(0)
@@ -1118,9 +1118,15 @@ class VideoDanmaku(QWidget):
     def _sync_quick_geometry(self) -> None:
         if self._quick_layer is None or self._quick_group is None:
             return
-        point = self.mapTo(self._quick_layer.parent, QPoint())
+        point = self._quick_origin()
         self._quick_layer.set_group_geometry(
             self._quick_group, point.x(), point.y(), self.width(), self.height())
+
+    def _quick_origin(self):
+        parent = self._quick_layer.parent
+        if self.window() is parent.window():
+            return self.mapTo(parent, QPoint())
+        return parent.mapFromGlobal(self.mapToGlobal(QPoint()))
 
     def set_quick_rounded(self, rounded: bool) -> None:
         rounded = bool(rounded)

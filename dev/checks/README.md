@@ -137,15 +137,15 @@
 | [selfcheck_corner_state](../selfcheck_corner_state.py) | 单项执行前核对 |
 | [selfcheck_feedback_layout](../selfcheck_feedback_layout.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_audio](../selfcheck_fullscreen_audio.py) | 单项执行前核对 |
-| [selfcheck_fullscreen_capture](../selfcheck_fullscreen_capture.py) | 离屏单项；采集边界、异步观察者清理、返回/异常与嵌套退出，无账号/外网；不是实际性能证据 |
+| [selfcheck_fullscreen_capture](../selfcheck_fullscreen_capture.py) | 离屏单项；几何事件上限与过滤器回收、采集边界、异步观察者清理、返回／异常及嵌套退出；无账号／外网，不是实际性能证据 |
 | [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、调音量解除静音、上下限、输入隔离及保存 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
 | [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline` |
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline` |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
-| [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 单项执行前核对 |
-| [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | 离屏单项；实时切换不建截图窗、最终尺寸统一布局、格子完整恢复与 HWND／播放器连续性；不代表真实播放性能 |
+| [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 离屏纯画质／取流逻辑；隔离原生呈现，窗口生命周期另见下项 |
+| [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | Windows 原生单项；固定屏幕外且不接受焦点，验证独立呈现、零画面墙重排、原位置恢复、快捷键归属与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
 | [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
 | [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |

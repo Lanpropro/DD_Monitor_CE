@@ -6724,6 +6724,8 @@ class Tile(QFrame):
 
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
+        if getattr(self, '_presentation_changing', False):
+            return
         width, height = self.width(), self.height()
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
@@ -7534,6 +7536,8 @@ class WallGrid(QWidget):
             self._quick_danmaku_layer = QuickDanmakuLayer(self)
             for tile in self.tiles:
                 tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
+            if self.fullscreen_tile is not None and self.fullscreen_tile.isWindow():
+                self._quick_danmaku_layer.set_presentation_window(self.fullscreen_tile)
                 tile._update_quick_danmaku_mask()
             if self.isVisible():
                 self._quick_danmaku_layer.show()

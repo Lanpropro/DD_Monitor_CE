@@ -4,16 +4,18 @@ import functools
 import threading
 import time
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt
+from PySide6.QtWidgets import QWidget
 
 from .responsiveness import Probe, profile_functions
 
 
-class FullscreenCapture:
+class FullscreenCapture(QObject):
     PROPERTIES = ('time-pos', 'audio-pts', 'pause', 'paused-for-cache',
                   'vo-configured', 'frame-drop-count')
 
     def __init__(self, probe, window, *, profile_calls=False):
+        super().__init__(window)
         self.probe, self.window = probe, window
         self.profile_calls = profile_calls
         self.record = None
@@ -21,6 +23,7 @@ class FullscreenCapture:
         self.lock = threading.Lock()
         self.observers = []
         self.players = []
+        self.geometry_widgets = {}
         self.timer = QTimer(window)
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(16)
@@ -28,11 +31,19 @@ class FullscreenCapture:
 
     def begin(self, action, tile):
         self.finish('interrupted')
+        self.target = tile
         self.started = time.perf_counter()
         self.returned = None
-        self.record = {'action': action, 'frames': [], 'stages': {}, 'events': [],
+        self.record = {'action': action, 'frames': [], 'stages': {}, 'events': [], 'geometry': [],
                        'players': [], 'functions': []}
         tiles = self.window.wall.tiles
+        watched = [(self.window, 'main'), (self.window.wall, 'wall')]
+        watched += [(pane, 'target' if pane is tile else 'peer') for pane in tiles]
+        watched.append((getattr(tile, 'video', None), 'video'))
+        for widget, role in watched:
+            if isinstance(widget, QWidget):
+                self.geometry_widgets[widget] = role
+                widget.installEventFilter(self)
         ordered = ([tile] if tile in tiles else []) + [other for other in tiles if other is not tile]
         for candidate in ordered:
             player = self.window.players.get(candidate)
@@ -66,6 +77,18 @@ class FullscreenCapture:
         self.timer.start()
         self.frame()
 
+    def eventFilter(self, watched, event):
+        record = self.record
+        if (record is not None and watched in self.geometry_widgets
+                and event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide)
+                and len(record['geometry']) < 96):
+            origin = watched.mapToGlobal(QPoint())
+            record['geometry'].append({'at_ms': round((time.perf_counter()-self.started)*1000, 3),
+                'role': self.geometry_widgets[watched], 'event': event.type().name,
+                'visible': watched.isVisible(), 'window': watched.isWindow(),
+                'rect': [origin.x(), origin.y(), watched.width(), watched.height()]})
+        return super().eventFilter(watched, event)
+
     def stage(self, name, started):
         record = self.record
         if record is None:
@@ -94,6 +117,7 @@ class FullscreenCapture:
                 'cover': False, 'cover_opacity': None,  # Retain the previous capture schema for comparison.
                 'fullscreen': window._fullscreen_tile is not None, 'pending_reveal': pending,
                 'raster_pending': raster_pending,
+                'independent': bool(getattr(self.target, 'isWindow', lambda: False)()),
                 'resize_pending': window._resize_idle_timer.isActive(),
                 'window_size': [window.width(), window.height()]})
         if now-self.started >= 8:
@@ -108,6 +132,9 @@ class FullscreenCapture:
             record, self.record = self.record, None
         if record is None:
             return
+        for widget in self.geometry_widgets:
+            widget.removeEventFilter(self)
+        self.geometry_widgets.clear()
         for core, name, changed in self.observers:
             try:
                 core.unobserve_property(name, changed)
@@ -127,6 +154,7 @@ def install(path, *, profile_calls=False):
     from .app import MainWindow
     from .widgets import WallGrid
     from .video_danmaku import VideoDanmaku
+    from .fullscreen_presentation import FullscreenPresentation
     from . import window_fullscreen
 
     probe = Probe(path)
@@ -182,7 +210,7 @@ def install(path, *, profile_calls=False):
     def stage(method, label):
         @functools.wraps(method)
         def wrapped(owner, *args, **kwargs):
-            window = owner
+            window = owner.window if isinstance(owner, FullscreenPresentation) else owner
             while window is not None and not isinstance(window, MainWindow):
                 window = window.parentWidget()
             capture = getattr(window, '_fullscreen_probe', None)
@@ -200,6 +228,7 @@ def install(path, *, profile_calls=False):
 
     for owner, names in ((MainWindow, ('sync_danmaku', 'refresh_theme', '_refresh_meta', '_upgrade_fullscreen_quality')),
             (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered')),
+            (FullscreenPresentation, ('enter', 'leave')),
             (VideoDanmaku, ('_resize_comments', '_queue_comment_raster', '_apply_comment_rasters'))):
         for name in names:
             setattr(owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))
