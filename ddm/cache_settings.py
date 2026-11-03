@@ -11,9 +11,7 @@ LABELS = {'avatars': '主播头像', 'covers': '直播间封面'}
 
 
 def cache_colors():
-    if theme.is_light():
-        return {'avatars': '#137fa8', 'covers': '#39846f'}
-    return {'avatars': '#5aa9d6', 'covers': '#7ab8a2'}
+    return {'avatars': theme.ACCENT, 'covers': theme.qcolor(theme.TEXT3).name()}
 
 
 def size_text(value):

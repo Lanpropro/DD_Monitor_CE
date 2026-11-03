@@ -280,12 +280,14 @@ class CacheTests(unittest.TestCase):
         self.settle(panel)
         panel.checks['covers'].setChecked(True)
         dark_pixel = None
-        for mode, expected in (('dark', '#7ab8a2'), ('light', '#39846f'), ('dark', '#7ab8a2')):
+        for mode in ('dark', 'light', 'dark'):
             theme.apply(mode)
             self.app.processEvents()
+            expected = theme.qcolor(theme.TEXT3).name()
             picture = panel.pie.grab().toImage()
             self.assertEqual(picture.pixelColor(107, 182).name(), expected)
             self.assertIn(expected, panel.dots['covers'].styleSheet())
+            self.assertIn(theme.ACCENT, panel.dots['avatars'].styleSheet())
             self.assertEqual(panel.selected(), {'covers'})
             self.assertTrue(panel.selected_button.isEnabled())
             if mode == 'dark':
