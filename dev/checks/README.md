@@ -64,7 +64,6 @@
 | [selfcheck_startup_requests](../selfcheck_startup_requests.py) | 单项执行前核对 |
 | [selfcheck_startup_wmi](../selfcheck_startup_wmi.py) | 单项执行前核对 |
 | [selfcheck_watchdog](../selfcheck_watchdog.py) | 单项执行前核对 |
-| [selfcheck_website_plan](../selfcheck_website_plan.py) | `repository` |
 
 ## 侧栏、控件与其他交互
 
