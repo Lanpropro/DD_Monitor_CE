@@ -24,6 +24,7 @@ from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
 from dev.selfcheck_tile_fullscreen import SilentPoller
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 def wait(app, predicate, seconds=8):
@@ -263,6 +264,7 @@ def main():
                         tile.danmaku_button.setChecked(enabled)
                         if enabled:
                             assert tile.video_danmaku.add_event({'text': 'Rounded overlay regression'})
+                            wait_comment_raster(QApplication.instance(), tile.video_danmaku)
                             tile.video_danmaku.comments[-1].x = 0
                         app.processEvents()
                         check_control_background(tile)

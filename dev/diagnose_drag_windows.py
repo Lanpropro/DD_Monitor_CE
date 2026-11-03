@@ -393,6 +393,9 @@ class Recorder:
             timer.timeout.connect(poll_drag)
             timer.start()
             try:
+                if not user32.GetAsyncKeyState(1) & 0x8000:
+                    self.mark('drag:exec-skipped', reason='physical-left-released')
+                    return Qt.IgnoreAction
                 action = original_drag(drag, *args, **kwargs)
                 self.mark('drag:exec-return', elapsedMs=round((time.perf_counter() - started) * 1000, 3),
                           action=str(action))

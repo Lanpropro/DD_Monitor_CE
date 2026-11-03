@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from ddm import plugins, theme
 from dev.selfcheck_match_sync import FakeChat, FakeDecoder
 from plugins_user._match_sync import viewer as module
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 def settle(app):
@@ -77,6 +78,7 @@ def main():
             assert center.blue() > 180 and center.green() < 60, "Enabling comments must keep the Qt Canvas visible"
             overlay = viewer.video_danmaku
             assert overlay.add_event({"text": "移动后必须清除原位置", "color": "#ffffff"})
+            wait_comment_raster(QApplication.instance(), overlay)
             comment = overlay.comments[0]
             comment.x, comment.lane = 30, 3
             overlay.update()

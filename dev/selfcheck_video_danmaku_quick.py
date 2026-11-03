@@ -25,6 +25,7 @@ from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
 from selfcheck_video_danmaku import Client, Snapshot
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 def settle(app, seconds=0.15):
@@ -361,6 +362,7 @@ def main():
                 else:
                     event = {"text": f"GPU 场景图弹幕 {index} 🫶", "color": "#ffffff"}
                 assert overlay.add_event(event)
+                wait_comment_raster(QApplication.instance(), overlay)
                 layer = window.wall._quick_danmaku_layer
                 assert layer is not None, "首条弹幕应建立共享 Qt Quick 窗口"
                 with patch.object(layer, 'move', wraps=layer.move) as move_comment:
@@ -681,6 +683,7 @@ def main():
                                      f"{(frames[-1] - idle_start) / 1e6 if frames else None}ms")
             assert not layer.window.isVisible(), "Clearing all comments must hide the shared window"
             assert overlay.add_event({"text": "resume after empty scene"})
+            wait_comment_raster(QApplication.instance(), overlay)
             settle(app, .15)
             assert layer.window.isVisible(), "A new comment must restore the overlay"
             overlay.clear()
