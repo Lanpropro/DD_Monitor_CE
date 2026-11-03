@@ -3830,15 +3830,15 @@ class Sidebar(QFrame):
         header = QHBoxLayout(self._header_row)
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(9)
-        self.logo_label = QLabel()
+        self.logo_label = QLabel(self._header_row)
         self.logo_label.setObjectName("AppLogo")
         self.logo_label.setToolTip(version_module.DISPLAY_NAME)
         self._brand_logo = QPixmap(os.path.join(BRAND_ASSETS_DIR, "logo.png"))
         self.title_box = QVBoxLayout()
         self.title_box.setSpacing(0)
-        title = QLabel(version_module.DISPLAY_NAME)
+        title = QLabel(version_module.DISPLAY_NAME, self._header_row)
         title.setObjectName("AppTitle")
-        subtitle = QLabel("多窗口直播监控")
+        subtitle = QLabel("多窗口直播监控", self._header_row)
         subtitle.setObjectName("AppSubtitle")
         #: 竖屏横栏第一行只留标题当 logo（副标题藏起来，横栏高度很紧）
         self.title_label = title
@@ -3950,7 +3950,7 @@ class Sidebar(QFrame):
         layout.addWidget(self.batch_bar)
 
         # 已登录账号（在底部操作之上）
-        self.account_row = AccountRow(allow_logout=True)
+        self.account_row = AccountRow(self, allow_logout=True)
         self.account_row.logoutClicked.connect(self.logoutRequested)
         self.account_row.clicked.connect(self._open_account_menu)
         # 未登录时它就是「登录」按钮，所以一开始就要露出来
@@ -6958,8 +6958,7 @@ class Tile(QFrame):
                         self.video.geometry().right() - corner.width() + 1, self.video.y())
             corner.setVisible(not square_corners)
         key = (self.video.width(), self.video.height(), self.devicePixelRatioF(),
-               square_corners,
-               int(self.video.winId()) if self.video.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) else 0)
+               square_corners, int(self.video.internalWinId()))
         if key == self._video_mask_key and not self.video.mask().isEmpty():
             self._update_quick_danmaku_mask()
             return
@@ -7086,7 +7085,7 @@ class Tile(QFrame):
         scale = self.controls.devicePixelRatioF()
         key = (tuple(button.geometry().getRect() for button in
                      (self.quality_button, self.reload_button, self.close_button)), scale,
-               int(self.controls.winId()) if self.controls.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) else 0)
+               int(self.controls.internalWinId()))
         if key == self._controls_mask_key and not self.controls.mask().isEmpty():
             return
         self._controls_mask_key = key
@@ -7103,7 +7102,7 @@ class Tile(QFrame):
             path.addRoundedRect(rect, radius, radius)
             region = region.united(QRegion(path.toFillPolygon().toPolygon()))
         if (sys.platform == "win32" and QApplication.platformName() == "windows"
-                and self.controls.testAttribute(Qt.WA_NativeWindow)):
+                and self.controls.internalWinId()):
             # Let Qt paint the complete antialiased edge; clip the native backing
             # at physical-pixel resolution instead of scaling a logical region.
             paint_region = QRegion()

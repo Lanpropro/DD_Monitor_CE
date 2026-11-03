@@ -123,6 +123,9 @@ class VideoSurface(QFrame):
         if (sys.platform != "win32" or QApplication.platformName() != "windows"
                 or not self.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) or self.mask().isEmpty()):
             return True
+        root = int(self.internalWinId())
+        if not root:
+            return False
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         user32.EnumChildWindows.argtypes = (wintypes.HWND, callback_type, wintypes.LPARAM)
@@ -138,7 +141,6 @@ class VideoSurface(QFrame):
         gdi32.OffsetRgn.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_int)
         gdi32.EqualRgn.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
-        root = int(self.winId())
         # Qt 与 libmpv 使用同一份区域，避免两种圆角算法在高 DPI 下偏离。
         scale = self.devicePixelRatioF()
         mask = QTransform().scale(scale, scale).map(self.mask())

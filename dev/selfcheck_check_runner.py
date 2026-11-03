@@ -47,7 +47,8 @@ class CheckRunnerTests(unittest.TestCase):
         suite = runner.load_suites()['smoke']
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
-            'selfcheck_general_settings', 'selfcheck_single_instance', 'selfcheck_drag_lifecycle',
+            'selfcheck_general_settings', 'selfcheck_startup_windows',
+            'selfcheck_single_instance', 'selfcheck_drag_lifecycle',
             'selfcheck_room_placement',
             'selfcheck_room_status_controller', 'selfcheck_room_images',
             'selfcheck_playback_badges', 'selfcheck_responsiveness',
