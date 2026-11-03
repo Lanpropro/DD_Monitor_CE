@@ -37,6 +37,7 @@ class SuperChatOverlay(BadgeSurface):
         self._followed_widgets = set()
         self._settings_process = None
         self._surface_occluded = False
+        self._presentation_changing = False
         self._follow_timer = QTimer(self)
         self._follow_timer.setSingleShot(True)
         self._follow_timer.timeout.connect(self._refresh)
@@ -197,7 +198,7 @@ class SuperChatOverlay(BadgeSurface):
         if owner is None:
             return
         was_visible = self.isVisible()
-        visible = bool(self.chats) and owner.sc_visible()
+        visible = bool(self.chats) and owner.sc_visible() and not self._presentation_changing
         if self.qt_composited:
             parent = owner.parentWidget() or owner
             visible = (visible and parent.isVisible() and not parent.window().isMinimized()
@@ -215,6 +216,13 @@ class SuperChatOverlay(BadgeSurface):
             self.raise_()
         self._refresh_quick_mask()
         self.update()
+
+    def set_presentation_changing(self, active):
+        self._presentation_changing = bool(active)
+        if active:
+            self.hide()
+        else:
+            self._refresh()
 
     def _corner(self, point):
         rects = self.card_rects()
