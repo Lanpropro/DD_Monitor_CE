@@ -3,6 +3,7 @@ import os
 import ctypes
 from pathlib import Path
 import sys
+import time
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
@@ -23,6 +24,7 @@ class HandoffEvents(QObject):
         self.target = target
         self.peers = peers
         self.layer = layer
+        self.super_chats = [tile.video_danmaku.super_chat_overlay for tile in (target, *peers)]
         self.comments_held = []
         self.enter = []
         self.leave = []
@@ -43,8 +45,9 @@ class HandoffEvents(QObject):
                 self.enter.append(all(peer.isVisible() for peer in self.peers))
             elif event.type() == QEvent.Hide:
                 self.leave.append(all(peer.isVisible() and self.native_visible(peer) for peer in self.peers))
-            if event.type() in (QEvent.Show, QEvent.Hide) and self.layer is not None:
-                self.comments_held.append(self.layer._presentation_changing and not self.layer.window.isVisible())
+            if event.type() in (QEvent.Show, QEvent.Hide):
+                self.comments_held.append(all(not sc.isVisible() for sc in self.super_chats)
+                    and (self.layer is None or (self.layer._presentation_changing and not self.layer.window.isVisible())))
         return False
 
     def detach(self):
@@ -61,7 +64,7 @@ def main():
     rooms = [dict(room_id=str(9800+i), uname=f'Fixture {i}', live=False) for i in range(9)]
     with ExitStack() as stack:
         for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats',
-                     'refresh_account', 'load_room_avatars', 'load_cached_avatars',
+                     'refresh_account', 'load_room_avatars', 'load_cached_avatars', 'sync_danmaku',
                      'load_cached_covers', '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, name, Mock()))
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x3',
@@ -78,12 +81,17 @@ def main():
         window.show()
         app.processEvents()
         layer = window.wall.ensure_quick_danmaku_layer()
+        now = int(time.time())
+        for tile in (window.wall.tiles[0], window.wall.tiles[4]):
+            owner = tile.video_danmaku
+            owner.set_active(True)
+            owner.set_enabled(True)
+            assert owner.add_event({'text': 'Local handoff fixture'})
+            owner.set_super_chats([dict(kind='super_chat', id='local-sc', uid='1', uname='Local SC',
+                price=30, message='Local handoff SC', start_time=now, end_time=now+120)])
+        QTest.qWait(180)
+        assert window.wall.tiles[0].video_danmaku.super_chat_overlay.isVisible()
         if layer is not None:
-            for tile in (window.wall.tiles[0], window.wall.tiles[4]):
-                tile.video_danmaku.set_active(True)
-                tile.video_danmaku.set_enabled(True)
-                assert tile.video_danmaku.add_event({'text': 'Local handoff fixture'})
-            QTest.qWait(180)
             assert layer.items, 'Shared layer fixture did not receive its comments'
         try:
             tiles = list(window.wall.tiles)
@@ -127,9 +135,11 @@ def main():
                     window._exit_fullscreen()
                     assert relayout.call_count == 0, 'Restoring the original rectangle must not relayout the wall'
                 assert handoff.leave and all(handoff.leave), 'Presentation disappeared before peers were restored'
+                assert handoff.comments_held and all(handoff.comments_held), 'Peer comments or SC leaked during presentation transfer'
                 if layer is not None:
-                    assert handoff.comments_held and all(handoff.comments_held), 'Peer comments leaked during presentation transfer'
                     assert not layer._presentation_changing
+                for tile in (tiles[0], tiles[4]):
+                    assert [chat['id'] for chat in tile.video_danmaku.super_chats] == ['local-sc']
                 handoff.detach()
                 assert window.wall.visible_tiles() == tiles, 'Every pane must be visible on return, without staggered reveal'
                 assert not window.wall._pending_reveal and not window.wall._defer_show
