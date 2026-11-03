@@ -191,6 +191,8 @@ class WatchWall extends StatelessWidget {
                     session: model.sessions[index],
                     room: room,
                     onSelect: onSelect,
+                    onActivate: () => model.select(index),
+                    showControls: false,
                     onClear: () => model.clear(index),
                     onAudio: () => model.audio(index),
                   );
@@ -198,9 +200,13 @@ class WatchWall extends StatelessWidget {
                     position: DecorationPosition.foreground,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(cardRadius),
-                      border: candidates.isEmpty
-                          ? null
-                          : Border.all(color: accent, width: 3),
+                      border:
+                          candidates.isNotEmpty || model.selectedIndex == index
+                          ? Border.all(
+                              color: accent,
+                              width: candidates.isNotEmpty ? 3 : 2,
+                            )
+                          : null,
                     ),
                     child: room == null
                         ? tile
@@ -264,6 +270,8 @@ class LiveTile extends StatelessWidget {
     required this.onSelect,
     required this.onClear,
     required this.onAudio,
+    this.onActivate,
+    this.showControls = true,
   });
   final int index;
   final WatchSession session;
@@ -271,6 +279,8 @@ class LiveTile extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback onClear;
   final VoidCallback onAudio;
+  final VoidCallback? onActivate;
+  final bool showControls;
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: session,
@@ -301,6 +311,21 @@ class LiveTile extends StatelessWidget {
                   RoomCover(
                     url: room!.cover,
                     child: const ColoredBox(color: Colors.black54),
+                  ),
+                if (room != null && onActivate != null)
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        key: Key('select-slot-$index'),
+                        onTap: onActivate,
+                        child: Semantics(
+                          label: '选择位置 ${index + 1} 的 ${room!.name}，显示播放控制',
+                          button: true,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                    ),
                   ),
                 if (room == null)
                   Material(
@@ -344,7 +369,7 @@ class LiveTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (room != null)
+                if (room != null && showControls)
                   Positioned(
                     top: 0,
                     right: 0,
@@ -368,7 +393,7 @@ class LiveTile extends StatelessWidget {
                 if (session.error != null)
                   Center(
                     child: InkWell(
-                      onTap: () => session.watch(room!.roomId),
+                      onTap: session.reconnect,
                       child: Padding(
                         padding: const EdgeInsets.all(8),
                         child: Text(
@@ -384,7 +409,7 @@ class LiveTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (controller != null && compact)
+                if (showControls && controller != null && compact)
                   Positioned(
                     bottom: 0,
                     right: 0,
@@ -418,7 +443,7 @@ class LiveTile extends StatelessWidget {
                       icon: const Icon(Icons.more_horiz),
                     ),
                   ),
-                if (controller != null && !compact)
+                if (showControls && controller != null && !compact)
                   Positioned(
                     bottom: 0,
                     right: 0,
@@ -456,7 +481,7 @@ class LiveTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (controller != null && !compact)
+                if (showControls && controller != null && !compact)
                   Positioned(
                     bottom: 0,
                     left: 0,
@@ -485,18 +510,34 @@ class LiveTile extends StatelessWidget {
 }
 
 class FullscreenPlayer extends StatelessWidget {
-  const FullscreenPlayer({super.key, required this.session});
+  const FullscreenPlayer({super.key, required this.session, this.controls});
   final WatchSession session;
+  final Widget? controls;
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: Colors.black,
     appBar: AppBar(backgroundColor: Colors.black, title: const Text('直播画面')),
+    bottomNavigationBar: controls == null
+        ? null
+        : SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: controls,
+                ),
+              ),
+            ),
+          ),
     body: ListenableBuilder(
       listenable: session,
       builder: (_, _) {
         final controller = session.controller;
         return controller == null
-            ? const Center(child: Text('播放已停止'))
+            ? Center(child: Text(session.status))
             : Center(
                 child: AspectRatio(
                   aspectRatio: controller.value.aspectRatio,

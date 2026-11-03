@@ -31,6 +31,49 @@ http.Response payload(Map<String, dynamic> data) => http.Response(
 );
 
 void main() {
+  test('Quality choices come only from the chosen AVC stream and show actual fallback', () {
+    final hls = source('http_hls');
+    hls['format'][0]['codec'][0]['accept_qn'] = [250, 150, 80];
+    final stream = selectStream({
+      'g_qn_desc': [
+        {'qn': 10000, 'desc': '原画'},
+        {'qn': 400, 'desc': '蓝光'},
+        {'qn': 250, 'desc': '超清'},
+        {'qn': 150, 'desc': '高清'},
+        {'qn': 80, 'desc': '流畅'},
+      ],
+      'stream': [source('http_stream'), hls],
+    }, '6');
+    expect(stream.quality, 150);
+    expect(stream.qualityLabel, '高清');
+    expect(stream.qualities.map((v) => v.id), [250, 150, 80]);
+  });
+
+  test(
+    'An explicit quality is sent to the public source without cookies',
+    () async {
+      final provider = BilibiliProvider(
+        client: MockClient((request) async {
+          expect(request.headers.containsKey('cookie'), isFalse);
+          if (request.url.path.endsWith('room_init')) {
+            return payload({'room_id': 6, 'live_status': 1});
+          }
+          expect(request.url.queryParameters['qn'], '150');
+          return payload({
+            'playurl_info': {
+              'playurl': {
+                'stream': [source('http_hls')],
+              },
+            },
+          });
+        }),
+      );
+      final stream = await provider.resolve('6', quality: 150);
+      expect(stream.quality, 150);
+      expect(stream.qualities.single.id, 150);
+      provider.close();
+    },
+  );
   test('Cover cards use real names, live keyframes and offline covers without cookies', () async {
     for (final live in [true, false]) {
       final provider = BilibiliProvider(

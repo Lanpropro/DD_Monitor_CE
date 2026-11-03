@@ -11,6 +11,7 @@ dependencies:
   video_player: ^2.14.1
   shared_preferences: ^2.5.4
 dev_dependencies:
+  video_player_platform_interface: ^6.9.0
   flutter_test:
     sdk: flutter
   integration_test:

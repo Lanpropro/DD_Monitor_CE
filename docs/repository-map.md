@@ -588,6 +588,7 @@
 - `mobile/lib/main.dart`
 - `mobile/lib/monitor_model.dart`
 - `mobile/lib/platforms/bilibili.dart`
+- `mobile/lib/playback_controls.dart`
 - `mobile/lib/wall_view.dart`
 - `mobile/lib/wall_layout.dart`
 - `mobile/lib/watch_session.dart`
@@ -595,6 +596,7 @@
 - `mobile/pubspec.yaml`
 - `mobile/test/app_test.dart`
 - `mobile/test/bilibili_test.dart`
+- `mobile/test/fake_video_platform.dart`
 - `mobile/test/model_test.dart`
 - `mobile/test/watch_session_test.dart`
 

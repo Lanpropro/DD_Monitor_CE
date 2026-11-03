@@ -13,6 +13,8 @@ class WatchSession extends ChangeNotifier {
   bool loading = false;
   String? error;
   String? _resumeRoom;
+  String? _room;
+  int requestedQuality = 250;
   int _generation = 0;
   int _candidate = 0;
   int _windowRetries = 0;
@@ -30,9 +32,15 @@ class WatchSession extends ChangeNotifier {
     return '添加直播间，开始观看';
   }
 
-  Future<void> watch(String room, {bool autoplay = true}) async {
+  Future<void> watch(
+    String room, {
+    bool autoplay = true,
+    int quality = 250,
+  }) async {
     final ticket = ++_generation;
     _resumeRoom = null;
+    _room = room;
+    requestedQuality = quality;
     _userPaused = !autoplay;
     error = null;
     loading = true;
@@ -41,7 +49,7 @@ class WatchSession extends ChangeNotifier {
     if (ticket != _generation) return;
     notifyListeners();
     try {
-      final result = await provider.resolve(room);
+      final result = await provider.resolve(room, quality: quality);
       if (ticket != _generation) return;
       stream = result;
       _candidate = 0;
@@ -55,6 +63,23 @@ class WatchSession extends ChangeNotifier {
           ? exception.message
           : '获取直播失败，请重试';
       notifyListeners();
+    }
+  }
+
+  Future<void> changeQuality(int quality) async {
+    final room = _room;
+    if (room == null || loading) return;
+    if (quality == stream?.quality) {
+      requestedQuality = quality;
+      return;
+    }
+    await watch(room, autoplay: !_userPaused, quality: quality);
+  }
+
+  Future<void> reconnect() async {
+    final room = _room;
+    if (room != null) {
+      await watch(room, autoplay: !_userPaused, quality: requestedQuality);
     }
   }
 
@@ -164,6 +189,7 @@ class WatchSession extends ChangeNotifier {
   Future<void> stop() async {
     _generation++;
     _resumeRoom = null;
+    _room = null;
     stream = null;
     error = null;
     loading = false;
@@ -173,7 +199,7 @@ class WatchSession extends ChangeNotifier {
   }
 
   Future<void> suspend() async {
-    final room = stream?.roomId;
+    final room = _room;
     final ticket = ++_generation;
     _resumeRoom = room;
     loading = false;
@@ -185,7 +211,9 @@ class WatchSession extends ChangeNotifier {
   Future<void> resume() async {
     final room = _resumeRoom;
     _resumeRoom = null;
-    if (room != null) await watch(room, autoplay: !_userPaused);
+    if (room != null) {
+      await watch(room, autoplay: !_userPaused, quality: requestedQuality);
+    }
   }
 
   @override

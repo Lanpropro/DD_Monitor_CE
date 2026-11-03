@@ -26,12 +26,23 @@ class LiveStream {
     required this.urls,
     required this.quality,
     required this.protocol,
+    this.qualities = const [],
   });
   final String roomId;
   final List<Uri> urls;
   final int quality;
   final String protocol;
+  final List<LiveQuality> qualities;
+  String get qualityLabel =>
+      qualities.where((v) => v.id == quality).firstOrNull?.label ??
+      (quality > 0 ? '清晰度 $quality' : '平台默认');
   Map<String, String> get headers => const {'User-Agent': appUserAgent};
+}
+
+class LiveQuality {
+  const LiveQuality(this.id, this.label);
+  final int id;
+  final String label;
 }
 
 class RoomInfo {
@@ -122,7 +133,7 @@ class BilibiliProvider {
     return (payload['data'] as Map<String, dynamic>?) ?? {};
   }
 
-  Future<LiveStream> resolve(String value) async {
+  Future<LiveStream> resolve(String value, {int quality = 250}) async {
     final roomId = validateRoomId(value);
     try {
       final room = await _get('/room/v1/Room/room_init', {'id': roomId});
@@ -151,7 +162,7 @@ class BilibiliProvider {
         'platform': 'android',
         'play_type': '0',
         'protocol': '0,1',
-        'qn': '250',
+        'qn': '$quality',
         'room_id': realId,
         's_locale': 'zh_CN',
         'statistics': '{"appId":1,"platform":3,"version":"6.25.0","abtest":""}',
@@ -198,11 +209,33 @@ LiveStream selectStream(
             }
           }
           if (urls.isNotEmpty) {
+            final current = int.tryParse('${codec['current_qn'] ?? 0}') ?? 0;
+            final accepted = <int>{
+              current,
+              for (final value in (codec['accept_qn'] as List?) ?? [])
+                if (int.tryParse('$value') case final int id) id,
+            };
+            final labels = <int, String>{};
+            for (final item in (play['g_qn_desc'] as List?) ?? []) {
+              final id = int.tryParse('${item['qn']}');
+              final label = '${item['desc'] ?? ''}';
+              if (id != null &&
+                  id > 0 &&
+                  accepted.contains(id) &&
+                  label.isNotEmpty) {
+                labels[id] = label;
+              }
+            }
+            if (current > 0) labels.putIfAbsent(current, () => '清晰度 $current');
+            final qualities =
+                labels.entries.map((v) => LiveQuality(v.key, v.value)).toList()
+                  ..sort((a, b) => b.id.compareTo(a.id));
             return LiveStream(
               roomId: roomId,
               urls: List.unmodifiable(urls),
-              quality: int.tryParse('${codec['current_qn'] ?? 0}') ?? 0,
+              quality: current,
               protocol: protocol,
+              qualities: List.unmodifiable(qualities),
             );
           }
         }

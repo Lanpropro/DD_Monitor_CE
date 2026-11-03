@@ -18,7 +18,7 @@ class TestProvider extends BilibiliProvider {
   }
 
   @override
-  Future<LiveStream> resolve(String value) =>
+  Future<LiveStream> resolve(String value, {int quality = 250}) =>
       (pending[value] ??= Completer<LiveStream>()).future;
 }
 

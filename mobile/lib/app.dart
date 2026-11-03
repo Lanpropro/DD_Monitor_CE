@@ -7,6 +7,7 @@ import 'design.dart';
 import 'follow_view.dart';
 import 'monitor_model.dart';
 import 'platforms/bilibili.dart';
+import 'playback_controls.dart';
 import 'wall_view.dart';
 
 const tabs = ['直播墙', '关注', '插件', '设置'];
@@ -33,6 +34,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   Timer? controlsTimer;
   bool controlsVisible = true;
   bool dragging = false;
+  bool controlMenuOpen = false;
 
   void showControls() {
     controlsTimer?.cancel();
@@ -40,6 +42,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
     controlsTimer = Timer(const Duration(seconds: 5), () {
       if (mounted &&
           !dragging &&
+          !controlMenuOpen &&
           !WidgetsBinding
               .instance
               .platformDispatcher
@@ -239,7 +242,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                             WatchWall(
                               model: model,
                               onDragState: (active) {
-                                dragging = active;
+                                setState(() => dragging = active);
                                 controlsTimer?.cancel();
                                 if (!active) showControls();
                               },
@@ -257,6 +260,34 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                             ),
                           ],
                         ),
+                        if (selected == 0 &&
+                            model.selectedIndex != null &&
+                            model.rooms[model.selectedIndex!] != null)
+                          Positioned(
+                            left: 12,
+                            right: 12,
+                            bottom: 70,
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 680,
+                                ),
+                                child: Visibility(
+                                  visible: controlsVisible && !dragging,
+                                  maintainState: true,
+                                  child: PlaybackControls(
+                                    model: model,
+                                    index: model.selectedIndex!,
+                                    onMenuState: (open) {
+                                      controlMenuOpen = open;
+                                      controlsTimer?.cancel();
+                                      if (!open) showControls();
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         Positioned(
                           left: 0,
                           right: 0,

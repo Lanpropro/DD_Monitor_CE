@@ -63,7 +63,7 @@ void main() {
       });
       await tester.pump();
       expect(model.sessions[0].error, isNull);
-      final controller = model.sessions[0].controller!;
+      var controller = model.sessions[0].controller!;
       expect(controller.value.isInitialized, isTrue);
       expect(controller.value.size.width, greaterThan(0));
       expect(controller.value.isPlaying, isTrue);
@@ -74,6 +74,60 @@ void main() {
       expect(model.sessions[1].controller!.value.isPlaying, isTrue);
       expect(model.sessions[0].controller!.value.isPlaying, isTrue);
       expect(model.sessions[1].controller!.value.volume, 0);
+      final unaffected = model.sessions[1].controller!;
+      await wakeControls();
+      await tester.tap(find.byKey(const Key('select-slot-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('control-pause')));
+      await tester.tap(find.byKey(const Key('control-audio')));
+      await tester.pumpAndSettle();
+      expect(controller.value.isPlaying, isFalse);
+      expect(controller.value.volume, 0);
+      final streamBefore = model.sessions[0].stream!;
+      final targetQuality = streamBefore.qualities
+          .firstWhere(
+            (v) => v.id == 400 && v.id != streamBefore.quality,
+            orElse: () => streamBefore.qualities.firstWhere(
+              (v) => v.id != streamBefore.quality,
+            ),
+          )
+          .id;
+      await tester.tap(find.byKey(const Key('control-quality')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('quality-$targetQuality')));
+      await tester.pump();
+      await tester.runAsync(() async {
+        for (var i = 0; i < 90 && model.sessions[0].loading; i++) {
+          await Future<void>.delayed(const Duration(seconds: 1));
+        }
+      });
+      await tester.pump();
+      expect(model.sessions[0].error, isNull);
+      expect(model.sessions[0].requestedQuality, targetQuality);
+      expect(model.sessions[0].controller, isNot(same(controller)));
+      controller = model.sessions[0].controller!;
+      expect(controller.value.isPlaying, isFalse);
+      expect(controller.value.volume, 0);
+      expect(model.sessions[1].controller, same(unaffected));
+      expect(unaffected.value.isPlaying, isTrue);
+      await wakeControls();
+      expect(find.text(model.sessions[0].stream!.qualityLabel), findsOneWidget);
+      await tester.tap(find.byKey(const Key('control-pause')));
+      await tester.tap(find.byKey(const Key('control-audio')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('control-fullscreen')));
+      await tester.pumpAndSettle();
+      expect(find.text('直播画面'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('control-pause')).hitTestable());
+      await tester.pumpAndSettle();
+      expect(controller.value.isPlaying, isFalse);
+      await tester.tap(find.byKey(const Key('control-pause')).hitTestable());
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('control-fullscreen')).hitTestable(),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.value.isPlaying, isTrue);
       await tester.runAsync(() => model.changeLayout(WallLayout.main2));
       await tester.pumpAndSettle();
       await wakeControls();

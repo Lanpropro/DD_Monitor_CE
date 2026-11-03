@@ -6,20 +6,24 @@ import 'package:ddmonitor/wall_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
+import 'fake_video_platform.dart';
 import 'model_test.dart' show TestProvider, liveRoom, offlineRoom;
+import 'watch_session_test.dart' show QualityProvider;
 
 void main() {
   Future<MonitorModel> boot(
     WidgetTester tester, {
     Size size = const Size(390, 844),
     bool followed = false,
+    bool ready = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     final model = MonitorModel(
       catalog: TestProvider(),
-      providerFactory: TestProvider.new,
+      providerFactory: ready ? QualityProvider.new : TestProvider.new,
     );
     if (followed) {
       model.follows.addAll([liveRoom, offlineRoom]);
@@ -264,6 +268,75 @@ void main() {
   });
 
   testWidgets(
+    'Selected-pane toolbar controls one stream, preserves other playback and works fullscreen',
+    (tester) async {
+      final oldPlatform = VideoPlayerPlatform.instance;
+      VideoPlayerPlatform.instance = FakeVideoPlatform();
+      addTearDown(() => VideoPlayerPlatform.instance = oldPlatform);
+      final model = await boot(
+        tester,
+        size: const Size(1280, 800),
+        ready: true,
+      );
+      addTearDown(() async => model.suspend());
+      const second = RoomInfo(roomId: '8', name: '另一位主播', live: true);
+      await tester.runAsync(() => model.place(liveRoom, 0));
+      await tester.runAsync(() => model.place(second, 1));
+      await tester.pumpAndSettle();
+      final other = model.sessions[1].controller!;
+      await tester.tap(find.byKey(const Key('select-slot-0')));
+      await tester.pumpAndSettle();
+      expect(find.text('位置 1 · 星野'), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(const Key('playback-controls'))).bottom,
+        lessThan(tester.getRect(find.byKey(const Key('dock-surface'))).top),
+      );
+      await tester.tap(find.byKey(const Key('control-pause')));
+      await tester.tap(find.byKey(const Key('control-audio')));
+      await tester.pumpAndSettle();
+      expect(model.sessions[0].controller!.value.isPlaying, isFalse);
+      expect(model.sessions[0].volume, 0);
+      await tester.tap(find.byKey(const Key('control-quality')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 6));
+      expect(find.byKey(const Key('show-dock')), findsNothing);
+      await tester.tap(find.byKey(const Key('quality-150')));
+      for (var i = 0; i < 20 && model.sessions[0].loading; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      expect(model.sessions[0].stream!.quality, 150);
+      expect(model.sessions[0].controller!.value.isPlaying, isFalse);
+      expect(model.sessions[0].volume, 0);
+      expect(model.sessions[1].controller, same(other));
+      expect(other.value.isPlaying, isTrue);
+      await tester.tap(find.byKey(const Key('control-fullscreen')));
+      await tester.pumpAndSettle();
+      expect(find.text('直播画面'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('control-pause')).hitTestable());
+      await tester.pumpAndSettle();
+      expect(model.sessions[0].controller!.value.isPlaying, isTrue);
+      await tester.tap(
+        find.byKey(const Key('control-fullscreen')).hitTestable(),
+      );
+      await tester.pumpAndSettle();
+      model.swapPositions(0, 2);
+      await tester.pumpAndSettle();
+      expect(model.selectedIndex, 2);
+      expect(find.text('位置 3 · 星野'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('control-remove')));
+      await tester.pumpAndSettle();
+      expect(model.rooms[2], isNull);
+      expect(find.byKey(const Key('playback-controls')), findsNothing);
+      expect(model.sessions[1].controller, same(other));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Long press swaps occupied panes, moves to empty panes and cancels outside',
     (tester) async {
       final model = await boot(tester, size: const Size(1280, 800));
@@ -308,6 +381,24 @@ void main() {
       for (final name in ['sixteen', 'main4', 'twoMain']) {
         expect(find.byKey(Key('layout-$name')), findsNothing);
       }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Selected toolbar stays usable with large text on a short landscape viewport',
+    (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final model = await boot(tester, size: const Size(844, 320));
+      model.rooms[0] = liveRoom;
+      model.select(0);
+      await tester.pumpAndSettle();
+      final toolbar = tester.getRect(
+        find.byKey(const Key('playback-controls')),
+      );
+      expect(toolbar.top, greaterThanOrEqualTo(0));
+      expect(toolbar.bottom, lessThanOrEqualTo(320));
       expect(tester.takeException(), isNull);
     },
   );

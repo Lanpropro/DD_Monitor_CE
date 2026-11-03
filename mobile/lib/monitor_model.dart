@@ -62,6 +62,14 @@ class MonitorModel extends ChangeNotifier {
   final rooms = List<RoomInfo?>.filled(9, null);
   final follows = <RoomInfo>[];
   WallLayout layout = WallLayout.adaptive;
+  int? selectedIndex;
+
+  void select(int index) {
+    if (rooms[index] == null) return;
+    selectedIndex = index;
+    _changed();
+  }
+
   bool reduceTransparency = false;
   bool refreshing = false;
   String? followError;
@@ -174,6 +182,7 @@ class MonitorModel extends ChangeNotifier {
       if (i != index && rooms[i]?.roomId == room.roomId) unawaited(clear(i));
     }
     rooms[index] = room;
+    selectedIndex = index;
     _changed();
     await sessions[index].watch(room.roomId);
   }
@@ -185,11 +194,17 @@ class MonitorModel extends ChangeNotifier {
     sessions[source] = sessions[target];
     rooms[target] = room;
     sessions[target] = session;
+    if (selectedIndex == source) {
+      selectedIndex = target;
+    } else if (selectedIndex == target) {
+      selectedIndex = source;
+    }
     _changed();
   }
 
   Future<void> clear(int index) async {
     rooms[index] = null;
+    if (selectedIndex == index) selectedIndex = null;
     await sessions[index].stop();
     _changed();
   }
