@@ -21,7 +21,7 @@
 | 安装与卸载 | [Windows 安装包、卸载范围与验证](development/windows-installer.md) |
 | 更新机制 | [在线更新](online-updates.md) |
 | 下一次更新 | [未发布的修复、验收证据与待办](releases/UNRELEASED.md) |
-| 版本记录 | [0.7.1 候选](releases/RELEASE-v0.7.1.md)、[0.7](releases/RELEASE-v0.7.md)、[0.6](releases/RELEASE-v0.6.md)、[0.5](releases/RELEASE-v0.5.md)、[0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
+| 版本记录 | [0.7.1](releases/RELEASE-v0.7.1.md)、[0.7](releases/RELEASE-v0.7.md)、[0.6](releases/RELEASE-v0.6.md)、[0.5](releases/RELEASE-v0.5.md)、[0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
 | 功能补充 | [B 站醒目留言显示](releases/RELEASE-v0.5.2-super-chat.md)、待合入基于 v0.5.2 的醒目留言支持 |
 | 第三方来源 | [NOTICE](NOTICE.md)、[许可证](../LICENSE) |
 | 规划 | [自定义规划](customization-plan.md) |
