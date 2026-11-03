@@ -8,7 +8,12 @@ from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QLabel, QPush
 from . import config, image_cache, theme
 
 LABELS = {'avatars': '主播头像', 'covers': '直播间封面'}
-COLORS = {'avatars': '#00a1d6', 'covers': '#fb7299'}
+
+
+def cache_colors():
+    if theme.is_light():
+        return {'avatars': '#137fa8', 'covers': '#39846f'}
+    return {'avatars': '#5aa9d6', 'covers': '#7ab8a2'}
 
 
 def size_text(value):
@@ -74,7 +79,7 @@ class CachePie(QWidget):
         start = 90 * 16
         for kind in image_cache.KINDS:
             span = round(360 * 16 * self.values[kind]['bytes'] / max(1, total))
-            color = QColor(COLORS[kind])
+            color = QColor(cache_colors()[kind])
             if self.selected and kind not in self.selected:
                 color.setAlpha(65)
             painter.setBrush(color)
@@ -133,10 +138,10 @@ class ImageCachePanel(QWidget):
         content.addWidget(self.pie)
         grid = QGridLayout()
         grid.setColumnStretch(1, 1)
-        self.checks, self.details = {}, {}
+        self.checks, self.details, self.dots = {}, {}, {}
         for row, kind in enumerate(image_cache.KINDS):
             dot = QLabel('●')
-            dot.setStyleSheet(f'color: {COLORS[kind]}; font-size: 16px;')
+            dot.setStyleSheet(f'color: {cache_colors()[kind]}; font-size: 16px;')
             check = QCheckBox(LABELS[kind])
             check.setAccessibleName('选择清理' + LABELS[kind])
             check.toggled.connect(self._selection_changed)
@@ -146,6 +151,7 @@ class ImageCachePanel(QWidget):
             grid.addWidget(check, row * 2, 1)
             grid.addWidget(detail, row * 2 + 1, 1)
             self.checks[kind], self.details[kind] = check, detail
+            self.dots[kind] = dot
         content.addLayout(grid, 1)
         layout.addLayout(content)
         actions = QHBoxLayout()
@@ -171,6 +177,8 @@ class ImageCachePanel(QWidget):
         self._selection_changed()
 
     def _theme_changed(self, *_args):
+        for kind, dot in self.dots.items():
+            dot.setStyleSheet(f'color: {cache_colors()[kind]}; font-size: 16px;')
         self.pie.update()
 
     def showEvent(self, event):

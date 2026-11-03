@@ -271,6 +271,28 @@ class CacheTests(unittest.TestCase):
         self.settle(panel)
         self.assertEqual(panel.values['avatars']['files'], 0)
 
+    def test_chart_and_legend_adapt_to_both_themes_without_losing_selection(self):
+        self.file('cache/avatars/a.png', b'a' * 100)
+        self.file('cache/covers/c.png', b'c' * 300)
+        panel = ImageCachePanel(root=str(self.root))
+        panel.show()
+        self.addCleanup(panel.close)
+        self.settle(panel)
+        panel.checks['covers'].setChecked(True)
+        dark_pixel = None
+        for mode, expected in (('dark', '#7ab8a2'), ('light', '#39846f'), ('dark', '#7ab8a2')):
+            theme.apply(mode)
+            self.app.processEvents()
+            picture = panel.pie.grab().toImage()
+            self.assertEqual(picture.pixelColor(107, 182).name(), expected)
+            self.assertIn(expected, panel.dots['covers'].styleSheet())
+            self.assertEqual(panel.selected(), {'covers'})
+            self.assertTrue(panel.selected_button.isEnabled())
+            if mode == 'dark':
+                if dark_pixel is not None:
+                    self.assertEqual(picture.pixelColor(107, 182), dark_pixel)
+                dark_pixel = picture.pixelColor(107, 182)
+
     def test_settings_data_root_is_used_and_closing_during_task_is_safe(self):
         from ddm.data_settings import DataSettingsPage
         with patch.object(config, 'DATA_ROOT', str(self.root)):
