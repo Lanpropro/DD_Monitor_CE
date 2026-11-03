@@ -413,5 +413,9 @@ if __name__ == '__main__':
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)
     recorder.install()
+    if os.environ.get('DDM_SC_PAINT_CAPTURE') == '1':
+        from dev.diagnose_super_chat import SuperChatTrace
+        sc_trace = SuperChatTrace(ROOT / 'logs' / 'sc-paint')
+        sc_trace.install()
     print('Window diagnostics:', path, file=sys.stderr, flush=True)
     runpy.run_path(str(ROOT / 'main.py'), run_name='__main__')
