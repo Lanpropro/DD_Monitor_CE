@@ -7984,12 +7984,12 @@ class WallGrid(QWidget):
         self.sync_sc_placement()
         if self._sidebar_animating:
             return
-        QTimer.singleShot(0, self._sync_danmaku_controls)
         if force:
             self._relayout_timer.stop()
             self._resize_timer.stop()
             self._resize_pending = False
         self.ensure_slots()          # 按布局补空位
+        self._sync_danmaku_controls()
         if not self.tiles:
             return
         layout = layouts.BY_ID.get(self.layout_id)     # 老配置可能存着已经删掉的布局

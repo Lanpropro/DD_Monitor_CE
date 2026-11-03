@@ -183,7 +183,7 @@ class ControlsTests(unittest.TestCase):
                 from ctypes import wintypes
                 user32 = ctypes.windll.user32
                 user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
-                for widget in (tile.bottom, tile.volume_label, edit):
+                for widget in (tile.bottom, tile.volume_label, tile.status_label, edit):
                     native_styles[widget] = user32.GetWindowLongW(int(widget.winId()), -20) & 0x80000
         presentation = FullscreenPresentation(host)
         try:
@@ -197,7 +197,15 @@ class ControlsTests(unittest.TestCase):
                 self.assertTrue(tile.bottom.rect().contains(controls.widget.geometry()))
                 self.assertTrue(wall.danmaku.composer_bar.isHidden())
                 self.assertEqual(int(tile.video.winId()), video_handle)
-                presentation.leave()
+                layout = tile._layout_areas
+                def restored_layout():
+                    if tile is main and not tile.property('fullscreen') and not tile._presentation_changing:
+                        self.assertIs(controls.widget.parentWidget(), wall.danmaku.composer_bar,
+                                      'Restore docking before the first normal bottom-bar layout')
+                    return layout()
+                from unittest.mock import patch
+                with patch.object(tile, '_layout_areas', side_effect=restored_layout):
+                    presentation.leave()
                 APP.processEvents()
                 self.assertIs(main._plugin_controls.widget.parentWidget(), wall.danmaku.composer_bar)
                 self.assertTrue(wall.danmaku.composer_bar.isVisible())
@@ -205,9 +213,12 @@ class ControlsTests(unittest.TestCase):
                     self.assertEqual(editor.text(), 'draft-' + pane.room['room_id'])
                     self.assertEqual(int(pane.video.winId()), handle)
                 if APP.platformName() == 'windows':
-                    for widget in (tile.bottom, tile.volume_label, edit):
+                    for widget in (tile.bottom, edit):
                         self.assertEqual(user32.GetWindowLongW(int(widget.winId()), -20) & 0x80000,
                                          native_styles[widget], widget.objectName())
+                    for label in (tile.volume_label, tile.status_label):
+                        self.assertFalse(label.testAttribute(Qt.WA_NativeWindow), label.objectName())
+                        self.assertFalse(label.internalWinId(), label.objectName())
         finally:
             presentation.leave()
 
@@ -318,6 +329,44 @@ class ControlsTests(unittest.TestCase):
             self.assertEqual(self.controls[0].rooms[-1].get('room_id'), (room or {}).get('room_id'))
             self.assertEqual(self.controls[0].ctx.room.get('room_id'), (room or {}).get('room_id'))
         self.assertEqual(len(self.controls), 1)
+
+    def test_danmaku_swap_docks_input_before_new_geometry(self):
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1400, 900)
+        wall = WallGrid([{'room_id': '12'}, {'room_id': '13'}, {'room_id': '14'}],
+                        parent=host, layout_id='dm_main2')
+        wall.setGeometry(host.rect())
+        host.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        editors = {tile: tile._plugin_controls.entries[0].control.widget for tile in wall.tiles}
+        for tile, edit in editors.items():
+            edit.setText('draft-' + tile.room['room_id'])
+            edit.winId()
+            tile.status_label.winId()
+        from unittest.mock import patch
+        for _ in range(3):
+            wall.tiles[0], wall.tiles[1] = wall.tiles[1], wall.tiles[0]
+            target = wall.tiles[0]
+            layout = target._layout_areas
+            def checked_layout():
+                self.assertIs(target._plugin_controls.widget.parentWidget(), wall.danmaku.composer_bar,
+                              'Dock the new main input before resizing its native video/bar')
+                return layout()
+            with patch.object(target, '_layout_areas', side_effect=checked_layout):
+                wall.relayout(force=True)
+            self.assertIs(wall.danmaku._tile_controls, target._plugin_controls)
+            APP.processEvents()
+            for tile, edit in editors.items():
+                self.assertEqual(edit.text(), 'draft-' + tile.room['room_id'])
+                if APP.platformName() == 'windows' and tile in wall.tiles[:2]:
+                    self.assertFalse(tile.status_label.internalWinId(), tile.room['room_id'])
 
     def test_failed_load_rolls_back_controls(self):
         self.tile({'room_id': '12'})

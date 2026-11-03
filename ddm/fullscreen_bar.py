@@ -135,6 +135,12 @@ class FullscreenBar(QWidget):
                     gdi32.DeleteObject(region)
             elif not hide and hwnd in self._masked_labels:
                 user32.SetWindowRgn(hwnd, None, True)
+            if not hide and not label.findChildren(QWidget):
+                # Tool-window composition made these passive labels native.
+                # Return their text to the ordinary bar's backing store instead
+                # of leaving opaque child HWNDs across the status/input region.
+                label.destroy()
+                label.setAttribute(Qt.WA_NativeWindow, False)
         if not hide:
             self._masked_labels.clear()
 
