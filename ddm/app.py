@@ -859,15 +859,14 @@ class MainWindow(QMainWindow):
         # Windows can expose a maximized HWND before Qt receives its final
         # resize event. Size the hidden tree first, including the native caption.
         bounds = self.screen().availableGeometry()
-        self.setGeometry(bounds)
-        self.layout().activate()
-        self.winId()
-        margins = self.windowHandle().frameMargins()
-        caption = max(0, margins.top() - margins.bottom())
         if sys.platform == "win32" and QApplication.platformName() == "windows":
             import ctypes
-            scale = self.devicePixelRatioF()
+            scale = self.screen().devicePixelRatio()
             caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
+        else:
+            self.winId()
+            margins = self.windowHandle().frameMargins()
+            caption = max(0, margins.top() - margins.bottom())
         self.setGeometry(bounds.adjusted(0, caption, 0, 0))
         self.layout().activate()
         self._resize_dirty = True

@@ -27,6 +27,7 @@ class TopLevelShows(QObject):
         super().__init__()
         self.widgets = []
         self.frames = []
+        self.native_sizes = []
 
     def eventFilter(self, watched, event):
         if isinstance(watched, QWidget) and event.type() == QEvent.Show and watched.isWindow():
@@ -39,6 +40,9 @@ class TopLevelShows(QObject):
                 for tile in tiles[1:]:
                     bounds = bounds.united(tile.geometry())
                 self.frames.append((bounds, wall._corner_area()))
+        if (isinstance(watched, MainWindow) and event.type() == QEvent.WinIdChange
+                and watched.internalWinId()):
+            self.native_sizes.append(watched.size())
         return False
 
 
@@ -173,6 +177,8 @@ class StartupWindowsTests(unittest.TestCase):
             window.show_initial_maximized()
             self.app.processEvents()
             self.assertTrue(capture.frames)
+            self.assertTrue(self.shows.native_sizes)
+            self.assertTrue(all(size == window.size() for size in self.shows.native_sizes))
             for native, logical in capture.frames:
                 self.assertTrue(all(abs(a-b) <= 1 for a,b in zip(native,logical)), capture.frames)
             self.assert_wall_filled(window)
