@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._interactive_resize = False
         self._resize_dirty = False
         self._resize_on_show = False
+        self._startup_layout_pending = True
         self._settling_resize = False
         self._native_size_state = 0
         self._window_move = None
@@ -765,7 +766,9 @@ class MainWindow(QMainWindow):
                 or self._settling_resize or event.size() == event.oldSize()):
             return
         self._resize_dirty = True
-        if not self._interactive_resize:
+        if self._startup_layout_pending:
+            self._finish_interactive_resize()
+        elif not self._interactive_resize:
             self._resize_idle_timer.start()
 
     def nativeEvent(self, event_type, message):
@@ -788,7 +791,8 @@ class MainWindow(QMainWindow):
                 self._native_size_state = int(msg.wParam)
                 if msg.wParam == 2 or msg.wParam == 0 and previous == 2:
                     if (hasattr(self, "wall") and not self._closing
-                            and not self._settling_resize and self._fullscreen_tile is None):
+                            and not self._settling_resize and not self._startup_layout_pending
+                            and self._fullscreen_tile is None):
                         self.wall.set_interactive_resize(True)
                         self._resize_dirty = True
                         self._resize_idle_timer.start()
@@ -838,10 +842,18 @@ class MainWindow(QMainWindow):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.refresh_theme()
-        if self._resize_on_show and not self._closing:
+        if self._startup_layout_pending:
+            self._finish_interactive_resize()
+        elif self._resize_on_show and not self._closing:
             self._resize_on_show = False
             self._resize_dirty = True
             self._resize_idle_timer.start()
+
+    def paintEvent(self, event) -> None:
+        # Initial maximize messages must settle before the first visible frame;
+        # later user resizes retain the existing coalesced path.
+        self._startup_layout_pending = False
+        super().paintEvent(event)
 
     def refresh_theme(self) -> None:
         window_fullscreen.sync_titlebar(self)
