@@ -855,6 +855,25 @@ class MainWindow(QMainWindow):
         self._startup_layout_pending = False
         super().paintEvent(event)
 
+    def show_initial_maximized(self) -> None:
+        # Windows can expose a maximized HWND before Qt receives its final
+        # resize event. Size the hidden tree first, including the native caption.
+        bounds = self.screen().availableGeometry()
+        self.setGeometry(bounds)
+        self.layout().activate()
+        self.winId()
+        margins = self.windowHandle().frameMargins()
+        caption = max(0, margins.top() - margins.bottom())
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            import ctypes
+            scale = self.devicePixelRatioF()
+            caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
+        self.setGeometry(bounds.adjusted(0, caption, 0, 0))
+        self.layout().activate()
+        self._resize_dirty = True
+        self._finish_interactive_resize()
+        self.showMaximized()
+
     def refresh_theme(self) -> None:
         window_fullscreen.sync_titlebar(self)
 
@@ -3651,8 +3670,7 @@ def main(argv: list[str] | None = None) -> int:
     ticker.setInterval(watchdog.TICK_MS)
     ticker.timeout.connect(watchdog.tick)
     ticker.start()
-    window.resize(1600, 900)
-    window.showMaximized()
+    window.show_initial_maximized()
     if instance is not None:
         instance.set_restore(lambda: restore_main_window(window))
     if config_module.DATA_MIGRATION_ERROR:

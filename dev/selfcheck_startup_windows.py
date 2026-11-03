@@ -13,11 +13,12 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 
-from PySide6.QtCore import QEvent, QObject
+from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
+from ddm.fullscreen_bar import FullscreenBar
 from ddm.widgets import Sidebar
 
 
@@ -117,6 +118,66 @@ class StartupWindowsTests(unittest.TestCase):
             for bounds, area in self.shows.frames:
                 self.assertEqual(bounds, area, 'A startup frame used stale pane geometry')
         finally:
+            window.close()
+            self.app.processEvents()
+
+    def test_hidden_construction_does_not_create_native_video_windows(self):
+        window = MainWindow([], [], layout_id='corner', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        try:
+            self.assertEqual(int(window.internalWinId()), 0)
+            self.assertTrue(all(int(tile.video.internalWinId()) == 0 for tile in window.wall.tiles))
+        finally:
+            window.close()
+            self.app.processEvents()
+
+    def test_normal_bars_do_not_filter_unrelated_wall_events(self):
+        window = MainWindow([], [], layout_id='corner', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        try:
+            calls = []
+            with patch.object(FullscreenBar, 'eventFilter', lambda self, watched, event: calls.append(watched) or False):
+                self.app.sendEvent(window.wall, QEvent(QEvent.User))
+            self.assertEqual(calls, [])
+        finally:
+            window.close()
+            self.app.processEvents()
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Native Windows visibility order')
+    def test_native_maximized_client_is_ready_before_it_becomes_visible(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Requires Windows Qt on an isolated desktop')
+        import ctypes
+        from ctypes import wintypes
+        class Visibility(QAbstractNativeEventFilter):
+            def __init__(self):
+                super().__init__()
+                self.frames = []
+
+            def nativeEventFilter(self, kind, message):
+                msg = wintypes.MSG.from_address(int(message))
+                if msg.message == 0x47 and msg.hWnd == window.internalWinId():
+                    user32 = ctypes.windll.user32
+                    if user32.IsWindowVisible(wintypes.HWND(msg.hWnd)):
+                        bounds = wintypes.RECT()
+                        user32.GetClientRect(wintypes.HWND(msg.hWnd), ctypes.byref(bounds))
+                        scale = window.devicePixelRatioF()
+                        self.frames.append(((bounds.right, bounds.bottom),
+                            (round(window.width()*scale), round(window.height()*scale))))
+                return False, 0
+        window = MainWindow([], [], layout_id='corner', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        capture = Visibility()
+        self.app.installNativeEventFilter(capture)
+        try:
+            window.show_initial_maximized()
+            self.app.processEvents()
+            self.assertTrue(capture.frames)
+            for native, logical in capture.frames:
+                self.assertTrue(all(abs(a-b) <= 1 for a,b in zip(native,logical)), capture.frames)
+            self.assert_wall_filled(window)
+        finally:
+            self.app.removeNativeEventFilter(capture)
             window.close()
             self.app.processEvents()
 

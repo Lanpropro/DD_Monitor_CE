@@ -20,7 +20,6 @@ class FullscreenBar(QWidget):
         self._tile_rect = QRect()
         self._owner_window = parent.window()
         self._owner_hidden_visible = False
-        self._owner_window.installEventFilter(self)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self._input_trace_until = 0.0
         self._input_trace_count = 0
@@ -61,9 +60,9 @@ class FullscreenBar(QWidget):
         focus = QApplication.focusWidget()
         restore_focus = focus is not None and (focus is self or self.isAncestorOf(focus))
         owner = self.parentWidget().window()
-        if owner is not self._owner_window:
-            self._owner_window.removeEventFilter(self)
-            self._owner_window = owner
+        self._owner_window.removeEventFilter(self)
+        self._owner_window = owner
+        if enabled:
             owner.installEventFilter(self)
         if not enabled:
             self._mask_label_windows(False)
