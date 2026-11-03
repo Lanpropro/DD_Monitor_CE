@@ -213,7 +213,7 @@ if (-not $SourceOnly) {
     if ($version -eq "v0.3.1") {
         Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
     }
-    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64'; source_commit = $sourceCommit } |
+    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64'; source_commit = $sourceCommit; diagnostics_protocol = 1 } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     foreach ($diagnosticFile in @("DDMonitorDiagnostics.exe", "诊断工具说明.md")) {
         Copy-Item -LiteralPath (Join-Path $app $diagnosticFile) -Destination $exeDir -Force
