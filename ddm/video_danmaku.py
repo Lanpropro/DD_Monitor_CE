@@ -6,7 +6,7 @@ import sys
 from time import perf_counter
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
@@ -30,6 +30,16 @@ class SuperChatOverlay(BadgeSurface):
         self.setObjectName("SuperChatOverlay")
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        if self.qt_composited:
+            # Keep SC pixels out of the video's shared native-child backing store.
+            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+            self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._followed_widgets = set()
+        self._settings_process = None
+        self._surface_occluded = False
+        self._follow_timer = QTimer(self)
+        self._follow_timer.setSingleShot(True)
+        self._follow_timer.timeout.connect(self._refresh)
         self.setMouseTracking(True)
         self.setCursor(Qt.OpenHandCursor)
         self.setToolTip('拖动标题移动，拖动边角缩放；折叠后点击展开')
@@ -71,6 +81,43 @@ class SuperChatOverlay(BadgeSurface):
         self.setParent(owner.parentWidget())
         self.sync(owner)
 
+    @property
+    def qt_composited(self):
+        return sys.platform == 'win32' and QApplication.platformName() == 'windows'
+
+    def _follow_owner(self, owner):
+        parent = owner.parentWidget() or owner
+        window = parent.window()
+        widgets = {parent, window}
+        for widget in self._followed_widgets - widgets:
+            widget.removeEventFilter(self)
+        for widget in widgets - self._followed_widgets:
+            widget.installEventFilter(self)
+        self._followed_widgets = widgets
+        handle = self.windowHandle()
+        if handle is not None and window.windowHandle() is not None:
+            handle.setTransientParent(window.windowHandle())
+        host = parent
+        while host.parentWidget() is not None:
+            host = host.parentWidget()
+        process = getattr(host, '_settings_process', None)
+        if process is not self._settings_process:
+            if self._settings_process is not None:
+                self._settings_process.occlusionChanged.disconnect(self._queue_follow)
+            self._settings_process = process
+            if process is not None:
+                process.occlusionChanged.connect(self._queue_follow)
+
+    def _queue_follow(self):
+        self._follow_timer.start(0)
+
+    def eventFilter(self, watched, event):
+        if watched in self._followed_widgets and event.type() in (
+                QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide, QEvent.WindowStateChange,
+                QEvent.WindowActivate, QEvent.WindowDeactivate):
+            self._queue_follow()
+        return super().eventFilter(watched, event)
+
     def sync(self, owner):
         if self._video_danmaku is not owner:
             return
@@ -82,7 +129,12 @@ class SuperChatOverlay(BadgeSurface):
             bounds |= rect.toAlignedRect()
         bounds = bounds.adjusted(-1, -1, 1, 1).intersected(owner.rect())
         self._content_origin = bounds.topLeft()
-        self.setGeometry(QRect(owner.pos() + bounds.topLeft(), bounds.size()))
+        if self.qt_composited:
+            self._follow_owner(owner)
+            position = owner.mapToGlobal(bounds.topLeft())
+        else:
+            position = owner.pos() + bounds.topLeft()
+        self.setGeometry(QRect(position, bounds.size()))
         region = QRegion()
         for rect in rects:
             region |= QRegion(rect.toAlignedRect().adjusted(-1, -1, 1, 1))
@@ -91,6 +143,9 @@ class SuperChatOverlay(BadgeSurface):
         if not video.isEmpty():
             region &= video
         region.translate(-self._content_origin)
+        if self.qt_composited and self._settings_process is not None:
+            region -= QRegion(self._settings_process.occlusion.translated(-position))
+        self._surface_occluded = region.isEmpty()
         if region != self.mask():
             self.setMask(region)
         scale = self._paint_scale
@@ -136,6 +191,10 @@ class SuperChatOverlay(BadgeSurface):
             return
         was_visible = self.isVisible()
         visible = bool(self.chats) and owner.sc_visible()
+        if self.qt_composited:
+            parent = owner.parentWidget() or owner
+            visible = (visible and parent.isVisible() and not parent.window().isMinimized()
+                       and QApplication.activeModalWidget() is None)
         if self.chats:
             self.sync(owner)
             for chat, button in zip(self.chats, self.close_buttons):
@@ -144,13 +203,11 @@ class SuperChatOverlay(BadgeSurface):
                          f'color:{colour};font-size:{round(18 * self._paint_scale)}px;padding:0;}}')
                 if style != button.styleSheet():
                     button.setStyleSheet(style)
-        self.setVisible(visible)
+        self.setVisible(visible and not self._surface_occluded)
         if visible and not was_visible:
             self.raise_()
         self._refresh_quick_mask()
         self.update()
-        if visible and sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._schedule_layered_paint()
 
     def _corner(self, point):
         rects = self.card_rects()
@@ -323,9 +380,10 @@ class SuperChatOverlay(BadgeSurface):
         painter.translate(0, 6 * (1 - self.presentation.progress))
         painter.drawImage(QPoint(), layer)
         painter.restore()
-        for button in self.close_buttons:
-            if button.isVisible():
-                button.render(painter, button.pos())
+        if painter.device() is not self:
+            for button in self.close_buttons:
+                if button.isVisible():
+                    button.render(painter, button.pos())
 
     def _layered_render_key(self):
         fields = ('id', 'uname', 'face', 'message', 'price', 'background_color', 'background_bottom_color', 'background_price_color')
@@ -348,10 +406,6 @@ class SuperChatOverlay(BadgeSurface):
         return image
 
     def paintEvent(self, event):
-        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            if self.isVisible():
-                self._schedule_layered_paint()
-            return
         painter = QPainter(self)
         self._render_layered(painter)
         painter.end()
@@ -360,6 +414,8 @@ class SuperChatOverlay(BadgeSurface):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             self.setAttribute(Qt.WA_NativeWindow, True)
         super().showEvent(event)
+        if self.qt_composited and self._video_danmaku is not None:
+            self._follow_owner(self._video_danmaku)
 
     def hideEvent(self, event):
         self._gesture = None
@@ -614,8 +670,7 @@ class VideoDanmaku(QWidget):
 
     def _sync_visible(self) -> None:
         visible = self.enabled and self.active
-        self.super_chat_overlay.setVisible(self.sc_visible() and
-            bool(self.super_chats))
+        self.super_chat_overlay._refresh()
         if not visible:
             # Erase the native backing while still visible. Hiding first leaves
             # its last rendered comments cached until the next asynchronous paint.
@@ -1182,9 +1237,8 @@ class VideoDanmaku(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self.super_chat_overlay.sync(self)
-        if self.sc_visible() and self.super_chats:
-            self.super_chat_overlay.show()
+        self.super_chat_overlay._refresh()
+        if self.super_chat_overlay.isVisible():
             self.super_chat_overlay.raise_()
         if self._native_layered():
             self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested)
@@ -1208,7 +1262,10 @@ class VideoDanmaku(QWidget):
         self._stop_timer()
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.set_group_visible(self._quick_group, False)
-        self.super_chat_overlay.setVisible(self.sc_independent and self.sc_visible() and bool(self.super_chats))
+        if self.sc_independent:
+            self.super_chat_overlay._refresh()
+        else:
+            self.super_chat_overlay.hide()
         self._set_quick_active()
         super().hideEvent(event)
 

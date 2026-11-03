@@ -12,11 +12,133 @@ from ddm import motion
 from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtCore import QRectF
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 APP = QApplication.instance() or QApplication([])
+
+
+@unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows', 'Native Windows SC surface')
+class NativeSurfaceTests(unittest.TestCase):
+    def test_left_card_pixels_and_owner_lifecycle(self):
+        from ddm.widgets import Tile
+        from dev.selfcheck_fullscreen_controls import native_bar_image
+        class SettingsMask(QObject):
+            occlusionChanged = Signal()
+            occlusion = QRect()
+        host = QWidget()
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1240, 760)
+        host._settings_process = SettingsMask(host)
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        tile = Tile({'room_id': '1', 'uname': 'Native title', 'live': True}, host)
+        tile.setGeometry(0, 0, 1200, 700)
+        host.show()
+        tile.set_video_active(True)
+        tile.danmaku_button.setChecked(True)
+        tile.video_danmaku.set_native_video(True)
+        tile.set_controls_visible(True)
+        owner = tile.video_danmaku
+        owner.apply_settings({'super_chat_opacity': 100, 'super_chat_collapse_delay': 60})
+        now = int(time.time())
+        owner.set_super_chats([dict(kind='super_chat', id='native', uid='1', uname='Native SC', price=30,
+            message='SC body pixels', start_time=now, end_time=now + 120)])
+        sc = owner.super_chat_overlay
+        sc.presentation.entrance.stop()
+        sc.presentation.progress = 1.0
+        for position in ([0, 0], [1, 0], [0, .5], [0, 0]):
+            owner.settings['super_chat_position'] = position
+            sc._refresh()
+            QTest.qWait(60)
+            image = native_bar_image(sc)
+            expected = sc.render_image()
+            scale = sc.devicePixelRatioF()
+            for x, y in ((80, 5), (80, 75), (200, 75), (310, 75)):
+                point = QPoint(round(x * scale), round(y * scale))
+                self.assertEqual(image.pixelColor(point), expected.pixelColor(point),
+                                 f'Native SC pixels must match their own source at {position}, {point}')
+        self.assertTrue(sc.isWindow())
+        geometry = tile.geometry()
+        for fullscreen in (True, False):
+            tile.hide()
+            tile.setWindowFlags((Qt.Window | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+                                if fullscreen else Qt.Widget)
+            tile.setGeometry(QRect(-9000, -9000, 1200, 700) if fullscreen else geometry)
+            tile.show()
+            QTest.qWait(60)
+            self.assertEqual(sc.pos(), owner.mapToGlobal(sc._content_origin))
+            self.assertIs(sc.windowHandle().transientParent(), tile.window().windowHandle())
+        for move in (lambda: host.move(host.pos() + QPoint(70, 40)),
+                     lambda: tile.move(15, 10)):
+            move()
+            QTest.qWait(60)
+            self.assertEqual(sc.pos(), owner.mapToGlobal(sc._content_origin))
+        region = QRect(sc.pos(), sc.size())
+        host._settings_process.occlusion = region
+        host._settings_process.occlusionChanged.emit()
+        QTest.qWait(60)
+        self.assertFalse(sc.isVisible(), 'External settings must cover the SC surface')
+        host._settings_process.occlusion = QRect()
+        host._settings_process.occlusionChanged.emit()
+        QTest.qWait(60)
+        self.assertTrue(sc.isVisible())
+        host.hide()
+        QTest.qWait(60)
+        self.assertFalse(sc.isVisible())
+        host.show()
+        QTest.qWait(60)
+        self.assertTrue(sc.isVisible())
+        self.assertIs(sc.windowHandle().transientParent(), host.windowHandle())
+        from PySide6.QtWidgets import QDialog
+        dialog = QDialog(host)
+        dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.setGeometry(-9900, -9900, 700, 500)
+        dialog.show()
+        sc._refresh()
+        self.assertFalse(sc.isVisible(), 'SC must stay behind modal settings')
+        dialog.close()
+        sc._refresh()
+        self.assertTrue(sc.isVisible())
+        start = sc.card_rects()[0].topLeft().toPoint() + QPoint(60, 16) - sc._content_origin
+        QTest.mousePress(sc, Qt.LeftButton, pos=start)
+        QTest.mouseMove(sc, start + QPoint(70, 35))
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=start + QPoint(70, 35))
+        self.assertNotEqual(owner.settings['super_chat_position'], [0, 0])
+        corner = sc.card_rects()[0].bottomRight().toPoint() - sc._content_origin - QPoint(3, 3)
+        QTest.mousePress(sc, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(sc, corner + QPoint(45, 0))
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=corner + QPoint(45, 0))
+        self.assertGreater(owner.settings['super_chat_scale'], 100)
+        sc.presentation.collapse()
+        point = sc.card_rects()[0].center().toPoint() - sc._content_origin
+        QTest.mouseClick(sc, Qt.LeftButton, pos=point)
+        self.assertFalse(sc.presentation.collapsed)
+        dismissed = []
+        sc.dismissed.connect(dismissed.append)
+        QTest.mouseClick(sc.close_button, Qt.LeftButton)
+        self.assertEqual(dismissed, ['native'])
+
+    def test_diagnostic_capture_does_not_change_sc_geometry(self):
+        from contextlib import ExitStack
+        import json
+        import tempfile
+        from dev.diagnose_super_chat import SuperChatTrace
+        from ddm.video_danmaku import SuperChatOverlay
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            for name in ('sync', 'paintEvent', '_paint_layered', '_render_layered'):
+                stack.enter_context(patch.object(SuperChatOverlay, name, getattr(SuperChatOverlay, name)))
+            trace = SuperChatTrace(Path(directory))
+            trace.install()
+            self.test_left_card_pixels_and_owner_lifecycle()
+            rows = [json.loads(line) for line in (Path(directory) / 'events.jsonl').read_text().splitlines()]
+            images = [Path(directory) / row['sourceImage'] for row in rows if 'sourceImage' in row]
+            self.assertTrue(images)
+            self.assertTrue(all(not QImage(str(path)).isNull() for path in images))
+            self.assertLessEqual(len(rows), 300)
 
 
 class SimulatorTests(unittest.TestCase):

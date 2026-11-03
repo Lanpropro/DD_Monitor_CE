@@ -144,6 +144,7 @@
 - `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_drag_windows.py`
+- `dev/diagnose_super_chat.py`
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`
