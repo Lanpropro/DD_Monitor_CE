@@ -26,6 +26,7 @@ class FullscreenPresentation(QObject):
         wall._relayout_timer.stop()
         wall._resize_timer.stop()
         wall.fullscreen_tile = tile
+        wall._sync_danmaku_controls()
         for pane, visible in self._visible:
             if pane is not tile and visible:
                 pane.hide()
@@ -78,6 +79,7 @@ class FullscreenPresentation(QObject):
             tile._presentation_changing = False
         tile._layout_areas()
         wall.fullscreen_tile = None
+        wall._sync_danmaku_controls()
         for pane, visible in self._visible:
             pane.setVisible(visible)
         for border in self._borders:

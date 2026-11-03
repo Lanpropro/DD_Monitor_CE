@@ -242,13 +242,16 @@ def main():
                 check_reveal_start(tile, lambda: tile.set_fullscreen_controls_hidden(False))
                 anchor = tile.bottom.geometry()
                 middle = []
+                positions = []
                 for _ in range(6):
                     QTest.qWait(20)
                     middle.append(tile.bottom.windowOpacity())
-                    assert tile.bottom.geometry() == anchor, f'Reveal changed geometry: anchor={anchor}, actual={tile.bottom.geometry()}, expected={tile.bottom._tile_rect}, dpr={tile.bottom.devicePixelRatioF()}'
+                    positions.append(tile.bottom.tile_y())
+                    assert tile.bottom.size() == anchor.size(), 'Reveal must not resize the native bar'
                     assert tile.bottom.devicePixelRatioF() == tile.devicePixelRatioF(), 'Reveal changed the native bar DPI'
                     native_bar_image(tile.bottom)
                 assert any(0 < opacity < 1 for opacity in middle), 'Reveal must retain its fade animation'
+                assert positions[-1] < positions[0], 'Reveal must slide up into the video'
                 assert tile.bottom.windowOpacity() == 1.0
             print('PASS: real fullscreen desktop pixels retain input and controls during typing')
             return
@@ -288,10 +291,9 @@ def main():
             cursor.update_cursor()
             assert cursor.hidden
             QTest.qWait(60)
+            assert normal_y < tile.bottom.tile_y() < tile.height(), 'Bar must slide down'
             if tile.bottom.qt_composited:
-                assert tile.bottom.tile_y() == normal_y and 0 < tile.bottom.windowOpacity() < 1, 'Native bar must fade at a fixed position'
-            else:
-                assert normal_y < tile.bottom.tile_y() < tile.height(), 'Bar must slide down'
+                assert 0 < tile.bottom.windowOpacity() < 1, 'Native bar must fade while sliding'
             halfway = tile.bottom.tile_y()
             opacity = tile.bottom.windowOpacity()
             cursor._position = point - QPoint(1, 0)
@@ -316,6 +318,14 @@ def main():
             with patch.object(QApplication, 'activePopupWidget', return_value=object()):
                 cursor.update_cursor()
                 assert not cursor.hidden, 'Menu must restore controls and cursor'
+            # Clicking a native bottom-bar button can activate the Tool window.
+            # Once the pointer returns to the video, idle hiding must still work.
+            with patch.object(tile.window(), 'isActiveWindow', return_value=False), \
+                    patch.object(tile.bottom, 'isActiveWindow', return_value=True):
+                cursor._last_move = 0
+                cursor.update_cursor()
+                assert cursor.hidden, 'Active native bottom bar must count as the fullscreen player'
+                cursor.stop()
             window.settings['fullscreen_auto_hide_controls'] = True
             with patch('ddm.motion.enabled', return_value=False):
                 cursor._last_move = 0
@@ -363,6 +373,7 @@ def main():
         assert tile.time_badge.geometry().bottom() < tile.bottom.tile_y() - 8, 'Time overlaps normal bar'
         assert all(corner.isVisible() for corner in tile.video_corners)
         if app.platformName() == 'windows':
+            assert not ctypes.windll.user32.GetWindowLongW(int(tile.bottom.winId()), -20) & 0x80000, 'Normal bar retained the fullscreen layered backing store'
             enter = window._fullscreen_presentation.enter
             with patch.object(window, '_upgrade_fullscreen_quality'), \
                     patch.object(window._fullscreen_presentation, 'enter',

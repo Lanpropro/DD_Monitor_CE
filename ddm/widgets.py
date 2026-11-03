@@ -6630,7 +6630,7 @@ class Tile(QFrame):
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
-        offset = 0 if self.bottom.qt_composited else round(TILE_BAR_HEIGHT * self._bar_progress)
+        offset = round(TILE_BAR_HEIGHT * self._bar_progress)
         self.bottom.set_tile_geometry(0, self.height() - TILE_BAR_HEIGHT
                                       + offset,
                                       self.bottom.width(), self.bottom.height())
@@ -6901,8 +6901,7 @@ class Tile(QFrame):
         self.pause_overlay.move(
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
-        bar_y = (height - TILE_BAR_HEIGHT + (0 if self.bottom.qt_composited else
-                                           round(TILE_BAR_HEIGHT * self._bar_progress))
+        bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * self._bar_progress)
                  if fullscreen else video_height)
         bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
         self.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)

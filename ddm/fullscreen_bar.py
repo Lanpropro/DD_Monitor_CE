@@ -69,6 +69,9 @@ class FullscreenBar(QWidget):
             self._mask_label_windows(False)
         self.setProperty('fullscreen', enabled)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            # Recreate this backing store (and its native input children) when
+            # changing alpha modes; Qt can retain layered HWNDs after reparenting.
+            self.destroy()
             # A child HWND shares the main window's opaque backing store. Give
             # the complete interactive bar its own Qt-managed alpha backing store.
             self.setAttribute(Qt.WA_TranslucentBackground, enabled)

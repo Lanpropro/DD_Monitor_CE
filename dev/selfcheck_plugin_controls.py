@@ -8,7 +8,7 @@ import shiboken6
 
 os.environ.setdefault('DDM_NO_SAVE', '1')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
 from PySide6.QtGui import QPalette
@@ -152,6 +152,64 @@ class ControlsTests(unittest.TestCase):
         APP.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertNotIn(tile, self.manager._tiles)
         self.assertEqual(control.stops, 1)
+
+    def test_independent_fullscreen_moves_docked_input_and_preserves_drafts(self):
+        from ddm.fullscreen_presentation import FullscreenPresentation
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1400, 900)
+        host.wall = wall = WallGrid([{'room_id': '12'}, {'room_id': '13'},
+                                     {'room_id': '14'}], parent=host, layout_id='dm_main2')
+        wall.setGeometry(host.rect())
+        host.show()
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        main, small, _other = wall.tiles
+        drafts = {}
+        native_styles = {}
+        for tile in wall.tiles:
+            edit = tile._plugin_controls.entries[0].control.widget
+            edit.setText('draft-' + tile.room['room_id'])
+            edit.winId()  # Match composers that already have native input windows.
+            drafts[tile] = (edit, int(tile.video.winId()))
+            if APP.platformName() == 'windows':
+                import ctypes
+                from ctypes import wintypes
+                user32 = ctypes.windll.user32
+                user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+                for widget in (tile.bottom, tile.volume_label, edit):
+                    native_styles[widget] = user32.GetWindowLongW(int(widget.winId()), -20) & 0x80000
+        presentation = FullscreenPresentation(host)
+        try:
+            for tile in (main, small, main):
+                presentation.enter(tile, QRect(-10000, -10000, 1100, 800))
+                APP.processEvents()
+                controls = tile._plugin_controls
+                edit, video_handle = drafts[tile]
+                self.assertIs(controls.widget.parentWidget(), tile.bottom)
+                self.assertTrue(edit.isVisible())
+                self.assertTrue(tile.bottom.rect().contains(controls.widget.geometry()))
+                self.assertTrue(wall.danmaku.composer_bar.isHidden())
+                self.assertEqual(int(tile.video.winId()), video_handle)
+                presentation.leave()
+                APP.processEvents()
+                self.assertIs(main._plugin_controls.widget.parentWidget(), wall.danmaku.composer_bar)
+                self.assertTrue(wall.danmaku.composer_bar.isVisible())
+                for pane, (editor, handle) in drafts.items():
+                    self.assertEqual(editor.text(), 'draft-' + pane.room['room_id'])
+                    self.assertEqual(int(pane.video.winId()), handle)
+                if APP.platformName() == 'windows':
+                    for widget in (tile.bottom, tile.volume_label, edit):
+                        self.assertEqual(user32.GetWindowLongW(int(widget.winId()), -20) & 0x80000,
+                                         native_styles[widget], widget.objectName())
+        finally:
+            presentation.leave()
 
     def test_danmaku_header_background_stays_inside_rounded_top_corners(self):
         host = QWidget()
