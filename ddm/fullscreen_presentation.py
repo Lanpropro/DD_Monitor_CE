@@ -28,11 +28,6 @@ class FullscreenPresentation(QObject):
         wall.fullscreen_tile = tile
         tile.hide()
         wall._sync_danmaku_controls()
-        for pane, visible in self._visible:
-            if pane is not tile and visible:
-                pane.hide()
-        for border in self._borders:
-            border.hide()
         tile.installEventFilter(self)
         tile._presentation_changing = True
         try:
@@ -52,6 +47,7 @@ class FullscreenPresentation(QObject):
         tile._layout_areas()
         layer = wall._quick_danmaku_layer
         if layer is not None:
+            layer.set_presentation_changing(True)
             layer.set_presentation_window(tile)
         tile.show()
         tile.raise_()
@@ -62,12 +58,29 @@ class FullscreenPresentation(QObject):
             dialog.set_presentation_owner(tile)
             if dialog.isVisible():
                 dialog.raise_()
+        # Keep the wall visible until its replacement is on screen.
+        for pane, visible in self._visible:
+            if pane is not tile and visible:
+                pane.hide()
+        for border in self._borders:
+            border.hide()
+        if layer is not None:
+            layer.set_presentation_changing(False)
 
     def leave(self):
         tile = self.tile
         if tile is None:
             return
         wall = self.window.wall
+        layer = wall._quick_danmaku_layer
+        if layer is not None:
+            layer.set_presentation_changing(True)
+        # Restore the wall behind the still-visible fullscreen window.
+        for pane, visible in self._visible:
+            if pane is not tile:
+                pane.setVisible(visible)
+        for border in self._borders:
+            border.show()
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
             # Detach before changing the tile's native window flags on exit.
@@ -77,7 +90,6 @@ class FullscreenPresentation(QObject):
         tile._presentation_changing = True
         try:
             tile.hide()
-            layer = wall._quick_danmaku_layer
             if layer is not None:
                 layer.set_presentation_window(None)
             tile.setProperty('fullscreen', False)
@@ -91,9 +103,8 @@ class FullscreenPresentation(QObject):
         wall._sync_danmaku_controls()
         tile._layout_areas()
         for pane, visible in self._visible:
-            pane.setVisible(visible)
-        for border in self._borders:
-            border.show()
+            if pane is tile:
+                pane.setVisible(visible)
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
         tile.bottom.setUpdatesEnabled(True)
@@ -102,6 +113,8 @@ class FullscreenPresentation(QObject):
             self.window.activateWindow()
         if dialog is not None and dialog.isVisible():
             dialog.raise_()
+        if layer is not None:
+            layer.set_presentation_changing(False)
 
     def eventFilter(self, watched, event):
         tile = self.tile
