@@ -148,6 +148,7 @@
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_diagnostics.py`
+- `dev/diagnose_control_swap.py`
 - `dev/diagnose_drag_windows.py`
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
