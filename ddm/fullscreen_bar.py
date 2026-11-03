@@ -53,7 +53,9 @@ class FullscreenBar(QWidget):
             return
         if self.qt_composited:
             self.setWindowOpacity(1.0)
-        visible = self.isVisible()
+        # The tile is temporarily hidden while promoted to a fullscreen window.
+        # Preserve the bar's own visibility intent, not its ancestor's state.
+        visible = not self.isHidden()
         local = QRect(self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())), self.size())
         focus = QApplication.focusWidget()
         restore_focus = focus is not None and (focus is self or self.isAncestorOf(focus))
@@ -66,6 +68,9 @@ class FullscreenBar(QWidget):
             self._mask_label_windows(False)
         self.setProperty('fullscreen', enabled)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            # Recreate this backing store (and its native input children) when
+            # changing alpha modes; Qt can retain layered HWNDs after reparenting.
+            self.destroy()
             # A child HWND shares the main window's opaque backing store. Give
             # the complete interactive bar its own Qt-managed alpha backing store.
             self.setAttribute(Qt.WA_TranslucentBackground, enabled)
@@ -129,6 +134,12 @@ class FullscreenBar(QWidget):
                     gdi32.DeleteObject(region)
             elif not hide and hwnd in self._masked_labels:
                 user32.SetWindowRgn(hwnd, None, True)
+            if not hide and not label.findChildren(QWidget):
+                # Tool-window composition made these passive labels native.
+                # Return their text to the ordinary bar's backing store instead
+                # of leaving opaque child HWNDs across the status/input region.
+                label.destroy()
+                label.setAttribute(Qt.WA_NativeWindow, False)
         if not hide:
             self._masked_labels.clear()
 

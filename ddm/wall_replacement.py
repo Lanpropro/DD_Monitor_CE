@@ -46,13 +46,16 @@ class WallReplacement(QObject):
                 or event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape):
             self.cancel_replacement()
             return event.type() == QEvent.KeyPress
-        if event.type() not in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+        # Native clicks visit QWindow before Qt dispatches them to QWidget.
+        # Consuming that release would prevent the target video from seeing it.
+        if (event.type() not in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease)
+                or not isinstance(watched, QWidget)):
             return False
         if event.button() != Qt.LeftButton:
             return False
         position = event.globalPosition().toPoint()
         target = next((tile for tile in self.host.wall.visible_tiles()
-                       if isinstance(watched, QWidget) and (watched is tile or tile.isAncestorOf(watched))
+                       if (watched is tile or tile.isAncestorOf(watched))
                        and tile.video.rect().contains(tile.video.mapFromGlobal(position))), None)
         if event.type() == QEvent.MouseButtonPress:
             self._replacement_target = target

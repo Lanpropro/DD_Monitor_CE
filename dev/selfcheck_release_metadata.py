@@ -13,7 +13,8 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7'
+    assert version.VERSION == '0.7.1'
+    assert version.VERSION_TAG == 'v0.7.1'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')

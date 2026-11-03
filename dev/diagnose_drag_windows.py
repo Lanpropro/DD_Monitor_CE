@@ -393,6 +393,9 @@ class Recorder:
             timer.timeout.connect(poll_drag)
             timer.start()
             try:
+                if not user32.GetAsyncKeyState(1) & 0x8000:
+                    self.mark('drag:exec-skipped', reason='physical-left-released')
+                    return Qt.IgnoreAction
                 action = original_drag(drag, *args, **kwargs)
                 self.mark('drag:exec-return', elapsedMs=round((time.perf_counter() - started) * 1000, 3),
                           action=str(action))
@@ -421,5 +424,13 @@ if __name__ == '__main__':
         from dev.diagnose_super_chat import SuperChatTrace
         sc_trace = SuperChatTrace(ROOT / 'logs' / 'sc-paint')
         sc_trace.install()
+    if os.environ.get('DDM_WALL_REPLACEMENT_CAPTURE') == '1':
+        from dev.diagnose_wall_replacement import ReplacementTrace
+        replacement_trace = ReplacementTrace(ROOT / 'logs' / 'wall-replacement.jsonl')
+        replacement_trace.install()
+    if os.environ.get('DDM_CONTROL_SWAP_CAPTURE') == '1':
+        from dev.diagnose_control_swap import SwapTrace
+        swap_trace = SwapTrace(ROOT / 'logs' / 'control-swap.jsonl')
+        swap_trace.install()
     print('Window diagnostics:', path, file=sys.stderr, flush=True)
     runpy.run_path(str(ROOT / 'main.py'), run_name='__main__')

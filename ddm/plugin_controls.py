@@ -159,6 +159,8 @@ class TileControls:
             self.widget.setParent(tile.bottom)
             bar = tile.bottom.layout()
             bar.insertWidget(bar.indexOf(self.spacer), self.widget)
+        if not tile.bottom.property('fullscreen'):
+            tile.bottom._mask_label_windows(False)
         tile._bottom_layout_signature_value = None
         tile._layout_bottom_controls()
 

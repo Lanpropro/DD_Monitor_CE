@@ -14,6 +14,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm.video_danmaku import VideoDanmaku, _TimerResolution
 from ddm.widgets import PauseButton
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 def check_sampling():
@@ -57,6 +58,7 @@ def check_motion_clock(app):
     try:
         with patch("time.monotonic", return_value=100):
             assert overlay.add_event({"text": "Sub-frame clock precision"})
+            wait_comment_raster(QApplication.instance(), overlay)
             comment = overlay.comments[0]
             x = comment.x
             time.sleep(.006)
@@ -120,6 +122,7 @@ def check_timer_resolution(app):
         app.processEvents()
         try:
             assert overlay.add_event({"text": "计时精度生命周期"})
+            wait_comment_raster(QApplication.instance(), overlay)
             assert overlay._timer_resolution._winmm is winmm
             overlay.set_paused(True)
             assert overlay._timer_resolution._winmm is None
@@ -133,9 +136,11 @@ def check_timer_resolution(app):
             overlay._tick()
             assert not overlay.comments and overlay._timer_resolution._winmm is None
             assert overlay.add_event({"text": "清空后释放"})
+            wait_comment_raster(QApplication.instance(), overlay)
             overlay.clear()
             assert overlay._timer_resolution._winmm is None
             assert overlay.add_event({"text": "销毁后释放"})
+            wait_comment_raster(QApplication.instance(), overlay)
             overlay.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             assert winmm.timeBeginPeriod.call_count == winmm.timeEndPeriod.call_count == 5

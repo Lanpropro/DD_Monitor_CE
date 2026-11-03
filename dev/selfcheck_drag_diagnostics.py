@@ -81,13 +81,17 @@ class DragDiagnosticsTests(unittest.TestCase):
                         fixture.app.processEvents()
                         return Qt.IgnoreAction
                     drag_exec.side_effect = delayed_drag
-                    with patch.object(diag.user32, 'GetAsyncKeyState', return_value=0):
+                    with patch.object(diag.user32, 'GetAsyncKeyState', return_value=0x8000):
                         recorder._gesture = 1
                         recorder._press_at = diag.time.perf_counter()
                         item._drag_pixmap()
                         motion.lifted_drag(item._drag_pixmap(), QPoint(10, 10))
                         self.assertEqual(drag.exec(Qt.CopyAction), Qt.IgnoreAction)
                     drag_exec.assert_called_once()
+                    drag_exec.reset_mock()
+                    with patch.object(diag.user32, 'GetAsyncKeyState', return_value=0):
+                        self.assertEqual(drag.exec(Qt.CopyAction), Qt.IgnoreAction)
+                    drag_exec.assert_not_called()
                     from PySide6.QtCore import QPointF, QEvent
                     from PySide6.QtGui import QMouseEvent
                     from PySide6.QtTest import QTest
@@ -111,10 +115,12 @@ class DragDiagnosticsTests(unittest.TestCase):
                     self.assertTrue({'pixmap', 'lift'} <= {row['stage'] for row in stages})
                     self.assertTrue(all(row['elapsedMs'] >= 0 for row in stages))
                     entry = next(row for row in rows if row['phase'] == 'drag:exec-enter')
-                    self.assertFalse(entry['nativeLeftDown'])
+                    self.assertTrue(entry['nativeLeftDown'])
                     self.assertEqual(entry['gesture'], 1)
                     self.assertGreaterEqual(entry['sincePressMs'], 0)
                     self.assertIn('drag:exec-return', phases)
+                    skipped = next(row for row in rows if row['phase'] == 'drag:exec-skipped')
+                    self.assertEqual(skipped['reason'], 'physical-left-released')
                     delay = next(row for row in rows if row['phase'] == 'drag:ui-delay')
                     self.assertGreaterEqual(delay['gapMs'], 150)
                     self.assertTrue(all(row['snapshotMs'] >= 0 for row in rows if 'nativeWindows' in row))

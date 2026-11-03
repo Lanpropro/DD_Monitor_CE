@@ -21,6 +21,7 @@ from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
+from .ui import page_header as _page_head, step_button as _step_button
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
 
@@ -37,32 +38,6 @@ SHORTCUT_ACTIONS = [
     ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
 ]
-
-
-def _page_head(title: str, hint: str) -> QVBoxLayout:
-    """一页设置的开头：标题 + 说明。"""
-    box = QVBoxLayout()
-    box.setSpacing(4)
-    heading = QLabel(title)
-    heading.setObjectName("SettingsTitle")
-    box.addWidget(heading)
-    if hint:
-        note = QLabel(hint)
-        note.setObjectName("SettingsHint")
-        note.setWordWrap(True)
-        box.addWidget(note)
-    return box
-
-
-def _step_button(text: str, tooltip: str, slot) -> QPushButton:
-    """加减小按钮（系统自带的箭头在深色下看不见，自己画一个）。"""
-    button = QPushButton(text)
-    button.setObjectName("StepButton")
-    button.setFixedSize(28, 28)
-    button.setCursor(Qt.PointingHandCursor)
-    button.setToolTip(tooltip)
-    button.clicked.connect(slot)
-    return button
 
 
 class CodecSettingsPanel(QWidget):

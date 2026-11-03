@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox
 
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
+from .settings_process import _save_trace
 
 
 class SettingsHost(QObject):
@@ -102,17 +103,21 @@ class SettingsHost(QObject):
     def save(self, changes):
         if self.pending_apply is not None:
             return
+        started = _save_trace('host.validation.begin')
         for name, checked in changes.get('plugin_controls', {}).items():
             self.plugin_checks[name].setChecked(checked)
         self.dialog._update_save_button()
         if not self.dialog.confirm_button.isEnabled():
+            _save_trace('host.validation.busy', started)
             self.sync()
             return
         self.dialog.setResult(SettingsDialog.Rejected)
         self.dialog._save()
+        _save_trace('host.validation.finished', started)
         if self.dialog.result() != SettingsDialog.Accepted:
             self.client._send({'kind': 'host-save-blocked', 'index': 1})
             return
+        collected = _save_trace('host.collection.begin')
         values = {**changes.get('settings', {}), **self.values()}
         shortcuts = {**self.window.shortcuts, **changes.get('shortcuts', {})}
         enabled = self.dialog.enabled_plugins()
@@ -126,8 +131,10 @@ class SettingsHost(QObject):
             _loaded_pages={8: update},
             update_page=update,
             restart_requested=self.dialog.restart_requested)
+        _save_trace('host.collection.finished', collected)
         # The worker must unembed and close its shell before the host can exit.
         self.client._send({'kind': 'host-saved'})
+        _save_trace('host.reply.sent', started)
 
     def close(self):
         self.timer.stop()

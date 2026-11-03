@@ -102,7 +102,7 @@ class FullscreenCursor(QObject):
             return
         # Poll the global position: VLC's child HWND does not send Qt mouse moves.
         owner = tile.window() if tile is not None else self.window
-        active = owner.isActiveWindow()
+        active = owner.isActiveWindow() or (tile is not None and tile.bottom.isActiveWindow())
         if not active and sys.platform == "win32" and QApplication.platformName() == "windows":
             # VLC 的原生子窗口获得焦点时，Qt 的活动窗口状态可能尚未同步。
             user32 = ctypes.windll.user32
@@ -110,7 +110,10 @@ class FullscreenCursor(QObject):
             user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
             user32.GetAncestor.restype = wintypes.HWND
             foreground = user32.GetForegroundWindow()
-            active = bool(foreground and user32.GetAncestor(foreground, 2) == int(owner.winId()))
+            roots = {int(owner.winId())}
+            if tile is not None and tile.bottom.isWindow():
+                roots.add(int(tile.bottom.winId()))
+            active = bool(foreground and user32.GetAncestor(foreground, 2) in roots)
         eligible = (tile is not None and active
                     and QApplication.activePopupWidget() is None
                     and QApplication.activeModalWidget() is None

@@ -4,11 +4,20 @@ from copy import deepcopy
 import os
 from pathlib import Path
 import sys
+import time
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QRect, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
 HOST_PAGES = {1: 'appearance', 7: 'plugins', 8: 'updates'}
+
+
+def _save_trace(stage, started=None):
+    now = time.perf_counter_ns()
+    elapsed = '' if started is None else f' elapsed_ms={(now - started) / 1_000_000:.3f}'
+    print(f'[设置保存] stage={stage} pid={os.getpid()} at_ns={now}{elapsed}',
+          file=sys.stderr, flush=True)
+    return now
 
 
 def _allow_foreground(pid):
@@ -46,6 +55,7 @@ class SettingsProcess(QObject):
     closed = Signal()
     failed = Signal(str)
     received = Signal(dict)
+    occlusionChanged = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -58,6 +68,7 @@ class SettingsProcess(QObject):
         self.ready = self.visible = self.closing = False
         self.pending = None
         self.worker_pid = None
+        self.occlusion = QRect()
         self.start_timer = QTimer(self)
         self.start_timer.setSingleShot(True)
         self.start_timer.timeout.connect(self.process.kill)
@@ -113,6 +124,11 @@ class SettingsProcess(QObject):
     def _send(self, message):
         self.process.write((json.dumps(message) + '\n').encode('utf-8'))
 
+    def _set_occlusion(self, rect):
+        if rect != self.occlusion:
+            self.occlusion = rect
+            self.occlusionChanged.emit()
+
     def _open_pending(self):
         if self.pending is not None:
             _allow_foreground(self.worker_pid)
@@ -135,16 +151,24 @@ class SettingsProcess(QObject):
                 self.ready = True
                 if not self.closing:
                     self._open_pending()
+            elif kind == 'occlusion' and not self.closing:
+                self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
             elif kind == 'result':
+                started = _save_trace('host.result.received')
                 self.visible = False
+                self._set_occlusion(QRect())
                 if not self.closing:
                     if message.get('host_saved'):
                         self.hostRequest.emit(message)
                     elif message.get('accepted'):
                         self.saved.emit(message['changes'])
                 self.closed.emit()
+                _save_trace('host.result.applied', started)
             elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden') and not self.closing:
+                started = _save_trace('host.save.received') if kind == 'host-save' else None
                 self.hostRequest.emit(message)
+                if started is not None:
+                    _save_trace('host.save.dispatched', started)
 
     def _stderr(self):
         text = bytes(self.process.readAllStandardError()).decode('utf-8', errors='replace')
@@ -163,12 +187,14 @@ class SettingsProcess(QObject):
         self.pending = None
         self.buffer = b''
         self.worker_pid = None
+        self._set_occlusion(QRect())
         self.closed.emit()
         if was_open and not self.closing:
             self.failed.emit(self.process.errorString())
 
     def stop(self):
         self.closing = True
+        self._set_occlusion(QRect())
         self.start_timer.stop()
         self.pending = None
         if self.process.state() != QProcess.NotRunning:
@@ -183,7 +209,7 @@ def run_worker():
     os.environ['DDM_NO_SAVE'] = '1'
     import tempfile
     import threading
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QEvent, Qt
     from PySide6.QtGui import QIcon, QWindow
     from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QVBoxLayout, QWidget
     from . import config, theme
@@ -211,6 +237,9 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            self.occlusion_timer = QTimer(self)
+            self.occlusion_timer.setSingleShot(True)
+            self.occlusion_timer.timeout.connect(self.publish_occlusion)
             self.pageCreated.connect(lambda index, page: page.super_chat_placement.set_preview_context(
                 snapshot.get('sc_preview_context', {})) if index == 2 else None)
             self.owner_window = None
@@ -226,6 +255,19 @@ def run_worker():
             self.initial_shortcuts = {
                 **{key: default for key, _label, default in SHORTCUT_ACTIONS},
                 **self.shortcuts()}
+
+        def event(self, event):
+            result = super().event(event)
+            if (event.type() in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize,
+                                 QEvent.WindowStateChange)
+                    and hasattr(self, 'occlusion_timer')):
+                self.occlusion_timer.start(0)
+            return result
+
+        def publish_occlusion(self):
+            # The host cannot find this cross-process dialog in topLevelWidgets.
+            rect = list(self.frameGeometry().getRect()) if self.isVisible() and not self.isMinimized() else []
+            send({'kind': 'occlusion', 'rect': rect})
 
         def changes(self):
             return {'settings': {key: value for key, value in self.settings().items()
@@ -304,18 +346,29 @@ def run_worker():
                 super()._reset_current()
 
         def _save(self):
+            self._save_clicked_at = _save_trace('worker.click')
             if self.host_requested or self.plugin_checks:
                 self.confirm_button.setEnabled(False)
-                send({'kind': 'host-save', 'changes': self.changes()})
+                started = time.perf_counter_ns()
+                changes = self.changes()
+                _save_trace('worker.changes.collected', started)
+                send({'kind': 'host-save', 'changes': changes})
+                _save_trace('worker.host-save.sent', self._save_clicked_at)
             else:
                 super()._save()
 
         def done(self, result):
+            started = getattr(self, '_save_clicked_at', None)
+            detached = time.perf_counter_ns()
             if self.foreign is not None:
                 self.foreign.hide()
                 self.foreign.setParent(None)
                 self.foreign = None
+            if started is not None:
+                _save_trace('worker.detach.finished', detached)
             super().done(result)
+            if started is not None:
+                _save_trace('worker.done', started)
 
         def paintEvent(self, event):
             super().paintEvent(event)
@@ -351,9 +404,12 @@ def run_worker():
             elif kind == 'host-theme' and self.dialog is not None:
                 theme.apply(message['mode'])
             elif kind == 'host-save-blocked' and self.dialog is not None:
+                _save_trace('worker.save.blocked', getattr(self.dialog, '_save_clicked_at', None))
+                self.dialog._save_clicked_at = None
                 self.dialog.confirm_button.setEnabled(True)
                 self.dialog.nav.setCurrentRow(message['index'])
             elif kind == 'host-saved' and self.dialog is not None:
+                _save_trace('worker.host-saved.received')
                 self.dialog.host_saved = True
                 self.dialog.reject()  # Unembed before acknowledging that the host may apply/restart.
             elif kind == 'host-request-save' and self.dialog is not None:
@@ -372,9 +428,14 @@ def run_worker():
 
         def finished(self, accepted):
             dialog, self.dialog = self.dialog, None
+            started = getattr(dialog, '_save_clicked_at', None)
+            if started is not None:
+                _save_trace('worker.finished', started)
             send({'kind': 'result', 'accepted': accepted == SettingsDialog.Accepted,
                   'changes': dialog.changes() if accepted == SettingsDialog.Accepted else {},
                   'host_saved': dialog.host_saved})
+            if started is not None:
+                _save_trace('worker.result.sent', started)
             dialog.deleteLater()
 
     with tempfile.TemporaryDirectory(prefix='ddm_settings_') as temporary:
