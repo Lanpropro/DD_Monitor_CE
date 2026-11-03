@@ -20,12 +20,14 @@ if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
+if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 if /i "%~1"=="--diagnose-douyu" goto douyu
 if /i "%~1"=="--diagnose-douyu-deep" goto douyuDeep
 if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
 if /i "%~1"=="--diagnose-control-swap" set "DDM_CONTROL_SWAP_CAPTURE=1"
+if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
@@ -48,6 +50,18 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_occlusion.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_plugin_controls.py" ControlsTests.test_independent_fullscreen_moves_docked_input_and_preserves_drafts ControlsTests.test_danmaku_swap_docks_input_before_new_geometry ControlsTests.test_hot_swap_refreshes_native_audio_controls_at_final_geometry
+exit /b %errorlevel%
+
+:wallReplacementCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_main_notices.py" MainNoticesTests.test_live_replacement_accepts_window_dispatch_before_widget_events MainNoticesTests.test_live_replacement_trace_preserves_window_dispatch
+if errorlevel 1 exit /b %errorlevel%
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_main_notices.py" MainNoticesTests.test_live_notice_selects_one_replacement_without_expanding_full_wall MainNoticesTests.test_live_replacement_can_cancel_and_does_not_accept_sidebar_clicks MainNoticesTests.test_live_notice_uses_visible_empty_slot_before_replacement_and_skips_duplicates
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_wall_card_replacement.py"
 exit /b %errorlevel%
 
 :responsiveness

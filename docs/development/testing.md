@@ -33,6 +33,16 @@ Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入�
 
 ## 结果与新增检查
 
+开播提醒替换画面回归：
+
+```powershell
+.\run.cmd --check-wall-replacement
+```
+
+原生 Qt 检查从视频的 QWindow 发送完整点击，覆盖窗口事件转发到视频 QWidget 的路径；其余离屏检查覆盖只替换选中格子、不扩展满员布局、Esc／隐藏取消、侧栏点击排除、可见空位优先，以及关注卡片状态同步。使用隔离数据且禁止外网，不读取账号或发送弹幕。
+
+真实复现用 `run.cmd --diagnose-wall-replacement`，画面墙满员后点击开播提醒的“替换”，再点击目标视频。`logs/wall-replacement.jsonl` 记录物理按键与 Qt 事件的接收顺序、目标是否命中和事件是否被消费，每次选择最多 300 条，不记录房间、账号或弹幕内容。预期点击后仅目标格子换房，十字光标恢复；按 Esc 则取消且不换房。
+
 全屏底栏与设置窗口弹幕遮挡回归：
 
 ```powershell

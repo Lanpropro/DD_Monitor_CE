@@ -413,6 +413,10 @@ if __name__ == '__main__':
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)
     recorder.install()
+    if os.environ.get('DDM_WALL_REPLACEMENT_CAPTURE') == '1':
+        from dev.diagnose_wall_replacement import ReplacementTrace
+        replacement_trace = ReplacementTrace(ROOT / 'logs' / 'wall-replacement.jsonl')
+        replacement_trace.install()
     if os.environ.get('DDM_CONTROL_SWAP_CAPTURE') == '1':
         from dev.diagnose_control_swap import SwapTrace
         swap_trace = SwapTrace(ROOT / 'logs' / 'control-swap.jsonl')
