@@ -6958,8 +6958,7 @@ class Tile(QFrame):
                         self.video.geometry().right() - corner.width() + 1, self.video.y())
             corner.setVisible(not square_corners)
         key = (self.video.width(), self.video.height(), self.devicePixelRatioF(),
-               square_corners,
-               int(self.video.winId()) if self.video.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) else 0)
+               square_corners, int(self.video.internalWinId()))
         if key == self._video_mask_key and not self.video.mask().isEmpty():
             self._update_quick_danmaku_mask()
             return
@@ -7086,7 +7085,7 @@ class Tile(QFrame):
         scale = self.controls.devicePixelRatioF()
         key = (tuple(button.geometry().getRect() for button in
                      (self.quality_button, self.reload_button, self.close_button)), scale,
-               int(self.controls.winId()) if self.controls.testAttribute(Qt.WidgetAttribute.WA_NativeWindow) else 0)
+               int(self.controls.internalWinId()))
         if key == self._controls_mask_key and not self.controls.mask().isEmpty():
             return
         self._controls_mask_key = key
@@ -7103,7 +7102,7 @@ class Tile(QFrame):
             path.addRoundedRect(rect, radius, radius)
             region = region.united(QRegion(path.toFillPolygon().toPolygon()))
         if (sys.platform == "win32" and QApplication.platformName() == "windows"
-                and self.controls.testAttribute(Qt.WA_NativeWindow)):
+                and self.controls.internalWinId()):
             # Let Qt paint the complete antialiased edge; clip the native backing
             # at physical-pixel resolution instead of scaling a logical region.
             paint_region = QRegion()
