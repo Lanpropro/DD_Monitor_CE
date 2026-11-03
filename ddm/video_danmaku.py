@@ -74,7 +74,11 @@ class SuperChatOverlay(BadgeSurface):
 
     def _dismiss(self, index):
         if index < len(self.chats):
-            self.dismissed.emit(str(self.chats[index]['id']))
+            chat_id = str(self.chats[index]['id'])
+            if self.presentation.is_collapsed(chat_id):
+                self.dismissed.emit(chat_id)
+            else:
+                self.presentation.collapse(chat_id)
 
     def bind(self, owner):
         self._video_danmaku = owner
@@ -154,6 +158,9 @@ class SuperChatOverlay(BadgeSurface):
                               and self.presentation.progress == 1.0)
             button.setFixedSize(max(12, round(22 * scale)), max(12, round(22 * scale)))
             if index < len(rects):
+                action = '关闭' if self.presentation.is_collapsed(self.chats[index]) else '收起'
+                button.setToolTip(f'{action}这条醒目留言')
+                button.setAccessibleName(f'{action}醒目留言')
                 button.move(rects[index].topRight().toPoint() - self._content_origin
                             + QPoint(round(-26 * scale), round(7 * scale)))
 
@@ -346,6 +353,8 @@ class SuperChatOverlay(BadgeSurface):
 
     def _refresh_quick_mask(self):
         owner = self._video_danmaku
+        if owner is None or owner._quick_group is None:
+            return  # Restoring the toggle can run before Tile creates its controls.
         tile = owner.parentWidget() if owner is not None else None
         refresh = getattr(tile, '_update_quick_danmaku_mask', None)
         if refresh is not None:

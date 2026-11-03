@@ -209,11 +209,13 @@ class SuperChatPresentation(QObject):
             self.entrance.start()
         self.changed.emit()
 
-    def collapse(self):
+    def collapse(self, chat_id=None):
         self.entrance.stop()
         self.progress = 1.0
-        self.collapsed_ids = set(self.ids)
-        self.deadlines.clear()
+        keys = self.ids if chat_id is None else {str(chat_id)} & self.ids
+        self.collapsed_ids.update(keys)
+        for key in keys:
+            self.deadlines.pop(key, None)
         self._schedule()
         self.changed.emit()
 

@@ -120,6 +120,9 @@ class NativeSurfaceTests(unittest.TestCase):
         dismissed = []
         sc.dismissed.connect(dismissed.append)
         QTest.mouseClick(sc.close_button, Qt.LeftButton)
+        self.assertEqual(dismissed, [])
+        self.assertTrue(sc.presentation.is_collapsed('native'))
+        QTest.mouseClick(sc.close_button, Qt.LeftButton)
         self.assertEqual(dismissed, ['native'])
 
     def test_diagnostic_capture_does_not_change_sc_geometry(self):
@@ -142,6 +145,16 @@ class NativeSurfaceTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_restored_danmaku_toggle_does_not_mask_an_unfinished_tile(self):
+        from ddm.widgets import Tile
+        with patch('sys.excepthook') as errors:
+            tile = Tile({'room_id': 'fixture', 'video_danmaku_enabled': True})
+            try:
+                self.assertTrue(tile.video_danmaku.enabled)
+                self.assertFalse(errors.called, 'SC must not access controls before Tile finishes construction')
+            finally:
+                tile.close()
+
     def test_schematic_preview_opacity_and_compact_controls(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
@@ -416,6 +429,10 @@ class SimulatorTests(unittest.TestCase):
             self.assertLess(first.geometry().bottom(), second.y())
             self.assertTrue(first.close_button.isVisible())
         self.click(stack._cards[3].close_button)
+        self.assertEqual([chat['id'] for chat in stack._events], expected)
+        self.assertEqual(stack.presentation.collapsed_ids, {'2'})
+        self.assertEqual(stack._cards[3].close_button.toolTip(), '关闭这条醒目留言')
+        self.click(stack._cards[3].close_button)
         expected.remove('2')
         self.assertEqual([chat['id'] for chat in stack._events], expected)
         window.layout_choice.setCurrentIndex(1)
@@ -426,6 +443,10 @@ class SimulatorTests(unittest.TestCase):
         for first, second in zip(sc.card_rects(), sc.card_rects()[1:]):
             self.assertLess(first.bottom(), second.top())
         self.click(sc.close_buttons[3])
+        self.assertEqual([chat['id'] for chat in sc.chats], expected)
+        self.assertEqual(sc.presentation.collapsed_ids, {'1'})
+        self.assertEqual(sc.close_buttons[3].toolTip(), '关闭这条醒目留言')
+        self.click(sc.close_buttons[3])
         expected.remove('1')
         self.assertEqual([chat['id'] for chat in sc.chats], expected)
 
@@ -433,6 +454,10 @@ class SimulatorTests(unittest.TestCase):
         window = self.window
         window.number.setValue(2)
         self.click(window.add_button)
+        self.click(window.wall.danmaku.super_chats._cards[0].close_button)
+        self.assertEqual(len(window.store.active()), 2)
+        window.publish()
+        self.assertTrue(window.wall.danmaku.super_chats.presentation.is_collapsed('1'))
         self.click(window.wall.danmaku.super_chats._cards[0].close_button)
         self.assertIn('1', window.store.items)
         self.assertEqual([chat['id'] for chat in window.store.active()], ['2'])
@@ -442,6 +467,8 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual([chat['id'] for chat in window.store.active()], ['2'])
         QTest.qWait(300)
         window.layout_choice.setCurrentIndex(1)
+        self.click(window.tile.video_danmaku.super_chat_overlay.close_button)
+        self.assertEqual(len(window.store.active()), 1)
         self.click(window.tile.video_danmaku.super_chat_overlay.close_button)
         self.assertFalse(window.store.active())
 
@@ -470,12 +497,16 @@ class SimulatorTests(unittest.TestCase):
             sc.presentation.entrance.setCurrentTime(180)
             self.assertEqual(sc.presentation.progress, 1)
             self.click(sc.close_buttons[1])
+            self.assertIsNone(sc._paper, 'Collapse must not dismiss or animate removal')
+            self.assertEqual(len(window.store.active()), 2)
+            self.click(sc.close_buttons[1])
             self.assertIsNotNone(sc._paper)
             sc.animation.setCurrentTime(120)
             self.assertGreater(sc._progress, 0)
             sc.animation.setCurrentTime(240)
             APP.processEvents()
             self.assertEqual([chat['id'] for chat in sc.chats], ['1'])
+            self.click(sc.close_button)
             self.click(sc.close_button)
             sc.animation.setCurrentTime(240)
             self.assertTrue(sc.isHidden())
@@ -485,6 +516,7 @@ class SimulatorTests(unittest.TestCase):
         self.click(window.add_button)
         stack = window.wall.danmaku.super_chats
         self.assertEqual(stack.presentation.progress, 1)
+        self.click(stack._cards[0].close_button)
         self.click(stack._cards[0].close_button)
         stack._cards[0].animation.setCurrentTime(240)
         self.assertTrue(stack.isHidden())
@@ -807,6 +839,8 @@ def check_native_alpha():
         window.screen().grabWindow(0, point.x(), point.y(), window.width(), window.height()).save(str(output))
         closing = time.perf_counter()
         with patch.object(motion, 'enabled', return_value=True):
+            sc.close_button.click()
+            assert sc.presentation.is_collapsed(sc.chats[0]), 'First click only collapses'
             sc.close_button.click()
         close_ms = (time.perf_counter() - closing) * 1000
         for index in range(20):
