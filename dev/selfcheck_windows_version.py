@@ -20,13 +20,15 @@ def main():
         metadata = root / "version.txt"
         build(metadata)
         info = load_version_info_from_text_file(str(metadata))
-        major, minor, *_ = [int(part) for part in VERSION.split(".")] + [0, 0]
+        major, minor, patch, build_number = ([int(part) for part in VERSION.split(".")] + [0, 0, 0, 0])[:4]
         assert info.ffi.fileVersionMS == (major << 16) | minor
+        assert info.ffi.fileVersionLS == (patch << 16) | build_number
         bootloader = Path(PyInstaller.__file__).parent / "bootloader/Windows-64bit-intel/runw.exe"
         exe = root / f"{DISPLAY_NAME}.exe"
         shutil.copy2(bootloader, exe)
         write_version_info_to_executable(str(exe), info)
         actual = read_version_info_from_executable(str(exe))
+        assert actual.ffi.fileVersionLS == (patch << 16) | build_number
         fields = {entry.name: entry.val for entry in actual.kids[0].kids[0].kids}
         assert fields["FileDescription"] == DISPLAY_NAME
         assert fields["ProductName"] == DISPLAY_NAME
