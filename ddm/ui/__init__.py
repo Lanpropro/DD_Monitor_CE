@@ -1,0 +1,25 @@
+"""Public component imports; existing implementations load only when requested."""
+from importlib import import_module
+
+from .basics import ActionButton, HintLabel, TitleLabel, page_header, step_button
+
+_MODULES = {
+    'avatar_widgets': ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap'),
+    'motion': ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack'),
+    'widgets': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
+                'PauseButton', 'RefreshButton', 'DanmakuToggleButton', 'ElidedLabel', 'BarIconButton'),
+}
+_EXPORTS = {name: module for module, names in _MODULES.items() for name in names}
+__all__ = ['ActionButton', 'HintLabel', 'TitleLabel', 'page_header', 'step_button', *_EXPORTS]
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+    component = getattr(import_module('..' + _EXPORTS[name], __name__), name)
+    globals()[name] = component
+    return component
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

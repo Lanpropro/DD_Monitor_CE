@@ -386,6 +386,9 @@ class QuickDanmakuLayer(QObject):
                 continue
             geometry = widget.frameGeometry()
             region -= QRegion(QRect(geometry.topLeft() - origin, geometry.size()))
+        settings = getattr(owner, '_settings_process', None)
+        if settings is not None and not settings.occlusion.isEmpty():
+            region -= QRegion(settings.occlusion.translated(-origin))
         self.window.setMask(region)
         return not region.isEmpty()
 

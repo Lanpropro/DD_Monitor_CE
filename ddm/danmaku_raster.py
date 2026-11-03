@@ -1,4 +1,4 @@
-"""Thread-local image painting for resized video comments; no QWidget or QPixmap access."""
+"""Thread-local image painting for video comments; no QWidget or QPixmap access."""
 import math
 
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, Qt, QUrl, Signal
@@ -132,6 +132,8 @@ class CommentRasterJob(QRunnable):
         try:
             images = []
             for identifier, key, text, color, runs, self_sent in self.rows:
+                if key is None:
+                    key = self.renderer.key(text, color, runs, self_sent)
                 images.append((identifier, key, self.renderer._render_content(
                     text, color, runs, self_sent)))
             result = images

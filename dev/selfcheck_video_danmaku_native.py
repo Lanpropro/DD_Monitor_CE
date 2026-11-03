@@ -22,6 +22,7 @@ from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
 from selfcheck_video_danmaku import Client
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 def settle(app, seconds=.15):
@@ -37,6 +38,7 @@ def show_comment(tile, opacity):
     overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False,
                                 video_danmaku_size=32, video_danmaku_opacity=opacity))
     assert overlay.add_event({"text": "这是直播画面弹幕", "color": "#ffffff"})
+    wait_comment_raster(QApplication.instance(), overlay)
     overlay.set_paused(True)
     overlay.comments[0].x = 30
     overlay.comments[0].lane = 2

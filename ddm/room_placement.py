@@ -15,6 +15,10 @@ class RoomPlacement:
 
     def drop_room(self, tile, room_id: str, *, room=None) -> None:
         host = self.host
+        try:
+            position = host.wall.tiles.index(tile) + 1
+        except ValueError:
+            return  # A queued drop may outlive a layout change that removed its target.
         room = room if room is not None else host._room_dict(room_id)
         if not room:
             print(f"拖入的直播间 {room_id} 查询失败")
@@ -26,7 +30,7 @@ class RoomPlacement:
             return
         if other is not None and other is not tile and host._hot_swap(other, tile):
             # 拖进来的这个直播间本来就在别的格子里：两边直接对调画面
-            print(f"{room.get('uname')} ↔ 第 {host.wall.tiles.index(tile) + 1} 个格子",
+            print(f"{room.get('uname')} ↔ 第 {position} 个格子",
                   file=sys.stderr, flush=True)
             return
         to_start = []
@@ -48,7 +52,7 @@ class RoomPlacement:
             if candidate not in restarted:
                 host.start_tile(candidate)
         host._refresh_meta()
-        print(f"{room.get('uname')} → 第 {host.wall.tiles.index(tile) + 1} 个格子")
+        print(f"{room.get('uname')} → 第 {position} 个格子")
 
     def swap_tiles(self, source_room_id: str, target_tile) -> None:
         """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。
@@ -120,11 +124,27 @@ class RoomPlacement:
             player.set_muted(tile.muted)
             player.set_audio_channel(int(tile.audio_channel))
             player.reapply_audio_channel()
-            tile.sync_audio_ui()            # 值换位了，音量条控件要跟着重画
-            tile.raise_overlays()
-        host.wall.relayout(force=True)         # 换完位置重新摆一遍
+        # Disabling paint alone still lets child HWNDs move with stale pixels
+        # while the composer is reparented. Apply each bar's layout only once.
+        bars = [(tile.bottom, tile.bottom.updatesEnabled(), tile.bottom.layout().isEnabled())
+                for tile in (source, target)]
+        for bar, _updates, _layout in bars:
+            bar.setUpdatesEnabled(False)
+            bar.layout().setEnabled(False)
+        try:
+            host.wall.relayout(force=True)         # 换完位置重新摆一遍
+            for tile in (source, target):
+                if host.players.get(tile) is not None:
+                    tile.sync_audio_ui()
+                tile.raise_overlays()
+        finally:
+            for bar, updates, layout in bars:
+                bar.layout().setEnabled(layout)
+                if layout:
+                    bar.layout().activate()
+                bar.setUpdatesEnabled(updates)
         for tile in (source, target):
-            tile.raise_overlays()
+            tile._refresh_moved_overlays()
         host._refresh_meta()
         print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",
               file=sys.stderr, flush=True)

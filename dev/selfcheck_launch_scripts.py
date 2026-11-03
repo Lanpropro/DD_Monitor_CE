@@ -85,6 +85,13 @@ def main():
             time.sleep(.05)
         assert (root / 'simulator.txt').read_text() == '--smoke'
         assert not (root / 'trace-enabled.txt').exists(), 'Simulator keeps its independent entry'
+        (root / 'dev/run_checks.py').write_text(
+            'from pathlib import Path\nimport sys\n'
+            'Path(__file__).resolve().parents[1].joinpath("cache-check.txt").write_text(" ".join(sys.argv[1:]))\n',
+            encoding='utf-8')
+        result = invoke(root / 'run.cmd', env, ('--check-image-cache',))
+        assert result.returncode == 0
+        assert (root / 'cache-check.txt').read_text() == '--script selfcheck_image_cache'
         # Missing interpreter errors must also be readable and report failure.
         for name in ("run.cmd", "run-console.cmd"):
             text = (root / name).read_text(encoding="utf-8").replace(

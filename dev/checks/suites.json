@@ -104,6 +104,8 @@
       "selfcheck_mobile_share",
       "selfcheck_setup",
       "selfcheck_data_paths",
+      "selfcheck_image_cache",
+      "selfcheck_ui_components",
       "selfcheck_logging",
       "selfcheck_qt_log",
       "selfcheck_system_tray"
@@ -126,6 +128,7 @@
       "selfcheck_window_resize",
       "selfcheck_display_transition",
       "selfcheck_video_danmaku_quick",
+      "selfcheck_settings_occlusion",
       "selfcheck_danmaku_render_thread",
       "selfcheck_smooth_edges"
     ]

@@ -4,11 +4,13 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 import shiboken6
 
 os.environ.setdefault('DDM_NO_SAVE', '1')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
 from PySide6.QtGui import QPalette
@@ -153,6 +155,75 @@ class ControlsTests(unittest.TestCase):
         self.assertNotIn(tile, self.manager._tiles)
         self.assertEqual(control.stops, 1)
 
+    def test_independent_fullscreen_moves_docked_input_and_preserves_drafts(self):
+        from ddm.fullscreen_presentation import FullscreenPresentation
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1400, 900)
+        host.wall = wall = WallGrid([{'room_id': '12'}, {'room_id': '13'},
+                                     {'room_id': '14'}], parent=host, layout_id='dm_main2')
+        wall.setGeometry(host.rect())
+        host.show()
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        main, small, _other = wall.tiles
+        drafts = {}
+        native_styles = {}
+        for tile in wall.tiles:
+            edit = tile._plugin_controls.entries[0].control.widget
+            edit.setText('draft-' + tile.room['room_id'])
+            edit.winId()  # Match composers that already have native input windows.
+            drafts[tile] = (edit, int(tile.video.winId()))
+            if APP.platformName() == 'windows':
+                import ctypes
+                from ctypes import wintypes
+                user32 = ctypes.windll.user32
+                user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+                for widget in (tile.bottom, tile.volume_label, tile.status_label, edit):
+                    native_styles[widget] = user32.GetWindowLongW(int(widget.winId()), -20) & 0x80000
+        presentation = FullscreenPresentation(host)
+        try:
+            for tile in (main, small, main):
+                presentation.enter(tile, QRect(-10000, -10000, 1100, 800))
+                APP.processEvents()
+                controls = tile._plugin_controls
+                edit, video_handle = drafts[tile]
+                self.assertIs(controls.widget.parentWidget(), tile.bottom)
+                self.assertTrue(edit.isVisible())
+                self.assertTrue(tile.bottom.rect().contains(controls.widget.geometry()))
+                self.assertTrue(wall.danmaku.composer_bar.isHidden())
+                self.assertEqual(int(tile.video.winId()), video_handle)
+                layout = tile._layout_areas
+                def restored_layout():
+                    if tile is main and not tile.property('fullscreen') and not tile._presentation_changing:
+                        self.assertIs(controls.widget.parentWidget(), wall.danmaku.composer_bar,
+                                      'Restore docking before the first normal bottom-bar layout')
+                    return layout()
+                from unittest.mock import patch
+                with patch.object(tile, '_layout_areas', side_effect=restored_layout):
+                    presentation.leave()
+                APP.processEvents()
+                self.assertIs(main._plugin_controls.widget.parentWidget(), wall.danmaku.composer_bar)
+                self.assertTrue(wall.danmaku.composer_bar.isVisible())
+                for pane, (editor, handle) in drafts.items():
+                    self.assertEqual(editor.text(), 'draft-' + pane.room['room_id'])
+                    self.assertEqual(int(pane.video.winId()), handle)
+                if APP.platformName() == 'windows':
+                    for widget in (tile.bottom, edit):
+                        self.assertEqual(user32.GetWindowLongW(int(widget.winId()), -20) & 0x80000,
+                                         native_styles[widget], widget.objectName())
+                    for label in (tile.volume_label, tile.status_label):
+                        self.assertFalse(label.testAttribute(Qt.WA_NativeWindow), label.objectName())
+                        self.assertFalse(label.internalWinId(), label.objectName())
+        finally:
+            presentation.leave()
+
     def test_danmaku_header_background_stays_inside_rounded_top_corners(self):
         host = QWidget()
         host.setObjectName('Root')
@@ -260,6 +331,148 @@ class ControlsTests(unittest.TestCase):
             self.assertEqual(self.controls[0].rooms[-1].get('room_id'), (room or {}).get('room_id'))
             self.assertEqual(self.controls[0].ctx.room.get('room_id'), (room or {}).get('room_id'))
         self.assertEqual(len(self.controls), 1)
+
+    def test_danmaku_swap_docks_input_before_new_geometry(self):
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1400, 900)
+        wall = WallGrid([{'room_id': '12'}, {'room_id': '13'}, {'room_id': '14'}],
+                        parent=host, layout_id='dm_main2')
+        wall.setGeometry(host.rect())
+        host.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        editors = {tile: tile._plugin_controls.entries[0].control.widget for tile in wall.tiles}
+        for tile, edit in editors.items():
+            edit.setText('draft-' + tile.room['room_id'])
+            edit.winId()
+            tile.status_label.winId()
+        from unittest.mock import patch
+        for _ in range(3):
+            wall.tiles[0], wall.tiles[1] = wall.tiles[1], wall.tiles[0]
+            target = wall.tiles[0]
+            layout = target._layout_areas
+            def checked_layout():
+                self.assertIs(target._plugin_controls.widget.parentWidget(), wall.danmaku.composer_bar,
+                              'Dock the new main input before resizing its native video/bar')
+                return layout()
+            with patch.object(target, '_layout_areas', side_effect=checked_layout):
+                wall.relayout(force=True)
+            self.assertIs(wall.danmaku._tile_controls, target._plugin_controls)
+            APP.processEvents()
+            for tile, edit in editors.items():
+                self.assertEqual(edit.text(), 'draft-' + tile.room['room_id'])
+                if APP.platformName() == 'windows' and tile in wall.tiles[:2]:
+                    self.assertFalse(tile.status_label.internalWinId(), tile.room['room_id'])
+
+    def test_hot_swap_refreshes_native_audio_controls_at_final_geometry(self):
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from ddm.room_placement import RoomPlacement
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 2400, 1300)
+        wall = WallGrid([{'room_id': '12', 'live': True, 'volume': 20},
+                         {'room_id': '13', 'live': True, 'volume': 40},
+                         {'room_id': '14'}], parent=host, layout_id='dm_main2')
+        wall.setGeometry(host.rect())
+        host.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        first, second = wall.tiles[:2]
+        expected_geometry = {first: QRect(second.geometry()), second: QRect(first.geometry())}
+        expected_volume = {first: second.volume, second: first.volume}
+        observed = []
+        moved = []
+        watched = {}
+        class PaintProbe(QObject):
+            def eventFilter(self, widget, event):
+                if event.type() == QEvent.Paint:
+                    tile = watched[widget]
+                    observed.append((widget, QRect(tile.geometry()), tile.volume_slider.value()))
+                elif event.type() == QEvent.Move:
+                    moved.append((widget, QRect(widget.geometry())))
+                return False
+        probe = PaintProbe(host)
+        with ExitStack() as stack:
+            for tile in (first, second):
+                original = tile.sync_audio_ui
+                def sync(tile=tile, original=original):
+                    self.assertEqual(tile.geometry(), expected_geometry[tile],
+                                     'Do not redraw new audio values in the previous slot geometry')
+                    return original()
+                stack.enter_context(patch.object(tile, 'sync_audio_ui', side_effect=sync))
+                for widget in (tile.pause_button, tile.volume_slider):
+                    widget.winId()
+                    watched[widget] = tile
+                    widget.installEventFilter(probe)
+            APP.processEvents()
+            observed.clear()
+            moved.clear()
+            control_geometry = {widget: QRect(widget.geometry()) for widget in watched}
+            placement = RoomPlacement(SimpleNamespace(wall=wall, players={first: Mock(), second: Mock()},
+                                                      _refresh_meta=Mock()))
+            self.assertTrue(placement.hot_swap(first, second))
+            if APP.platformName() == 'windows':
+                self.assertEqual({widget for widget, _rect, _value in observed}, set(watched),
+                                 'Flush every moved native button/slider before the swap returns')
+            for widget, rect, value in observed:
+                tile = watched[widget]
+                self.assertEqual(rect, expected_geometry[tile])
+                self.assertEqual(value, expected_volume[tile])
+            for widget, rect in moved:
+                self.assertEqual(rect, control_geometry[widget],
+                                 'Native audio controls must not visit intermediate composer layout positions')
+            for tile in (first, second):
+                self.assertFalse(tile._move_repaint_timer.isActive(), 'Swap must consume its queued repaint')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Read native geometry on Windows')
+    def test_swap_trace_preserves_native_state_and_excludes_input_text(self):
+        import json
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from dev.diagnose_control_swap import SwapTrace
+        from ddm.room_placement import RoomPlacement
+        self.register()
+        wall = WallGrid([{'room_id': '12', 'live': True}, {'room_id': '13', 'live': True}],
+                        layout_id='dm_main2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.setGeometry(-10000, -10000, 2400, 1300)
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        source, target = wall.tiles[:2]
+        source._plugin_controls.entries[0].control.widget.setText('private-unsent-message')
+        widgets = [source.bottom, source.volume_slider, source.volume_label]
+        native = [int(widget.internalWinId()) for widget in widgets]
+        with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
+            for owner, name in ((RoomPlacement, 'hot_swap'), (Tile, '_layout_bottom_controls'),
+                                (Tile, '_refresh_moved_overlays')):
+                stack.enter_context(patch.object(owner, name, getattr(owner, name)))
+            trace = SwapTrace(Path(root) / 'swap.jsonl')
+            trace.install()
+            self.addCleanup(APP.removeEventFilter, trace)
+            placement = RoomPlacement(SimpleNamespace(wall=wall,
+                players={source: Mock(), target: Mock()}, _refresh_meta=Mock()))
+            self.assertTrue(placement.hot_swap(source, target))
+            trace.finish()
+            payload = trace.path.read_text()
+            self.assertNotIn('private-unsent-message', payload)
+            rows = json.loads(payload)['events']
+            self.assertTrue(any(row['stage'] == 'swap:return' for row in rows))
+            self.assertEqual(native, [int(widget.internalWinId()) for widget in widgets])
 
     def test_failed_load_rolls_back_controls(self):
         self.tile({'room_id': '12'})

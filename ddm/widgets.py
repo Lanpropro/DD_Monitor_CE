@@ -1151,11 +1151,10 @@ class DanmakuPanel(QFrame):
         from .danmaku_actions import show_comment_menu
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()
-        try:
-            show_comment_menu(self, self._blocks[index], self._tile_controls, position)
-        finally:
+        def finished():
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
+        show_comment_menu(self, self._blocks[index], self._tile_controls, position, finished)
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
@@ -6344,17 +6343,23 @@ class Tile(QFrame):
             self.tileDropped.emit(source)
 
     def mousePressEvent(self, event) -> None:
-        self._press_pos = event.pos()
+        self._press_pos = event.pos() if event.button() == Qt.LeftButton else None
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         """拖动画面本身可以和其他格子交换位置。"""
         room_id = str(self.room.get("room_id") or "")
         if not room_id or not (event.buttons() & Qt.LeftButton):
+            self._press_pos = None
             return
         start = getattr(self, "_press_pos", None)
         if start is None or (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
+        self._press_pos = None
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            import ctypes
+            if not ctypes.windll.user32.GetAsyncKeyState(1) & 0x8000:
+                return  # A queued move can retain Qt's left-button flag after physical release.
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData(TILE_MIME, room_id.encode("utf-8"))
@@ -6639,7 +6644,7 @@ class Tile(QFrame):
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
-        offset = 0 if self.bottom.qt_composited else round(TILE_BAR_HEIGHT * self._bar_progress)
+        offset = round(TILE_BAR_HEIGHT * self._bar_progress)
         self.bottom.set_tile_geometry(0, self.height() - TILE_BAR_HEIGHT
                                       + offset,
                                       self.bottom.width(), self.bottom.height())
@@ -6768,10 +6773,16 @@ class Tile(QFrame):
 
     def _show_danmaku_actions(self, text, position):
         from .danmaku_actions import show_comment_menu
-        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position)
+        self.video_danmaku._menu_open = True
+        def finished():
+            self.video_danmaku._menu_open = False
+            self.video_danmaku._poll_hover()
+        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position, finished)
 
     def _open_clicked_danmaku(self, event):
         start = getattr(self, '_press_pos', None)
+        if event.button() == Qt.LeftButton:
+            self._press_pos = None
         position = event.globalPosition().toPoint()
         return (event.button() == Qt.LeftButton and start is not None
                 and (self.mapFromGlobal(position) - start).manhattanLength() < QApplication.startDragDistance()
@@ -6855,11 +6866,15 @@ class Tile(QFrame):
 
     def _refresh_moved_overlays(self) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
+        self._move_repaint_timer.stop()
         if not self.isVisible():
             return
         for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
                        self.controls, self.spinner, self.pause_overlay, self.bottom):
             if widget.isVisible():
+                widget.repaint()
+        for widget in self.bottom.findChildren(QWidget):
+            if widget.isVisible() and widget.testAttribute(Qt.WA_NativeWindow):
                 widget.repaint()
         self.update()
 
@@ -6910,8 +6925,7 @@ class Tile(QFrame):
         self.pause_overlay.move(
             max(0, (self.video.width() - self.pause_overlay.width()) // 2),
             max(8, (video_height - self.pause_overlay.height()) // 2))
-        bar_y = (height - TILE_BAR_HEIGHT + (0 if self.bottom.qt_composited else
-                                           round(TILE_BAR_HEIGHT * self._bar_progress))
+        bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * self._bar_progress)
                  if fullscreen else video_height)
         bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
         self.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
@@ -7993,12 +8007,12 @@ class WallGrid(QWidget):
         self.sync_sc_placement()
         if self._sidebar_animating:
             return
-        QTimer.singleShot(0, self._sync_danmaku_controls)
         if force:
             self._relayout_timer.stop()
             self._resize_timer.stop()
             self._resize_pending = False
         self.ensure_slots()          # 按布局补空位
+        self._sync_danmaku_controls()
         if not self.tiles:
             return
         layout = layouts.BY_ID.get(self.layout_id)     # 老配置可能存着已经删掉的布局
