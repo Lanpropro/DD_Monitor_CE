@@ -124,10 +124,13 @@ class RoomPlacement:
             player.set_muted(tile.muted)
             player.set_audio_channel(int(tile.audio_channel))
             player.reapply_audio_channel()
-        # Native controls must paint the final geometry and audio values together.
-        bars = [(tile.bottom, tile.bottom.updatesEnabled()) for tile in (source, target)]
-        for bar, _enabled in bars:
+        # Disabling paint alone still lets child HWNDs move with stale pixels
+        # while the composer is reparented. Apply each bar's layout only once.
+        bars = [(tile.bottom, tile.bottom.updatesEnabled(), tile.bottom.layout().isEnabled())
+                for tile in (source, target)]
+        for bar, _updates, _layout in bars:
             bar.setUpdatesEnabled(False)
+            bar.layout().setEnabled(False)
         try:
             host.wall.relayout(force=True)         # 换完位置重新摆一遍
             for tile in (source, target):
@@ -135,8 +138,11 @@ class RoomPlacement:
                     tile.sync_audio_ui()
                 tile.raise_overlays()
         finally:
-            for bar, enabled in bars:
-                bar.setUpdatesEnabled(enabled)
+            for bar, updates, layout in bars:
+                bar.layout().setEnabled(layout)
+                if layout:
+                    bar.layout().activate()
+                bar.setUpdatesEnabled(updates)
         for tile in (source, target):
             tile._refresh_moved_overlays()
         host._refresh_meta()

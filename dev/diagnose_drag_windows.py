@@ -413,5 +413,9 @@ if __name__ == '__main__':
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)
     recorder.install()
+    if os.environ.get('DDM_CONTROL_SWAP_CAPTURE') == '1':
+        from dev.diagnose_control_swap import SwapTrace
+        swap_trace = SwapTrace(ROOT / 'logs' / 'control-swap.jsonl')
+        swap_trace.install()
     print('Window diagnostics:', path, file=sys.stderr, flush=True)
     runpy.run_path(str(ROOT / 'main.py'), run_name='__main__')

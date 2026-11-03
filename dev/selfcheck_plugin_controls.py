@@ -393,12 +393,15 @@ class ControlsTests(unittest.TestCase):
         expected_geometry = {first: QRect(second.geometry()), second: QRect(first.geometry())}
         expected_volume = {first: second.volume, second: first.volume}
         observed = []
+        moved = []
         watched = {}
         class PaintProbe(QObject):
             def eventFilter(self, widget, event):
                 if event.type() == QEvent.Paint:
                     tile = watched[widget]
                     observed.append((widget, QRect(tile.geometry()), tile.volume_slider.value()))
+                elif event.type() == QEvent.Move:
+                    moved.append((widget, QRect(widget.geometry())))
                 return False
         probe = PaintProbe(host)
         with ExitStack() as stack:
@@ -415,6 +418,8 @@ class ControlsTests(unittest.TestCase):
                     widget.installEventFilter(probe)
             APP.processEvents()
             observed.clear()
+            moved.clear()
+            control_geometry = {widget: QRect(widget.geometry()) for widget in watched}
             placement = RoomPlacement(SimpleNamespace(wall=wall, players={first: Mock(), second: Mock()},
                                                       _refresh_meta=Mock()))
             self.assertTrue(placement.hot_swap(first, second))
@@ -425,8 +430,49 @@ class ControlsTests(unittest.TestCase):
                 tile = watched[widget]
                 self.assertEqual(rect, expected_geometry[tile])
                 self.assertEqual(value, expected_volume[tile])
+            for widget, rect in moved:
+                self.assertEqual(rect, control_geometry[widget],
+                                 'Native audio controls must not visit intermediate composer layout positions')
             for tile in (first, second):
                 self.assertFalse(tile._move_repaint_timer.isActive(), 'Swap must consume its queued repaint')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Read native geometry on Windows')
+    def test_swap_trace_preserves_native_state_and_excludes_input_text(self):
+        import json
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from dev.diagnose_control_swap import SwapTrace
+        from ddm.room_placement import RoomPlacement
+        self.register()
+        wall = WallGrid([{'room_id': '12', 'live': True}, {'room_id': '13', 'live': True}],
+                        layout_id='dm_main2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.setGeometry(-10000, -10000, 2400, 1300)
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        source, target = wall.tiles[:2]
+        source._plugin_controls.entries[0].control.widget.setText('private-unsent-message')
+        widgets = [source.bottom, source.volume_slider, source.volume_label]
+        native = [int(widget.internalWinId()) for widget in widgets]
+        with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
+            for owner, name in ((RoomPlacement, 'hot_swap'), (Tile, '_layout_bottom_controls'),
+                                (Tile, '_refresh_moved_overlays')):
+                stack.enter_context(patch.object(owner, name, getattr(owner, name)))
+            trace = SwapTrace(Path(root) / 'swap.jsonl')
+            trace.install()
+            self.addCleanup(APP.removeEventFilter, trace)
+            placement = RoomPlacement(SimpleNamespace(wall=wall,
+                players={source: Mock(), target: Mock()}, _refresh_meta=Mock()))
+            self.assertTrue(placement.hot_swap(source, target))
+            trace.finish()
+            payload = trace.path.read_text()
+            self.assertNotIn('private-unsent-message', payload)
+            rows = json.loads(payload)['events']
+            self.assertTrue(any(row['stage'] == 'swap:return' for row in rows))
+            self.assertEqual(native, [int(widget.internalWinId()) for widget in widgets])
 
     def test_failed_load_rolls_back_controls(self):
         self.tile({'room_id': '12'})
