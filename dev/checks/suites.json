@@ -9,8 +9,7 @@
       "selfcheck_check_runner",
       "selfcheck_readme",
       "selfcheck_appearance_design",
-      "selfcheck_customization_plan",
-      "selfcheck_website_plan"
+      "selfcheck_customization_plan"
     ]
   },
   "smoke": {

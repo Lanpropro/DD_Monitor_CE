@@ -22,7 +22,7 @@
 | 版本记录 | [0.5](releases/RELEASE-v0.5.md)、[0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
 | 功能补充 | [B 站醒目留言显示](releases/RELEASE-v0.5.2-super-chat.md)、待合入基于 v0.5.2 的醒目留言支持 |
 | 第三方来源 | [NOTICE](NOTICE.md)、[许可证](../LICENSE) |
-| 规划 | [自定义规划](customization-plan.md)、[独立网站历史规划](website-plan.md) |
+| 规划 | [自定义规划](customization-plan.md) |
 | 历史反馈 | [2026-10-02 问题记录](archive/BUG-STATUS-2026-10-02.md)，含当时未确认事项，不等于当前状态 |
 | 仓库整理 | [文件分类](repository-map.md)、[删除与保留审查](archive/repository-cleanup-review.md) |
 | 历史归档 | [问题、PR 测试与整理过程](archive/README.md) |
