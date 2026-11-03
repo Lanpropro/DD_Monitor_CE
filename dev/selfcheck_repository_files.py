@@ -35,6 +35,16 @@ REQUIRED = (
 
 
 class RepositoryFilesTests(unittest.TestCase):
+    def test_website_cleanup_preserves_screenshots(self):
+        self.assertFalse((ROOT / 'publish.cmd').exists())
+        self.assertFalse((ROOT / 'docs/website-plan.md').exists())
+        tracked = subprocess.check_output(['git', 'ls-files', 'website-prototype'], cwd=ROOT)
+        self.assertFalse(tracked)
+        archive = ROOT / 'docs/archive/website-screenshots'
+        self.assertEqual(len(list(archive.rglob('*.png'))), 3)
+        self.assertEqual(len(list(archive.rglob('*.jpg'))), 7)
+        self.assertEqual(len(list((ROOT / 'docs').glob('overview*.png'))), 7)
+
     def test_local_material_is_not_in_source_manifest(self):
         tracked = subprocess.check_output(
             ["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")

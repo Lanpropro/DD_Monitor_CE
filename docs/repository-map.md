@@ -371,7 +371,6 @@
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
-- `dev/selfcheck_website_plan.py`
 - `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
 
@@ -428,7 +427,6 @@
 - `CONTRIBUTING.md`
 - `LICENSE`
 - `README.md`
-- `publish.cmd`
 
 ### 检查入口与分类
 
@@ -463,28 +461,6 @@
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/UNRELEASED.md`
 
-### 独立网站原型
-
-- `website-prototype/.gitignore`
-- `website-prototype/README.md`
-- `website-prototype/app.js`
-- `website-prototype/assets/hero-main.jpg`
-- `website-prototype/assets/logo.svg`
-- `website-prototype/assets/tile-danmaku.jpg`
-- `website-prototype/assets/tile-game.jpg`
-- `website-prototype/assets/tile-portrait.jpg`
-- `website-prototype/assets/wall-danmaku.jpg`
-- `website-prototype/assets/wall-landscape.jpg`
-- `website-prototype/assets/wall-portrait.jpg`
-- `website-prototype/build_assets.py`
-- `website-prototype/capture.mjs`
-- `website-prototype/index.html`
-- `website-prototype/shots/desktop.png`
-- `website-prototype/shots/hero.png`
-- `website-prototype/shots/mobile.png`
-- `website-prototype/styles.css`
-- `website-prototype/test_prototype.py`
-
 ### 资源与发布辅助工具
 
 - `dev/tools/README.md`
@@ -511,7 +487,19 @@
 - `docs/resize-performance.md`
 - `docs/room-presets-design.md`
 - `docs/skins.md`
-- `docs/website-plan.md`
+
+### 网站原型截图归档
+
+- `docs/archive/website-screenshots/assets/hero-main.jpg`
+- `docs/archive/website-screenshots/assets/tile-danmaku.jpg`
+- `docs/archive/website-screenshots/assets/tile-game.jpg`
+- `docs/archive/website-screenshots/assets/tile-portrait.jpg`
+- `docs/archive/website-screenshots/assets/wall-danmaku.jpg`
+- `docs/archive/website-screenshots/assets/wall-landscape.jpg`
+- `docs/archive/website-screenshots/assets/wall-portrait.jpg`
+- `docs/archive/website-screenshots/shots/desktop.png`
+- `docs/archive/website-screenshots/shots/hero.png`
+- `docs/archive/website-screenshots/shots/mobile.png`
 
 ## 仅本机存在的其他资料
 

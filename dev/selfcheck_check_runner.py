@@ -26,7 +26,7 @@ class CheckRunnerTests(unittest.TestCase):
             'selfcheck_repository_files', 'selfcheck_project_workflow',
             'selfcheck_repository_map', 'selfcheck_check_runner',
             'selfcheck_readme', 'selfcheck_appearance_design',
-            'selfcheck_customization_plan', 'selfcheck_website_plan'])
+            'selfcheck_customization_plan'])
         for name in suites['repository']['scripts']:
             source = (runner.ROOT / 'dev' / (name + '.py')).read_text(encoding='utf-8')
             for node in ast.walk(ast.parse(source)):

@@ -6,7 +6,7 @@
 | --- | --- |
 | `ddm/`、`blivedm/`、`assets/` | 已跟踪的软件代码与资源 |
 | `dev/`、`docs/` | 开发维护工具、检查与文档，按各自索引使用 |
-| `website-prototype/` | 独立网站原型，单独维护任务范围 |
+| `docs/archive/website-screenshots/` | 已清理的网站原型截图及裁切图片，保留供历史参考 |
 | `libmpv-2.dll` | 当前播放运行库，保留在应用查找位置；由 `dev/fetch_mpv.py` 校验获取 |
 | `plugins_user/` | 模板、开发源码与本机安装副本混合存放；安装副本的改动应在独立插件仓库追踪 |
 | `utils/`、`cache/`、`logs/`、`recordings/` | 本机配置、账号、缓存、日志和录像；保持现有读取路径与 Git 忽略规则 |
