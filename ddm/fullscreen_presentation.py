@@ -26,6 +26,8 @@ class FullscreenPresentation(QObject):
         wall._relayout_timer.stop()
         wall._resize_timer.stop()
         wall.fullscreen_tile = tile
+        tile.hide()
+        wall._sync_danmaku_controls()
         for pane, visible in self._visible:
             if pane is not tile and visible:
                 pane.hide()
@@ -55,12 +57,21 @@ class FullscreenPresentation(QObject):
         tile.raise_()
         if not tile.testAttribute(Qt.WA_ShowWithoutActivating):
             tile.activateWindow()
+        dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
+        if dialog is not None:
+            dialog.set_presentation_owner(tile)
+            if dialog.isVisible():
+                dialog.raise_()
 
     def leave(self):
         tile = self.tile
         if tile is None:
             return
         wall = self.window.wall
+        dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
+        if dialog is not None:
+            # Detach before changing the tile's native window flags on exit.
+            dialog.set_presentation_owner(self.window)
         tile.removeEventFilter(self)
         self.tile = None
         tile._presentation_changing = True
@@ -76,8 +87,9 @@ class FullscreenPresentation(QObject):
             tile.setGeometry(self._geometry)
         finally:
             tile._presentation_changing = False
-        tile._layout_areas()
         wall.fullscreen_tile = None
+        wall._sync_danmaku_controls()
+        tile._layout_areas()
         for pane, visible in self._visible:
             pane.setVisible(visible)
         for border in self._borders:
@@ -88,6 +100,8 @@ class FullscreenPresentation(QObject):
         self._visible = self._borders = []
         if self.window.isVisible() and not self.window.testAttribute(Qt.WA_ShowWithoutActivating):
             self.window.activateWindow()
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
 
     def eventFilter(self, watched, event):
         tile = self.tile

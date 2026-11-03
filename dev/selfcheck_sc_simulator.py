@@ -12,14 +12,149 @@ from ddm import motion
 from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtCore import QRectF
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 APP = QApplication.instance() or QApplication([])
 
 
+@unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows', 'Native Windows SC surface')
+class NativeSurfaceTests(unittest.TestCase):
+    def test_left_card_pixels_and_owner_lifecycle(self):
+        from ddm.widgets import Tile
+        from dev.selfcheck_fullscreen_controls import native_bar_image
+        class SettingsMask(QObject):
+            occlusionChanged = Signal()
+            occlusion = QRect()
+        host = QWidget()
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1240, 760)
+        host._settings_process = SettingsMask(host)
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        tile = Tile({'room_id': '1', 'uname': 'Native title', 'live': True}, host)
+        tile.setGeometry(0, 0, 1200, 700)
+        host.show()
+        tile.set_video_active(True)
+        tile.danmaku_button.setChecked(True)
+        tile.video_danmaku.set_native_video(True)
+        tile.set_controls_visible(True)
+        owner = tile.video_danmaku
+        owner.apply_settings({'super_chat_opacity': 100, 'super_chat_collapse_delay': 60})
+        now = int(time.time())
+        owner.set_super_chats([dict(kind='super_chat', id='native', uid='1', uname='Native SC', price=30,
+            message='SC body pixels', start_time=now, end_time=now + 120)])
+        sc = owner.super_chat_overlay
+        sc.presentation.entrance.stop()
+        sc.presentation.progress = 1.0
+        for position in ([0, 0], [1, 0], [0, .5], [0, 0]):
+            owner.settings['super_chat_position'] = position
+            sc._refresh()
+            QTest.qWait(60)
+            image = native_bar_image(sc)
+            expected = sc.render_image()
+            scale = sc.devicePixelRatioF()
+            for x, y in ((80, 5), (80, 75), (200, 75), (310, 75)):
+                point = QPoint(round(x * scale), round(y * scale))
+                self.assertEqual(image.pixelColor(point), expected.pixelColor(point),
+                                 f'Native SC pixels must match their own source at {position}, {point}')
+        self.assertTrue(sc.isWindow())
+        geometry = tile.geometry()
+        for fullscreen in (True, False):
+            tile.hide()
+            tile.setWindowFlags((Qt.Window | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+                                if fullscreen else Qt.Widget)
+            tile.setGeometry(QRect(-9000, -9000, 1200, 700) if fullscreen else geometry)
+            tile.show()
+            QTest.qWait(60)
+            self.assertEqual(sc.pos(), owner.mapToGlobal(sc._content_origin))
+            self.assertIs(sc.windowHandle().transientParent(), tile.window().windowHandle())
+        for move in (lambda: host.move(host.pos() + QPoint(70, 40)),
+                     lambda: tile.move(15, 10)):
+            move()
+            QTest.qWait(60)
+            self.assertEqual(sc.pos(), owner.mapToGlobal(sc._content_origin))
+        region = QRect(sc.pos(), sc.size())
+        host._settings_process.occlusion = region
+        host._settings_process.occlusionChanged.emit()
+        QTest.qWait(60)
+        self.assertFalse(sc.isVisible(), 'External settings must cover the SC surface')
+        host._settings_process.occlusion = QRect()
+        host._settings_process.occlusionChanged.emit()
+        QTest.qWait(60)
+        self.assertTrue(sc.isVisible())
+        host.hide()
+        QTest.qWait(60)
+        self.assertFalse(sc.isVisible())
+        host.show()
+        QTest.qWait(60)
+        self.assertTrue(sc.isVisible())
+        self.assertIs(sc.windowHandle().transientParent(), host.windowHandle())
+        from PySide6.QtWidgets import QDialog
+        dialog = QDialog(host)
+        dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.setGeometry(-9900, -9900, 700, 500)
+        dialog.show()
+        sc._refresh()
+        self.assertFalse(sc.isVisible(), 'SC must stay behind modal settings')
+        dialog.close()
+        sc._refresh()
+        self.assertTrue(sc.isVisible())
+        start = sc.card_rects()[0].topLeft().toPoint() + QPoint(60, 16) - sc._content_origin
+        QTest.mousePress(sc, Qt.LeftButton, pos=start)
+        QTest.mouseMove(sc, start + QPoint(70, 35))
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=start + QPoint(70, 35))
+        self.assertNotEqual(owner.settings['super_chat_position'], [0, 0])
+        corner = sc.card_rects()[0].bottomRight().toPoint() - sc._content_origin - QPoint(3, 3)
+        QTest.mousePress(sc, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(sc, corner + QPoint(45, 0))
+        QTest.mouseRelease(sc, Qt.LeftButton, pos=corner + QPoint(45, 0))
+        self.assertGreater(owner.settings['super_chat_scale'], 100)
+        sc.presentation.collapse()
+        point = sc.card_rects()[0].center().toPoint() - sc._content_origin
+        QTest.mouseClick(sc, Qt.LeftButton, pos=point)
+        self.assertFalse(sc.presentation.collapsed)
+        dismissed = []
+        sc.dismissed.connect(dismissed.append)
+        QTest.mouseClick(sc.close_button, Qt.LeftButton)
+        self.assertEqual(dismissed, [])
+        self.assertTrue(sc.presentation.is_collapsed('native'))
+        QTest.mouseClick(sc.close_button, Qt.LeftButton)
+        self.assertEqual(dismissed, ['native'])
+
+    def test_diagnostic_capture_does_not_change_sc_geometry(self):
+        from contextlib import ExitStack
+        import json
+        import tempfile
+        from dev.diagnose_super_chat import SuperChatTrace
+        from ddm.video_danmaku import SuperChatOverlay
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            for name in ('sync', 'paintEvent', '_paint_layered', '_render_layered'):
+                stack.enter_context(patch.object(SuperChatOverlay, name, getattr(SuperChatOverlay, name)))
+            trace = SuperChatTrace(Path(directory))
+            trace.install()
+            self.test_left_card_pixels_and_owner_lifecycle()
+            rows = [json.loads(line) for line in (Path(directory) / 'events.jsonl').read_text().splitlines()]
+            images = [Path(directory) / row['sourceImage'] for row in rows if 'sourceImage' in row]
+            self.assertTrue(images)
+            self.assertTrue(all(not QImage(str(path)).isNull() for path in images))
+            self.assertLessEqual(len(rows), 300)
+
+
 class SimulatorTests(unittest.TestCase):
+    def test_restored_danmaku_toggle_does_not_mask_an_unfinished_tile(self):
+        from ddm.widgets import Tile
+        with patch('sys.excepthook') as errors:
+            tile = Tile({'room_id': 'fixture', 'video_danmaku_enabled': True})
+            try:
+                self.assertTrue(tile.video_danmaku.enabled)
+                self.assertFalse(errors.called, 'SC must not access controls before Tile finishes construction')
+            finally:
+                tile.close()
+
     def test_schematic_preview_opacity_and_compact_controls(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
@@ -294,6 +429,10 @@ class SimulatorTests(unittest.TestCase):
             self.assertLess(first.geometry().bottom(), second.y())
             self.assertTrue(first.close_button.isVisible())
         self.click(stack._cards[3].close_button)
+        self.assertEqual([chat['id'] for chat in stack._events], expected)
+        self.assertEqual(stack.presentation.collapsed_ids, {'2'})
+        self.assertEqual(stack._cards[3].close_button.toolTip(), '关闭这条醒目留言')
+        self.click(stack._cards[3].close_button)
         expected.remove('2')
         self.assertEqual([chat['id'] for chat in stack._events], expected)
         window.layout_choice.setCurrentIndex(1)
@@ -304,6 +443,10 @@ class SimulatorTests(unittest.TestCase):
         for first, second in zip(sc.card_rects(), sc.card_rects()[1:]):
             self.assertLess(first.bottom(), second.top())
         self.click(sc.close_buttons[3])
+        self.assertEqual([chat['id'] for chat in sc.chats], expected)
+        self.assertEqual(sc.presentation.collapsed_ids, {'1'})
+        self.assertEqual(sc.close_buttons[3].toolTip(), '关闭这条醒目留言')
+        self.click(sc.close_buttons[3])
         expected.remove('1')
         self.assertEqual([chat['id'] for chat in sc.chats], expected)
 
@@ -311,6 +454,10 @@ class SimulatorTests(unittest.TestCase):
         window = self.window
         window.number.setValue(2)
         self.click(window.add_button)
+        self.click(window.wall.danmaku.super_chats._cards[0].close_button)
+        self.assertEqual(len(window.store.active()), 2)
+        window.publish()
+        self.assertTrue(window.wall.danmaku.super_chats.presentation.is_collapsed('1'))
         self.click(window.wall.danmaku.super_chats._cards[0].close_button)
         self.assertIn('1', window.store.items)
         self.assertEqual([chat['id'] for chat in window.store.active()], ['2'])
@@ -320,6 +467,8 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual([chat['id'] for chat in window.store.active()], ['2'])
         QTest.qWait(300)
         window.layout_choice.setCurrentIndex(1)
+        self.click(window.tile.video_danmaku.super_chat_overlay.close_button)
+        self.assertEqual(len(window.store.active()), 1)
         self.click(window.tile.video_danmaku.super_chat_overlay.close_button)
         self.assertFalse(window.store.active())
 
@@ -348,12 +497,16 @@ class SimulatorTests(unittest.TestCase):
             sc.presentation.entrance.setCurrentTime(180)
             self.assertEqual(sc.presentation.progress, 1)
             self.click(sc.close_buttons[1])
+            self.assertIsNone(sc._paper, 'Collapse must not dismiss or animate removal')
+            self.assertEqual(len(window.store.active()), 2)
+            self.click(sc.close_buttons[1])
             self.assertIsNotNone(sc._paper)
             sc.animation.setCurrentTime(120)
             self.assertGreater(sc._progress, 0)
             sc.animation.setCurrentTime(240)
             APP.processEvents()
             self.assertEqual([chat['id'] for chat in sc.chats], ['1'])
+            self.click(sc.close_button)
             self.click(sc.close_button)
             sc.animation.setCurrentTime(240)
             self.assertTrue(sc.isHidden())
@@ -363,6 +516,7 @@ class SimulatorTests(unittest.TestCase):
         self.click(window.add_button)
         stack = window.wall.danmaku.super_chats
         self.assertEqual(stack.presentation.progress, 1)
+        self.click(stack._cards[0].close_button)
         self.click(stack._cards[0].close_button)
         stack._cards[0].animation.setCurrentTime(240)
         self.assertTrue(stack.isHidden())
@@ -685,6 +839,8 @@ def check_native_alpha():
         window.screen().grabWindow(0, point.x(), point.y(), window.width(), window.height()).save(str(output))
         closing = time.perf_counter()
         with patch.object(motion, 'enabled', return_value=True):
+            sc.close_button.click()
+            assert sc.presentation.is_collapsed(sc.chats[0]), 'First click only collapses'
             sc.close_button.click()
         close_ms = (time.perf_counter() - closing) * 1000
         for index in range(20):

@@ -6,7 +6,7 @@ import sys
 from time import perf_counter
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
@@ -30,6 +30,16 @@ class SuperChatOverlay(BadgeSurface):
         self.setObjectName("SuperChatOverlay")
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        if self.qt_composited:
+            # Keep SC pixels out of the video's shared native-child backing store.
+            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+            self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._followed_widgets = set()
+        self._settings_process = None
+        self._surface_occluded = False
+        self._follow_timer = QTimer(self)
+        self._follow_timer.setSingleShot(True)
+        self._follow_timer.timeout.connect(self._refresh)
         self.setMouseTracking(True)
         self.setCursor(Qt.OpenHandCursor)
         self.setToolTip('拖动标题移动，拖动边角缩放；折叠后点击展开')
@@ -64,12 +74,53 @@ class SuperChatOverlay(BadgeSurface):
 
     def _dismiss(self, index):
         if index < len(self.chats):
-            self.dismissed.emit(str(self.chats[index]['id']))
+            chat_id = str(self.chats[index]['id'])
+            if self.presentation.is_collapsed(chat_id):
+                self.dismissed.emit(chat_id)
+            else:
+                self.presentation.collapse(chat_id)
 
     def bind(self, owner):
         self._video_danmaku = owner
         self.setParent(owner.parentWidget())
         self.sync(owner)
+
+    @property
+    def qt_composited(self):
+        return sys.platform == 'win32' and QApplication.platformName() == 'windows'
+
+    def _follow_owner(self, owner):
+        parent = owner.parentWidget() or owner
+        window = parent.window()
+        widgets = {parent, window}
+        for widget in self._followed_widgets - widgets:
+            widget.removeEventFilter(self)
+        for widget in widgets - self._followed_widgets:
+            widget.installEventFilter(self)
+        self._followed_widgets = widgets
+        handle = self.windowHandle()
+        if handle is not None and window.windowHandle() is not None:
+            handle.setTransientParent(window.windowHandle())
+        host = parent
+        while host.parentWidget() is not None:
+            host = host.parentWidget()
+        process = getattr(host, '_settings_process', None)
+        if process is not self._settings_process:
+            if self._settings_process is not None:
+                self._settings_process.occlusionChanged.disconnect(self._queue_follow)
+            self._settings_process = process
+            if process is not None:
+                process.occlusionChanged.connect(self._queue_follow)
+
+    def _queue_follow(self):
+        self._follow_timer.start(0)
+
+    def eventFilter(self, watched, event):
+        if watched in self._followed_widgets and event.type() in (
+                QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide, QEvent.WindowStateChange,
+                QEvent.WindowActivate, QEvent.WindowDeactivate):
+            self._queue_follow()
+        return super().eventFilter(watched, event)
 
     def sync(self, owner):
         if self._video_danmaku is not owner:
@@ -82,7 +133,12 @@ class SuperChatOverlay(BadgeSurface):
             bounds |= rect.toAlignedRect()
         bounds = bounds.adjusted(-1, -1, 1, 1).intersected(owner.rect())
         self._content_origin = bounds.topLeft()
-        self.setGeometry(QRect(owner.pos() + bounds.topLeft(), bounds.size()))
+        if self.qt_composited:
+            self._follow_owner(owner)
+            position = owner.mapToGlobal(bounds.topLeft())
+        else:
+            position = owner.pos() + bounds.topLeft()
+        self.setGeometry(QRect(position, bounds.size()))
         region = QRegion()
         for rect in rects:
             region |= QRegion(rect.toAlignedRect().adjusted(-1, -1, 1, 1))
@@ -91,6 +147,9 @@ class SuperChatOverlay(BadgeSurface):
         if not video.isEmpty():
             region &= video
         region.translate(-self._content_origin)
+        if self.qt_composited and self._settings_process is not None:
+            region -= QRegion(self._settings_process.occlusion.translated(-position))
+        self._surface_occluded = region.isEmpty()
         if region != self.mask():
             self.setMask(region)
         scale = self._paint_scale
@@ -99,6 +158,9 @@ class SuperChatOverlay(BadgeSurface):
                               and self.presentation.progress == 1.0)
             button.setFixedSize(max(12, round(22 * scale)), max(12, round(22 * scale)))
             if index < len(rects):
+                action = '关闭' if self.presentation.is_collapsed(self.chats[index]) else '收起'
+                button.setToolTip(f'{action}这条醒目留言')
+                button.setAccessibleName(f'{action}醒目留言')
                 button.move(rects[index].topRight().toPoint() - self._content_origin
                             + QPoint(round(-26 * scale), round(7 * scale)))
 
@@ -136,6 +198,10 @@ class SuperChatOverlay(BadgeSurface):
             return
         was_visible = self.isVisible()
         visible = bool(self.chats) and owner.sc_visible()
+        if self.qt_composited:
+            parent = owner.parentWidget() or owner
+            visible = (visible and parent.isVisible() and not parent.window().isMinimized()
+                       and QApplication.activeModalWidget() is None)
         if self.chats:
             self.sync(owner)
             for chat, button in zip(self.chats, self.close_buttons):
@@ -144,13 +210,11 @@ class SuperChatOverlay(BadgeSurface):
                          f'color:{colour};font-size:{round(18 * self._paint_scale)}px;padding:0;}}')
                 if style != button.styleSheet():
                     button.setStyleSheet(style)
-        self.setVisible(visible)
+        self.setVisible(visible and not self._surface_occluded)
         if visible and not was_visible:
             self.raise_()
         self._refresh_quick_mask()
         self.update()
-        if visible and sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            self._schedule_layered_paint()
 
     def _corner(self, point):
         rects = self.card_rects()
@@ -289,6 +353,8 @@ class SuperChatOverlay(BadgeSurface):
 
     def _refresh_quick_mask(self):
         owner = self._video_danmaku
+        if owner is None or owner._quick_group is None:
+            return  # Restoring the toggle can run before Tile creates its controls.
         tile = owner.parentWidget() if owner is not None else None
         refresh = getattr(tile, '_update_quick_danmaku_mask', None)
         if refresh is not None:
@@ -323,9 +389,10 @@ class SuperChatOverlay(BadgeSurface):
         painter.translate(0, 6 * (1 - self.presentation.progress))
         painter.drawImage(QPoint(), layer)
         painter.restore()
-        for button in self.close_buttons:
-            if button.isVisible():
-                button.render(painter, button.pos())
+        if painter.device() is not self:
+            for button in self.close_buttons:
+                if button.isVisible():
+                    button.render(painter, button.pos())
 
     def _layered_render_key(self):
         fields = ('id', 'uname', 'face', 'message', 'price', 'background_color', 'background_bottom_color', 'background_price_color')
@@ -348,10 +415,6 @@ class SuperChatOverlay(BadgeSurface):
         return image
 
     def paintEvent(self, event):
-        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            if self.isVisible():
-                self._schedule_layered_paint()
-            return
         painter = QPainter(self)
         self._render_layered(painter)
         painter.end()
@@ -360,6 +423,8 @@ class SuperChatOverlay(BadgeSurface):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             self.setAttribute(Qt.WA_NativeWindow, True)
         super().showEvent(event)
+        if self.qt_composited and self._video_danmaku is not None:
+            self._follow_owner(self._video_danmaku)
 
     def hideEvent(self, event):
         self._gesture = None
@@ -428,6 +493,7 @@ class VideoDanmaku(QWidget):
         self.settings = {}
         self._comment_width = self.width()
         self.comments: list[_Comment] = []
+        self._pending_comments = {}
         self._comment_resize_timer = QTimer(self)
         self._comment_resize_timer.setSingleShot(True)
         self._comment_resize_timer.timeout.connect(self._queue_comment_raster)
@@ -517,12 +583,7 @@ class VideoDanmaku(QWidget):
         if comment is None:
             return False
         self._set_hover(comment)
-        self._menu_open = True
-        try:
-            self.actionsRequested.emit(comment.event, position)
-        finally:
-            self._menu_open = False
-            self._poll_hover()
+        self.actionsRequested.emit(comment.event, position)
         return True
 
     def apply_settings(self, settings: dict) -> None:
@@ -614,14 +675,14 @@ class VideoDanmaku(QWidget):
 
     def _sync_visible(self) -> None:
         visible = self.enabled and self.active
-        self.super_chat_overlay.setVisible(self.sc_visible() and
-            bool(self.super_chats))
+        self.super_chat_overlay._refresh()
         if not visible:
             # Erase the native backing while still visible. Hiding first leaves
             # its last rendered comments cached until the next asynchronous paint.
             self._set_hover(None)
             self._stop_timer()
             self.comments.clear()
+            self._pending_comments.clear()
             if self._quick_layer is not None and self._quick_group is not None:
                 self._quick_layer.clear_group(self._quick_group)
             self._last_tick = 0.0
@@ -659,31 +720,40 @@ class VideoDanmaku(QWidget):
         return max(0, int(self.height() * area / 100) // self.lane_height())
 
     def add_event(self, event: dict) -> bool:
+        """Accept a comment for bounded background painting; admit it when ready."""
         kind = event.get("kind") or "danmaku"
         if kind == "super_chat":
             self.set_super_chats([*self.super_chats, event])
             return True
         if (not self.enabled or not self.active or self.paused or not self.isVisible()
                 or kind != "danmaku"
-                or len(self.comments) >= self.MAX_COMMENTS):
+                or len(self.comments) + len(self._pending_comments) >= self.MAX_COMMENTS):
             return False
         text = " ".join(str(event.get("text") or "").split())[:300]
         lanes = self.lane_count()
         if (not text and not event.get("emoticon")) or not lanes:
             return False
         self._tick()
-        if not any(self._lane_available(lane, 0) for lane in range(lanes)):
+        if sum(self._lane_available(lane, 0) for lane in range(lanes)) <= len(self._pending_comments):
             return False
         color = QColor(str(event.get("color") or "#ffffff"))
         if not color.isValid():
             color = QColor("#ffffff")
         runs = content_runs(dict(event, text=text))
         self_sent = bool(event.get("self_sent"))
-        image = self._render_content(text, color, runs, self_sent)
+        self._pending_comments[object()] = (text, color, runs, self_sent, dict(event))
+        self._comment_resize_timer.start(0)
+        for _, url in runs:
+            if url:
+                self._ensure_emoticon(url)
+        return True
+
+    def _admit_comment(self, image, key, text, color, runs, self_sent, event):
+        image = QPixmap.fromImage(image)
         width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
-        lane = next((lane for lane in range(lanes)
+        lane = next((lane for lane in range(self.lane_count())
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
@@ -695,7 +765,7 @@ class VideoDanmaku(QWidget):
                 self.attach_quick_layer(ensure_layer())
         comment = _Comment(image, float(self.width()), lane, speed, text, color, runs,
                            self_sent=self_sent, message=str(event.get('text') or ''), event=dict(event))
-        comment.raster_key = self._comment_renderer().key(text, color, runs, self_sent)
+        comment.raster_key = key
         comment.rasters[comment.raster_key] = image.toImage()
         if self._quick_layer is not None and self._quick_group is not None:
             comment.render_id = self._quick_layer.add(
@@ -703,10 +773,13 @@ class VideoDanmaku(QWidget):
                 lane * self.lane_height(), width,
                 image.height() / image.devicePixelRatioF(), speed)
         self.comments.append(comment)
-        for _, url in runs:
-            if url:
-                self._ensure_emoticon(url)
-        self._start_timer()
+        if self._quick_layer is not None and self._quick_group is not None:
+            if not self.isVisible():
+                self._quick_layer.set_group_visible(self._quick_group, False)
+            if self.paused or not self.isVisible():
+                self._set_quick_active()
+        if not self.paused and self.isVisible():
+            self._start_timer()
         return True
 
     def set_super_chats(self, events: list[dict]) -> None:
@@ -741,6 +814,7 @@ class VideoDanmaku(QWidget):
         self._comment_resize_timer.stop()
         self._stop_timer()
         self.comments.clear()
+        self._pending_comments.clear()
         self.super_chat_overlay.hide()
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.clear_group(self._quick_group)
@@ -770,7 +844,7 @@ class VideoDanmaku(QWidget):
             self._images.pop(next(iter(self._images)))
         self._images[url] = pixmap.toImage()
         if any(url == image_url for comment in self.comments for _, image_url in comment.runs):
-            self._resize_comments()
+            self._queue_comment_raster()
 
     def _comment_renderer(self):
         return CommentRaster(self._font(), self.outline_width(),
@@ -799,6 +873,8 @@ class VideoDanmaku(QWidget):
             else:
                 rows.append((id(comment), key, comment.text, QColor(comment.color),
                              tuple(comment.runs), comment.self_sent))
+        for identifier, (text, color, runs, self_sent, _event) in self._pending_comments.items():
+            rows.append((identifier, None, text, QColor(color), tuple(runs), self_sent))
         self._apply_comment_rasters(cached)
         if rows:
             job = self._comment_raster_job = CommentRasterJob(renderer, rows)
@@ -806,14 +882,17 @@ class VideoDanmaku(QWidget):
             QThreadPool.globalInstance().start(job)
 
     def _finish_comment_raster(self, images):
+        job = self._comment_raster_job
         self._comment_raster_job = None
         if images is None:
+            for identifier, *_ in job.rows:
+                self._pending_comments.pop(identifier, None)
             return
         self._apply_comment_rasters(images)
         self._queue_comment_raster()
 
     def _apply_comment_rasters(self, images):
-        if not images or not self.comments:
+        if not images:
             return
         renderer = self._comment_renderer()
         images = {identifier: (key, image) for identifier, key, image in images}
@@ -841,6 +920,18 @@ class VideoDanmaku(QWidget):
                     comment.lane * self.lane_height(), width,
                     comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
         self._prune_lanes()
+        # Results are admitted in arrival order, only with the current font/images.
+        # Cleared tokens are absent, so late jobs cannot revive old room messages.
+        for identifier, pending in list(self._pending_comments.items()):
+            result = images.get(identifier)
+            if result is None:
+                break
+            text, color, runs, self_sent, event = pending
+            key, image = result
+            if key != renderer.key(text, color, runs, self_sent):
+                break
+            self._pending_comments.pop(identifier)
+            self._admit_comment(image, key, text, color, runs, self_sent, event)
         if self._quick_layer is None:
             self.update()
 
@@ -950,6 +1041,7 @@ class VideoDanmaku(QWidget):
         self._set_hover(None)
         self._stop_timer()
         self.comments.clear()
+        self._pending_comments.clear()
         self.super_chats.clear()
         self.super_chat_overlay.set_chats([], 0)
         if self._quick_layer is not None and self._quick_group is not None:
@@ -1182,9 +1274,8 @@ class VideoDanmaku(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        self.super_chat_overlay.sync(self)
-        if self.sc_visible() and self.super_chats:
-            self.super_chat_overlay.show()
+        self.super_chat_overlay._refresh()
+        if self.super_chat_overlay.isVisible():
             self.super_chat_overlay.raise_()
         if self._native_layered():
             self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested)
@@ -1208,7 +1299,10 @@ class VideoDanmaku(QWidget):
         self._stop_timer()
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.set_group_visible(self._quick_group, False)
-        self.super_chat_overlay.setVisible(self.sc_independent and self.sc_visible() and bool(self.super_chats))
+        if self.sc_independent:
+            self.super_chat_overlay._refresh()
+        else:
+            self.super_chat_overlay.hide()
         self._set_quick_active()
         super().hideEvent(event)
 

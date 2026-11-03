@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -20,6 +21,7 @@ from ddm.danmaku import _Handler
 from ddm.danmaku_content import content_runs, content_html
 from ddm.video_danmaku import VideoDanmaku
 from ddm.widgets import DanmakuPanel
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 URL = "https://example.invalid/emote.png?a=1&b=2"
@@ -33,6 +35,11 @@ def event_for(message):
 
 def main():
     app = QApplication(sys.argv)
+    def wait_raster(overlay):
+        deadline = time.monotonic() + 5
+        while overlay._comment_raster_job is not None or overlay._comment_resize_timer.isActive():
+            assert time.monotonic() < deadline
+            QTest.qWait(10)
     app.setStyleSheet(theme.qss())
     extra = {"emots": {"[emoji]": {"url": URL}, "[bad]": None}}
     text = "前面[emoji]中间[emoji]后面 👨‍👩‍👧‍👦👍🏽 & <tag>"
@@ -95,9 +102,12 @@ def main():
             assert resource is not None and not resource.isNull()
 
             assert overlay.add_event(single)
+            wait_comment_raster(QApplication.instance(), overlay)
             comment = overlay.comments[0]
             before = comment.image.toImage()
-            overlay._on_emoticon_loaded(URL, pixmap)
+            with patch.object(overlay, '_render_content', side_effect=AssertionError('Emoticon callbacks must not rasterize on GUI')):
+                overlay._on_emoticon_loaded(URL, pixmap)
+            wait_raster(overlay)
             assert len(overlay.comments) == 1 and comment.image.toImage() != before
             assert comment.image.width() > comment.image.height()
             assert any(comment.image.toImage().pixelColor(x, y).name() == "#fc2387"
@@ -106,17 +116,22 @@ def main():
             assert overlay.comments and overlay.comments[0].image.height() > before.height()
             overlay.clear()
             assert overlay.add_event(event)
+            wait_comment_raster(QApplication.instance(), overlay)
             assert overlay.comments[0].runs == content_runs(event)
             overlay.clear()
             overlay._on_emoticon_loaded(URL, pixmap)
             assert not overlay.comments, "Late image loads must not resurrect cleared comments"
             assert overlay.add_event({"text": "😀👍🏽👨‍👩‍👧‍👦"})
+            wait_comment_raster(QApplication.instance(), overlay)
             assert not overlay.comments[0].image.isNull()
             overlay.clear()
             overlay.apply_settings(dict(overlay.settings, video_danmaku_size=28))
             assert overlay.add_event(single)
+            wait_comment_raster(QApplication.instance(), overlay)
             assert overlay.add_event({"text": "Unicode 😀👍🏽👨‍👩‍👧‍👦"})
+            wait_comment_raster(QApplication.instance(), overlay)
             assert overlay.add_event(event)
+            wait_comment_raster(QApplication.instance(), overlay)
             for comment in overlay.comments:
                 comment.x = 30
             app.processEvents()

@@ -30,6 +30,9 @@
 
 ## 已跟踪的其他文件：逐项标注
 
+- `docs/image-cache.md`
+- `docs/development/ui-components.md`
+
 ### 独立诊断工具
 
 - `tools/diagnostics/Collector.cs`
@@ -49,6 +52,8 @@
 
 ### 专项检查脚本
 
+- `dev/selfcheck_image_cache.py`
+- `dev/selfcheck_ui_components.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_live_danmaku_motion.py`
 - `dev/check_live_restore.py`
@@ -143,7 +148,14 @@
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_lifecycle.py`
 - `dev/selfcheck_drag_diagnostics.py`
+- `dev/diagnose_control_swap.py`
 - `dev/diagnose_drag_windows.py`
+- `dev/diagnose_super_chat.py`
+- `dev/diagnose_danmaku_motion.py`
+- `dev/diagnose_notice_close.py`
+- `dev/selfcheck_notice_close.py`
+- `dev/selfcheck_danmaku_motion_diagnostics.py`
+- `dev/diagnose_wall_replacement.py`
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`
@@ -181,6 +193,7 @@
 - `dev/selfcheck_general_settings.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
+- `dev/selfcheck_settings_occlusion.py`
 - `dev/check_settings_process_playback.py`
 - `dev/selfcheck_global_live.py`
 - `dev/selfcheck_hls_proxy.py`
@@ -344,6 +357,7 @@
 - `dev/selfcheck_startup.py`
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
+- `dev/selfcheck_startup_windows.py`
 - `dev/selfcheck_startup_wmi.py`
 - `dev/selfcheck_stream_recovery.py`
 - `dev/selfcheck_stream_relay.py`
@@ -459,6 +473,7 @@
 - `docs/releases/RELEASE-v0.5.2.md`
 - `docs/releases/RELEASE-v0.6.md`
 - `docs/releases/RELEASE-v0.7.md`
+- `docs/releases/RELEASE-v0.7.1.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具

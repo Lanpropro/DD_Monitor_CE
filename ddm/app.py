@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._interactive_resize = False
         self._resize_dirty = False
         self._resize_on_show = False
+        self._startup_layout_pending = True
         self._settling_resize = False
         self._native_size_state = 0
         self._window_move = None
@@ -765,7 +766,9 @@ class MainWindow(QMainWindow):
                 or self._settling_resize or event.size() == event.oldSize()):
             return
         self._resize_dirty = True
-        if not self._interactive_resize:
+        if self._startup_layout_pending:
+            self._finish_interactive_resize()
+        elif not self._interactive_resize:
             self._resize_idle_timer.start()
 
     def nativeEvent(self, event_type, message):
@@ -776,7 +779,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "wall") and not self._closing:
                 if self._window_move is None and msg.message == 0x00A1 and msg.wParam == 2:
                     from .window_move import WindowMove
-                    self._window_move = WindowMove(self, int(msg.hwnd))
+                    self._window_move = WindowMove(self, int(msg.hWnd))
                 if self._window_move is not None and self._window_move.native_message(msg):
                     return True, 0
             if msg.message == 0x0231:  # WM_ENTERSIZEMOVE
@@ -788,7 +791,8 @@ class MainWindow(QMainWindow):
                 self._native_size_state = int(msg.wParam)
                 if msg.wParam == 2 or msg.wParam == 0 and previous == 2:
                     if (hasattr(self, "wall") and not self._closing
-                            and not self._settling_resize and self._fullscreen_tile is None):
+                            and not self._settling_resize and not self._startup_layout_pending
+                            and self._fullscreen_tile is None):
                         self.wall.set_interactive_resize(True)
                         self._resize_dirty = True
                         self._resize_idle_timer.start()
@@ -838,10 +842,36 @@ class MainWindow(QMainWindow):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.refresh_theme()
-        if self._resize_on_show and not self._closing:
+        if self._startup_layout_pending:
+            self._finish_interactive_resize()
+        elif self._resize_on_show and not self._closing:
             self._resize_on_show = False
             self._resize_dirty = True
             self._resize_idle_timer.start()
+
+    def paintEvent(self, event) -> None:
+        # Initial maximize messages must settle before the first visible frame;
+        # later user resizes retain the existing coalesced path.
+        self._startup_layout_pending = False
+        super().paintEvent(event)
+
+    def show_initial_maximized(self) -> None:
+        # Windows can expose a maximized HWND before Qt receives its final
+        # resize event. Size the hidden tree first, including the native caption.
+        bounds = self.screen().availableGeometry()
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            import ctypes
+            scale = self.screen().devicePixelRatio()
+            caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
+        else:
+            self.winId()
+            margins = self.windowHandle().frameMargins()
+            caption = max(0, margins.top() - margins.bottom())
+        self.setGeometry(bounds.adjusted(0, caption, 0, 0))
+        self.layout().activate()
+        self._resize_dirty = True
+        self._finish_interactive_resize()
+        self.showMaximized()
 
     def refresh_theme(self) -> None:
         window_fullscreen.sync_titlebar(self)
@@ -905,6 +935,9 @@ class MainWindow(QMainWindow):
             self._settings_process.saved.connect(self._remote_settings_saved)
             self._settings_process.hostRequest.connect(self._settings_host_request)
             self._settings_process.closed.connect(self._close_settings_host)
+            self._settings_process.occlusionChanged.connect(
+                lambda: self.wall._quick_danmaku_layer.show()
+                if self.wall._quick_danmaku_layer is not None else None)
             self._settings_process.failed.connect(lambda message: self._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
         return self._settings_process
@@ -2045,6 +2078,7 @@ class MainWindow(QMainWindow):
             return
         existing = self._stream_info_dialogs.get(tile)
         if existing is not None:
+            existing.set_presentation_owner(tile.window() if tile.isWindow() else self)
             existing.refresh()
             existing.show()
             existing.raise_()
@@ -2054,7 +2088,10 @@ class MainWindow(QMainWindow):
         dialog = StreamInfoDialog(lambda: self._stream_info_snapshot(tile), self)
         dialog.finished.connect(lambda _result: self._stream_info_dialogs.pop(tile, None))
         self._stream_info_dialogs[tile] = dialog
+        dialog.set_presentation_owner(tile.window() if tile.isWindow() else self)
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0,
                            *, login_required=False) -> None:
@@ -3636,8 +3673,7 @@ def main(argv: list[str] | None = None) -> int:
     ticker.setInterval(watchdog.TICK_MS)
     ticker.timeout.connect(watchdog.tick)
     ticker.start()
-    window.resize(1600, 900)
-    window.showMaximized()
+    window.show_initial_maximized()
     if instance is not None:
         instance.set_restore(lambda: restore_main_window(window))
     if config_module.DATA_MIGRATION_ERROR:

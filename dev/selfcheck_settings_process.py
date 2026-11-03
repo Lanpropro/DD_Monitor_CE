@@ -1,6 +1,7 @@
 """独立设置进程回归；合成配置、离屏窗口，不启动用户客户端。"""
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr
+import io
 import json
 from pathlib import Path
 import sys
@@ -876,11 +877,25 @@ def check_nonblocking_online_close(app):
     print('PASS: slow online settings close immediately, GUI heartbeat continues, late results cleaned safely')
 
 
+def check_save_trace():
+    output = io.StringIO()
+    with redirect_stderr(output), patch.object(settings_process.time, 'perf_counter_ns',
+                                               side_effect=(1_000_000, 5_000_000)):
+        started = settings_process._save_trace('fixture.begin')
+        finished = settings_process._save_trace('fixture.end', started)
+    assert (started, finished) == (1_000_000, 5_000_000)
+    lines = output.getvalue().splitlines()
+    assert len(lines) == 2 and all(line.startswith('[设置保存] stage=fixture.') for line in lines)
+    assert 'at_ns=1000000' in lines[0] and 'elapsed_ms=' not in lines[0]
+    assert 'at_ns=5000000 elapsed_ms=4.000' in lines[1]
+
+
 def main():
     if sys.argv[1:2] == ['--worker-check']:
         return child(sys.argv[2])
     if sys.argv[1:2] == ['--restart-host-fixture']:
         return restart_host_fixture(sys.argv[2], sys.argv[3])
+    check_save_trace()
     if sys.argv[1:] == ['--restart-native']:
         return check_restart_native()
     app = QApplication.instance() or QApplication([])

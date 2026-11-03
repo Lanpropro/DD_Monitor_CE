@@ -1,5 +1,7 @@
 """Room placement and audio ownership with local fakes; no Qt, media or network."""
 from pathlib import Path
+from contextlib import redirect_stderr
+import io
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -17,6 +19,9 @@ class Tile:
         self.room = dict(room_id=room_id, uname=room_id, live=True, **room)
         self.sync_audio_ui = Mock()
         self.raise_overlays = Mock()
+        self._refresh_moved_overlays = Mock()
+        self.bottom = Mock()
+        self.bottom.updatesEnabled.return_value = True
 
     def set_room(self, room):
         self.room = dict(room or {})
@@ -113,6 +118,36 @@ class RoomPlacementTests(unittest.TestCase):
         first_player.release.assert_not_called()
         second_player.release.assert_not_called()
         host.wall.relayout.assert_called_once_with(force=True)
+
+    def test_drop_keeps_destination_position_when_swap_refresh_replaces_target(self):
+        source, target, replacement = Tile('first'), Tile('second'), Tile('replacement')
+        host = Host(source, target)
+        first_player, second_player = Mock(), Mock()
+        host.players.update({source: first_player, target: second_player})
+        host._refresh_meta.side_effect = lambda: host.wall.tiles.__setitem__(0, replacement)
+        output = io.StringIO()
+        with redirect_stderr(output):
+            host.placement.drop_room(target, 'first')
+        self.assertEqual(host.wall.tiles, [replacement, source])
+        self.assertIn('第 2 个格子', output.getvalue())
+        self.assertEqual(host.players, {source: first_player, target: second_player})
+        host.recorder.stop.assert_not_called()
+        host._stop_tile.assert_not_called()
+        host.start_tile.assert_not_called()
+        first_player.release.assert_not_called()
+        second_player.release.assert_not_called()
+
+    def test_drop_ignores_a_target_removed_before_delivery(self):
+        source, removed = Tile('first'), Tile('old')
+        host = Host(source)
+        host.placement.drop_room(removed, 'first')
+        host._room_dict.assert_not_called()
+        host._prepare_room.assert_not_called()
+        host.sidebar.watch_history.select.assert_not_called()
+        host.recorder.stop.assert_not_called()
+        host._stop_tile.assert_not_called()
+        host.start_tile.assert_not_called()
+        host._refresh_meta.assert_not_called()
 
     def test_live_tile_swapped_with_empty_slot_preserves_position_audio(self):
         source = Tile('first', volume=10, muted=True, audio_channel=2)

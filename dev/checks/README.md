@@ -93,8 +93,10 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | `offline` |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
+| [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--native-zorder` 检查屏幕外独立设置窗口归属、遮挡及重开，不移动光标或激活窗口；`--embedded-native` 检查屏幕外跨页 HWND/DPI，`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
+| [selfcheck_settings_occlusion](../selfcheck_settings_occlusion.py) | `native`；隔离设置进程与 Quick 弹幕窗口，检查打开、移动、缩放、隐藏、最小化、重开及退出后的裁剪恢复；屏幕外窗口，不移动光标或激活窗口 |
 | [selfcheck_single_instance](../selfcheck_single_instance.py) | `offline` / `smoke`；隔离锁目录和真实子进程，检查重复／并发启动、启动中唤回、异常退出恢复、重启释放，以及第二实例在加载配置前退出 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | `offline`；仅本机 HTTP，清单/分片转发、连接复用、非阻塞停止与资源回收，无账号或外网 |
@@ -129,7 +131,9 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [selfcheck_stream_info](../selfcheck_stream_info.py) | `offline`；合成播放器属性、格子右键入口、单位换算、逐格刷新及窗口清理，不连接直播或读取账号 |
+| [selfcheck_stream_info](../selfcheck_stream_info.py) | `offline`；合成播放器属性、格子右键入口、单位换算、逐格刷新及窗口清理；根入口 `run.cmd --check-stream-info` 另含 Windows 原生独立全屏窗口归属回归，不连接直播或读取账号 |
+| [selfcheck_notice_close](../selfcheck_notice_close.py) | `run.cmd --check-notice-close`；Windows 原生／离屏通知关闭、动画中关闭、多条通知独立收尾、自动超时及只读采集上限；合成通知，不替代久用或负载故障复现 |
+| [selfcheck_danmaku_motion_diagnostics](../selfcheck_danmaku_motion_diagnostics.py) | 原生单项；隔离 Quick 层数值采集上限、隐藏恢复、控件保留；不接入渲染线程、不读取消息，不替代真实回退复现 |
 | [check_live_restore](../check_live_restore.py) | `live` |
 | [selfcheck_corner_drag_updates](../selfcheck_corner_drag_updates.py) | 单项执行前核对 |
 | [selfcheck_corner_resize](../selfcheck_corner_resize.py) | 单项执行前核对 |
@@ -214,6 +218,8 @@
 | [check_setup_install](../check_setup_install.py) | 单项 Windows 后台隔离安装、修复、更新与卸载；需明确传入包路径，已有安装时拒绝执行 |
 | [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录写入权限拦截和可写自定义路径安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
+| [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、跨进程清理保护、饼图选择及后台清理；不联网、不读真实账号 |
+| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、按钮信号及实际页面复用；离屏、临时数据，无账号/外网 |
 | [check_setup_data_cleanup](../check_setup_data_cleanup.py) | 单项 Windows 后台检查；先构建原生入口，再传入 ISCC；使用独立登记和合成文件验证软件目录／独立数据目录的默认保留、勾选清理、中文路径、链接保护及额外文件保留 |
 | [check_release_package](../check_release_package.py) | 单项执行前核对 |
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |

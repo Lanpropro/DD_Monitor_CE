@@ -8,6 +8,7 @@ import runpy
 import sys
 import subprocess
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import unittest
 
@@ -27,6 +28,24 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows MSG layout required')
+    def test_native_caption_press_uses_the_msg_window_handle(self):
+        import ctypes
+        from ctypes import wintypes
+        controller = Mock()
+        controller.native_message.return_value = True
+        host = SimpleNamespace(wall=object(), _closing=False, _window_move=None)
+        message = wintypes.MSG()
+        message.hWnd = 0x12345678
+        message.message, message.wParam = 0x00A1, 2
+        with patch.object(QApplication, 'platformName', return_value='windows'), \
+                patch('ddm.window_move.WindowMove', return_value=controller) as create:
+            result = MainWindow.nativeEvent(host, b'windows_generic_MSG', ctypes.addressof(message))
+        create.assert_called_once_with(host, int(message.hWnd))
+        self.assertIs(host._window_move, controller)
+        self.assertEqual(result, (True, 0))
+        self.assertEqual(controller.native_message.call_args.args[0].hWnd, message.hWnd)
+
     def test_native_idle_cursor_only_targets_the_video_window_or_its_children(self):
         from ddm import fullscreen_cursor as module
         user32 = Mock()
@@ -1185,6 +1204,41 @@ class MainNoticesTests(unittest.TestCase):
             add.assert_not_called()
             browser.assert_not_called()
 
+    def test_live_replacement_accepts_window_dispatch_before_widget_events(self):
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)],
+                             offscreen=True)
+        window.settings['close_behavior'] = 'exit'
+        target = window.wall.tiles[2]
+        window._place_live_notice_rooms([{'room_id': '999'}])
+        handle = target.video.windowHandle()
+        self.assertIsNotNone(handle)
+        with patch.object(window.recorder, 'stop') as stop:
+            # Real Windows clicks visit QWidgetWindow before Qt dispatches to QWidget.
+            QTest.mouseClick(handle, Qt.LeftButton, pos=target.video.rect().center())
+            self.app.processEvents()
+            self.assertEqual(target.room['room_id'], '999')
+            stop.assert_called_once_with(target)
+        self.assertFalse(window.room_placement.replacement.replacement_rooms)
+        self.assertIsNone(QApplication.overrideCursor())
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows click diagnostics')
+    def test_live_replacement_trace_preserves_window_dispatch(self):
+        from ddm.wall_replacement import WallReplacement
+        from dev.diagnose_wall_replacement import ReplacementTrace
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            for name in ('place', 'cancel_replacement', 'eventFilter'):
+                stack.enter_context(patch.object(WallReplacement, name, getattr(WallReplacement, name)))
+            trace = ReplacementTrace(Path(directory) / 'replacement.jsonl')
+            trace.install()
+            self.test_live_replacement_accepts_window_dispatch_before_widget_events()
+            rows = [json.loads(line) for line in trace.path.read_text().splitlines()]
+            releases = [rows[index + 1] for index, row in enumerate(rows[:-1])
+                        if row['stage'] == 'qt:before' and row.get('watched') == 'QWindow'
+                        and row['event'] == 'MouseButtonRelease' and row['hasPressed']]
+            self.assertTrue(releases)
+            self.assertTrue(all(not row['consumed'] and row['hasPressed'] for row in releases))
+            self.assertFalse(trace.timer.isActive())
+
     def test_live_replacement_can_cancel_and_does_not_accept_sidebar_clicks(self):
         window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
         original = [dict(tile.room) for tile in window.wall.tiles]
@@ -1233,10 +1287,12 @@ class MainNoticesTests(unittest.TestCase):
         self.stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))
         self.stack.enter_context(patch('ddm.images.load_cached_avatar', return_value=None))
 
-    def window(self, rooms):
+    def window(self, rooms, *, offscreen=False):
         window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
                             layout_id='2x2', state={'plugins_enabled': []})
         window.resize(1000, 700)
+        if offscreen:
+            window.move(-10000, -10000)
         window.show()
         self.app.processEvents()
         self.addCleanup(self.close_window, window)
