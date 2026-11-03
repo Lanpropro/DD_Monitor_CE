@@ -126,6 +126,7 @@
       "selfcheck_window_resize",
       "selfcheck_display_transition",
       "selfcheck_video_danmaku_quick",
+      "selfcheck_settings_occlusion",
       "selfcheck_danmaku_render_thread",
       "selfcheck_smooth_edges"
     ]

@@ -54,7 +54,9 @@ class FullscreenBar(QWidget):
             return
         if self.qt_composited:
             self.setWindowOpacity(1.0)
-        visible = self.isVisible()
+        # The tile is temporarily hidden while promoted to a fullscreen window.
+        # Preserve the bar's own visibility intent, not its ancestor's state.
+        visible = not self.isHidden()
         local = QRect(self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())), self.size())
         focus = QApplication.focusWidget()
         restore_focus = focus is not None and (focus is self or self.isAncestorOf(focus))

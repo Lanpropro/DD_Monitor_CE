@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
@@ -222,8 +222,11 @@ def main():
             window._fullscreen_tile = tile
             window.wall.set_fullscreen_tile(tile)
         cursor.stop()
+        tile.window().isActiveWindow = lambda: True
         assert tile.bottom.updatesEnabled(), 'Real fullscreen entry must restore bottom-bar painting'
         app.processEvents()
+        assert tile.bottom.isVisible(), 'Promoting a hidden tile must show its fullscreen bar'
+        assert tile.bottom.width() == tile.width(), 'Fullscreen bar must use the promoted tile size'
         assert all(not corner.isVisible() for corner in tile.video_corners)
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
@@ -251,8 +254,9 @@ def main():
             return
         if app.platformName() == 'windows':
             before = tile.bottom.mapToGlobal(QPoint())
-            old = window.pos()
-            window.move(old + QPoint(70, 40))
+            owner = tile.window()
+            old = owner.pos()
+            owner.move(old + QPoint(70, 40))
             app.processEvents()
             assert tile.bottom.mapToGlobal(QPoint()) == before + QPoint(70, 40), 'Native bar must follow its owner'
             layer = tile.video_danmaku
@@ -262,10 +266,10 @@ def main():
                 holes = layer._quick_mask_signature[-2]
                 centre = layer.mapFromGlobal(tile.bottom.mapToGlobal(tile.bottom.rect().center()))
                 assert holes.contains(centre), 'Comments must leave room for the bar on offset monitors'
-            window.hide()
+            owner.hide()
             app.processEvents()
             assert not tile.bottom.isVisible(), 'Hidden owner must not leave a floating bar'
-            window.show()
+            owner.show()
             app.processEvents()
             assert tile.bottom.isVisible(), 'Restoring the owner must restore its bar'
         tile.time_badge.set_text('12:34:56')
@@ -358,6 +362,26 @@ def main():
         assert tile._bar_progress == 0 and tile.bottom.isVisible()
         assert tile.time_badge.geometry().bottom() < tile.bottom.tile_y() - 8, 'Time overlaps normal bar'
         assert all(corner.isVisible() for corner in tile.video_corners)
+        if app.platformName() == 'windows':
+            enter = window._fullscreen_presentation.enter
+            with patch.object(window, '_upgrade_fullscreen_quality'), \
+                    patch.object(window._fullscreen_presentation, 'enter',
+                                 side_effect=lambda target: enter(target, QRect(-20000, -20000, 1100, 800))), \
+                    patch('ddm.motion.enabled', return_value=False):
+                for _ in range(3):
+                    window._on_fullscreen(tile)
+                    cursor.stop()
+                    app.processEvents()
+                    assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
+                    assert tile.bottom.width() == tile.width()
+                    tile.set_fullscreen_controls_hidden(True)
+                    assert not tile.bottom.isVisible()
+                    tile.set_fullscreen_controls_hidden(False)
+                    assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
+                    native_bar_image(tile.bottom)
+                    window._exit_fullscreen()
+                    app.processEvents()
+                    assert tile.bottom.isVisible() and not tile.bottom.isWindow()
         page = GeneralSettingsPage({'fullscreen_auto_hide_controls': False})
         assert not page.values()['fullscreen_auto_hide_controls']
         page.reset()

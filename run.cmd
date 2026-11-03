@@ -19,6 +19,7 @@ if not exist "%PY%" goto nopy
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
+if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 if /i "%~1"=="--diagnose-douyu" goto douyu
@@ -36,6 +37,14 @@ exit /b %errorlevel%
 :imageCacheCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_image_cache
+exit /b %errorlevel%
+
+:fullscreenLayersCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_controls.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_occlusion.py"
 exit /b %errorlevel%
 
 :responsiveness

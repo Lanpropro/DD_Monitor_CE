@@ -905,6 +905,9 @@ class MainWindow(QMainWindow):
             self._settings_process.saved.connect(self._remote_settings_saved)
             self._settings_process.hostRequest.connect(self._settings_host_request)
             self._settings_process.closed.connect(self._close_settings_host)
+            self._settings_process.occlusionChanged.connect(
+                lambda: self.wall._quick_danmaku_layer.show()
+                if self.wall._quick_danmaku_layer is not None else None)
             self._settings_process.failed.connect(lambda message: self._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
         return self._settings_process
