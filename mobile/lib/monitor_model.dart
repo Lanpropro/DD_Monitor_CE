@@ -5,36 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'platforms/bilibili.dart';
+import 'wall_layout.dart';
 import 'watch_session.dart';
-
-enum WallLayout {
-  adaptive('自动布局', 4),
-  single('单画面', 1),
-  focus('主画面 + 双画面', 3),
-  quad('四宫格', 4);
-
-  const WallLayout(this.label, this.slots);
-  final String label;
-  final int slots;
-}
-
-// Normalized geometry is shared by the live wall and the placement miniature.
-List<({double x, double y, double w, double h})> layoutCells(
-  WallLayout layout,
-) => switch (layout) {
-  WallLayout.single => [(x: 0, y: 0, w: 1, h: 1)],
-  WallLayout.focus => [
-    (x: 0, y: 0, w: 1, h: 2 / 3),
-    (x: 0, y: 2 / 3, w: 0.5, h: 1 / 3),
-    (x: 0.5, y: 2 / 3, w: 0.5, h: 1 / 3),
-  ],
-  _ => [
-    (x: 0, y: 0, w: 0.5, h: 0.5),
-    (x: 0.5, y: 0, w: 0.5, h: 0.5),
-    (x: 0, y: 0.5, w: 0.5, h: 0.5),
-    (x: 0.5, y: 0.5, w: 0.5, h: 0.5),
-  ],
-};
+export 'wall_layout.dart';
 
 class MonitorModel extends ChangeNotifier {
   MonitorModel({
@@ -43,7 +16,7 @@ class MonitorModel extends ChangeNotifier {
     this.preferences,
   }) : catalog = catalog ?? BilibiliProvider(),
        sessions = List.generate(
-         4,
+         16,
          (_) => WatchSession(
            (providerFactory ??
                () => BilibiliProvider(
@@ -67,17 +40,64 @@ class MonitorModel extends ChangeNotifier {
         WallLayout.adaptive;
     reduceTransparency =
         preferences?.getBool('mobile.reduceTransparency') ?? false;
+    final savedRatios = preferences?.getString('mobile.layoutRatios');
+    if (savedRatios != null) {
+      final stored = jsonDecode(savedRatios) as Map<String, dynamic>;
+      for (final layout in WallLayout.values) {
+        final value = stored[layout.name] as Map<String, dynamic>?;
+        if (value != null) {
+          _ratios[layout] = (
+            x: (value['x'] as List).map((v) => (v as num).toDouble()).toList(),
+            y: (value['y'] as List).map((v) => (v as num).toDouble()).toList(),
+          );
+        }
+      }
+    }
   }
   final BilibiliProvider catalog;
   final SharedPreferences? preferences;
   final List<WatchSession> sessions;
-  final rooms = List<RoomInfo?>.filled(4, null);
+  final rooms = List<RoomInfo?>.filled(16, null);
   final follows = <RoomInfo>[];
   WallLayout layout = WallLayout.adaptive;
   bool reduceTransparency = false;
   bool refreshing = false;
   String? followError;
   bool _disposed = false;
+  final _ratios = <WallLayout, ({List<double> x, List<double> y})>{};
+
+  List<double> cuts(WallLayout layout, bool vertical) =>
+      (vertical ? _ratios[layout]?.x : _ratios[layout]?.y) ??
+      layoutCuts(layout, vertical);
+
+  List<WallCell> cells(WallLayout layout) =>
+      layoutCells(layout, x: cuts(layout, true), y: cuts(layout, false));
+
+  void moveDivider(WallLayout layout, bool vertical, int index, double value) {
+    final ratios = _ratios.putIfAbsent(
+      layout,
+      () => (x: layoutCuts(layout, true), y: layoutCuts(layout, false)),
+    );
+    final axis = vertical ? ratios.x : ratios.y;
+    axis[index] = value.clamp(axis[index - 1] + 0.08, axis[index + 1] - 0.08);
+    _changed();
+  }
+
+  Future<void> saveRatios() async {
+    await preferences?.setString(
+      'mobile.layoutRatios',
+      jsonEncode({
+        for (final entry in _ratios.entries)
+          entry.key.name: {'x': entry.value.x, 'y': entry.value.y},
+      }),
+    );
+  }
+
+  Future<void> resetRatios(WallLayout layout) async {
+    _ratios.remove(layout);
+    _changed();
+    await saveRatios();
+  }
 
   WallLayout effectiveLayout(bool wide) => layout == WallLayout.adaptive
       ? (wide || rooms[3] != null ? WallLayout.quad : WallLayout.focus)
@@ -164,9 +184,10 @@ class MonitorModel extends ChangeNotifier {
 
   Future<void> changeLayout(WallLayout value) async {
     layout = value;
-    for (var i = value.slots; i < rooms.length; i++) {
-      unawaited(clear(i));
-    }
+    await Future.wait([
+      for (var i = value.slots; i < rooms.length; i++)
+        if (rooms[i] != null) clear(i),
+    ]);
     _changed();
     await preferences?.setString('mobile.layout', value.name);
   }

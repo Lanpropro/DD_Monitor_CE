@@ -48,10 +48,19 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
     });
   }
 
-  Future<T?> presentPanel<T>(BuildContext context, Widget child) async {
+  Future<T?> presentPanel<T>(
+    BuildContext context,
+    Widget child, {
+    double maxWidth = 540,
+  }) async {
     controlsTimer?.cancel();
     try {
-      return await showAdaptivePanel<T>(context, child, model);
+      return await showAdaptivePanel<T>(
+        context,
+        child,
+        model,
+        maxWidth: maxWidth,
+      );
     } finally {
       if (mounted) showControls();
     }
@@ -144,95 +153,8 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   Future<void> chooseLayout(BuildContext context) async {
     final chosen = await presentPanel<WallLayout>(
       context,
-      Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '选择布局',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (_, box) => Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  for (final layout in WallLayout.values)
-                    SizedBox(
-                      width: (box.maxWidth - 12) / 2,
-                      child: Semantics(
-                        selected: model.layout == layout,
-                        child: Material(
-                          color: model.layout == layout
-                              ? accent.withValues(alpha: 0.12)
-                              : panel,
-                          borderRadius: BorderRadius.circular(cardRadius),
-                          clipBehavior: Clip.antiAlias,
-                          child: InkWell(
-                            key: Key('layout-${layout.name}'),
-                            onTap: () => Navigator.pop(context, layout),
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(cardRadius),
-                                border: Border.all(
-                                  color: model.layout == layout
-                                      ? accent
-                                      : Colors.white24,
-                                ),
-                              ),
-                              child: Column(
-                                children: [
-                                  SizedBox(
-                                    height: 72,
-                                    width: 128,
-                                    child: SlotLayout(
-                                      key: Key('layout-preview-${layout.name}'),
-                                      layout: layout == WallLayout.adaptive
-                                          ? (MediaQuery.sizeOf(context).width >=
-                                                        720 ||
-                                                    model.rooms[3] != null
-                                                ? WallLayout.quad
-                                                : WallLayout.focus)
-                                          : layout,
-                                      fill: true,
-                                      builder: (index) => DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.30,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white60,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    layout.label,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 14),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      LayoutPresetPicker(model: model),
+      maxWidth: 960,
     );
     if (chosen == null || !context.mounted) return;
     if (model.rooms.skip(chosen.slots).any((room) => room != null)) {
@@ -506,18 +428,167 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   );
 }
 
+class LayoutPresetPicker extends StatelessWidget {
+  const LayoutPresetPicker({super.key, required this.model});
+  final MonitorModel model;
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+    final current = model.effectiveLayout(wide);
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '选择布局',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text('拖动画面间的分隔线调整比例，按布局自动保存。'),
+          for (final mixed in [false, true]) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                mixed ? '大带小' : '普通布局',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            LayoutBuilder(
+              builder: (_, box) {
+                final columns = box.maxWidth >= 720
+                    ? 4
+                    : box.maxWidth >= 480
+                    ? 3
+                    : 2;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (final layout in WallLayout.values.where(
+                      (v) => v.spec.isNotEmpty == mixed,
+                    ))
+                      SizedBox(
+                        width: (box.maxWidth - 12 * (columns - 1)) / columns,
+                        child: Semantics(
+                          selected: model.layout == layout,
+                          child: Material(
+                            color: model.layout == layout
+                                ? accent.withValues(alpha: 0.12)
+                                : panel,
+                            borderRadius: BorderRadius.circular(cardRadius),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              key: Key('layout-${layout.name}'),
+                              onTap: () => Navigator.pop(context, layout),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(
+                                    cardRadius,
+                                  ),
+                                  border: Border.all(
+                                    color: model.layout == layout
+                                        ? accent
+                                        : subtleBorder,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    SizedBox(
+                                      height: 72,
+                                      width: 128,
+                                      child: SlotLayout(
+                                        key: Key(
+                                          'layout-preview-${layout.name}',
+                                        ),
+                                        layout: layout == WallLayout.adaptive
+                                            ? (wide || model.rooms[3] != null
+                                                  ? WallLayout.quad
+                                                  : WallLayout.focus)
+                                            : layout,
+                                        cells: model.cells(
+                                          layout == WallLayout.adaptive
+                                              ? (wide || model.rooms[3] != null
+                                                    ? WallLayout.quad
+                                                    : WallLayout.focus)
+                                              : layout,
+                                        ),
+                                        fill: true,
+                                        builder: (_) => DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.30,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white60,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              3,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      layout.label,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            key: const Key('reset-layout-ratios'),
+            onPressed: () {
+              model.resetRatios(current);
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.restart_alt),
+            label: const Text('恢复当前布局默认比例'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 Future<T?> showAdaptivePanel<T>(
   BuildContext context,
   Widget child,
-  MonitorModel model,
-) {
+  MonitorModel model, {
+  double maxWidth = 540,
+}) {
   if (MediaQuery.sizeOf(context).width >= 720) {
     return showDialog<T>(
       context: context,
       builder: (_) => Dialog(
         backgroundColor: Colors.transparent,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 540),
+          constraints: BoxConstraints(maxWidth: maxWidth),
           child: GlassSurface(
             reduced: model.reduceTransparency,
             child: Material(

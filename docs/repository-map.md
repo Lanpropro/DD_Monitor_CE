@@ -549,6 +549,7 @@
 - `mobile/lib/monitor_model.dart`
 - `mobile/lib/platforms/bilibili.dart`
 - `mobile/lib/wall_view.dart`
+- `mobile/lib/wall_layout.dart`
 - `mobile/lib/watch_session.dart`
 - `mobile/pubspec.lock`
 - `mobile/pubspec.yaml`

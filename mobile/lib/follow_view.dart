@@ -473,6 +473,8 @@ class PlacementPanel extends StatelessWidget {
         SlotLayout(
           key: const Key('placement-layout'),
           layout: layout,
+          cells: model.cells(layout),
+          aspectRatio: MediaQuery.sizeOf(context).aspectRatio,
           builder: (index) {
             final current = model.rooms[index];
             return Semantics(

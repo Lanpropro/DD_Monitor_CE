@@ -264,6 +264,95 @@ void main() {
   });
 
   testWidgets(
+    'Dragging shared edges updates placement, keeps sessions and resets proportions',
+    (tester) async {
+      final model = await boot(
+        tester,
+        size: const Size(1280, 800),
+        followed: true,
+      );
+      await model.changeLayout(WallLayout.main2);
+      await tester.pumpAndSettle();
+      final session = model.sessions.first;
+      await tester.drag(
+        find.byKey(const Key('divider-x-1-0.0')),
+        const Offset(120, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(model.cells(WallLayout.main2).first.w, greaterThan(0.73));
+      await tester.drag(
+        find
+            .byWidgetPredicate(
+              (w) =>
+                  w.key is ValueKey<String> &&
+                  (w.key! as ValueKey<String>).value.startsWith('divider-y-1-'),
+            )
+            .first,
+        const Offset(0, -100),
+      );
+      await tester.pumpAndSettle();
+      expect(model.cuts(WallLayout.main2, false)[1], lessThan(0.42));
+      expect(model.sessions.first, same(session));
+      await tester.tap(find.byKey(const Key('dock-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('follow-6')));
+      await tester.pumpAndSettle();
+      final miniature = tester.widget<SlotLayout>(
+        find.byKey(const Key('placement-layout')),
+      );
+      expect(miniature.cells, model.cells(WallLayout.main2));
+      await tester.tap(find.byTooltip('关闭').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('dock-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('reset-layout-ratios')));
+      await tester.tap(find.byKey(const Key('reset-layout-ratios')));
+      await tester.pumpAndSettle();
+      expect(model.cells(WallLayout.main2), layoutCells(WallLayout.main2));
+      expect(model.sessions.first, same(session));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Sixteen-slot preset supports last-position placement and confirms shrinking',
+    (tester) async {
+      final model = await boot(
+        tester,
+        size: const Size(1280, 800),
+        followed: true,
+      );
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('layout-sixteen')));
+      await tester.tap(find.byKey(const Key('layout-sixteen')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('video-slot-15')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('empty-slot-15')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('follow-6')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('place-15')));
+      await tester.pump();
+      await model.sessions[15].stop();
+      await tester.pumpAndSettle();
+      expect(model.rooms[15]?.roomId, '6');
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('layout-single')));
+      await tester.pumpAndSettle();
+      expect(find.text('移除超出布局的画面？'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(model.layout, WallLayout.sixteen);
+      expect(model.rooms[15]?.roomId, '6');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Layout cards show matching miniatures and select the real geometry',
     (tester) async {
       final model = await boot(tester, size: const Size(1280, 800));
@@ -294,6 +383,7 @@ void main() {
             .layout,
         WallLayout.quad,
       );
+      await tester.ensureVisible(find.byKey(const Key('layout-focus')));
       await tester.tap(find.byKey(const Key('layout-focus')));
       await tester.pumpAndSettle();
       expect(model.layout, WallLayout.focus);

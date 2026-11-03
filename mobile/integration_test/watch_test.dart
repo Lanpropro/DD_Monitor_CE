@@ -74,6 +74,27 @@ void main() {
       expect(model.sessions[1].controller!.value.isPlaying, isTrue);
       expect(model.sessions[0].controller!.value.isPlaying, isTrue);
       expect(model.sessions[1].controller!.value.volume, 0);
+      await tester.runAsync(() => model.changeLayout(WallLayout.main2));
+      await tester.pumpAndSettle();
+      await wakeControls();
+      await tester.drag(
+        find.byKey(const Key('divider-x-1-0.0')),
+        const Offset(100, 0),
+      );
+      await tester.pump();
+      expect(model.cuts(WallLayout.main2, true)[1], greaterThan(2 / 3));
+      expect(model.sessions[0].controller, same(controller));
+      expect(controller.value.isPlaying, isTrue);
+      await tester.runAsync(() => model.changeLayout(WallLayout.sixteen));
+      await tester.pump();
+      await tester.runAsync(() => model.place(second, 15));
+      await tester.pump();
+      expect(model.sessions[15].controller!.value.isPlaying, isTrue);
+      expect(model.sessions[0].controller, same(controller));
+      expect(model.sessions[1].controller, isNull);
+      await tester.runAsync(() => model.place(second, 1));
+      await tester.runAsync(() => model.changeLayout(WallLayout.quad));
+      await tester.pump();
       await tester.pump(const Duration(seconds: 6));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('show-dock')), findsOneWidget);

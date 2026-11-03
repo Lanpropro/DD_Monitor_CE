@@ -12,17 +12,21 @@ class SlotLayout extends StatelessWidget {
     required this.layout,
     required this.builder,
     this.fill = false,
+    this.cells,
+    this.aspectRatio,
+    this.overlays,
   });
   final bool fill;
+  final List<WallCell>? cells;
+  final double? aspectRatio;
+  final List<Widget> Function(Size size)? overlays;
   final WallLayout layout;
   final Widget Function(int index) builder;
-  static double aspect(WallLayout layout) =>
-      layout == WallLayout.focus ? 32 / 27 : 16 / 9;
   @override
   Widget build(BuildContext context) {
     final content = LayoutBuilder(
       builder: (_, box) {
-        final cells = layoutCells(layout);
+        final cells = this.cells ?? layoutCells(layout);
         return Stack(
           children: [
             for (var i = 0; i < cells.length; i++)
@@ -36,13 +40,14 @@ class SlotLayout extends StatelessWidget {
                   child: builder(i),
                 ),
               ),
+            ...?overlays?.call(box.biggest),
           ],
         );
       },
     );
     return fill
         ? content
-        : AspectRatio(aspectRatio: aspect(layout), child: content);
+        : AspectRatio(aspectRatio: aspectRatio ?? 16 / 9, child: content);
   }
 }
 
@@ -67,6 +72,106 @@ class WatchWall extends StatelessWidget {
               key: const Key('wall-layout'),
               fill: true,
               layout: layout,
+              cells: model.cells(layout),
+              overlays: (size) => [
+                for (final vertical in [true, false])
+                  for (
+                    var i = 1;
+                    i < model.cuts(layout, vertical).length - 1;
+                    i++
+                  )
+                    for (final segment in dividerSegments(
+                      model.cells(layout),
+                      model.cuts(layout, vertical)[i],
+                      vertical,
+                    ))
+                      Positioned(
+                        left: vertical
+                            ? model.cuts(layout, true)[i] * size.width - 12
+                            : segment.start * size.width,
+                        top: vertical
+                            ? segment.start * size.height
+                            : model.cuts(layout, false)[i] * size.height - 12,
+                        width: vertical
+                            ? 24
+                            : (segment.end - segment.start) * size.width,
+                        height: vertical
+                            ? (segment.end - segment.start) * size.height
+                            : 24,
+                        child: MouseRegion(
+                          cursor: vertical
+                              ? SystemMouseCursors.resizeLeftRight
+                              : SystemMouseCursors.resizeUpDown,
+                          child: Semantics(
+                            label: '${vertical ? '竖向' : '横向'}分隔线 $i',
+                            onIncrease: () {
+                              model.moveDivider(
+                                layout,
+                                vertical,
+                                i,
+                                model.cuts(layout, vertical)[i] + 0.03,
+                              );
+                              model.saveRatios();
+                            },
+                            onDecrease: () {
+                              model.moveDivider(
+                                layout,
+                                vertical,
+                                i,
+                                model.cuts(layout, vertical)[i] - 0.03,
+                              );
+                              model.saveRatios();
+                            },
+                            child: GestureDetector(
+                              key: Key(
+                                'divider-${vertical ? 'x' : 'y'}-$i-${segment.start}',
+                              ),
+                              behavior: HitTestBehavior.opaque,
+                              onHorizontalDragUpdate: vertical
+                                  ? (details) => model.moveDivider(
+                                      layout,
+                                      true,
+                                      i,
+                                      model.cuts(layout, true)[i] +
+                                          details.delta.dx / size.width,
+                                    )
+                                  : null,
+                              onVerticalDragUpdate: vertical
+                                  ? null
+                                  : (details) => model.moveDivider(
+                                      layout,
+                                      false,
+                                      i,
+                                      model.cuts(layout, false)[i] +
+                                          details.delta.dy / size.height,
+                                    ),
+                              onHorizontalDragEnd: vertical
+                                  ? (_) => model.saveRatios()
+                                  : null,
+                              onVerticalDragEnd: vertical
+                                  ? null
+                                  : (_) => model.saveRatios(),
+                              onHorizontalDragCancel: vertical
+                                  ? model.saveRatios
+                                  : null,
+                              onVerticalDragCancel: vertical
+                                  ? null
+                                  : model.saveRatios,
+                              child: Center(
+                                child: Container(
+                                  width: vertical ? 3 : 32,
+                                  height: vertical ? 32 : 3,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white30,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+              ],
               builder: (index) => LiveTile(
                 index: index,
                 session: model.sessions[index],
