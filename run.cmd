@@ -30,6 +30,7 @@ if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
 if /i "%~1"=="--diagnose-control-swap" set "DDM_CONTROL_SWAP_CAPTURE=1"
 if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
 if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
+if /i "%~1"=="--diagnose-danmaku-motion" set "DDM_DANMAKU_MOTION_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0

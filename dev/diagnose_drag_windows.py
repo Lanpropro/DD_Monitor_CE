@@ -413,6 +413,10 @@ if __name__ == '__main__':
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)
     recorder.install()
+    if os.environ.get('DDM_DANMAKU_MOTION_CAPTURE') == '1':
+        from dev.diagnose_danmaku_motion import MotionTrace
+        motion_trace = MotionTrace(ROOT / 'logs' / 'danmaku-motion.jsonl')
+        motion_trace.install()
     if os.environ.get('DDM_SC_PAINT_CAPTURE') == '1':
         from dev.diagnose_super_chat import SuperChatTrace
         sc_trace = SuperChatTrace(ROOT / 'logs' / 'sc-paint')
