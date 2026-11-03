@@ -99,6 +99,12 @@ class StreamInfoDialog(AnimatedDialog):
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.refresh)
 
+    def set_presentation_owner(self, owner):
+        # The full-screen tile is a separate native window, not the main window.
+        owner.winId()
+        self.winId()
+        self.windowHandle().setTransientParent(owner.windowHandle())
+
     def refresh(self):
         info = self.snapshot()
         if info is None:

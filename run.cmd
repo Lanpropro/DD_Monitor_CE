@@ -22,6 +22,7 @@ if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
 if /i "%~1"=="--check-sc-layers" goto scLayersCheck
+if /i "%~1"=="--check-stream-info" goto streamInfoCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 if /i "%~1"=="--diagnose-douyu" goto douyu
@@ -77,6 +78,18 @@ set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_sc_simulator.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_super_chat.py"
+exit /b %errorlevel%
+
+:streamInfoCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_stream_info.py" StreamInfoTests.test_stream_dialog_follows_independent_fullscreen_owner_and_survives_exit
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_danmaku_motion_diagnostics.py"
+if errorlevel 1 exit /b %errorlevel%
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_stream_info.py"
 exit /b %errorlevel%
 
 :responsiveness

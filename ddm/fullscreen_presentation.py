@@ -57,12 +57,21 @@ class FullscreenPresentation(QObject):
         tile.raise_()
         if not tile.testAttribute(Qt.WA_ShowWithoutActivating):
             tile.activateWindow()
+        dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
+        if dialog is not None:
+            dialog.set_presentation_owner(tile)
+            if dialog.isVisible():
+                dialog.raise_()
 
     def leave(self):
         tile = self.tile
         if tile is None:
             return
         wall = self.window.wall
+        dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
+        if dialog is not None:
+            # Detach before changing the tile's native window flags on exit.
+            dialog.set_presentation_owner(self.window)
         tile.removeEventFilter(self)
         self.tile = None
         tile._presentation_changing = True
@@ -91,6 +100,8 @@ class FullscreenPresentation(QObject):
         self._visible = self._borders = []
         if self.window.isVisible() and not self.window.testAttribute(Qt.WA_ShowWithoutActivating):
             self.window.activateWindow()
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
 
     def eventFilter(self, watched, event):
         tile = self.tile
