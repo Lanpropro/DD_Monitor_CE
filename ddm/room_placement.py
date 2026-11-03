@@ -15,6 +15,10 @@ class RoomPlacement:
 
     def drop_room(self, tile, room_id: str, *, room=None) -> None:
         host = self.host
+        try:
+            position = host.wall.tiles.index(tile) + 1
+        except ValueError:
+            return  # A queued drop may outlive a layout change that removed its target.
         room = room if room is not None else host._room_dict(room_id)
         if not room:
             print(f"拖入的直播间 {room_id} 查询失败")
@@ -26,7 +30,7 @@ class RoomPlacement:
             return
         if other is not None and other is not tile and host._hot_swap(other, tile):
             # 拖进来的这个直播间本来就在别的格子里：两边直接对调画面
-            print(f"{room.get('uname')} ↔ 第 {host.wall.tiles.index(tile) + 1} 个格子",
+            print(f"{room.get('uname')} ↔ 第 {position} 个格子",
                   file=sys.stderr, flush=True)
             return
         to_start = []
@@ -48,7 +52,7 @@ class RoomPlacement:
             if candidate not in restarted:
                 host.start_tile(candidate)
         host._refresh_meta()
-        print(f"{room.get('uname')} → 第 {host.wall.tiles.index(tile) + 1} 个格子")
+        print(f"{room.get('uname')} → 第 {position} 个格子")
 
     def swap_tiles(self, source_room_id: str, target_tile) -> None:
         """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。

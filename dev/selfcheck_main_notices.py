@@ -8,6 +8,7 @@ import runpy
 import sys
 import subprocess
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import unittest
 
@@ -27,6 +28,24 @@ from ddm.online_ui import show_result, UpdateNotice
 
 
 class MainNoticesTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows MSG layout required')
+    def test_native_caption_press_uses_the_msg_window_handle(self):
+        import ctypes
+        from ctypes import wintypes
+        controller = Mock()
+        controller.native_message.return_value = True
+        host = SimpleNamespace(wall=object(), _closing=False, _window_move=None)
+        message = wintypes.MSG()
+        message.hWnd = 0x12345678
+        message.message, message.wParam = 0x00A1, 2
+        with patch.object(QApplication, 'platformName', return_value='windows'), \
+                patch('ddm.window_move.WindowMove', return_value=controller) as create:
+            result = MainWindow.nativeEvent(host, b'windows_generic_MSG', ctypes.addressof(message))
+        create.assert_called_once_with(host, int(message.hWnd))
+        self.assertIs(host._window_move, controller)
+        self.assertEqual(result, (True, 0))
+        self.assertEqual(controller.native_message.call_args.args[0].hWnd, message.hWnd)
+
     def test_native_idle_cursor_only_targets_the_video_window_or_its_children(self):
         from ddm import fullscreen_cursor as module
         user32 = Mock()
