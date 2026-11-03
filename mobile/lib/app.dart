@@ -32,12 +32,14 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   Timer? refreshTimer;
   Timer? controlsTimer;
   bool controlsVisible = true;
+  bool dragging = false;
 
   void showControls() {
     controlsTimer?.cancel();
     if (!controlsVisible && mounted) setState(() => controlsVisible = true);
     controlsTimer = Timer(const Duration(seconds: 5), () {
       if (mounted &&
+          !dragging &&
           !WidgetsBinding
               .instance
               .platformDispatcher
@@ -236,6 +238,11 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                           children: [
                             WatchWall(
                               model: model,
+                              onDragState: (active) {
+                                dragging = active;
+                                controlsTimer?.cancel();
+                                if (!active) showControls();
+                              },
                               onSelect: () => setState(() => selected = 1),
                             ),
                             FollowPage(

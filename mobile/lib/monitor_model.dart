@@ -16,7 +16,7 @@ class MonitorModel extends ChangeNotifier {
     this.preferences,
   }) : catalog = catalog ?? BilibiliProvider(),
        sessions = List.generate(
-         16,
+         9,
          (_) => WatchSession(
            (providerFactory ??
                () => BilibiliProvider(
@@ -37,7 +37,9 @@ class MonitorModel extends ChangeNotifier {
     final name = preferences?.getString('mobile.layout');
     layout =
         WallLayout.values.where((item) => item.name == name).firstOrNull ??
-        WallLayout.adaptive;
+        (const ['sixteen', 'main4', 'twoMain'].contains(name)
+            ? WallLayout.quad
+            : WallLayout.adaptive);
     reduceTransparency =
         preferences?.getBool('mobile.reduceTransparency') ?? false;
     final savedRatios = preferences?.getString('mobile.layoutRatios');
@@ -57,7 +59,7 @@ class MonitorModel extends ChangeNotifier {
   final BilibiliProvider catalog;
   final SharedPreferences? preferences;
   final List<WatchSession> sessions;
-  final rooms = List<RoomInfo?>.filled(16, null);
+  final rooms = List<RoomInfo?>.filled(9, null);
   final follows = <RoomInfo>[];
   WallLayout layout = WallLayout.adaptive;
   bool reduceTransparency = false;
@@ -174,6 +176,16 @@ class MonitorModel extends ChangeNotifier {
     rooms[index] = room;
     _changed();
     await sessions[index].watch(room.roomId);
+  }
+
+  void swapPositions(int source, int target) {
+    if (source == target || rooms[source] == null) return;
+    final room = rooms[source], session = sessions[source];
+    rooms[source] = rooms[target];
+    sessions[source] = sessions[target];
+    rooms[target] = room;
+    sessions[target] = session;
+    _changed();
   }
 
   Future<void> clear(int index) async {

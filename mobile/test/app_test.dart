@@ -264,6 +264,55 @@ void main() {
   });
 
   testWidgets(
+    'Long press swaps occupied panes, moves to empty panes and cancels outside',
+    (tester) async {
+      final model = await boot(tester, size: const Size(1280, 800));
+      model.rooms[0] = liveRoom;
+      model.rooms[1] = offlineRoom;
+      await model.changeLayout(WallLayout.quad);
+      await tester.pumpAndSettle();
+      final playing = model.sessions[0], other = model.sessions[1];
+      Future<void> drag(int source, Offset target, {bool hold = false}) async {
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byKey(Key('drag-slot-$source'))),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        await gesture.moveTo(target);
+        await tester.pump();
+        if (hold) {
+          await tester.pump(const Duration(seconds: 6));
+          expect(find.byKey(const Key('show-dock')), findsNothing);
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      await drag(
+        0,
+        tester.getCenter(find.byKey(const Key('drop-slot-1'))),
+        hold: true,
+      );
+      expect(model.rooms[0], same(offlineRoom));
+      expect(model.rooms[1], same(liveRoom));
+      expect(model.sessions[1], same(playing));
+      expect(model.sessions[0], same(other));
+      await drag(1, tester.getCenter(find.byKey(const Key('drop-slot-2'))));
+      expect(model.rooms[1], isNull);
+      expect(model.rooms[2], same(liveRoom));
+      expect(model.sessions[2], same(playing));
+      await drag(2, const Offset(-40, -40));
+      expect(model.rooms[2], same(liveRoom));
+      expect(model.sessions[2], same(playing));
+      await tester.tap(find.byKey(const Key('choose-layout')));
+      await tester.pumpAndSettle();
+      for (final name in ['sixteen', 'main4', 'twoMain']) {
+        expect(find.byKey(Key('layout-$name')), findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Dragging shared edges updates placement, keeps sessions and resets proportions',
     (tester) async {
       final model = await boot(
@@ -317,7 +366,7 @@ void main() {
   );
 
   testWidgets(
-    'Sixteen-slot preset supports last-position placement and confirms shrinking',
+    'Nine-slot preset supports last-position placement and confirms shrinking',
     (tester) async {
       final model = await boot(
         tester,
@@ -326,19 +375,19 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('choose-layout')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('layout-sixteen')));
-      await tester.tap(find.byKey(const Key('layout-sixteen')));
+      await tester.ensureVisible(find.byKey(const Key('layout-nine')));
+      await tester.tap(find.byKey(const Key('layout-nine')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('video-slot-15')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('empty-slot-15')));
+      expect(find.byKey(const Key('video-slot-8')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('empty-slot-8')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('follow-6')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('place-15')));
+      await tester.tap(find.byKey(const Key('place-8')));
       await tester.pump();
-      await model.sessions[15].stop();
+      await model.sessions[8].stop();
       await tester.pumpAndSettle();
-      expect(model.rooms[15]?.roomId, '6');
+      expect(model.rooms[8]?.roomId, '6');
       await tester.tap(find.byKey(const Key('choose-layout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('layout-single')));
@@ -346,8 +395,8 @@ void main() {
       expect(find.text('移除超出布局的画面？'), findsOneWidget);
       await tester.tap(find.text('取消'));
       await tester.pumpAndSettle();
-      expect(model.layout, WallLayout.sixteen);
-      expect(model.rooms[15]?.roomId, '6');
+      expect(model.layout, WallLayout.nine);
+      expect(model.rooms[8]?.roomId, '6');
       expect(tester.takeException(), isNull);
     },
   );

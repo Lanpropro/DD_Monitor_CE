@@ -24,6 +24,62 @@ class TestProvider extends BilibiliProvider {
 
 void main() {
   test(
+    'Removed presets restore to quad and ignore their saved ratios',
+    () async {
+      for (final name in ['sixteen', 'main4', 'twoMain']) {
+        SharedPreferences.setMockInitialValues({
+          'mobile.layout': name,
+          'mobile.layoutRatios': '{"$name":{"x":[0,0.7,1],"y":[0,0.5,1]}}',
+        });
+        final model = MonitorModel(
+          preferences: await SharedPreferences.getInstance(),
+        );
+        expect(model.layout, WallLayout.quad);
+        expect(model.rooms.length, 9);
+        expect(model.cells(WallLayout.quad), layoutCells(WallLayout.quad));
+        expect(WallLayout.values.any((v) => v.name == name), isFalse);
+        model.dispose();
+      }
+    },
+  );
+
+  test(
+    'Swapping moves existing sessions and audio, including pending lookups',
+    () async {
+      final providers = <TestProvider>[];
+      final model = MonitorModel(
+        providerFactory: () {
+          final provider = TestProvider();
+          providers.add(provider);
+          return provider;
+        },
+      );
+      final source = model.sessions[0], target = model.sessions[1];
+      source.volume = 0.6;
+      final loading = model.place(liveRoom, 0);
+      await Future<void>.delayed(Duration.zero);
+      model.rooms[1] = offlineRoom;
+      model.swapPositions(0, 1);
+      expect(model.rooms[1], same(liveRoom));
+      expect(model.rooms[0], same(offlineRoom));
+      expect(model.sessions[1], same(source));
+      expect(model.sessions[0], same(target));
+      expect(model.sessions[1].volume, 0.6);
+      providers[0].pending['6']!.completeError(
+        const LiveLookupException('test failure'),
+      );
+      await loading;
+      expect(model.sessions[1].error, isNotNull);
+      model.swapPositions(1, 8);
+      expect(model.rooms[1], isNull);
+      expect(model.rooms[8], same(liveRoom));
+      expect(model.sessions[8], same(source));
+      model.swapPositions(1, 0);
+      expect(model.rooms[0], same(offlineRoom));
+      model.dispose();
+    },
+  );
+  test(
     'Follow preferences survive restart and statuses are revalidated',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -177,22 +233,19 @@ void main() {
     restored.dispose();
   });
 
-  test(
-    'Sixteen positions are available and shrinking clears overflow',
-    () async {
-      final model = MonitorModel();
-      await model.changeLayout(WallLayout.sixteen);
-      expect(model.rooms.length, 16);
-      expect(model.sessions.every((s) => s.controller == null), isTrue);
-      model.rooms[15] = liveRoom;
-      await model.audio(15);
-      expect(model.sessions[15].volume, 1);
-      await model.changeLayout(WallLayout.quad);
-      expect(model.rooms[15], isNull);
-      expect(model.sessions[15].controller, isNull);
-      model.dispose();
-    },
-  );
+  test('Nine positions are available and shrinking clears overflow', () async {
+    final model = MonitorModel();
+    await model.changeLayout(WallLayout.nine);
+    expect(model.rooms.length, 9);
+    expect(model.sessions.every((s) => s.controller == null), isTrue);
+    model.rooms[8] = liveRoom;
+    await model.audio(8);
+    expect(model.sessions[8].volume, 1);
+    await model.changeLayout(WallLayout.quad);
+    expect(model.rooms[8], isNull);
+    expect(model.sessions[8].controller, isNull);
+    model.dispose();
+  });
 
   test('Spanning main panes have no internal resize handles', () {
     final cells = layoutCells(WallLayout.main3);

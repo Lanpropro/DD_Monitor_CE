@@ -52,9 +52,15 @@ class SlotLayout extends StatelessWidget {
 }
 
 class WatchWall extends StatelessWidget {
-  const WatchWall({super.key, required this.model, required this.onSelect});
+  const WatchWall({
+    super.key,
+    required this.model,
+    required this.onSelect,
+    this.onDragState,
+  });
   final MonitorModel model;
   final VoidCallback onSelect;
+  final ValueChanged<bool>? onDragState;
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (_, box) {
@@ -172,13 +178,74 @@ class WatchWall extends StatelessWidget {
                         ),
                       ),
               ],
-              builder: (index) => LiveTile(
-                index: index,
-                session: model.sessions[index],
-                room: model.rooms[index],
-                onSelect: onSelect,
-                onClear: () => model.clear(index),
-                onAudio: () => model.audio(index),
+              builder: (index) => DragTarget<int>(
+                key: Key('drop-slot-$index'),
+                onWillAcceptWithDetails: (details) =>
+                    details.data != index && model.rooms[details.data] != null,
+                onAcceptWithDetails: (details) =>
+                    model.swapPositions(details.data, index),
+                builder: (_, candidates, _) {
+                  final room = model.rooms[index];
+                  final tile = LiveTile(
+                    index: index,
+                    session: model.sessions[index],
+                    room: room,
+                    onSelect: onSelect,
+                    onClear: () => model.clear(index),
+                    onAudio: () => model.audio(index),
+                  );
+                  return DecoratedBox(
+                    position: DecorationPosition.foreground,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(cardRadius),
+                      border: candidates.isEmpty
+                          ? null
+                          : Border.all(color: accent, width: 3),
+                    ),
+                    child: room == null
+                        ? tile
+                        : Semantics(
+                            hint: '长按拖到其他位置，交换或移动画面',
+                            child: LongPressDraggable<int>(
+                              key: Key('drag-slot-$index'),
+                              data: index,
+                              maxSimultaneousDrags: 1,
+                              onDragStarted: () => onDragState?.call(true),
+                              onDragEnd: (_) => onDragState?.call(false),
+                              feedback: Material(
+                                elevation: 8,
+                                color: panel,
+                                borderRadius: BorderRadius.circular(cardRadius),
+                                clipBehavior: Clip.antiAlias,
+                                child: SizedBox(
+                                  width: 200,
+                                  height: 112,
+                                  child: RoomCover(
+                                    url: room.cover,
+                                    child: Align(
+                                      alignment: Alignment.bottomLeft,
+                                      child: Container(
+                                        color: Colors.black54,
+                                        padding: const EdgeInsets.all(8),
+                                        child: Text(
+                                          room.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              child: tile,
+                            ),
+                          ),
+                  );
+                },
               ),
             ),
           ),

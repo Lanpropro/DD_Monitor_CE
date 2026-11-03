@@ -85,16 +85,48 @@ void main() {
       expect(model.cuts(WallLayout.main2, true)[1], greaterThan(2 / 3));
       expect(model.sessions[0].controller, same(controller));
       expect(controller.value.isPlaying, isTrue);
-      await tester.runAsync(() => model.changeLayout(WallLayout.sixteen));
+      await tester.runAsync(() => model.changeLayout(WallLayout.nine));
       await tester.pump();
-      await tester.runAsync(() => model.place(second, 15));
+      await tester.runAsync(() => model.place(second, 8));
       await tester.pump();
-      expect(model.sessions[15].controller!.value.isPlaying, isTrue);
+      expect(model.sessions[8].controller!.value.isPlaying, isTrue);
       expect(model.sessions[0].controller, same(controller));
       expect(model.sessions[1].controller, isNull);
       await tester.runAsync(() => model.place(second, 1));
       await tester.runAsync(() => model.changeLayout(WallLayout.quad));
       await tester.pump();
+      await wakeControls();
+      final secondController = model.sessions[1].controller!;
+      await tester.runAsync(() => model.audio(0));
+      await tester.runAsync(model.sessions[0].togglePlayback);
+      Future<void> dragPane(int source, Offset target) async {
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byKey(Key('drag-slot-$source'))),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        await gesture.moveTo(target);
+        await tester.pump();
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      await dragPane(0, tester.getCenter(find.byKey(const Key('drop-slot-1'))));
+      expect(model.sessions[1].controller, same(controller));
+      expect(model.sessions[0].controller, same(secondController));
+      expect(controller.value.isPlaying, isFalse);
+      expect(controller.value.volume, 0);
+      expect(secondController.value.isPlaying, isTrue);
+      await dragPane(1, tester.getCenter(find.byKey(const Key('drop-slot-2'))));
+      expect(model.sessions[2].controller, same(controller));
+      expect(model.rooms[1], isNull);
+      await dragPane(2, const Offset(-40, -40));
+      expect(model.sessions[2].controller, same(controller));
+      await dragPane(2, tester.getCenter(find.byKey(const Key('drop-slot-1'))));
+      await dragPane(1, tester.getCenter(find.byKey(const Key('drop-slot-0'))));
+      expect(model.sessions[0].controller, same(controller));
+      expect(model.sessions[1].controller, same(secondController));
+      await tester.runAsync(model.sessions[0].togglePlayback);
+      await tester.runAsync(() => model.audio(0));
       await tester.pump(const Duration(seconds: 6));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('show-dock')), findsOneWidget);
