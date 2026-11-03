@@ -3,15 +3,16 @@ import math
 
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import config, image_cache, theme
+from .ui import ActionButton, HintLabel, TitleLabel
 
 LABELS = {'avatars': '主播头像', 'covers': '直播间封面'}
 
 
 def cache_colors():
-    return {'avatars': theme.ACCENT, 'covers': theme.qcolor(theme.TEXT3).name()}
+    return {'avatars': theme.ACCENT, 'covers': theme.SUCCESS}
 
 
 def size_text(value):
@@ -123,12 +124,9 @@ class ImageCachePanel(QWidget):
         self._task = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 0)
-        title = QLabel('图片缓存')
-        title.setObjectName('SettingsTitle')
+        title = TitleLabel('图片缓存')
         layout.addWidget(title)
-        hint = QLabel('点击饼图或勾选类别，选择要清理的图片。占比仅包含头像和封面。')
-        hint.setObjectName('SettingsHint')
-        hint.setWordWrap(True)
+        hint = HintLabel('点击饼图或勾选类别，选择要清理的图片。占比仅包含头像和封面。')
         layout.addWidget(hint)
         content = QHBoxLayout()
         self.pie = CachePie()
@@ -143,8 +141,8 @@ class ImageCachePanel(QWidget):
             check = QCheckBox(LABELS[kind])
             check.setAccessibleName('选择清理' + LABELS[kind])
             check.toggled.connect(self._selection_changed)
-            detail = QLabel('尚未统计')
-            detail.setObjectName('SettingsHint')
+            detail = HintLabel('尚未统计')
+            detail.setWordWrap(False)
             grid.addWidget(dot, row * 2, 0)
             grid.addWidget(check, row * 2, 1)
             grid.addWidget(detail, row * 2 + 1, 1)
@@ -153,23 +151,18 @@ class ImageCachePanel(QWidget):
         content.addLayout(grid, 1)
         layout.addLayout(content)
         actions = QHBoxLayout()
-        self.selected_button = QPushButton('清理所选')
-        self.selected_button.setObjectName('IconButton')
+        self.selected_button = ActionButton('清理所选')
         self.selected_button.clicked.connect(self.clear_selected)
-        self.all_button = QPushButton('全部清理')
-        self.all_button.setObjectName('IconButton')
+        self.all_button = ActionButton('全部清理')
         self.all_button.setToolTip('只清理头像和封面缓存')
         self.all_button.clicked.connect(self.clear_all)
-        self.refresh_button = QPushButton('刷新统计')
-        self.refresh_button.setObjectName('IconButton')
+        self.refresh_button = ActionButton('刷新统计')
         self.refresh_button.clicked.connect(self.refresh)
         for button in (self.selected_button, self.all_button, self.refresh_button):
             actions.addWidget(button)
         actions.addStretch(1)
         layout.addLayout(actions)
-        self.status = QLabel('主播有新图时自动清理旧图。手动清理后按需重新加载，不影响账号、关注和录像。')
-        self.status.setObjectName('SettingsHint')
-        self.status.setWordWrap(True)
+        self.status = HintLabel('主播有新图时自动清理旧图。手动清理后按需重新加载，不影响账号、关注和录像。')
         layout.addWidget(self.status)
         theme.signals().changed.connect(self._theme_changed)
         self._selection_changed()

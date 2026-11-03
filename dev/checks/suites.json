@@ -103,6 +103,7 @@
       "selfcheck_setup",
       "selfcheck_data_paths",
       "selfcheck_image_cache",
+      "selfcheck_ui_components",
       "selfcheck_logging",
       "selfcheck_qt_log",
       "selfcheck_system_tray"

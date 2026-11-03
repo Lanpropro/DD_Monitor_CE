@@ -283,7 +283,7 @@ class CacheTests(unittest.TestCase):
         for mode in ('dark', 'light', 'dark'):
             theme.apply(mode)
             self.app.processEvents()
-            expected = theme.qcolor(theme.TEXT3).name()
+            expected = theme.SUCCESS
             picture = panel.pie.grab().toImage()
             self.assertEqual(picture.pixelColor(107, 182).name(), expected)
             self.assertIn(expected, panel.dots['covers'].styleSheet())
