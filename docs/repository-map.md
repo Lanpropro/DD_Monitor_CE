@@ -145,6 +145,8 @@
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_drag_windows.py`
 - `dev/diagnose_super_chat.py`
+- `dev/diagnose_danmaku_motion.py`
+- `dev/selfcheck_danmaku_motion_diagnostics.py`
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`

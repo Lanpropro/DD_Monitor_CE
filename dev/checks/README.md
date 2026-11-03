@@ -130,7 +130,8 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [selfcheck_stream_info](../selfcheck_stream_info.py) | `offline`；合成播放器属性、格子右键入口、单位换算、逐格刷新及窗口清理，不连接直播或读取账号 |
+| [selfcheck_stream_info](../selfcheck_stream_info.py) | `offline`；合成播放器属性、格子右键入口、单位换算、逐格刷新及窗口清理；根入口 `run.cmd --check-stream-info` 另含 Windows 原生独立全屏窗口归属回归，不连接直播或读取账号 |
+| [selfcheck_danmaku_motion_diagnostics](../selfcheck_danmaku_motion_diagnostics.py) | 原生单项；隔离 Quick 层数值采集上限、隐藏恢复、控件保留；不接入渲染线程、不读取消息，不替代真实回退复现 |
 | [check_live_restore](../check_live_restore.py) | `live` |
 | [selfcheck_corner_drag_updates](../selfcheck_corner_drag_updates.py) | 单项执行前核对 |
 | [selfcheck_corner_resize](../selfcheck_corner_resize.py) | 单项执行前核对 |

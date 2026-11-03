@@ -2075,6 +2075,7 @@ class MainWindow(QMainWindow):
             return
         existing = self._stream_info_dialogs.get(tile)
         if existing is not None:
+            existing.set_presentation_owner(tile.window() if tile.isWindow() else self)
             existing.refresh()
             existing.show()
             existing.raise_()
@@ -2084,7 +2085,10 @@ class MainWindow(QMainWindow):
         dialog = StreamInfoDialog(lambda: self._stream_info_snapshot(tile), self)
         dialog.finished.connect(lambda _result: self._stream_info_dialogs.pop(tile, None))
         self._stream_info_dialogs[tile] = dialog
+        dialog.set_presentation_owner(tile.window() if tile.isWindow() else self)
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0,
                            *, login_required=False) -> None:

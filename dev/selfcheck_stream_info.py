@@ -11,7 +11,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
@@ -189,6 +189,42 @@ class StreamInfoTests(unittest.TestCase):
         window.wall.tiles.remove(second)
         window._stream_info_dialogs[second].refresh()
         self.assertFalse(window._stream_info_dialogs)
+
+    def test_stream_dialog_follows_independent_fullscreen_owner_and_survives_exit(self):
+        with ExitStack() as stack:
+            for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+                           'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
+                           'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
+                           '_check_startup_update', '_check_startup_plugins'):
+                stack.enter_context(patch.object(MainWindow, method))
+            rooms = [{'room_id': '315', 'uname': 'Owner fixture', 'live': False}]
+            window = MainWindow(rooms, rooms, layout_id='2x2', state={
+                'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
+            window.setAttribute(Qt.WA_ShowWithoutActivating)
+            window.setGeometry(-12000, -12000, 1000, 700)
+            window.show()
+            APP.processEvents()
+            try:
+                tile = window.wall.tiles[0]
+                for _ in range(3):
+                    window._fullscreen_presentation.enter(tile, QRect(-12000, -12000, 1200, 800))
+                    window._open_tile_stream_info(tile)
+                    dialog = window._stream_info_dialogs[tile]
+                    APP.processEvents()
+                    self.assertTrue(dialog.isVisible())
+                    self.assertIs(dialog.windowHandle().transientParent(), tile.windowHandle())
+                    dialog.hide()
+                    window._open_tile_stream_info(tile)
+                    self.assertIs(window._stream_info_dialogs[tile], dialog)
+                    self.assertTrue(dialog.isVisible())
+                    window._fullscreen_presentation.leave()
+                    APP.processEvents()
+                    self.assertTrue(dialog.isVisible())
+                    self.assertTrue(dialog.timer.isActive())
+                    self.assertIs(dialog.windowHandle().transientParent(), window.windowHandle())
+            finally:
+                window._fullscreen_presentation.leave()
+                window.close()
 
 
 if __name__ == '__main__':

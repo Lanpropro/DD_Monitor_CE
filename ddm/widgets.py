@@ -875,6 +875,12 @@ class SuperChatStack(QWidget):
         self.set_events(self._events)
         self.layoutChanged.emit()
 
+    def _dismiss(self, chat_id):
+        if self.presentation.is_collapsed(chat_id):
+            self.dismissed.emit(chat_id)
+        else:
+            self.presentation.collapse(chat_id)
+
     def set_events(self, events, limit=None):
         self._events = order_super_chats(list(events))
         closing = [card for card in self._cards if card._paper is not None]
@@ -886,7 +892,7 @@ class SuperChatStack(QWidget):
         self.presentation.set_events(self._events)
         while len(self._cards) < len(self._events):
             card = SuperChatCard(self)
-            card.dismissed.connect(self.dismissed)
+            card.dismissed.connect(self._dismiss)
             card.dismissFinished.connect(self._dismiss_finished)
             for child in [card, *card.findChildren(QWidget)]:
                 child.installEventFilter(self)
@@ -909,6 +915,9 @@ class SuperChatStack(QWidget):
                 card.setFixedHeight(round(rects[index].height()))
                 card.setGeometry(rects[index].toAlignedRect())
                 card.close_button.show()
+                action = '关闭' if self.presentation.is_collapsed(self._events[index]) else '收起'
+                card.close_button.setToolTip(f'{action}这条醒目留言')
+                card.close_button.setAccessibleName(f'{action}醒目留言')
                 card.setCursor(Qt.PointingHandCursor if self.presentation.is_collapsed(self._events[index]) else Qt.ArrowCursor)
                 card.setToolTip('点击展开醒目留言' if self.presentation.is_collapsed(self._events[index]) else '')
                 card.raise_()
