@@ -16,6 +16,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QWidget
 from ddm import motion, theme
 from ddm.widgets import Sidebar, WallGrid
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 class ResizeCounter(QObject):
     def __init__(self):
@@ -94,6 +95,7 @@ def main():
                 for number in range(min(8, tile.video_danmaku.lane_count())):
                     assert tile.video_danmaku.add_event(dict(kind='danmaku', uname='Fixture',
                         text=f'Local comment {number}', color='#ffffff'))
+                    wait_comment_raster(QApplication.instance(), tile.video_danmaku)
                 assert tile.video_danmaku.comments
             players.append(player)
         wait(1000)

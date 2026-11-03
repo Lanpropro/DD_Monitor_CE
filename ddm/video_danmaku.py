@@ -428,6 +428,7 @@ class VideoDanmaku(QWidget):
         self.settings = {}
         self._comment_width = self.width()
         self.comments: list[_Comment] = []
+        self._pending_comments = {}
         self._comment_resize_timer = QTimer(self)
         self._comment_resize_timer.setSingleShot(True)
         self._comment_resize_timer.timeout.connect(self._queue_comment_raster)
@@ -617,6 +618,7 @@ class VideoDanmaku(QWidget):
             self._set_hover(None)
             self._stop_timer()
             self.comments.clear()
+            self._pending_comments.clear()
             if self._quick_layer is not None and self._quick_group is not None:
                 self._quick_layer.clear_group(self._quick_group)
             self._last_tick = 0.0
@@ -654,31 +656,40 @@ class VideoDanmaku(QWidget):
         return max(0, int(self.height() * area / 100) // self.lane_height())
 
     def add_event(self, event: dict) -> bool:
+        """Accept a comment for bounded background painting; admit it when ready."""
         kind = event.get("kind") or "danmaku"
         if kind == "super_chat":
             self.set_super_chats([*self.super_chats, event])
             return True
         if (not self.enabled or not self.active or self.paused or not self.isVisible()
                 or kind != "danmaku"
-                or len(self.comments) >= self.MAX_COMMENTS):
+                or len(self.comments) + len(self._pending_comments) >= self.MAX_COMMENTS):
             return False
         text = " ".join(str(event.get("text") or "").split())[:300]
         lanes = self.lane_count()
         if (not text and not event.get("emoticon")) or not lanes:
             return False
         self._tick()
-        if not any(self._lane_available(lane, 0) for lane in range(lanes)):
+        if sum(self._lane_available(lane, 0) for lane in range(lanes)) <= len(self._pending_comments):
             return False
         color = QColor(str(event.get("color") or "#ffffff"))
         if not color.isValid():
             color = QColor("#ffffff")
         runs = content_runs(dict(event, text=text))
         self_sent = bool(event.get("self_sent"))
-        image = self._render_content(text, color, runs, self_sent)
+        self._pending_comments[object()] = (text, color, runs, self_sent, dict(event))
+        self._comment_resize_timer.start(0)
+        for _, url in runs:
+            if url:
+                self._ensure_emoticon(url)
+        return True
+
+    def _admit_comment(self, image, key, text, color, runs, self_sent, event):
+        image = QPixmap.fromImage(image)
         width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
-        lane = next((lane for lane in range(lanes)
+        lane = next((lane for lane in range(self.lane_count())
                      if self._lane_available(lane, speed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
@@ -690,7 +701,7 @@ class VideoDanmaku(QWidget):
                 self.attach_quick_layer(ensure_layer())
         comment = _Comment(image, float(self.width()), lane, speed, text, color, runs,
                            self_sent=self_sent, message=str(event.get('text') or ''), event=dict(event))
-        comment.raster_key = self._comment_renderer().key(text, color, runs, self_sent)
+        comment.raster_key = key
         comment.rasters[comment.raster_key] = image.toImage()
         if self._quick_layer is not None and self._quick_group is not None:
             comment.render_id = self._quick_layer.add(
@@ -698,10 +709,13 @@ class VideoDanmaku(QWidget):
                 lane * self.lane_height(), width,
                 image.height() / image.devicePixelRatioF(), speed)
         self.comments.append(comment)
-        for _, url in runs:
-            if url:
-                self._ensure_emoticon(url)
-        self._start_timer()
+        if self._quick_layer is not None and self._quick_group is not None:
+            if not self.isVisible():
+                self._quick_layer.set_group_visible(self._quick_group, False)
+            if self.paused or not self.isVisible():
+                self._set_quick_active()
+        if not self.paused and self.isVisible():
+            self._start_timer()
         return True
 
     def set_super_chats(self, events: list[dict]) -> None:
@@ -736,6 +750,7 @@ class VideoDanmaku(QWidget):
         self._comment_resize_timer.stop()
         self._stop_timer()
         self.comments.clear()
+        self._pending_comments.clear()
         self.super_chat_overlay.hide()
         if self._quick_layer is not None and self._quick_group is not None:
             self._quick_layer.clear_group(self._quick_group)
@@ -794,6 +809,8 @@ class VideoDanmaku(QWidget):
             else:
                 rows.append((id(comment), key, comment.text, QColor(comment.color),
                              tuple(comment.runs), comment.self_sent))
+        for identifier, (text, color, runs, self_sent, _event) in self._pending_comments.items():
+            rows.append((identifier, None, text, QColor(color), tuple(runs), self_sent))
         self._apply_comment_rasters(cached)
         if rows:
             job = self._comment_raster_job = CommentRasterJob(renderer, rows)
@@ -801,14 +818,17 @@ class VideoDanmaku(QWidget):
             QThreadPool.globalInstance().start(job)
 
     def _finish_comment_raster(self, images):
+        job = self._comment_raster_job
         self._comment_raster_job = None
         if images is None:
+            for identifier, *_ in job.rows:
+                self._pending_comments.pop(identifier, None)
             return
         self._apply_comment_rasters(images)
         self._queue_comment_raster()
 
     def _apply_comment_rasters(self, images):
-        if not images or not self.comments:
+        if not images:
             return
         renderer = self._comment_renderer()
         images = {identifier: (key, image) for identifier, key, image in images}
@@ -836,6 +856,18 @@ class VideoDanmaku(QWidget):
                     comment.lane * self.lane_height(), width,
                     comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
         self._prune_lanes()
+        # Results are admitted in arrival order, only with the current font/images.
+        # Cleared tokens are absent, so late jobs cannot revive old room messages.
+        for identifier, pending in list(self._pending_comments.items()):
+            result = images.get(identifier)
+            if result is None:
+                break
+            text, color, runs, self_sent, event = pending
+            key, image = result
+            if key != renderer.key(text, color, runs, self_sent):
+                break
+            self._pending_comments.pop(identifier)
+            self._admit_comment(image, key, text, color, runs, self_sent, event)
         if self._quick_layer is None:
             self.update()
 
@@ -945,6 +977,7 @@ class VideoDanmaku(QWidget):
         self._set_hover(None)
         self._stop_timer()
         self.comments.clear()
+        self._pending_comments.clear()
         self.super_chats.clear()
         self.super_chat_overlay.set_chats([], 0)
         if self._quick_layer is not None and self._quick_group is not None:

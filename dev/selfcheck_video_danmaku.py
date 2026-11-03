@@ -10,7 +10,7 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 from types import MethodType, SimpleNamespace
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QThread, QThreadPool, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontInfo, QImage, QPaintEvent, QPixmap, QRawFont, QRegion, QWindowStateChangeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QDialog, QWidget
@@ -362,10 +362,119 @@ def check_quick_surface_recovery(app):
 
 
 def wait_comment_raster(app, overlay):
-    deadline = time.monotonic() + 5
+    deadline = time.perf_counter() + 5
     while (overlay._comment_resize_timer.isActive() or overlay._comment_raster_job is not None):
-        assert time.monotonic() < deadline, 'Resized comment painting did not finish'
-        QTest.qWait(10)
+        assert time.perf_counter() < deadline, 'Comment painting did not finish'
+        app.processEvents()
+        time.sleep(.002)  # Let Python image providers/render callbacks acquire the GIL.
+
+
+def check_initial_background_raster(app):
+    from ddm.danmaku_raster import CommentRaster
+    overlay = VideoDanmaku()
+    overlay.set_native_video(False)  # The plugin uses this QWidget picture surface.
+    overlay.resize(900, 500)
+    overlay.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_scale=False,
+                                video_danmaku_size=28, video_danmaku_outline_width=2))
+    overlay.set_enabled(True)
+    overlay.set_active(True)
+    app.processEvents()
+    original = CommentRaster._render_content
+    entered, release = threading.Event(), threading.Event()
+    threads = []
+    def blocked(renderer, *args):
+        threads.append(QThread.currentThread())
+        entered.set()
+        assert release.wait(5), 'Initial raster worker timed out'
+        return original(renderer, *args)
+    def wait_entered():
+        deadline = time.perf_counter() + 3
+        while not entered.is_set():
+            assert time.perf_counter() < deadline
+            QTest.qWait(5)
+    try:
+        with patch.object(CommentRaster, '_render_content', blocked), \
+                patch.object(overlay, '_render_content', side_effect=AssertionError('Initial painting on GUI')), \
+                patch.object(overlay, '_ensure_emoticon'), patch.object(overlay, 'lane_count', return_value=2):
+            first = dict(text='first [emote] 中文 😀', emoticons={'[emote]': 'local-emote'}, self_sent=True)
+            assert overlay.add_event(first)
+            assert overlay.add_event(dict(text='second', color='#aaccff'))
+            assert not overlay.add_event(dict(text='bounded backlog'))
+            assert len(overlay._pending_comments) == 2 and not overlay.comments
+            wait_entered()
+            delivered = []
+            QTimer.singleShot(0, lambda: delivered.append(True))
+            app.processEvents()
+            assert delivered and not overlay.comments, 'Blocked painting must leave GUI events available'
+            overlay.apply_settings(dict(overlay.settings, video_danmaku_size=40))
+            emote = QPixmap(32, 18)
+            emote.fill(QColor(220, 30, 80, 150))
+            overlay._on_emoticon_loaded('local-emote', emote)
+            overlay.set_paused(True)
+            layer = Mock(render_thread_animation=True)
+            overlay._quick_layer, overlay._quick_group = layer, 37
+            release.set()
+            wait_comment_raster(app, overlay)
+            assert [c.message for c in overlay.comments] == [first['text'], 'second']
+            assert threads and all(thread != app.thread() for thread in threads)
+            assert not overlay.timer.isActive()
+            layer.set_group_active.assert_called_with(37, False)
+            for comment in overlay.comments:
+                expected = original(overlay._comment_renderer(), comment.text, comment.color,
+                                    comment.runs, comment.self_sent)
+                assert comment.image.toImage() == expected, 'New comments must retain exact reference pixels'
+            comment = overlay.comments[0]
+            comment.x = 80
+            assert overlay.comment_at(QPoint(85, 5)) is comment
+            assert comment.event['text'] == first['text'] and comment.self_sent
+            overlay._quick_layer = overlay._quick_group = None
+        # Clear, room changes and disabled overlays invalidate work already in flight.
+        for action in (overlay.clear, overlay.clear_comments,
+                       lambda: overlay.set_enabled(False), lambda: overlay.set_active(False)):
+            overlay.clear()
+            overlay.set_paused(False)
+            entered.clear()
+            release.clear()
+            with patch.object(CommentRaster, '_render_content', blocked):
+                assert overlay.add_event(dict(text='old room'))
+                wait_entered()
+                action()
+                overlay.set_enabled(True)
+                overlay.set_active(True)
+                assert overlay.add_event(dict(text='new room'))
+                release.set()
+                wait_comment_raster(app, overlay)
+                assert [c.message for c in overlay.comments] == ['new room']
+                assert not overlay._pending_comments
+        # A running job owns image snapshots, never the widget being destroyed.
+        dead = VideoDanmaku()
+        dead.setAttribute(Qt.WA_DeleteOnClose)
+        dead.set_native_video(False)
+        dead.resize(900, 500)
+        dead.apply_settings(overlay.settings)
+        dead.set_enabled(True)
+        dead.set_active(True)
+        app.processEvents()
+        destroyed = []
+        dead.destroyed.connect(lambda: destroyed.append(True))
+        entered.clear()
+        release.clear()
+        with patch.object(CommentRaster, '_render_content', blocked):
+            assert dead.add_event(dict(text='closed during painting'))
+            wait_entered()
+            dead.close()
+            app.sendPostedEvents(None, QEvent.DeferredDelete)
+            assert destroyed
+            release.set()
+            assert QThreadPool.globalInstance().waitForDone(3000)
+            app.processEvents()
+    finally:
+        release.set()
+        overlay._quick_layer = overlay._quick_group = None
+        overlay.clear()
+        wait_comment_raster(app, overlay)
+        overlay.close()
+    print('PASS: initial background raster, GUI delivery, bounded admission, order, exact pixels, stale settings/emotes and room invalidation')
 
 
 def check_resize_rebuild_coalescing(app):
@@ -381,6 +490,7 @@ def check_resize_rebuild_coalescing(app):
         overlay.show()
         app.processEvents()
         assert overlay.add_event({'text': '最终尺寸描边弹幕 ABC 123', 'color': '#aaccff', 'self_sent': True})
+        wait_comment_raster(QApplication.instance(), overlay)
         overlay.set_paused(True)
         wait_comment_raster(app, overlay)
         comment = overlay.comments[0]
@@ -452,6 +562,7 @@ def check_resize_rebuild_coalescing(app):
         overlay.set_paused(False)
         overlay.resize(900, 500)
         assert overlay.add_event({'text': 'arrives before the queued resize'})
+        wait_comment_raster(QApplication.instance(), overlay)
         overlay.set_paused(True)
         wait_comment_raster(app, overlay)
         assert overlay._comment_width == overlay.width()
@@ -463,6 +574,7 @@ def check_resize_rebuild_coalescing(app):
         overlay._images['local-emote'] = image
         with patch.object(overlay, '_ensure_emoticon'):
             assert overlay.add_event({'text': 'mixed [emote] ABC', 'emoticons': {'[emote]': 'local-emote'}})
+            wait_comment_raster(QApplication.instance(), overlay)
         overlay.set_paused(True)
         entered.clear()
         release.clear()
@@ -610,10 +722,12 @@ def check_motion(app):
         assert overlay.font_pixels() == 28
         with patch("ddm.video_danmaku.perf_counter", return_value=100):
             assert overlay.add_event({"text": "短弹幕", "color": "#ff99cc"})
+            wait_comment_raster(QApplication.instance(), overlay)
             first = overlay.comments[0]
             speed = first.speed
             for _ in range(overlay.lane_count() - 1):
                 assert overlay.add_event({"text": "其他轨道"})
+                wait_comment_raster(QApplication.instance(), overlay)
             with patch.object(overlay, '_render_text', side_effect=AssertionError('Full lanes must not rasterize rejected text')):
                 assert not overlay.add_event({"text": "轨道满时直接丢弃"})
         with patch("ddm.video_danmaku.perf_counter", return_value=101):
@@ -632,6 +746,7 @@ def check_motion(app):
         assert not overlay.comments and not overlay.timer.isActive()
         overlay.apply_settings(dict(settings, video_danmaku_speed=200))
         assert overlay.add_event({"text": "短弹幕"})
+        wait_comment_raster(QApplication.instance(), overlay)
         assert abs(overlay.comments[0].speed - speed * 2) < 0.01
         overlay.apply_settings(dict(settings, video_danmaku_size=48, video_danmaku_area=25))
         assert overlay.font_pixels() == 48
@@ -648,6 +763,7 @@ def check_motion(app):
         overlay.apply_settings(dict(settings, video_danmaku_area=100))
         overlay.clear()
         assert overlay.add_event({"text": "short" * 6})
+        wait_comment_raster(QApplication.instance(), overlay)
         first = overlay.comments[0]
         overlay.comments = [first]
         height = overlay.lane_height()
@@ -689,9 +805,11 @@ def check_motion(app):
             assert update.call_args.args[0].height() == dirty_height
         assert not overlay.comments and not overlay.timer.isActive()
         assert overlay.add_event({"text": "short" * 6})
+        wait_comment_raster(QApplication.instance(), overlay)
         first = overlay.comments[0]
         first.x = 100
         assert overlay.add_event({"text": "long" * 50})
+        wait_comment_raster(QApplication.instance(), overlay)
         overlay.comments[-1].lane = first.lane
         overlay.comments[-1].x = 700
         tile.resize(320, 540)
@@ -704,9 +822,11 @@ def check_motion(app):
         app.processEvents()
         overlay.clear()
         assert overlay.add_event({"text": "short" * 6})
+        wait_comment_raster(QApplication.instance(), overlay)
         first = overlay.comments[0]
         first.x = 100
         assert overlay.add_event({"text": "short" * 6})
+        wait_comment_raster(QApplication.instance(), overlay)
         second = overlay.comments[-1]
         second.lane = first.lane
         second.x = first.x + first.image.width() / first.image.devicePixelRatioF() + overlay.GAP + 10
@@ -746,6 +866,8 @@ def check_routing(app):
                 assert window._ensure_danmaku_client("1001") is client
                 restart.assert_not_called()
             client.message.emit({"text": "房间一"})
+            wait_comment_raster(app, first.video_danmaku)
+            wait_comment_raster(app, duplicate.video_danmaku)
             assert len(first.video_danmaku.comments) == len(duplicate.video_danmaku.comments) == 1
             assert not second.video_danmaku.comments and not disabled.video_danmaku.comments
             window.settings["danmaku_block_words"] = ["广告"]
@@ -929,6 +1051,7 @@ def check_qt_picture_surface(app):
                 app.processEvents()
                 before = overlay.grab().toImage()
                 assert overlay.add_event({'text': 'Qt picture comment', 'uname': 'fixture'})
+                wait_comment_raster(QApplication.instance(), overlay)
                 overlay.set_paused(True)
                 overlay.comments[0].x = 80
                 overlay.repaint()
@@ -946,6 +1069,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_surface_recovery(app)
     check_fonts(app)
+    check_initial_background_raster(app)
     check_resize_rebuild_coalescing(app)
     check_qt_picture_surface(app)
     check_quick_occlusion(app)

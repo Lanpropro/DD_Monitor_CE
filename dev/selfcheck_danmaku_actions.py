@@ -15,6 +15,7 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QLineEdit
 from ddm import danmaku_actions, plugins, theme
 from ddm.widgets import WallGrid
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 APP = QApplication.instance() or QApplication([])
 
@@ -124,6 +125,7 @@ class ActionsTests(unittest.TestCase):
         video.set_active(True)
         with patch.object(video, '_poll_hover'):
             self.assertTrue(video.add_event(event))
+            wait_comment_raster(QApplication.instance(), video)
             comment = video.comments[0]
             comment.x = 20
             point = QPoint(25, comment.lane * video.lane_height() + 8)
@@ -324,7 +326,9 @@ class ActionsTests(unittest.TestCase):
         video.set_active(True)
         with patch.object(video, '_poll_hover'):
             self.assertTrue(video.add_event({'text': '  original   text  '}))
+            wait_comment_raster(QApplication.instance(), video)
             self.assertTrue(video.add_event({'text': 'another comment'}))
+            wait_comment_raster(QApplication.instance(), video)
             first, second = video.comments
             first.x, second.x = 160, 300
             point = QPoint(170, first.lane * video.lane_height() + 8)
@@ -361,6 +365,7 @@ class ActionsTests(unittest.TestCase):
         video.set_enabled(True)
         video.set_active(True)
         self.assertTrue(video.add_event({'text': 'hover target'}))
+        wait_comment_raster(QApplication.instance(), video)
         comment = video.comments[0]
         comment.x, comment.lane = 100, 2
         point = video.mapToGlobal(QPoint(110, 2 * video.lane_height() + 8))
@@ -381,6 +386,7 @@ class ActionsTests(unittest.TestCase):
         video.set_enabled(True)
         video.set_active(True)
         self.assertTrue(video.add_event({'text': 'clicked comment'}))
+        wait_comment_raster(QApplication.instance(), video)
         video.comments[0].x = 160
         point = tile.video.mapFromGlobal(video.mapToGlobal(QPoint(170, 8)))
         selected = []

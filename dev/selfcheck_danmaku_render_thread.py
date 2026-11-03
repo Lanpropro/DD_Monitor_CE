@@ -23,6 +23,7 @@ from shiboken6 import isValid
 from ddm import config
 from ddm.video_danmaku import VideoDanmaku
 from ddm.video_danmaku_quick import QuickDanmakuLayer
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 class MotionProbe(QQuickItem):
@@ -91,7 +92,9 @@ def main():
     overlay.attach_quick_layer(layer)
     layer.show()
     assert overlay.add_event({"text": "render thread motion"})
+    wait_comment_raster(QApplication.instance(), overlay)
     assert overlay.add_event({"text": "second lane"})
+    wait_comment_raster(QApplication.instance(), overlay)
     comment = overlay.comments[0]
     overlay.set_paused(True)
     comment.x, comment.speed = 280, 100

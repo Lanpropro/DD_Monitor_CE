@@ -14,6 +14,7 @@ from ddm import config, theme
 from ddm.app import MainWindow
 from ddm.widgets import Tile
 from selfcheck_video_danmaku import Client, Snapshot
+from dev.selfcheck_video_danmaku import wait_comment_raster
 
 
 def progress(overlay, comment):
@@ -92,6 +93,7 @@ def check_text(app):
             for text in ("虞出 合成大西瓜", "gypjq 吃西瓜", "这是默认字体的完整下沿"):
                 overlay.clear()
                 assert overlay.add_event({"text": text})
+                wait_comment_raster(QApplication.instance(), overlay)
                 image = overlay.comments[0].image.toImage()
                 points = [(x, y) for y in range(image.height()) for x in range(image.width())
                           if image.pixelColor(x, y).alpha()]
@@ -144,6 +146,7 @@ def check_controls(app):
                 tile.set_video_active(True)
                 tile.danmaku_button.setChecked(True)
                 assert tile.video_danmaku.add_event({"text": "全屏切换时继续滚动"})
+                wait_comment_raster(QApplication.instance(), tile.video_danmaku)
                 tile.video_danmaku.set_paused(True)
             overlay = first.video_danmaku
             comment = overlay.comments[0]
