@@ -124,11 +124,21 @@ class RoomPlacement:
             player.set_muted(tile.muted)
             player.set_audio_channel(int(tile.audio_channel))
             player.reapply_audio_channel()
-            tile.sync_audio_ui()            # 值换位了，音量条控件要跟着重画
-            tile.raise_overlays()
-        host.wall.relayout(force=True)         # 换完位置重新摆一遍
+        # Native controls must paint the final geometry and audio values together.
+        bars = [(tile.bottom, tile.bottom.updatesEnabled()) for tile in (source, target)]
+        for bar, _enabled in bars:
+            bar.setUpdatesEnabled(False)
+        try:
+            host.wall.relayout(force=True)         # 换完位置重新摆一遍
+            for tile in (source, target):
+                if host.players.get(tile) is not None:
+                    tile.sync_audio_ui()
+                tile.raise_overlays()
+        finally:
+            for bar, enabled in bars:
+                bar.setUpdatesEnabled(enabled)
         for tile in (source, target):
-            tile.raise_overlays()
+            tile._refresh_moved_overlays()
         host._refresh_meta()
         print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",
               file=sys.stderr, flush=True)

@@ -4,11 +4,13 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 import shiboken6
 
 os.environ.setdefault('DDM_NO_SAVE', '1')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
 from PySide6.QtGui import QPalette
@@ -367,6 +369,64 @@ class ControlsTests(unittest.TestCase):
                 self.assertEqual(edit.text(), 'draft-' + tile.room['room_id'])
                 if APP.platformName() == 'windows' and tile in wall.tiles[:2]:
                     self.assertFalse(tile.status_label.internalWinId(), tile.room['room_id'])
+
+    def test_hot_swap_refreshes_native_audio_controls_at_final_geometry(self):
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from ddm.room_placement import RoomPlacement
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 2400, 1300)
+        wall = WallGrid([{'room_id': '12', 'live': True, 'volume': 20},
+                         {'room_id': '13', 'live': True, 'volume': 40},
+                         {'room_id': '14'}], parent=host, layout_id='dm_main2')
+        wall.setGeometry(host.rect())
+        host.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        first, second = wall.tiles[:2]
+        expected_geometry = {first: QRect(second.geometry()), second: QRect(first.geometry())}
+        expected_volume = {first: second.volume, second: first.volume}
+        observed = []
+        watched = {}
+        class PaintProbe(QObject):
+            def eventFilter(self, widget, event):
+                if event.type() == QEvent.Paint:
+                    tile = watched[widget]
+                    observed.append((widget, QRect(tile.geometry()), tile.volume_slider.value()))
+                return False
+        probe = PaintProbe(host)
+        with ExitStack() as stack:
+            for tile in (first, second):
+                original = tile.sync_audio_ui
+                def sync(tile=tile, original=original):
+                    self.assertEqual(tile.geometry(), expected_geometry[tile],
+                                     'Do not redraw new audio values in the previous slot geometry')
+                    return original()
+                stack.enter_context(patch.object(tile, 'sync_audio_ui', side_effect=sync))
+                for widget in (tile.pause_button, tile.volume_slider):
+                    widget.winId()
+                    watched[widget] = tile
+                    widget.installEventFilter(probe)
+            APP.processEvents()
+            observed.clear()
+            placement = RoomPlacement(SimpleNamespace(wall=wall, players={first: Mock(), second: Mock()},
+                                                      _refresh_meta=Mock()))
+            self.assertTrue(placement.hot_swap(first, second))
+            if APP.platformName() == 'windows':
+                self.assertEqual({widget for widget, _rect, _value in observed}, set(watched),
+                                 'Flush every moved native button/slider before the swap returns')
+            for widget, rect, value in observed:
+                tile = watched[widget]
+                self.assertEqual(rect, expected_geometry[tile])
+                self.assertEqual(value, expected_volume[tile])
+            for tile in (first, second):
+                self.assertFalse(tile._move_repaint_timer.isActive(), 'Swap must consume its queued repaint')
 
     def test_failed_load_rolls_back_controls(self):
         self.tile({'room_id': '12'})

@@ -6846,11 +6846,15 @@ class Tile(QFrame):
 
     def _refresh_moved_overlays(self) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
+        self._move_repaint_timer.stop()
         if not self.isVisible():
             return
         for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
                        self.controls, self.spinner, self.pause_overlay, self.bottom):
             if widget.isVisible():
+                widget.repaint()
+        for widget in self.bottom.findChildren(QWidget):
+            if widget.isVisible() and widget.testAttribute(Qt.WA_NativeWindow):
                 widget.repaint()
         self.update()
 

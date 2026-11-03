@@ -19,6 +19,9 @@ class Tile:
         self.room = dict(room_id=room_id, uname=room_id, live=True, **room)
         self.sync_audio_ui = Mock()
         self.raise_overlays = Mock()
+        self._refresh_moved_overlays = Mock()
+        self.bottom = Mock()
+        self.bottom.updatesEnabled.return_value = True
 
     def set_room(self, room):
         self.room = dict(room or {})
