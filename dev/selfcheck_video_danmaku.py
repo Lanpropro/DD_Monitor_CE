@@ -480,10 +480,14 @@ def check_resize_rebuild_coalescing(app):
                 QTest.qWait(5)
             updated = QPixmap(24, 20)
             updated.fill(QColor(40, 80, 255, 160))
-            overlay._on_emoticon_loaded('local-emote', updated)
-            expected = overlay.comments[0].image.toImage()
+            before = overlay.comments[0].image.toImage()
+            with patch.object(overlay, '_render_content', side_effect=AssertionError('Emoticon callbacks must not rasterize on GUI')):
+                overlay._on_emoticon_loaded('local-emote', updated)
+                assert overlay.comments[0].image.toImage() == before
             release.set()
             wait_comment_raster(app, overlay)
+            comment = overlay.comments[0]
+            expected = overlay._render_content(comment.text, comment.color, comment.runs, comment.self_sent).toImage()
             assert overlay.comments[0].image.toImage() == expected, 'Late emoticons invalidate old rich-text jobs'
     finally:
         overlay.clear()

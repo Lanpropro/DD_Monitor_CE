@@ -765,7 +765,7 @@ class VideoDanmaku(QWidget):
             self._images.pop(next(iter(self._images)))
         self._images[url] = pixmap.toImage()
         if any(url == image_url for comment in self.comments for _, image_url in comment.runs):
-            self._resize_comments()
+            self._queue_comment_raster()
 
     def _comment_renderer(self):
         return CommentRaster(self._font(), self.outline_width(),
