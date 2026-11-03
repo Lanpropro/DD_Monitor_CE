@@ -4,11 +4,20 @@ from copy import deepcopy
 import os
 from pathlib import Path
 import sys
+import time
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
 HOST_PAGES = {1: 'appearance', 7: 'plugins', 8: 'updates'}
+
+
+def _save_trace(stage, started=None):
+    now = time.perf_counter_ns()
+    elapsed = '' if started is None else f' elapsed_ms={(now - started) / 1_000_000:.3f}'
+    print(f'[设置保存] stage={stage} pid={os.getpid()} at_ns={now}{elapsed}',
+          file=sys.stderr, flush=True)
+    return now
 
 
 def _allow_foreground(pid):
@@ -136,6 +145,7 @@ class SettingsProcess(QObject):
                 if not self.closing:
                     self._open_pending()
             elif kind == 'result':
+                started = _save_trace('host.result.received')
                 self.visible = False
                 if not self.closing:
                     if message.get('host_saved'):
@@ -143,8 +153,12 @@ class SettingsProcess(QObject):
                     elif message.get('accepted'):
                         self.saved.emit(message['changes'])
                 self.closed.emit()
+                _save_trace('host.result.applied', started)
             elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden') and not self.closing:
+                started = _save_trace('host.save.received') if kind == 'host-save' else None
                 self.hostRequest.emit(message)
+                if started is not None:
+                    _save_trace('host.save.dispatched', started)
 
     def _stderr(self):
         text = bytes(self.process.readAllStandardError()).decode('utf-8', errors='replace')
@@ -304,18 +318,29 @@ def run_worker():
                 super()._reset_current()
 
         def _save(self):
+            self._save_clicked_at = _save_trace('worker.click')
             if self.host_requested or self.plugin_checks:
                 self.confirm_button.setEnabled(False)
-                send({'kind': 'host-save', 'changes': self.changes()})
+                started = time.perf_counter_ns()
+                changes = self.changes()
+                _save_trace('worker.changes.collected', started)
+                send({'kind': 'host-save', 'changes': changes})
+                _save_trace('worker.host-save.sent', self._save_clicked_at)
             else:
                 super()._save()
 
         def done(self, result):
+            started = getattr(self, '_save_clicked_at', None)
+            detached = time.perf_counter_ns()
             if self.foreign is not None:
                 self.foreign.hide()
                 self.foreign.setParent(None)
                 self.foreign = None
+            if started is not None:
+                _save_trace('worker.detach.finished', detached)
             super().done(result)
+            if started is not None:
+                _save_trace('worker.done', started)
 
         def paintEvent(self, event):
             super().paintEvent(event)
@@ -351,9 +376,12 @@ def run_worker():
             elif kind == 'host-theme' and self.dialog is not None:
                 theme.apply(message['mode'])
             elif kind == 'host-save-blocked' and self.dialog is not None:
+                _save_trace('worker.save.blocked', getattr(self.dialog, '_save_clicked_at', None))
+                self.dialog._save_clicked_at = None
                 self.dialog.confirm_button.setEnabled(True)
                 self.dialog.nav.setCurrentRow(message['index'])
             elif kind == 'host-saved' and self.dialog is not None:
+                _save_trace('worker.host-saved.received')
                 self.dialog.host_saved = True
                 self.dialog.reject()  # Unembed before acknowledging that the host may apply/restart.
             elif kind == 'host-request-save' and self.dialog is not None:
@@ -372,9 +400,14 @@ def run_worker():
 
         def finished(self, accepted):
             dialog, self.dialog = self.dialog, None
+            started = getattr(dialog, '_save_clicked_at', None)
+            if started is not None:
+                _save_trace('worker.finished', started)
             send({'kind': 'result', 'accepted': accepted == SettingsDialog.Accepted,
                   'changes': dialog.changes() if accepted == SettingsDialog.Accepted else {},
                   'host_saved': dialog.host_saved})
+            if started is not None:
+                _save_trace('worker.result.sent', started)
             dialog.deleteLater()
 
     with tempfile.TemporaryDirectory(prefix='ddm_settings_') as temporary:
