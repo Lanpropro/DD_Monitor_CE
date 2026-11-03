@@ -353,6 +353,8 @@ class SuperChatOverlay(BadgeSurface):
 
     def _refresh_quick_mask(self):
         owner = self._video_danmaku
+        if owner is None or owner._quick_group is None:
+            return  # Restoring the toggle can run before Tile creates its controls.
         tile = owner.parentWidget() if owner is not None else None
         refresh = getattr(tile, '_update_quick_danmaku_mask', None)
         if refresh is not None:

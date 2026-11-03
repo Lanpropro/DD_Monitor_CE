@@ -145,6 +145,16 @@ class NativeSurfaceTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_restored_danmaku_toggle_does_not_mask_an_unfinished_tile(self):
+        from ddm.widgets import Tile
+        with patch('sys.excepthook') as errors:
+            tile = Tile({'room_id': 'fixture', 'video_danmaku_enabled': True})
+            try:
+                self.assertTrue(tile.video_danmaku.enabled)
+                self.assertFalse(errors.called, 'SC must not access controls before Tile finishes construction')
+            finally:
+                tile.close()
+
     def test_schematic_preview_opacity_and_compact_controls(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
