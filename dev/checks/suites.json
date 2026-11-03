@@ -105,6 +105,7 @@
       "selfcheck_setup",
       "selfcheck_data_paths",
       "selfcheck_image_cache",
+      "selfcheck_diagnostic_session",
       "selfcheck_ui_components",
       "selfcheck_logging",
       "selfcheck_qt_log",

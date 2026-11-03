@@ -27,6 +27,14 @@ internal static class DiagnosticsTests
                 return 0;
             }
             if (NativeDependencies.TryRun(args)) return 0;
+            if (args[0] == "--capture-command")
+            {
+                var command = new Collector(args[1]).CaptureCommand(args[2]);
+                Console.WriteLine(new JavaScriptSerializer().Serialize(new {
+                    executable = command.FileName, arguments = command.Arguments,
+                    working_directory = command.WorkingDirectory, modes = Collector.CaptureModes }));
+                return 0;
+            }
             if (args[0] == "--auto-exit")
             {
                 foreach (bool enabled in new[] { false, true })
@@ -94,6 +102,21 @@ internal static class DiagnosticsTests
                     var exitOption = (CheckBox)typeof(DiagnosticForm).GetField("exitAfterSuccess", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                     if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
                         throw new Exception("Auto-exit option clipped at minimum window size");
+                    var captureMode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    if (captureMode.Items.Count != Collector.CaptureModes.Length || captureMode.Width < 170 || captureMode.Height < 20)
+                        throw new Exception("Capture selection clipped or incomplete");
+                    if (args.Length > 2)
+                    {
+                        form.StartPosition = FormStartPosition.Manual;
+                        form.Location = new Point(-14000, -14000);
+                        form.Show();
+                        form.PerformLayout();
+                        using (var bitmap = new Bitmap(form.Width, form.Height))
+                        {
+                            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+                            bitmap.Save(args[2]);
+                        }
+                    }
                     Console.WriteLine("layout passed");
                     return 0;
                 }

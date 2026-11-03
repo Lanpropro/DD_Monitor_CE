@@ -186,6 +186,28 @@ class FolderMotionCapture:
         sidebar.toggle_folder = self.toggle_folder
         sidebar.list_box.relayout = self.layout
 
+    def snapshot(self):
+        """Capture a persistent misalignment even when no folder was just clicked."""
+        if self.probe.stopped.is_set():
+            return
+        self.finish('manual-snapshot')
+        self.started = time.perf_counter()
+        sidebar = self.sidebar
+        self.entries = list(sidebar._items) + list(sidebar._folder_buttons.values())
+        self.entries += list(sidebar._smart_cards.values())
+        self.record = {'action': 'manual-snapshot', 'side': sidebar.side,
+            'card_mode': sidebar.card_mode, 'collapsed': sidebar.collapsed,
+            'collapse_animating': sidebar._collapse_animating,
+            'item_size': list(sidebar.list_box.item_size()),
+            'visible_items': len(sidebar.visible_items()),
+            'folders': [{'index': index, 'collapsed': folder['collapsed'],
+                         'member_count': sum(value == folder['id']
+                             for value in sidebar._folder_assignments.values())}
+                        for index, folder in enumerate(sidebar.folders)],
+            'frames': [], 'layouts': []}
+        self.frame()
+        self.timer.start()
+
     def toggle_folder(self, folder_id, *, animate=False):
         if self.probe.stopped.is_set():
             return self.toggle(folder_id, animate=animate)

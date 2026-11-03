@@ -43,7 +43,13 @@ class CaptureTests(unittest.TestCase):
             calls.append((raw, cdn, rate))
             return {'rtmp_url': 'https://alternate.invalid', 'rtmp_live': 'private?token=secret',
                     'rate': rate, 'cdnsWithName': [{'cdn': 'hw-h5'}, {'cdn': 'scdncttbej'}]}
-        platform = SimpleNamespace(_request_source=source)
+        failures = []
+        def failure(room, url, reason):
+            failures.append((room, url, reason))
+            return 'original-result'
+        platform = SimpleNamespace(_request_source=source, report_playback_failure=failure,
+            normalize=lambda room: 'douyu:' + str(room).removeprefix('douyu:'),
+            _cdn_lock=threading.Lock(), _source_cdns={}, _failed_cdns={})
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'control.json'
             install_cdn_control(platform, path, lambda stage, **v: rows.append(dict(stage=stage, **v)))
@@ -62,6 +68,11 @@ class CaptureTests(unittest.TestCase):
             path.write_text(json.dumps({'room': '123', 'cdn': ''}), encoding='utf-8')
             platform._request_source(None, '123', 'hw-h5', rate=0)
             self.assertEqual(calls[-1], ('123', 'hw-h5', 0))
+            url = 'https://alternate.invalid/private?token=secret'
+            self.assertEqual(platform.report_playback_failure('123', url, 'fixture'), 'original-result')
+            self.assertEqual(failures, [('123', url, 'fixture')])
+            self.assertEqual(rows[-1]['stage'], 'source.cdn-failure')
+            self.assertNotIn('secret', json.dumps(rows))
 
     def test_deep_playback_and_transport_attempt_ids_do_not_collide(self):
         os.environ['DDM_NO_SAVE'] = '1'
