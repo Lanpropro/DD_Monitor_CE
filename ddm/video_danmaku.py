@@ -517,12 +517,7 @@ class VideoDanmaku(QWidget):
         if comment is None:
             return False
         self._set_hover(comment)
-        self._menu_open = True
-        try:
-            self.actionsRequested.emit(comment.event, position)
-        finally:
-            self._menu_open = False
-            self._poll_hover()
+        self.actionsRequested.emit(comment.event, position)
         return True
 
     def apply_settings(self, settings: dict) -> None:

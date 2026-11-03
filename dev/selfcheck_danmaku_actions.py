@@ -81,11 +81,11 @@ class ActionsTests(unittest.TestCase):
 
     def choose(self, index, before=None):
         class TestMenu(danmaku_actions.CommentToolbar):
-            def exec(menu, _position):
+            def popup(menu, _position):
                 self.assertEqual([a.text() for a in menu.command_actions], ['复制', '+1'])
                 if before:
                     before(menu)
-                return menu.command_actions[index]
+                menu.command_actions[index].trigger()
         return patch.object(danmaku_actions, 'CommentToolbar', TestMenu)
 
     def test_copy_and_repeat_use_original_text_and_only_the_target_room(self):
@@ -173,6 +173,11 @@ class ActionsTests(unittest.TestCase):
             QTest.mouseClick(menu.repeat_button, Qt.LeftButton)
         QTimer.singleShot(30, select_repeat)
         self.wall.tiles[0]._show_danmaku_actions('one actual menu selection', QPoint(80, 80))
+        self.assertEqual(self.sent, [], 'The click handler must return before a toolbar choice')
+        self.assertIsNone(QApplication.activeModalWidget())
+        self.assertTrue(self.wall.tiles[0].video_danmaku._menu_open)
+        QTest.qWait(60)
+        self.assertFalse(self.wall.tiles[0].video_danmaku._menu_open)
         self.assertEqual(self.sent, [('12', 'one actual menu selection')])
 
     def test_escape_closes_toolbar_without_copy_or_send(self):
@@ -181,6 +186,7 @@ class ActionsTests(unittest.TestCase):
             QTest.keyClick(QApplication.activePopupWidget(), Qt.Key_Escape)
         QTimer.singleShot(30, cancel)
         self.wall.tiles[0]._show_danmaku_actions('cancelled comment', QPoint(80, 80))
+        QTest.qWait(60)
         self.assertEqual(APP.clipboard().text(), 'keep clipboard')
         self.assertEqual(self.sent, [])
 
@@ -212,9 +218,9 @@ class ActionsTests(unittest.TestCase):
                 opened = []
                 replay_blocked = []
                 class TrackingToolbar(danmaku_actions.CommentToolbar):
-                    def exec(menu, position):
+                    def popup(menu, position):
                         opened.append(menu)
-                        return super().exec(position + QPoint(150, 100))
+                        super().popup(position + QPoint(150, 100))
                     def closeEvent(menu, event):
                         replay_blocked.append(menu.testAttribute(Qt.WA_NoMouseReplay))
                         super().closeEvent(event)
@@ -231,6 +237,9 @@ class ActionsTests(unittest.TestCase):
                 QTimer.singleShot(30, click_outside)
                 with patch.object(danmaku_actions, 'CommentToolbar', TrackingToolbar):
                     QTest.mouseClick(body.viewport(), Qt.LeftButton, pos=first)
+                    self.assertIsNotNone(body._action_block)
+                    QTest.qWait(80)
+                    self.assertIsNone(body._action_block)
                 closed_by_click = fallback.isActive()
                 fallback.stop()
                 self.assertTrue(closed_by_click)

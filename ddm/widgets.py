@@ -1142,11 +1142,10 @@ class DanmakuPanel(QFrame):
         from .danmaku_actions import show_comment_menu
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()
-        try:
-            show_comment_menu(self, self._blocks[index], self._tile_controls, position)
-        finally:
+        def finished():
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
+        show_comment_menu(self, self._blocks[index], self._tile_controls, position, finished)
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
@@ -6759,7 +6758,11 @@ class Tile(QFrame):
 
     def _show_danmaku_actions(self, text, position):
         from .danmaku_actions import show_comment_menu
-        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position)
+        self.video_danmaku._menu_open = True
+        def finished():
+            self.video_danmaku._menu_open = False
+            self.video_danmaku._poll_hover()
+        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position, finished)
 
     def _open_clicked_danmaku(self, event):
         start = getattr(self, '_press_pos', None)
