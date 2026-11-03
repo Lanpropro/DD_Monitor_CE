@@ -776,7 +776,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "wall") and not self._closing:
                 if self._window_move is None and msg.message == 0x00A1 and msg.wParam == 2:
                     from .window_move import WindowMove
-                    self._window_move = WindowMove(self, int(msg.hwnd))
+                    self._window_move = WindowMove(self, int(msg.hWnd))
                 if self._window_move is not None and self._window_move.native_message(msg):
                     return True, 0
             if msg.message == 0x0231:  # WM_ENTERSIZEMOVE
