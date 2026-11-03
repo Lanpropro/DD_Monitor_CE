@@ -12,6 +12,13 @@ class FullscreenPresentation(QObject):
         self._owner_hidden = False
         window.installEventFilter(self)
 
+    def _set_comments_changing(self, active):
+        wall = self.window.wall
+        if wall._quick_danmaku_layer is not None:
+            wall._quick_danmaku_layer.set_presentation_changing(active)
+        for pane in wall.tiles:
+            pane.video_danmaku.super_chat_overlay.set_presentation_changing(active)
+
     def enter(self, tile, geometry=None):
         wall = self.window.wall
         self.tile = tile
@@ -26,6 +33,7 @@ class FullscreenPresentation(QObject):
         wall._relayout_timer.stop()
         wall._resize_timer.stop()
         wall.fullscreen_tile = tile
+        self._set_comments_changing(True)
         tile.hide()
         wall._sync_danmaku_controls()
         tile.installEventFilter(self)
@@ -64,8 +72,7 @@ class FullscreenPresentation(QObject):
                 pane.hide()
         for border in self._borders:
             border.hide()
-        if layer is not None:
-            layer.set_presentation_changing(False)
+        self._set_comments_changing(False)
 
     def leave(self):
         tile = self.tile
@@ -73,8 +80,7 @@ class FullscreenPresentation(QObject):
             return
         wall = self.window.wall
         layer = wall._quick_danmaku_layer
-        if layer is not None:
-            layer.set_presentation_changing(True)
+        self._set_comments_changing(True)
         # Restore the wall behind the still-visible fullscreen window.
         for pane, visible in self._visible:
             if pane is not tile:
@@ -113,8 +119,7 @@ class FullscreenPresentation(QObject):
             self.window.activateWindow()
         if dialog is not None and dialog.isVisible():
             dialog.raise_()
-        if layer is not None:
-            layer.set_presentation_changing(False)
+        self._set_comments_changing(False)
 
     def eventFilter(self, watched, event):
         tile = self.tile
