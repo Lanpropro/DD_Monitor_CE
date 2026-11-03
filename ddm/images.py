@@ -2,18 +2,18 @@
 import hashlib
 import os
 import re
-import shutil
 import threading
 from collections import OrderedDict
 from concurrent.futures import Future
 from urllib.parse import urlsplit
 
 import requests
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QThread, Signal
 from PySide6.QtGui import QPixmap
 
 from . import bili
 from . import config as config_module
+from . import image_cache
 
 #: Installed builds use the user's data folder; portable builds keep adjacent data.
 REPO = config_module.data_root()
@@ -157,23 +157,22 @@ def load_room_avatar(room_id: str) -> QPixmap | None:
     return pixmap if not pixmap.isNull() else None
 
 
-def remember_room_avatar(room_id: str, url: str) -> None:
+def remember_room_avatar(room_id: str, url: str, stamp=None) -> bool:
     """把 URL 那张头像留一份到「按房间号」的位置，供下次启动时直接回填。"""
     source = _cache_path(url, "avatars") if room_id and url else ""
     if not source or not os.path.isfile(source):
-        return
+        return False
     target = room_avatar_path(room_id)
     try:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copyfile(source, target)
+        return _remember_image(room_id, url, 'avatars', source, target, stamp)
     except OSError:
-        pass
+        return False
 
 
-def remember_room_cover(room_id: str, url: str, subdir: str = "covers") -> None:
+def remember_room_cover(room_id: str, url: str, subdir: str = "covers", stamp=None) -> bool:
     """把 URL 那张封面留一份到「按房间号」的位置，供下次启动 / 未开播时用。"""
     if not room_id or not url:
-        return
+        return False
     source = ""
     # 缩放版和原图都找一遍：万一 CDN 不认后缀、回退下载了原图，也得留得下档
     for candidate in (_cdn_url(url, _cdn_size_for(subdir)), url):
@@ -182,18 +181,39 @@ def remember_room_cover(room_id: str, url: str, subdir: str = "covers") -> None:
             source = path
             break
     if not source:
-        return
+        return False
     target = room_cover_path(room_id)
     try:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copyfile(source, target)
+        return _remember_image(room_id, url, subdir, source, target, stamp)
     except Exception:  # noqa: BLE001
-        pass
+        return False
 
 
-def _load_one(url: str, subdir: str) -> QPixmap | None:
+def _image_candidates(url, kind):
+    return list(dict.fromkeys(os.path.relpath(_cache_path(candidate, kind), REPO).replace('\\', '/')
+                             for candidate in (_cdn_url(url, _cdn_size_for(kind)), url)))
+
+
+def _remember_image(room_id, url, kind, source, target, stamp):
+    if stamp is None:
+        stamp = image_cache.ticket()
+        image_cache.begin(REPO, kind, {str(room_id): _image_candidates(url, kind)}, stamp)
+    return image_cache.remember(REPO, kind, room_id, source, target, stamp)
+
+
+def _store_cover(pixmap, path, stamp, room=None):
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.WriteOnly)
+    if pixmap.save(buffer, 'PNG'):
+        return image_cache.store(REPO, 'covers', path, bytes(data), stamp, room=room)
+    return False
+
+
+def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
     """单个 URL 的「读缓存，没有就下载并缓存」。"""
     path = _cache_path(url, subdir)
+    stamp = image_cache.ticket() if stamp is None else stamp
     if os.path.isfile(path):
         pixmap = QPixmap(path)
         if not pixmap.isNull():
@@ -219,9 +239,13 @@ def _load_one(url: str, subdir: str) -> QPixmap | None:
         pixmap = QPixmap()
         if not pixmap.loadFromData(response.content) or pixmap.isNull():
             return None                    # 解不开就别写缓存，省得下次读到一个坏文件
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as handle:
-            handle.write(response.content)
+        if subdir in image_cache.KINDS:
+            if not image_cache.store(REPO, subdir, path, response.content, stamp, room=room):
+                return None
+        else:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as handle:
+                handle.write(response.content)
         return pixmap
     except Exception:  # noqa: BLE001
         return None
@@ -262,7 +286,7 @@ def _load_emoticon(url: str, subdir: str) -> QPixmap | None:
 
 
 def load_pixmap(url: str, subdir: str = "avatars",
-                cdn_size: str | None = None) -> QPixmap | None:
+                cdn_size: str | None = None, *, stamp=None, room=None) -> QPixmap | None:
     """先从本地缓存读，没有就下载并缓存。封面默认走 CDN 缩放，只有几 KB。
 
     ``subdir="covers"`` 自动套 :data:`CDN_SIZE`；显式传 ``cdn_size=""`` 可关掉。
@@ -278,16 +302,21 @@ def load_pixmap(url: str, subdir: str = "avatars",
         if candidate and candidate not in candidates:
             candidates.append(candidate)
     for candidate in candidates:
-        pixmap = (_load_emoticon(candidate, subdir) if subdir == "emoticons"
-                  else _load_one(candidate, subdir))
+        if subdir == "emoticons":
+            pixmap = _load_emoticon(candidate, subdir)
+        elif stamp is None:
+            pixmap = _load_one(candidate, subdir)
+        else:
+            pixmap = _load_one(candidate, subdir, stamp, room)
         if pixmap is not None:
             return pixmap
     return None
 
 
-def load_cover(url: str) -> QPixmap | None:
+def load_cover(url: str, *, stamp=None, room=None) -> QPixmap | None:
     from .cover_focus import prepare_cover
-    pixmap = load_pixmap(url, 'covers')
+    stamp = image_cache.ticket() if stamp is None else stamp
+    pixmap = load_pixmap(url, 'covers', stamp=stamp, room=room)
     if pixmap is None:
         return None
     prepared = prepare_cover(pixmap)
@@ -295,7 +324,7 @@ def load_cover(url: str) -> QPixmap | None:
         for candidate in (_cdn_url(url, _cdn_size_for('covers')), url):
             path = _cache_path(candidate, 'covers')
             if os.path.isfile(path):
-                prepared.save(path, 'PNG')
+                _store_cover(prepared, path, stamp, room)
                 break
     return prepared
 
@@ -312,6 +341,7 @@ class CachedCoverLoader(QThread):
     def __init__(self, room_ids, parent=None):
         super().__init__(parent)
         self.room_ids = [str(room_id) for room_id in room_ids]
+        self._stamp = image_cache.ticket()
 
     def run(self) -> None:
         from .cover_focus import prepare_cover
@@ -320,7 +350,7 @@ class CachedCoverLoader(QThread):
             if pixmap is not None:
                 prepared = prepare_cover(pixmap)
                 if prepared.cacheKey() != pixmap.cacheKey():
-                    prepared.save(room_cover_path(room_id), 'PNG')
+                    _store_cover(prepared, room_cover_path(room_id), self._stamp, room_id)
                 self.loaded.emit(room_id, prepared)
 
 
@@ -349,16 +379,28 @@ class AvatarLoader(QThread):
         super().__init__(parent)
         self.items = dict(items)          # key -> url
         self.subdir = subdir
+        self._stamp = image_cache.ticket()
 
     def run(self) -> None:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         if not self.items:
             return
+        if self.subdir in image_cache.KINDS:
+            requests = {str(key): _image_candidates(url, self.subdir) for key, url in self.items.items()}
+            if not image_cache.begin(REPO, self.subdir, requests, self._stamp):
+                return
         with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {(pool.submit(load_banner, url) if self.subdir == 'banners'
-                        else pool.submit(load_cover, url) if self.subdir == 'covers'
-                        else pool.submit(load_pixmap, url, self.subdir)): key
-                       for key, url in self.items.items()}
+            futures = {}
+            for key, url in self.items.items():
+                if self.subdir == 'banners':
+                    future = pool.submit(load_banner, url)
+                elif self.subdir == 'covers':
+                    future = pool.submit(load_cover, url, stamp=self._stamp, room=key)
+                elif self.subdir == 'avatars':
+                    future = pool.submit(load_pixmap, url, self.subdir, stamp=self._stamp, room=key)
+                else:
+                    future = pool.submit(load_pixmap, url, self.subdir)
+                futures[future] = key
             for future in as_completed(futures):
                 key = futures[future]
                 try:
@@ -372,8 +414,10 @@ class AvatarLoader(QThread):
                 if pixmap is not None and not pixmap.isNull():
                     if self.subdir == "covers":
                         # 顺手按房间号留一份，下次启动 / 未开播时直接用
-                        remember_room_cover(key, self.items[key], self.subdir)
+                        if not remember_room_cover(key, self.items[key], self.subdir, stamp=self._stamp):
+                            continue
                     elif self.subdir == "avatars":
                         # 头像同理：收起的关注栏只有头像可认，启动时不能空着
-                        remember_room_avatar(key, self.items[key])
+                        if not remember_room_avatar(key, self.items[key], stamp=self._stamp):
+                            continue
                     self.loaded.emit(key, pixmap)

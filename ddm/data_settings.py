@@ -6,6 +6,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from . import config, data_paths
+from .cache_settings import ImageCachePanel
 
 
 class DataSettingsPage(QWidget):
@@ -45,6 +46,8 @@ class DataSettingsPage(QWidget):
         self.status = QLabel(self._idle_status)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.image_cache = ImageCachePanel(self)
+        layout.addWidget(self.image_cache)
         layout.addStretch(1)
 
     def open_folder(self):

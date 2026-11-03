@@ -102,6 +102,7 @@
       "selfcheck_mobile_share",
       "selfcheck_setup",
       "selfcheck_data_paths",
+      "selfcheck_image_cache",
       "selfcheck_logging",
       "selfcheck_qt_log",
       "selfcheck_system_tray"

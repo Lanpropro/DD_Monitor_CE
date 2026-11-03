@@ -30,6 +30,8 @@
 
 ## 已跟踪的其他文件：逐项标注
 
+- `docs/image-cache.md`
+
 ### 独立诊断工具
 
 - `tools/diagnostics/Collector.cs`
@@ -49,6 +51,7 @@
 
 ### 专项检查脚本
 
+- `dev/selfcheck_image_cache.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_live_danmaku_motion.py`
 - `dev/check_live_restore.py`
