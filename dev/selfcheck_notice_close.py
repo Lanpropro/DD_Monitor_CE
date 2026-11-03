@@ -14,11 +14,12 @@ from unittest.mock import patch
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 from ddm import motion, theme
 from ddm.notification_center import NotificationButton
-from ddm.online_ui import UpdateNotice, show_result
+from ddm.online_ui import ResultNotice, UpdateNotice, show_result
 
 
 class NoticeCloseTests(unittest.TestCase):
@@ -46,9 +47,9 @@ class NoticeCloseTests(unittest.TestCase):
         if self.app.platformName() == 'windows':
             native_visible = ctypes.windll.user32.IsWindowVisible
             native_visible.argtypes = (wintypes.HWND,)
-            self.assertFalse(native_visible(int(notice.internalWinId())), 'Native window must hide in the click handler')
+            self.assertFalse(native_visible(int(notice.internalWinId())), 'Native and Qt visibility must agree')
 
-    def test_manual_close_does_not_wait_for_exit_animation_or_other_notices(self):
+    def test_original_manual_close_removes_records_then_hides_each_notice(self):
         notices = []
         for index in range(4):
             show_result(self.owner, f'Fixture {index}', persistent=True)
@@ -59,8 +60,11 @@ class NoticeCloseTests(unittest.TestCase):
         for index, notice in enumerate(notices):
             with patch.object(notice, '_animate_to', wraps=notice._animate_to) as animate:
                 QTest.mouseClick(notice.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
+                self.assertTrue(notice._leaving)
+                self.assertTrue(notice.isVisible())
+                notice._motion.setCurrentTime(notice._motion.duration())
                 self.assert_hidden(notice)
-                animate.assert_not_called()
+                animate.assert_called_once_with(0.0, 180)
             self.assertEqual(len(self.button.center.entries), 3 - index)
             self.assertEqual(len(self.owner._notices), 3 - index)
             for remaining in notices[index + 1:]:
@@ -72,6 +76,7 @@ class NoticeCloseTests(unittest.TestCase):
         notice._motion.pause()
         notice._motion.setCurrentTime(40)
         QTest.mouseClick(notice.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
+        notice._motion.setCurrentTime(notice._motion.duration())
         self.assert_hidden(notice)
         notice.show_offer({'version': 'next'}, persistent=True)
         notice._motion.setCurrentTime(notice._motion.duration())
@@ -91,14 +96,31 @@ class NoticeCloseTests(unittest.TestCase):
         notice._motion.setCurrentTime(notice._motion.duration())
         self.assert_hidden(notice)
 
+    def test_live_artwork_callback_does_not_unconditionally_reopen_hidden_notice(self):
+        room = {'room_id': '__notice_probe__', 'uname': 'Fixture'}
+        show_result(self.owner, 'Live fixture', rooms=[room], kind='live', persistent=True)
+        notice = self.owner._result_notice
+        notice._motion.setCurrentTime(notice._motion.duration())
+        QTest.mouseClick(notice.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
+        image = QPixmap(32, 16)
+        image.fill(QColor('green'))
+        notice.set_room_artwork(room['room_id'], image, 'covers')
+        self.assertTrue(notice._leaving, 'Artwork must not cancel an already requested close')
+        notice._motion.setCurrentTime(notice._motion.duration())
+        self.assert_hidden(notice)
+        notice.set_room_artwork(room['room_id'], image, 'covers')
+        self.assert_hidden(notice)
+
     def test_capture_is_read_only_bounded_and_does_not_record_notice_text(self):
         from dev.diagnose_notice_close import NoticeCloseTrace
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             trace = NoticeCloseTrace(Path(directory) / 'close.jsonl')
             stack.callback(trace.timer.stop)
-            trace.LIMIT = 12
-            for name in ('dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent'):
-                stack.enter_context(patch.object(UpdateNotice, name, getattr(UpdateNotice, name)))
+            trace.LIMIT = 50
+            for owner, names in ((UpdateNotice, ('__init__', 'dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent')),
+                                 (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar', '_motion_frame', 'reposition', 'paintEvent'))):
+                for name in names:
+                    stack.enter_context(patch.object(owner, name, getattr(owner, name)))
             trace.install()
             notice = UpdateNotice(self.owner)
             secret_text = 'private-notice-do-not-log'
@@ -110,14 +132,16 @@ class NoticeCloseTests(unittest.TestCase):
             trace.record('read-only', notice)
             self.assertEqual(before, (notice.geometry(), notice.internalWinId(), notice.mask(), notice.windowOpacity()))
             QTest.mouseClick(notice.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
+            notice._motion.setCurrentTime(notice._motion.duration())
             self.assert_hidden(notice)
-            for _ in range(30):
+            for _ in range(60):
                 trace.sample()
             rows = [json.loads(line) for line in trace.path.read_text().splitlines()]
             self.assertLessEqual(len(rows), trace.LIMIT)
             self.assertFalse(trace.timer.isActive())
             self.assertNotIn(secret_text, trace.path.read_text())
-            hidden = [row for row in rows if row['stage'] == 'dismiss:after']
+            self.assertTrue(any(row['stage'] == 'button:clicked' for row in rows))
+            hidden = [row for row in rows if row['stage'] == 'UpdateNotice._motion_finished:after']
             self.assertTrue(hidden)
             self.assertFalse(hidden[-1]['visible'])
             if self.app.platformName() == 'windows':
