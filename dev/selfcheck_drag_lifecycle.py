@@ -360,6 +360,74 @@ class DragLifecycleTests(unittest.TestCase):
         finally:
             sidebar.close()
 
+    def test_tile_release_clears_press_anchor_even_when_comment_consumes_it(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': 'fixture'}, self.window)
+        tile.resize(300, 200)
+        point = tile.video.mapToGlobal(QPoint(10, 10))
+        tile._press_pos = tile.mapFromGlobal(point)
+        event = QMouseEvent(QEvent.MouseButtonRelease, QPointF(10, 10), QPointF(point),
+                            Qt.LeftButton, Qt.NoButton, Qt.NoModifier)
+        with patch.object(tile.video_danmaku, 'open_actions_at', return_value=True):
+            self.assertTrue(tile.eventFilter(tile.video, event))
+        self.assertIsNone(tile._press_pos)
+        QTest.mousePress(tile, Qt.LeftButton, pos=QPoint(10, 10))
+        with patch.object(tile.video_danmaku, 'open_actions_at', return_value=False):
+            QTest.mouseRelease(tile, Qt.LeftButton, pos=QPoint(10, 10))
+        self.assertIsNone(tile._press_pos)
+
+    def test_tile_stale_qt_left_flag_cannot_start_native_drag(self):
+        import ctypes
+        from ddm import widgets
+        tile = widgets.Tile({'room_id': 'fixture'}, self.window)
+        event = QMouseEvent(QEvent.MouseMove, QPointF(60, 60), QPointF(),
+                            Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        for native_state in (0, 1):
+            with self.subTest(native_state=native_state), \
+                    patch.object(widgets.sys, 'platform', 'win32'), \
+                    patch.object(QApplication, 'platformName', return_value='windows'), \
+                    patch.object(ctypes, 'windll', SimpleNamespace(user32=SimpleNamespace(
+                        GetAsyncKeyState=Mock(return_value=native_state))), create=True), \
+                    patch.object(widgets, 'QDrag') as factory:
+                tile._press_pos = QPoint(1, 1)
+                tile.mouseMoveEvent(event)
+                factory.assert_not_called()
+                self.assertIsNone(tile._press_pos)
+
+    def test_tile_held_native_button_starts_one_move_and_consumes_anchor(self):
+        import ctypes
+        from ddm import widgets
+        tile = widgets.Tile({'room_id': 'fixture'}, self.window)
+        event = QMouseEvent(QEvent.MouseMove, QPointF(60, 60), QPointF(),
+                            Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        with patch.object(widgets.sys, 'platform', 'win32'), \
+                patch.object(QApplication, 'platformName', return_value='windows'), \
+                patch.object(ctypes, 'windll', SimpleNamespace(user32=SimpleNamespace(
+                    GetAsyncKeyState=Mock(return_value=0x8000))), create=True), \
+                patch.object(widgets, 'QDrag') as factory:
+            tile._press_pos = QPoint(1, 1)
+            tile.mouseMoveEvent(event)
+            tile.mouseMoveEvent(event)
+            factory.assert_called_once_with(tile)
+            factory.return_value.exec.assert_called_once_with(Qt.MoveAction)
+            mime = factory.return_value.setMimeData.call_args.args[0]
+            self.assertEqual(bytes(mime.data(widgets.TILE_MIME)), b'fixture')
+            self.assertIsNone(tile._press_pos)
+
+    def test_tile_nonleft_press_and_unheld_move_discard_old_anchor(self):
+        from ddm.widgets import Tile
+        tile = Tile({'room_id': 'fixture'}, self.window)
+        tile._press_pos = QPoint(1, 1)
+        event = QMouseEvent(QEvent.MouseButtonPress, QPointF(10, 10), QPointF(),
+                            Qt.RightButton, Qt.RightButton, Qt.NoModifier)
+        tile.mousePressEvent(event)
+        self.assertIsNone(tile._press_pos)
+        tile._press_pos = QPoint(1, 1)
+        event = QMouseEvent(QEvent.MouseMove, QPointF(60, 60), QPointF(),
+                            Qt.NoButton, Qt.NoButton, Qt.NoModifier)
+        tile.mouseMoveEvent(event)
+        self.assertIsNone(tile._press_pos)
+
 
 if __name__ == '__main__':
     unittest.main()
