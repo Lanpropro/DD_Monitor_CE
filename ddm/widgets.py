@@ -1142,11 +1142,10 @@ class DanmakuPanel(QFrame):
         from .danmaku_actions import show_comment_menu
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()
-        try:
-            show_comment_menu(self, self._blocks[index], self._tile_controls, position)
-        finally:
+        def finished():
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
+        show_comment_menu(self, self._blocks[index], self._tile_controls, position, finished)
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
@@ -6335,17 +6334,23 @@ class Tile(QFrame):
             self.tileDropped.emit(source)
 
     def mousePressEvent(self, event) -> None:
-        self._press_pos = event.pos()
+        self._press_pos = event.pos() if event.button() == Qt.LeftButton else None
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         """拖动画面本身可以和其他格子交换位置。"""
         room_id = str(self.room.get("room_id") or "")
         if not room_id or not (event.buttons() & Qt.LeftButton):
+            self._press_pos = None
             return
         start = getattr(self, "_press_pos", None)
         if start is None or (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
+        self._press_pos = None
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            import ctypes
+            if not ctypes.windll.user32.GetAsyncKeyState(1) & 0x8000:
+                return  # A queued move can retain Qt's left-button flag after physical release.
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData(TILE_MIME, room_id.encode("utf-8"))
@@ -6759,10 +6764,16 @@ class Tile(QFrame):
 
     def _show_danmaku_actions(self, text, position):
         from .danmaku_actions import show_comment_menu
-        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position)
+        self.video_danmaku._menu_open = True
+        def finished():
+            self.video_danmaku._menu_open = False
+            self.video_danmaku._poll_hover()
+        show_comment_menu(self, text, getattr(self, '_plugin_controls', None), position, finished)
 
     def _open_clicked_danmaku(self, event):
         start = getattr(self, '_press_pos', None)
+        if event.button() == Qt.LeftButton:
+            self._press_pos = None
         position = event.globalPosition().toPoint()
         return (event.button() == Qt.LeftButton and start is not None
                 and (self.mapFromGlobal(position) - start).manhattanLength() < QApplication.startDragDistance()
