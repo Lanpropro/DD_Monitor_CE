@@ -11,6 +11,35 @@ permissions:
   contents: read
 
 jobs:
+  mobile:
+    name: Flutter checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Flutter SDK
+        shell: bash
+        run: |
+          git init "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin tag 3.47.9
+          git -C "$RUNNER_TEMP/flutter" checkout 3.47.9
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = c197ca5199e9ee5661e865596c9c07294dfab51c
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Resolve mobile dependencies
+        working-directory: mobile
+        run: flutter pub get --enforce-lockfile
+      - name: Check mobile formatting and analysis
+        working-directory: mobile
+        run: |
+          dart format --output=none --set-exit-if-changed lib test integration_test
+          flutter analyze --no-pub
+      - name: Run offline mobile tests
+        working-directory: mobile
+        run: flutter test --no-pub
+
   repository:
     name: Repository checks
     runs-on: windows-latest
