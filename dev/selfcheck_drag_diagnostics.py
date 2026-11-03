@@ -91,7 +91,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                     drag_exec.reset_mock()
                     with patch.object(diag.user32, 'GetAsyncKeyState', return_value=0):
                         self.assertEqual(drag.exec(Qt.CopyAction), Qt.IgnoreAction)
-                    drag_exec.assert_not_called()
+                    drag_exec.assert_called_once()
                     from PySide6.QtCore import QPointF, QEvent
                     from PySide6.QtGui import QMouseEvent
                     from PySide6.QtTest import QTest
@@ -119,8 +119,8 @@ class DragDiagnosticsTests(unittest.TestCase):
                     self.assertEqual(entry['gesture'], 1)
                     self.assertGreaterEqual(entry['sincePressMs'], 0)
                     self.assertIn('drag:exec-return', phases)
-                    skipped = next(row for row in rows if row['phase'] == 'drag:exec-skipped')
-                    self.assertEqual(skipped['reason'], 'physical-left-released')
+                    self.assertFalse(any(row['phase'] == 'drag:exec-skipped' for row in rows),
+                                     'Diagnostics must not suppress the original drag callback')
                     delay = next(row for row in rows if row['phase'] == 'drag:ui-delay')
                     self.assertGreaterEqual(delay['gapMs'], 150)
                     self.assertTrue(all(row['snapshotMs'] >= 0 for row in rows if 'nativeWindows' in row))

@@ -10,9 +10,9 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("DDMonitorDiagnostics")]
-[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.2")]
+[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.3.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.3")]
 
 namespace DDMonitorDiagnostics
 {
@@ -407,6 +407,7 @@ namespace DDMonitorDiagnostics
         readonly RadioButton intermittent = new RadioButton { Text = "概率触发", AutoSize = true };
         readonly RadioButton unknown = new RadioButton { Text = "尚未确认", AutoSize = true, Checked = true };
         readonly BackgroundWorker worker = new BackgroundWorker { WorkerReportsProgress = true };
+        readonly ComboBox captureMode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat };
         readonly TableLayoutPanel inputs;
         string zipPath;
 
@@ -420,14 +421,14 @@ namespace DDMonitorDiagnostics
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(24) };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 65));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 460));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 400));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
             Controls.Add(layout);
             var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -435,16 +436,17 @@ namespace DDMonitorDiagnostics
             header.Controls.Add(new Label { Text = "诊断快照", Font = new Font(Font.FontFamily, 22, FontStyle.Bold), Dock = DockStyle.Fill, AutoSize = true });
             header.Controls.Add(detect);
             layout.Controls.Add(header, 0, 0);
-            inputs = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 6 };
+            inputs = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 7 };
             inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
             inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             inputs.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
             layout.Controls.Add(inputs, 0, 1);
             AddRow(0, "软件目录", directory, () => Browse(directory, "选择 DD监控室CE 所在文件夹"));
             AddRow(1, "保存到", destination, () => Browse(destination, "选择诊断包保存位置"));
@@ -456,8 +458,8 @@ namespace DDMonitorDiagnostics
             var imagePanel = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 2 };
             imagePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             imagePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-            imagePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-            imagePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+            imagePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+            imagePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
             imagePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var imageFrame = new DiagnosticInput { Dock = DockStyle.Fill };
             imageFrame.Controls.Add(attachments);
@@ -469,6 +471,24 @@ namespace DDMonitorDiagnostics
             imagePanel.Controls.Add(imageHint, 0, 2);
             imagePanel.SetColumnSpan(imageHint, 2);
             AddRow(5, "图片附件", imagePanel, null);
+            var capturePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+            capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156));
+            captureMode.Items.AddRange(Collector.CaptureLabels);
+            captureMode.SelectedIndex = 0;
+            var startCapture = new DiagnosticButton { Text = "启动专项诊断", Dock = DockStyle.Fill };
+            capturePanel.Controls.Add(captureMode, 0, 0);
+            capturePanel.Controls.Add(startCapture, 1, 0);
+            AddRow(6, "专项采集", capturePanel, null);
+            startCapture.Click += (s, e) => {
+                try
+                {
+                    var command = new Collector(directory.Text).CaptureCommand(Collector.CaptureModes[captureMode.SelectedIndex]);
+                    using (var process = Process.Start(command)) { }
+                    status.Text = "已请求启动专项。出现问题时按 Ctrl+Alt+F8 标记现场；复现后正常退出客户端，再生成诊断包。";
+                }
+                catch (Exception error) { MessageBox.Show(this, error.Message, "专项未启动", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+            };
             addImage.Click += (s, e) => AddImages();
             attachments.PreviewRequested += path => {
                 try { using (var dialog = new ImagePreview(path)) dialog.ShowDialog(this); }
@@ -477,7 +497,7 @@ namespace DDMonitorDiagnostics
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,
-                Text = "收集范围\r\n系统与显卡驱动、软件版本与关键文件校验、libmpv 加载与依赖检查、脱敏配置、插件版本、近期日志、相关崩溃事件和手动添加的图片。录制目录的 .ddm-parts 中最多收集5份FFmpeg日志，每份末尾2MB，链接和凭据脱敏。\r\n\r\nDLL 检测在独立子进程中加载所选目录的播放器库，最长等待10秒。不读取账号文件、插件私有设置、聊天记录、录制视频或内存转储。不联网，不修改配置，也不启动或关闭主软件。图片会去除元数据，但不会遮挡画面。请检查诊断包后再手动发送。"
+                Text = "收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动添加的图片。近期FFmpeg日志最多5份，未决问题专项最多24份，每份末尾2MB。\r\n\r\n需要专项时先退出客户端，选择类型并点击“启动专项诊断”。列表错位时按 Ctrl+Alt+F8 保存当前布局，其他专项按此键标记发生时间。斗鱼深度模式使用本地中继，需单独选择。旧版0.7 / 0.7.1只能收集已有日志。\r\n\r\n生成诊断包不会启动或关闭主软件，不联网，不修改个人配置。不读取账号文件、聊天记录、录制视频或内存转储，不自动截图。图片去除元数据但不遮挡画面；请检查后手动发送。"
             };
             var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
             layout.Controls.Add(contentArea, 0, 2);
