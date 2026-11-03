@@ -416,6 +416,10 @@ if __name__ == '__main__':
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)
     recorder.install()
+    if os.environ.get('DDM_NOTICE_CLOSE_CAPTURE') == '1':
+        from dev.diagnose_notice_close import NoticeCloseTrace
+        notice_close_trace = NoticeCloseTrace(ROOT / 'logs' / 'notice-close.jsonl')
+        notice_close_trace.install()
     if os.environ.get('DDM_DANMAKU_MOTION_CAPTURE') == '1':
         from dev.diagnose_danmaku_motion import MotionTrace
         motion_trace = MotionTrace(ROOT / 'logs' / 'danmaku-motion.jsonl')

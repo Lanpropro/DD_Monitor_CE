@@ -612,7 +612,8 @@ class UpdateNotice(QFrame):
         close.setObjectName('NoticeClose')
         close.setFixedSize(24, 24)
         close.setToolTip('关闭提示')
-        close.clicked.connect(lambda: self.dismiss(handled=True))
+        # A handled close must hide its native window without waiting for animation ticks.
+        close.clicked.connect(lambda: self.dismiss(animate=False, handled=True))
         self.heading.addWidget(close, 0, Qt.AlignTop)
         layout.addLayout(self.heading)
         self.action = QPushButton('查看更新')
