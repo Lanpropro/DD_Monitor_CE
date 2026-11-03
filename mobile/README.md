@@ -23,6 +23,17 @@ iOS 工程已生成，最低 iOS15；Windows 上不能完成 iOS 构建、签名
 
 ## 开发与验收
 
+### 视觉参考
+
+平板样式参考 [keleus/BewlyCat](https://github.com/keleus/BewlyCat) 的
+`src/styles/variables.scss`、`src/styles/segmentControl.scss`、`src/components/Dock/Dock.vue`、
+`Button.vue`、`Input.vue`、`Dialog.vue`：中性灰层次、青蓝强调、12圆角卡片、8圆角输入与按钮、
+胶囊筛选和独立圆形Dock图标。界面用Flutter独立实现，没有打包扩展或复制其Vue组件、图标和品牌资源。
+为触屏保留至少44逻辑像素的按钮区域；蓝色主按钮使用深色文字以保证对比度。
+关注保留本项目的整张直播封面大卡片、空间选位；Dock仍然5秒闲置收起，空位不显示标注。
+
+### 工具与命令
+
 使用 Flutter3.47.9 / Dart3.13.7、JDK21、Android SDK36、NDK28.2.13676358、CMake3.22.1及项目 Gradle wrapper。
 最低 Android7.0/API24；APK 包含 arm64-v8a、armeabi-v7a、x86_64，预览使用独立应用 ID 与 debug 签名。
 

@@ -111,8 +111,8 @@ class LiveTile extends StatelessWidget {
             key: Key('video-slot-$index'),
             decoration: BoxDecoration(
               color: Colors.black,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white24),
+              borderRadius: BorderRadius.circular(cardRadius),
+              border: Border.all(color: subtleBorder),
             ),
             clipBehavior: Clip.antiAlias,
             child: Stack(

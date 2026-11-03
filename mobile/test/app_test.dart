@@ -1,4 +1,5 @@
 import 'package:ddmonitor/app.dart';
+import 'package:ddmonitor/design.dart';
 import 'package:ddmonitor/monitor_model.dart';
 import 'package:ddmonitor/platforms/bilibili.dart';
 import 'package:ddmonitor/wall_view.dart';
@@ -205,6 +206,51 @@ void main() {
     expect(find.byKey(const Key('regular-wall')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'Restyled tablet keeps navigation states, readable controls and opaque fallback',
+    (tester) async {
+      final model = await boot(
+        tester,
+        size: const Size(1280, 800),
+        followed: true,
+      );
+      double contrast(Color a, Color b) {
+        final x = a.computeLuminance(), y = b.computeLuminance();
+        return x > y ? (x + 0.05) / (y + 0.05) : (y + 0.05) / (x + 0.05);
+      }
+
+      final theme = Theme.of(tester.element(find.byKey(const Key('dock-0'))));
+      expect(
+        contrast(theme.colorScheme.onPrimary, theme.colorScheme.primary),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(contrast(secondary, panel), greaterThanOrEqualTo(4.5));
+      BoxDecoration iconSurface(int i) =>
+          tester
+                  .widget<AnimatedContainer>(find.byKey(Key('dock-icon-$i')))
+                  .decoration!
+              as BoxDecoration;
+      expect(iconSurface(0).color, foreground);
+      await tester.tap(find.byKey(const Key('dock-1')));
+      await tester.pumpAndSettle();
+      expect(iconSurface(1).color, foreground);
+      expect(iconSurface(0).color, isNot(foreground));
+      await tester.tap(find.byKey(const Key('follow-search')));
+      await tester.enterText(find.byKey(const Key('follow-search')), '不存在');
+      await tester.pumpAndSettle();
+      expect(find.text('没有匹配的主播'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('dock-3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('外观').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reduce-transparency')));
+      await tester.pumpAndSettle();
+      expect(model.reduceTransparency, isTrue);
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('Empty wall is unmarked and remains selectable', (tester) async {
     await boot(tester, size: const Size(1280, 800));

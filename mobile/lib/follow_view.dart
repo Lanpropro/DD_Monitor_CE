@@ -46,16 +46,9 @@ class _FollowPageState extends State<FollowPage> {
           child: TextField(
             key: const Key('follow-search'),
             onChanged: (value) => setState(() => search = value),
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               hintText: '搜索主播、标题或房间号',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: panel,
-              contentPadding: const EdgeInsets.all(12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(18),
-                borderSide: BorderSide.none,
-              ),
+              prefixIcon: Icon(Icons.search, size: 20),
             ),
           ),
         ),
@@ -70,6 +63,9 @@ class _FollowPageState extends State<FollowPage> {
                     key: Key('follow-filter-$i'),
                     label: Text(['全部', '直播中', '未开播'][i]),
                     selected: filter == i,
+                    labelStyle: TextStyle(
+                      color: filter == i ? foreground : secondary,
+                    ),
                     onSelected: (_) => setState(() => filter = i),
                   ),
                 ),
@@ -184,7 +180,7 @@ class FollowCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: panel,
-    borderRadius: BorderRadius.circular(20),
+    borderRadius: BorderRadius.circular(cardRadius),
     clipBehavior: Clip.antiAlias,
     child: InkWell(
       key: Key('follow-${room.roomId}'),
@@ -203,7 +199,7 @@ class FollowCard extends StatelessWidget {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black54,
+                        Colors.black38,
                         Colors.transparent,
                         Colors.black87,
                       ],
@@ -215,7 +211,19 @@ class FollowCard extends StatelessWidget {
               Positioned(
                 top: 12,
                 left: 14,
-                child: StatusLabel(live: room.live),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    child: StatusLabel(live: room.live),
+                  ),
+                ),
               ),
               Positioned(
                 top: 0,
@@ -237,7 +245,7 @@ class FollowCard extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 18,
-                      backgroundColor: panel,
+                      backgroundColor: accent.withValues(alpha: 0.85),
                       foregroundColor: Colors.white,
                       child: Text(
                         room.name.isEmpty ? 'B' : room.name.characters.first,
@@ -254,7 +262,7 @@ class FollowCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 17,
+                              fontSize: 15,
                               color: Colors.white,
                               fontWeight: FontWeight.w600,
                             ),
@@ -279,8 +287,11 @@ class FollowCard extends StatelessWidget {
                         padding: const EdgeInsets.only(left: 8),
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(8),
+                            color: accent.withValues(alpha: 0.22),
+                            border: Border.all(
+                              color: accent.withValues(alpha: 0.5),
+                            ),
+                            borderRadius: BorderRadius.circular(20),
                           ),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -290,7 +301,7 @@ class FollowCard extends StatelessWidget {
                             child: Text(
                               '画面 $slot',
                               style: const TextStyle(
-                                color: accent,
+                                color: Colors.white,
                                 fontSize: 12,
                               ),
                             ),

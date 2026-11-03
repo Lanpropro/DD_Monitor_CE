@@ -169,7 +169,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                           color: model.layout == layout
                               ? accent.withValues(alpha: 0.12)
                               : panel,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(cardRadius),
                           clipBehavior: Clip.antiAlias,
                           child: InkWell(
                             key: Key('layout-${layout.name}'),
@@ -177,7 +177,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(cardRadius),
                                 border: Border.all(
                                   color: model.layout == layout
                                       ? accent
@@ -262,25 +262,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'DD监控室',
-    theme: ThemeData(
-      brightness: Brightness.dark,
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: accent,
-        brightness: Brightness.dark,
-        surface: panel,
-        primary: accent,
-      ),
-      scaffoldBackgroundColor: background,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: background,
-        scrolledUnderElevation: 0,
-      ),
-      textTheme: const TextTheme(
-        bodyLarge: TextStyle(fontSize: 17),
-        bodyMedium: TextStyle(fontSize: 15, color: secondary),
-      ),
-    ),
+    theme: monitorTheme(),
     home: Builder(
       builder: (context) => ListenableBuilder(
         listenable: model,
@@ -299,7 +281,10 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                           toolbarHeight: 48,
                           title: Text(
                             tabs[selected],
-                            style: const TextStyle(fontSize: 21),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           actions: [
                             if (selected == 1) ...[
@@ -450,7 +435,7 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                     color: Colors.transparent,
                     child: InkWell(
                       key: Key('dock-$i'),
-                      borderRadius: BorderRadius.circular(23),
+                      borderRadius: BorderRadius.circular(22),
                       onTap: () {
                         showControls();
                         setState(() => selected = i);
@@ -458,23 +443,40 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                       child: Container(
                         constraints: const BoxConstraints(minHeight: 44),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
+                          horizontal: 8,
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: selected == i
-                              ? Colors.white.withValues(alpha: 0.13)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(23),
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(22),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              tabIcons[i],
-                              size: 20,
-                              color: selected == i ? accent : secondary,
+                            AnimatedContainer(
+                              key: Key('dock-icon-$i'),
+                              duration: MediaQuery.disableAnimationsOf(context)
+                                  ? Duration.zero
+                                  : const Duration(milliseconds: 150),
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: selected == i
+                                    ? foreground
+                                    : Colors.white.withValues(alpha: 0.06),
+                                border: Border.all(
+                                  color: selected == i
+                                      ? foreground
+                                      : subtleBorder,
+                                ),
+                              ),
+                              child: Icon(
+                                tabIcons[i],
+                                size: 18,
+                                color: selected == i ? background : secondary,
+                              ),
                             ),
                             const SizedBox(width: 5),
                             Flexible(
@@ -483,7 +485,10 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                                 maxLines: 1,
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: selected == i ? accent : secondary,
+                                  color: selected == i ? foreground : secondary,
+                                  fontWeight: selected == i
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
                                 ),
                               ),
                             ),
@@ -582,7 +587,7 @@ class PluginPage extends StatelessWidget {
                       width: 52,
                       height: 52,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFDE6A9B),
+                        color: accent,
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: const Icon(
@@ -717,7 +722,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         selected: section == i,
                         selectedTileColor: accent.withValues(alpha: 0.12),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(cardRadius),
                         ),
                         title: Text(['观看', '外观', '应用'][i]),
                         onTap: () => setState(() => section = i),
