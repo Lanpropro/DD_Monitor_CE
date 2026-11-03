@@ -239,6 +239,7 @@ class QuickDanmakuLayer(QObject):
         super().__init__(parent)
         self.parent = parent
         self._presentation_window = None
+        self._presentation_changing = False
         self._surface_reset = QTimer(self)
         self._surface_reset.setSingleShot(True)
         self._surface_reset.timeout.connect(self._restore_surface)
@@ -359,7 +360,8 @@ class QuickDanmakuLayer(QObject):
         has_items = any(self.groups[record["group"]].isVisible()
                         for record in self.items.values())
         owner = self._presentation_window or self.parent.window()
-        if (not has_items or not self.parent.isVisible() or not owner.isVisible()
+        if (self._presentation_changing or not has_items
+                or not self.parent.isVisible() or not owner.isVisible()
                 or owner.isMinimized()):
             self.window.hide()
             return
@@ -403,6 +405,10 @@ class QuickDanmakuLayer(QObject):
         owner.winId()
         self.window.setTransientParent(owner.windowHandle())
         self.resize()
+
+    def set_presentation_changing(self, active):
+        self._presentation_changing = bool(active)
+        self.show()
 
     def resize(self):
         owner = self._presentation_window or self.parent
