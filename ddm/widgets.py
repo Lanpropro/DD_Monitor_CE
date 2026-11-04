@@ -25,7 +25,8 @@ from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
-from .config import DEFAULT_VOLUME, codec_overrides
+from .config import (DEFAULT_SETTINGS, DEFAULT_VOLUME, VIDEO_DANMAKU_SETTING_KEYS,
+                     codec_overrides, video_danmaku_overrides)
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -5902,6 +5903,8 @@ class Tile(QFrame):
         self.volume = int(room.get("volume", DEFAULT_VOLUME))
         self.audio_channel = int(room.get("audio_channel", 0))
         self.codec_overrides = codec_overrides(room.get("codec_overrides"))
+        self.video_danmaku_overrides = video_danmaku_overrides(room.get('video_danmaku_overrides'))
+        self._video_danmaku_global_settings = dict(DEFAULT_SETTINGS)
         self.codec_reconnect_pending = False
         self.codec_probe_note = ""
         self._buffering = False
@@ -5979,6 +5982,8 @@ class Tile(QFrame):
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
         self.danmaku_settings_menu = VideoDanmakuSettings(self)
         self.danmaku_settings_menu.settingsChanged.connect(self._change_video_danmaku_settings)
+        self.danmaku_settings_menu.independentChanged.connect(self._set_video_danmaku_independent)
+        self.apply_video_danmaku_settings()
         self.danmaku_settings_menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
         self.danmaku_settings_button.clicked.connect(
             lambda: self.danmaku_settings_menu.open_at(self.danmaku_settings_button, self.video_danmaku.settings))
@@ -6176,8 +6181,28 @@ class Tile(QFrame):
         self.videoDanmakuChanged.emit(enabled)
 
     def _change_video_danmaku_settings(self, values: dict) -> None:
-        self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
-        self.videoDanmakuSettingsChanged.emit(values)
+        global_values = dict(values)
+        if self.video_danmaku_overrides is not None:
+            for key in VIDEO_DANMAKU_SETTING_KEYS:
+                if key in global_values:
+                    self.video_danmaku_overrides[key] = global_values.pop(key)
+        self._video_danmaku_global_settings.update(global_values)
+        self.apply_video_danmaku_settings()
+        self.videoDanmakuSettingsChanged.emit(global_values)
+
+    def apply_video_danmaku_settings(self, settings=None) -> None:
+        if settings is not None:
+            self._video_danmaku_global_settings = dict(settings)
+        effective = {**self._video_danmaku_global_settings, **(self.video_danmaku_overrides or {})}
+        self.video_danmaku.apply_settings(effective)
+        self.danmaku_settings_menu.apply_settings(
+            effective, independent=self.video_danmaku_overrides is not None)
+
+    def _set_video_danmaku_independent(self, enabled: bool) -> None:
+        self.video_danmaku_overrides = (
+            video_danmaku_overrides(self._video_danmaku_global_settings) if enabled else None)
+        self.apply_video_danmaku_settings()
+        self.videoDanmakuSettingsChanged.emit({})
 
     def plugin_interaction_active(self) -> bool:
         controls = getattr(self, '_plugin_controls', None)
