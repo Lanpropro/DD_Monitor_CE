@@ -21,13 +21,14 @@ class ProjectWorkflowTests(unittest.TestCase):
                 self.assertEqual(len(ids), len(set(ids)))
                 self.assertEqual(len(ids), len(re.findall(r'^  - type: (?:input|textarea|dropdown)$', source, re.MULTILINE)))
         bug = (folder / '1-bug.yml').read_text(encoding='utf-8')
-        for field in ('environment', 'happened', 'steps', 'attachments'):
-            section = bug.split(f'    id: {field}\n', 1)[1].split('  - type:', 1)[0]
-            self.assertIn('required: false', section)
-        for field in ('version', 'installation', 'system', 'reproducibility', 'actual'):
-            section = bug.split(f'    id: {field}\n', 1)[1].split('  - type:', 1)[0]
-            self.assertIn('required: true', section)
-        self.assertIn('目前无法复现', bug)
+        self.assertEqual(re.findall(r'^    id: ([a-z0-9_-]+)$', bug, re.MULTILINE), ['actual', 'attachments'])
+        actual = bug.split('    id: actual\n', 1)[1].split('  - type:', 1)[0]
+        self.assertIn('required: true', actual)
+        attachments = bug.split('    id: attachments\n', 1)[1]
+        self.assertIn('required: false', attachments)
+        self.assertIn('无需重复填写', bug)
+        self.assertIn('没有诊断包时', bug)
+        self.assertIn('暂时无法复现', bug)
         self.assertIn('一般反馈无需启动专项', bug)
         self.assertIn('blank_issues_enabled: true', (folder / 'config.yml').read_text(encoding='utf-8'))
 
