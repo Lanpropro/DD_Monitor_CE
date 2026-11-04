@@ -241,6 +241,20 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                           children: [
                             WatchWall(
                               model: model,
+                              bottomControlsInset: controlsVisible ? 70 : 8,
+                              controlsBuilder: (index) => Visibility(
+                                visible: controlsVisible && !dragging,
+                                maintainState: true,
+                                child: PlaybackControls(
+                                  model: model,
+                                  index: index,
+                                  onMenuState: (open) {
+                                    controlMenuOpen = open;
+                                    controlsTimer?.cancel();
+                                    if (!open) showControls();
+                                  },
+                                ),
+                              ),
                               onDragState: (active) {
                                 setState(() => dragging = active);
                                 controlsTimer?.cancel();
@@ -260,34 +274,6 @@ class _MonitorAppState extends State<MonitorApp> with WidgetsBindingObserver {
                             ),
                           ],
                         ),
-                        if (selected == 0 &&
-                            model.selectedIndex != null &&
-                            model.rooms[model.selectedIndex!] != null)
-                          Positioned(
-                            left: 12,
-                            right: 12,
-                            bottom: 70,
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 680,
-                                ),
-                                child: Visibility(
-                                  visible: controlsVisible && !dragging,
-                                  maintainState: true,
-                                  child: PlaybackControls(
-                                    model: model,
-                                    index: model.selectedIndex!,
-                                    onMenuState: (open) {
-                                      controlMenuOpen = open;
-                                      controlsTimer?.cancel();
-                                      if (!open) showControls();
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                         Positioned(
                           left: 0,
                           right: 0,

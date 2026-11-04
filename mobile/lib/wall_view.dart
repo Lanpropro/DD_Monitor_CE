@@ -57,10 +57,14 @@ class WatchWall extends StatelessWidget {
     required this.model,
     required this.onSelect,
     this.onDragState,
+    this.controlsBuilder,
+    this.bottomControlsInset = 8,
   });
   final MonitorModel model;
   final VoidCallback onSelect;
   final ValueChanged<bool>? onDragState;
+  final Widget Function(int index)? controlsBuilder;
+  final double bottomControlsInset;
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (_, box) {
@@ -193,6 +197,16 @@ class WatchWall extends StatelessWidget {
                     onSelect: onSelect,
                     onActivate: () => model.select(index),
                     showControls: false,
+                    controls: model.selectedIndex == index && room != null
+                        ? controlsBuilder?.call(index)
+                        : null,
+                    controlsBottomInset:
+                        model.cells(layout)[index].y +
+                                    model.cells(layout)[index].h >
+                                0.99 &&
+                            model.cells(layout)[index].h * box.maxHeight >= 240
+                        ? bottomControlsInset
+                        : 8,
                     onClear: () => model.clear(index),
                     onAudio: () => model.audio(index),
                   );
@@ -272,6 +286,8 @@ class LiveTile extends StatelessWidget {
     required this.onAudio,
     this.onActivate,
     this.showControls = true,
+    this.controls,
+    this.controlsBottomInset = 8,
   });
   final int index;
   final WatchSession session;
@@ -281,6 +297,8 @@ class LiveTile extends StatelessWidget {
   final VoidCallback onAudio;
   final VoidCallback? onActivate;
   final bool showControls;
+  final Widget? controls;
+  final double controlsBottomInset;
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: session,
@@ -409,6 +427,13 @@ class LiveTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                if (controls != null)
+                  Positioned(
+                    left: 8,
+                    right: 8,
+                    bottom: controlsBottomInset,
+                    child: controls!,
+                  ),
                 if (showControls && controller != null && compact)
                   Positioned(
                     bottom: 0,
@@ -517,33 +542,39 @@ class FullscreenPlayer extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: Colors.black,
     appBar: AppBar(backgroundColor: Colors.black, title: const Text('直播画面')),
-    bottomNavigationBar: controls == null
-        ? null
-        : SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Center(
-                heightFactor: 1,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 680),
-                  child: controls,
-                ),
-              ),
-            ),
-          ),
     body: ListenableBuilder(
       listenable: session,
       builder: (_, _) {
         final controller = session.controller;
-        return controller == null
-            ? Center(child: Text(session.status))
-            : Center(
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (controller == null)
+              Center(child: Text(session.status))
+            else
+              Center(
                 child: AspectRatio(
                   aspectRatio: controller.value.aspectRatio,
                   child: VideoPlayer(controller),
                 ),
-              );
+              ),
+            if (controls != null)
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: SafeArea(
+                  top: false,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 680),
+                      child: controls!,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
       },
     ),
   );

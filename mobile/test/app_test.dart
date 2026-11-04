@@ -287,10 +287,15 @@ void main() {
       await tester.tap(find.byKey(const Key('select-slot-0')));
       await tester.pumpAndSettle();
       expect(find.text('位置 1 · 星野'), findsOneWidget);
-      expect(
-        tester.getRect(find.byKey(const Key('playback-controls'))).bottom,
-        lessThan(tester.getRect(find.byKey(const Key('dock-surface'))).top),
-      );
+      void expectControlsInside(int index) {
+        final tile = tester.getRect(find.byKey(Key('video-slot-$index')));
+        final bar = tester.getRect(find.byKey(const Key('playback-controls')));
+        expect(tile.contains(bar.topLeft), isTrue);
+        expect(tile.contains(bar.bottomRight), isTrue);
+        expect(bar.bottom, lessThanOrEqualTo(tile.bottom - 8));
+      }
+
+      expectControlsInside(0);
       await tester.tap(find.byKey(const Key('control-pause')));
       await tester.tap(find.byKey(const Key('control-audio')));
       await tester.pumpAndSettle();
@@ -327,11 +332,67 @@ void main() {
       await tester.pumpAndSettle();
       expect(model.selectedIndex, 2);
       expect(find.text('位置 3 · 星野'), findsOneWidget);
+      expectControlsInside(2);
       await tester.tap(find.byKey(const Key('control-remove')));
       await tester.pumpAndSettle();
       expect(model.rooms[2], isNull);
       expect(find.byKey(const Key('playback-controls')), findsNothing);
       expect(model.sessions[1].controller, same(other));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'In-pane controls follow every tablet layout, resize, hide and scroll in narrow slots',
+    (tester) async {
+      final model = await boot(tester, size: const Size(1280, 800));
+      for (final layout in WallLayout.values) {
+        await model.changeLayout(layout);
+        final index = model.effectiveLayout(true).slots - 1;
+        model.rooms[index] = liveRoom;
+        model.select(index);
+        await tester.pumpAndSettle();
+        final tile = tester.getRect(find.byKey(Key('video-slot-$index')));
+        final bar = tester.getRect(find.byKey(const Key('playback-controls')));
+        expect(tile.contains(bar.topLeft), isTrue, reason: layout.name);
+        expect(tile.contains(bar.bottomRight), isTrue, reason: layout.name);
+        final remove = find.byKey(const Key('control-remove'));
+        expect(remove.hitTestable(), findsOneWidget, reason: layout.name);
+        await tester.tap(remove);
+        await tester.pumpAndSettle();
+        expect(model.rooms[index], isNull);
+      }
+      await model.changeLayout(WallLayout.main2);
+      model.rooms[1] = liveRoom;
+      model.select(1);
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const Key('divider-x-1-0.0')),
+        const Offset(210, 0),
+      );
+      await tester.pumpAndSettle();
+      final tile = tester.getRect(find.byKey(const Key('video-slot-1')));
+      final bar = tester.getRect(find.byKey(const Key('playback-controls')));
+      expect(bar.width, lessThan(320));
+      expect(tile.contains(bar.topLeft), isTrue);
+      expect(tile.contains(bar.bottomRight), isTrue);
+      await tester.drag(
+        find.byKey(const Key('playback-controls')),
+        const Offset(-300, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('control-remove')).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playback-controls')), findsNothing);
+      await tester.tapAt(
+        tester.getCenter(find.byKey(const Key('select-slot-1'))),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('playback-controls')), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

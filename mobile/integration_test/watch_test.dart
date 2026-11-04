@@ -78,6 +78,12 @@ void main() {
       await wakeControls();
       await tester.tap(find.byKey(const Key('select-slot-0')));
       await tester.pumpAndSettle();
+      final tileRect = tester.getRect(find.byKey(const Key('video-slot-0')));
+      final controlsRect = tester.getRect(
+        find.byKey(const Key('playback-controls')),
+      );
+      expect(tileRect.contains(controlsRect.topLeft), isTrue);
+      expect(tileRect.contains(controlsRect.bottomRight), isTrue);
       await tester.tap(find.byKey(const Key('control-pause')));
       await tester.tap(find.byKey(const Key('control-audio')));
       await tester.pumpAndSettle();
