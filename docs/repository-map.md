@@ -57,6 +57,10 @@
 ### GitHub 协作与检查
 
 - `.github/PULL_REQUEST_TEMPLATE.md`
+- `.github/ISSUE_TEMPLATE/1-bug.yml`
+- `.github/ISSUE_TEMPLATE/2-feature.yml`
+- `.github/ISSUE_TEMPLATE/3-question.yml`
+- `.github/ISSUE_TEMPLATE/config.yml`
 - `.github/workflows/repository-checks.yml`
 
 ### 专项检查脚本
