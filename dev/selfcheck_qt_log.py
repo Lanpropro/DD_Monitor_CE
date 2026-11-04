@@ -3,20 +3,26 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ["DDM_NO_SAVE"] = "1"
-from PySide6.QtCore import QtMsgType, qInstallMessageHandler, qWarning  # noqa: E402
+from PySide6.QtCore import (QLoggingCategory, QtMsgType, qCInfo, qCWarning,
+                           qInstallMessageHandler, qWarning)  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 
 
 def main():
     original_stderr = sys.stderr
     installed = []
+    observed = []
     def install(handler):
         installed.append(handler)
-        return qInstallMessageHandler(handler)
+        def capture(kind, context, message):
+            observed.append(message)
+            handler(kind, context, message)
+        return qInstallMessageHandler(capture)
     with tempfile.TemporaryDirectory() as directory:
         try:
             sys.stderr = None  # pythonw.exe 的运行环境
@@ -25,6 +31,20 @@ def main():
                     patch.object(app_module, "qInstallMessageHandler", side_effect=install):
                 path = app_module.setup_file_log()
             qWarning("quality switch diagnostic")
+            font_category = QLoggingCategory("qt.text.font.db")
+            def font_messages():
+                for _ in range(20):
+                    qCInfo(font_category, "font fallback info fixture")
+                qCWarning(font_category, "font warning fixture")
+            workers = [threading.Thread(target=font_messages) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=5)
+                assert not worker.is_alive(), "Qt message worker did not finish"
+            assert "font fallback info fixture" not in observed, (
+                "Font database info must be filtered in Qt before entering Python")
+            assert observed.count("font warning fixture") == 2
             with patch.object(app_module.faulthandler, "dump_traceback") as dump:
                 installed[0](QtMsgType.QtFatalMsg, None, "fatal quality switch diagnostic")
                 dump.assert_called_once()
@@ -34,6 +54,8 @@ def main():
             contents = Path(path).read_text(encoding="utf-8")
             assert "[Qt QtWarningMsg] quality switch diagnostic" in contents
             assert "[Qt QtFatalMsg] fatal quality switch diagnostic" in contents
+            assert "font warning fixture" in contents
+            assert "font fallback info fixture" not in contents
         finally:
             qInstallMessageHandler(previous)
             app_module.diagnostics.close()
