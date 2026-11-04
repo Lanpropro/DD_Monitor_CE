@@ -269,6 +269,26 @@ class PluginContext:
     def register_tile_control(self, control_id, factory, *, priority=0) -> None:
         self._manager.register_tile_control(self.name, control_id, factory, priority=priority)
 
+    def register_workspace_control(self, control_id, widget, *, priority=0) -> bool:
+        """Place a QToolButton in the host workspace group; False for headless hosts."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+        if controls is None:
+            return False
+        controls.add(self.name, control_id, widget, priority)
+        return True
+
+    def unregister_workspace_control(self, control_id) -> None:
+        controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+        if controls is not None:
+            controls.remove(self.name, control_id)
+
+    def _clear_workspace_controls(self):
+        controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+        if controls is not None:
+            controls.remove_owner(self.name)
+
     def credentials(self, platform) -> CredentialSnapshot | None:
         return self._manager.credentials(platform)
 
@@ -443,6 +463,7 @@ class PluginManager:
             except Exception as error:           # noqa: BLE001
                 context._active = False
                 self._remove_tile_owner(entry)
+                context._clear_workspace_controls()
                 try:
                     plugin.on_unload()
                 except Exception:
@@ -483,6 +504,8 @@ class PluginManager:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
+        for context in tuple(self._contexts):
+            context._clear_workspace_controls()
 
     def register_tile_control(self, owner, control_id, factory, *, priority=0):
         key = (owner, str(control_id))

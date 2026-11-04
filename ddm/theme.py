@@ -764,6 +764,43 @@ QSlider::handle:horizontal:hover {{
     background: {SIDEBAR};
     border-right: 1px solid {BORDER};
 }}
+#SidebarFooter {{
+    background: {SIDEBAR};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
+#SidebarFooterBody, #SidebarFooterHeader, #WorkspacePanel, #WorkspaceEntries {{
+    background: {SIDEBAR};
+    border: none;
+}}
+#FooterHandle {{
+    background: transparent;
+    color: {TEXT2};
+    border: none;
+}}
+#FooterHandle:hover {{
+    background: {CONTENT_HOVER};
+    border-radius: {RADIUS_SM}px;
+}}
+#WorkspaceEntry {{
+    background: transparent;
+    color: {TEXT2};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: 0 5px;
+    min-height: 30px;
+}}
+#WorkspaceEntry:hover {{
+    background: {CONTENT_HOVER};
+    color: {TEXT1};
+}}
+#WorkspaceEntry:checked, #WorkspaceEntry:pressed {{
+    background: {ACCENT_SOFT};
+    color: {ACCENT};
+}}
+#WorkspaceEntry:focus {{
+    border-color: {ACCENT};
+}}
 #AppTitle {{
     font-size: {FONT_BODY + 1}px;
     font-weight: 600;
