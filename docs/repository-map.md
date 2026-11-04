@@ -45,6 +45,7 @@
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
+- `dev/selfcheck_sidebar_diagnostics.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
