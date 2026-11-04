@@ -3973,7 +3973,7 @@ class Sidebar(QFrame):
         # 未登录时它就是「登录」按钮，所以一开始就要露出来
         self.account_row.set_account("")
         self.account_row.setVisible(self._account_row_should_show())
-        self.footer_box.addWidget(self.account_row)
+        layout.addWidget(self.account_row)
 
         # 布局 + 设置：原来挂在右侧顶栏，现在跟着列表放左下角
         self.tool_row = QWidget(self)
@@ -3999,7 +3999,7 @@ class Sidebar(QFrame):
         tool_box.addWidget(self.layout_button, 1)
         tool_box.addWidget(self.picture_in_picture_button)
         tool_box.addWidget(self.settings_button, 0)
-        self.footer_box.addWidget(self.tool_row)
+        layout.addWidget(self.tool_row)
         self.set_layout_name(layouts.DEFAULT_LAYOUT)
 
         self.normal_bar = QWidget()
@@ -4020,14 +4020,14 @@ class Sidebar(QFrame):
         self.add_button.clicked.connect(self.addRoomClicked.emit)
         normal_layout.addWidget(self.import_button)
         normal_layout.addWidget(self.add_button, 1)
-        self.footer_box.addWidget(self.normal_bar)
+        layout.addWidget(self.normal_bar)
 
         # 竖屏横栏那一行（见 _adopt_bar_row）：左边搜索框/头像排，右边一块
         # 「账号头像 / 布局预设 / 设置」，中间夹着「多选 / 外观 / 刷新」三个小图标。
         # 横屏要拆回竖排，所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
         self._column_order = [self._head_scroll, self._header_row, self.search,
                               self.status_row, self.scroll, self.batch_bar,
-                              self.footer]
+                              self.footer, self.account_row, self.tool_row, self.normal_bar]
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
@@ -5020,11 +5020,9 @@ class Sidebar(QFrame):
         for widget in self._column_order:
             self._detach_from_rows(widget)
             self._layout.addWidget(widget)
-        for widget in (self.workspace_controls,
-                       self.account_row, self.tool_row, self.normal_bar):
-            self._detach_from_rows(widget)
-            widget.setParent(self.footer.body)
-            self.footer_box.addWidget(widget)
+        self._detach_from_rows(self.workspace_controls)
+        self.workspace_controls.setParent(self.footer.body)
+        self.footer_box.addWidget(self.workspace_controls)
         # 布局预设 / 设置回到横排一行，把竖排时插进去的空白和分割线拿出来
         tool_box = self.tool_row.layout()
         tool_box.removeWidget(self._bar_divider_tool)

@@ -1,6 +1,6 @@
 """Plugin workspace entries, separate from the existing account/list actions."""
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QIcon, QIconEngine, QPainter, QPixmap
+from PySide6.QtGui import QActionGroup, QIcon, QIconEngine, QPainter, QPixmap
 from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout
 from . import theme
 
@@ -36,6 +36,8 @@ class WorkspaceControls(QFrame):
         super().__init__(sidebar)
         self.sidebar = sidebar
         self.entries = {}
+        self.actions = QActionGroup(self)
+        self.actions.setExclusionPolicy(QActionGroup.ExclusionPolicy.ExclusiveOptional)
         self.setObjectName('WorkspacePanel')
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.box = QVBoxLayout(self)
@@ -60,6 +62,8 @@ class WorkspaceControls(QFrame):
         icon = QIcon(WorkspaceIcon(widget.icon()))
         if widget.defaultAction() is not None:
             widget.defaultAction().setIcon(icon)
+            if widget.defaultAction().isCheckable():
+                self.actions.addAction(widget.defaultAction())
         else:
             widget.setIcon(icon)
         widget.setParent(self.row)
@@ -70,6 +74,8 @@ class WorkspaceControls(QFrame):
         entry = self.entries.pop((owner, str(key)), None)
         if entry is not None:
             widget = entry[1]
+            if widget.defaultAction() is not None:
+                self.actions.removeAction(widget.defaultAction())
             self.buttons.removeWidget(widget)
             widget.hide()
             widget.setParent(self.sidebar)
@@ -90,13 +96,13 @@ class WorkspaceControls(QFrame):
             index = box.indexOf(sidebar.toggle_button)
         else:
             parent, box = sidebar.footer.body, sidebar.footer_box
-            index = box.indexOf(sidebar.account_row)
+            index = box.count()
         if self.parentWidget() is not parent or box.indexOf(self) < 0 or box.indexOf(self) != index - 1:
             old = self.parentWidget().layout()
             if old is not None:
                 old.removeWidget(self)
             self.setParent(parent)
-            box.insertWidget(box.indexOf(sidebar.toggle_button) if top else box.indexOf(sidebar.account_row), self)
+            box.insertWidget(box.indexOf(sidebar.toggle_button) if top else box.count(), self)
         self.box.setContentsMargins(0, 0, 0, 0)
         self.label.hide()
         self.buttons.setDirection(QBoxLayout.TopToBottom if sidebar.collapsed and not top else QBoxLayout.LeftToRight)
@@ -117,11 +123,11 @@ class WorkspaceControls(QFrame):
             widget.setSizePolicy(QSizePolicy.Fixed if compact else QSizePolicy.Expanding, QSizePolicy.Fixed)
             widget.show()
         self.setVisible(bool(ordered))
-        sidebar.footer.title.setText('工作区' if ordered else '常用操作')
+        sidebar.footer.title.setText('功能区')
         sidebar.footer.title.setVisible(not sidebar.collapsed)
         sidebar.footer.restore_button.setToolButtonStyle(
             Qt.ToolButtonIconOnly if sidebar.collapsed else Qt.ToolButtonTextBesideIcon)
-        sidebar.footer.setVisible(not top)
+        sidebar.footer.setVisible(not top and bool(ordered))
         sidebar.footer.refresh()
         box.activate()
         self.box.activate()

@@ -402,6 +402,7 @@
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
 - `dev/selfcheck_workspace_controls.py`
+- `dev/selfcheck_workspace_pages.py`
 - `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
 

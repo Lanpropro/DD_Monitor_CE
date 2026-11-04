@@ -285,9 +285,23 @@ class PluginContext:
             controls.remove(self.name, control_id)
 
     def _clear_workspace_controls(self):
+        if self._manager._workspace_pages is not None:
+            self._manager._workspace_pages.close_owner(self.name)
         controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
         if controls is not None:
             controls.remove_owner(self.name)
+
+    def show_workspace(self, widget, *, manages_content=False) -> bool:
+        """Replace the central content with one embedded page; close the previous page."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        container = getattr(self.window, '_content', None)
+        if container is None:
+            return False
+        if self._manager._workspace_pages is None:
+            from .workspace_pages import WorkspacePages
+            self._manager._workspace_pages = WorkspacePages(container)
+        return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
 
     def credentials(self, platform) -> CredentialSnapshot | None:
         return self._manager.credentials(platform)
@@ -389,6 +403,7 @@ class PluginManager:
         self._provider_order = 0
         self._credentials = CredentialStore(self.emit)
         self._contexts = weakref.WeakSet()
+        self._workspace_pages = None
         self._unloaded = False
         self._notices = None
         if window is not None:

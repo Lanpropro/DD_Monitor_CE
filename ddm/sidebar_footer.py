@@ -1,4 +1,4 @@
-"""One connected bottom operation panel with an interruptible slide-away handle."""
+"""Collapsible plugin function area; the original account/list controls stay outside."""
 from PySide6.QtCore import QAbstractAnimation, QEvent, Qt, QVariantAnimation
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout
 
@@ -19,28 +19,28 @@ class SidebarFooter(QFrame):
         self.body = QFrame(self)
         self.body.setObjectName('SidebarFooterBody')
         self.content_box = QVBoxLayout(self.body)
-        self.content_box.setContentsMargins(6, 8, 6, 8)
+        self.content_box.setContentsMargins(6, 8, 6, 0)
         self.content_box.setSpacing(8)
         header = QFrame(self.body)
         header.setObjectName('SidebarFooterHeader')
         row = QHBoxLayout(header)
         row.setContentsMargins(0, 0, 0, 0)
-        self.title = QLabel('工作区', header)
+        self.title = QLabel('功能区', header)
         self.title.setObjectName('SectionLabel')
         row.addWidget(self.title, 1)
         self.toggle_button = QToolButton(header)
         self.toggle_button.setObjectName('FooterHandle')
         self.toggle_button.setArrowType(Qt.DownArrow)
-        self.toggle_button.setAccessibleName('收起底部操作区')
-        self.toggle_button.setToolTip('向下收起底部操作区')
+        self.toggle_button.setAccessibleName('收起功能区')
+        self.toggle_button.setToolTip('向下收起功能区')
         self.toggle_button.setFixedSize(24, 22)
         row.addWidget(self.toggle_button)
         self.content_box.addWidget(header)
         self.restore_button = QToolButton(self)
         self.restore_button.setObjectName('FooterHandle')
-        self.restore_button.setText('展开操作区')
+        self.restore_button.setText('展开功能区')
         self.restore_button.setArrowType(Qt.UpArrow)
-        self.restore_button.setAccessibleName('展开底部操作区')
+        self.restore_button.setAccessibleName('展开功能区')
         self.restore_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.restore_button.hide()
         for button in (self.toggle_button, self.restore_button):
@@ -62,7 +62,7 @@ class SidebarFooter(QFrame):
         self.minimized = bool(minimized)
         self.body.show()
         self.restore_button.show()
-        self.restore_button.setToolTip('展开底部操作区' if self.minimized else '再次点击收起')
+        self.restore_button.setToolTip('展开功能区' if self.minimized else '再次点击收起')
         self.refresh(keep_height=True)
         target = self.HANDLE_HEIGHT if self.minimized else self._full_height
         if animate and motion.enabled() and self.isVisible() and self.height() != target:
@@ -93,7 +93,7 @@ class SidebarFooter(QFrame):
         self.setFixedHeight(self.HANDLE_HEIGHT if self.minimized else self._full_height)
         self.body.setVisible(not self.minimized)
         self.restore_button.setVisible(self.minimized)
-        self.restore_button.setToolTip('展开底部操作区')
+        self.restore_button.setToolTip('展开功能区')
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
