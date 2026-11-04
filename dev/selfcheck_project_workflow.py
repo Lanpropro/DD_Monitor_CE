@@ -1,7 +1,13 @@
 """Repository workflow checks; no Qt, credentials, installed plugins or network."""
+import json
+import os
 from pathlib import Path
 import re
+import tempfile
+import textwrap
 import unittest
+from unittest.mock import MagicMock, patch
+from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +27,7 @@ class ProjectWorkflowTests(unittest.TestCase):
                 self.assertEqual(len(ids), len(set(ids)))
                 self.assertEqual(len(ids), len(re.findall(r'^  - type: (?:input|textarea|dropdown)$', source, re.MULTILINE)))
         bug = (folder / '1-bug.yml').read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    id: ([a-z0-9_-]+)$', bug, re.MULTILINE), ['actual', 'attachments'])
+        self.assertEqual(re.findall(r'^    id: ([a-z0-9_-]+)$', bug, re.MULTILINE), ['actual', 'reproducibility', 'attachments'])
         actual = bug.split('    id: actual\n', 1)[1].split('  - type:', 1)[0]
         self.assertIn('required: true', actual)
         attachments = bug.split('    id: attachments\n', 1)[1]
@@ -30,7 +36,52 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertIn('没有诊断包时', bug)
         self.assertIn('暂时无法复现', bug)
         self.assertIn('一般反馈无需启动专项', bug)
+        selection = bug.split('    id: reproducibility\n', 1)[1].split('  - type:', 1)[0]
+        self.assertIn('required: true', selection)
+        self.assertEqual(re.findall(r'^        - (.+)$', selection, re.MULTILINE), ['稳定复现', '偶发', '尚不确定'])
         self.assertIn('blank_issues_enabled: true', (folder / 'config.yml').read_text(encoding='utf-8'))
+
+    def test_issue_reproducibility_sync_changes_only_the_selected_label(self):
+        source = (ROOT / '.github/workflows/issue-reproducibility.yml').read_text(encoding='utf-8')
+        self.assertIn('types: [opened, edited]', source)
+        self.assertIn('issues: write', source)
+        self.assertNotIn('contents: write', source)
+        self.assertNotIn('checkout@', source)
+        code = compile(textwrap.dedent(source.split('        run: |\n', 1)[1]), 'issue-label-workflow', 'exec')
+        cases = [
+            ('### 复现情况\n\n稳定复现\n', [], '复现：稳定', []),
+            ('### 复现情况\r\n\r\n偶发\r\n', [], '复现：偶发', []),
+            ('### 复现情况\n\n尚不确定\n', [], '复现：不确定', []),
+            ('### 复现情况\n\n稳定复现\n', ['复现：稳定', '复现：偶发'], None, ['复现：偶发']),
+            ('### 复现情况\n\n偶发\n', ['复现：稳定'], '复现：偶发', ['复现：稳定']),
+            ('旧反馈：偶发，目前无法复现', ['复现：稳定'], None, []),
+            ('### 复现情况\n\n_No response_\n', ['复现：偶发'], None, []),
+            ('### 复现情况\n\n处理中\n', [], None, []),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp) / 'event.json'
+            event.write_text(json.dumps({'issue': {'number': 7, 'body': 'stale event body'}}), encoding='utf-8')
+            for body, labels, added, removed in cases:
+                with self.subTest(body=body, labels=labels):
+                    calls = []
+                    issue = {'body': body, 'labels': [{'name': x} for x in ['bug', '待验收'] + labels]}
+
+                    def response(request, timeout):
+                        calls.append(request)
+                        result = MagicMock()
+                        result.__enter__.return_value.read.return_value = json.dumps(issue).encode() if request.method == 'GET' else b''
+                        return result
+
+                    with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event), 'GITHUB_API_URL': 'https://api.github.invalid',
+                                                 'GITHUB_REPOSITORY': 'fixture/repo', 'GH_TOKEN': 'fixture-token'}), \
+                            patch('urllib.request.urlopen', side_effect=response):
+                        exec(code, {})
+                    self.assertEqual(calls[0].method, 'GET')
+                    posts = [json.loads(r.data) for r in calls if r.method == 'POST']
+                    self.assertEqual(posts, [{'labels': [added]}] if added else [])
+                    deletes = [unquote(r.full_url.rsplit('/', 1)[1]) for r in calls if r.method == 'DELETE']
+                    self.assertEqual(deletes, removed)
+                    self.assertFalse(any(r.method == 'PUT' for r in calls))
 
     def test_contribution_rules_use_develop_and_function_branches(self):
         source = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')

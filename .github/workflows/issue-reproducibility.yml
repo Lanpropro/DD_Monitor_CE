@@ -1,0 +1,58 @@
+name: Issue reproducibility labels
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: issue-reproducibility-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Sync the reporter's reproducibility selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.parse
+          import urllib.request
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+          number = event['issue']['number']
+          base = os.environ['GITHUB_API_URL'] + '/repos/' + os.environ['GITHUB_REPOSITORY']
+
+          def request(path, method='GET', data=None):
+              req = urllib.request.Request(base + path,
+                  data=None if data is None else json.dumps(data).encode(), method=method,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json',
+                           'Content-Type': 'application/json',
+                           'User-Agent': 'DDMonitorCE-issue-labels'})
+              with urllib.request.urlopen(req, timeout=20) as response:
+                  payload = response.read()
+                  return json.loads(payload) if payload else None
+
+          # Read the current body so queued edits do not restore an older selection.
+          issue = request('/issues/' + str(number))
+          choices = {'稳定复现': '复现：稳定', '偶发': '复现：偶发', '尚不确定': '复现：不确定'}
+          match = re.search(r'^### 复现情况\r?\n\s*([^\r\n]+)', issue.get('body') or '', re.MULTILINE)
+          selection = match.group(1).strip() if match else None
+          if selection in choices:
+              target = choices[selection]
+              existing = {label['name'] for label in issue['labels']}
+              if target not in existing:
+                  request('/issues/' + str(number) + '/labels', 'POST', {'labels': [target]})
+              for name in choices.values():
+                  if name != target and name in existing:
+                      request('/issues/' + str(number) + '/labels/' + urllib.parse.quote(name, safe=''), 'DELETE')
