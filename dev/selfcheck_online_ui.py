@@ -30,6 +30,8 @@ def check_store_scroll(app, root):
                               plugins_dir=str(root / 'scroll-plugins'), _removed=set())
     offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))
               for entry in entries]
+    offers.extend(dict(id=f'scroll_{index}', name=f'浏览测试 {index}', description='紧凑插件说明',
+                       version='1.0', available=True) for index in range(24))
     with patch.object(PluginStorePage, 'open_catalog'):
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
@@ -39,7 +41,7 @@ def check_store_scroll(app, root):
         store.show_offers(offers)
         dialog.show()
         app.processEvents()
-        scroll = dialog.plugin_page.tabs.widget(1)
+        scroll = store.scroll
         bar = scroll.verticalScrollBar()
         button = store.buttons[offers[1]['id']]
         button.setFocus()
@@ -91,6 +93,212 @@ def check_store_scroll(app, root):
             dialog.close()
             dialog.deleteLater()
             app.processEvents()
+
+
+def check_store_browser(app, root):
+    from types import SimpleNamespace
+    offers = [dict(id=f'browser_{index:03d}', name=f'插件 {63-index:02d}', version='1.1',
+                   description='直播辅助 ' + ('录制工具' if index % 2 else '弹幕工具') + ' 长说明' * 30,
+                   author='Alice' if index % 2 else 'Bob', available=True,
+                   notes='\n'.join(f'完整更新说明 {line}' for line in range(60))) for index in range(64)]
+    entries = [dict(offer, version='1.0', enabled=True, status='已加载', reason='') for offer in offers[:3]]
+    offers[1]['version'] = '1.0'
+    offers[2].update(available=False, reason='需要新版主程序')
+    offers[62].update(name='插件 99 ' + '很长的插件名称' * 30, author='Bob' * 60)
+    manager = SimpleNamespace(catalog=lambda: entries, enabled=None,
+                              plugins_dir=str(root / 'browser-plugins'), _removed=set())
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        with patch.object(PluginStorePage, 'open_catalog'):
+            page = PluginStorePage(manager)
+            page.show_offers(offers)
+            page.resize(540, 560)
+            page.show()
+            app.processEvents()
+            assert page.count.text() == '64 / 64 个插件'
+            assert page.scroll.horizontalScrollBar().maximum() == 0
+            assert all(card.height() < 112 for card in page._offer_cards.values())
+            page.resize(400, 560)
+            app.processEvents()
+            assert page.scroll.horizontalScrollBar().maximum() == 0, 'Long titles/authors must not widen the plugin list'
+            page.resize(540, 560)
+            app.processEvents()
+            position = page.search.mapTo(page, QPoint()).y()
+            page.scroll.verticalScrollBar().setValue(400)
+            app.processEvents()
+            assert page.search.mapTo(page, QPoint()).y() == position, 'Search must remain above the scrolling list'
+            page.search.setText('ALICE 录制')
+            assert page.count.text() == '32 / 64 个插件'
+            page.search.clear()
+            page.filter.setCurrentIndex(3)
+            assert page.count.text() == '1 / 64 个插件'
+            assert page.cards.itemAt(0).widget() is page._offer_cards['browser_000']
+            page.filter.setCurrentIndex(2)
+            assert page.count.text() == '3 / 64 个插件'
+            page.filter.setCurrentIndex(1)
+            assert page.count.text() == '61 / 64 个插件'
+            page.filter.setCurrentIndex(0)
+            page.sort.setCurrentIndex(1)
+            assert page.cards.itemAt(0).widget() is page._offer_cards['browser_063']
+            page.sort.setCurrentIndex(2)
+            assert page.cards.itemAt(0).widget() is page._offer_cards['browser_000']
+            button = page.buttons['browser_000']
+            details = page.show_details(offers[0])
+            app.processEvents()
+            assert '完整更新说明 59' in details.document.toPlainText()
+            with patch.object(page, 'install_offer') as install:
+                details.action.click()
+                install.assert_called_once_with(offers[0])
+            page.jobs.append(SimpleNamespace(key='browser_000', percent=35))
+            page._busy(True)
+            assert not details.action.isEnabled() and '35%' in details.action.text()
+            page.search.setText('没有这样的插件')
+            assert page.empty.isVisible() and page.count.text() == '0 / 64 个插件'
+            assert page.buttons['browser_000'] is button, 'Filtering must retain the active installation control'
+            page.search.clear()
+            page.jobs.clear()
+            page._busy(False)
+            page.show_offers([dict(offers[0], version='1.2')])
+            assert not details.action.isEnabled() and details.action.text() == '目录已更新'
+            details.reject()
+            page.show_offers(offers[:1])
+            app.processEvents()
+            assert page.count.text() == '1 / 1 个插件'
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    theme.apply('dark')
+    print('PASS: compact catalog, fixed search, status filters, ordering, full details and active-download identity')
+
+
+def check_plugin_page_boundaries(app, root):
+    from types import SimpleNamespace
+    entries = [dict(id=f'boundary_{index}', name=f'插件 {index}', version='1.0',
+                    description='很长的插件说明 ' * 20, enabled=True, status='已加载', reason='')
+               for index in range(12)]
+    manager = SimpleNamespace(catalog=lambda: entries, enabled=None,
+                              plugins_dir=str(root / 'boundary-plugins'), _removed=set())
+    with patch.object(PluginStorePage, 'open_catalog'):
+        dialog = SettingsDialog({}, {}, plugin_manager=manager)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
+        page = dialog.plugin_page.store_page
+        page.offers = [dict(entry, available=True) for entry in entries]
+        page.show_offers(page.offers)
+        dialog.plugin_page.tabs.setCurrentIndex(1)
+        dialog.show()
+        QTest.qWait(180)
+        def bounds(widget):
+            return widget.rect().translated(dialog.mapFromGlobal(widget.mapToGlobal(QPoint())))
+        assert bounds(page).contains(bounds(page.refresh)), 'Refresh must stay inside the store toolbar, clear of the tab edge'
+        assert not bounds(page.search).intersects(bounds(page.refresh)), 'Search and refresh must not overlap'
+        assert bounds(page.search).top() > bounds(dialog.plugin_page.tabs.tabBar()).bottom()
+        assert bounds(page.scroll).bottom() + 8 < bounds(dialog.confirm_button).top(), 'List must leave room for the save footer'
+        page.scroll.verticalScrollBar().setValue(page.scroll.verticalScrollBar().maximum())
+        app.processEvents()
+        assert bounds(page.cards.itemAt(page.cards.count()-1).widget()).bottom() <= bounds(page.scroll.viewport()).bottom() - 8
+        dialog.close()
+        dialog.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    print('PASS: plugin toolbar, list end and save footer have separate bounds')
+
+
+def check_installed_browser(app, root):
+    from types import SimpleNamespace
+    entries = [dict(id=f'installed_{index:02d}', name=f'插件 {15-index:02d}', version='1.0',
+                    description='完整说明 ' * 60, enabled=index % 2 == 0,
+                    status='已加载' if index % 2 == 0 else '未启用', reason='') for index in range(16)]
+    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80)
+    offers = [dict(entry, version='1.1', author='Alice' if index % 2 else 'Bob' * 60,
+                   available=True, notes='完整更新记录末尾') for index, entry in enumerate(entries[:3])]
+    manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
+                              plugins_dir=str(root / 'installed-browser'), _removed=set())
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        app.setStyleSheet(theme.qss())
+        with patch.object(PluginStorePage, 'open_catalog'):
+            dialog = SettingsDialog({}, {}, plugin_manager=manager)
+            dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
+            page = dialog.plugin_page
+            store = page.store_page
+            store.offers = offers
+            store.show_offers(offers)
+            store.offersChanged.emit(offers)
+            browser = page.installed_browser
+            dialog.show()
+            QTest.qWait(180)
+            assert browser.count.text() == '16 / 16 个插件'
+            assert page.installed_scroll.horizontalScrollBar().maximum() == 0
+            assert all(card.height() < 130 for card in page._installed_cards.values())
+            browser.search.setText('ALICE 完整说明')
+            assert browser.count.text() == '1 / 16 个插件'
+            browser.search.clear()
+            browser.filter.setCurrentIndex(1)
+            assert browser.count.text() == '8 / 16 个插件'
+            check = page.checks['installed_00']
+            check.setChecked(False)
+            assert browser.count.text() == '7 / 16 个插件' and page.needs_restart()
+            browser.filter.setCurrentIndex(2)
+            assert browser.count.text() == '9 / 16 个插件'
+            assert page.checks['installed_00'] is check and not check.isChecked()
+            assert '保存后生效' in page.card_details['installed_00'][1].text()
+            check.setChecked(True)
+            assert not page.needs_restart() and dialog.confirm_button.text() == '保存'
+            browser.filter.setCurrentIndex(3)
+            assert browser.count.text() == '3 / 16 个插件'
+            browser.filter.setCurrentIndex(0)
+            browser.sort.setCurrentIndex(1)
+            assert page.cards.itemAt(0).widget() is page._installed_cards['installed_15']
+            browser.sort.setCurrentIndex(2)
+            assert page.cards.itemAt(0).widget() is page._installed_cards['installed_02']
+            details = page._show_installed_details('installed_00')
+            assert entries[0]['reason'] in details.document.toPlainText()
+            assert '完整更新记录末尾' in details.document.toPlainText()
+            with patch.object(store, 'install_offer') as install:
+                details.action.click()
+                install.assert_called_once_with(offers[0])
+            store.jobs.append(SimpleNamespace(key='installed_00', percent=45))
+            store._busy(True)
+            assert not details.action.isEnabled() and '45%' in details.action.text()
+            store.jobs.clear()
+            store._busy(False)
+            details.reject()
+            offline = page._show_installed_details('installed_15')
+            assert not offline.action.isEnabled() and offline.action.text() == '暂无更新'
+            offline.reject()
+            browser.search.setText('没有匹配的插件')
+            assert page.empty.isVisible() and browser.count.text() == '0 / 16 个插件'
+            hidden_card = page._installed_cards['installed_00']
+            page.checks['installed_01'].setChecked(True)
+            page._store_installed('installed_02')
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            import shiboken6
+            assert not shiboken6.isValid(hidden_card), 'Rebuild must also remove filtered-out cards'
+            assert page.checks['installed_01'].isChecked(), 'Rebuild must retain unsaved choices'
+            browser.search.clear()
+            browser.sort.setCurrentIndex(0)
+            for width in (900, 720):
+                dialog.resize(width, 680)
+                QTest.qWait(120)
+                assert page.installed_scroll.horizontalScrollBar().maximum() == 0
+                search_y = browser.search.mapTo(dialog, QPoint()).y()
+                bar = page.installed_scroll.verticalScrollBar()
+                bar.setValue(bar.maximum())
+                app.processEvents()
+                assert browser.search.mapTo(dialog, QPoint()).y() == search_y
+                last = page.cards.itemAt(page.cards.count()-1).widget()
+                assert last.mapTo(page.installed_scroll.viewport(), QPoint()).y() + last.height() <= page.installed_scroll.viewport().height() - 8
+                assert page.installed_scroll.mapTo(dialog, QPoint()).y() + page.installed_scroll.height() + 8 < dialog.confirm_button.mapTo(dialog, QPoint()).y()
+            browser.search.setText('没有匹配的插件')
+            with patch.object(manager, 'remove_plugin', create=True), patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
+                page._remove('installed_15', page._installed_cards['installed_15'])
+            assert 'installed_15' not in page._installed_entries
+            assert browser.count.text() == '0 / 15 个插件'
+            dialog.close()
+            dialog.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    theme.apply('dark')
+    app.setStyleSheet(theme.qss())
+    print('PASS: installed search, filters, selection retention, details, updates, rebuild, deletion and layout bounds')
 
 
 def check_remove_prompt(app):
@@ -235,7 +443,7 @@ def check_download_reopen(app, root):
     assert started.wait(2)
     window.close()
     settle(app, page)
-    assert interrupted.is_set() and page.stopping, 'Application exit must stop a hidden update task'
+    assert interrupted.wait(2) and page.stopping, 'Application exit must stop a hidden update task'
 
 
 def main():
@@ -245,6 +453,9 @@ def main():
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
+        check_store_browser(app, root)
+        check_plugin_page_boundaries(app, root)
+        check_installed_browser(app, root)
         check_download_reopen(app, root)
         check_store_scroll(app, root)
         (root / f'RELEASE-{VERSION_TAG}.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
@@ -273,12 +484,12 @@ def main():
                 patch.object(online, 'plugin_catalog', return_value=offers) as catalog, \
                 patch.object(online, 'download', return_value=str(archive)):
             dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
-            assert page.refresh.isHidden()
+            assert not page.refresh.isVisible()
             dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, page)
             assert page.refresh.isVisible()
-            assert page.refresh.y() < dialog.plugin_page.tabs.tabBar().height()
-            assert page.refresh.x() > dialog.plugin_page.tabs.tabBar().width()
+            assert page.browser.isAncestorOf(page.refresh)
+            assert not page.search.geometry().intersects(page.refresh.geometry())
             bar = dialog.plugin_page.tabs.tabBar()
             tab_rect = bar.tabRect(1)
             tab_image = bar.grab().toImage()
@@ -286,7 +497,7 @@ def main():
                 tab_rect.topLeft() + QPoint(5, tab_rect.height() // 2)), 'selected tab corners must actually be rounded'
             original_button = page.buttons['global_live']
             dialog.plugin_page.tabs.setCurrentIndex(0)
-            assert page.refresh.isHidden()
+            assert not page.refresh.isVisible()
             dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, page)
             assert catalog.call_count == 1 and page.buttons['global_live'] is original_button
@@ -310,9 +521,13 @@ def main():
             page.refresh.click()
             settle(app, page)
             assert page.buttons['global_live'].text() == '更新'
-            page.buttons['global_live'].click()
+            details = dialog.plugin_page._show_installed_details('global_live')
+            assert details.action.text() == '更新' and details.action.isEnabled()
+            details.action.click()
             settle(app, page)
             assert page.buttons['global_live'].text() == '待重启'
+            assert details.action.text() == '待重启' and not details.action.isEnabled()
+            details.reject()
             assert read_manifest(str(root / 'plugins' / 'global_live'), 'global_live')['version'] == '1.0'
             assert not dialog.plugin_page.checks['global_live'].isChecked()
             assert manager.enabled == set()
