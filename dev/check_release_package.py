@@ -80,7 +80,7 @@ assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEAS
 assert metadata["url"].endswith(f"/{VERSION_TAG}/{remote_name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
 assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64",
-                 "source_commit": build_metadata['source_commit']}
+                 "source_commit": build_metadata['source_commit'], "diagnostics_protocol": 1}
 inventory = json.loads((exe / INVENTORY).read_text(encoding='utf-8'))
 assert inventory['schema'] == 1 and inventory['version'] == VERSION
 with zipfile.ZipFile(archive) as package:
