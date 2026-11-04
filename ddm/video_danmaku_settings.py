@@ -1,6 +1,8 @@
 """画面格右下角的弹幕观看设置，拖动时实时生效。"""
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QMenu, QSlider, QWidget, QWidgetAction
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QGridLayout, QLabel,
+                               QMenu, QPushButton, QSlider, QWidget, QWidgetAction)
 
 from . import theme
 from .config import DEFAULT_SETTINGS
@@ -56,9 +58,21 @@ class VideoDanmakuSettings(QMenu):
         self.super_chat = QCheckBox('显示醒目留言（SC）', holder)
         self.super_chat.toggled.connect(lambda checked: self.settingsChanged.emit({'super_chat_enabled': checked}))
         grid.addWidget(self.super_chat, 9, 0, 1, 3)
+        grid.addWidget(QLabel('滚动文字颜色'), 10, 0)
+        self.color_mode = QComboBox(holder)
+        self.color_mode.addItem('跟随原色', 'original')
+        self.color_mode.addItem('统一颜色', 'custom')
+        self.color_mode.setToolTip('原色缺失时使用白色；仅调整滚动文字，SC 和图片表情保留原色')
+        self.color_mode.currentIndexChanged.connect(self._change_color_mode)
+        grid.addWidget(self.color_mode, 10, 1)
+        self.color_button = QPushButton(holder)
+        self.color_button.setToolTip('选择滚动弹幕文字颜色')
+        self.color_button.clicked.connect(self._choose_color)
+        self._color = QColor('#ffffff')
+        grid.addWidget(self.color_button, 10, 2)
         hint = QLabel("观看设置应用于所有格子")
         hint.setObjectName("SettingsHint")
-        grid.addWidget(hint, 10, 0, 1, 3)
+        grid.addWidget(hint, 11, 0, 1, 3)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
@@ -71,7 +85,36 @@ class VideoDanmakuSettings(QMenu):
         self.labels[key].setText(f"{value}{suffix}")
         self.settingsChanged.emit({key: value})
 
+    def _change_color_mode(self):
+        self.color_button.setEnabled(self.color_mode.currentData() == 'custom')
+        self.settingsChanged.emit({'video_danmaku_color_mode': self.color_mode.currentData()})
+
+    def _choose_color(self):
+        # Keep the picker owned by the playback window, including independent fullscreen.
+        self.hide()
+        dialog = QColorDialog(self._color, self.parentWidget())
+        dialog.setWindowTitle('滚动弹幕文字颜色')
+        dialog.setOption(QColorDialog.DontUseNativeDialog)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.colorSelected.connect(self._select_color)
+        dialog.open()
+
+    def _select_color(self, color):
+        self.settingsChanged.emit({'video_danmaku_color': color.name()})
+
     def apply_settings(self, settings: dict) -> None:
+        self._color = QColor(str(settings.get('video_danmaku_color') or '#ffffff'))
+        if not self._color.isValid():
+            self._color = QColor('#ffffff')
+        swatch = QPixmap(16, 16)
+        swatch.fill(self._color)
+        self.color_button.setIcon(QIcon(swatch))
+        self.color_button.setText(self._color.name().upper())
+        self.color_mode.blockSignals(True)
+        self.color_mode.setCurrentIndex(int(settings.get('video_danmaku_color_mode') == 'custom'))
+        self.color_mode.blockSignals(False)
+        self.color_button.setEnabled(self.color_mode.currentData() == 'custom')
         self.super_chat.blockSignals(True)
         self.super_chat.setChecked(bool(settings.get('super_chat_enabled', True)))
         self.super_chat.blockSignals(False)
