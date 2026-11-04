@@ -184,6 +184,12 @@ def main():
             floating.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
             floating.move(-15000, 0)
         stack.enter_context(patch.object(PictureInPictureWindow, '__init__', background))
+        restore_geometry = PictureInPictureWindow.restoreGeometry
+        def background_restore(floating, geometry):
+            restored = restore_geometry(floating, geometry)
+            floating.move(-15000, 0)  # Qt normally brings a saved off-screen window onto the desktop.
+            return restored
+        stack.enter_context(patch.object(PictureInPictureWindow, 'restoreGeometry', background_restore))
         init_dialog = PictureInPictureDialog.__init__
         def background_dialog(dialog, controller):
             init_dialog(dialog, controller)
