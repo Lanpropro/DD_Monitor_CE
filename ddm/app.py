@@ -252,6 +252,9 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(0)
         content_layout.addWidget(self.wall, 1)
         content_layout.addWidget(self.empty_hint, 1)
+        from .picture_in_picture import PictureInPicture
+        self.picture_in_picture = PictureInPicture(self)
+        self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage)
 
         self.setCentralWidget(root)
         from .skins import SkinController
@@ -682,7 +685,8 @@ class MainWindow(QMainWindow):
 
     def _apply_orientation(self, orientation: str | None = None) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
-        if self._applying_room_preset:
+        if self._applying_room_preset or (getattr(self, 'picture_in_picture', None)
+                                         and self.picture_in_picture.active):
             return
         # Side/header reparenting activates ancestor layouts synchronously.
         # Commit their final arrangement once; DPI and painting remain enabled.
@@ -1180,6 +1184,7 @@ class MainWindow(QMainWindow):
                 for tile in self.wall.tiles
             ],
             "ui": {
+                "picture_in_picture": self.picture_in_picture.state(),
                 "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,
                 "sidebar_collapsed": self.sidebar.collapsed,
@@ -1225,6 +1230,7 @@ class MainWindow(QMainWindow):
             self._window_move.cancel(restore=False)
         if self._tray.handle_close(event):
             return
+        self.picture_in_picture.restore()
         # 先隐藏界面，再逐路终止播放并等待后台任务收尾。
         t0 = time.perf_counter()
         for dialog in list(self._codec_dialogs.values()):
@@ -1382,6 +1388,7 @@ class MainWindow(QMainWindow):
                     player.reapply_audio_channel()
 
     def _on_layout_changed(self, layout_id: str) -> None:
+        self.picture_in_picture.restore()
         self._cancel_interactive_resize()
         want_portrait = layouts.is_portrait_layout(layout_id)
         reshape = (want_portrait != (self.orientation == "portrait")
@@ -1487,6 +1494,7 @@ class MainWindow(QMainWindow):
         self._save_timer.start()
 
     def apply_room_preset(self, preset_id):
+        self.picture_in_picture.restore()
         if self._closing:
             return False
         if self.room_presets["version"] != 1:
@@ -2081,7 +2089,7 @@ class MainWindow(QMainWindow):
             return
         existing = self._stream_info_dialogs.get(tile)
         if existing is not None:
-            existing.set_presentation_owner(tile.window() if tile.isWindow() else self)
+            existing.set_presentation_owner(tile.window())
             existing.refresh()
             existing.show()
             existing.raise_()
@@ -2091,7 +2099,7 @@ class MainWindow(QMainWindow):
         dialog = StreamInfoDialog(lambda: self._stream_info_snapshot(tile), self)
         dialog.finished.connect(lambda _result: self._stream_info_dialogs.pop(tile, None))
         self._stream_info_dialogs[tile] = dialog
-        dialog.set_presentation_owner(tile.window() if tile.isWindow() else self)
+        dialog.set_presentation_owner(tile.window())
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
@@ -2527,6 +2535,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _on_fullscreen(self, tile: Tile) -> None:
+        self.picture_in_picture.restore()
         if tile not in self.wall.tiles or not tile.room.get("room_id"):
             return
         self._cancel_interactive_resize()

@@ -19,6 +19,7 @@
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](archive/pr6-pr7-layout-testing.md) |
 | 窗口缩放性能 | [交互、模块分工与验收](resize-performance.md) |
 | 直播间组合预设 | [首版试用、设计与验收清单](room-presets-design.md) |
+| 多画面画中画 | [独立入口、组合观看与验收步骤](picture-in-picture.md) |
 | 安装与卸载 | [Windows 安装包、卸载范围与验证](development/windows-installer.md) |
 | 更新机制 | [在线更新](online-updates.md) |
 | 下一次更新 | [未发布的修复、验收证据与待办](releases/UNRELEASED.md) |

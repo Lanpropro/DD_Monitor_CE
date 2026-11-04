@@ -1,0 +1,207 @@
+"""Isolated multi-pane PiP regression; --native uses local MP4s and real HWNDs."""
+from contextlib import ExitStack
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from unittest.mock import Mock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
+os.environ['DDM_NO_SAVE'] = '1'
+
+from PySide6.QtCore import QCoreApplication, QEvent, QRect, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
+from ddm import config, plugins, theme
+from ddm.app import MainWindow
+from ddm.picture_in_picture import PictureInPictureDialog, PictureInPictureWindow, pane_rectangles
+
+
+def exercise(app, window, native, directory):
+    pip, wall = window.picture_in_picture, window.wall
+    tiles = list(wall.tiles)
+    original_layout = wall.layout_id
+    original_ratios = wall.corner_ratios(), wall.layout_ratios()
+    audio = [(tile.volume, tile.muted, tile.audio_channel) for tile in tiles]
+    players = []
+    layer = None
+    if native:
+        from ddm.player import TilePlayer
+        from selfcheck_mpv import ready, pump
+        media = Path(directory) / 'local.mp4'
+        subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30', '-t', '30',
+            '-c:v', 'libx264', '-preset', 'ultrafast', str(media)], check=True, timeout=30)
+        for tile in tiles[:2]:
+            player = TilePlayer(tile.video, window, silent=True)
+            player.freeze_watch = False
+            player.play(str(media))
+            player.set_muted(True)
+            tile.set_video_active(True)
+            window.players[tile] = player
+            players.append(player)
+            ready(app, player)
+        cores = [player.player for player in players]
+        generations = [player.state_generation for player in players]
+        positions = [player._prop('time-pos') for player in players]
+        handles = [int(tile.video.winId()) for tile in tiles]
+        layer = wall.ensure_quick_danmaku_layer()
+        assert layer is not None
+        now = int(time.time())
+        for tile in tiles[:2]:
+            owner = tile.video_danmaku
+            owner.set_active(True)
+            owner.set_enabled(True)
+            assert owner.add_event({'text': 'Local PiP comment'})
+            owner.set_super_chats([dict(kind='super_chat', id='local-pip', uid='1', uname='Local',
+                price=30, message='Local PiP SC', start_time=now, end_time=now + 120)])
+        QTest.qWait(150)
+    pip.manage()
+    assert len(pip.dialog.checks) == 4
+    for check in pip.dialog.checks.values():
+        check.setChecked(False)
+    assert not pip.dialog.start.isEnabled()
+    for index, check in pip.dialog.checks.items():
+        check.setChecked(index < 2)
+    pip.dialog.start.click()
+    QTest.qWait(150)
+    assert pip.active and pip.placeholder.isVisible()
+    assert wall.window() is pip.floating and wall.visible_tiles() == tiles[:2]
+    assert not any(tile.bottom.isVisible() for tile in tiles[:2])
+    assert wall.layout_id == original_layout
+    pip.manage()
+    pip.dialog.checks[3].setChecked(True)
+    pip.dialog.reject()
+    assert wall.visible_tiles() == tiles[:2], 'Cancel must retain the current composition'
+    if layer is not None:
+        assert layer.window.transientParent() is pip.floating.windowHandle()
+        assert layer.items
+        for tile in tiles[:2]:
+            overlay = tile.video_danmaku.super_chat_overlay
+            assert overlay.isVisible()
+            assert overlay.windowHandle().transientParent() is pip.floating.windowHandle()
+    assert wall.corner_ratios() == original_ratios[0] and wall.layout_ratios() == original_ratios[1]
+    for mode in ('light', 'dark'):
+        window.set_appearance(mode)
+        QTest.qWait(100)
+        assert pip.floating.grab().toImage().pixelColor(0, 0) == QColor(theme.BG)
+    for size in ((360, 240), (440, 540), (800, 320)):
+        pip.floating.resize(*size)
+        QTest.qWait(50)
+        assert wall.rect().contains(tiles[0].geometry()) and wall.rect().contains(tiles[1].geometry())
+        assert not tiles[0].geometry().intersects(tiles[1].geometry())
+    pip.floating.pin.setChecked(False)
+    QTest.qWait(50)
+    assert not (pip.floating.windowFlags() & Qt.WindowStaysOnTopHint)
+    pip.floating.pin.setChecked(True)
+    QTest.qWait(50)
+    with patch.object(window._tray, 'available', return_value=True), patch.object(window._tray, 'icon', Mock()):
+        window._tray.hide()
+    QTest.qWait(50)
+    assert not window._tray.playback_suspended
+    assert pip.floating.isVisible() and all(tile.isVisible() for tile in tiles[:2])
+    window.show()
+    pip.manage()
+    for index, check in pip.dialog.checks.items():
+        check.setChecked(index in (1, 3))
+    pip.dialog.start.click()
+    QTest.qWait(80)
+    assert wall.visible_tiles() == [tiles[1], tiles[3]]
+    state = window.current_state()
+    assert state['ui']['picture_in_picture']['selection'] == [1, 3]
+    assert [row['room_id'] for row in state['wall']] == [tile.room['room_id'] for tile in tiles]
+    pip.restore()
+    QTest.qWait(100)
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    assert not pip.active and wall.parentWidget() is window._content
+    assert wall.visible_tiles() == tiles and all(tile.bottom.isVisible() for tile in tiles)
+    assert wall.layout_id == original_layout and (wall.corner_ratios(), wall.layout_ratios()) == original_ratios
+    assert [(tile.volume, tile.muted, tile.audio_channel) for tile in tiles] == audio
+    if layer is not None:
+        assert layer.window.transientParent() is window.windowHandle()
+    pip.start([0, 1], 1)
+    QTest.qWait(80)
+    assert tiles[0].y() < tiles[1].y() and tiles[0].x() == tiles[1].x()
+    pip.floating.close()
+    QTest.qWait(80)
+    assert not pip.active and window.isVisible()
+    if native:
+        pump(app, .2)
+        assert [player.player for player in players] == cores
+        assert [player.state_generation for player in players] == generations
+        assert [int(tile.video.winId()) for tile in tiles] == handles
+        assert all(player._prop('vo-configured') for player in players)
+        assert all(player._prop('time-pos') > before for player, before in zip(players, positions))
+    window.start_tile.assert_not_called()
+    pip.start([0], 0)
+    window.close()
+    QTest.qWait(50)
+    assert not pip.active and all(player._released for player in players)
+
+
+def main():
+    app = QApplication([])
+    native = '--native' in sys.argv or app.platformName() == 'windows'
+    if native:
+        os.environ['DDM_QTQUICK_DANMAKU'] = '1'
+    app.setQuitOnLastWindowClosed(False)
+    app.setStyleSheet(theme.qss())
+    if native:
+        assert app.platformName() == 'windows'
+    for count in range(1, 17):
+        for columns in (0, 1, 2, 3, 16):
+            area = QRect(0, 0, 280, 160)
+            rectangles = pane_rectangles(count, area, columns)
+            assert len(rectangles) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
+            assert not any(first.intersects(second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
+    with tempfile.TemporaryDirectory(prefix='ddm-pip-') as directory, ExitStack() as stack:
+        stack.enter_context(patch.object(config, 'REPO', directory))
+        stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(directory) / 'config.json')))
+        stack.enter_context(patch.object(plugins, 'DEFAULT_PLUGINS_DIR', str(Path(directory) / 'plugins')))
+        stack.enter_context(patch.object(plugins.PluginManager, 'load'))
+        for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+                     'load_cached_covers', 'load_cached_avatars', 'load_room_avatars', 'sync_danmaku',
+                     '_check_startup_update', '_check_startup_plugins'):
+            stack.enter_context(patch.object(MainWindow, name))
+        init = PictureInPictureWindow.__init__
+        def background(floating, controller):
+            init(floating, controller)
+            floating.setAttribute(Qt.WA_ShowWithoutActivating)
+            floating.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            floating.move(-15000, 0)
+        stack.enter_context(patch.object(PictureInPictureWindow, '__init__', background))
+        init_dialog = PictureInPictureDialog.__init__
+        def background_dialog(dialog, controller):
+            init_dialog(dialog, controller)
+            dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+            dialog.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            dialog.move(-14000, 0)
+        stack.enter_context(patch.object(PictureInPictureDialog, '__init__', background_dialog))
+        # Do not restore/activate a real foreground window during the close test.
+        from ddm.system_tray import SystemTray
+        stack.enter_context(patch.object(SystemTray, 'restore'))
+        rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
+                      muted=True, volume=20 + index * 10) for index in range(4)]
+        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
+            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False,
+                'auto_update': False, 'recording_enabled': False, 'recording_replay_enabled': False}})
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        window.setGeometry(-12000, 0, 1100, 750)
+        window.show()
+        QTest.qWait(100)
+        try:
+            exercise(app, window, native, directory)
+        finally:
+            window.close()
+            app.processEvents()
+    print('PASS: PiP selection, shared playback, resizing, pinning, independent visibility, restore and shutdown')
+
+
+if __name__ == '__main__':
+    main()
