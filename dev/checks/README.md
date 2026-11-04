@@ -11,6 +11,7 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
+| [selfcheck_development_hang](../selfcheck_development_hang.py) | `offline`；本机开发入口的外部看门狗、只采调用栈、目标进程退出后结束；不作为真实卡死定位证据 |
 | [selfcheck_responsiveness](../selfcheck_responsiveness.py) | `smoke` / `offline` |
 | [selfcheck_diagnostic_session](../selfcheck_diagnostic_session.py) | `offline`；隔离进程验证未决专项启动、手动现场标记、列表快照与消息隐私，不替代真实故障复现 |
 | [selfcheck_sidebar_diagnostics](../selfcheck_sidebar_diagnostics.py) | `offline`；模型对照、旧动画目标、拖放恢复、原生窗口只读、环形与记录大小上限、隐私；Windows单项原生后端补查现有HWND，不作为真实故障复现 |

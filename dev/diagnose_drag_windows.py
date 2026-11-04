@@ -12,6 +12,8 @@ from ddm import drag_diagnostics
 if __name__ != '__main__':
     sys.modules[__name__] = drag_diagnostics
 else:
+    from dev.watch_development_hang import start_for_current_process
+    start_for_current_process()
     Recorder = drag_diagnostics.Recorder
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)

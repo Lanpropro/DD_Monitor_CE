@@ -37,6 +37,9 @@
 
 ### 独立诊断工具
 
+- `dev/watch_development_hang.py`
+- `dev/selfcheck_development_hang.py`
+
 - `tools/diagnostics/Collector.cs`
 - `tools/diagnostics/NativeDependencies.cs`
 - `tools/diagnostics/Program.cs`
