@@ -98,11 +98,13 @@ class RecordingService:
         parts = [Path(part) for part in parts if Path(part).is_file()]
         if not parts:
             raise RuntimeError('尚无已封口分段，请稍后重试')
-        token = host.recorder.pin_parts(parts)
+        info = session.snapshot_info(parts)
+        init_files = [Path(segment['init']) for segment in info.get('segments', []) if segment.get('init')]
+        token = host.recorder.pin_parts(parts + init_files)
         self._leases.add(token)
         return {'lease': token, 'session_id': session_id,
                 'room': dict(session.room), 'parts': [str(part) for part in parts],
-                'created_at': session.created_at, 'snapshot_at': time.time()}
+                'created_at': session.created_at, 'snapshot_at': time.time(), **info}
 
     def release(self, token):
         # Release remains valid after context deactivation during app shutdown.

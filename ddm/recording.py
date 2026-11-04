@@ -293,6 +293,14 @@ class _Session:
     def review_info(self) -> dict | None:
         return None
 
+    def export_input(self, parts: list[Path], playlist: Path) -> list[str]:
+        playlist.write_text("".join("file '" + str(p).replace("'", "'\\''") + "'\n"
+                                    for p in parts), encoding="utf-8")
+        return ["-f", "concat", "-safe", "0", "-i", str(playlist)]
+
+    def snapshot_info(self, parts: list[Path]) -> dict:
+        return {}
+
     def finished_parts(self) -> list[Path]:
         result = list(self.parts)
         if self.active_pattern is not None:
@@ -813,11 +821,8 @@ class RecordingManager(QObject):
             result = output_path(folder, session.name + ("_回放" if not full else ""),
                                  session.extension)
             playlist = result.with_suffix(".concat.txt")
-            playlist.write_text("".join("file '" + str(p).replace("'", "'\\''") + "'\n"
-                                        for p in parts), encoding="utf-8")
             command = [ffmpeg_path(session.settings), "-y", "-hide_banner", "-loglevel",
-                       "warning", "-f", "concat", "-safe", "0", "-i", str(playlist),
-                       "-c", "copy"]
+                       "warning", *session.export_input(parts, playlist), "-c", "copy"]
             if session.extension in ("mp4", "mov"):
                 command += ["-movflags", "+faststart"]
             command += [str(result)]
