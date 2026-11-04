@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
@@ -236,6 +237,8 @@ class _Session:
     def __init__(self, tile, settings: dict, recording: bool, folder: Path,
                  video_codec: str = ""):
         self.tile = tile
+        self.session_id = uuid.uuid4().hex
+        self.created_at = time.time()
         self.room = dict(tile.room)
         self.settings = dict(settings)
         self.recording = recording
@@ -304,6 +307,7 @@ class RecordingManager(QObject):
         self.exports: list[tuple[subprocess.Popen, Path, list[Path], bool]] = []
         self._export_rooms: dict[Path, dict] = {}
         self._delete_after_exports: set[Path] = set()
+        self._part_leases: dict[str, tuple[Path, ...]] = {}
         self.timer = QTimer(self)
         self.timer.setInterval(CHECK_MS)
         self.timer.timeout.connect(self._poll)
@@ -678,9 +682,24 @@ class RecordingManager(QObject):
                 self._delete_after_exports.difference_update(parts)
         self._cleanup_parts()
 
-    def _cleanup_parts(self) -> None:
+    def pin_parts(self, parts: list[Path]) -> str:
+        """Keep completed segments alive while a plugin prepares a local snapshot."""
+        token = uuid.uuid4().hex
+        self._part_leases[token] = tuple(parts)
+        return token
+
+    def release_parts(self, token: str) -> None:
+        self._part_leases.pop(token, None)
+        self._cleanup_parts()
+
+    def _protected_parts(self) -> set[Path]:
         protected = {part for _process, _result, parts, _full in self.exports
                      for part in parts}
+        protected.update(part for parts in self._part_leases.values() for part in parts)
+        return protected
+
+    def _cleanup_parts(self) -> None:
+        protected = self._protected_parts()
         protected.update(part for session in self.sessions.values()
                          for part in session.replay_parts)
         for part in self._delete_after_exports - protected:
@@ -713,8 +732,7 @@ class RecordingManager(QObject):
         completed = session.finished_parts()
         keep = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
                          * 60 / SEGMENT_SECONDS) + 2
-        protected = {part for _process, _result, parts, _full in self.exports
-                     for part in parts}
+        protected = self._protected_parts()
         for part in completed[:-keep]:
             if part in protected:
                 continue
