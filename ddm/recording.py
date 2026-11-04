@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import math
+import json
 import os
 import re
 import shutil
@@ -235,6 +236,8 @@ def segment_args(settings: dict, pattern: Path, video_codec: str = "", *,
 
 
 class _Session:
+    supports_replay = True
+
     def __init__(self, tile, settings: dict, recording: bool, folder: Path,
                  video_codec: str = ""):
         self.tile = tile
@@ -275,6 +278,11 @@ class _Session:
         self.refreshing = False
         self.pruned_at = 0.0        # 上次裁分段的时间；纯缓存会话用（见 _prune_cache）
         self.segment_seconds = SEGMENT_SECONDS
+
+    def recording_message(self, event, path=None):
+        return {'start': f'{self.name} 开始录制',
+                'resume': f'{self.name} 取到新流，继续录制',
+                'saved': f'已保存录制：{path}'}[event]
 
     def parts_directory(self) -> Path:
         return self.folder / ".ddm-parts"
@@ -339,12 +347,17 @@ class RecordingManager(QObject):
         self.sessions: dict[Any, _Session] = {}
         self.exports: list[tuple[subprocess.Popen, Path, list[Path], bool]] = []
         self._export_rooms: dict[Path, dict] = {}
+        self._export_info = {}
         self._delete_after_exports: set[Path] = set()
         self._part_leases: dict[str, tuple[Path, ...]] = {}
         self.timer = QTimer(self)
         self.timer.setInterval(CHECK_MS)
         self.timer.timeout.connect(self._poll)
         self.timer.start()
+
+    @property
+    def supports_replay(self):
+        return getattr(self.session_factory, 'supports_replay', True)
 
     def _say(self, message: str, room=None) -> None:
         print(f"[录制] {message}", file=sys.stderr, flush=True)
@@ -364,6 +377,8 @@ class RecordingManager(QObject):
             256, int(self.settings.get("recording_min_free_mb", 2048))) * 1024 * 1024
 
     def start(self, tile, *, recording: bool) -> bool:
+        if not recording and not self.supports_replay:
+            return False
         if recording and not bool(self.settings.get("recording_enabled", True)):
             self._say("录制功能已在「设置 → 录制」里关闭")
             return False
@@ -401,6 +416,7 @@ class RecordingManager(QObject):
             # segment_extension 认不出编码就原样返回，行为跟改动前一致。
             session = self.session_factory(tile, self.settings, recording, folder,
                                            str(getattr(tile, "stream_codec", "") or ""))
+            session.catalog_metadata = self.backend_owner is not None
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
             self.changed.emit(tile)
@@ -441,7 +457,7 @@ class RecordingManager(QObject):
         if session.recording and not session.output_started_at:
             session.output_started_at = session.started_at
         if session.chunk == 1:
-            self._say(f"{session.name} {'开始录制' if session.recording else '开启即时回放缓存'}", session.room)
+            self._say(session.recording_message("start") if session.recording else f"{session.name} 开启即时回放缓存", session.room)
 
     @staticmethod
     def _end_process(session: _Session) -> None:
@@ -490,7 +506,7 @@ class RecordingManager(QObject):
         try:
             self._change_codec(session, codec)
             self._launch(session, url, headers)
-            self._say(f"{session.name} 取到新流，继续录制", session.room)
+            self._say(session.recording_message("resume"), session.room)
         except (OSError, ValueError) as error:
             self.source_failed(session, str(error))
 
@@ -512,7 +528,7 @@ class RecordingManager(QObject):
             # 排除在删除之外，所以先启动的那份不会被后完成的那份删掉源文件。
             # 设置里关了即时回放总开关就不存那一份（完整录制照常导出）；
             # 这里读 manager 的 settings（与 app 同一个 dict），开关是实时的。
-            if save_replay and bool(self.settings.get("recording_replay_enabled", True)):
+            if save_replay and session.supports_replay and bool(self.settings.get("recording_replay_enabled", True)):
                 self._export_replay(session, session.replay_parts + parts)
             self._export(session, parts, full=True)
         elif session.save_cache_on_stop:
@@ -526,7 +542,7 @@ class RecordingManager(QObject):
 
     def _export_replay(self, session: _Session, parts: list[Path]) -> bool:
         """单独存一份「最近 N 分钟」（即时回放），完整录制照旧另外导出。"""
-        if not parts:
+        if not session.supports_replay or not parts:
             return False
         count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
                           * 60 / session.segment_seconds)
@@ -548,7 +564,7 @@ class RecordingManager(QObject):
                 self._change_codec(session, codec)
                 self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
                 if reconnecting and session.process is not None:
-                    self._say(f"{session.name} 取到新流，继续录制", session.room)
+                    self._say(session.recording_message("resume"), session.room)
             except OSError as error:
                 self._say(f"{session.name} 续录失败：{error}", session.room)
                 self.stop(tile)
@@ -705,7 +721,21 @@ class RecordingManager(QObject):
                 continue
             self.exports.remove(export)
             room = self._export_rooms.pop(result, {})
+            metadata = self._export_info.pop(result, None)
             if process.returncode == 0 and result.exists():
+                if metadata is not None:
+                    try:
+                        from . import images
+                        for key, source in [('cover_path', images.room_cover_path(str(room.get('room_id') or ''))),
+                                            ('avatar_path', images.room_avatar_path(str(room.get('room_id') or '')))]:
+                            if Path(source).is_file():
+                                image = result.with_suffix('.' + key + '.png')
+                                shutil.copy2(source, image)
+                                metadata[key] = str(image)
+                        result.with_suffix(result.suffix + '.recording.json').write_text(
+                            json.dumps({**metadata, 'path': str(result), 'ended_at': time.time()}, ensure_ascii=False), encoding='utf-8')
+                    except OSError as error:
+                        self._say(f'录像已保存，但信息文件写入失败：{error}', room)
                 self._say(f"已保存{'录制' if full else '即时回放'}：{result}", room)
                 for suffix in (".concat.txt", ".ffmpeg.log"):
                     result.with_suffix(suffix).unlink(missing_ok=True)
@@ -785,12 +815,18 @@ class RecordingManager(QObject):
         self._cleanup_parts()
 
     def save_replay(self, tile) -> bool:
+        if not self.supports_replay:
+            self._say("当前为切片素材模式；请在录像页选择时间范围生成切片")
+            return False
         if not bool(self.settings.get("recording_replay_enabled", True)):
             self._say("即时回放已在「设置 → 录制」里关闭")
             return False
         session = self.sessions.get(tile)
         if session is None:
             self._say("请先开启录制或即时回放缓存")
+            return False
+        if not session.supports_replay:
+            self._say("这路录制为切片素材；请在录像页生成切片", session.room)
             return False
         count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
                           * 60 / session.segment_seconds)
@@ -808,7 +844,7 @@ class RecordingManager(QObject):
             if full:
                 saved = session.save_recording(parts)
                 if saved is not None:
-                    self._say(f"已保存录制：{saved}", session.room)
+                    self._say(session.recording_message("saved", saved), session.room)
                     return True
             primary = session.folder  # 当前录制固定使用启动时选定的目录
             needed = sum(part.stat().st_size for part in parts)
@@ -818,7 +854,11 @@ class RecordingManager(QObject):
             if shutil.disk_usage(folder).free < needed + reserve * 1024 * 1024:
                 self._say("导出空间不足；原始分段保留，清理磁盘后可手动恢复")
                 return False
-            result = output_path(folder, session.name + ("_回放" if not full else ""),
+            name = session.name
+            if getattr(session, 'catalog_metadata', False):
+                platform = str(session.room.get('platform') or str(session.room_id).partition(':')[0] or 'bilibili')
+                name = '_'.join([session.name[:24], platform[:12], str(session.room.get('title') or '直播')[:24], session.room_id[:18]])
+            result = output_path(folder, name + ("_回放" if not full else ""),
                                  session.extension)
             playlist = result.with_suffix(".concat.txt")
             command = [ffmpeg_path(session.settings), "-y", "-hide_banner", "-loglevel",
@@ -834,6 +874,9 @@ class RecordingManager(QObject):
             _adopt_process(process)         # 导出同样是后台活，别跟游戏抢盘
             self.exports.append((process, result, parts, full))
             self._export_rooms[result] = dict(session.room)
+            if getattr(session, 'catalog_metadata', False):
+                self._export_info[result] = {'room': dict(session.room), 'title': session.room.get('title') or session.name,
+                    'created_at': session.created_at, 'kind': 'recording' if full else 'replay'}
             self._say(f"正在导出{'录制' if full else '即时回放'}：{result}", session.room)
             return True
         except OSError as error:

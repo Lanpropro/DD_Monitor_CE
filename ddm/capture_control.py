@@ -40,7 +40,7 @@ class CaptureControl:
     def replay_enabled(self) -> bool:
         """即时回放总开关；关掉时既不开缓存，也不提供「保存最近 N 分钟」。"""
         host = self.host
-        return bool(host.settings.get("recording_replay_enabled", True))
+        return bool(host.settings.get("recording_replay_enabled", True)) and host.recorder.supports_replay
 
     def replay_max_tiles(self) -> int:
         """``all`` 时最多给几格开缓存；<= 0 表示不限制。"""

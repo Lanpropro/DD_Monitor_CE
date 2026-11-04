@@ -11,6 +11,7 @@ class RecordingService:
     def __init__(self, context):
         self.context = context
         self._leases = set()
+        self._session_factory = None
 
     def _host(self):
         host = self.context.window
@@ -27,7 +28,7 @@ class RecordingService:
                 'pending_outputs': [str(result.resolve()) for _process, result, _parts, _full
                                     in host.recorder.exports]}
 
-    def register_backend(self, session_factory):
+    def register_backend(self, session_factory, *, enabled=True):
         """Use a RecordingSession subclass for new captures; existing ones keep running."""
         recorder = self._host().recorder
         if not isinstance(session_factory, type) or not issubclass(session_factory, RecordingSession):
@@ -35,7 +36,20 @@ class RecordingService:
         if recorder.backend_owner not in (None, self):
             raise RuntimeError('已有其他插件接管录制')
         recorder.backend_owner = self
-        recorder.session_factory = session_factory
+        self._session_factory = session_factory
+        recorder.session_factory = session_factory if enabled else RecordingSession
+
+    def set_backend_enabled(self, enabled):
+        host = self._host()
+        recorder = host.recorder
+        if recorder.backend_owner is not self or self._session_factory is None:
+            raise RuntimeError('录制后端未注册')
+        factory = self._session_factory if enabled else RecordingSession
+        if recorder.session_factory is factory:
+            return
+        if recorder.sessions:
+            raise RuntimeError('请先停止当前录制和缓存，再切换录制方式')
+        recorder.session_factory = factory
 
     def live_recording(self, source_id, session_id):
         host = self._host()
