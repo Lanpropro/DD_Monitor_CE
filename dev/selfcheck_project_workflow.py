@@ -8,6 +8,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProjectWorkflowTests(unittest.TestCase):
+    def test_issue_forms_classify_feedback_without_claiming_a_fix(self):
+        folder = ROOT / '.github/ISSUE_TEMPLATE'
+        for filename, category in (('1-bug.yml', 'bug'), ('2-feature.yml', 'enhancement'), ('3-question.yml', 'question')):
+            source = (folder / filename).read_text(encoding='utf-8')
+            with self.subTest(filename=filename):
+                self.assertRegex(source, r'(?m)^name: .{4,}$')
+                self.assertRegex(source, r'(?m)^description: .+$')
+                self.assertIn(f'labels: ["{category}", "待确认"]', source)
+                self.assertNotIn('assignees:', source)
+                ids = re.findall(r'^    id: ([a-z0-9_-]+)$', source, re.MULTILINE)
+                self.assertEqual(len(ids), len(set(ids)))
+                self.assertEqual(len(ids), len(re.findall(r'^  - type: (?:input|textarea|dropdown)$', source, re.MULTILINE)))
+        bug = (folder / '1-bug.yml').read_text(encoding='utf-8')
+        for field in ('environment', 'happened', 'steps', 'attachments'):
+            section = bug.split(f'    id: {field}\n', 1)[1].split('  - type:', 1)[0]
+            self.assertIn('required: false', section)
+        for field in ('version', 'installation', 'system', 'reproducibility', 'actual'):
+            section = bug.split(f'    id: {field}\n', 1)[1].split('  - type:', 1)[0]
+            self.assertIn('required: true', section)
+        self.assertIn('目前无法复现', bug)
+        self.assertIn('一般反馈无需启动专项', bug)
+        self.assertIn('blank_issues_enabled: true', (folder / 'config.yml').read_text(encoding='utf-8'))
+
     def test_contribution_rules_use_develop_and_function_branches(self):
         source = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
         for text in ('`main`', '`develop`', 'function/', 'Draft PR'):
