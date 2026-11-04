@@ -81,7 +81,7 @@ def main():
                 QTest.keyClick(button, Qt.Key_Up)
                 assert second.volume == 42, 'modal dialog must not control the player'
                 dialog.close()
-                window.activateWindow()
+                second.window().activateWindow()
                 second.pause_button.setFocus()
                 app.processEvents()
                 window._refresh_shortcuts()

@@ -51,7 +51,7 @@ class CheckRunnerTests(unittest.TestCase):
             'selfcheck_single_instance', 'selfcheck_drag_lifecycle',
             'selfcheck_room_placement',
             'selfcheck_room_status_controller', 'selfcheck_room_images',
-            'selfcheck_playback_badges', 'selfcheck_responsiveness',
+            'selfcheck_playback_badges', 'selfcheck_playback_controls', 'selfcheck_responsiveness',
             'selfcheck_player_lifetime', 'selfcheck_playback_recovery',
             'selfcheck_main_notices', 'selfcheck_widget_lifetime',
             'selfcheck_notification_center', 'selfcheck_layout_16',

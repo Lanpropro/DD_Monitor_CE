@@ -151,6 +151,7 @@
 | [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、调音量解除静音、上下限、输入隔离及保存 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
 | [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline` |
+| [selfcheck_playback_controls](../selfcheck_playback_controls.py) | `smoke` / `offline`；独立导入、旧类身份、音量边界与信号、按键交互、刷新显隐与父对象销毁、深浅主题及多缩放绘制；无媒体／账号／外网 |
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline`；全屏底栏动画、Qt 透明窗口、输入期间原生像素可见性、窗口跟随及隐藏／恢复回归；原生 Windows 下可用 `python dev/checks/bootstrap.py dev/selfcheck_fullscreen_controls.py --desktop` 检查实际桌面合成，会短暂显示测试窗口 |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
