@@ -636,7 +636,7 @@ namespace DDMonitorDiagnostics
                     AddLog(entries, relative);
                     string content;
                     if (!entries.TryGetValue(relative, out content)) continue;
-                    int records = 0, incomplete = 0;
+                    int records = 0, incomplete = 0, folderEvidence = 0, settledMismatches = 0;
                     var stages = new Dictionary<string, int>();
                     var sessions = new HashSet<string>();
                     foreach (var line in content.Split('\n'))
@@ -655,14 +655,28 @@ namespace DDMonitorDiagnostics
                                 stages[name] = stages.ContainsKey(name) ? stages[name] + 1 : 1;
                             if (row.TryGetValue("session", out session) || row.TryGetValue("run", out session))
                                 if (sessions.Count < 20) sessions.Add(Convert.ToString(session));
+                            object schema, afterValue;
+                            if (name == "folder-motion" && row.TryGetValue("schema", out schema) && Convert.ToInt32(schema) == 2)
+                            {
+                                folderEvidence++;
+                                if (row.TryGetValue("evidence_after", out afterValue))
+                                {
+                                    var after = afterValue as IDictionary<string, object>;
+                                    object moving, mismatch;
+                                    if (after != null && after.TryGetValue("in_transition", out moving) &&
+                                        after.TryGetValue("mismatches", out mismatch) && !Convert.ToBoolean(moving) && Convert.ToInt32(mismatch) > 0)
+                                        settledMismatches++;
+                                }
+                            }
                         }
                         catch { incomplete++; }
                     }
-                    files.Add(new { log = relative, records, incomplete_lines = incomplete, stages, sessions = sessions.ToArray() });
+                    files.Add(new { log = relative, records, incomplete_lines = incomplete, stages, sessions = sessions.ToArray(),
+                                    folder_evidence_records = folderEvidence, settled_layout_mismatch_records = settledMismatches });
                 }
             }
             return new { status = files.Count == 0 ? "not_recorded" : "observed", files,
-                note = "只汇总已有脱敏专项；最多24份、每份末尾2MB。截断或写入中的行可能不完整。不同会话和历史日志不能直接归因于本次故障；缺少记录不代表正常、未发生或已修复。不收集 SC 源图或已验收专项。" };
+                note = "只汇总已有脱敏专项；最多24份、每份末尾2MB。布局不一致计数是模型对照采样，不能证明根因；需结合动画、拖放、模型截取标记和用户画面对齐。Paint为事件派发，不是屏幕呈现证明。截断或写入中的行可能不完整。不同会话和历史日志不能直接归因于本次故障；缺少记录不代表正常、未发生或已修复。不收集 SC 源图或已验收专项。" };
         }
 
         object PlatformDiagnostics(Dictionary<string, string> entries)

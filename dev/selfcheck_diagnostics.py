@@ -138,6 +138,18 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(report['status'], 'not_recorded')
         self.assertEqual(report['files'], [])
 
+    def test_folder_model_evidence_is_summarized_as_observation_not_a_root_cause(self):
+        rows = [{'phase': 'folder-motion', 'schema': 2,
+                 'evidence_after': {'in_transition': moving, 'mismatches': 2}}
+                for moving in (True, False)]
+        self.put('logs/folder-motion.jsonl', '\n'.join(json.dumps(row) for row in rows))
+        report = json.loads(self.collect()['specialized-diagnostics.json'])
+        observed = report['files'][0]
+        self.assertEqual(observed['folder_evidence_records'], 2)
+        self.assertEqual(observed['settled_layout_mismatch_records'], 1)
+        self.assertIn('不能证明根因', report['note'])
+        self.assertIn('Paint为事件派发', report['note'])
+
     def test_specialized_log_count_and_tail_are_bounded(self):
         names = ('folder-motion', 'responsiveness', 'notice-close', 'danmaku-motion', 'drag-windows')
         for name in names:
