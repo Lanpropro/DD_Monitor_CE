@@ -262,8 +262,8 @@
 | [selfcheck_audio_hotplug](../selfcheck_audio_hotplug.py) | 单项执行前核对 |
 | [selfcheck_audio_owner](../selfcheck_audio_owner.py) | 单项执行前核对 |
 | [selfcheck_playback_recovery](../selfcheck_playback_recovery.py) | `offline` / `smoke`；恢复控制器的退避、冻结、稳定播放、关闭收尾及主窗口兼容/插件事件，使用本地替身 |
-| [selfcheck_player_lifetime](../selfcheck_player_lifetime.py) | `offline` / `smoke`；构造、重绑、释放参数、各平台恢复任务去重与定时器回收，不调用原生音频 |
-| [selfcheck_mpv_com_lifetime](../selfcheck_mpv_com_lifetime.py) | `native`；Windows 本地静音 WAV、真实 WASAPI，反复终止/释放及预览清理，检查 COM apartment 不变；不执行 OLE 拖动 |
+| [selfcheck_player_lifetime](../selfcheck_player_lifetime.py) | `offline` / `smoke`；构造、重绑、释放参数、音频设备刷新调度及错误反馈、各平台恢复任务去重与定时器回收，不调用原生音频 |
+| [selfcheck_mpv_com_lifetime](../selfcheck_mpv_com_lifetime.py) | `native`；Windows 本地静音 WAV、真实 WASAPI，反复刷新音频设备、终止/释放及预览清理，检查刷新后继续播放及 COM apartment 不变；不执行 OLE 拖动，属于功能回归，不代替真实故障采集 |
 | [selfcheck_audio_routing](../selfcheck_audio_routing.py) | 合成 PCM 验证音量、路由及均衡后的响度差/静音/关闭还原；需 FFmpeg、libmpv、numpy |
 | [selfcheck_auto_quality](../selfcheck_auto_quality.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_live](../selfcheck_auto_quality_live.py) | 单项执行前核对 |
