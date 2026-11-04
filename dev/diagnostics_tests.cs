@@ -103,8 +103,17 @@ internal static class DiagnosticsTests
                     if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
                         throw new Exception("Auto-exit option clipped at minimum window size");
                     var captureMode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    if (captureMode.Items.Count != Collector.CaptureModes.Length || captureMode.Width < 170 || captureMode.Height < 20)
+                    if (captureMode.Items.Count != Collector.CaptureModes.Length + 1 || captureMode.Width < 170 || captureMode.Height < 20)
                         throw new Exception("Capture selection clipped or incomplete");
+                    var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    for (int index = 0; index < captureMode.Items.Count; index++)
+                    {
+                        captureMode.SelectedIndex = index;
+                        required = TextRenderer.MeasureText(hint.Text, hint.Font,
+                            new Size(hint.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
+                        if (required.Height > hint.ClientSize.Height) throw new Exception("Capture guidance clipped: " + index);
+                    }
+                    captureMode.SelectedIndex = 0;
                     if (args.Length > 2)
                     {
                         form.StartPosition = FormStartPosition.Manual;
@@ -120,6 +129,35 @@ internal static class DiagnosticsTests
                     Console.WriteLine("layout passed");
                     return 0;
                 }
+            }
+            if (args[0] == "--capture-guidance")
+            {
+                using (var form = new DiagnosticForm(args[1]))
+                {
+                    var handle = form.Handle;
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var mode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", flags).GetValue(form);
+                    var start = (Button)typeof(DiagnosticForm).GetField("startCapture", flags).GetValue(form);
+                    var generate = (Button)typeof(DiagnosticForm).GetField("generate", flags).GetValue(form);
+                    var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", flags).GetValue(form);
+                    if (mode.SelectedIndex != 0 || start.Enabled || !generate.Enabled || !hint.Text.Contains("无需启动"))
+                        throw new Exception("Existing-log collection must be the usable default");
+                    start.PerformClick(); // Disabled: must not attempt to start any program.
+                    var before = Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+                    for (int index = 1; index < mode.Items.Count; index++)
+                    {
+                        mode.SelectedIndex = index;
+                        if (!start.Enabled || !generate.Enabled || !hint.Text.Contains("仅选择不会"))
+                            throw new Exception("Selection must be preparation, without requiring capture before packaging");
+                        if (index == 7 && !hint.Text.Contains("本地中继")) throw new Exception("Deep capture impact missing");
+                    }
+                    if (!before.SequenceEqual(Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p)))
+                        throw new Exception("Selecting capture type changed the application files");
+                    mode.SelectedIndex = 0;
+                    if (start.Enabled || !generate.Enabled) throw new Exception("Optional capture did not reset");
+                }
+                Console.WriteLine("optional capture guidance passed");
+                return 0;
             }
             if (args[0] == "--gallery")
             {
