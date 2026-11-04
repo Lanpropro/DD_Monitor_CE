@@ -92,6 +92,9 @@ def main():
         result = invoke(root / 'run.cmd', env, ('--check-image-cache',))
         assert result.returncode == 0
         assert (root / 'cache-check.txt').read_text() == '--script selfcheck_image_cache'
+        result = invoke(root / 'run.cmd', env, ('--check-qt-log',))
+        assert result.returncode == 0
+        assert (root / 'cache-check.txt').read_text() == '--script selfcheck_qt_log'
         # Missing interpreter errors must also be readable and report failure.
         for name in ("run.cmd", "run-console.cmd"):
             text = (root / name).read_text(encoding="utf-8").replace(

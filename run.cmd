@@ -23,6 +23,7 @@ if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
+if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -42,6 +43,11 @@ if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
+
+:qtLogCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_qt_log
+exit /b %errorlevel%
 
 :diagnosticsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
