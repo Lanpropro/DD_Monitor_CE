@@ -282,7 +282,7 @@
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
 | [selfcheck_recording](../selfcheck_recording.py) | `offline`；FFmpeg 与临时合成视频、本机 HTTP 的功能回归，含手动回放停止/恢复、缓存升级、录制计时、画质请求取消及过期源恢复；不能作为真实性能改善依据 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | `offline`；FFmpeg 功能回归：退出保存完整录制、等待重连的分段和主动导出的回放，清理未保存缓存；隔离账号和安装插件 |
-| [selfcheck_recording_service](../selfcheck_recording_service.py) | `offline`；会话边界、未封口尾段、分段租约和插件卸载；临时文件/替身，无账号或外网 |
+| [selfcheck_recording_service](../selfcheck_recording_service.py) | `offline`；会话边界、未封口尾段、分段租约、录制后端归属/卸载恢复及增长索引边界；临时文件/替身，无账号或外网 |
 | [selfcheck_replay_scope](../selfcheck_replay_scope.py) | 单项执行前核对 |
 | [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | `offline` |
 | [selfcheck_stream_relay](../selfcheck_stream_relay.py) | 单项执行前核对 |

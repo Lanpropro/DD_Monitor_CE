@@ -2,7 +2,7 @@
 from pathlib import Path
 import time
 
-from .recording import ffmpeg_path
+from .recording import RecordingSession, ffmpeg_path
 
 
 class RecordingService:
@@ -26,6 +26,26 @@ class RecordingService:
                 'ffmpeg': ffmpeg_path(host.settings),
                 'pending_outputs': [str(result.resolve()) for _process, result, _parts, _full
                                     in host.recorder.exports]}
+
+    def register_backend(self, session_factory):
+        """Use a RecordingSession subclass for new captures; existing ones keep running."""
+        recorder = self._host().recorder
+        if not isinstance(session_factory, type) or not issubclass(session_factory, RecordingSession):
+            raise TypeError('Recording backend must extend RecordingSession')
+        if recorder.backend_owner not in (None, self):
+            raise RuntimeError('已有其他插件接管录制')
+        recorder.backend_owner = self
+        recorder.session_factory = session_factory
+
+    def live_recording(self, source_id, session_id):
+        host = self._host()
+        session = host.recorder.sessions.get(self._tile(source_id))
+        if session is None or session.session_id != session_id:
+            raise RuntimeError('录制会话已变化，请刷新后重试')
+        info = session.review_info()
+        if not info:
+            raise RuntimeError('尚无可回看的录制分段；请在插件加载后开始录制，等待首个关键帧分段完成')
+        return dict(info)
 
     def sources(self):
         host = self._host()
@@ -94,6 +114,10 @@ class RecordingService:
     def close(self):
         for token in tuple(self._leases):
             self.release(token)
+        recorder = getattr(self.context.window, 'recorder', None)
+        if recorder is not None and getattr(recorder, 'backend_owner', None) is self:
+            recorder.session_factory = RecordingSession
+            recorder.backend_owner = None
 
     def open_settings(self):
         return self._host().open_settings('recording')
