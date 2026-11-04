@@ -103,9 +103,13 @@ internal static class DiagnosticsTests
                     if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
                         throw new Exception("Auto-exit option clipped at minimum window size");
                     var captureMode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    if (captureMode.Items.Count != Collector.CaptureModes.Length + 1 || captureMode.Width < 170 || captureMode.Height < 20)
-                        throw new Exception("Capture selection clipped or incomplete");
                     var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    form.PerformLayout();
+                    if (captureMode.Items.Count != Collector.CaptureModes.Length + 1 || captureMode.Width < 170 || captureMode.Height < 20)
+                        throw new Exception("Capture selection clipped or incomplete: " + captureMode.Items.Count + ", " + captureMode.Size);
                     for (int index = 0; index < captureMode.Items.Count; index++)
                     {
                         captureMode.SelectedIndex = index;
@@ -114,6 +118,9 @@ internal static class DiagnosticsTests
                         if (required.Height > hint.ClientSize.Height) throw new Exception("Capture guidance clipped: " + index);
                     }
                     captureMode.SelectedIndex = 0;
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    form.PerformLayout();
                     if (args.Length > 2)
                     {
                         form.StartPosition = FormStartPosition.Manual;
@@ -140,9 +147,15 @@ internal static class DiagnosticsTests
                     var start = (Button)typeof(DiagnosticForm).GetField("startCapture", flags).GetValue(form);
                     var generate = (Button)typeof(DiagnosticForm).GetField("generate", flags).GetValue(form);
                     var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", flags).GetValue(form);
+                    var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", flags).GetValue(form);
+                    var section = (TableLayoutPanel)mode.Parent.Parent;
+                    if (section.RowStyles[1].Height != 0) throw new Exception("Advanced capture must default to collapsed");
                     if (mode.SelectedIndex != 0 || start.Enabled || !generate.Enabled || !hint.Text.Contains("无需启动"))
                         throw new Exception("Existing-log collection must be the usable default");
                     start.PerformClick(); // Disabled: must not attempt to start any program.
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    if (section.RowStyles[1].Height <= 0 || start.Enabled) throw new Exception("Expanding must not select or start capture");
                     var before = Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
                     for (int index = 1; index < mode.Items.Count; index++)
                     {
@@ -155,6 +168,9 @@ internal static class DiagnosticsTests
                         throw new Exception("Selecting capture type changed the application files");
                     mode.SelectedIndex = 0;
                     if (start.Enabled || !generate.Enabled) throw new Exception("Optional capture did not reset");
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    if (section.RowStyles[1].Height != 0 || !generate.Enabled) throw new Exception("Advanced capture did not collapse");
                 }
                 Console.WriteLine("optional capture guidance passed");
                 return 0;

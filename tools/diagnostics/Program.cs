@@ -410,6 +410,7 @@ namespace DDMonitorDiagnostics
         readonly ComboBox captureMode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat };
         readonly Button startCapture = new DiagnosticButton { Text = "启动软件并采集", Dock = DockStyle.Fill, Enabled = false };
         readonly Label captureHint = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+        readonly LinkLabel captureOptions = new LinkLabel { Text = "高级采集…", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
         static readonly string[] CapturePurposes = {
             "记录列表坐标、折叠与拖放，排查卡片错位。", "记录界面操作与耗时，排查卡顿。",
             "记录开播通知的关闭过程，排查关闭后残留。", "记录滚动弹幕位置与运动，排查回退。",
@@ -430,7 +431,7 @@ namespace DDMonitorDiagnostics
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(24) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 442));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 400));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
@@ -454,7 +455,7 @@ namespace DDMonitorDiagnostics
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             inputs.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 88));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
             layout.Controls.Add(inputs, 0, 1);
             AddRow(0, "软件目录", directory, () => Browse(directory, "选择 DD监控室CE 所在文件夹"));
             AddRow(1, "保存到", destination, () => Browse(destination, "选择诊断包保存位置"));
@@ -479,7 +480,16 @@ namespace DDMonitorDiagnostics
             imagePanel.Controls.Add(imageHint, 0, 2);
             imagePanel.SetColumnSpan(imageHint, 2);
             AddRow(5, "图片附件", imagePanel, null);
-            var capturePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+            var captureSection = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            captureSection.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            captureSection.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
+            var captureHeader = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+            captureHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            captureHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+            captureHeader.Controls.Add(new Label { Text = "生成时自动收集已有日志", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            captureHeader.Controls.Add(captureOptions, 1, 0);
+            captureSection.Controls.Add(captureHeader, 0, 0);
+            var capturePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Visible = false, Margin = Padding.Empty };
             capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156));
             capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
@@ -491,9 +501,19 @@ namespace DDMonitorDiagnostics
             capturePanel.Controls.Add(startCapture, 1, 0);
             capturePanel.Controls.Add(captureHint, 0, 1);
             capturePanel.SetColumnSpan(captureHint, 2);
+            captureSection.Controls.Add(capturePanel, 0, 1);
+            bool captureExpanded = false;
+            captureOptions.LinkClicked += (s, e) => {
+                captureExpanded = !captureExpanded;
+                capturePanel.Visible = captureExpanded;
+                captureOptions.Text = captureExpanded ? "收起高级采集" : "高级采集…";
+                captureSection.RowStyles[1].Height = captureExpanded ? 76 : 0;
+                inputs.RowStyles[6].Height = captureExpanded ? 122 : 46;
+                layout.RowStyles[1].Height = captureExpanded ? 476 : 400;
+            };
             captureMode.SelectedIndexChanged += (s, e) => UpdateCaptureHint();
             UpdateCaptureHint();
-            AddRow(6, "补充采集", capturePanel, null);
+            AddRow(6, "日志收集", captureSection, null);
             startCapture.Click += (s, e) => {
                 if (captureMode.SelectedIndex <= 0) return;
                 try
@@ -539,6 +559,7 @@ namespace DDMonitorDiagnostics
             content.BackColor = DiagnosticTheme.Background;
             foreach (Control child in contentArea.Controls) child.BackColor = DiagnosticTheme.Background;
             content.ForeColor = imageHint.ForeColor = captureHint.ForeColor = DiagnosticTheme.Muted;
+            captureOptions.LinkColor = captureOptions.ActiveLinkColor = DiagnosticTheme.Accent;
             detect.Click += (s, e) => Detect(initial, true);
             Shown += (s, e) => Detect(initial, false);
         }
