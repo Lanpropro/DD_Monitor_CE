@@ -856,7 +856,7 @@ class RecordingManager(QObject):
                 return False
             name = session.name
             if getattr(session, 'catalog_metadata', False):
-                platform = str(session.room.get('platform') or str(session.room_id).partition(':')[0] or 'bilibili')
+                platform = str(session.room.get('platform') or ('bilibili' if session.room_id.isdigit() else session.room_id.partition(':')[0]) or '直播')
                 name = '_'.join([session.name[:24], platform[:12], str(session.room.get('title') or '直播')[:24], session.room_id[:18]])
             result = output_path(folder, name + ("_回放" if not full else ""),
                                  session.extension)
