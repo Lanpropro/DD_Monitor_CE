@@ -358,7 +358,7 @@ class LiveTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                if (room != null)
+                if (room != null && controls == null)
                   Positioned(
                     left: 8,
                     top: 8,
@@ -431,6 +431,7 @@ class LiveTile extends StatelessWidget {
                   Positioned(
                     left: 8,
                     right: 8,
+                    top: 8,
                     bottom: controlsBottomInset,
                     child: controls!,
                   ),
@@ -562,16 +563,9 @@ class FullscreenPlayer extends StatelessWidget {
               Positioned(
                 left: 8,
                 right: 8,
+                top: 8,
                 bottom: 8,
-                child: SafeArea(
-                  top: false,
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 680),
-                      child: controls!,
-                    ),
-                  ),
-                ),
+                child: SafeArea(top: false, child: controls!),
               ),
           ],
         );

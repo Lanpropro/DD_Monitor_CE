@@ -286,16 +286,48 @@ void main() {
       final other = model.sessions[1].controller!;
       await tester.tap(find.byKey(const Key('select-slot-0')));
       await tester.pumpAndSettle();
-      expect(find.text('位置 1 · 星野'), findsOneWidget);
+      expect(find.text('星野'), findsOneWidget);
       void expectControlsInside(int index) {
         final tile = tester.getRect(find.byKey(Key('video-slot-$index')));
         final bar = tester.getRect(find.byKey(const Key('playback-controls')));
         expect(tile.contains(bar.topLeft), isTrue);
         expect(tile.contains(bar.bottomRight), isTrue);
         expect(bar.bottom, lessThanOrEqualTo(tile.bottom - 8));
+        final top = tester.getRect(find.byKey(const Key('playback-top-bar')));
+        final bottom = tester.getRect(
+          find.byKey(const Key('playback-bottom-bar')),
+        );
+        expect(top.top, closeTo(tile.top + 8, 1));
+        expect(top.bottom, lessThan(bottom.top));
+        for (final key in [
+          'controlled-room',
+          'control-quality',
+          'control-retry',
+          'control-remove',
+        ]) {
+          expect(top.contains(tester.getCenter(find.byKey(Key(key)))), isTrue);
+        }
+        for (final key in [
+          'control-pause',
+          'control-audio',
+          'control-danmaku',
+          'control-fullscreen',
+        ]) {
+          expect(
+            bottom.contains(tester.getCenter(find.byKey(Key(key)))),
+            isTrue,
+          );
+        }
       }
 
       expectControlsInside(0);
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('control-danmaku')))
+            .onPressed,
+        isNull,
+      );
+      expect(find.byTooltip('画面弹幕尚未接入'), findsOneWidget);
       await tester.tap(find.byKey(const Key('control-pause')));
       await tester.tap(find.byKey(const Key('control-audio')));
       await tester.pumpAndSettle();
@@ -318,9 +350,35 @@ void main() {
       expect(model.sessions[0].volume, 0);
       expect(model.sessions[1].controller, same(other));
       expect(other.value.isPlaying, isTrue);
+      final beforeRefresh = model.sessions[0].controller;
+      await tester.tap(find.byKey(const Key('control-retry')));
+      for (var i = 0; i < 20 && model.sessions[0].loading; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      expect(model.sessions[0].controller, isNot(same(beforeRefresh)));
+      expect(model.sessions[0].controller!.value.isPlaying, isFalse);
+      expect(model.sessions[0].volume, 0);
+      expect(model.sessions[0].requestedQuality, 150);
+      expect(model.sessions[1].controller, same(other));
       await tester.tap(find.byKey(const Key('control-fullscreen')));
       await tester.pumpAndSettle();
       expect(find.text('直播画面'), findsOneWidget);
+      expect(
+        tester
+            .getRect(find.byKey(const Key('playback-top-bar')).hitTestable())
+            .bottom,
+        lessThan(
+          tester
+              .getRect(
+                find.byKey(const Key('playback-bottom-bar')).hitTestable(),
+              )
+              .top,
+        ),
+      );
       await tester.tap(find.byKey(const Key('control-pause')).hitTestable());
       await tester.pumpAndSettle();
       expect(model.sessions[0].controller!.value.isPlaying, isTrue);
@@ -331,7 +389,7 @@ void main() {
       model.swapPositions(0, 2);
       await tester.pumpAndSettle();
       expect(model.selectedIndex, 2);
-      expect(find.text('位置 3 · 星野'), findsOneWidget);
+      expect(find.text('星野'), findsOneWidget);
       expectControlsInside(2);
       await tester.tap(find.byKey(const Key('control-remove')));
       await tester.pumpAndSettle();
@@ -377,7 +435,7 @@ void main() {
       expect(tile.contains(bar.topLeft), isTrue);
       expect(tile.contains(bar.bottomRight), isTrue);
       await tester.drag(
-        find.byKey(const Key('playback-controls')),
+        find.byKey(const Key('playback-top-bar')),
         const Offset(-300, 0),
       );
       await tester.pumpAndSettle();

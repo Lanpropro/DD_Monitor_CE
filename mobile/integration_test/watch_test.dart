@@ -117,6 +117,22 @@ void main() {
       expect(model.sessions[1].controller, same(unaffected));
       expect(unaffected.value.isPlaying, isTrue);
       await wakeControls();
+      final beforeRefresh = model.sessions[0].controller;
+      await tester.tap(find.byKey(const Key('control-retry')));
+      await tester.runAsync(() async {
+        for (var i = 0; i < 60 && model.sessions[0].loading; i++) {
+          await Future<void>.delayed(const Duration(seconds: 1));
+        }
+      });
+      await tester.pump();
+      expect(model.sessions[0].error, isNull);
+      controller = model.sessions[0].controller!;
+      expect(controller, isNot(same(beforeRefresh)));
+      expect(controller.value.isPlaying, isFalse);
+      expect(controller.value.volume, 0);
+      expect(model.sessions[0].requestedQuality, targetQuality);
+      expect(model.sessions[1].controller, same(unaffected));
+      await wakeControls();
       expect(find.text(model.sessions[0].stream!.qualityLabel), findsOneWidget);
       await tester.tap(find.byKey(const Key('control-pause')));
       await tester.tap(find.byKey(const Key('control-audio')));
