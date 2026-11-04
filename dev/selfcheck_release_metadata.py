@@ -58,6 +58,7 @@ def main():
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
+    assert '--hidden-import ddm.ui.color_dialog' in source, 'The lazy RGB picker must be included in frozen builds'
     assert 'archive --format=zip --output=$snapshot HEAD' in source
     for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
         assert pattern in source
