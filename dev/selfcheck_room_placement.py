@@ -16,6 +16,8 @@ from ddm.room_placement import RoomPlacement
 class Tile:
     def __init__(self, room_id='', *, volume=40, muted=False, audio_channel=0, **room):
         self.volume, self.muted, self.audio_channel = volume, muted, audio_channel
+        self.video_danmaku_overrides = None
+        self.apply_video_danmaku_settings = Mock()
         self.room = dict(room_id=room_id, uname=room_id, live=True, **room)
         self.sync_audio_ui = Mock()
         self.raise_overlays = Mock()
@@ -53,6 +55,21 @@ class RoomPlacementTests(unittest.TestCase):
             'import sys; import ddm.room_placement; '
             'assert not {"PySide6", "mpv", "ddm.app", "ddm.widgets", "ddm.player"}.intersection(sys.modules)'],
             cwd=ROOT, check=True, timeout=15)
+
+    def test_hot_swap_keeps_independent_danmaku_at_slot_and_applies_after_layout(self):
+        source, target = Tile('first'), Tile('second')
+        source.video_danmaku_overrides = {'video_danmaku_size': 42}
+        host = Host(source, target)
+        host.players.update({source: Mock(), target: Mock()})
+        order = []
+        host.wall.relayout.side_effect = lambda **_: order.append('layout')
+        for tile in (source, target):
+            tile.apply_video_danmaku_settings.side_effect = lambda: order.append('appearance')
+        self.assertTrue(host.placement.hot_swap(source, target))
+        self.assertIsNone(source.video_danmaku_overrides)
+        self.assertEqual(target.video_danmaku_overrides, {'video_danmaku_size': 42})
+        self.assertEqual(order, ['layout', 'appearance', 'appearance'])
+        source.apply_video_danmaku_settings.assert_called_once_with()
 
     def test_new_room_stops_old_room_before_assignment_and_starts_once(self):
         target = Tile('old')

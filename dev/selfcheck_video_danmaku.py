@@ -284,6 +284,7 @@ def check_quick_surface_recovery(app):
     parent.isVisible.return_value = True
     parent.window.return_value.isMinimized.return_value = False
     layer = SimpleNamespace(parent=parent, window=Mock(), stage=Mock(), _presentation_window=None,
+                            _presentation_changing=False,
                             _surface_reset=QTimer(), _surface_dirty=False, _empty_hide=Mock(),
                             _update_occlusion=Mock(return_value=True),
                             _occlusion_timer=Mock(),
