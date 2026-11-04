@@ -6,6 +6,7 @@
 
 ## 未决问题专项与独立诊断工具
 
+- `run.cmd --check-qt-log`：临时目录验证字体库info消息在Qt原生层过滤，不进入Python回调；并发消息、同分类warning与fatal仍保留。用于19:36真实字体锁／GIL等待路径的回归，不代替长时间后台复验。
 - `run.cmd --check-diagnostics`：先验证issue149模型/几何、拖放清理、动画代次、只读句柄、环形/记录大小上限及隐私；再验证9种隔离专项和独立工具的收集、摘要、脱敏及旧版兼容。不读取真实账号，不替代实际故障复现。Windows原生单项可用 `QT_QPA_PLATFORM=windows` 运行 `dev/checks/bootstrap.py dev/selfcheck_sidebar_diagnostics.py`，验证原生句柄读取不会创建窗口或改变几何。
 - 独立工具1.3选择专项后点击“启动专项诊断”，源码使用根目录入口；新正式程序使用 `--diagnose-session=<类型>`。类型及限制见[工具说明](../../tools/diagnostics/README.md)。已发布的0.7 / 0.7.1仅支持收集原有日志，新统一专项入口需更新后的主程序。
 - 人工验收：选择源码根目录，先退出客户端，再启动“文件夹 / 列表错位”。保持平时布局，展开/收起文件夹；出现问题时按 `Ctrl+Alt+F8`。预期快捷键不改变折叠、位置或滚动，数据目录产生 `folder-motion.jsonl` 和 `diagnostic-session.jsonl`。退出后生成包，预期含专项摘要及脱敏JSONL。不能复现时只确认采集功能，不宣称列表错位已修复。

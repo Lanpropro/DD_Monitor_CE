@@ -12,7 +12,7 @@ import time
 import webbrowser
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import (QByteArray, QEvent, QProcess,
+from PySide6.QtCore import (QByteArray, QEvent, QLoggingCategory, QProcess,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
@@ -78,6 +78,9 @@ DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 def setup_file_log() -> str:
     """Install Qt capture after the standard-library startup logger is ready."""
     session = diagnostics.start(os.path.join(config_module.data_root(), "logs"))
+    # Font fallback logs while holding Qt's font mutex; font getters hold the GIL.
+    # Filter this informational path in Qt, before it can re-enter Python logging.
+    QLoggingCategory.setFilterRules("qt.text.font.db.info=false")
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
