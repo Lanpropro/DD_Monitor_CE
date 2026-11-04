@@ -6,8 +6,9 @@ from .basics import ActionButton, HintLabel, TitleLabel, page_header, step_butto
 _MODULES = {
     'avatar_widgets': ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap'),
     'motion': ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack'),
-    'widgets': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
-                'PauseButton', 'RefreshButton', 'DanmakuToggleButton', 'ElidedLabel', 'BarIconButton'),
+    'playback_controls': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
+                          'PauseButton', 'RefreshButton', 'DanmakuToggleButton'),
+    'widgets': ('ElidedLabel', 'BarIconButton'),
 }
 _EXPORTS = {name: module for module, names in _MODULES.items() for name in names}
 __all__ = ['ActionButton', 'HintLabel', 'TitleLabel', 'page_header', 'step_button', *_EXPORTS]
