@@ -1,0 +1,29 @@
+name: 使用帮助咨询
+description: 询问使用方法、设置、插件安装或其他不确定的问题。
+title: "[使用咨询] "
+labels: ["question", "待确认"]
+body:
+  - type: markdown
+    attributes:
+      value: 请描述你想完成的操作和遇到的疑问。不要填写密码、Cookie 或账号文件，图片和日志附件请先检查个人信息。
+  - type: input
+    id: version
+    attributes:
+      label: 软件与相关插件版本（可选）
+      placeholder: 例如 软件 0.7.1；涉及插件时补充插件名称与版本
+    validations:
+      required: false
+  - type: textarea
+    id: question
+    attributes:
+      label: 想咨询的问题
+      placeholder: 你想完成什么操作？在哪一步不清楚如何继续？
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: 已尝试的方法与附件（可选）
+      description: 可以附上相关截图或说明参考过的文档，避免重复建议。
+    validations:
+      required: false
