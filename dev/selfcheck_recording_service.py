@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from ddm.recording import RecordingManager, _Session
+from ddm.recording import RecordingManager, RecordingSession, _Session
 from ddm.recording_service import RecordingService
 from ddm.plugins import PluginContext, PluginManager
 
@@ -18,6 +18,42 @@ APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_backend_ownership_unload_and_running_session_are_independent(self):
+        class PluginSession(RecordingSession):
+            pass
+
+        recorder = RecordingManager({})
+        recorder.timer.stop()
+        tile = Mock(room={'room_id': 'test'})
+        session = PluginSession(tile, {}, True, Path('unused'))
+        recorder.sessions[tile] = session
+        host = SimpleNamespace(recorder=recorder, capture_control=Mock())
+        first = RecordingService(SimpleNamespace(window=host, _active=True))
+        second = RecordingService(SimpleNamespace(window=host, _active=True))
+        first.register_backend(PluginSession)
+        self.assertIs(recorder.session_factory, PluginSession)
+        with self.assertRaises(RuntimeError):
+            second.register_backend(PluginSession)
+        with self.assertRaises(TypeError):
+            first.register_backend(object)
+        second.close()
+        self.assertIs(recorder.session_factory, PluginSession)
+        first.close()
+        self.assertIs(recorder.session_factory, RecordingSession)
+        self.assertIs(recorder.sessions[tile], session)
+        self.assertFalse(session.stopping)
+
+    def test_live_recording_rejects_old_sessions_and_unavailable_indexes(self):
+        tile = Mock(room={'room_id': 'test'})
+        session = RecordingSession(tile, {}, True, Path('unused'))
+        recorder = SimpleNamespace(sessions={tile: session})
+        host = SimpleNamespace(recorder=recorder, capture_control=Mock(), wall=SimpleNamespace(tiles=[tile]))
+        service = RecordingService(SimpleNamespace(window=host, _active=True))
+        with self.assertRaisesRegex(RuntimeError, '会话已变化'):
+            service.live_recording(str(id(tile)), 'old')
+        with self.assertRaisesRegex(RuntimeError, '尚无可回看'):
+            service.live_recording(str(id(tile)), session.session_id)
+
     def test_snapshot_excludes_writing_tail_and_lease_protects_pruning(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

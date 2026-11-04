@@ -214,7 +214,8 @@ def segment_extension_for(settings: dict, video_codec: str) -> str:
 
 
 def segment_args(settings: dict, pattern: Path, video_codec: str = "", *,
-                 encoder: tuple[str, list[str], str] | None = None) -> list[str]:
+                 encoder: tuple[str, list[str], str] | None = None,
+                 segment_seconds: int = SEGMENT_SECONDS) -> list[str]:
     args = ["-map", "0:v:0", "-map", "0:a?", "-sn", "-dn"]
     if settings.get("recording_codec", "copy") == "h264":
         name, extra, family = encoder if encoder is not None else resolve_encoder(
@@ -224,12 +225,12 @@ def segment_args(settings: dict, pattern: Path, video_codec: str = "", *,
         # GOP 参数按编码器族生成：-sc_threshold 是 x264 独有的，塞给硬件编码器
         # 会让 FFmpeg 直接启动失败。
         args += ["-c:v", name, *extra, "-pix_fmt", "yuv420p", "-b:v", f"{bitrate}k",
-                 "-r", str(fps), *gop_args(family, fps, SEGMENT_SECONDS),
+                 "-r", str(fps), *gop_args(family, fps, segment_seconds),
                  "-c:a", "aac", "-b:a", "160k"]
     else:
         args += ["-c", "copy"]
     fmt = segment_format(segment_extension_for(settings, video_codec))
-    return args + ["-f", "segment", "-segment_time", str(SEGMENT_SECONDS),
+    return args + ["-f", "segment", "-segment_time", str(segment_seconds),
                    "-reset_timestamps", "1", "-segment_format", fmt, str(pattern)]
 
 
@@ -273,6 +274,24 @@ class _Session:
         self.resolver = None
         self.refreshing = False
         self.pruned_at = 0.0        # 上次裁分段的时间；纯缓存会话用（见 _prune_cache）
+        self.segment_seconds = SEGMENT_SECONDS
+
+    def parts_directory(self) -> Path:
+        return self.folder / ".ddm-parts"
+
+    def segment_options(self, pattern: Path) -> list[str]:
+        return segment_args(self.settings, pattern, self.video_codec,
+                            encoder=self.encoder, segment_seconds=self.segment_seconds)
+
+    def update_review(self) -> None:
+        """Optional recording backend hook; only publish completed segments."""
+
+    def save_recording(self, parts: list[Path]) -> Path | None:
+        """Return a durable recording path when the backend already saved it."""
+        return None
+
+    def review_info(self) -> dict | None:
+        return None
 
     def finished_parts(self) -> list[Path]:
         result = list(self.parts)
@@ -292,6 +311,10 @@ class _Session:
         self.process = None
 
 
+# Supported session base for recording plugins; retain the historical import.
+RecordingSession = _Session
+
+
 class RecordingManager(QObject):
     """所有操作在 Qt 主线程发起；FFmpeg 子进程各自独立，轮询不阻塞界面。"""
 
@@ -303,6 +326,8 @@ class RecordingManager(QObject):
         super().__init__(parent)
         self.settings = settings
         self.source_resolver = source_resolver
+        self.session_factory = RecordingSession
+        self.backend_owner = None
         self.sessions: dict[Any, _Session] = {}
         self.exports: list[tuple[subprocess.Popen, Path, list[Path], bool]] = []
         self._export_rooms: dict[Path, dict] = {}
@@ -366,8 +391,8 @@ class RecordingManager(QObject):
                 return False
             # 取不到 stream_codec 的老格子（或插件造的假格子）按空串处理：
             # segment_extension 认不出编码就原样返回，行为跟改动前一致。
-            session = _Session(tile, self.settings, recording, folder,
-                               str(getattr(tile, "stream_codec", "") or ""))
+            session = self.session_factory(tile, self.settings, recording, folder,
+                                           str(getattr(tile, "stream_codec", "") or ""))
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
             self.changed.emit(tile)
@@ -387,14 +412,13 @@ class RecordingManager(QObject):
             session.encoder = session.encoder_future.result()
             session.encoder_future = None
         session.chunk += 1
-        parts_dir = session.folder / ".ddm-parts"
+        parts_dir = session.parts_directory()
         parts_dir.mkdir(parents=True, exist_ok=True)
         # 同一时刻不同格子/重启均不会共用文件名；文件名不含房间号。
         nonce = f"{time.time_ns()}_{session.chunk}"
         pattern = parts_dir / f"{safe_name(session.name)}_{nonce}_%05d.{session.extension}"
         command = [ffmpeg_path(session.settings), "-y"] + input_args(url, headers)
-        command += segment_args(session.settings, pattern, session.video_codec,
-                                encoder=session.encoder)
+        command += session.segment_options(pattern)
         log_path = parts_dir / f"{safe_name(session.name)}_{nonce}.log"
         session.log_path = log_path
         with log_path.open("wb") as log:
@@ -497,7 +521,7 @@ class RecordingManager(QObject):
         if not parts:
             return False
         count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                          * 60 / SEGMENT_SECONDS)
+                          * 60 / session.segment_seconds)
         recent = parts[-count:]
         return self._export(session, recent, full=False)
 
@@ -567,6 +591,7 @@ class RecordingManager(QObject):
 
     def _poll(self) -> None:
         for tile, session in list(self.sessions.items()):
+            session.update_review()
             process = session.process
             if process is None:
                 if ((session.encoder_future is not None and session.encoder_future.done())
@@ -603,6 +628,7 @@ class RecordingManager(QObject):
                 continue
             exit_code = process.returncode
             session.close_chunk()
+            session.update_review()
             if session.stopping:
                 self._finalize(session)
             elif session.rotating:
@@ -731,7 +757,7 @@ class RecordingManager(QObject):
         session.pruned_at = now
         completed = session.finished_parts()
         keep = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                         * 60 / SEGMENT_SECONDS) + 2
+                         * 60 / session.segment_seconds) + 2
         protected = self._protected_parts()
         for part in completed[:-keep]:
             if part in protected:
@@ -746,7 +772,7 @@ class RecordingManager(QObject):
 
     def _prune_recording_replay(self, session: _Session) -> None:
         keep = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                         * 60 / SEGMENT_SECONDS) + 2
+                         * 60 / session.segment_seconds) + 2
         session.replay_parts = session.replay_parts[-keep:]
         self._cleanup_parts()
 
@@ -759,7 +785,7 @@ class RecordingManager(QObject):
             self._say("请先开启录制或即时回放缓存")
             return False
         count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                          * 60 / SEGMENT_SECONDS)
+                          * 60 / session.segment_seconds)
         parts = (session.replay_parts + session.finished_parts())[-count:]
         if not parts:
             self._say("缓存还没有完成一个分段，请稍后再保存")
@@ -771,6 +797,11 @@ class RecordingManager(QObject):
             self._say(f"{session.name} 没有可导出的录制分段", session.room)
             return False
         try:
+            if full:
+                saved = session.save_recording(parts)
+                if saved is not None:
+                    self._say(f"已保存录制：{saved}", session.room)
+                    return True
             primary = session.folder  # 当前录制固定使用启动时选定的目录
             needed = sum(part.stat().st_size for part in parts)
             reserve = max(256, int(session.settings.get("recording_min_free_mb", 2048)))

@@ -3,12 +3,21 @@
 ## 录制服务 v1（配套开发接口）
 
 `context.recording` 在 GUI 线程提供 `api_version == 1` 的录制桥接；旧版本没有该属性。
-它不替换本体录制或播放后端。`options()` 返回录制目录、FFmpeg 路径及尚在导出的文件；
+默认沿用本体录制；功能插件可注册录制会话实现，播放后端不变。`options()` 返回录制目录、FFmpeg 路径及尚在导出的文件；
 `sources()` 返回来源 ID、房间、会话 ID、状态和开始时间，不返回流 URL 或凭据。
 
 `control(source_id, action, session_id=...)` 支持 `record`、`stop`、`buffer`、
 `stop_buffer`、`save_replay`，沿用本体画质/设置流程。会话已变化时拒绝旧操作。
 `open_settings()` 打开本体录制设置。
+
+`register_backend(RecordingSessionSubclass)` 将本体后续新建的录制/缓存会话交给插件，
+沿用原按钮、画质控制、重连、磁盘空间和退出管理；同一时间仅允许一个插件拥有注册。
+基类为 `ddm.recording.RecordingSession`，扩展 `parts_directory`、`segment_options`、
+`update_review`、`save_recording` 和 `review_info`。`segment_seconds` 同时用于分段与缓存范围计算。
+`save_recording(parts)` 返回已有的持久录播入口时不重复合并或删除其原分段；返回 None 使用原导出。
+`live_recording(source_id, session_id)` 返回插件已发布的可读索引及媒体范围，拒绝过期会话。
+卸载恢复默认会话工厂，已开始的会话仍使用原实现正常收尾；会话不得依赖插件界面或有效 context。
+此项是 v1 的新增能力，插件应检查方法是否存在；已发布版本号不保证包含该开发接口。
 
 `snapshot(source_id, session_id)` 返回已封口分段列表、房间、会话及快照时间和 `lease`。
 分段租约同时防止缓存裁剪与录制合并后的删除；调用者只能读取，不能修改原分段。
