@@ -5,13 +5,13 @@ import tempfile
 import zipfile
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 from ddm import plugins as plugin_api  # noqa: E402
-from ddm.dialogs import SettingsDialog  # noqa: E402
+from ddm.dialogs import PluginRemovePrompt, SettingsDialog  # noqa: E402
 
 
 def write_plugin(root, folder, source):
@@ -120,10 +120,10 @@ def main():
         card = dialog.plugin_page.checks["new_plugin"].parentWidget()
         delete = next(button for button in card.findChildren(QPushButton)
                       if button.text() == "删除")
-        with patch("ddm.dialogs.QMessageBox.question", return_value=QMessageBox.No):
+        with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Rejected):
             delete.click()
         assert os.path.isdir(os.path.join(root, "new_plugin")), "取消删除应保留插件"
-        with patch("ddm.dialogs.QMessageBox.question", return_value=QMessageBox.Yes):
+        with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
             delete.click()
         assert not os.path.exists(os.path.join(root, "new_plugin"))
         assert "new_plugin" not in manager.enabled
@@ -135,7 +135,7 @@ def main():
         active_card = dialog.plugin_page.checks["active"].parentWidget()
         active_delete = next(button for button in active_card.findChildren(QPushButton)
                              if button.text() == "删除")
-        with patch("ddm.dialogs.QMessageBox.question", return_value=QMessageBox.Yes):
+        with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
             active_delete.click()
         assert "active" not in manager.enabled and "active" not in manager.plugin_settings
         assert "active" not in {item["id"] for item in manager.catalog()}
