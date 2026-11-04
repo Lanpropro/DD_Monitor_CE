@@ -10,6 +10,21 @@ using DDMonitorDiagnostics;
 
 internal static class DiagnosticsTests
 {
+    sealed class QuietLayoutHost : Form
+    {
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams
+        {
+            get { var value = base.CreateParams; value.ExStyle |= 0x08000000; return value; }
+        }
+        internal QuietLayoutHost()
+        {
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(-14000, -14000);
+            ShowInTaskbar = false;
+            FormBorderStyle = FormBorderStyle.None;
+        }
+    }
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetWindow(IntPtr window, uint command);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -81,10 +96,19 @@ internal static class DiagnosticsTests
             }
             if (args[0] == "--layout")
             {
+                using (var host = new QuietLayoutHost())
                 using (var form = new DiagnosticForm(args[1]))
                 {
-                    var handle = form.Handle;
                     form.Size = form.MinimumSize;
+                    host.ClientSize = form.ClientSize;
+                    form.MinimumSize = Size.Empty;
+                    form.TopLevel = false;
+                    form.FormBorderStyle = FormBorderStyle.None;
+                    form.Dock = DockStyle.Fill;
+                    host.Controls.Add(form);
+                    form.Show();
+                    host.Show();
+                    Application.DoEvents();
                     form.PerformLayout();
                     var pending = new System.Collections.Generic.Queue<Control>();
                     pending.Enqueue(form);
@@ -110,12 +134,23 @@ internal static class DiagnosticsTests
                     form.PerformLayout();
                     if (captureMode.Items.Count != Collector.CaptureModes.Length + 1 || captureMode.Width < 170 || captureMode.Height < 20)
                         throw new Exception("Capture selection clipped or incomplete: " + captureMode.Items.Count + ", " + captureMode.Size);
+                    var start = (Button)typeof(DiagnosticForm).GetField("startCapture", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var directory = (TextBox)typeof(DiagnosticForm).GetField("directory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var frame = captureMode.Parent;
+                    if (!(frame is DiagnosticInput) || captureMode.DrawMode != DrawMode.OwnerDrawFixed)
+                        throw new Exception("Capture selector must use the shared input surface");
+                    if (frame.Top != start.Top || frame.Height != start.Height)
+                        throw new Exception("Capture input and action must align vertically");
+                    if (frame.PointToScreen(Point.Empty).X != directory.Parent.PointToScreen(Point.Empty).X)
+                        throw new Exception("Capture input must share the main input left edge: " + frame.PointToScreen(Point.Empty).X + " / " + directory.Parent.PointToScreen(Point.Empty).X);
+                    if (hint.PointToScreen(Point.Empty).X != frame.PointToScreen(Point.Empty).X)
+                        throw new Exception("Capture guidance must align with the input");
                     for (int index = 0; index < captureMode.Items.Count; index++)
                     {
                         captureMode.SelectedIndex = index;
                         required = TextRenderer.MeasureText(hint.Text, hint.Font,
                             new Size(hint.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
-                        if (required.Height > hint.ClientSize.Height) throw new Exception("Capture guidance clipped: " + index);
+                        if (required.Height > hint.ClientSize.Height) throw new Exception("Capture guidance clipped: " + index + ", required=" + required + ", actual=" + hint.ClientSize);
                     }
                     captureMode.SelectedIndex = 0;
                     typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
@@ -123,9 +158,6 @@ internal static class DiagnosticsTests
                     form.PerformLayout();
                     if (args.Length > 2)
                     {
-                        form.StartPosition = FormStartPosition.Manual;
-                        form.Location = new Point(-14000, -14000);
-                        form.Show();
                         form.PerformLayout();
                         using (var bitmap = new Bitmap(form.Width, form.Height))
                         {
@@ -148,7 +180,7 @@ internal static class DiagnosticsTests
                     var generate = (Button)typeof(DiagnosticForm).GetField("generate", flags).GetValue(form);
                     var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", flags).GetValue(form);
                     var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", flags).GetValue(form);
-                    var section = (TableLayoutPanel)mode.Parent.Parent;
+                    var section = (TableLayoutPanel)mode.Parent.Parent.Parent;
                     if (section.RowStyles[1].Height != 0) throw new Exception("Advanced capture must default to collapsed");
                     if (mode.SelectedIndex != 0 || start.Enabled || !generate.Enabled || !hint.Text.Contains("无需启动"))
                         throw new Exception("Existing-log collection must be the usable default");
