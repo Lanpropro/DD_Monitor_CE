@@ -65,6 +65,7 @@
 - `.github/ISSUE_TEMPLATE/3-question.yml`
 - `.github/ISSUE_TEMPLATE/config.yml`
 - `.github/workflows/repository-checks.yml`
+- `.github/workflows/issue-reproducibility.yml`
 
 ### 专项检查脚本
 
