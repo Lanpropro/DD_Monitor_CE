@@ -73,7 +73,7 @@ def main():
             part.write_bytes(b'cache part')
         session.parts.extend(parts)
         manager.sessions[tile] = session
-        with patch('ddm.recording.SEGMENT_SECONDS', 30), \
+        with patch.object(session, 'segment_seconds', 30), \
                 patch.object(manager, '_export', return_value=False) as export:
             manager.stop(tile, save_cache=True)
             export.assert_called_once_with(session, parts[-2:], full=False)

@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
 
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
+from .workspace_controls import WorkspaceControls
+from .sidebar_footer import SidebarFooter
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
 from .config import DEFAULT_VOLUME, codec_overrides
@@ -3957,6 +3959,12 @@ class Sidebar(QFrame):
         self.batch_bar.setVisible(False)
         layout.addWidget(self.batch_bar)
 
+        self.footer = SidebarFooter(self)
+        self.footer_box = self.footer.content_box
+        layout.addWidget(self.footer)
+        self.workspace_controls = WorkspaceControls(self)
+        self.footer_box.addWidget(self.workspace_controls)
+
         # 已登录账号（在底部操作之上）
         self.account_row = AccountRow(self, allow_logout=True)
         self.account_row.logoutClicked.connect(self.logoutRequested)
@@ -4013,7 +4021,7 @@ class Sidebar(QFrame):
         # 横屏要拆回竖排，所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
         self._column_order = [self._head_scroll, self._header_row, self.search,
                               self.status_row, self.scroll, self.batch_bar,
-                              self.account_row, self.tool_row, self.normal_bar]
+                              self.footer, self.account_row, self.tool_row, self.normal_bar]
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
@@ -4028,6 +4036,7 @@ class Sidebar(QFrame):
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
+        self.workspace_controls.sync_layout()
         self._sync_selection_controls()
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
@@ -4757,7 +4766,7 @@ class Sidebar(QFrame):
     # ---- 横栏那一行 ----
     def _detach_from_rows(self, widget: QWidget) -> None:
         """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
-        for holder in (self._layout, self._bar_row_box, self._bar_row2_box,
+        for holder in (self._layout, self.footer_box, self._bar_row_box, self._bar_row2_box,
                        self._bar_right_box):
             if holder is not None:
                 holder.removeWidget(widget)
@@ -4999,6 +5008,9 @@ class Sidebar(QFrame):
         for widget in self._column_order:
             self._detach_from_rows(widget)
             self._layout.addWidget(widget)
+        self._detach_from_rows(self.workspace_controls)
+        self.workspace_controls.setParent(self.footer.body)
+        self.footer_box.addWidget(self.workspace_controls)
         # 布局预设 / 设置回到横排一行，把竖排时插进去的空白和分割线拿出来
         tool_box = self.tool_row.layout()
         tool_box.removeWidget(self._bar_divider_tool)

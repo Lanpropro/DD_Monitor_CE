@@ -334,6 +334,7 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
+- `dev/selfcheck_recording_service.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_remove_follow_position.py`
@@ -392,6 +393,8 @@
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
+- `dev/selfcheck_workspace_controls.py`
+- `dev/selfcheck_workspace_pages.py`
 - `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
 

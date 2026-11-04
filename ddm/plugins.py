@@ -257,6 +257,7 @@ class PluginContext:
         self._manager = manager
         self.name = name
         self._active = not manager._unloaded
+        self._recording = None
         manager._contexts.add(self)
 
     # ---- 注册 ----
@@ -268,6 +269,40 @@ class PluginContext:
 
     def register_tile_control(self, control_id, factory, *, priority=0) -> None:
         self._manager.register_tile_control(self.name, control_id, factory, priority=priority)
+
+    def register_workspace_control(self, control_id, widget, *, priority=0) -> bool:
+        """Place a QToolButton in the host workspace group; False for headless hosts."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+        if controls is None:
+            return False
+        controls.add(self.name, control_id, widget, priority)
+        return True
+
+    def unregister_workspace_control(self, control_id) -> None:
+        controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+        if controls is not None:
+            controls.remove(self.name, control_id)
+
+    def _clear_workspace_controls(self):
+        if self._manager._workspace_pages is not None:
+            self._manager._workspace_pages.close_owner(self.name)
+        controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+        if controls is not None:
+            controls.remove_owner(self.name)
+
+    def show_workspace(self, widget, *, manages_content=False) -> bool:
+        """Replace the central content with one embedded page; close the previous page."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        container = getattr(self.window, '_content', None)
+        if container is None:
+            return False
+        if self._manager._workspace_pages is None:
+            from .workspace_pages import WorkspacePages
+            self._manager._workspace_pages = WorkspacePages(container)
+        return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
 
     def credentials(self, platform) -> CredentialSnapshot | None:
         return self._manager.credentials(platform)
@@ -286,6 +321,14 @@ class PluginContext:
         return bridge.request_login(self, platform, reauthenticate=reauthenticate) if bridge else False
 
     # ---- 取用 ----
+    @property
+    def recording(self):
+        """Recording service v1; operations require an active GUI-thread context."""
+        if self._recording is None:
+            from .recording_service import RecordingService
+            self._recording = RecordingService(self)
+        return self._recording
+
     @property
     def window(self):
         """主窗口。插件可以直接用它，但优先用下面这些稳定入口。"""
@@ -369,6 +412,7 @@ class PluginManager:
         self._provider_order = 0
         self._credentials = CredentialStore(self.emit)
         self._contexts = weakref.WeakSet()
+        self._workspace_pages = None
         self._unloaded = False
         self._notices = None
         if window is not None:
@@ -443,10 +487,13 @@ class PluginManager:
             except Exception as error:           # noqa: BLE001
                 context._active = False
                 self._remove_tile_owner(entry)
+                context._clear_workspace_controls()
                 try:
                     plugin.on_unload()
                 except Exception:
                     traceback.print_exc()
+                if context._recording is not None:
+                    context._recording.close()
                 self.skipped.append((entry, f"on_load 出错：{error}"))
                 traceback.print_exc()
                 continue
@@ -483,6 +530,10 @@ class PluginManager:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
+        for context in tuple(self._contexts):
+            context._clear_workspace_controls()
+            if context._recording is not None:
+                context._recording.close()
 
     def register_tile_control(self, owner, control_id, factory, *, priority=0):
         key = (owner, str(control_id))
