@@ -411,6 +411,8 @@
 
 ### 开发指南
 
+- `docs/development/liveaquarium-learning.md`
+- `docs/development/bili-shadowreplay-learning.md`
 - `docs/development/testing.md`
 - `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
