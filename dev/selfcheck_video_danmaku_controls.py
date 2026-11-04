@@ -315,6 +315,123 @@ def check_outline_migration(app):
     print("PASS: outline settings migrate the legacy toggle and preserve zero on reload")
 
 
+def check_independent_settings(app):
+    rooms = [dict(room_id=str(i), uname=str(i), live=True) for i in (1001, 1002)]
+    with patch('ddm.app.DanmakuClient', Client), patch('ddm.app.SuperChatSnapshot', Snapshot), \
+            patch.object(MainWindow, 'start_tile'), patch.object(MainWindow, 'refresh_status'), \
+            patch.object(MainWindow, 'refresh_stats'):
+        window = MainWindow(rooms, [*rooms, {}], layout_id='2x2', state={'plugins_enabled': []})
+        window.resize(1100, 760)
+        window.show()
+        app.processEvents()
+        first, second, empty = window.wall.tiles[:3]
+        menu = first.danmaku_settings_menu
+        try:
+            assert first.video_danmaku_overrides is None and not menu.independent.isChecked()
+            second.danmaku_settings_menu.controls['video_danmaku_size'].setValue(31)
+            menu.independent.click()
+            initial = dict(first.video_danmaku_overrides)
+            assert initial == {k: window.settings[k] for k in config.VIDEO_DANMAKU_SETTING_KEYS}
+            first.set_video_active(True)
+            first.danmaku_button.setChecked(True)
+            overlay = first.video_danmaku
+            assert overlay.add_event({'text': 'Independent text', 'color': '#0000ff'})
+            wait_comment_raster(app, overlay)
+            overlay.set_paused(True)
+            comment = overlay.comments[0]
+            comment.x = 80
+            before = progress(overlay, comment)
+            local = dict(video_danmaku_size=42, video_danmaku_speed=170,
+                         video_danmaku_opacity=33, video_danmaku_area=70,
+                         video_danmaku_outline_width=3, video_danmaku_scale=False,
+                         video_danmaku_color_mode='custom', video_danmaku_color='#ff0000')
+            for key, value in local.items():
+                if key in menu.controls:
+                    menu.controls[key].setValue(value)
+                elif key == 'video_danmaku_scale':
+                    menu.scale.click()
+                elif key == 'video_danmaku_color_mode':
+                    menu.color_mode.setCurrentIndex(1)
+                else:
+                    menu._select_color(QColor(value))
+            expected = {**initial, **local}
+            assert first.video_danmaku_overrides == expected
+            assert {k: window.settings[k] for k in config.VIDEO_DANMAKU_SETTING_KEYS} == initial
+            latest = dict(video_danmaku_size=24, video_danmaku_speed=60,
+                          video_danmaku_opacity=90, video_danmaku_area=20,
+                          video_danmaku_outline_width=1, video_danmaku_scale=True,
+                          video_danmaku_color_mode='custom', video_danmaku_color='#0000ff',
+                          danmaku_font=theme.danmaku_font_family(), super_chat_opacity=45,
+                          super_chat_enabled=False, super_chat_scale=145)
+            second._change_video_danmaku_settings(latest)
+            assert all(first.video_danmaku.settings[k] == v for k, v in expected.items())
+            assert all(second.video_danmaku.settings[k] == v for k, v in latest.items())
+            wait_comment_raster(app, overlay)
+            assert overlay.comments == [comment] and abs(progress(overlay, comment) - before) < 1e-6
+            image = comment.image.toImage()
+            assert any(pixel.alpha() > 220 and pixel.red() > 240 and pixel.green() < 10 and pixel.blue() < 10
+                       for y in range(image.height()) for x in range(image.width())
+                       for pixel in (image.pixelColor(x, y),)), 'Global blue must not repaint an independent red comment'
+            assert menu.controls['video_danmaku_size'].value() == 42
+            assert first.video_danmaku.settings['super_chat_opacity'] == 45
+            assert first.video_danmaku.settings['super_chat_enabled'] is False
+            menu.controls['super_chat_scale'].setValue(120)
+            assert window.settings['super_chat_scale'] == second.video_danmaku.settings['super_chat_scale'] == 120
+            assert 'super_chat_scale' not in first.video_danmaku_overrides
+            # Fullscreen and popup reopening must keep the local scope.
+            window._on_fullscreen(first)
+            app.processEvents()
+            menu.open_at(first.danmaku_settings_button, first.video_danmaku.settings)
+            assert menu.independent.isChecked()
+            menu.controls['video_danmaku_size'].setValue(43)
+            menu.hide()
+            window._exit_fullscreen()
+            app.processEvents()
+            expected['video_danmaku_size'] = 43
+            assert window.settings['video_danmaku_size'] == 24
+            empty.danmaku_settings_menu.independent.click()
+            empty.danmaku_settings_menu.controls['video_danmaku_size'].setValue(36)
+            saved = window.current_state()
+            saved['plugins_enabled'] = []
+            assert saved['wall'][0]['video_danmaku_overrides'] == expected
+            assert saved['wall'][2]['room_id'] == ''
+            assert saved['wall'][2]['video_danmaku_overrides']['video_danmaku_size'] == 36
+            # Slot appearance stays at its position when native tiles swap.
+            window.players.update({first: MagicMock(), second: MagicMock()})
+            assert window._hot_swap(first, second)
+            assert window.wall.tiles[0] is second and second.video_danmaku_overrides == expected
+            assert first.video_danmaku_overrides is None
+            assert second.video_danmaku.settings['video_danmaku_size'] == 43
+            second.set_room(dict(room_id='1003', live=True))
+            second.set_room(None)
+            assert second.video_danmaku_overrides == expected, 'Replacing/clearing a room keeps slot settings'
+            second.danmaku_settings_menu.independent.click()
+            assert second.video_danmaku_overrides is None
+            assert window.current_state()['wall'][0]['video_danmaku_overrides'] is None
+            assert all(second.video_danmaku.settings[k] == window.settings[k]
+                       for k in config.VIDEO_DANMAKU_SETTING_KEYS)
+            second.danmaku_settings_menu.independent.click()
+            assert second.video_danmaku_overrides['video_danmaku_size'] == 24
+            assert window._save_timer.isActive()
+        finally:
+            window.close()
+        sidebar, wall = config.build_rooms(saved)
+        reloaded = MainWindow(sidebar, wall, layout_id='2x2', state=saved)
+        try:
+            restored, following, restored_empty = reloaded.wall.tiles[:3]
+            assert restored.video_danmaku_overrides == expected
+            assert following.video_danmaku_overrides is None
+            assert restored_empty.video_danmaku_overrides['video_danmaku_size'] == 36
+            assert restored.danmaku_settings_menu.independent.isChecked()
+            assert restored.video_danmaku.settings['video_danmaku_size'] == 43
+            assert not following.danmaku_settings_menu.independent.isChecked()
+            assert config.video_danmaku_overrides({'super_chat_scale': 999}) == {
+                k: config.DEFAULT_SETTINGS[k] for k in config.VIDEO_DANMAKU_SETTING_KEYS}
+        finally:
+            reloaded.close()
+    print('PASS: per-slot rolling settings, global isolation, SC scope, fullscreen, swap, empty and reload')
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
@@ -322,6 +439,7 @@ def main():
     check_controls(app)
     check_overlay_mask(app)
     check_outline_migration(app)
+    check_independent_settings(app)
 
 
 if __name__ == "__main__":

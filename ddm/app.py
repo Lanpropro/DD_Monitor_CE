@@ -1173,6 +1173,7 @@ class MainWindow(QMainWindow):
                     "audio_channel": int(tile.audio_channel),
                     "codec_overrides": dict(tile.codec_overrides),
                     "video_danmaku_enabled": tile.danmaku_button.isChecked(),
+                    "video_danmaku_overrides": config_module.video_danmaku_overrides(tile.video_danmaku_overrides),
                 }
                 for tile in self.wall.tiles
             ],
@@ -2622,7 +2623,7 @@ class MainWindow(QMainWindow):
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
-        tile.video_danmaku.apply_settings(self.settings)
+        tile.apply_video_danmaku_settings(self.settings)
         tile.video_danmaku.superChatSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
@@ -3310,8 +3311,7 @@ class MainWindow(QMainWindow):
             int(self.settings.get("danmaku_max_blocks") or 3000))
         self.wall.danmaku.apply_super_chat_settings(self.settings)
         for tile in self.wall.tiles:
-            tile.video_danmaku.apply_settings(self.settings)
-            tile.danmaku_settings_menu.apply_settings(self.settings)
+            tile.apply_video_danmaku_settings(self.settings)
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
