@@ -113,6 +113,8 @@ class RoomPlacement:
         source.muted, target.muted = target.muted, source.muted
         source.audio_channel, target.audio_channel = \
             target.audio_channel, source.audio_channel
+        source.video_danmaku_overrides, target.video_danmaku_overrides = \
+            target.video_danmaku_overrides, source.video_danmaku_overrides
         for tile in (source, target):
             tile.room["volume"] = tile.volume
             tile.room["muted"] = tile.muted
@@ -144,6 +146,7 @@ class RoomPlacement:
                     bar.layout().activate()
                 bar.setUpdatesEnabled(updates)
         for tile in (source, target):
+            tile.apply_video_danmaku_settings()
             tile._refresh_moved_overlays()
         host._refresh_meta()
         print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",

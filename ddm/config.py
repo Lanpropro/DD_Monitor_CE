@@ -138,6 +138,15 @@ DEFAULT_SETTINGS = {
 
 STATE_VERSION = 1
 
+VIDEO_DANMAKU_SETTING_KEYS = ('danmaku_font', *(
+    key for key in DEFAULT_SETTINGS if key.startswith('video_danmaku_')))
+
+
+def video_danmaku_overrides(values):
+    if not isinstance(values, dict):
+        return None
+    return {key: values.get(key, DEFAULT_SETTINGS[key]) for key in VIDEO_DANMAKU_SETTING_KEYS}
+
 
 DECODE_MODES = (
     ("自动解码（推荐）", "auto"),
@@ -316,6 +325,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
                 "quality": int(slot.get("quality", 250)),
                 "audio_channel": int(slot.get("audio_channel", 0)),
                 "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
+                "video_danmaku_overrides": video_danmaku_overrides(slot.get("video_danmaku_overrides")),
                 "codec_overrides": codec_overrides(slot.get("codec_overrides")),
             })
             continue
@@ -325,6 +335,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
         room["quality"] = int(slot.get("quality", 250))
         room["audio_channel"] = int(slot.get("audio_channel", 0))
         room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))
+        room["video_danmaku_overrides"] = video_danmaku_overrides(slot.get("video_danmaku_overrides"))
         room["codec_overrides"] = codec_overrides(slot.get("codec_overrides"))
         wall.append(room)
     return sidebar, wall

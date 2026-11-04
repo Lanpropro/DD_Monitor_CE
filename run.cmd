@@ -20,6 +20,7 @@ if not exist "%PY%" goto nopy
 set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
@@ -50,6 +51,11 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_session
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\selfcheck_diagnostics.py"
+exit /b %errorlevel%
+
+:danmakuIndependentCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_video_danmaku_controls
 exit /b %errorlevel%
 
 :danmakuColorCheck
