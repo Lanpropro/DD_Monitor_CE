@@ -162,8 +162,7 @@ def check_controls(app):
             QTest.keyClick(slider, Qt.Key_Right)
             assert window.settings["video_danmaku_size"] == config.DEFAULT_SETTINGS["video_danmaku_size"] + 1
             for key, value in (("video_danmaku_area", 25), ("video_danmaku_opacity", 45),
-                               ("video_danmaku_speed", 150), ("super_chat_collapse_delay", 12),
-                               ("super_chat_scale", 135)):
+                               ("video_danmaku_speed", 150)):
                 menu.controls[key].setValue(value)
                 assert window.settings[key] == value
                 assert second.video_danmaku.settings[key] == value
@@ -172,6 +171,11 @@ def check_controls(app):
             first.video_danmaku.superChatSettingsChanged.emit({'super_chat_position': [0.0, 1.0]})
             assert window.current_state()['settings']['super_chat_position'] == [0.0, 1.0]
             assert second.video_danmaku.settings['super_chat_position'] == [0.0, 1.0]
+            assert not any(key.startswith('super_chat_') for key in menu.controls)
+            assert not hasattr(menu, 'super_chat') and not hasattr(menu, 'color_mode')
+            assert not any('SC' in action.text() for action in menu.actions())
+            grid = menu.independent.parentWidget().layout()
+            assert grid.getItemPosition(grid.indexOf(menu.independent))[0] > grid.getItemPosition(grid.indexOf(menu.scale))[0]
             QTest.mouseClick(menu.scale, Qt.LeftButton, pos=QPoint(8, menu.scale.height() // 2))
             assert window.settings["video_danmaku_scale"] is False
             assert second.video_danmaku.settings["video_danmaku_scale"] is False
@@ -351,7 +355,7 @@ def check_independent_settings(app):
                 elif key == 'video_danmaku_scale':
                     menu.scale.click()
                 elif key == 'video_danmaku_color_mode':
-                    menu.color_mode.setCurrentIndex(1)
+                    continue  # Selecting the color enables it without a separate mode control.
                 else:
                     menu._select_color(QColor(value))
             expected = {**initial, **local}
@@ -375,9 +379,18 @@ def check_independent_settings(app):
             assert menu.controls['video_danmaku_size'].value() == 42
             assert first.video_danmaku.settings['super_chat_opacity'] == 45
             assert first.video_danmaku.settings['super_chat_enabled'] is False
-            menu.controls['super_chat_scale'].setValue(120)
+            window._on_video_danmaku_settings_changed({'super_chat_scale': 120})
             assert window.settings['super_chat_scale'] == second.video_danmaku.settings['super_chat_scale'] == 120
             assert 'super_chat_scale' not in first.video_danmaku_overrides
+            from ddm.ui import ColorDialog
+            menu.color_button.click()
+            picker = next(p for p in first.findChildren(ColorDialog) if p.isVisible())
+            picker.setCurrentColor(QColor('#ee2211'))
+            picker.accept()
+            expected['video_danmaku_color'] = '#ee2211'
+            assert first.video_danmaku_overrides['video_danmaku_color'] == '#ee2211'
+            assert window.settings['video_danmaku_color'] == '#0000ff'
+            assert second.video_danmaku.settings['video_danmaku_color'] == '#0000ff'
             # Fullscreen and popup reopening must keep the local scope.
             window._on_fullscreen(first)
             app.processEvents()

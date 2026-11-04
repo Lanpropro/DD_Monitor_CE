@@ -1,11 +1,11 @@
 """画面格右下角的弹幕观看设置，拖动时实时生效。"""
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QGridLayout, QLabel,
-                               QMenu, QPushButton, QSlider, QWidget, QWidgetAction)
+from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QMenu, QSlider, QWidget, QWidgetAction
 
 from . import theme
 from .config import DEFAULT_SETTINGS
+from .ui import ActionButton, ColorDialog
 
 
 class VideoDanmakuSettings(QMenu):
@@ -27,19 +27,15 @@ class VideoDanmakuSettings(QMenu):
         grid.setVerticalSpacing(14)
         self.controls = {}
         self.labels = {}
-        self.independent = QCheckBox('独立调整滚动弹幕（SC 仍跟随全局）', holder)
+        self.independent = QCheckBox('独立调整此格弹幕', holder)
         self.independent.setToolTip('开启时继承当前参数，之后仅调整此格；关闭后立即跟随全局设置')
         self.independent.toggled.connect(self.independentChanged.emit)
-        grid.addWidget(self.independent, 0, 0, 1, 3)
         for row, (key, label, low, high, suffix) in enumerate((
                 ("video_danmaku_area", "显示区域", 10, 100, "%"),
                 ("video_danmaku_opacity", "不透明度", 10, 100, "%"),
-                ("super_chat_opacity", "SC 不透明度", 10, 100, "%"),
-                ("super_chat_collapse_delay", "SC 自动折叠", 1, 60, " 秒"),
-                ("super_chat_scale", "SC 大小", 75, 200, "%"),
                 ("video_danmaku_size", "字体大小", 12, 64, " px"),
                 ("video_danmaku_speed", "弹幕速度", 50, 200, "%"),
-                ("video_danmaku_outline_width", "描边宽度", 0, 6, " px")), start=1):
+                ("video_danmaku_outline_width", "描边宽度", 0, 6, " px"))):
             grid.addWidget(QLabel(label), row, 0)
             slider = QSlider(Qt.Horizontal, holder)
             slider.setRange(low, high)
@@ -59,51 +55,35 @@ class VideoDanmakuSettings(QMenu):
         self.controls["video_danmaku_outline_width"].setToolTip("黑色描边宽度，0 为关闭；随弹幕字体缩放")
         self.scale = QCheckBox("弹幕随屏幕缩放", holder)
         self.scale.toggled.connect(lambda checked: self.settingsChanged.emit({"video_danmaku_scale": checked}))
-        grid.addWidget(self.scale, 9, 0, 1, 3)
-        self.super_chat = QCheckBox('显示醒目留言（SC）', holder)
-        self.super_chat.toggled.connect(lambda checked: self.settingsChanged.emit({'super_chat_enabled': checked}))
-        grid.addWidget(self.super_chat, 10, 0, 1, 3)
-        grid.addWidget(QLabel('滚动文字颜色'), 11, 0)
-        self.color_mode = QComboBox(holder)
-        self.color_mode.addItem('跟随原色', 'original')
-        self.color_mode.addItem('统一颜色', 'custom')
-        self.color_mode.setToolTip('原色缺失时使用白色；仅调整滚动文字，SC 和图片表情保留原色')
-        self.color_mode.currentIndexChanged.connect(self._change_color_mode)
-        grid.addWidget(self.color_mode, 11, 1)
-        self.color_button = QPushButton(holder)
-        self.color_button.setToolTip('选择滚动弹幕文字颜色')
+        grid.addWidget(QLabel('弹幕颜色'), 5, 0)
+        self.color_button = ActionButton(parent=holder)
+        self.color_button.setToolTip('选择弹幕颜色；开启独立调整后仅应用于此格')
         self.color_button.clicked.connect(self._choose_color)
         self._color = QColor('#ffffff')
-        grid.addWidget(self.color_button, 11, 2)
+        grid.addWidget(self.color_button, 5, 1, 1, 2)
+        grid.addWidget(self.scale, 6, 0, 1, 3)
+        grid.addWidget(self.independent, 7, 0, 1, 3)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
         self.addSeparator()
-        self.addAction("SC 位置与大小…", self.advancedRequested.emit)
-        self.addAction("恢复 SC 位置", lambda: self.settingsChanged.emit({'super_chat_position': None}))
         self.addAction("更多弹幕设置", self.advancedRequested.emit)
 
     def _change_value(self, key: str, value: int, suffix: str) -> None:
         self.labels[key].setText(f"{value}{suffix}")
         self.settingsChanged.emit({key: value})
 
-    def _change_color_mode(self):
-        self.color_button.setEnabled(self.color_mode.currentData() == 'custom')
-        self.settingsChanged.emit({'video_danmaku_color_mode': self.color_mode.currentData()})
-
     def _choose_color(self):
         # Keep the picker owned by the playback window, including independent fullscreen.
         self.hide()
-        dialog = QColorDialog(self._color, self.parentWidget())
-        dialog.setWindowTitle('滚动弹幕文字颜色')
-        dialog.setOption(QColorDialog.DontUseNativeDialog)
+        dialog = ColorDialog(self._color, self.parentWidget())
         dialog.setAttribute(Qt.WA_DeleteOnClose)
         dialog.setWindowModality(Qt.WindowModal)
         dialog.colorSelected.connect(self._select_color)
         dialog.open()
 
     def _select_color(self, color):
-        self.settingsChanged.emit({'video_danmaku_color': color.name()})
+        self.settingsChanged.emit({'video_danmaku_color': color.name(), 'video_danmaku_color_mode': 'custom'})
 
     def apply_settings(self, settings: dict, *, independent=None) -> None:
         if independent is not None:
@@ -117,20 +97,12 @@ class VideoDanmakuSettings(QMenu):
         swatch.fill(self._color)
         self.color_button.setIcon(QIcon(swatch))
         self.color_button.setText(self._color.name().upper())
-        self.color_mode.blockSignals(True)
-        self.color_mode.setCurrentIndex(int(settings.get('video_danmaku_color_mode') == 'custom'))
-        self.color_mode.blockSignals(False)
-        self.color_button.setEnabled(self.color_mode.currentData() == 'custom')
-        self.super_chat.blockSignals(True)
-        self.super_chat.setChecked(bool(settings.get('super_chat_enabled', True)))
-        self.super_chat.blockSignals(False)
         for key, slider in self.controls.items():
             value = int(settings.get(key) or DEFAULT_SETTINGS[key])
             slider.blockSignals(True)
             slider.setValue(value)
             slider.blockSignals(False)
-            suffix = (" 秒" if key == "super_chat_collapse_delay" else " px"
-                      if key in ("video_danmaku_size", "video_danmaku_outline_width") else "%")
+            suffix = " px" if key in ("video_danmaku_size", "video_danmaku_outline_width") else "%"
             self.labels[key].setText(f"{slider.value()}{suffix}")
         self.scale.blockSignals(True)
         self.scale.setChecked(bool(settings.get("video_danmaku_scale", True)))
