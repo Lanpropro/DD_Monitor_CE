@@ -41,6 +41,17 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(set(recorded), set(self.files))
         self.assertNotIn(MANIFEST, recorded)
 
+    def test_diagnostics_protocol_metadata_is_validated(self):
+        path = self.payload / 'ddm-build.json'
+        build = json.loads(path.read_text(encoding='utf-8'))
+        build['diagnostics_protocol'] = 1
+        path.write_text(json.dumps(build), encoding='utf-8')
+        self.assertEqual(set(payload_files(self.payload)), set(self.files))
+        build['diagnostics_protocol'] = 2
+        path.write_text(json.dumps(build), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            payload_files(self.payload)
+
     def test_build_commit_provenance_is_validated(self):
         path = self.payload / 'ddm-build.json'
         build = json.loads(path.read_text(encoding='utf-8'))
