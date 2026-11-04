@@ -684,6 +684,16 @@ QSlider::handle:horizontal:hover {{
     font-weight: 600;
     color: {TEXT1};
 }}
+#PluginDetailsButton {{
+    border: none;
+    background: transparent;
+    color: {ACCENT};
+    padding: 2px 6px;
+    border-radius: {RADIUS_SM}px;
+}}
+#PluginDetailsButton:hover, #PluginDetailsButton:focus {{
+    background: {ACCENT_SOFT};
+}}
 #UpdateNotes, #UpdateNotes:focus {{
     background: transparent;
     border: 1px solid {BORDER};

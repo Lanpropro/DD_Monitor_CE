@@ -30,6 +30,8 @@ def check_store_scroll(app, root):
                               plugins_dir=str(root / 'scroll-plugins'), _removed=set())
     offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))
               for entry in entries]
+    offers.extend(dict(id=f'scroll_{index}', name=f'浏览测试 {index}', description='紧凑插件说明',
+                       version='1.0', available=True) for index in range(24))
     with patch.object(PluginStorePage, 'open_catalog'):
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
@@ -39,7 +41,7 @@ def check_store_scroll(app, root):
         store.show_offers(offers)
         dialog.show()
         app.processEvents()
-        scroll = dialog.plugin_page.tabs.widget(1)
+        scroll = store.scroll
         bar = scroll.verticalScrollBar()
         button = store.buttons[offers[1]['id']]
         button.setFocus()
@@ -91,6 +93,82 @@ def check_store_scroll(app, root):
             dialog.close()
             dialog.deleteLater()
             app.processEvents()
+
+
+def check_store_browser(app, root):
+    from types import SimpleNamespace
+    offers = [dict(id=f'browser_{index:03d}', name=f'插件 {63-index:02d}', version='1.1',
+                   description='直播辅助 ' + ('录制工具' if index % 2 else '弹幕工具') + ' 长说明' * 30,
+                   author='Alice' if index % 2 else 'Bob', available=True,
+                   notes='\n'.join(f'完整更新说明 {line}' for line in range(60))) for index in range(64)]
+    entries = [dict(offer, version='1.0', enabled=True, status='已加载', reason='') for offer in offers[:3]]
+    offers[1]['version'] = '1.0'
+    offers[2].update(available=False, reason='需要新版主程序')
+    offers[62].update(name='插件 99 ' + '很长的插件名称' * 30, author='Bob' * 60)
+    manager = SimpleNamespace(catalog=lambda: entries, enabled=None,
+                              plugins_dir=str(root / 'browser-plugins'), _removed=set())
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        with patch.object(PluginStorePage, 'open_catalog'):
+            page = PluginStorePage(manager)
+            page.show_offers(offers)
+            page.resize(540, 560)
+            page.show()
+            app.processEvents()
+            assert page.count.text() == '64 / 64 个插件'
+            assert page.scroll.horizontalScrollBar().maximum() == 0
+            assert all(card.height() < 112 for card in page._offer_cards.values())
+            page.resize(400, 560)
+            app.processEvents()
+            assert page.scroll.horizontalScrollBar().maximum() == 0, 'Long titles/authors must not widen the plugin list'
+            page.resize(540, 560)
+            app.processEvents()
+            position = page.search.mapTo(page, QPoint()).y()
+            page.scroll.verticalScrollBar().setValue(400)
+            app.processEvents()
+            assert page.search.mapTo(page, QPoint()).y() == position, 'Search must remain above the scrolling list'
+            page.search.setText('ALICE 录制')
+            assert page.count.text() == '32 / 64 个插件'
+            page.search.clear()
+            page.filter.setCurrentIndex(3)
+            assert page.count.text() == '1 / 64 个插件'
+            assert page.cards.itemAt(0).widget() is page._offer_cards['browser_000']
+            page.filter.setCurrentIndex(2)
+            assert page.count.text() == '3 / 64 个插件'
+            page.filter.setCurrentIndex(1)
+            assert page.count.text() == '61 / 64 个插件'
+            page.filter.setCurrentIndex(0)
+            page.sort.setCurrentIndex(1)
+            assert page.cards.itemAt(0).widget() is page._offer_cards['browser_063']
+            page.sort.setCurrentIndex(2)
+            assert page.cards.itemAt(0).widget() is page._offer_cards['browser_000']
+            button = page.buttons['browser_000']
+            details = page.show_details(offers[0])
+            app.processEvents()
+            assert '完整更新说明 59' in details.document.toPlainText()
+            with patch.object(page, 'install_offer') as install:
+                details.action.click()
+                install.assert_called_once_with(offers[0])
+            page.jobs.append(SimpleNamespace(key='browser_000', percent=35))
+            page._busy(True)
+            assert not details.action.isEnabled() and '35%' in details.action.text()
+            page.search.setText('没有这样的插件')
+            assert page.empty.isVisible() and page.count.text() == '0 / 64 个插件'
+            assert page.buttons['browser_000'] is button, 'Filtering must retain the active installation control'
+            page.search.clear()
+            page.jobs.clear()
+            page._busy(False)
+            page.show_offers([dict(offers[0], version='1.2')])
+            assert not details.action.isEnabled() and details.action.text() == '目录已更新'
+            details.reject()
+            page.show_offers(offers[:1])
+            app.processEvents()
+            assert page.count.text() == '1 / 1 个插件'
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    theme.apply('dark')
+    print('PASS: compact catalog, fixed search, status filters, ordering, full details and active-download identity')
 
 
 def check_remove_prompt(app):
@@ -235,7 +313,7 @@ def check_download_reopen(app, root):
     assert started.wait(2)
     window.close()
     settle(app, page)
-    assert interrupted.is_set() and page.stopping, 'Application exit must stop a hidden update task'
+    assert interrupted.wait(2) and page.stopping, 'Application exit must stop a hidden update task'
 
 
 def main():
@@ -245,6 +323,7 @@ def main():
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
         root = Path(temporary)
+        check_store_browser(app, root)
         check_download_reopen(app, root)
         check_store_scroll(app, root)
         (root / f'RELEASE-{VERSION_TAG}.md').write_text('# 当前版本说明\n\n- 已完成的功能', encoding='utf-8')
