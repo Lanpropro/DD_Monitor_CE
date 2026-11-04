@@ -1,10 +1,10 @@
 """A selected group of existing playback panes in one independent floating window."""
 import math
 
-from PySide6.QtCore import QByteArray, QObject, QRect, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QTimer, Qt
+from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -23,11 +23,9 @@ def pane_rectangles(count, area, columns=0):
             + (math.ceil(count / cols) * cols - count) * .08)
     columns = min(count, columns)
     rows = math.ceil(count / columns)
-    gap = 3
-    width = max(1, area.width() - gap * (columns - 1))
-    height = max(1, area.height() - gap * (rows - 1))
-    return [QRect(area.x() + width * (index % columns) // columns + gap * (index % columns),
-                  area.y() + height * (index // columns) // rows + gap * (index // columns),
+    width, height = max(1, area.width()), max(1, area.height())
+    return [QRect(area.x() + width * (index % columns) // columns,
+                  area.y() + height * (index // columns) // rows,
                   width * (index % columns + 1) // columns - width * (index % columns) // columns,
                   height * (index // columns + 1) // rows - height * (index // columns) // rows)
             for index in range(count)]
@@ -140,38 +138,209 @@ class PictureInPictureDialog(QDialog):
         self.accept()
 
 
+class PictureInPictureButton(QPushButton):
+    def __init__(self, kind, tooltip, parent):
+        super().__init__(parent)
+        self.kind = kind
+        self.setFixedSize(24, 24)
+        self.setToolTip(tooltip)
+        self.setAccessibleName(tooltip)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setAttribute(Qt.WA_Hover)
+        self.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; min-width: 0; min-height: 0; }')
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        active = self.underMouse() or self.hasFocus() or self.isChecked()
+        painter.setBrush(theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170))
+        painter.drawEllipse(QRectF(self.rect()))
+        painter.setPen(QPen(QColor('#e7ebf0'), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        if self.kind == 'composition':
+            for x in (6, 13):
+                for y in (6, 13):
+                    painter.drawRoundedRect(QRectF(x, y, 5, 5), 1, 1)
+        elif self.kind == 'pin':
+            painter.drawLine(9, 6, 15, 6)
+            painter.drawLine(10, 6, 9, 12)
+            painter.drawLine(14, 6, 15, 12)
+            painter.drawLine(8, 13, 16, 13)
+            painter.drawLine(12, 13, 12, 19)
+        else:
+            painter.drawLine(8, 8, 16, 16)
+            painter.drawLine(16, 8, 8, 16)
+
+
+class PictureInPictureTools(QWidget):
+    """An owned alpha surface keeps the icons above native video without a bar."""
+    def __init__(self, owner):
+        super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFixedSize(80, 24)
+        box = QHBoxLayout(self)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
+        self.manage = PictureInPictureButton('composition', '选择画面组合', self)
+        self.pin = PictureInPictureButton('pin', '置顶画中画', self)
+        self.pin.setCheckable(True)
+        self.pin.setChecked(owner.controller.pinned)
+        self.back = PictureInPictureButton('back', '关闭画中画并返回监控室（Esc）', self)
+        for button in (self.manage, self.pin, self.back):
+            box.addWidget(button)
+        self.manage.clicked.connect(owner.controller.manage)
+        self.pin.toggled.connect(owner._pin)
+        self.back.clicked.connect(owner.close)
+        QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner.close)
+
+
 class PictureInPictureWindow(QWidget):
     def __init__(self, controller):
-        flags = Qt.Window | (Qt.WindowStaysOnTopHint if controller.pinned else Qt.Widget)
+        flags = Qt.Window | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
+        if controller.pinned:
+            flags |= Qt.WindowStaysOnTopHint
         super().__init__(None, flags)
         self.controller = controller
         self.setWindowTitle('画中画 · DD监控室CE')
         self.setObjectName('PictureInPicture')
         self.setAttribute(Qt.WA_StyledBackground)
-        self.setStyleSheet(f'#PictureInPicture {{ background: {theme.BG}; }}')
+        self.setStyleSheet('#PictureInPicture { background: #000; }')
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumSize(280, 180)
         self.resize(640, 400)
         self.box = QVBoxLayout(self)
-        self.box.setContentsMargins(4, 4, 4, 4)
-        self.box.setSpacing(4)
-        toolbar = QHBoxLayout()
-        self.title = QLabel(self)
-        self.title.setObjectName('SettingsHint')
-        toolbar.addWidget(self.title, 1)
-        manage = ActionButton('组合', self)
-        manage.clicked.connect(controller.manage)
-        toolbar.addWidget(manage)
-        self.pin = QCheckBox('置顶', self)
-        self.pin.setChecked(controller.pinned)
-        self.pin.toggled.connect(self._pin)
-        toolbar.addWidget(self.pin)
-        back = ActionButton('返回', self)
-        back.setToolTip('返回监控室（Esc）')
-        back.clicked.connect(self.close)
-        toolbar.addWidget(back)
-        self.box.addLayout(toolbar)
+        self.box.setContentsMargins(0, 0, 0, 0)
+        self.box.setSpacing(0)
+        self.tools = PictureInPictureTools(self)
+        self.pin = self.tools.pin
+        self._gesture = None
+        self._surface_state = [(widget, widget.hasMouseTracking(),
+                                widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None)
+                               for tile in controller.host.wall.tiles for widget in (tile, tile.video)]
+        for widget, _tracking, _cursor in self._surface_state:
+            widget.setMouseTracking(True)
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(100)
+        self._hover_timer.timeout.connect(self._poll_tools)
+        self._hover_timer.start()
+        QApplication.instance().installEventFilter(self)
         shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         shortcut.activated.connect(self.close)
+
+    def _poll_tools(self):
+        widget = QApplication.widgetAt(QCursor.pos())
+        focus = QApplication.focusWidget()
+        hovered = widget is not None and widget.window() in (self, self.tools)
+        focused = focus is not None and focus.window() is self.tools
+        visible = (self.isVisible() and not self.isMinimized()
+                   and self.controller.dialog is None and (hovered or focused))
+        self.tools.move(self.mapToGlobal(QPoint(self.width() - 88, 8)))
+        self.tools.setVisible(visible)
+        if visible:
+            self.tools.raise_()
+
+    def focusNextPrevChild(self, next):
+        self.tools.show()
+        self.tools.activateWindow()
+        (self.tools.manage if next else self.tools.back).setFocus(Qt.TabFocusReason)
+        return True
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), 10, 10)
+        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        self._poll_tools()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._poll_tools()
+
+    def hideEvent(self, event):
+        self.tools.hide()
+        super().hideEvent(event)
+
+    def _resize_edges(self, point):
+        edges = Qt.Edges()
+        # Larger corner targets, narrow edge targets: no visible resize frame.
+        corner = ((point.x() < 18 or point.x() >= self.width() - 18)
+                  and (point.y() < 18 or point.y() >= self.height() - 18))
+        margin = 18 if corner else 6
+        if point.x() < margin:
+            edges |= Qt.LeftEdge
+        elif point.x() >= self.width() - margin:
+            edges |= Qt.RightEdge
+        if point.y() < margin:
+            edges |= Qt.TopEdge
+        elif point.y() >= self.height() - margin:
+            edges |= Qt.BottomEdge
+        return edges
+
+    def eventFilter(self, watched, event):
+        kind = event.type()
+        if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove,
+                        QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
+            return False
+        if not isinstance(watched, QWidget) or watched.window() is not self:
+            return False
+        wall = self.controller.host.wall
+        surfaces = (self, wall, *(surface for tile in wall.visible_tiles()
+                                 for surface in (tile, tile.video, tile.cover, tile.video_danmaku)))
+        if watched not in surfaces:
+            return False
+        point = event.globalPosition().toPoint()
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self.setFocus(Qt.MouseFocusReason)
+            self._gesture = (point, self.geometry(), self._resize_edges(self.mapFromGlobal(point)))
+            watched.grabMouse()
+            return True
+        if kind == QEvent.MouseMove:
+            edges = self._resize_edges(self.mapFromGlobal(point))
+            cursor = (Qt.SizeFDiagCursor if edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge)
+                      else Qt.SizeBDiagCursor if edges in (Qt.TopEdge | Qt.RightEdge, Qt.BottomEdge | Qt.LeftEdge)
+                      else Qt.SizeHorCursor if edges & (Qt.LeftEdge | Qt.RightEdge)
+                      else Qt.SizeVerCursor if edges else Qt.ArrowCursor)
+            watched.setCursor(cursor)
+            if self._gesture is not None:
+                start, bounds, edges = self._gesture
+                delta = point - start
+                rect = QRect(bounds)
+                if not edges:
+                    rect.translate(delta)
+                else:
+                    if edges & Qt.LeftEdge:
+                        rect.setLeft(min(bounds.left() + delta.x(), bounds.right() - self.minimumWidth() + 1))
+                    if edges & Qt.RightEdge:
+                        rect.setRight(max(bounds.right() + delta.x(), bounds.left() + self.minimumWidth() - 1))
+                    if edges & Qt.TopEdge:
+                        rect.setTop(min(bounds.top() + delta.y(), bounds.bottom() - self.minimumHeight() + 1))
+                    if edges & Qt.BottomEdge:
+                        rect.setBottom(max(bounds.bottom() + delta.y(), bounds.top() + self.minimumHeight() - 1))
+                self.setGeometry(rect)
+                return True
+        if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
+            self._gesture = None
+            watched.releaseMouse()
+            return True
+        return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
+
+    def stop(self):
+        self._hover_timer.stop()
+        QApplication.instance().removeEventFilter(self)
+        self.tools.hide()
+        self._gesture = None
+        grabber = QWidget.mouseGrabber()
+        if grabber is not None and grabber.window() is self:
+            grabber.releaseMouse()
+        for widget, tracking, cursor in self._surface_state:
+            widget.setMouseTracking(tracking)
+            if cursor is None:
+                widget.unsetCursor()
+            else:
+                widget.setCursor(cursor)
 
     def _pin(self, pinned):
         self.controller.pinned = pinned
@@ -217,7 +386,9 @@ class PictureInPicture(QObject):
 
     def _refresh_theme(self, *_args):
         if self.active:
-            self.floating.setStyleSheet(f'#PictureInPicture {{ background: {theme.BG}; }}')
+            self.floating.tools.update()
+            for button in self.floating.tools.findChildren(PictureInPictureButton):
+                button.update()
 
     def manage(self):
         if self.dialog is not None:
@@ -254,7 +425,7 @@ class PictureInPicture(QObject):
             else:
                 cols = min(len(tiles), columns or math.ceil(math.sqrt(len(tiles))))
                 width = 480 if len(tiles) == 1 else 640
-                self.floating.resize(width, round(width * math.ceil(len(tiles) / cols) / cols * 9 / 16) + 44)
+                self.floating.resize(width, round(width * math.ceil(len(tiles) / cols) / cols * 9 / 16))
             self._minimums = {tile: tile.minimumSize() for tile in wall.tiles}
             content = self.host._content.layout()
             content.removeWidget(wall)
@@ -262,7 +433,6 @@ class PictureInPicture(QObject):
             self.placeholder.show()
             self.floating.box.addWidget(wall, 1)
         wall.set_picture_in_picture(tiles, columns)
-        self.floating.title.setText(f'{len(tiles)} 路')
         self.floating.show()
         wall.show()
         self._sync_overlays()
@@ -287,6 +457,7 @@ class PictureInPicture(QObject):
         if self.dialog is not None:
             self.dialog.reject()
         self.geometry = str(floating.saveGeometry().toBase64(), 'ascii')
+        floating.stop()
         self.floating = None
         wall = self.host.wall
         floating.box.removeWidget(wall)

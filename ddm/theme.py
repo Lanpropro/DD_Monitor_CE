@@ -70,7 +70,11 @@ BASE = "#2a2d32"
 TILE_FULLSCREEN_STYLE = '''
 #Tile[fullscreen="true"],
 #Tile[fullscreen="true"]:hover,
-#Tile[fullscreen="true"][focused="true"] {
+#Tile[fullscreen="true"][focused="true"],
+#Tile[pictureInPicture="true"],
+#Tile[pictureInPicture="true"]:hover,
+#Tile[pictureInPicture="true"][focused="true"],
+#Tile[pictureInPicture="true"][empty="true"] {
     border: none;
     border-radius: 0px;
 }
