@@ -79,6 +79,9 @@ def check_recording_scroll(app):
     assert dialog.size() == original_size, (original_size, dialog.size())
     page = dialog.recording_page
     scroll = page.scroll
+    # Guarantee overflow regardless of the platform's font metrics.
+    scroll.setMaximumHeight(240)
+    app.processEvents()
     assert scroll.verticalScrollBar().maximum() > 0
     assert scroll.horizontalScrollBar().maximum() == 0
     scroll.ensureWidgetVisible(page.lock_quality)

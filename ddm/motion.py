@@ -202,6 +202,12 @@ class SettingsStack(QStackedWidget):
         self._fade.finished.connect(self.finish_transition)
         self._effect = None
 
+    def hasHeightForWidth(self):
+        if self.property('embeddedSettings'):
+            # The worker container owns the size; hidden pages must not enlarge its HWND.
+            return False
+        return super().hasHeightForWidth()
+
     def _set_opacity(self, value):
         if self._effect is not None:
             self._effect.setOpacity(value)
