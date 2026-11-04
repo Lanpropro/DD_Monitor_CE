@@ -468,6 +468,11 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'layout passed', result.stdout)
 
+    def test_optional_capture_selection_is_preparation_only(self):
+        result = subprocess.run([str(self.driver), '--capture-guidance', str(self.app)], capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(b'optional capture guidance passed', result.stdout)
+
     def test_collects_version_configuration_plugins_and_only_selected_logs(self):
         self.put('ddm-build.json', '\ufeff' + json.dumps({'version': '0.5.2', 'platform': 'windows-x64'}))
         self.put('RELEASE-v0.5.2.md', '# 0.5.2 更新\n敏感正文不收集')
