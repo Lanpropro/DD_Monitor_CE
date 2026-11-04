@@ -70,6 +70,44 @@ namespace DDMonitorDiagnostics
         }
     }
 
+    internal sealed class DiagnosticComboBox : ComboBox
+    {
+        internal DiagnosticComboBox()
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList;
+            FlatStyle = FlatStyle.Flat;
+            DrawMode = DrawMode.OwnerDrawFixed;
+        }
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            bool selected = DroppedDown && (e.State & DrawItemState.Selected) != 0;
+            using (var brush = new SolidBrush(selected ? DiagnosticTheme.Accent : DiagnosticTheme.Surface))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            if (e.Index >= 0)
+                TextRenderer.DrawText(e.Graphics, Items[e.Index].ToString(), e.Font, e.Bounds,
+                    DiagnosticTheme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+        void DrawFace(Graphics graphics)
+        {
+            using (var brush = new SolidBrush(DiagnosticTheme.Surface)) graphics.FillRectangle(brush, ClientRectangle);
+            var color = Enabled ? DiagnosticTheme.Text : DiagnosticTheme.Muted;
+            TextRenderer.DrawText(graphics, Text, Font, new Rectangle(0, 0, Math.Max(1, Width - 24), Height),
+                color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var pen = new Pen(color, 1.5f))
+                graphics.DrawLines(pen, new[] { new Point(Width - 17, Height / 2 - 2),
+                    new Point(Width - 13, Height / 2 + 2), new Point(Width - 9, Height / 2 - 2) });
+        }
+        protected override void WndProc(ref Message message)
+        {
+            base.WndProc(ref message);
+            if (message.Msg == 0xF)
+                using (var graphics = Graphics.FromHwnd(Handle)) DrawFace(graphics);
+            else if ((message.Msg == 0x317 || message.Msg == 0x318) && message.WParam != IntPtr.Zero)
+                using (var graphics = Graphics.FromHdc(message.WParam)) DrawFace(graphics);
+        }
+    }
+
     internal sealed class DiagnosticButton : Button
     {
         bool hovered;
@@ -407,7 +445,7 @@ namespace DDMonitorDiagnostics
         readonly RadioButton intermittent = new RadioButton { Text = "概率触发", AutoSize = true };
         readonly RadioButton unknown = new RadioButton { Text = "尚未确认", AutoSize = true, Checked = true };
         readonly BackgroundWorker worker = new BackgroundWorker { WorkerReportsProgress = true };
-        readonly ComboBox captureMode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat };
+        readonly ComboBox captureMode = new DiagnosticComboBox { Dock = DockStyle.Fill };
         readonly Button startCapture = new DiagnosticButton { Text = "启动软件并采集", Dock = DockStyle.Fill, Enabled = false };
         readonly Label captureHint = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         readonly LinkLabel captureOptions = new LinkLabel { Text = "高级采集…", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
@@ -492,12 +530,17 @@ namespace DDMonitorDiagnostics
             var capturePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Visible = false, Margin = Padding.Empty };
             capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156));
-            capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
             capturePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             captureMode.Items.Add("仅打包已有日志（无需专项）");
             captureMode.Items.AddRange(Collector.CaptureLabels);
+            captureMode.ItemHeight = Font.Height;
             captureMode.SelectedIndex = 0;
-            capturePanel.Controls.Add(captureMode, 0, 0);
+            var captureFrame = new DiagnosticInput { Dock = DockStyle.Fill, Padding = new Padding(8, 3, 8, 3), Margin = new Padding(0, 3, 8, 3) };
+            captureFrame.Controls.Add(captureMode);
+            startCapture.Margin = new Padding(0, 3, 0, 3);
+            captureHint.Margin = new Padding(0, 3, 0, 3);
+            capturePanel.Controls.Add(captureFrame, 0, 0);
             capturePanel.Controls.Add(startCapture, 1, 0);
             capturePanel.Controls.Add(captureHint, 0, 1);
             capturePanel.SetColumnSpan(captureHint, 2);
@@ -507,9 +550,9 @@ namespace DDMonitorDiagnostics
                 captureExpanded = !captureExpanded;
                 capturePanel.Visible = captureExpanded;
                 captureOptions.Text = captureExpanded ? "收起高级采集" : "高级采集…";
-                captureSection.RowStyles[1].Height = captureExpanded ? 76 : 0;
-                inputs.RowStyles[6].Height = captureExpanded ? 122 : 46;
-                layout.RowStyles[1].Height = captureExpanded ? 476 : 400;
+                captureSection.RowStyles[1].Height = captureExpanded ? 90 : 0;
+                inputs.RowStyles[6].Height = captureExpanded ? 136 : 46;
+                layout.RowStyles[1].Height = captureExpanded ? 490 : 400;
             };
             captureMode.SelectedIndexChanged += (s, e) => UpdateCaptureHint();
             UpdateCaptureHint();
