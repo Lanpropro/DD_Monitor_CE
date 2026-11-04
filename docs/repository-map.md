@@ -30,6 +30,8 @@
 
 播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
+播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
+
 ## 已跟踪的其他文件：逐项标注
 
 - `docs/image-cache.md`
@@ -192,6 +194,7 @@
 - `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_playback_badges.py`
+- `dev/selfcheck_playback_controls.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
 - `dev/selfcheck_fullscreen_native_focus.py`
