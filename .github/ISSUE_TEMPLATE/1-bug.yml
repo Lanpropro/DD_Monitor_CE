@@ -15,6 +15,16 @@ body:
       placeholder: 简述出现的异常和期望结果；知道复现步骤时可一并说明。诊断包中写过的细节无需重复。
     validations:
       required: true
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: 复现情况
+      options:
+        - 稳定复现
+        - 偶发
+        - 尚不确定
+    validations:
+      required: true
   - type: textarea
     id: attachments
     attributes:
