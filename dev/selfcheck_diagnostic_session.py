@@ -32,6 +32,9 @@ def child(mode, directory):
             folder = window.sidebar.folders[0]
             window.sidebar.toggle_folder(folder['id'])
             QTest.qWait(650)
+            window.hover_preview._room = {}
+            window.hover_preview._delay.timeout.emit()
+            window.hover_preview._grace.timeout.emit()
         elif mode == 'notices':
             show_result(window, 'PRIVATE_NOTICE_MUST_NOT_BE_CAPTURED', persistent=True, kind='live')
         entries = window.sidebar._items + list(window.sidebar._folder_buttons.values())
@@ -62,6 +65,9 @@ def child(mode, directory):
             records = [json.loads(line) for line in path.read_text().splitlines()]
             manual = next(row for row in records if row.get('action') == 'manual-snapshot')
             assert manual['frames'] and manual['folders']
+            assert manual['schema'] == 2 and manual['evidence_after']['widgets']
+            assert manual['post_window_ms'] == 2000 and manual['evidence_before']['model']
+            assert {'preview:delay-fired', 'preview:grace-fired'} <= {row['stage'] for row in manual['events']}
         if mode == 'notices':
             records = [json.loads(line) for line in (Path(directory) / 'notice-close.jsonl').read_text().splitlines()]
             assert any(row['stage'] == 'manual-snapshot' for row in records)

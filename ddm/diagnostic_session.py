@@ -34,10 +34,10 @@ def install(mode, directory):
     atexit.register(metadata.close)
     if mode == 'folders':
         from .responsiveness import install_folder_capture
-        install_folder_capture(directory / 'folder-motion.jsonl')
+        install_folder_capture(directory / 'folder-motion.jsonl', extended=True)
     elif mode == 'responsiveness':
         from .responsiveness import install as install_responsiveness
-        install_responsiveness(directory / 'responsiveness.jsonl')
+        install_responsiveness(directory / 'responsiveness.jsonl', extended_folders=True)
     elif mode in ('notices', 'danmaku'):
         if mode == 'notices':
             from .notice_diagnostics import NoticeCloseTrace as Trace
