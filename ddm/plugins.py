@@ -257,6 +257,7 @@ class PluginContext:
         self._manager = manager
         self.name = name
         self._active = not manager._unloaded
+        self._recording = None
         manager._contexts.add(self)
 
     # ---- 注册 ----
@@ -286,6 +287,14 @@ class PluginContext:
         return bridge.request_login(self, platform, reauthenticate=reauthenticate) if bridge else False
 
     # ---- 取用 ----
+    @property
+    def recording(self):
+        """Recording service v1; operations require an active GUI-thread context."""
+        if self._recording is None:
+            from .recording_service import RecordingService
+            self._recording = RecordingService(self)
+        return self._recording
+
     @property
     def window(self):
         """主窗口。插件可以直接用它，但优先用下面这些稳定入口。"""
@@ -447,6 +456,8 @@ class PluginManager:
                     plugin.on_unload()
                 except Exception:
                     traceback.print_exc()
+                if context._recording is not None:
+                    context._recording.close()
                 self.skipped.append((entry, f"on_load 出错：{error}"))
                 traceback.print_exc()
                 continue
@@ -483,6 +494,9 @@ class PluginManager:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
+        for context in tuple(self._contexts):
+            if context._recording is not None:
+                context._recording.close()
 
     def register_tile_control(self, owner, control_id, factory, *, priority=0):
         key = (owner, str(control_id))

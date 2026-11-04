@@ -331,6 +331,7 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
+- `dev/selfcheck_recording_service.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_remove_follow_position.py`
