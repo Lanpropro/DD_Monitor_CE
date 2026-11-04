@@ -6667,7 +6667,8 @@ class Tile(QFrame):
         self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
-        visible = visible and not getattr(self, "_fullscreen_controls_hidden", False)
+        visible = (visible and not self.property('pictureInPicture')
+                   and not getattr(self, "_fullscreen_controls_hidden", False))
         visible = bool(visible)
         self.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
@@ -6716,6 +6717,12 @@ class Tile(QFrame):
         self._set_control_hover(hovered)
 
     def _poll_control_hover(self) -> None:
+        if self.property('pictureInPicture'):
+            self._restore_normal_cursor()
+            self._normal_hover_active = False
+            self.set_controls_visible(False)
+            self._control_hover_timer.stop()
+            return
         if not self.isVisible():
             self._restore_normal_cursor()
             self._normal_hover_active = False
@@ -6838,8 +6845,9 @@ class Tile(QFrame):
         if self.cover.isHidden():
             return
         if source and not source.isNull():
+            radius = 0 if self.property('pictureInPicture') else 8
             key = (source.cacheKey(), self.video.width(), self.video.height(),
-                   self.devicePixelRatioF(), bool(self.property("fullscreen")))
+                   self.devicePixelRatioF(), bool(self.property("fullscreen")), radius)
             if key == self._cover_key:
                 self.cover.setScaledContents(False)
                 return
@@ -6848,7 +6856,7 @@ class Tile(QFrame):
                     self.cover.setScaledContents(True)
                     self.cover.setPixmap(self._cover_cached)
                 return
-            self._cover_cached = rounded_pixmap(source, self.video.size(), 8)
+            self._cover_cached = rounded_pixmap(source, self.video.size(), radius)
             self._cover_key = key
             self.cover.setScaledContents(False)
             self.cover.setPixmap(self._cover_cached)
@@ -6906,7 +6914,9 @@ class Tile(QFrame):
             self.bottom.setVisible(not compact)
         video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
         # 普通格子留边框，全屏视频贴齐窗口边缘。
-        inset = 0 if self.property("fullscreen") else 1
+        inset = 0 if fullscreen or compact else 1
+        if compact:
+            self.set_controls_visible(False)
         self.video.setGeometry(inset, inset, max(1, width - inset * 2),
                                max(1, video_height - inset))
         self._round_video()
@@ -6926,7 +6936,7 @@ class Tile(QFrame):
                          if self.controls.y() > 20 else self.controls.x())
         title_left = self.stream_badge.x() + self.stream_badge.width() + 6
         room = max(0, controls_left - title_left - 8)
-        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible
+        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible and not compact
         self.title_badge.setVisible(show_title)
         if show_title:
             self.title_badge.set_max_width(room)
@@ -6973,7 +6983,7 @@ class Tile(QFrame):
         """
         room = self.width() - 10 - self.controls.width() - 12 - 10
         self.stream_badge.set_compact(self.stream_badge.full_width() > room)
-        visible = (self._overlay_visible and bool(self.room.get("room_id"))
+        visible = (not self.property('pictureInPicture') and self._overlay_visible and bool(self.room.get("room_id"))
                    and self.stream_badge.width() <= room)
         self.stream_badge.setVisible(visible)
         return visible
@@ -6986,7 +6996,7 @@ class Tile(QFrame):
         「只留按钮轮廓」的机制才是治它的）。让控制条能点到靠的是
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
-        square_corners = bool(self.property("fullscreen"))
+        square_corners = bool(self.property("fullscreen") or self.property('pictureInPicture'))
         self.video.square_corners = square_corners
         self.video_danmaku.set_quick_rounded(not square_corners)
         for index, corner in enumerate(self.video_corners):
@@ -7207,7 +7217,7 @@ class Tile(QFrame):
         用户要求：它和 LIVE 浮标、标题、控制条一样**自动隐藏** —— 鼠标在格子上
         才露，移开就跟着一起收（以前是只要在播就一直挂在右下角）。
         """
-        return bool(self._overlay_visible
+        return bool(not self.property('pictureInPicture') and self._overlay_visible
                     and getattr(self, "_elapsed_timer", None) is not None
                     and self._elapsed_timer.isActive()
                     and self.room.get("live")
@@ -7736,6 +7746,7 @@ class WallGrid(QWidget):
         selected = set(tiles or [])
         for tile in self.tiles:
             tile.setProperty('pictureInPicture', tile in selected)
+            _repolish(tile)
             if tiles is not None:
                 tile.setMinimumSize(0, 0)
         self._sync_danmaku_controls()
