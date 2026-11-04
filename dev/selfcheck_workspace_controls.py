@@ -58,11 +58,16 @@ class WorkspaceControlTests(unittest.TestCase):
         return widget, action
 
     def assert_footer_order(self):
-        box = self.sidebar.footer_box
-        positions = [box.indexOf(widget) for widget in (self.sidebar.workspace_controls,
+        box = self.sidebar._layout
+        positions = [box.indexOf(widget) for widget in (self.sidebar.footer,
             self.sidebar.account_row, self.sidebar.tool_row, self.sidebar.normal_bar)]
         self.assertEqual(positions, sorted(positions))
         self.assertTrue(all(index >= 0 for index in positions))
+
+    def assert_original_controls_visible(self):
+        for widget in (self.sidebar.account_row, self.sidebar.layout_button,
+                       self.sidebar.settings_button, self.sidebar.import_button, self.sidebar.add_button):
+            self.assertTrue(widget.isVisible())
 
     def test_empty_priority_click_and_original_footer(self):
         panel = self.sidebar.workspace_controls
@@ -137,6 +142,7 @@ class WorkspaceControlTests(unittest.TestCase):
             self.assertEqual(footer.animation.state(), QAbstractAnimation.Running)
             footer.animation.setCurrentTime(60)
             partial = footer.height()
+            self.assert_original_controls_visible()
             self.assertLess(partial, expanded)
             self.assertGreater(partial, footer.HANDLE_HEIGHT)
             footer.restore_button.click()
@@ -152,6 +158,7 @@ class WorkspaceControlTests(unittest.TestCase):
             self.assertEqual(footer.height(), footer.HANDLE_HEIGHT)
             self.assertTrue(footer.body.isHidden())
             self.assertTrue(footer.restore_button.isVisible())
+            self.assert_original_controls_visible()
 
     def test_reduced_motion_and_keyboard_toggle_without_sliding(self):
         self.add('record', '录制切片', 10)
