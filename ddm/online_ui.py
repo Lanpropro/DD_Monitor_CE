@@ -190,23 +190,60 @@ class OnlinePage(QWidget):
                 _release_online_task(task)
 
 
+class PluginBrowserToolbar(QWidget):
+    def __init__(self, parent, states):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self.search_row = QHBoxLayout()
+        self.search = QLineEdit(self)
+        self.search.setObjectName('Search')
+        self.search.setPlaceholderText('搜索插件名称、功能或作者')
+        self.search.setAccessibleName('搜索插件')
+        self.search.setClearButtonEnabled(True)
+        self.search_row.addWidget(self.search, 1)
+        layout.addLayout(self.search_row)
+        filters = QHBoxLayout()
+        self.filter = QComboBox(self)
+        self.filter.addItems(states)
+        self.filter.setAccessibleName('按状态筛选插件')
+        filters.addWidget(self.filter)
+        self.sort = QComboBox(self)
+        self.sort.addItems(('默认排序', '名称排序', '更新优先'))
+        self.sort.setAccessibleName('插件排序')
+        filters.addWidget(self.sort)
+        filters.addStretch()
+        self.count = QLabel(self)
+        self.count.setObjectName('SettingsHint')
+        filters.addWidget(self.count)
+        layout.addLayout(filters)
+
+
 class PluginDetailsDialog(AnimatedDialog):
-    def __init__(self, page, offer):
+    def __init__(self, page, offer, *, installed_entry=None):
         super().__init__(page.window())
         self.page, self.plugin_id = page, offer['id']
         self.offer = dict(offer)
+        self.installed_entry = installed_entry
         self.setWindowTitle('插件详情')
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.resize(560, 440)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         author = str(offer.get('author') or '').strip().lstrip('@')
-        subtitle = 'v' + str(offer.get('version') or '—') + (' · @' + author if author else '')
-        layout.addLayout(page_header(offer['name'], subtitle))
+        entry = installed_entry if installed_entry is not None else offer
+        subtitle = 'v' + str(entry.get('version') or '—') + (' · @' + author if author else '')
+        layout.addLayout(page_header(entry['name'], subtitle))
         self.document = QTextBrowser(self)
         self.document.setObjectName('UpdateNotes')
         self.document.setOpenExternalLinks(False)
-        parts = [offer.get('description') or '暂无说明']
+        parts = [entry.get('description') or '暂无说明']
+        if installed_entry is not None:
+            parts.extend(('插件 ID：' + entry['id'], '状态：' + entry.get('status', ''),
+                          '本次选择：' + ('启用' if entry['enabled'] else '禁用') + '（保存后生效）'))
+            if entry.get('reason'):
+                parts.append(entry['reason'])
         if offer.get('min_app_version'):
             parts.append('需要主程序版本：' + offer['min_app_version'] + ' 或更高')
         if offer.get('reason'):
@@ -225,22 +262,32 @@ class PluginDetailsDialog(AnimatedDialog):
         self.action.clicked.connect(self.install)
         footer.addWidget(self.action)
         layout.addLayout(footer)
-        page.controlsChanged.connect(self.refresh_action)
+        store = page.store_page if installed_entry is not None else page
+        store.controlsChanged.connect(self.refresh_action)
+        if installed_entry is not None:
+            page.changed.connect(self.refresh_action)
         self.refresh_action()
 
     def refresh_action(self):
-        button = self.page.buttons.get(self.plugin_id)
-        current = next((offer for offer in self.page._display_offers if offer['id'] == self.plugin_id), {})
+        store = self.page.store_page if self.installed_entry is not None else self.page
+        buttons = self.page.update_buttons if self.installed_entry is not None else store.buttons
+        button = buttons.get(self.plugin_id)
+        if self.installed_entry is not None and (button is None or button.isHidden()):
+            self.action.setText('暂无更新' if self.plugin_id in self.page.checks else '插件已删除')
+            self.action.setEnabled(False)
+            return
+        current = next((offer for offer in store._display_offers if offer['id'] == self.plugin_id), {})
         if any(current.get(key) != self.offer.get(key) for key in ('version', 'sha256', 'url')):
             self.action.setText('目录已更新')
             self.action.setEnabled(False)
             self.action.setToolTip('请关闭并重新打开详情，查看最新版本')
             return
         self.action.setText(button.text() if button else '暂不可安装')
-        self.action.setEnabled(bool(button and button.isEnabled() and not self.page.stopping))
+        self.action.setEnabled(bool(button and button.isEnabled() and not store.stopping))
 
     def install(self):
-        button = self.page.buttons.get(self.plugin_id)
+        buttons = self.page.update_buttons if self.installed_entry is not None else self.page.buttons
+        button = buttons.get(self.plugin_id)
         if button is not None:
             button.click()
 
@@ -264,30 +311,15 @@ class PluginStorePage(OnlinePage):
         self._checked_at = 0
         self._opened = False
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 4, 0)
+        layout.setContentsMargins(0, 10, 4, 8)
         self.refresh = QPushButton('刷新插件商店')
         self.refresh.setObjectName('IconButton')
         self.refresh.clicked.connect(lambda: self.refresh_catalog(force=True))
-        self.search = QLineEdit(self)
-        self.search.setObjectName('Search')
-        self.search.setPlaceholderText('搜索插件名称、功能或作者')
-        self.search.setAccessibleName('搜索插件')
-        self.search.setClearButtonEnabled(True)
-        layout.addWidget(self.search)
-        filters = QHBoxLayout()
-        self.filter = QComboBox(self)
-        self.filter.addItems(('全部插件', '未安装', '已安装', '可更新'))
-        self.filter.setAccessibleName('按安装状态筛选插件')
-        filters.addWidget(self.filter)
-        self.sort = QComboBox(self)
-        self.sort.addItems(('默认排序', '名称排序', '更新优先'))
-        self.sort.setAccessibleName('插件排序')
-        filters.addWidget(self.sort)
-        filters.addStretch()
-        self.count = QLabel(self)
-        self.count.setObjectName('SettingsHint')
-        filters.addWidget(self.count)
-        layout.addLayout(filters)
+        self.browser = PluginBrowserToolbar(self, ('全部插件', '未安装', '已安装', '可更新'))
+        self.search, self.filter, self.sort, self.count = (
+            self.browser.search, self.browser.filter, self.browser.sort, self.browser.count)
+        self.browser.search_row.addWidget(self.refresh)
+        layout.addWidget(self.browser)
         layout.addWidget(self.status)
         self.scroll = QScrollArea(self)
         self.scroll.setObjectName('PluginScroll')
@@ -295,7 +327,7 @@ class PluginStorePage(OnlinePage):
         self.scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 4, 0)
+        content_layout.setContentsMargins(0, 0, 4, 12)
         self.cards = QVBoxLayout()
         self.cards.setSpacing(6)
         content_layout.addLayout(self.cards)
@@ -403,6 +435,7 @@ class PluginStorePage(OnlinePage):
             summary.addWidget(title)
             button = QPushButton('安装')
             button.setObjectName('IconButton')
+            button.setMinimumWidth(button.fontMetrics().horizontalAdvance('校验/解压中') + 28)
             description = ElidedLabel(' '.join(str(offer.get('description') or '暂无说明').split()), card)
             description.setObjectName('SettingsHint')
             description.setTextFormat(Qt.PlainText)
