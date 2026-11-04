@@ -14,6 +14,9 @@
 沿用原按钮、画质控制、重连、磁盘空间和退出管理；同一时间仅允许一个插件拥有注册。
 基类为 `ddm.recording.RecordingSession`，扩展 `parts_directory`、`segment_options`、
 `update_review`、`save_recording` 和 `review_info`。`segment_seconds` 同时用于分段与缓存范围计算。
+`export_input(parts, playlist)` 为本体快速保存提供稳定的 FFmpeg 输入参数，默认仍为 concat；
+HLS 会话可生成含初始化段/断点的冻结 VOD 输入。`snapshot_info(parts)` 可补充 `index_format`
+及 `segments`（含 `init` 路径）；宿主同时为媒体与初始化段建立租约，调用者不可将 fMP4 片段当独立 MP4。
 `save_recording(parts)` 返回已有的持久录播入口时不重复合并或删除其原分段；返回 None 使用原导出。
 `live_recording(source_id, session_id)` 返回插件已发布的可读索引及媒体范围，拒绝过期会话。
 卸载恢复默认会话工厂，已开始的会话仍使用原实现正常收尾；会话不得依赖插件界面或有效 context。

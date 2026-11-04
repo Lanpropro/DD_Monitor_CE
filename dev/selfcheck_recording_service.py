@@ -18,6 +18,35 @@ APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_backend_snapshot_preserves_init_map_and_pins_both_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            media, init = folder / 'part.mp4', folder / 'init.mp4'
+            media.write_bytes(b'closed fragment')
+            init.write_bytes(b'fragment initialization')
+
+            class HlsSession(RecordingSession):
+                def snapshot_info(self, parts):
+                    return {'index_format': 'hls', 'segments': [
+                        {'path': str(parts[0]), 'duration': 2, 'init': str(init)}]}
+
+            tile = Mock(room={'room_id': 'test'})
+            recorder = RecordingManager({})
+            recorder.timer.stop()
+            session = HlsSession(tile, {}, True, folder)
+            session.parts = [media]
+            recorder.sessions[tile] = session
+            host = SimpleNamespace(recorder=recorder, capture_control=Mock(), wall=SimpleNamespace(tiles=[tile]))
+            service = RecordingService(SimpleNamespace(window=host, _active=True))
+            snapshot = service.snapshot(str(id(tile)), session.session_id)
+            self.assertEqual(snapshot['index_format'], 'hls')
+            self.assertEqual(snapshot['segments'][0]['init'], str(init))
+            recorder._delete_after_exports.update((media, init))
+            recorder._cleanup_parts()
+            self.assertTrue(media.exists() and init.exists())
+            service.release(snapshot['lease'])
+            self.assertFalse(media.exists() or init.exists())
+
     def test_backend_ownership_unload_and_running_session_are_independent(self):
         class PluginSession(RecordingSession):
             pass
