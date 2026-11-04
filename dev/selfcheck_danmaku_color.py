@@ -12,12 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QColorDialog, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ddm import config, theme
 from ddm.app import MainWindow
 from ddm.danmaku_raster import CommentRaster
 from ddm.video_danmaku import VideoDanmaku
+from ddm.ui import ColorDialog
 from selfcheck_video_danmaku import Client, Snapshot, wait_comment_raster
 
 
@@ -113,43 +114,36 @@ def check_controls(app):
             events = []
             menu.settingsChanged.connect(events.append)
             menu.apply_settings({})
-            assert not events and menu.color_mode.currentData() == 'original'
-            assert not menu.color_button.isEnabled()
+            assert not events and menu.color_button.isEnabled()
+            assert not hasattr(menu, 'color_mode')
             for mode in ('light', 'dark'):
                 theme.apply(mode)
                 menu.apply_settings(window.settings)
                 assert menu.color_button.text() == '#FFFFFF'
-                assert not menu.color_button.isEnabled()
-            menu.color_mode.setCurrentIndex(1)
-            assert menu.color_button.isEnabled()
-            assert second.video_danmaku.settings['video_danmaku_color_mode'] == 'custom'
+                assert menu.color_button.isEnabled()
             menu.color_button.click()
-            picker = first.findChild(QColorDialog)
+            picker = first.findChild(ColorDialog)
             assert picker is not None and picker.parentWidget() is first
             picker.setCurrentColor(QColor('#ff0000'))
             picker.reject()
             assert window.settings['video_danmaku_color'] == '#ffffff', 'Cancel must not save preview'
             app.sendPostedEvents()
             menu.color_button.click()
-            pickers = [p for p in first.findChildren(QColorDialog) if p.isVisible()]
+            pickers = [p for p in first.findChildren(ColorDialog) if p.isVisible()]
             assert len(pickers) == 1
             pickers[0].setCurrentColor(QColor('#ff0000'))
             pickers[0].accept()
             saved = window.current_state()['settings']
             assert saved['video_danmaku_color'] == '#ff0000'
+            assert second.video_danmaku.settings['video_danmaku_color_mode'] == 'custom'
             assert second.video_danmaku.settings['video_danmaku_color'] == '#ff0000'
             assert second.danmaku_settings_menu.color_button.text() == '#FF0000'
             assert window._save_timer.isActive()
             assert second.video_danmaku._comment_color({'color': '#0000ff'}).name() == '#ff0000'
-            menu.color_mode.setCurrentIndex(0)
-            assert second.video_danmaku._comment_color({'color': '#0000ff'}).name() == '#0000ff'
-            menu.color_mode.setCurrentIndex(1)
-            saved = window.current_state()['settings']
-            assert saved['video_danmaku_color'] == '#ff0000', 'Original mode must remember chosen color'
             window._on_fullscreen(first)
             app.processEvents()
             menu.color_button.click()
-            pickers = [p for p in first.findChildren(QColorDialog) if p.isVisible()]
+            pickers = [p for p in first.findChildren(ColorDialog) if p.isVisible()]
             assert len(pickers) == 1 and pickers[0].windowHandle().transientParent() is first.windowHandle()
             pickers[0].reject()
             window._exit_fullscreen()
@@ -163,6 +157,42 @@ def check_controls(app):
         finally:
             reloaded.close()
     print('PASS: picker accept/cancel, all tiles, save snapshot and reload')
+
+
+def check_picker(app):
+    for mode in ('dark', 'light'):
+        theme.apply(mode)
+        dialog = ColorDialog(QColor('#ffffff'))
+        dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+        dialog.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        dialog.move(-4000, -4000)
+        dialog.show()
+        app.processEvents()
+        selected = []
+        dialog.colorSelected.connect(lambda color: selected.append(color.name()))
+        try:
+            dialog.sliders[0].setValue(32)
+            assert dialog.channels[0].value() == 32
+            assert dialog.hex_edit.text() == '#20FFFF'
+            dialog.channels[1].setValue(64)
+            assert dialog.sliders[1].value() == 64
+            dialog.hex_edit.setText('#123456')
+            assert [spin.value() for spin in dialog.channels] == [18, 52, 86]
+            assert dialog.currentColor().name() == '#123456'
+            dialog.hex_edit.setText('#12xx')
+            assert not dialog.confirm.isEnabled()
+            dialog.accept()
+            assert dialog.isVisible() and not selected, 'Invalid HEX must not confirm the old color'
+            dialog.hex_edit.setText('aBcDeF')
+            assert dialog.hex_edit.text() == '#ABCDEF'
+            assert dialog.confirm.isEnabled()
+            assert not selected, 'Editing only changes the preview'
+            dialog.accept()
+            assert selected == ['#abcdef']
+            assert dialog.confirm.objectName() == 'PrimaryButton'
+        finally:
+            dialog.close()
+    print('PASS: themed RGB/HEX synchronization, invalid input and confirm-only selection')
 
 
 def check_quick_pixels(app):
@@ -199,7 +229,9 @@ if __name__ == '__main__':
     app = QApplication([])
     app.setStyleSheet(theme.qss())
     if '--native' in sys.argv:
+        check_picker(app)
         check_quick_pixels(app)
     else:
+        check_picker(app)
         check_recolor(app)
         check_controls(app)
