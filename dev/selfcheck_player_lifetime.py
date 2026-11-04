@@ -88,6 +88,35 @@ class PlayerLifetimeTests(unittest.TestCase):
             player.release()
             widget.close()
 
+    def test_audio_refresh_uses_core_thread_and_waits_for_completion(self):
+        player = TilePlayer(Mock())
+        core = player.player = Mock()
+        try:
+            player.refresh_audio_device()
+            core.command.assert_not_called()
+            core.command_async.assert_called_once_with('ao-reload')
+            core.command_async.return_value.result.assert_called_once_with()
+            core.command_async.return_value.result.side_effect = RuntimeError('reload failed')
+            with self.assertRaisesRegex(RuntimeError, 'reload failed'):
+                player.refresh_audio_device()
+        finally:
+            player.release()
+
+    def test_audio_refresh_skips_missing_silent_or_released_core(self):
+        for state in ('missing', 'silent', 'released'):
+            with self.subTest(state=state):
+                player = TilePlayer(Mock(), silent=state == 'silent')
+                core = Mock()
+                player.player = None if state == 'missing' else core
+                player._released = state == 'released'
+                try:
+                    player.refresh_audio_device()
+                    core.command.assert_not_called()
+                    core.command_async.assert_not_called()
+                finally:
+                    player._released = False
+                    player.release()
+
     def test_shared_popup_keeps_one_idle_core_but_releases_media_and_watchers(self):
         widget = QWidget()
         with patch('ddm.player.mpv.MPV') as create:
