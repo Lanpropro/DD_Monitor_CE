@@ -10,7 +10,7 @@
 `stop_buffer`、`save_replay`，沿用本体画质/设置流程。会话已变化时拒绝旧操作。
 `open_settings()` 打开本体录制设置。
 
-`register_backend(RecordingSessionSubclass)` 将本体后续新建的录制/缓存会话交给插件，
+`register_backend(RecordingSessionSubclass, enabled=True)` 将本体后续新建的录制/缓存会话交给插件，
 沿用原按钮、画质控制、重连、磁盘空间和退出管理；同一时间仅允许一个插件拥有注册。
 基类为 `ddm.recording.RecordingSession`，扩展 `parts_directory`、`segment_options`、
 `update_review`、`save_recording` 和 `review_info`。`segment_seconds` 同时用于分段与缓存范围计算。
@@ -20,6 +20,7 @@ HLS 会话可生成含初始化段/断点的冻结 VOD 输入。`snapshot_info(p
 `save_recording(parts)` 返回已有的持久录播入口时不重复合并或删除其原分段；返回 None 使用原导出。
 `live_recording(source_id, session_id)` 返回插件已发布的可读索引及媒体范围，拒绝过期会话。
 卸载恢复默认会话工厂，已开始的会话仍使用原实现正常收尾；会话不得依赖插件界面或有效 context。
+`set_backend_enabled(bool)` 在已注册实现与本体原版之间互斥切换，有活动录制/缓存时拒绝切换；`enabled=False` 可在装载时直接保留本体录制。会话类的 `supports_replay=False` 禁止纯缓存、手动/自动即时重放；会话的 `recording_message(event, path)` 为开始、续录、持久保存提供对应通知。普通原版录制在插件拥有后端注册时保留房间信息与封面/头像旁路文件，供录像库检索，不改动未装载插件时的文件命名和输出。
 此项是 v1 的新增能力，插件应检查方法是否存在；已发布版本号不保证包含该开发接口。
 
 `snapshot(source_id, session_id)` 返回已封口分段列表、房间、会话及快照时间和 `lease`。

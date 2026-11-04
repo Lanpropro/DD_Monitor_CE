@@ -18,6 +18,30 @@ APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_capture_modes_are_exclusive_and_running_captures_block_switch(self):
+        class ClipSession(RecordingSession):
+            supports_replay = False
+        recorder = RecordingManager({})
+        recorder.timer.stop()
+        host = SimpleNamespace(recorder=recorder, capture_control=Mock())
+        service = RecordingService(SimpleNamespace(window=host, _active=True))
+        service.register_backend(ClipSession)
+        self.assertFalse(recorder.supports_replay)
+        self.assertFalse(recorder.start(Mock(), recording=False))
+        self.assertFalse(recorder.save_replay(Mock()))
+        service.set_backend_enabled(False)
+        self.assertIs(recorder.session_factory, RecordingSession)
+        self.assertTrue(recorder.supports_replay)
+        recorder.sessions['running'] = object()
+        with self.assertRaisesRegex(RuntimeError, '请先停止'):
+            service.set_backend_enabled(True)
+        self.assertIs(recorder.session_factory, RecordingSession)
+        recorder.sessions.clear()
+        service.set_backend_enabled(True)
+        self.assertIs(recorder.session_factory, ClipSession)
+        service.close()
+        self.assertIs(recorder.session_factory, RecordingSession)
+
     def test_backend_snapshot_preserves_init_map_and_pins_both_files(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
