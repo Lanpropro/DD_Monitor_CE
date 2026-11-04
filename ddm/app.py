@@ -12,7 +12,7 @@ import time
 import webbrowser
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import (QByteArray, QEvent, QProcess,
+from PySide6.QtCore import (QByteArray, QEvent, QLoggingCategory, QProcess,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
@@ -78,6 +78,9 @@ DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 def setup_file_log() -> str:
     """Install Qt capture after the standard-library startup logger is ready."""
     session = diagnostics.start(os.path.join(config_module.data_root(), "logs"))
+    # Font fallback logs while holding Qt's font mutex; font getters hold the GIL.
+    # Filter this informational path in Qt, before it can re-enter Python logging.
+    QLoggingCategory.setFilterRules("qt.text.font.db.info=false")
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
@@ -1173,6 +1176,7 @@ class MainWindow(QMainWindow):
                     "audio_channel": int(tile.audio_channel),
                     "codec_overrides": dict(tile.codec_overrides),
                     "video_danmaku_enabled": tile.danmaku_button.isChecked(),
+                    "video_danmaku_overrides": config_module.video_danmaku_overrides(tile.video_danmaku_overrides),
                 }
                 for tile in self.wall.tiles
             ],
@@ -2622,7 +2626,7 @@ class MainWindow(QMainWindow):
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
-        tile.video_danmaku.apply_settings(self.settings)
+        tile.apply_video_danmaku_settings(self.settings)
         tile.video_danmaku.superChatSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
@@ -3310,8 +3314,7 @@ class MainWindow(QMainWindow):
             int(self.settings.get("danmaku_max_blocks") or 3000))
         self.wall.danmaku.apply_super_chat_settings(self.settings)
         for tile in self.wall.tiles:
-            tile.video_danmaku.apply_settings(self.settings)
-            tile.danmaku_settings_menu.apply_settings(self.settings)
+            tile.apply_video_danmaku_settings(self.settings)
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""

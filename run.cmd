@@ -16,8 +16,14 @@ set "PY=%PROJ%.venv\Scripts\pythonw.exe"
 if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pythonw.exe"
 if not exist "%PY%" goto nopy
 
+set "DIAG_ARG=%~1"
+if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
+if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
+if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
+if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -38,6 +44,37 @@ rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fi
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
 
+:qtLogCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_qt_log
+exit /b %errorlevel%
+
+:diagnosticsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_diagnostics
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_session
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_development_hang
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\selfcheck_diagnostics.py"
+exit /b %errorlevel%
+
+:danmakuIndependentCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_video_danmaku_controls
+exit /b %errorlevel%
+
+:danmakuColorCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_danmaku_color.py"
+if errorlevel 1 exit /b %errorlevel%
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_danmaku_color.py" --native
+exit /b %errorlevel%
+
 :widgetLifetimeCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
@@ -52,6 +89,8 @@ exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_controls.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_switch.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_occlusion.py"
 if errorlevel 1 exit /b %errorlevel%
@@ -105,6 +144,10 @@ set "QT_QPA_PLATFORM=offscreen"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_notification_center.py"
 exit /b %errorlevel%
+
+:diagnosticSession
+start "" "%PY%" "%PROJ%main.py" "%~1"
+exit /b 0
 
 :responsiveness
 start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness

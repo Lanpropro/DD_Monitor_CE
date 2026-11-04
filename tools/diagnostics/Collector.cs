@@ -194,7 +194,10 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.2";
+        internal const string ToolVersion = "1.3";
+        internal static readonly string[] CaptureModes = { "folders", "responsiveness", "notices", "danmaku", "drag", "douyu", "douyu-deep", "theme", "fullscreen" };
+        internal static readonly string[] CaptureLabels = { "文件夹 / 列表错位", "界面卡顿", "开播通知关闭残留", "弹幕回退", "拖放异常", "斗鱼播放", "斗鱼深度采集（使用本地中继）", "主题切换耗时", "全屏切换耗时" };
+        static readonly string[] TraceNames = { "diagnostic-session", "folder-motion", "responsiveness", "notice-close", "danmaku-motion", "drag-windows", "douyu-playback", "douyu-responsiveness", "theme-switch", "fullscreen" };
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
@@ -249,6 +252,24 @@ namespace DDMonitorDiagnostics
         string[] AppExecutables()
         {
             return Directory.GetFiles(root, "*.exe").Where(p => Regex.IsMatch(Path.GetFileNameWithoutExtension(p), @"^(?:DD监控室(?:CE)?|DDMonitorCE)(?:-v[\d.]+)?$", RegexOptions.IgnoreCase)).ToArray();
+        }
+
+        internal ProcessStartInfo CaptureCommand(string mode)
+        {
+            if (!CaptureModes.Contains(mode)) throw new ArgumentException("未知的专项类型。");
+            string argument = "--diagnose-session=" + mode;
+            string sourceEntry = Path.Combine(root, "run.cmd");
+            if (File.Exists(Path.Combine(root, "ddm", "diagnostic_session.py")) && File.Exists(sourceEntry) && Safe(sourceEntry))
+                return new ProcessStartInfo(sourceEntry, argument) { WorkingDirectory = root, UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden };
+            var text = Read("ddm-build.json", 65536, false);
+            var build = text == null ? null : json.DeserializeObject(text) as IDictionary<string, object>;
+            object protocol;
+            if (build == null || !build.TryGetValue("diagnostics_protocol", out protocol) || Convert.ToInt32(protocol) != 1)
+                throw new IOException("所选版本尚不支持专项启动。0.7 / 0.7.1 仍可生成已有日志诊断包；专项采集需要更新后的主程序。");
+            if (((IEnumerable<object>)Processes()).Any()) throw new IOException("请先正常退出所选目录的客户端，再启动专项诊断；工具不会结束已有进程。");
+            var executable = AppExecutables().FirstOrDefault(Safe);
+            if (executable == null) throw new IOException("未找到可启动的主程序。");
+            return new ProcessStartInfo(executable, argument) { WorkingDirectory = root, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden };
         }
 
         string Read(string relative, int maximum, bool tail)
@@ -357,7 +378,7 @@ namespace DDMonitorDiagnostics
                     if (text == null) continue;
                     var data = json.DeserializeObject(text) as IDictionary<string, object>;
                     if (data == null) throw new FormatException();
-                    metadata[file] = data.Where(p => new[] { "version", "schema", "platform", "update_protocol" }.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value);
+                    metadata[file] = data.Where(p => new[] { "version", "schema", "platform", "update_protocol", "source_commit", "diagnostics_protocol" }.Contains(p.Key)).ToDictionary(p => p.Key, p => p.Value);
                     if (file == "ddm-program-inventory.json" && data.ContainsKey("files"))
                     {
                         var inventory = data["files"] as object[];
@@ -525,15 +546,17 @@ namespace DDMonitorDiagnostics
                         AddLog(entries, "logs/" + Path.GetFileName(path));
             }
             catch (Exception error) { warnings.Add("日志目录无法枚举（" + error.GetType().Name + "）。"); }
+            section("specialized-diagnostics.json", () => SpecializedDiagnostics(entries, logs));
             AddLog(entries, "ddm-pyinstaller-paths.txt");
             section("recording-diagnostics.json", () => RecordingLogs(entries));
             section("platform-diagnostics.json", () => PlatformDiagnostics(entries));
             section("crash-events.json", CrashEvents);
-            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期主程序日志及5份录制FFmpeg日志，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制视频、缓存或内存转储；仅读取配置指定录制目录.ddm-parts内的近期FFmpeg日志；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
+            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期主程序日志、5份录制FFmpeg日志和24份未决专项JSONL，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制视频、缓存或内存转储；仅读取配置指定录制目录.ddm-parts内的近期FFmpeg日志；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
                 "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
                 "\r\n\r\n" + (native == null ? "libmpv 检查未完成，见收集提示。" : redact.Text(NativeDependencies.Summary(native))) +
+                "\r\n\r\nspecialized-diagnostics.json：未决问题的专项日志、阶段计数与采集会话；logs/ 同时保留脱敏 JSONL，最多24份、每份末尾2MB。不自动开启采集；缺少记录不代表正常或已修复。" +
                 "\r\n\r\nplatform-diagnostics.json：平台响应、查询、取流和播放器错误的已有日志摘要，无需手工筛选；缺少记录不代表正常，不自动判定根因。" +
                 "\r\nrecording-diagnostics.json、recording/：近期录制FFmpeg日志及HTTP拒绝、地址到期时间摘要，签名地址已脱敏，不包含录制视频。" +
                 "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nnative-dependencies.json：隔离子进程中的 libmpv 加载、Win32错误码、直接依赖与函数入口检查。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
@@ -597,6 +620,63 @@ namespace DDMonitorDiagnostics
                 if (text != null) entries[relative] = redact.Text(text);
             }
             catch (Exception error) { warnings.Add(relative + "：读取失败（" + error.GetType().Name + "）。"); }
+        }
+
+        object SpecializedDiagnostics(Dictionary<string, string> entries, string logs)
+        {
+            var files = new List<object>();
+            if (logs != null && Directory.Exists(logs) && SafeWithin(dataRoot, logs))
+            {
+                var pattern = "^(?:" + string.Join("|", TraceNames.Select(Regex.Escape)) + @")\.jsonl(?:\.[1-5])?$";
+                var paths = Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p), pattern))
+                    .OrderByDescending(File.GetLastWriteTimeUtc).Take(24);
+                foreach (var path in paths)
+                {
+                    string relative = "logs/" + Path.GetFileName(path);
+                    AddLog(entries, relative);
+                    string content;
+                    if (!entries.TryGetValue(relative, out content)) continue;
+                    int records = 0, incomplete = 0, folderEvidence = 0, settledMismatches = 0;
+                    var stages = new Dictionary<string, int>();
+                    var sessions = new HashSet<string>();
+                    foreach (var line in content.Split('\n'))
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        try
+                        {
+                            if (line.Length > 262144) { incomplete++; continue; }
+                            var row = json.DeserializeObject(line) as IDictionary<string, object>;
+                            if (row == null) { incomplete++; continue; }
+                            records++;
+                            object stage, session;
+                            if (!row.TryGetValue("stage", out stage)) row.TryGetValue("phase", out stage);
+                            string name = Convert.ToString(stage);
+                            if (name.Length <= 128 && stages.Count < 128)
+                                stages[name] = stages.ContainsKey(name) ? stages[name] + 1 : 1;
+                            if (row.TryGetValue("session", out session) || row.TryGetValue("run", out session))
+                                if (sessions.Count < 20) sessions.Add(Convert.ToString(session));
+                            object schema, afterValue;
+                            if (name == "folder-motion" && row.TryGetValue("schema", out schema) && Convert.ToInt32(schema) == 2)
+                            {
+                                folderEvidence++;
+                                if (row.TryGetValue("evidence_after", out afterValue))
+                                {
+                                    var after = afterValue as IDictionary<string, object>;
+                                    object moving, mismatch;
+                                    if (after != null && after.TryGetValue("in_transition", out moving) &&
+                                        after.TryGetValue("mismatches", out mismatch) && !Convert.ToBoolean(moving) && Convert.ToInt32(mismatch) > 0)
+                                        settledMismatches++;
+                                }
+                            }
+                        }
+                        catch { incomplete++; }
+                    }
+                    files.Add(new { log = relative, records, incomplete_lines = incomplete, stages, sessions = sessions.ToArray(),
+                                    folder_evidence_records = folderEvidence, settled_layout_mismatch_records = settledMismatches });
+                }
+            }
+            return new { status = files.Count == 0 ? "not_recorded" : "observed", files,
+                note = "只汇总已有脱敏专项；最多24份、每份末尾2MB。布局不一致计数是模型对照采样，不能证明根因；需结合动画、拖放、模型截取标记和用户画面对齐。Paint为事件派发，不是屏幕呈现证明。截断或写入中的行可能不完整。不同会话和历史日志不能直接归因于本次故障；缺少记录不代表正常、未发生或已修复。不收集 SC 源图或已验收专项。" };
         }
 
         object PlatformDiagnostics(Dictionary<string, string> entries)

@@ -109,6 +109,77 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn('source_request', entries['platform-diagnostics.json'])
         self.assertNotIn('PRIVATE_UNRELATED', str(entries))
 
+    def test_specialized_logs_include_only_unresolved_capture_types_and_summarize_sessions(self):
+        self.put('logs/folder-motion.jsonl', json.dumps({'phase': 'folder-motion', 'session': 'fixture',
+            'frames': [{'rows': [{'rect': [0, 120, 200, 70]}]}]}) + '\n')
+        self.put('logs/notice-close.jsonl.1', '{"stage":"button:clicked","session":"notice-fixture"}\n')
+        self.put('logs/danmaku-motion.jsonl', '{"stage":"sample","cookie":"PRIVATE_TRACE_SECRET"}\n'
+                 '{"stage":"sample","session":"motion-fixture"}\n{"unfinished":')
+        for name in ('control-swap', 'wall-replacement', 'sc-paint', 'unrelated'):
+            self.put('logs/' + name + '.jsonl', 'DO_NOT_COLLECT_FIXED_OR_UNKNOWN')
+        self.put('logs/sc-paint/source-left.png', 'DO_NOT_COLLECT_SC_IMAGE')
+        self.put('ddm-build.json', '{"version":"fixture","source_commit":"0123456789abcdef", "diagnostics_protocol":1}')
+        entries = self.collect()
+        report = json.loads(entries['specialized-diagnostics.json'])
+        self.assertEqual(report['status'], 'observed')
+        files = {row['log']: row for row in report['files']}
+        self.assertEqual(files['logs/folder-motion.jsonl']['stages'], {'folder-motion': 1})
+        self.assertEqual(files['logs/notice-close.jsonl.1']['sessions'], ['notice-fixture'])
+        self.assertGreater(files['logs/danmaku-motion.jsonl']['incomplete_lines'], 0)
+        self.assertNotIn('PRIVATE_TRACE_SECRET', str(entries))
+        self.assertNotIn('DO_NOT_COLLECT', str(entries))
+        build = json.loads(entries['software.json'])['ddm-build.json']
+        self.assertEqual(build['source_commit'], '0123456789abcdef')
+        self.assertEqual(build['diagnostics_protocol'], 1)
+
+    def test_missing_specialized_logs_do_not_claim_normality(self):
+        entries = self.collect()
+        report = json.loads(entries['specialized-diagnostics.json'])
+        self.assertEqual(report['status'], 'not_recorded')
+        self.assertEqual(report['files'], [])
+
+    def test_folder_model_evidence_is_summarized_as_observation_not_a_root_cause(self):
+        rows = [{'phase': 'folder-motion', 'schema': 2,
+                 'evidence_after': {'in_transition': moving, 'mismatches': 2}}
+                for moving in (True, False)]
+        self.put('logs/folder-motion.jsonl', '\n'.join(json.dumps(row) for row in rows))
+        report = json.loads(self.collect()['specialized-diagnostics.json'])
+        observed = report['files'][0]
+        self.assertEqual(observed['folder_evidence_records'], 2)
+        self.assertEqual(observed['settled_layout_mismatch_records'], 1)
+        self.assertIn('不能证明根因', report['note'])
+        self.assertIn('Paint为事件派发', report['note'])
+
+    def test_specialized_log_count_and_tail_are_bounded(self):
+        names = ('folder-motion', 'responsiveness', 'notice-close', 'danmaku-motion', 'drag-windows')
+        for name in names:
+            for suffix in ('', '.1', '.2', '.3', '.4', '.5'):
+                self.put('logs/' + name + '.jsonl' + suffix, '{"phase":"fixture"}\n')
+        self.put('logs/diagnostic-session.jsonl', 'DO_NOT_KEEP_OLD_HEAD\n' + ' ' * (2 * 1024 * 1024)
+                 + '\n{"stage":"session-start","mode":"folders","run":"last"}\n')
+        entries = self.collect()
+        report = json.loads(entries['specialized-diagnostics.json'])
+        self.assertEqual(len(report['files']), 24)
+        self.assertNotIn('DO_NOT_KEEP_OLD_HEAD', str(entries))
+        self.assertIn('session-start', entries['logs/diagnostic-session.jsonl'])
+
+    def test_capture_command_rejects_old_versions_and_unknown_modes_without_launching(self):
+        for mode in ('folders', 'not-a-mode'):
+            result = subprocess.run([str(self.driver), '--capture-command', str(self.app), mode],
+                                    capture_output=True, timeout=20)
+            self.assertEqual(result.returncode, 1)
+        self.put('ddm-build.json', '{"version":"fixture","diagnostics_protocol":1}')
+        self.put('DDMonitorCE.exe', 'This fixture must never execute')
+        result = subprocess.run([str(self.driver), '--capture-command', str(self.app), 'folders'],
+                                capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        command = json.loads(result.stdout)
+        self.assertEqual(command['executable'], str(self.app / 'DDMonitorCE.exe'))
+        self.assertEqual(command['arguments'], '--diagnose-session=folders')
+        self.assertEqual(command['working_directory'], str(self.app))
+        MODES = runpy.run_path(str(ROOT / 'ddm/diagnostic_session.py'))['MODES']
+        self.assertEqual(command['modes'], list(MODES))
+
     def test_recording_logs_are_bounded_redacted_and_keep_expiry_evidence(self):
         folder = self.case / 'recordings'
         parts = folder / '.ddm-parts'
@@ -397,6 +468,11 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'layout passed', result.stdout)
 
+    def test_optional_capture_selection_is_preparation_only(self):
+        result = subprocess.run([str(self.driver), '--capture-guidance', str(self.app)], capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(b'optional capture guidance passed', result.stdout)
+
     def test_collects_version_configuration_plugins_and_only_selected_logs(self):
         self.put('ddm-build.json', '\ufeff' + json.dumps({'version': '0.5.2', 'platform': 'windows-x64'}))
         self.put('RELEASE-v0.5.2.md', '# 0.5.2 更新\n敏感正文不收集')
@@ -497,7 +573,7 @@ class DiagnosticTests(unittest.TestCase):
             result = subprocess.run(['powershell', '-NoProfile', '-File', str(ROOT / 'dev/build_diagnostics.ps1'),
                                      '-OutDir', str(output), *arguments], capture_output=True, timeout=40)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.2.zip') as archive:
+        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.3.zip') as archive:
             self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
             for name in archive.namelist():
                 self.assertEqual(archive.read(name), (standalone / name).read_bytes())

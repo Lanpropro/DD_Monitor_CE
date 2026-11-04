@@ -18,6 +18,8 @@
 
 开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
 
+未决问题的显式专项入口由 `ddm/diagnostic_session.py` 统一安装；通知、弹幕数值运动和原生拖放采集分别位于 `notice_diagnostics.py`、`danmaku_diagnostics.py`、`drag_diagnostics.py`，原 `dev/diagnose_*` 保留兼容入口。独立诊断工具只在点击专项启动按钮后启动主软件，生成包时仅收集白名单已有日志，不自动采集或上传。
+
 直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
 
 房间头像、封面和横幅的加载协调及界面回填集中在 `ddm/room_images.py`；主窗口保留原入口和调用时加载器构造器，继续持有线程引用及退出等待。缓存读写与下载仍由 `ddm/images.py` 实现，图片协调器不负责账号头像和播放器。
@@ -35,6 +37,9 @@
 
 ### 独立诊断工具
 
+- `dev/watch_development_hang.py`
+- `dev/selfcheck_development_hang.py`
+
 - `tools/diagnostics/Collector.cs`
 - `tools/diagnostics/NativeDependencies.cs`
 - `tools/diagnostics/Program.cs`
@@ -42,6 +47,8 @@
 - `dev/build_diagnostics.ps1`
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
+- `dev/selfcheck_diagnostic_session.py`
+- `dev/selfcheck_sidebar_diagnostics.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
@@ -376,6 +383,7 @@
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_user_notice.py`
 - `dev/selfcheck_video_danmaku.py`
+- `dev/selfcheck_danmaku_color.py`
 - `dev/selfcheck_video_danmaku_controls.py`
 - `dev/selfcheck_video_danmaku_native.py`
 - `dev/selfcheck_video_danmaku_quick.py`

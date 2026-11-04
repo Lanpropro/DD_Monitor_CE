@@ -3,10 +3,11 @@ import os
 import ctypes
 from pathlib import Path
 import sys
+import time
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QRect, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -15,6 +16,43 @@ os.environ.setdefault('DDM_NO_SAVE', '1')
 
 from ddm import theme
 from ddm.app import MainWindow
+
+
+class HandoffEvents(QObject):
+    def __init__(self, target, peers, layer):
+        super().__init__()
+        self.target = target
+        self.peers = peers
+        self.layer = layer
+        self.super_chats = [tile.video_danmaku.super_chat_overlay for tile in (target, *peers)]
+        self.comments_held = []
+        self.enter = []
+        self.leave = []
+        self.native_cover = []
+        target.installEventFilter(self)
+        for peer in peers:
+            peer.installEventFilter(self)
+
+    @staticmethod
+    def native_visible(widget):
+        return bool(ctypes.windll.user32.IsWindowVisible(ctypes.c_void_p(int(widget.internalWinId()))))
+
+    def eventFilter(self, watched, event):
+        if watched in self.peers and event.type() == QEvent.Hide:
+            self.native_cover.append(self.target.isWindow() and self.native_visible(self.target))
+        if watched is self.target and watched.isWindow():
+            if event.type() == QEvent.Show:
+                self.enter.append(all(peer.isVisible() for peer in self.peers))
+            elif event.type() == QEvent.Hide:
+                self.leave.append(all(peer.isVisible() and self.native_visible(peer) for peer in self.peers))
+            if event.type() in (QEvent.Show, QEvent.Hide):
+                self.comments_held.append(all(not sc.isVisible() for sc in self.super_chats)
+                    and (self.layer is None or (self.layer._presentation_changing and not self.layer.window.isVisible())))
+        return False
+
+    def detach(self):
+        for widget in (self.target, *self.peers):
+            widget.removeEventFilter(self)
 
 
 def main():
@@ -26,7 +64,7 @@ def main():
     rooms = [dict(room_id=str(9800+i), uname=f'Fixture {i}', live=False) for i in range(9)]
     with ExitStack() as stack:
         for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats',
-                     'refresh_account', 'load_room_avatars', 'load_cached_avatars',
+                     'refresh_account', 'load_room_avatars', 'load_cached_avatars', 'sync_danmaku',
                      'load_cached_covers', '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, name, Mock()))
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x3',
@@ -42,6 +80,19 @@ def main():
         stack.enter_context(patch.object(presentation, 'enter', side_effect=lambda tile: enter(tile, area)))
         window.show()
         app.processEvents()
+        layer = window.wall.ensure_quick_danmaku_layer()
+        now = int(time.time())
+        for tile in (window.wall.tiles[0], window.wall.tiles[4]):
+            owner = tile.video_danmaku
+            owner.set_active(True)
+            owner.set_enabled(True)
+            assert owner.add_event({'text': 'Local handoff fixture'})
+            owner.set_super_chats([dict(kind='super_chat', id='local-sc', uid='1', uname='Local SC',
+                price=30, message='Local handoff SC', start_time=now, end_time=now+120)])
+        QTest.qWait(180)
+        assert window.wall.tiles[0].video_danmaku.super_chat_overlay.isVisible()
+        if layer is not None:
+            assert layer.items, 'Shared layer fixture did not receive its comments'
         try:
             tiles = list(window.wall.tiles)
             native = app.platformName() == 'windows'
@@ -55,9 +106,12 @@ def main():
             players = {tile: Mock() for tile in tiles}
             window.players = dict(players)
             for target in (tiles[4], tiles[0], tiles[1], tiles[8]):
+                handoff = HandoffEvents(target, [tile for tile in tiles if tile is not target], layer)
                 with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
                     window._on_fullscreen(target)
                     assert relayout.call_count == 0, 'Independent fullscreen must not relayout the playback wall'
+                assert handoff.enter and all(handoff.enter), 'Peers disappeared before the presentation was shown'
+                assert handoff.native_cover and all(handoff.native_cover), 'Peers hidden before fullscreen HWND became visible'
                 assert window.wall.visible_tiles() == [target]
                 assert window._fullscreen_tile is target and window.sidebar.isVisible()
                 assert target.isWindow() and target.geometry() == area
@@ -80,6 +134,13 @@ def main():
                 with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
                     window._exit_fullscreen()
                     assert relayout.call_count == 0, 'Restoring the original rectangle must not relayout the wall'
+                assert handoff.leave and all(handoff.leave), 'Presentation disappeared before peers were restored'
+                assert handoff.comments_held and all(handoff.comments_held), 'Peer comments or SC leaked during presentation transfer'
+                if layer is not None:
+                    assert not layer._presentation_changing
+                for tile in (tiles[0], tiles[4]):
+                    assert [chat['id'] for chat in tile.video_danmaku.super_chats] == ['local-sc']
+                handoff.detach()
                 assert window.wall.visible_tiles() == tiles, 'Every pane must be visible on return, without staggered reveal'
                 assert not window.wall._pending_reveal and not window.wall._defer_show
                 assert not window.wall._fullscreen_layout_pending
@@ -93,6 +154,11 @@ def main():
                 if native:
                     assert int(window.winId()) == handles
                     assert [int(tile.video.winId()) for tile in tiles] == video_handles
+            tiles[7].hide()
+            window._on_fullscreen(tiles[0])
+            window._exit_fullscreen()
+            assert not tiles[7].isVisible(), 'A previously hidden pane must stay hidden on return'
+            tiles[7].show()
             window._on_fullscreen(tiles[0])
             window.hide()
             app.processEvents()
@@ -109,7 +175,7 @@ def main():
             app.processEvents()
             window.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    print('PASS: independent fullscreen, no wall relayout, original pane rectangles, shortcuts and HWND/player continuity')
+    print('PASS: visible wall handoff, shared comments held during transfer, no wall relayout, original panes, shortcuts and HWND/player continuity')
 
 
 if __name__ == '__main__':

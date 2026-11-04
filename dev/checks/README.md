@@ -11,7 +11,10 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
+| [selfcheck_development_hang](../selfcheck_development_hang.py) | `offline`；本机开发入口的外部看门狗、只采调用栈、目标进程退出后结束；不作为真实卡死定位证据 |
 | [selfcheck_responsiveness](../selfcheck_responsiveness.py) | `smoke` / `offline` |
+| [selfcheck_diagnostic_session](../selfcheck_diagnostic_session.py) | `offline`；隔离进程验证未决专项启动、手动现场标记、列表快照与消息隐私，不替代真实故障复现 |
+| [selfcheck_sidebar_diagnostics](../selfcheck_sidebar_diagnostics.py) | `offline`；模型对照、旧动画目标、拖放恢复、原生窗口只读、环形与记录大小上限、隐私；Windows单项原生后端补查现有HWND，不作为真实故障复现 |
 
 - 当前回归：`repository`、`smoke`、`offline`、`native`、`live` 中明确登记的脚本；其中 smoke 复用离屏回归并增加临时插件接口检查，每个 PR 自动运行。
 - 待复核／历史诊断：下表标记“单项执行前核对”的脚本。这个标记表示尚未批准批量执行，不代表已废弃；再次使用前核对当前断言和隔离条件，通过后再纳入套件。
@@ -54,7 +57,7 @@
 | [selfcheck_customization_plan](../selfcheck_customization_plan.py) | `repository` |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
-| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台 Qt 消息 |
+| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台消息；字体库info原生过滤、并发回调、warning与fatal保留 |
 | [selfcheck_logging](../selfcheck_logging.py) | `offline`；临时日志、脱敏、轮转、启动失败与线程异常 |
 | [selfcheck_readme](../selfcheck_readme.py) | `repository` |
 | [selfcheck_repository_files](../selfcheck_repository_files.py) | `repository` |
@@ -156,7 +159,7 @@
 | [selfcheck_douyu_transport](../selfcheck_douyu_transport.py) | 本机 HTTP；边缘源 TLS 密码套件兼容范围、证书校验及转发会话注入 |
 | [selfcheck_douyu_quality_order](../selfcheck_douyu_quality_order.py) | 离线替身；斗鱼 2K 菜单顺序和原生取流档位映射 |
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 离屏纯画质／取流逻辑；隔离原生呈现，窗口生命周期另见下项 |
-| [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | Windows 原生单项；固定屏幕外且不接受焦点，验证独立呈现、零画面墙重排、原位置恢复、快捷键归属与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
+| [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | Windows 原生单项，包含于根 `run.cmd --check-fullscreen-layers`；固定屏幕外且不接受焦点，验证进入先显示全屏 HWND、退出先恢复其他格子、共享弹幕及浮动 SC 转移、留言保留、零画面墙重排、原位置恢复、快捷键与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
 | [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
 | [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
@@ -206,7 +209,8 @@
 | [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行 |
 | [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、两种预览与实际尺寸位置对照、紧凑控件及外置单位、透明度、正文留白与背景混色；合成消息、隔离数据 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline`；含后台尺寸重绘、最终像素／进度、两个尺寸缓存、旧结果丢弃与 GUI 事件交付 |
-| [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline` |
+| [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline`；含按格独立设置、全局隔离、SC 范围、全屏、换格、空格及重启恢复 |
+| [selfcheck_danmaku_color](../selfcheck_danmaku_color.py) | `offline`；根入口 `run.cmd --check-danmaku-color` 另验 Windows Quick RGB 纹理；合成文字，无直播连接 |
 | [selfcheck_video_danmaku_native](../selfcheck_video_danmaku_native.py) | 单项执行前核对 |
 | [selfcheck_video_danmaku_quick](../selfcheck_video_danmaku_quick.py) | `native` |
 
