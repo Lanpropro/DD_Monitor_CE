@@ -380,6 +380,7 @@
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_user_notice.py`
 - `dev/selfcheck_video_danmaku.py`
+- `dev/selfcheck_danmaku_color.py`
 - `dev/selfcheck_video_danmaku_controls.py`
 - `dev/selfcheck_video_danmaku_native.py`
 - `dev/selfcheck_video_danmaku_quick.py`

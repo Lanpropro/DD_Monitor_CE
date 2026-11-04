@@ -124,6 +124,8 @@ DEFAULT_SETTINGS = {
     "video_danmaku_size": 28,
     "video_danmaku_speed": 100,
     "video_danmaku_opacity": 80,
+    "video_danmaku_color_mode": "original",
+    "video_danmaku_color": "#ffffff",
     "super_chat_enabled": True,
     "super_chat_opacity": 80,
     "super_chat_collapse_delay": 7,
