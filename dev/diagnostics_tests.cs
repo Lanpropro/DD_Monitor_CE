@@ -10,6 +10,21 @@ using DDMonitorDiagnostics;
 
 internal static class DiagnosticsTests
 {
+    sealed class QuietLayoutHost : Form
+    {
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams
+        {
+            get { var value = base.CreateParams; value.ExStyle |= 0x08000000; return value; }
+        }
+        internal QuietLayoutHost()
+        {
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(-14000, -14000);
+            ShowInTaskbar = false;
+            FormBorderStyle = FormBorderStyle.None;
+        }
+    }
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern IntPtr GetWindow(IntPtr window, uint command);
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -27,6 +42,14 @@ internal static class DiagnosticsTests
                 return 0;
             }
             if (NativeDependencies.TryRun(args)) return 0;
+            if (args[0] == "--capture-command")
+            {
+                var command = new Collector(args[1]).CaptureCommand(args[2]);
+                Console.WriteLine(new JavaScriptSerializer().Serialize(new {
+                    executable = command.FileName, arguments = command.Arguments,
+                    working_directory = command.WorkingDirectory, modes = Collector.CaptureModes }));
+                return 0;
+            }
             if (args[0] == "--auto-exit")
             {
                 foreach (bool enabled in new[] { false, true })
@@ -73,10 +96,19 @@ internal static class DiagnosticsTests
             }
             if (args[0] == "--layout")
             {
+                using (var host = new QuietLayoutHost())
                 using (var form = new DiagnosticForm(args[1]))
                 {
-                    var handle = form.Handle;
                     form.Size = form.MinimumSize;
+                    host.ClientSize = form.ClientSize;
+                    form.MinimumSize = Size.Empty;
+                    form.TopLevel = false;
+                    form.FormBorderStyle = FormBorderStyle.None;
+                    form.Dock = DockStyle.Fill;
+                    host.Controls.Add(form);
+                    form.Show();
+                    host.Show();
+                    Application.DoEvents();
                     form.PerformLayout();
                     var pending = new System.Collections.Generic.Queue<Control>();
                     pending.Enqueue(form);
@@ -94,9 +126,86 @@ internal static class DiagnosticsTests
                     var exitOption = (CheckBox)typeof(DiagnosticForm).GetField("exitAfterSuccess", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                     if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
                         throw new Exception("Auto-exit option clipped at minimum window size");
+                    var captureMode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    form.PerformLayout();
+                    if (captureMode.Items.Count != Collector.CaptureModes.Length + 1 || captureMode.Width < 170 || captureMode.Height < 20)
+                        throw new Exception("Capture selection clipped or incomplete: " + captureMode.Items.Count + ", " + captureMode.Size);
+                    var start = (Button)typeof(DiagnosticForm).GetField("startCapture", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var directory = (TextBox)typeof(DiagnosticForm).GetField("directory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var frame = captureMode.Parent;
+                    if (!(frame is DiagnosticInput) || captureMode.DrawMode != DrawMode.OwnerDrawFixed)
+                        throw new Exception("Capture selector must use the shared input surface");
+                    if (frame.Top != start.Top || frame.Height != start.Height)
+                        throw new Exception("Capture input and action must align vertically");
+                    if (frame.PointToScreen(Point.Empty).X != directory.Parent.PointToScreen(Point.Empty).X)
+                        throw new Exception("Capture input must share the main input left edge: " + frame.PointToScreen(Point.Empty).X + " / " + directory.Parent.PointToScreen(Point.Empty).X);
+                    if (hint.PointToScreen(Point.Empty).X != frame.PointToScreen(Point.Empty).X)
+                        throw new Exception("Capture guidance must align with the input");
+                    for (int index = 0; index < captureMode.Items.Count; index++)
+                    {
+                        captureMode.SelectedIndex = index;
+                        required = TextRenderer.MeasureText(hint.Text, hint.Font,
+                            new Size(hint.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
+                        if (required.Height > hint.ClientSize.Height) throw new Exception("Capture guidance clipped: " + index + ", required=" + required + ", actual=" + hint.ClientSize);
+                    }
+                    captureMode.SelectedIndex = 0;
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    form.PerformLayout();
+                    if (args.Length > 2)
+                    {
+                        form.PerformLayout();
+                        using (var bitmap = new Bitmap(form.Width, form.Height))
+                        {
+                            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+                            bitmap.Save(args[2]);
+                        }
+                    }
                     Console.WriteLine("layout passed");
                     return 0;
                 }
+            }
+            if (args[0] == "--capture-guidance")
+            {
+                using (var form = new DiagnosticForm(args[1]))
+                {
+                    var handle = form.Handle;
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var mode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", flags).GetValue(form);
+                    var start = (Button)typeof(DiagnosticForm).GetField("startCapture", flags).GetValue(form);
+                    var generate = (Button)typeof(DiagnosticForm).GetField("generate", flags).GetValue(form);
+                    var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", flags).GetValue(form);
+                    var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", flags).GetValue(form);
+                    var section = (TableLayoutPanel)mode.Parent.Parent.Parent;
+                    if (section.RowStyles[1].Height != 0) throw new Exception("Advanced capture must default to collapsed");
+                    if (mode.SelectedIndex != 0 || start.Enabled || !generate.Enabled || !hint.Text.Contains("无需启动"))
+                        throw new Exception("Existing-log collection must be the usable default");
+                    start.PerformClick(); // Disabled: must not attempt to start any program.
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    if (section.RowStyles[1].Height <= 0 || start.Enabled) throw new Exception("Expanding must not select or start capture");
+                    var before = Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
+                    for (int index = 1; index < mode.Items.Count; index++)
+                    {
+                        mode.SelectedIndex = index;
+                        if (!start.Enabled || !generate.Enabled || !hint.Text.Contains("仅选择不会"))
+                            throw new Exception("Selection must be preparation, without requiring capture before packaging");
+                        if (index == 7 && !hint.Text.Contains("本地中继")) throw new Exception("Deep capture impact missing");
+                    }
+                    if (!before.SequenceEqual(Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p)))
+                        throw new Exception("Selecting capture type changed the application files");
+                    mode.SelectedIndex = 0;
+                    if (start.Enabled || !generate.Enabled) throw new Exception("Optional capture did not reset");
+                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
+                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
+                    if (section.RowStyles[1].Height != 0 || !generate.Enabled) throw new Exception("Advanced capture did not collapse");
+                }
+                Console.WriteLine("optional capture guidance passed");
+                return 0;
             }
             if (args[0] == "--gallery")
             {

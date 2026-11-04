@@ -19,6 +19,14 @@
 
 ## 独立诊断工具
 
+本机开发版可通过忽略于 Git 的 `work/development-hang-monitor.json` 启用
+[外部卡死看门狗](watch_development_hang.py)。配置字段为 `enabled`、`py_spy`（工具绝对路径）和
+`native_sampler`（已验证的原生调用栈采样器路径）。正常根目录 `run.cmd` 启动时会同时启动独立进程，
+仅观察本次客户端 PID；预留启动时间后，每两秒检查窗口响应，连续三次超时才采集两份无局部变量的 Python 栈
+和原生函数/模块栈，写入 `logs/development-hang/<会话>/`。恢复后可再次触发；客户端退出后观察进程自行退出。
+配置缺失、禁用、自动化隔离检查或非 Windows 环境均不启动，不随正式 EXE 默认启用，也不自动上传。
+专项：`python dev/run_checks.py --script selfcheck_development_hang`。测试只验证采集机制，真实故障仍需现场栈。
+
 使用 [build_diagnostics.ps1](build_diagnostics.ps1) 构建无需 Qt/Python 的 GUI 诊断 EXE；收集范围、脱敏和分发方式见[工具说明](../tools/diagnostics/README.md)。专项验证：`python dev/selfcheck_diagnostics.py`，使用临时模拟目录。
 
 ## 常用命令

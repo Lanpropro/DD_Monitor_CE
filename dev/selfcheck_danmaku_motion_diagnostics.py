@@ -61,6 +61,12 @@ class MotionDiagnosticsTests(unittest.TestCase):
                 self.assertFalse(timer.isActive())
                 for row in rows:
                     self.assertFalse({'text', 'message', 'cookie', 'frames'} & row.keys())
+                trace.arm()
+                self.assertTrue(timer.isActive(), 'A later user marker must restart bounded sampling')
+                for _ in range(30):
+                    timer.timeout.emit()
+                self.assertFalse(timer.isActive())
+                self.assertEqual(len(trace.path.read_text().splitlines()), trace.LIMIT * 2)
             finally:
                 layer.remove_group(group)
                 layer.window.hide()
