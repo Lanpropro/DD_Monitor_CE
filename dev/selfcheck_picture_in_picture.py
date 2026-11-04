@@ -85,6 +85,15 @@ def exercise(app, window, native, directory):
             overlay = tile.video_danmaku.super_chat_overlay
             assert overlay.isVisible()
             assert overlay.windowHandle().transientParent() is pip.floating.windowHandle()
+        pip.manage()
+        pip.dialog.start.click()
+        QTest.qWait(60)
+        assert all(tile.video_danmaku.super_chat_overlay.isVisible() for tile in tiles[:2]), 'Applying an unchanged composition must retain SC'
+        pip.manage()
+        QTest.qWait(40)
+        pip.dialog.reject()
+        QTest.qWait(60)
+        assert all(tile.video_danmaku.super_chat_overlay.isVisible() for tile in tiles[:2]), 'Cancel must restore SC after closing the modal picker'
     assert wall.corner_ratios() == original_ratios[0] and wall.layout_ratios() == original_ratios[1]
     for mode in ('light', 'dark'):
         window.set_appearance(mode)

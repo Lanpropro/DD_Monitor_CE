@@ -229,8 +229,12 @@ class PictureInPicture(QObject):
             self.selection = [index for index, tile in enumerate(self.host.wall.tiles[:capacity])
                               if tile.room.get('room_id')]
         self.dialog = PictureInPictureDialog(self)
-        self.dialog.finished.connect(lambda _result: setattr(self, 'dialog', None))
+        self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()
+
+    def _finish_manage(self, _result):
+        self.dialog = None
+        self._sync_overlays()
 
     def start(self, selection, columns=0):
         wall = self.host.wall
@@ -268,7 +272,7 @@ class PictureInPicture(QObject):
         wall = self.host.wall
         layer = wall._quick_danmaku_layer
         if layer is not None:
-            layer.set_presentation_window(None)
+            layer.set_presentation_window(self.host._fullscreen_tile)
             layer.show()
         for tile in wall.tiles:
             tile.video_danmaku.super_chat_overlay.set_presentation_changing(False)
