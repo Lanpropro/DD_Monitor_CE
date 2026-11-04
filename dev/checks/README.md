@@ -156,7 +156,7 @@
 | [selfcheck_douyu_transport](../selfcheck_douyu_transport.py) | 本机 HTTP；边缘源 TLS 密码套件兼容范围、证书校验及转发会话注入 |
 | [selfcheck_douyu_quality_order](../selfcheck_douyu_quality_order.py) | 离线替身；斗鱼 2K 菜单顺序和原生取流档位映射 |
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 离屏纯画质／取流逻辑；隔离原生呈现，窗口生命周期另见下项 |
-| [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | Windows 原生单项；固定屏幕外且不接受焦点，验证独立呈现、零画面墙重排、原位置恢复、快捷键归属与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
+| [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | Windows 原生单项，包含于根 `run.cmd --check-fullscreen-layers`；固定屏幕外且不接受焦点，验证进入先显示全屏 HWND、退出先恢复其他格子、共享弹幕及浮动 SC 转移、留言保留、零画面墙重排、原位置恢复、快捷键与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
 | [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
 | [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
