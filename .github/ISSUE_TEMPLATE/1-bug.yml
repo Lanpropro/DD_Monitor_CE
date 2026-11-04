@@ -1,0 +1,95 @@
+name: 问题反馈
+description: 报告播放、弹幕、界面、录制或其他异常，偶发问题也欢迎反馈。
+title: "[问题反馈] "
+labels: ["bug", "待确认"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢帮助改进 DD监控室CE！请先搜索是否已有相同问题；偶发或暂时无法复现的问题也可以提交。
+        请勿填写密码、Cookie、账号文件或包含私人内容的直播链接。附件请先检查并遮挡个人信息。
+  - type: input
+    id: version
+    attributes:
+      label: 软件版本
+      description: 填写实际使用的版本；源码开发版可附提交编号，无需为了反馈先升级。
+      placeholder: 例如 0.7.1，或源码开发版及提交编号
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: 安装与启动方式
+      options:
+        - 安装版
+        - 便携版 ZIP
+        - 源码开发版（run.cmd）
+        - 其他或不确定
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: 操作系统
+      placeholder: 例如 Windows 11 24H2，或 Windows 10 22H2
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 相关环境与设置（可选）
+      description: 只填写与问题有关的内容；平台问题可补充平台及插件版本，界面问题可补充布局、全屏与缩放比例。
+      placeholder: 显卡/驱动、解码方式、平台及插件版本、布局、屏幕缩放，或最近改动的设置。
+    validations:
+      required: false
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: 复现情况
+      options:
+        - 每次都能复现
+        - 偶发，操作多次才出现
+        - 只出现过一次，目前无法复现
+        - 尚不确定
+    validations:
+      required: true
+  - type: input
+    id: happened
+    attributes:
+      label: 问题发生时间（可选）
+      description: 尽量填写日期和大致时间，便于对照日志。
+      placeholder: 例如 2026-11-05 15:30 左右（北京时间）
+    validations:
+      required: false
+  - type: textarea
+    id: actual
+    attributes:
+      label: 问题描述与实际表现
+      placeholder: 当时在做什么？画面、声音或操作出现了什么异常？切换窗口或重启后是否恢复？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤（可选）
+      description: 不清楚复现方式时可留空，或填写异常前最后进行的操作。
+      placeholder: |
+        1. 打开……
+        2. 切换……
+        3. 出现……
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为（可选）
+      placeholder: 你期望软件如何显示或响应？
+    validations:
+      required: false
+  - type: textarea
+    id: attachments
+    attributes:
+      label: 诊断包、截图或视频（可选）
+      description: 将文件拖入此处或粘贴附件链接。诊断工具可直接打包已有日志，一般反馈无需启动专项；没有附件也可以提交。
+    validations:
+      required: false
