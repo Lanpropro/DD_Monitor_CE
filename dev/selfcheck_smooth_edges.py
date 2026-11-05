@@ -127,7 +127,7 @@ class SmoothEdges(unittest.TestCase):
                     indicator = LoadingIndicator(text=text, icon=icon)
                     try:
                         indicator.ensurePolished()
-                        indicator.start()
+                        indicator._sync_size()
                         self.assertTrue(indicator.mask().isEmpty())
                         for scale in (1, 1.25, 1.75, 2):
                             output = canvas(indicator.width(), indicator.height(), scale)
