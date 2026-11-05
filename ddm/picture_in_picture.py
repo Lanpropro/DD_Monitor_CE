@@ -582,6 +582,9 @@ class PictureInPictureWindow(QWidget):
 
     def eventFilter(self, watched, event):
         kind = event.type()
+        if (self._live_move is not None and self._live_move.system_moving
+                and kind in (QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease)):
+            return False
         if (kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and isinstance(watched, QWidget)
                 and watched.window() in (self, self.tools, self.audio_tools)):
             pressed = QKeySequence(event.keyCombination()).toString()
@@ -681,7 +684,7 @@ class PictureInPictureWindow(QWidget):
                     if not self._geometry_timer.isActive():
                         self._geometry_timer.start()
                 else:
-                    self._move_composition(rect)
+                    self._move_composition(rect, native_input=event.spontaneous())
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
             source, start = self._reorder_drag
@@ -711,7 +714,7 @@ class PictureInPictureWindow(QWidget):
             return True
         return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
 
-    def _move_composition(self, rect):
+    def _move_composition(self, rect, *, native_input=False):
         if (self._live_move is None and sys.platform == 'win32'
                 and QApplication.platformName() == 'windows'):
             from .picture_in_picture_resize import LiveMove
@@ -719,7 +722,12 @@ class PictureInPictureWindow(QWidget):
             if not self._live_move.begin():
                 self._live_move = None
         if self._live_move is not None:
-            self._live_move.set_geometry(rect)
+            live = self._live_move
+            live.set_geometry(rect)
+            if native_input and live.run_system_move() and self._live_move is live:
+                self._gesture = None
+                live.finish()
+                self._poll_tools()
         else:
             self.move(rect.topLeft())
 
@@ -785,6 +793,8 @@ class PictureInPictureWindow(QWidget):
         self.controller.restore(activate=True)
 
     def _escape(self):
+        if self._live_move is not None and self._live_move.system_moving:
+            return
         if self.audio_panel.isVisible():
             self.audio_panel.hide()
         else:

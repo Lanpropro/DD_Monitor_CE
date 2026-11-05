@@ -376,6 +376,38 @@ def check_resize_burst(pip, wall):
     QTest.qWait(50)
 
 
+def check_native_system_move(pip):
+    from ddm.picture_in_picture_resize import LiveMove
+    floating = pip.floating
+    live = LiveMove(floating)
+    floating._live_move = live
+    floating._gesture = (QPoint(), floating.geometry(), Qt.Edges())
+    api = live.user32 = Mock()
+    try:
+        floating.grabMouse()
+        api.GetAsyncKeyState.return_value = 0
+        assert not live.run_system_move()
+        assert QWidget.mouseGrabber() is floating
+        destination = floating.geometry().translated(47, 21)
+        def native_loop(*_args):
+            assert live.system_moving and QWidget.mouseGrabber() is not floating
+            floating._escape()
+            assert pip.active, 'The native loop owns Esc while moving'
+            live.preview.setGeometry(destination)
+        api.GetAsyncKeyState.side_effect = lambda key: 0x8000 if key == 1 else 0
+        api.SendMessageW.side_effect = native_loop
+        assert live.run_system_move() and not live.system_moving
+        assert live.preview.geometry() == destination
+        assert api.SendMessageW.call_args.args[1:] == (0x0112, 0xF012, 0)
+        api.GetAsyncKeyState.side_effect = lambda _key: 0x8000
+        assert live.run_system_move()
+        assert live.preview.geometry() == floating._gesture[1], 'Esc must cancel the move rather than close PiP'
+    finally:
+        floating._gesture = None
+        floating.releaseMouse()
+        live.stop()
+
+
 def check_quick_mask_batch():
     from ddm.video_danmaku_quick import _MovingDanmakuWindow
     window = _MovingDanmakuWindow()
@@ -645,6 +677,8 @@ def exercise(app, window, native, directory):
     check_floating_style(pip, wall, tiles, layer)
     check_audio_controls(pip)
     check_move_burst(pip)
+    if native:
+        check_native_system_move(pip)
     check_resize_burst(pip, wall)
     check_reordering(pip, players)
     check_buffer_scale(pip)
