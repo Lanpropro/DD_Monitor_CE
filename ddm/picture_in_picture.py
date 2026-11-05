@@ -198,7 +198,14 @@ class PictureInPictureButton(QPushButton):
         painter.setPen(Qt.NoPen)
         hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
         active = hovered or (self.keyboard_focus and self.hasFocus()) or self.isChecked()
-        painter.setBrush(theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170))
+        if self.kind == 'pin':
+            # Blue denotes the pinned state, including while the pointer stays
+            # over an unchecked button after clicking.
+            background = (theme.qcolor(theme.ACCENT) if self.isChecked()
+                          else QColor(45, 49, 55, 210) if active else QColor(0, 0, 0, 170))
+        else:
+            background = theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170)
+        painter.setBrush(background)
         painter.drawEllipse(QRectF(self.rect()))
         painter.setPen(QPen(QColor('#e7ebf0'), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)
@@ -289,9 +296,14 @@ class PictureInPictureWindow(QWidget):
                       for button in self.tools.findChildren(PictureInPictureButton))
         visible = (self.isVisible() and not self.isMinimized()
                    and self.controller.dialog is None and (hovered or focused))
-        self.tools.move(self.mapToGlobal(QPoint(self.width() - 88, 8)))
-        self.tools.setVisible(visible)
-        if visible:
+        position = self.mapToGlobal(QPoint(self.width() - 88, 8))
+        moved = self.tools.pos() != position
+        was_visible = self.tools.isVisible()
+        if moved:
+            self.tools.move(position)
+        if was_visible != visible:
+            self.tools.setVisible(visible)
+        if visible and (not was_visible or moved):
             self.tools.raise_()
 
     def _pointer_over(self):
@@ -305,9 +317,16 @@ class PictureInPictureWindow(QWidget):
             user32.WindowFromPoint.restype = wintypes.HWND
             user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
             user32.GetAncestor.restype = wintypes.HWND
+            user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+            user32.GetWindow.restype = wintypes.HWND
             user32.GetCursorPos(ctypes.byref(point))
             hit = user32.GetAncestor(user32.WindowFromPoint(point), 2)  # GA_ROOT
-            return bool(hit and hit in (int(self.internalWinId()), int(self.tools.internalWinId())))
+            roots = (int(self.internalWinId()), int(self.tools.internalWinId()))
+            while hit:
+                if hit in roots:
+                    return True
+                hit = user32.GetWindow(hit, 4)  # GW_OWNER, including our tooltip.
+            return False
         widget = QApplication.widgetAt(QCursor.pos())
         return widget is not None and widget.window() in (self, self.tools)
 
@@ -364,12 +383,16 @@ class PictureInPictureWindow(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._refresh_native_window()
+
+    def _refresh_native_window(self):
         self._apply_rounding()
+        self._apply_pin(self.controller.pinned)
 
     def event(self, event):
         result = super().event(event)
-        if event.type() == QEvent.DevicePixelRatioChange and hasattr(self, 'tools'):
-            QTimer.singleShot(0, self, self._apply_rounding)
+        if event.type() in (QEvent.DevicePixelRatioChange, QEvent.WinIdChange) and hasattr(self, 'tools'):
+            QTimer.singleShot(0, self, self._refresh_native_window)
         return result
 
     def moveEvent(self, event):
@@ -485,12 +508,23 @@ class PictureInPictureWindow(QWidget):
 
     def _pin(self, pinned):
         self.controller.pinned = pinned
-        # Updating the existing QWindow keeps native video and tool windows
-        # visible; QWidget.setWindowFlag hides and re-shows the whole group.
-        self.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
+        self._apply_pin(pinned)
         self.pin.setToolTip('已置顶，点击取消置顶' if pinned else '未置顶，点击置顶')
         for button in self.tools.findChildren(PictureInPictureButton):
             button.update()
+
+    def _apply_pin(self, pinned):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+            # Change only native Z order. Recomputing all Qt window flags can
+            # disturb alpha tool surfaces even without a QWidget Hide event.
+            user32.SetWindowPos(int(self.winId()), -1 if pinned else -2, 0, 0, 0, 0, 0x13)
+        else:
+            self.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
 
     def closeEvent(self, event):
         self.controller.restore(activate=True)
