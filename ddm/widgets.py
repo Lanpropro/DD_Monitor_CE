@@ -6572,8 +6572,6 @@ class Tile(QFrame):
         video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
         # 普通格子留边框，全屏视频贴齐窗口边缘。
         inset = 0 if fullscreen or compact else 1
-        if compact:
-            self.set_controls_visible(False)
         self.video.setGeometry(inset, inset, max(1, width - inset * 2),
                                max(1, video_height - inset))
         self._round_video()
@@ -7406,6 +7404,8 @@ class WallGrid(QWidget):
         for tile in self.tiles:
             tile.setProperty('pictureInPicture', tile in selected)
             _repolish(tile)
+            if tile in selected:
+                tile.set_controls_visible(False)
             if tiles is not None:
                 tile.setMinimumSize(0, 0)
         self._sync_danmaku_controls()

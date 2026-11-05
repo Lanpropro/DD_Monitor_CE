@@ -176,6 +176,30 @@ def check_native_corners(pip):
         QTest.qWait(80)
 
 
+def check_resize_burst(pip, wall):
+    floating = pip.floating
+    bounds = floating.geometry()
+    local = floating.rect().bottomRight() - QPoint(2, 2)
+    start = floating.mapToGlobal(local)
+    pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+    with patch.object(floating, 'setGeometry', wraps=floating.setGeometry) as apply_geometry:
+        for offset in range(1, 121):
+            delta = QPoint(offset, round(offset / floating.aspect))
+            pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        assert apply_geometry.call_count == 0, 'Pointer bursts must retain one latest geometry until the frame timer or release'
+        assert floating._geometry_timer.isActive()
+        pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
+        assert apply_geometry.call_count == 1, 'Releasing the pointer must apply the latest size exactly once'
+    assert floating._pending_geometry is None and not floating._geometry_timer.isActive()
+    assert wall.geometry() == floating.rect(), 'Wall geometry must be synchronized when resizing returns'
+    expected = pane_rectangles(len(wall.visible_tiles()), wall.rect(), pip.columns, wall.picture_in_picture_aspects)
+    assert [tile.geometry() for tile in wall.visible_tiles()] == expected
+    # This checks event coalescing and geometry consistency, not live-stream FPS
+    # or compositor tearing. The user's native trace is separate evidence.
+    floating.setGeometry(bounds)
+    QTest.qWait(50)
+
+
 def exercise(app, window, native, directory):
     pip, wall = window.picture_in_picture, window.wall
     tiles = list(wall.tiles)
@@ -244,6 +268,7 @@ def exercise(app, window, native, directory):
         if '--corners' in sys.argv:
             check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
+    check_resize_burst(pip, wall)
     pip.manage()
     pip.dialog.checks[3].setChecked(True)
     pip.dialog.reject()
@@ -303,7 +328,8 @@ def exercise(app, window, native, directory):
     with patch.object(pip.floating.tools.manage, 'underMouse', return_value=True), \
             patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=pip.floating.pin):
         image = pip.floating.tools.manage.grab().toImage()
-        assert image.pixelColor(12, 21).alpha() < 230, 'A stale hover bit must not flash the composition icon blue'
+        scale = image.devicePixelRatio()
+        assert image.pixelColor(round(12 * scale), round(21 * scale)).alpha() < 230, 'A stale hover bit must not flash the composition icon blue'
     player = window.players.get(tiles[0])
     before_aspects = list(wall.picture_in_picture_aspects)
     window.players[tiles[0]] = Mock(_prop=lambda name: {'dw': 800, 'dh': 600})

@@ -244,6 +244,7 @@ class PictureInPictureWindow(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.aspect = 16 / 9
         self._native_rounding = False
+        self._rounding_hwnd = None
         self._fitting = False
         self.resize(640, 360)
         self.box = QVBoxLayout(self)
@@ -252,6 +253,12 @@ class PictureInPictureWindow(QWidget):
         self.tools = PictureInPictureTools(self)
         self.pin = self.tools.pin
         self._gesture = None
+        self._pending_geometry = None
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.setTimerType(Qt.PreciseTimer)
+        self._geometry_timer.setInterval(16)
+        self._geometry_timer.timeout.connect(self._flush_geometry)
         self._surface_state = [(widget, widget.hasMouseTracking(),
                                 widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None)
                                for tile in controller.host.wall.tiles for widget in (tile, tile.video)]
@@ -289,6 +296,9 @@ class PictureInPictureWindow(QWidget):
             by_height = abs(event.size().height() - event.oldSize().height()) * self.aspect > abs(event.size().width() - event.oldSize().width())
             width = round(self.height() * self.aspect) if by_height else self.width()
             self.resize_to_width(width)
+        # The native top-level has already resized. Activate the wall layout in
+        # this event, before returning to queued pointer/paint events.
+        self.box.activate()
         self._apply_rounding()
         self._poll_tools()
 
@@ -314,10 +324,14 @@ class PictureInPictureWindow(QWidget):
         self.setProperty('presentationMask', region)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             from .window_fullscreen import _dwm_set
-            self._native_rounding = _dwm_set(int(self.winId()), 33, 2) == 0
-            _dwm_set(int(self.winId()), 34, 0xFFFFFFFE)
+            hwnd = int(self.winId())
+            if hwnd != self._rounding_hwnd:
+                self._rounding_hwnd = hwnd
+                self._native_rounding = _dwm_set(hwnd, 33, 2) == 0
+                _dwm_set(hwnd, 34, 0xFFFFFFFE)
         if self._native_rounding:
-            self.clearMask()
+            if not self.mask().isEmpty():
+                self.clearMask()
         else:
             self.setMask(region)
 
@@ -405,16 +419,30 @@ class PictureInPictureWindow(QWidget):
                         rect.moveRight(bounds.right())
                     if edges & Qt.TopEdge:
                         rect.moveBottom(bounds.bottom())
-                self.setGeometry(rect)
+                if edges:
+                    self._pending_geometry = rect
+                    if not self._geometry_timer.isActive():
+                        self._geometry_timer.start()
+                else:
+                    self.setGeometry(rect)
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
+            self._flush_geometry()
             self._gesture = None
             watched.releaseMouse()
             return True
         return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
 
+    def _flush_geometry(self):
+        self._geometry_timer.stop()
+        rect, self._pending_geometry = self._pending_geometry, None
+        if rect is not None:
+            self.setGeometry(rect)
+
     def stop(self):
         self._hover_timer.stop()
+        self._geometry_timer.stop()
+        self._pending_geometry = None
         QApplication.instance().removeEventFilter(self)
         self.tools.hide()
         self._gesture = None
