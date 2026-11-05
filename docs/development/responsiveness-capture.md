@@ -105,9 +105,13 @@ issue #149 附件确认0.7存在列表重叠及大段空白；故障约2026-11-0
 
 真实复现沿用 `run.cmd --diagnose-session=drag`，在平常的播放和关注列表中拖动排序、拖进播放格，分别记录拖影跟随、卡片让位和松手投放的表现。关注栏此前就由Qt控件绘制，不能把所有停顿概括成改用Qt绘制导致。
 
+2026-11-06真实记录中三次快速拖动的命中查询累计耗时占落点检查约71%～78%，排序预览明显较低。Windows后端改用 `ChildWindowFromPointEx` 跳过不可见及输入透明窗口，再以 `QWidget.find` / `childAt` 回到现有落点事件；不会为寻找落点临时改变拖影遮罩。全局坐标按所在屏幕原点和缩放换算，外部不透明窗口遮挡时不穿透投放；非Windows后端及未找到屏幕等情况保留Qt查询。依据：[Qt 6.11.2透明窗口查询实现](https://github.com/qt/qtbase/blob/v6.11.2/src/widgets/kernel/qapplication.cpp#L681)、[Windows命中接口](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-childwindowfrompointex)、[Qt多屏坐标](https://doc.qt.io/qt-6/highdpi.html#device-independent-screen-geometry)。原生命中正确性由CI专用小窗口验证，实际流畅度仍待同场景对照。
+
 每次结束或取消内部拖动时，`drag-windows.jsonl` 的 `internal-drag:finish` / `internal-drag:cancel` 增加 `timing` 汇总：`ghost-callback`（拖影刷新回调）、`target-tick`（落点检查计时器回调）、`hit-test`（该检查内的Qt命中查询）、`preview-layout`（排序预览）。每项只保存 `calls`、`totalMs`、`maxMs`、`maxGapMs`，不逐帧写盘或保留样本数组。间隔是回调完成时间之间的间隔，预览间隔也可能只是鼠标离开列表；不等于屏幕呈现帧间隔。嵌套耗时不能相加；汇总不包含释放时的投放业务或清理。
 
 显式 `run.cmd --diagnose-session=drag` 还对首次卡片快照（`pixmap`）和首次拖影窗口启动（`drag-start`）各进行一次函数归因，写为两条 `drag:profile`；复用已有函数位置/计数及耗时提取，每条最多30项，不记录参数或局部变量。对应阶段标记 `profiled=true`，采集会增加首次起拖开销，仅用于找具体调用，不与未分析的耗时直接比较或作为流畅度验收。普通启动的兼容拖动记录不启用函数分析。首次之后再上下快速拖动一次，用四组汇总区分拖影、命中查询和排序预览的工作。
+
+Windows批处理会把未加引号的 `--diagnose-session=drag` 拆为两个参数；启动脚本重组后再将完整模式传给main.py，带引号和不带引号均进入显式专项，不能落回普通兼容记录。启动器回归实际执行临时副本并核对Python收到的参数及入口，使用合成脚本，不启动真实客户端。
 
 2026-11-05真实视频与同会话记录确认五次卡片拖动，按下到会话启动约58～215ms（含移动越过拖动距离阈值的时间），持续移动期间没有现有阈值以上（8ms）的排序预览记录；这不排除多次短调用或呈现调度的问题。随后一次投放耗时约243ms，栈落在旧播放器释放，另行保留，不当作拖影跟随问题根因。
 

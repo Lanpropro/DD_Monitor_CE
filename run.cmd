@@ -18,6 +18,7 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 set "DIAG_ARG=%~1"
+if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
@@ -75,6 +76,8 @@ exit /b %errorlevel%
 :sidebarDragCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_drag_lifecycle
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_hit_test
 if errorlevel 1 exit /b %errorlevel%
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=offscreen"
@@ -154,7 +157,7 @@ if errorlevel 1 exit /b %errorlevel%
 exit /b %errorlevel%
 
 :diagnosticSession
-start "" "%PY%" "%PROJ%main.py" "%~1"
+start "" "%PY%" "%PROJ%main.py" "%DIAG_ARG%"
 exit /b 0
 
 :responsiveness

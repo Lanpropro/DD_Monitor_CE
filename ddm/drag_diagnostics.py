@@ -275,7 +275,8 @@ class Recorder:
         from ddm.preview import HoverPreview
         from ddm.widgets import NavItem, Sidebar
         from ddm.sidebar_drag import SidebarDrag
-        original_hit_test = QApplication.widgetAt
+        from ddm import sidebar_drag as drag_module
+        original_hit_test = drag_module.widget_at
         @functools.wraps(original_hit_test)
         def hit_test(*args):
             probe = self._target_probe
@@ -287,7 +288,7 @@ class Recorder:
             finally:
                 if probe is not None:
                     probe.record_timing('hit-test', started)
-        QApplication.widgetAt = staticmethod(hit_test)
+        drag_module.widget_at = hit_test
         original_press = NavItem.mousePressEvent
         @functools.wraps(original_press)
         def press(item, event):

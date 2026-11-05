@@ -23,9 +23,9 @@ class DragDiagnosticsTests(unittest.TestCase):
         from ddm import motion
         from ddm.preview import HoverPreview
         from ddm.sidebar_drag import SidebarDrag
+        from ddm import sidebar_drag as drag_module
         from PySide6.QtCore import QMimeData, QPoint, Qt
         from PySide6.QtGui import QDrag, QDragEnterEvent
-        from PySide6.QtWidgets import QApplication
 
         MainNoticesTests.setUpClass()
         fixture = MainNoticesTests()
@@ -33,7 +33,7 @@ class DragDiagnosticsTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 # Restore every temporary hook so this test cannot affect later checks.
-                stack.enter_context(patch.object(QApplication, 'widgetAt', QApplication.widgetAt))
+                stack.enter_context(patch.object(drag_module, 'widget_at', drag_module.widget_at))
                 for cls, names in ((TilePlayer, ('bind', 'stop', 'release', '_destroy_core')),
                                    (NavItem, ('mousePressEvent', '_drag_pixmap')),
                                    (Sidebar, ('show_drop_indicator',

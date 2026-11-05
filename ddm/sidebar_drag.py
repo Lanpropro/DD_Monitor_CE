@@ -6,6 +6,8 @@ from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDro
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from shiboken6 import isValid
 
+from .sidebar_hit_test import widget_at
+
 ROOM_MIME = 'application/x-ddm-room'
 NAV_MIME = 'application/x-ddm-nav'
 FOLDER_MIME = 'application/x-ddm-folder'
@@ -147,8 +149,7 @@ class SidebarDrag(QObject):
             QApplication.sendEvent(target, QDragLeaveEvent())
 
     def _update_target(self):
-        # widgetAt only returns this application's widgets, including other monitor windows.
-        widget = QApplication.widgetAt(self.position)
+        widget = widget_at(self.position)
         candidate = None
         while widget is not None:
             if widget.acceptDrops() and widget.isEnabled():
