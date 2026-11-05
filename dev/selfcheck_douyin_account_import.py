@@ -114,6 +114,7 @@ def main():
             page.resolve_button.click()
             wait_for(app, entered.is_set)
             worker = dialog._account_resolver
+            assert page.resolve_status.isVisible()
             assert page.import_button.isEnabled() and all(b.isEnabled() for b in dialog.platform_buttons.values())
             page.resolve_button.click()
             release.set()
@@ -130,8 +131,7 @@ def main():
             wait_for(app, lambda: dialog._account_resolver is None)
         assert page.list.count() == 11 and page.selected()[0]['room_id'] == 'douyin:1003'
         assert not page.list.item(2).isHidden() and page.list.item(3).isHidden()
-        assert '已处理' in page.resolve_status.text()
-        assert '本轮 1 项请求或解析失败' in page.resolve_status.text()
+        assert page.resolve_status.isHidden()
         assert '本次识别失败' in page.list.item(1).text()
         assert '本次未取得房间号' in page.list.item(3).text()
         page.list.item(3).setCheckState(Qt.Checked)
@@ -228,6 +228,7 @@ def check_account_reference_import(app):
     notice = ('受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。'
               '你仍可直接勾选账号导入，软件会随后台刷新继续查询')
     assert '账号关注' in page.list.item(0).text() and page.platform_notice.text() == notice
+    assert page.resolve_status.isHidden()
     reply = requests.Response()
     reply.status_code = 200
     reply._content = b'{"status_code":0,"data":{}}'
@@ -236,6 +237,7 @@ def check_account_reference_import(app):
         wait_for(app, lambda: dialog._account_resolver is None)
     assert '未开播' in page.list.item(0).text() and page.rooms[0]['live_known']
     assert page.platform_notice.text() == notice
+    assert page.resolve_status.isHidden()
     page.list.item(0).setCheckState(Qt.Checked)
     page._select_folder(next(a for a in page.folder_button.menu().actions() if a.data() == folder))
     page.accept()
