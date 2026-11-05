@@ -158,11 +158,13 @@ class DragDiagnosticsTests(unittest.TestCase):
             try:
                 self.assertEqual(recorder.profile_once('pixmap', snapshot, private_value), private_value)
                 self.assertEqual(recorder.profile_once('pixmap', snapshot, private_value), private_value)
+                self.assertEqual(recorder.profile_once('preview-prepare', snapshot, private_value), private_value)
+                self.assertEqual(recorder.profile_once('preview-prepare', snapshot, private_value), private_value)
                 with self.assertRaisesRegex(ValueError, 'fixture'):
                     recorder.profile_once('drag-start', fail)
                 self.assertIsNone(sys.getprofile())
                 rows = [json.loads(line) for line in recorder.path.read_text().splitlines()]
-                self.assertEqual([row['stage'] for row in rows], ['pixmap', 'drag-start'])
+                self.assertEqual([row['stage'] for row in rows], ['pixmap', 'preview-prepare', 'drag-start'])
                 self.assertTrue(all(len(row['functions']) <= 30 for row in rows))
                 self.assertNotIn(private_value, json.dumps(rows))
                 recorder.profile_first_drag = False
