@@ -89,10 +89,11 @@ def show_comment_menu(parent, message, controls, position, finished=None):
     copy.setEnabled(bool(text))
     repeat.setToolTip('复制并发送到当前直播间')
     menu.repeat_button.setToolTip(repeat.toolTip())
-    repeat.setEnabled(bool(text and controls is not None and controls.can_repeat(event)))
+    repeat.setEnabled(bool(controls is not None and (text or event.get('dm_type') == 1)
+                           and controls.can_repeat(event)))
     def complete(_result):
         try:
-            if menu.chosen is copy or menu.chosen is repeat:
+            if text and (menu.chosen is copy or menu.chosen is repeat):
                 QApplication.clipboard().setText(text)
             if menu.chosen is repeat and not controls.repeat_message(event, room_id):
                 QToolTip.showText(position, '当前房间的发送入口不可用，请检查登录状态或发送控件。', parent)
