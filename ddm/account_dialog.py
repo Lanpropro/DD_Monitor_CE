@@ -456,6 +456,7 @@ class AccountPlatformDialog(QDialog):
             page.resolve_status.setObjectName("SettingsHint")
             page.resolve_status.setWordWrap(True)
             page.layout().insertWidget(2, page.resolve_status)
+            page.resolve_status.setVisible(not callable(getattr(self.providers["douyin"], "follow_account_reference", None)))
             page.resolve_button = QPushButton("补充识别", page)
             page.resolve_button.setObjectName("IconButton")
             page.resolve_button.setCursor(Qt.PointingHandCursor)
@@ -483,6 +484,8 @@ class AccountPlatformDialog(QDialog):
         if running is not None:
             running.add(worker)
         page.resolve_button.setText("停止识别")
+        page.resolve_status.setText(f"正在识别直播间：已处理 {start}/{len(page.rooms)} 个关注。")
+        page.resolve_status.show()
         def update(account):
             if (self._account_resolver is not worker or worker.isInterruptionRequested()
                     or self._closing_result is not None or getattr(self.owner, "_closing", False)):
@@ -507,10 +510,8 @@ class AccountPlatformDialog(QDialog):
                 pending = sum(not room.get("room_id") or (bool(room.get("follow_account_ref")) and
                               not room.get("resolved_room_id")) for room in page.rooms)
                 unknown = sum(bool(room.get("room_id")) and room.get("live_known") is False for room in page.rooms)
-                page.resolve_status.setText(f"{state}：已处理 {worker.next_index}/{len(page.rooms)} 个关注，"
-                                            f"{pending} 个账号暂未取得直播间，{unknown} 个直播状态未知，"
-                                            f"本轮 {worker.failures} 项请求或解析失败。按账号关注的条目也可直接导入。")
-                print(f"[抖音关注识别] 已处理={worker.next_index}/{len(page.rooms)} "
+                page.resolve_status.hide()
+                print(f"[抖音关注识别] 状态={state} 已处理={worker.next_index}/{len(page.rooms)} "
                       f"待识别={pending} 状态未知={unknown} 失败={worker.failures}")
         worker.progress.connect(progress)
         worker.updated.connect(update)
