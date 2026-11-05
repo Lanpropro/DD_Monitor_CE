@@ -84,6 +84,8 @@ def main():
     owner.plugins.platforms['douyin'] = provider
     target_folder = owner.sidebar.create_folder('Pending anchors')
     provider._context = None
+    # Keep the previous plugin protocol covered alongside the new account-reference flow.
+    provider.follow_account_reference = None
     with TemporaryDirectory() as root, patch('ddm.account_store.AccountStore',
             side_effect=lambda kind: AccountStore(kind, root=root)):
         owner._cache_douyin_follows(accounts)
@@ -227,7 +229,78 @@ def main():
     assert attempted==['0','1','2'] and worker.next_index==3 and progress[-1]==(3,3)
     owner.close()
     app.processEvents()
+    check_account_reference_import(app)
     print('PASS: all 11 accounts; cached offline identity; plugin mapping restart; separate pending import; cancellation; failure isolation; encrypted restore; selection preservation')
+
+
+def check_account_reference_import(app):
+    from ddm.config import build_rooms
+    from plugins_user.domestic_live import plugin as provider_module
+    provider = DouyinPlatform()
+    with patch('ddm.app.QTimer.singleShot'):
+        owner = MainWindow([], [], state={'plugins_enabled': []})
+    owner._accounts['douyin'] = {'uid': '42'}
+    owner._start_avatar_loader = lambda *_: None
+    owner.plugins.platforms['douyin'] = provider
+    folder = owner.sidebar.create_folder('Account follows')
+    sec_uid = 'MS4wLjAB' + 'x' * 20
+    account = dict(room_id='', platform='douyin', anchor_uid='105', sec_uid=sec_uid,
+                   uname='Offline account', title='', live=False, live_known=False)
+    owner._cache_douyin_follows([account])
+    dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
+    page = dialog.page
+    reference = 'douyin:uid_105'
+    assert page.rooms[0]['room_id'] == reference and not page.list.item(0).isHidden()
+    assert '账号关注' in page.list.item(0).text() and '无需填写直播间链接' in page.resolve_status.text()
+    reply = requests.Response()
+    reply.status_code = 200
+    reply._content = b'{"status_code":0,"data":{}}'
+    with patch.object(provider_module.requests, 'get', return_value=reply):
+        page.resolve_button.click()
+        wait_for(app, lambda: dialog._account_resolver is None)
+    assert '未开播' in page.list.item(0).text() and page.rooms[0]['live_known']
+    page.list.item(0).setCheckState(Qt.Checked)
+    page._select_folder(next(a for a in page.folder_button.menu().actions() if a.data() == folder))
+    page.accept()
+    assert dialog.pending_count == 0 and [r['room_id'] for r in dialog.rooms] == [reference]
+    with patch.object(owner, 'load_avatars_for'), patch.object(owner, '_refresh_meta'), patch('ddm.online_ui.show_result'):
+        owner._import_selected_follows(dialog.rooms, folder_id=dialog.folder_id)
+    assert [r['room_id'] for r in owner.sidebar.rooms()] == [reference]
+    assert owner.sidebar.folder_for(reference) == folder
+    assert not any(tile.room.get('room_id') for tile in owner.wall.tiles)
+    state = owner.current_state()
+    restored, _ = build_rooms(state)
+    assert restored[0]['anchor_uid'] == '105' and restored[0]['sec_uid'] == sec_uid
+    assert restored[0]['follow_account_ref'] and restored[0]['uname'] == account['uname']
+    restarted = DouyinPlatform()
+    restarted.restore_follow_rooms(restored)
+    assert restarted.room_url(reference) == 'https://www.douyin.com/user/' + sec_uid
+    dispose(app, dialog)
+    data = {'id_str':'90001', 'owner_user_id':'105', 'status':2, 'title':'Now live',
+            'owner':{'id_str':'105','web_rid':'1005','nickname':'Offline account'}}
+    reply = requests.Response()
+    reply.status_code = 200
+    reply._content = json.dumps({'status_code':0,'data':data}).encode()
+    with patch.object(provider_module.requests, 'get', return_value=reply), \
+            patch.object(provider, 'room_data', return_value={'room':data}):
+        status = provider.rooms_status([reference])
+    with patch.object(owner, '_load_room_banners', create=True), patch.object(owner, 'sync_danmaku'):
+        owner._on_status_updated(status)
+    assert owner.sidebar.rooms()[0]['live'] and owner.sidebar.rooms()[0]['room_id'] == reference
+    assert provider.normalize(reference) == 'douyin:1005'
+    assert owner._room_browser_url(owner.sidebar.rooms()[0]) == 'https://live.douyin.com/1005'
+    assert not any(tile.room.get('room_id') for tile in owner.wall.tiles)
+    owner._cache_douyin_follows([dict(account, room_id='douyin:1005', live=True, live_known=True)])
+    dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
+    assert dialog.page.selected()[0]['room_id'] == reference
+    dialog.page.accept()
+    with patch.object(owner, 'load_avatars_for'), patch.object(owner, '_refresh_meta'), patch('ddm.online_ui.show_result'):
+        owner._import_selected_follows(dialog.rooms)
+    assert len(owner.sidebar.rooms()) == 1 and owner.sidebar.folder_for(reference) == folder
+    dispose(app, dialog)
+    owner.close()
+    app.processEvents()
+    print('PASS: offline account import without room number; sidebar/folder/restart; automatic live discovery; no autoplay or duplicate')
 
 
 if __name__ == '__main__':
