@@ -299,6 +299,7 @@ class Recorder:
             return original_press(item, event)
         NavItem.mousePressEvent = press
         for owner, name, stage in ((NavItem, '_drag_pixmap', 'pixmap'),
+                                   (Sidebar, '_prepare_drag_snapshot', 'snapshot-prepare'),
                                    (motion, 'lifted_drag', 'lift'),
                                    (Sidebar, 'show_drop_indicator', 'layout'),
                                    (Sidebar, 'finish_drag', 'drop'),

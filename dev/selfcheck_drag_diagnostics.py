@@ -36,7 +36,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                 stack.enter_context(patch.object(drag_module, 'widget_at', drag_module.widget_at))
                 for cls, names in ((TilePlayer, ('bind', 'stop', 'release', '_destroy_core')),
                                    (NavItem, ('mousePressEvent', '_drag_pixmap')),
-                                   (Sidebar, ('show_drop_indicator',
+                                   (Sidebar, ('_prepare_drag_snapshot', 'show_drop_indicator',
                                               'finish_drag', 'reorder_items', 'refresh_strip')),
                                    (HoverPreview, ('_stop_now', '_check_hover', '_begin_resolve', '_on_resolved')),
                                    (motion, ('lifted_drag',)),

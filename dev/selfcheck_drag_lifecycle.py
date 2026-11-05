@@ -100,6 +100,64 @@ class DragLifecycleTests(unittest.TestCase):
         self.assertIsNone(QWidget.mouseGrabber())
         self.assertTrue(all(not i.isHidden() for i in self.sidebar.visible_items()))
 
+    def test_first_snapshot_prepares_pending_sibling_resizes_before_gesture(self):
+        class HiddenSibling(QWidget):
+            def __init__(self, parent):
+                super().__init__(parent)
+                self.resizes = 0
+                self.hide()
+                self.resize(123, 45)
+
+            def resizeEvent(self, event):
+                self.resizes += 1
+                super().resizeEvent(event)
+
+        window = QWidget()
+        window.setGeometry(-10000, -10000, 500, 700)
+        sidebar = Sidebar([dict(room_id='fixture', uname='Initial')], window)
+        sidebar.setGeometry(0, 0, 248, 650)
+        sibling = HiddenSibling(window)
+        try:
+            window.show()
+            self.assertEqual(sibling.resizes, 0, 'Preparation must wait until show completes')
+            # Other lifecycle tests deliberately leave synthetic button state set.
+            with patch.object(QApplication, 'mouseButtons', return_value=Qt.NoButton):
+                self.app.processEvents()
+            self.assertEqual(sibling.resizes, 1, 'Pending hidden resize must be handled before dragging')
+            item = sidebar.items()[0]
+            initial = item._drag_pixmap().toImage()
+            item.name_label.setText('Updated after preparation')
+            self.assertNotEqual(item._drag_pixmap().toImage(), initial, 'Snapshot must use current text')
+            self.assertNotEqual(item._drag_pixmap(2).toImage(), item._drag_pixmap().toImage())
+            self.assertEqual(sibling.resizes, 1, 'First snapshot must not repeat pending sibling resize')
+            self.assertFalse(sidebar.drag_session.active)
+            self.assertIsNone(sidebar.drag_session.ghost)
+            self.assertIsNone(QWidget.mouseGrabber())
+            with patch.object(sidebar, 'render', wraps=sidebar.render) as render:
+                sidebar.hide()
+                sidebar.show()
+                self.app.processEvents()
+                render.assert_not_called()
+        finally:
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_snapshot_preparation_skips_hidden_sidebar_and_active_gesture(self):
+        with patch.object(self.sidebar, 'render', wraps=self.sidebar.render) as render:
+            self.sidebar._drag_snapshot_ready = False
+            self.sidebar.hide()
+            self.sidebar._prepare_drag_snapshot()
+            render.assert_not_called()
+            self.sidebar.show()
+            self.start()
+            self.sidebar._prepare_drag_snapshot()
+            render.assert_not_called()
+            self.assertFalse(self.sidebar._drag_snapshot_ready)
+            self.assertTrue(self.sidebar._drag_snapshot_timer.isActive())
+            self.sidebar.hide()
+            self.assertFalse(self.sidebar._drag_snapshot_timer.isActive())
+
     def test_release_uses_latest_position_and_restores_card_without_click(self):
         clicked = Mock()
         self.sidebar.roomSelected.connect(clicked)
