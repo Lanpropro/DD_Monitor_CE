@@ -764,42 +764,53 @@ QSlider::handle:horizontal:hover {{
     background: {SIDEBAR};
     border-right: 1px solid {BORDER};
 }}
-#SidebarFooter {{
+#SidebarRail {{
     background: {SIDEBAR};
-    border: 1px solid {BORDER};
+    border-right: 1px solid {BORDER};
+}}
+#NavigationButton {{
+    background: transparent;
+    color: {TEXT2};
+    border: none;
     border-radius: {RADIUS_MD}px;
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
 }}
-#SidebarFooterBody, #SidebarFooterHeader, #WorkspacePanel, #WorkspaceEntries {{
+#NavigationButton:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
+#NavigationButton:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
+#NavigationButton:focus {{border: 1px solid {ACCENT};}}
+#SidebarFilter {{
+    background: transparent;
+    color: {TEXT2};
+    border: none;
+    border-radius: {RADIUS_SM}px;
+    padding: 4px 8px;
+    min-height: 22px;
+}}
+#SidebarFilter:hover {{background: {CONTENT_HOVER};}}
+#SidebarFilter:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
+#SidebarFilter:focus {{border: 1px solid {ACCENT};}}
+#FunctionCenter {{
+    background: {SIDEBAR};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px;
+}}
+#FunctionEntry {{
+    text-align: left;
+    background: transparent;
+    color: {TEXT1};
+    border: none;
+    border-radius: {RADIUS_MD}px;
+    padding: 9px;
+    min-height: 28px;
+}}
+#FunctionEntry:hover {{background: {CONTENT_HOVER};}}
+#FunctionEntry:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
+#FunctionEntry:focus {{border: 1px solid {ACCENT};}}
+#WorkspacePanel, #WorkspaceEntries {{
     background: {SIDEBAR};
     border: none;
-}}
-#FooterHandle {{
-    background: transparent;
-    color: {TEXT2};
-    border: none;
-}}
-#FooterHandle:hover {{
-    background: {CONTENT_HOVER};
-    border-radius: {RADIUS_SM}px;
-}}
-#WorkspaceEntry {{
-    background: transparent;
-    color: {TEXT2};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_SM}px;
-    padding: 0 5px;
-    min-height: 30px;
-}}
-#WorkspaceEntry:hover {{
-    background: {CONTENT_HOVER};
-    color: {TEXT1};
-}}
-#WorkspaceEntry:checked, #WorkspaceEntry:pressed {{
-    background: {ACCENT_SOFT};
-    color: {ACCENT};
-}}
-#WorkspaceEntry:focus {{
-    border-color: {ACCENT};
 }}
 #AppTitle {{
     font-size: {FONT_BODY + 1}px;

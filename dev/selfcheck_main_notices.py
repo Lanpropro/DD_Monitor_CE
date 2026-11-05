@@ -196,7 +196,7 @@ class MainNoticesTests(unittest.TestCase):
             if enabled:
                 self.assertFalse(sidebar._collapse_animating)
                 self.assertTrue(wall._sidebar_animating)
-                self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                 for item in sidebar.items():
                     self.assertEqual(item._compact, sidebar.collapsed)
                     self.assertFalse(item.thumb._cover_hold)
@@ -214,7 +214,7 @@ class MainNoticesTests(unittest.TestCase):
                 sidebar.set_card_mode(card_mode)
                 for collapsed in (True, False) * 5:
                     sidebar.set_collapsed(collapsed)
-                    self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+                    self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
                     self.assertFalse(sidebar._collapse_animating)
                     self.assertTrue(sidebar.updatesEnabled())
             clear.assert_not_called()
@@ -233,7 +233,7 @@ class MainNoticesTests(unittest.TestCase):
         class PaintRecorder(QObject):
             def eventFilter(self, watched, event):
                 if event.type() == QEvent.Paint:
-                    paints.append((sidebar.collapsed, sidebar.width()))
+                    paints.append((sidebar.collapsed, sidebar._column.width()))
                 return False
 
         recorder = PaintRecorder(sidebar)
@@ -266,7 +266,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(sidebar._collapse_animating or wall._sidebar_animating)
         self.assertFalse(any(item.thumb._cover_hold for item in sidebar.items()))
         sidebar.set_collapsed(False)
-        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertEqual(sidebar._column.width(), theme.SIDEBAR_WIDTH)
         sidebar.setUpdatesEnabled(False)
         sidebar.set_collapsed(True)
         self.assertFalse(sidebar.updatesEnabled())
@@ -286,7 +286,7 @@ class MainNoticesTests(unittest.TestCase):
         sidebar.set_collapsed(False)
         sidebar.show()
         self.app.processEvents()
-        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertEqual(sidebar._column.width(), theme.SIDEBAR_WIDTH)
         self.assertTrue(sidebar.updatesEnabled() and window.wall.grid.isEnabled())
 
     def test_sidebar_layout_change_during_hold_still_rebuilds_visibility(self):

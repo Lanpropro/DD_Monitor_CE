@@ -27,11 +27,11 @@ def main() -> None:
     assert not hasattr(sidebar, 'sort_button')
     for width in (248, 280, 360):
         sidebar.resize(width, 600)
-        sidebar.count_label.setText('关注中 · 101')
+        sidebar.navigation.count.setText('101')
         app.processEvents()
-        label = sidebar.count_label
+        label = sidebar.navigation.count
         assert label.width() >= label.fontMetrics().horizontalAdvance(label.text())
-        for button in (sidebar.batch_button, sidebar.appearance_button, sidebar.refresh_button):
+        for button in (sidebar.navigation.add_button, sidebar.navigation.manage_button, sidebar.toggle_button):
             assert not label.geometry().intersects(button.geometry())
     sidebar.resize(248, 600)
     for folder in sidebar.folders:
@@ -55,7 +55,12 @@ def main() -> None:
             assert box.indexOf(button) == box.indexOf(sidebar.count_label) + 1
             assert sidebar._header_row.layout().indexOf(button) == -1
             assert button.size().width() == button.size().height() == 22
-        QTest.mouseClick(button, Qt.LeftButton)
+        if side == 'left':
+            sidebar.navigation.open_manage_menu()
+            sidebar.navigation.menu.actions()[0].trigger()
+            sidebar.navigation.menu.hide()
+        else:
+            QTest.mouseClick(button, Qt.LeftButton)
         assert sidebar.select_mode and button.isChecked()
         assert sidebar.account_row.isHidden() and sidebar.tool_row.isHidden()
         assert sidebar.normal_bar.isHidden() and not sidebar.batch_bar.isHidden()
@@ -71,7 +76,9 @@ def main() -> None:
         assert not card.property('sortSelected'), '多选仅用角标标记，不增加卡片描边'
         sidebar.set_select_mode(False)
         assert not button.isChecked()
-        assert not sidebar.account_row.isHidden() and not sidebar.tool_row.isHidden()
+        assert not sidebar.account_row.isHidden()
+        assert sidebar.tool_row.isHidden() if side == 'left' else not sidebar.tool_row.isHidden()
+        assert sidebar.settings_button.isVisible()
         assert card.mask().isEmpty() and card.check.isHidden() and not card.is_checked()
     sidebar.set_select_mode(True)
     for side in ('top', 'left', 'top', 'left'):

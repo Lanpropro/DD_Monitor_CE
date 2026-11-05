@@ -284,6 +284,8 @@ class MainWindow(QMainWindow):
         self.sidebar.foldersChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self._open_sidebar_settings)
+        self.sidebar.pluginSettingsRequested.connect(lambda: self.open_settings('plugins'))
+        self.sidebar.cardModeChanged.connect(self._sidebar_card_mode_changed)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
         self.sidebar.layoutChosen.connect(self._on_layout_changed)
         self.sidebar.room_presets_host = self
@@ -301,6 +303,7 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
+        self.sidebar.workspace_controls.pinsChanged.connect(self._save_timer.start)
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
         self.wall.layoutRatiosChanged.connect(self._save_timer.start)
         # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
@@ -598,6 +601,8 @@ class MainWindow(QMainWindow):
 
     # ---- 界面状态 ----
     def _restore_ui(self) -> None:
+        self.sidebar.workspace_controls.restore_pins(
+            (self.state.get('ui') or {}).get('workspace_pins'))
         self.sidebar.watch_history = WatchHistory(self.state.get("watch_history"))
         geometry = self.state.get("geometry")
         if geometry:
@@ -914,6 +919,11 @@ class MainWindow(QMainWindow):
         self._get_settings_process().open(self.settings, self.shortcuts, self._sc_preview_context())
         return False
 
+    def _sidebar_card_mode_changed(self, enabled):
+        self.settings['sidebar_card_mode'] = enabled
+        self.settings['sidebar_auto_compact'] = False
+        self._save_timer.start()
+
     def _sc_preview_context(self):
         def surface(widget, events, presentation):
             cards = [{'message': event.get('message') or event.get('text') or '',
@@ -1188,6 +1198,7 @@ class MainWindow(QMainWindow):
                 "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,
                 "sidebar_collapsed": self.sidebar.collapsed,
+                "workspace_pins": self.sidebar.workspace_controls.pin_state(),
                 "layout_landscape": self._saved_layout("landscape"),
                 "layout_portrait": self._saved_layout("portrait"),
                 "corner_ratios": self.wall.corner_ratios(),
