@@ -94,6 +94,16 @@ jobs:
         run: python dev/run_checks.py --suite smoke --timeout 120
       - name: Check native badge redraw memory
         run: python dev/run_checks.py --script selfcheck_badge_memory
+      - name: Check native sidebar drag hit testing
+        env:
+          DDM_NO_SAVE: '1'
+          DDM_CHECK_MODE: offline
+          QT_QPA_PLATFORM: windows
+        run: |
+          python dev/checks/bootstrap.py dev/selfcheck_sidebar_hit_test.py SidebarHitTests.test_native_ghost_is_excluded_without_hiding_it_or_using_qt_masks
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:QT_SCALE_FACTOR = '1.5'
+          python dev/checks/bootstrap.py dev/selfcheck_sidebar_hit_test.py SidebarHitTests.test_native_ghost_is_excluded_without_hiding_it_or_using_qt_masks
       - name: Show smoke logs
         if: always()
         shell: pwsh
