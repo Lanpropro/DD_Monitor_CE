@@ -207,9 +207,14 @@ class PictureInPictureDialog(QDialog):
         self.primary.currentIndexChanged.connect(self._refresh)
         self._refresh()
 
+    def _selected(self):
+        checked = [index for index, check in self.checks.items() if check.isChecked()]
+        return ([index for index in self.controller.selection if index in checked]
+                + [index for index in checked if index not in self.controller.selection])
+
     def _refresh(self, *_args):
-        names = [check.text() for check in self.checks.values() if check.isChecked()]
-        selection = [index for index, check in self.checks.items() if check.isChecked()]
+        selection = self._selected()
+        names = [self.checks[index].text() for index in selection]
         primary = self.primary.currentData() if self.primary.count() else self.controller.primary
         self.primary.blockSignals(True)
         self.primary.clear()
@@ -228,7 +233,7 @@ class PictureInPictureDialog(QDialog):
                           if self.checks else '画面墙中还没有直播间，请先添加画面。')
 
     def _apply(self):
-        selected = [index for index, check in self.checks.items() if check.isChecked()]
+        selected = self._selected()
         self.controller.start(selected, self.columns.currentData(), self.primary.currentData())
         self.accept()
 
@@ -261,9 +266,8 @@ class PictureInPictureButton(QPushButton):
         painter.setPen(Qt.NoPen)
         hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
         active = hovered or (self.keyboard_focus and self.hasFocus()) or self.isChecked()
-        if self.kind == 'pin':
-            # Blue denotes the pinned state, including while the pointer stays
-            # over an unchecked button after clicking.
+        if self.kind in ('pin', 'reorder'):
+            # Blue denotes an enabled mode rather than a lingering hover.
             background = (theme.qcolor(theme.ACCENT) if self.isChecked()
                           else QColor(45, 49, 55, 210) if active else QColor(0, 0, 0, 170))
         else:
@@ -282,6 +286,13 @@ class PictureInPictureButton(QPushButton):
             painter.drawLine(14, 6, 15, 12)
             painter.drawLine(8, 13, 16, 13)
             painter.drawLine(12, 13, 12, 19)
+        elif self.kind == 'reorder':
+            painter.drawLine(5, 8, 19, 8)
+            painter.drawLine(16, 5, 19, 8)
+            painter.drawLine(19, 8, 16, 11)
+            painter.drawLine(19, 16, 5, 16)
+            painter.drawLine(8, 13, 5, 16)
+            painter.drawLine(5, 16, 8, 19)
         else:
             painter.drawLine(8, 8, 16, 16)
             painter.drawLine(16, 8, 8, 16)
@@ -293,19 +304,22 @@ class PictureInPictureTools(QWidget):
         super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setFixedSize(80, 24)
+        self.setFixedSize(108, 24)
         box = QHBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(4)
         self.manage = PictureInPictureButton('composition', '选择画面组合', self)
+        self.reorder = PictureInPictureButton('reorder', '调整画面位置', self)
+        self.reorder.setCheckable(True)
         self.pin = PictureInPictureButton('pin', '置顶画中画', self)
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
         self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
         self.back = PictureInPictureButton('back', '关闭画中画并返回监控室（Esc）', self)
-        for button in (self.manage, self.pin, self.back):
+        for button in (self.manage, self.reorder, self.pin, self.back):
             box.addWidget(button)
         self.manage.clicked.connect(owner.controller.manage)
+        self.reorder.toggled.connect(owner._set_reordering)
         self.pin.toggled.connect(owner._pin)
         self.back.clicked.connect(owner.close)
         QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner.close)
@@ -334,6 +348,7 @@ class PictureInPictureWindow(QWidget):
         self.tools = PictureInPictureTools(self)
         self.pin = self.tools.pin
         self._gesture = None
+        self._reorder_drag = None
         self._live_resize = None
         self._pending_geometry = None
         self._geometry_timer = QTimer(self)
@@ -366,7 +381,7 @@ class PictureInPictureWindow(QWidget):
                       for button in self.tools.findChildren(PictureInPictureButton))
         visible = (self.isVisible() and not self.isMinimized()
                    and self.controller.dialog is None and (hovered or focused))
-        position = self.mapToGlobal(QPoint(self.width() - 88, 8))
+        position = self.mapToGlobal(QPoint(self.width() - self.tools.width() - 8, 8))
         moved = self.tools.pos() != position
         was_visible = self.tools.isVisible()
         if moved:
@@ -425,7 +440,7 @@ class PictureInPictureWindow(QWidget):
 
     def set_composition(self, aspects, columns, primary=0):
         self.aspect = composition_ratio(aspects, columns, primary)
-        minimum = max(96, round(48 * self.aspect))
+        minimum = max(self.tools.width() + 16, round(48 * self.aspect))
         self.setMinimumSize(minimum, round(minimum / self.aspect))
         screen = self.screen().availableGeometry()
         self.resize_to_width(min(self.width(), screen.width(), round(screen.height() * self.aspect)))
@@ -494,8 +509,26 @@ class PictureInPictureWindow(QWidget):
             edges |= Qt.BottomEdge
         return edges
 
+    def _tile_at(self, point):
+        if self.tools.isVisible() and self.tools.geometry().contains(point):
+            return None
+        return next((tile for tile in self.controller.host.wall.visible_tiles()
+                     if tile.rect().contains(tile.mapFromGlobal(point))), None)
+
+    def _set_reordering(self, enabled):
+        self._reorder_drag = None
+        if self._gesture is None and QWidget.mouseGrabber() is self:
+            self.releaseMouse()
+        self.setCursor(Qt.OpenHandCursor if enabled else Qt.ArrowCursor)
+        for widget, _tracking, _cursor in self._surface_state:
+            widget.unsetCursor()
+        self.tools.reorder.setToolTip('拖到另一格后松开互换；点击结束调整' if enabled else '调整画面位置')
+
     def eventFilter(self, watched, event):
         kind = event.type()
+        if kind == QEvent.UngrabMouse and watched is self and self._reorder_drag is not None:
+            self._reorder_drag = None
+            self.setCursor(Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)
         if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove,
                         QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
             return False
@@ -504,7 +537,7 @@ class PictureInPictureWindow(QWidget):
             return False
         wall = self.controller.host.wall
         surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
-                                 for surface in (tile, tile.video, tile.cover, tile.video_danmaku)))
+                                 for surface in (tile, tile.video, tile.cover, tile.video_danmaku, tile.spinner, tile.pause_overlay)))
         if watched not in surfaces:
             return False
         point = event.globalPosition().toPoint()
@@ -512,15 +545,29 @@ class PictureInPictureWindow(QWidget):
             if self._live_resize is not None:
                 self._live_resize.finish(immediate=True)
             self.setFocus(Qt.MouseFocusReason)
-            self._gesture = (point, self.geometry(), self._resize_edges(self.mapFromGlobal(point)))
+            edges = self._resize_edges(self.mapFromGlobal(point))
+            if self.tools.reorder.isChecked() and not edges:
+                tile = self._tile_at(point)
+                if tile is not None:
+                    self._reorder_drag = (tile, point)
+                    self.setCursor(Qt.ClosedHandCursor)
+                    self.grabMouse()
+                return True
+            self._gesture = (point, self.geometry(), edges)
             self.grabMouse()
             return True
         if kind == QEvent.MouseMove:
+            if self._reorder_drag is not None:
+                source, _start = self._reorder_drag
+                target = self._tile_at(point)
+                self.setCursor(Qt.DragMoveCursor if target is not None and target is not source
+                               else Qt.ClosedHandCursor if target is source else Qt.ForbiddenCursor)
+                return True
             edges = self._gesture[2] if self._gesture is not None else self._resize_edges(self.mapFromGlobal(point))
             cursor = (Qt.SizeFDiagCursor if edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge)
                       else Qt.SizeBDiagCursor if edges in (Qt.TopEdge | Qt.RightEdge, Qt.BottomEdge | Qt.LeftEdge)
                       else Qt.SizeHorCursor if edges & (Qt.LeftEdge | Qt.RightEdge)
-                      else Qt.SizeVerCursor if edges else Qt.ArrowCursor)
+                      else Qt.SizeVerCursor if edges else Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)
             watched.setCursor(cursor)
             if self._gesture is not None:
                 start, bounds, edges = self._gesture
@@ -554,6 +601,15 @@ class PictureInPictureWindow(QWidget):
                 else:
                     self.setGeometry(rect)
                 return True
+        if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
+            source, start = self._reorder_drag
+            target = self._tile_at(point)
+            self._reorder_drag = None
+            self.releaseMouse()
+            self.setCursor(Qt.OpenHandCursor)
+            if target is not None and (point - start).manhattanLength() >= QApplication.startDragDistance():
+                self.controller.swap_positions(source, target)
+            return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
             self._flush_geometry(finishing=True)
             self._gesture = None
@@ -587,6 +643,7 @@ class PictureInPictureWindow(QWidget):
         QApplication.instance().removeEventFilter(self)
         self.tools.hide()
         self._gesture = None
+        self._reorder_drag = None
         grabber = QWidget.mouseGrabber()
         if grabber is not None and grabber.window() is self:
             grabber.releaseMouse()
@@ -693,7 +750,7 @@ class PictureInPicture(QObject):
         return aspects
 
     def _refresh_aspects(self):
-        if not self.active or self.floating._gesture is not None:
+        if not self.active or self.floating._gesture is not None or self.floating._reorder_drag is not None:
             return
         wall = self.host.wall
         aspects = self.aspects_for(self.selection)
@@ -702,6 +759,17 @@ class PictureInPicture(QObject):
         wall.picture_in_picture_aspects = aspects
         self.floating.set_composition(aspects, self.columns, self.selection.index(self.primary))
         wall.relayout(force=True)
+
+    def swap_positions(self, source, target):
+        tiles = self.host.wall.picture_in_picture_tiles
+        if source is target or source not in tiles or target not in tiles:
+            return
+        first, second = tiles.index(source), tiles.index(target)
+        primary = self.selection.index(self.primary)
+        self.selection[first], self.selection[second] = self.selection[second], self.selection[first]
+        if self.columns == FOCUS_LAYOUT:
+            self.primary = self.selection[primary]
+        self.start(self.selection, self.columns, self.primary)
 
     def start(self, selection, columns=0, primary=None):
         wall = self.host.wall

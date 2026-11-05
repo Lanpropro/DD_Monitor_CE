@@ -127,9 +127,7 @@ class SmoothEdges(unittest.TestCase):
                     indicator = LoadingIndicator(text=text, icon=icon)
                     try:
                         indicator.ensurePolished()
-                        indicator.adjustSize()
-                        indicator.layout().activate()
-                        indicator._apply_mask()
+                        indicator.start()
                         self.assertTrue(indicator.mask().isEmpty())
                         for scale in (1, 1.25, 1.75, 2):
                             output = canvas(indicator.width(), indicator.height(), scale)
@@ -142,6 +140,7 @@ class SmoothEdges(unittest.TestCase):
                                       for x in range(round(indicator.height() / 2 * scale))]
                             self.assertTrue(any(0 < alpha < 205 for alpha in fringe), (mode, icon, scale))
                     finally:
+                        indicator.stop()
                         indicator.deleteLater()
         finally:
             theme.apply('dark')
