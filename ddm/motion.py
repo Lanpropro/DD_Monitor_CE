@@ -7,7 +7,6 @@ from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap, QPolygon
 from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabWidget
 
 THEME_WAVE_MS = 360
-FOOTER_SLIDE_MS = 200
 THEME_WAVE_EASING = QEasingCurve(QEasingCurve.BezierSpline)
 THEME_WAVE_EASING.addCubicBezierSegment(QPointF(.23, 1), QPointF(.32, 1), QPointF(1, 1))
 

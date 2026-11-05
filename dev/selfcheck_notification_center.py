@@ -379,17 +379,16 @@ class NotificationTests(unittest.TestCase):
             button = sidebar.notification_button
             self.assertEqual(button.text(), '')
             if side == 'left':
-                self.assertEqual(button.width(), 22)
-                self.assertIs(button.parentWidget(), sidebar.status_row)
-                sidebar.count_label.setText('关注中 · 107')
+                self.assertEqual(button.width(), 34)
+                self.assertIs(button.parentWidget(), sidebar.navigation.rail)
+                sidebar.navigation.count.setText('107')
                 self.app.processEvents()
-                self.assertGreaterEqual(sidebar.count_label.width(),
-                    sidebar.count_label.fontMetrics().horizontalAdvance(sidebar.count_label.text()))
-                self.assertFalse(button.geometry().intersects(sidebar.count_label.geometry()))
+                self.assertGreaterEqual(sidebar.navigation.count.width(),
+                    sidebar.navigation.count.fontMetrics().horizontalAdvance('107'))
             else:
                 self.assertIs(button.parentWidget(), sidebar._bar_row)
             sidebar.set_collapsed(True, animate=False)
-            self.assertFalse(button.isVisible())
+            self.assertEqual(button.isVisible(), side == 'left')
             sidebar.set_collapsed(False, animate=False)
             self.assertTrue(button.isVisible())
 

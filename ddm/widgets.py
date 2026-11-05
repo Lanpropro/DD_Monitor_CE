@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 from .workspace_controls import WorkspaceControls
-from .sidebar_footer import SidebarFooter
+from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
 from .config import (DEFAULT_SETTINGS, DEFAULT_VOLUME, VIDEO_DANMAKU_SETTING_KEYS,
@@ -3388,6 +3388,8 @@ class Sidebar(QFrame):
     pictureInPictureRequested = Signal()
     layoutResetRequested = Signal()
     settingsRequested = Signal()
+    pluginSettingsRequested = Signal()
+    cardModeChanged = Signal(bool)
     appearanceChanged = Signal(str)
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
@@ -3398,7 +3400,7 @@ class Sidebar(QFrame):
                  compact_background: bool = True):
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(theme.SIDEBAR_WIDTH)
+        self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self._items: list[NavItem] = []
         self._drag_snapshot_ready = False
         self._drag_snapshot_timer = QTimer(self)
@@ -3438,7 +3440,12 @@ class Sidebar(QFrame):
         self._folder_buttons: dict[str, FollowFolderButton] = {}
         self._layout_id = layouts.DEFAULT_LAYOUT
 
-        layout = QVBoxLayout(self)
+        self._outer_layout = QHBoxLayout(self)
+        self._outer_layout.setContentsMargins(0, 0, 0, 0)
+        self._outer_layout.setSpacing(0)
+        self._column = QWidget(self)
+        self._outer_layout.addWidget(self._column, 1)
+        layout = QVBoxLayout(self._column)
         layout.setContentsMargins(12, 14, 12, 12)
         layout.setSpacing(10)
         self._layout = layout
@@ -3508,6 +3515,7 @@ class Sidebar(QFrame):
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
+        self.live_only = False
         self.search.textChanged.connect(self.apply_filter)      # 边打字边过滤
         # 回车不再额外「执行搜索」（本来就实时），把焦点交给列表，接着就能直接
         # 点选 / 拖动；Esc 等价于点清空按钮（清空按钮自己会走 textChanged）
@@ -3585,11 +3593,7 @@ class Sidebar(QFrame):
         self.batch_bar.setVisible(False)
         layout.addWidget(self.batch_bar)
 
-        self.footer = SidebarFooter(self)
-        self.footer_box = self.footer.content_box
-        layout.addWidget(self.footer)
         self.workspace_controls = WorkspaceControls(self)
-        self.footer_box.addWidget(self.workspace_controls)
 
         # 已登录账号（在底部操作之上）
         self.account_row = AccountRow(self, allow_logout=True)
@@ -3605,17 +3609,17 @@ class Sidebar(QFrame):
         tool_box = QHBoxLayout(self.tool_row)
         tool_box.setContentsMargins(0, 0, 0, 0)
         tool_box.setSpacing(6)
-        self.layout_button = QPushButton()
+        self.layout_button = NavigationButton('布局预设', 'layout')
         self.layout_button.setFocusPolicy(Qt.TabFocus)
         self.layout_button.setObjectName("IconButton")
         self.layout_button.setCursor(Qt.PointingHandCursor)
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
-        self.picture_in_picture_button = QPushButton('画中画')
+        self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
         self.picture_in_picture_button.clicked.connect(self.pictureInPictureRequested.emit)
-        self.settings_button = QPushButton("设置")
+        self.settings_button = NavigationButton('设置', 'settings')
         self.settings_button.setFocusPolicy(Qt.TabFocus)
         self.settings_button.setObjectName("IconButton")
         self.settings_button.setCursor(Qt.PointingHandCursor)
@@ -3652,7 +3656,7 @@ class Sidebar(QFrame):
         # 横屏要拆回竖排，所以先把左栏的原始顺序记下来，_release_bar_row 按它还原。
         self._column_order = [self._head_scroll, self._header_row, self.search,
                               self.status_row, self.scroll, self.batch_bar,
-                              self.footer, self.account_row, self.tool_row, self.normal_bar]
+                              self.account_row, self.tool_row, self.normal_bar]
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
@@ -3663,8 +3667,10 @@ class Sidebar(QFrame):
         self._bar_row: QWidget | None = None
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
+        self.navigation = SidebarNavigation(self, self._outer_layout)
         self.refresh_filter()
         self._sync_count()
+        self._sync_appearance_row()
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
@@ -3677,6 +3683,7 @@ class Sidebar(QFrame):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,
                 Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
+        self.navigation.sync()
 
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
@@ -3915,6 +3922,7 @@ class Sidebar(QFrame):
         self._apply_filter_marks()
         self.list_box.relayout(animate=False)
         self.refresh_strip()
+        self._sync_count()
 
     def _apply_filter_marks(self) -> None:
         """只更新「谁被过滤掉了」，不动位置 —— 由调用方决定什么时候重排。"""
@@ -3933,6 +3941,8 @@ class Sidebar(QFrame):
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
         """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
+        if self.live_only and not item.room.get('live'):
+            return False
         if not words:
             return True
         room = item.room
@@ -3953,6 +3963,8 @@ class Sidebar(QFrame):
         """列表一条都露不出来时说的话（列表区就摆它一个）。"""
         if self.filter_text:
             return f"没有匹配「{self.filter_text}」的直播间"
+        if self.live_only:
+            return '当前没有正在直播的关注'
         return "还没有关注任何直播间"
 
     # ---- 关注文件夹 ----
@@ -4334,6 +4346,8 @@ class Sidebar(QFrame):
                 # 左栏就只剩一条（用户看到的就是这个）
                 self._apply_scroll_axis()
             return
+        if side == 'top':
+            self.navigation.release()
         self.side = side
         self.set_card_mode(self._effective_card_mode())
         horizontal = side == "top"
@@ -4370,7 +4384,7 @@ class Sidebar(QFrame):
             # 竖条常关、横条 AsNeeded，不回滚的话回横屏后竖向滚动条一直藏着，
             # 滚轮还会被 CarouselScroll 当成横滚吞掉 —— 左栏整列就滚不动了。
             self._apply_scroll_axis()
-        self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
+        self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         if horizontal:
             self._layout.setContentsMargins(10, 8, 10, 8)
             self._layout.setSpacing(6)
@@ -4381,7 +4395,7 @@ class Sidebar(QFrame):
                                             12 if not self.collapsed else 8, 12)
             self._layout.setSpacing(10)
             self.setFixedWidth(
-                theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
+                (theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
         self._sync_top_mode()
         self.list_box.relayout(animate=False)
 
@@ -4402,8 +4416,8 @@ class Sidebar(QFrame):
     # ---- 横栏那一行 ----
     def _detach_from_rows(self, widget: QWidget) -> None:
         """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
-        for holder in (self._layout, self.footer_box, self._bar_row_box, self._bar_row2_box,
-                       self._bar_right_box):
+        for holder in (self._layout, self._bar_row_box, getattr(self, '_bar_row2_box', None),
+                       getattr(self, '_bar_right_box', None)):
             if holder is not None:
                 holder.removeWidget(widget)
 
@@ -4645,9 +4659,6 @@ class Sidebar(QFrame):
         for widget in self._column_order:
             self._detach_from_rows(widget)
             self._layout.addWidget(widget)
-        self._detach_from_rows(self.workspace_controls)
-        self.workspace_controls.setParent(self.footer.body)
-        self.footer_box.addWidget(self.workspace_controls)
         # 布局预设 / 设置回到横排一行，把竖排时插进去的空白和分割线拿出来
         tool_box = self.tool_row.layout()
         tool_box.removeWidget(self._bar_divider_tool)
@@ -4687,8 +4698,8 @@ class Sidebar(QFrame):
 
     def _sync_selection_controls(self):
         self.account_row.setVisible(self._account_row_should_show())
-        self.tool_row.setVisible(not self.select_mode and not self.collapsed)
-        self.normal_bar.setVisible(not self.select_mode and not self.collapsed and self.side != 'top')
+        self.tool_row.setVisible(self.side == 'top' and not self.select_mode and not self.collapsed)
+        self.normal_bar.hide()
         if self.select_mode and self.side == 'top':
             self._bar_right.hide()
 
@@ -4879,7 +4890,8 @@ class Sidebar(QFrame):
                 item.thumb.set_cover_hold(True)
             self.collapsed = collapsed
             self._apply_collapsed_controls()
-            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            self._finish_collapse(
+                (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
             prepared = True
         finally:
             self._collapse_animating = False
@@ -4924,6 +4936,7 @@ class Sidebar(QFrame):
             layout = self.parentWidget().layout()
             if layout is not None:
                 layout.activate()
+        self._outer_layout.activate()
         self._layout.activate()
         self._collapse_animating = False
         self.list_box.relayout(animate=False)
@@ -5502,6 +5515,8 @@ class Sidebar(QFrame):
             self.count_label.setText(f"关注中 · {shown} / {len(self._items)}")
         else:
             self.count_label.setText(f"关注中 · {len(self._items)}")
+        if hasattr(self, 'navigation'):
+            self.navigation.sync_count()
 
     def set_refreshing(self, busy: bool) -> None:
         self.refresh_button.setEnabled(True)

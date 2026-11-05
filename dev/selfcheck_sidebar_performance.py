@@ -153,7 +153,7 @@ def main():
             assert geometry_observations and all(painted and enabled for painted, enabled in geometry_observations), \
                 'Final sidebar must paint before player geometry changes'
             assert quick.resize.called, 'Quick surface must settle before the call returns'
-            assert sidebar.width() == (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            assert sidebar._column.width() == (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
             assert len(counter.frames) == 1, 'Width must change directly to its final value'
             assert all(item._compact == collapsed for item in sidebar.items())
             assert not any(item.thumb._cover_hold for item in sidebar.items())
@@ -182,7 +182,7 @@ def main():
                 for _ in range(12):
                     sidebar.toggle_collapsed()
                     assert not sidebar._collapse_animating and wall.updatesEnabled()
-                    assert sidebar.width() == (theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                    assert sidebar._column.width() == (theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                     assert all(item._compact == sidebar.collapsed for item in sidebar.items())
                     if delay:
                         wait(delay)
@@ -209,7 +209,7 @@ def main():
         wait(50)
         with patch.object(motion, 'enabled', return_value=False):
             sidebar.set_collapsed(False)
-            assert sidebar.width() == theme.SIDEBAR_WIDTH
+            assert sidebar._column.width() == theme.SIDEBAR_WIDTH
         wall.set_fullscreen_tile(wall.tiles[0])
         fullscreen = wall.fullscreen_tile
         sidebar.set_collapsed(True)
