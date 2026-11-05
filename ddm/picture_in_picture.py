@@ -174,6 +174,7 @@ class PictureInPictureButton(QPushButton):
     def __init__(self, kind, tooltip, parent):
         super().__init__(parent)
         self.kind = kind
+        self.keyboard_focus = False
         self.setFixedSize(24, 24)
         self.setToolTip(tooltip)
         self.setAccessibleName(tooltip)
@@ -182,11 +183,21 @@ class PictureInPictureButton(QPushButton):
         self.setAttribute(Qt.WA_Hover)
         self.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; min-width: 0; min-height: 0; }')
 
+    def event(self, event):
+        if event.type() == QEvent.FocusIn:
+            self.keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
+            self.update()
+        elif event.type() == QEvent.FocusOut:
+            self.keyboard_focus = False
+            self.update()
+        return super().event(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        active = QApplication.widgetAt(QCursor.pos()) is self or self.hasFocus() or self.isChecked()
+        hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+        active = hovered or (self.keyboard_focus and self.hasFocus()) or self.isChecked()
         painter.setBrush(theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170))
         painter.drawEllipse(QRectF(self.rect()))
         painter.setPen(QPen(QColor('#e7ebf0'), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -273,16 +284,32 @@ class PictureInPictureWindow(QWidget):
         shortcut.activated.connect(self.close)
 
     def _poll_tools(self):
-        widget = QApplication.widgetAt(QCursor.pos())
-        focus = QApplication.focusWidget()
-        hovered = widget is not None and widget.window() in (self, self.tools)
-        focused = focus is not None and focus.window() is self.tools
+        hovered = self._pointer_over()
+        focused = any(button.keyboard_focus and button.hasFocus()
+                      for button in self.tools.findChildren(PictureInPictureButton))
         visible = (self.isVisible() and not self.isMinimized()
                    and self.controller.dialog is None and (hovered or focused))
         self.tools.move(self.mapToGlobal(QPoint(self.width() - 88, 8)))
         self.tools.setVisible(visible)
         if visible:
             self.tools.raise_()
+
+    def _pointer_over(self):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            point = wintypes.POINT()
+            user32.GetCursorPos.argtypes = (ctypes.POINTER(wintypes.POINT),)
+            user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+            user32.WindowFromPoint.restype = wintypes.HWND
+            user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+            user32.GetAncestor.restype = wintypes.HWND
+            user32.GetCursorPos(ctypes.byref(point))
+            hit = user32.GetAncestor(user32.WindowFromPoint(point), 2)  # GA_ROOT
+            return bool(hit and hit in (int(self.internalWinId()), int(self.tools.internalWinId())))
+        widget = QApplication.widgetAt(QCursor.pos())
+        return widget is not None and widget.window() in (self, self.tools)
 
     def focusNextPrevChild(self, next):
         self.tools.show()

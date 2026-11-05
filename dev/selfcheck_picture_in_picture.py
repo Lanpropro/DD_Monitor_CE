@@ -14,7 +14,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QMouseEvent, QPixmap
+from PySide6.QtGui import QColor, QCursor, QFocusEvent, QMouseEvent, QPixmap, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
@@ -57,7 +57,7 @@ def check_floating_style(pip, wall, tiles, layer):
         assert tile.video.hasMouseTracking()
         if tile.cover.isVisible():
             assert tile.cover.pixmap().toImage().pixelColor(0, 0).alpha() == 255, 'Covers must join without rounded inner corners'
-    with patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=tiles[0].video):
+    with patch.object(floating, '_pointer_over', return_value=True):
         floating._poll_tools()
     assert floating.tools.isVisible()
     assert floating.tools.pos() == floating.mapToGlobal(QPoint(floating.width() - 88, 8))
@@ -107,8 +107,7 @@ def check_floating_style(pip, wall, tiles, layer):
     floating._poll_tools()
     assert not floating.tools.isVisible(), 'The picker must remain above the tools'
     pip.dialog.reject()
-    with patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=None), \
-            patch('ddm.picture_in_picture.QApplication.focusWidget', return_value=None):
+    with patch.object(floating, '_pointer_over', return_value=False):
         floating._poll_tools()
     assert not floating.tools.isVisible()
 
@@ -147,6 +146,7 @@ def check_native_corners(pip):
     backdrop = QWidget(None, Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
     backdrop.setAttribute(Qt.WA_ShowWithoutActivating)
     backdrop.setStyleSheet('background: #ff00ff;')
+    previous_cursor = QCursor.pos()
     try:
         floating.resize_to_width(480)
         origin = floating.screen().availableGeometry().topLeft() + QPoint(36, 36)
@@ -169,7 +169,26 @@ def check_native_corners(pip):
             corner = image.copy(left, top, edge, edge)
             colors = [corner.pixelColor(x, y) for y in range(corner.height()) for x in range(corner.width())]
             assert any(10 < color.red() < 230 and 10 < color.green() < 160 and color.blue() > 190 for color in colors), ('Actual desktop corners must include alpha-blended video', left, top)
+        # Real HWND hit testing must survive a missing QWidget lookup (native
+        # video / transparent Quick windows), including after toggling pin.
+        backdrop.hide()
+        with patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=None):
+            QCursor.setPos(floating.mapToGlobal(floating.rect().center()))
+            QTest.qWait(150)
+            assert floating._pointer_over() and floating.tools.isVisible()
+            for pinned in (False, True):
+                QCursor.setPos(floating.pin.mapToGlobal(floating.pin.rect().center()))
+                floating.pin.click()
+                QTest.qWait(150)
+                assert pip.pinned is pinned and floating.tools.isVisible()
+            QCursor.setPos(origin + QPoint(2, 2))
+            QTest.qWait(150)
+            assert not floating.tools.isVisible()
+            QCursor.setPos(floating.mapToGlobal(floating.rect().center()))
+            QTest.qWait(150)
+            assert floating.tools.isVisible(), 'Re-entering native video must restore all icons'
     finally:
+        QCursor.setPos(previous_cursor)
         floating.setGeometry(previous)
         backdrop.close()
         backdrop.deleteLater()
@@ -198,6 +217,25 @@ def check_resize_burst(pip, wall):
     # or compositor tearing. The user's native trace is separate evidence.
     floating.setGeometry(bounds)
     QTest.qWait(50)
+
+
+def check_quick_mask_batch():
+    from ddm.video_danmaku_quick import _MovingDanmakuWindow
+    window = _MovingDanmakuWindow()
+    window.resize(240, 120)
+    base = QRegion(0, 0, 240, 120)
+    window.setMask(base)
+    window.begin_mask_batch()
+    window.begin_move(1, QRegion(10, 10, 30, 30))
+    window.begin_move(2, QRegion(80, 10, 30, 30))
+    assert window.mask() == base, 'A batch must preserve the current native clip until the group is ready'
+    window.end_mask_batch()
+    assert not window.mask().contains(QPoint(20, 20)) and not window.mask().contains(QPoint(90, 20))
+    assert window.mask().contains(QPoint(200, 100)), 'The final clip must retain unaffected areas'
+    window.cancel_move(1)
+    window.cancel_move(2)
+    assert window.mask() == base
+    window.deleteLater()
 
 
 def exercise(app, window, native, directory):
@@ -325,11 +363,21 @@ def exercise(app, window, native, directory):
                 assert bool(ctypes.windll.user32.GetWindowLongW(int(pip.floating.winId()), -20) & 8) is pinned
     for widget in watched:
         widget.removeEventFilter(visibility)
-    with patch.object(pip.floating.tools.manage, 'underMouse', return_value=True), \
-            patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=pip.floating.pin):
-        image = pip.floating.tools.manage.grab().toImage()
+    button = pip.floating.tools.manage
+    with patch.object(button, 'underMouse', return_value=True), \
+            patch.object(button, 'hasFocus', return_value=True), \
+            patch('ddm.picture_in_picture.QCursor.pos', return_value=QPoint(-30000, -30000)):
+        QApplication.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.ActiveWindowFocusReason))
+        image = button.grab().toImage()
         scale = image.devicePixelRatio()
-        assert image.pixelColor(round(12 * scale), round(21 * scale)).alpha() < 230, 'A stale hover bit must not flash the composition icon blue'
+        assert image.pixelColor(round(12 * scale), round(21 * scale)).alpha() < 230, 'Automatic tool-window focus must not light the composition icon'
+        with patch.object(pip.floating, '_pointer_over', return_value=False):
+            pip.floating._poll_tools()
+            assert not pip.floating.tools.isVisible(), 'Automatic focus must not pin the hover tools open'
+        QApplication.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+        image = button.grab().toImage()
+        assert image.pixelColor(round(12 * scale), round(21 * scale)).alpha() > 230, 'Keyboard focus must remain visible'
+        QApplication.sendEvent(button, QFocusEvent(QEvent.FocusOut, Qt.ActiveWindowFocusReason))
     player = window.players.get(tiles[0])
     before_aspects = list(wall.picture_in_picture_aspects)
     window.players[tiles[0]] = Mock(_prop=lambda name: {'dw': 800, 'dh': 600})
@@ -403,6 +451,7 @@ def main():
         os.environ['DDM_QTQUICK_DANMAKU'] = '1'
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_quick_mask_batch()
     if native:
         assert app.platformName() == 'windows'
     for count in range(1, 17):
