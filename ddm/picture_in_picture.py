@@ -765,9 +765,6 @@ class PictureInPicture(QObject):
         self.primary = saved.get('primary')
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
-        self.master_volume = max(0, min(100, int(saved.get('master_volume', 100))))
-        self.master_muted = bool(saved.get('master_muted', False))
-        self._audio_tiles = set()
         self._video_aspects = {}
         self._aspect_timer = QTimer(self)
         self._aspect_timer.setInterval(1000)
@@ -883,7 +880,6 @@ class PictureInPicture(QObject):
         self.floating.set_composition(aspects, columns, selection.index(primary))
         self.floating.show()
         wall.show()
-        self._sync_audio(tiles)
         self.floating.audio_panel.hide()
         self._sync_overlays()
         self._aspect_timer.start()
@@ -894,26 +890,6 @@ class PictureInPicture(QObject):
     def _minimize_host(self):
         if self.active and not self.host._closing:
             self.host.showMinimized()
-
-    def set_master_audio(self, *, volume=None, muted=None):
-        if volume is not None:
-            self.master_volume = max(0, min(100, int(volume)))
-        if muted is not None:
-            self.master_muted = bool(muted)
-        if self.active:
-            self._sync_audio(self.host.wall.picture_in_picture_tiles)
-        self.host._save_timer.start()
-
-    def _sync_audio(self, tiles):
-        selected = set(tiles)
-        for tile in self._audio_tiles | selected:
-            tile.video.setProperty('presentationAudioGain', self.master_volume / 100 if tile in selected else None)
-            tile.video.setProperty('presentationAudioMuted', self.master_muted if tile in selected else None)
-            player = self.host.players.get(tile)
-            if player is not None:
-                player.set_volume(tile.volume)
-                player.set_muted(tile.muted)
-        self._audio_tiles = selected
 
     def _sync_overlays(self):
         wall = self.host.wall
@@ -935,7 +911,6 @@ class PictureInPicture(QObject):
             self.dialog.reject()
         self.geometry = str(floating.saveGeometry().toBase64(), 'ascii')
         floating.stop()
-        self._sync_audio([])
         self._aspect_timer.stop()
         self.floating = None
         wall = self.host.wall
@@ -959,5 +934,4 @@ class PictureInPicture(QObject):
     def state(self):
         geometry = (str(self.floating.saveGeometry().toBase64(), 'ascii')
                     if self.active else self.geometry)
-        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry,
-                    master_volume=self.master_volume, master_muted=self.master_muted)
+        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry)

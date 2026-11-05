@@ -153,7 +153,7 @@ class TilePlayer(QObject):
                 force_window=False if self.silent else "immediate",
                 hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
-                audio_channels="stereo", volume=self._effective_volume(self.volume), mute=self._effective_muted(self.muted),
+                audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
                 **EMBEDDED_OPTIONS,
                 **(PREVIEW_STARTUP_OPTIONS if self.silent else {}),
                 input_default_bindings=False, input_vo_keyboard=False, input_cursor=False,
@@ -289,18 +289,11 @@ class TilePlayer(QObject):
 
     def set_muted(self, muted: bool) -> None:
         self.muted = bool(muted) or self.silent
-        self._set("mute", self._effective_muted(self.muted))
+        self._set("mute", self.muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = max(0, min(100, int(volume)))
-        self._set("volume", self._effective_volume(self.volume))
-
-    def _effective_volume(self, volume):
-        gain = self.video_widget.property('presentationAudioGain')
-        return linear_volume(volume) * (1.0 if gain is None else float(gain))
-
-    def _effective_muted(self, muted):
-        return bool(muted or self.silent or self.video_widget.property('presentationAudioMuted'))
+        self._set("volume", linear_volume(self.volume))
 
     def set_audio_channel(self, channel: int) -> None:
         self.audio_channel = int(channel)
@@ -326,10 +319,9 @@ class TilePlayer(QObject):
     def sync_audio(self, volume: int, muted: bool, channel: int) -> None:
         if self._released or self.silent:
             return
-        effective_volume, effective_muted = self._effective_volume(volume), self._effective_muted(muted)
-        if self.volume != volume or abs(self._prop("volume", effective_volume) - effective_volume) > 0.1:
+        if self.volume != volume or abs(self._prop("volume", linear_volume(volume)) - linear_volume(volume)) > 0.1:
             self.set_volume(volume)
-        if self.muted != muted or self._prop("mute", effective_muted) != effective_muted:
+        if self.muted != muted or self._prop("mute", muted) != muted:
             self.set_muted(muted)
         if self.audio_channel != channel:
             self.set_audio_channel(channel)
