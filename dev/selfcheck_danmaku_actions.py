@@ -11,7 +11,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QPalette
+from PySide6.QtGui import QImage, QPalette
 from PySide6.QtWidgets import QApplication, QLineEdit
 from ddm import danmaku_actions, plugins, theme
 from ddm.widgets import WallGrid
@@ -149,6 +149,48 @@ class ActionsTests(unittest.TestCase):
             self.assertFalse(controls.repeat_message(event, '12'))
             with self.choose(0, lambda menu: self.assertFalse(menu.repeat_button.isEnabled())):
                 self.wall.tiles[0]._show_danmaku_actions(event, QPoint())
+        self.assertEqual(self.sent, [])
+
+    def test_image_only_emoticon_can_repeat_without_clearing_clipboard_or_draft(self):
+        tile = self.wall.tiles[0]
+        event = {'text': '', 'dm_type': 1, 'emoticon_unique': 'official_13',
+                 'emoticon': 'https://example.invalid/emoticon.png'}
+        editor = tile._plugin_controls.entries[0].control.widget
+        editor.setText('keep draft')
+        APP.clipboard().setText('keep clipboard')
+        panel = self.wall.danmaku
+        with patch.object(panel, '_ensure_emoticon'):
+            panel.add_event(event)
+        def enabled(menu):
+            self.assertTrue(menu.repeat_button.isEnabled())
+            self.assertFalse(menu.copy_button.isEnabled())
+        with self.choose(1, enabled):
+            panel._message_clicked(0, QPoint())
+        video = tile.video_danmaku
+        video.set_native_video(False)
+        video.set_enabled(True)
+        video.set_active(True)
+        image = QImage(24, 24, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.white)
+        video._images[event['emoticon']] = image
+        with patch.object(video, '_poll_hover'):
+            self.assertTrue(video.add_event(event))
+            wait_comment_raster(APP, video)
+            comment = video.comments[0]
+            comment.x = 20
+            point = QPoint(25, comment.lane * video.lane_height() + 8)
+            with self.choose(1, enabled):
+                self.assertTrue(video.open_actions_at(video.mapToGlobal(point)))
+        self.assertEqual(self.sent, [('12', 'official_13', 1)] * 2)
+        self.assertEqual(editor.text(), 'keep draft')
+        self.assertEqual(APP.clipboard().text(), 'keep clipboard')
+
+    def test_empty_text_without_a_sendable_emoticon_stays_disabled(self):
+        tile = self.wall.tiles[0]
+        for event in ({'text': ''}, {'text': '', 'dm_type': 1},
+                      {'text': '', 'emoticon': 'https://example.invalid/emoticon.png'}):
+            with self.subTest(event=event), self.choose(0, lambda menu: self.assertFalse(menu.repeat_button.isEnabled())):
+                tile._show_danmaku_actions(event, QPoint())
         self.assertEqual(self.sent, [])
 
     def test_unavailable_or_readonly_input_cannot_send(self):
