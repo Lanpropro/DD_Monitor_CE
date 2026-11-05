@@ -441,17 +441,21 @@ class AccountPlatformDialog(QDialog):
             page.reread_button.setAutoDefault(False)
             page.reread_button.clicked.connect(lambda: self.select_platform("douyin", reread=True))
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
+            page.platform_notice = QLabel("受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。"
+                                          "你仍可直接勾选账号导入，软件会随后台刷新继续查询", page)
+            page.platform_notice.setObjectName("SettingsHint")
+            page.platform_notice.setWordWrap(True)
+            page.layout().insertWidget(1, page.platform_notice)
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
             page._resolve_cursor = 0
-            page.resolve_status = QLabel("未开播的账号也可直接勾选导入，无需填写直播间链接；"
-                                        "导入后随状态刷新自动查找直播间。", page)
+            page.resolve_status = QLabel("列表已读取，可勾选导入。", page)
             if not callable(getattr(self.providers["douyin"], "follow_account_reference", None)):
                 page.resolve_status.setText("待识别账号仅保存选择，取得房间号前不会加入关注栏；更新插件可直接按账号导入。")
             page.resolve_status.setObjectName("SettingsHint")
             page.resolve_status.setWordWrap(True)
-            page.layout().insertWidget(1, page.resolve_status)
+            page.layout().insertWidget(2, page.resolve_status)
             page.resolve_button = QPushButton("补充识别", page)
             page.resolve_button.setObjectName("IconButton")
             page.resolve_button.setCursor(Qt.PointingHandCursor)
