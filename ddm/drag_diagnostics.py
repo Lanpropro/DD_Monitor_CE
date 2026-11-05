@@ -103,12 +103,31 @@ class DragStallProbe:
         self.thread_id = threading.get_ident()
         self.last_tick = time.perf_counter()
         self.samples = []
+        self.timings = {}
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self._sample, name='drag-stall-probe', daemon=True)
         self.thread.start()
 
     def pulse(self):
         self.last_tick = time.perf_counter()
+
+    def record_timing(self, stage, started):
+        now = time.perf_counter()
+        elapsed = (now - started) * 1000
+        row = self.timings.get(stage)
+        if row is None:
+            row = self.timings[stage] = dict(calls=0, totalMs=0.0, maxMs=0.0,
+                                             maxGapMs=0.0, last=now)
+        row['calls'] += 1
+        row['totalMs'] += elapsed
+        row['maxMs'] = max(row['maxMs'], elapsed)
+        row['maxGapMs'] = max(row['maxGapMs'], (now - row['last']) * 1000)
+        row['last'] = now
+
+    def timing_summary(self):
+        return {stage: {key: value if key == 'calls' else round(value, 3)
+                        for key, value in row.items() if key != 'last'}
+                for stage, row in self.timings.items()}
 
     def _sample(self):
         released_at, sampled_at = None, 0.0
@@ -270,6 +289,11 @@ class Recorder:
                         return method(*args, **kwargs)
                     finally:
                         elapsed = (time.perf_counter() - started) * 1000
+                        if label == 'layout':
+                            session = getattr(args[0], 'drag_session', None)
+                            probe = getattr(session, '_diagnostic_probe', None)
+                            if probe is not None:
+                                probe.record_timing('preview-layout', started)
                         if label in ('pixmap', 'lift', 'hook') or elapsed >= 8:
                             self.mark('drag:stage', stage=label, elapsedMs=round(elapsed, 3))
                 return wrapped
@@ -336,6 +360,20 @@ class Recorder:
                 session.timer.timeout.connect(session._diagnostic_probe.pulse)
             return result
         SidebarDrag.start = start_internal
+        for name, stage in (('_move_ghost', 'ghost-callback'), ('_tick', 'target-tick')):
+            original = getattr(SidebarDrag, name)
+            def trace_update(method, label):
+                @functools.wraps(method)
+                def update(session, *args, **kwargs):
+                    probe = getattr(session, '_diagnostic_probe', None)
+                    started = time.perf_counter()
+                    try:
+                        return method(session, *args, **kwargs)
+                    finally:
+                        if probe is not None:
+                            probe.record_timing(label, started)
+                return update
+            setattr(SidebarDrag, name, trace_update(original, stage))
         for name in ('finish', 'cancel'):
             original = getattr(SidebarDrag, name)
             def trace_internal_end(method, label):
@@ -351,7 +389,8 @@ class Recorder:
                     finally:
                         if probe is not None:
                             self.mark('internal-drag:' + label,
-                                      elapsedMs=round((time.perf_counter()-started)*1000, 3))
+                                      elapsedMs=round((time.perf_counter()-started)*1000, 3),
+                                      timing=probe.timing_summary())
                             for sample in probe.finish():
                                 self.write(dict(sample, gesture=self._gesture, internal=True))
                 return end
