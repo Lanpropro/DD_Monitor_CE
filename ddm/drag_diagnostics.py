@@ -1,5 +1,6 @@
 """Opt-in Windows drag/OLE evidence; callbacks keep their original return values."""
 import ctypes
+import cProfile
 from ctypes import wintypes
 from datetime import datetime
 import functools
@@ -159,7 +160,7 @@ class DragStallProbe:
 
 
 class Recorder:
-    def __init__(self, path):
+    def __init__(self, path, *, profile_first_drag=False):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.handler = RotatingFileHandler(self.path, maxBytes=5 * 1024 * 1024,
@@ -172,6 +173,20 @@ class Recorder:
         self._last_write_ms = 0.0
         self._gesture = 0
         self._press_at = None
+        self.profile_first_drag = profile_first_drag
+        self._profiled_stages = set()
+        self._target_probe = None
+
+    def profile_once(self, stage, method, *args, **kwargs):
+        if not self.profile_first_drag or stage in self._profiled_stages:
+            return method(*args, **kwargs)
+        self._profiled_stages.add(stage)
+        profile = cProfile.Profile()
+        try:
+            return profile.runcall(method, *args, **kwargs)
+        finally:
+            from .responsiveness import profile_functions
+            self.mark('drag:profile', stage=stage, functions=profile_functions(profile))
 
     def write(self, record):
         started = time.perf_counter()
@@ -260,6 +275,19 @@ class Recorder:
         from ddm.preview import HoverPreview
         from ddm.widgets import NavItem, Sidebar
         from ddm.sidebar_drag import SidebarDrag
+        original_hit_test = QApplication.widgetAt
+        @functools.wraps(original_hit_test)
+        def hit_test(*args):
+            probe = self._target_probe
+            if probe is None:
+                return original_hit_test(*args)
+            started = time.perf_counter()
+            try:
+                return original_hit_test(*args)
+            finally:
+                if probe is not None:
+                    probe.record_timing('hit-test', started)
+        QApplication.widgetAt = staticmethod(hit_test)
         original_press = NavItem.mousePressEvent
         @functools.wraps(original_press)
         def press(item, event):
@@ -285,7 +313,10 @@ class Recorder:
                 @functools.wraps(method)
                 def wrapped(*args, **kwargs):
                     started = time.perf_counter()
+                    profiled = self.profile_first_drag and label == 'pixmap' and label not in self._profiled_stages
                     try:
+                        if label == 'pixmap':
+                            return self.profile_once(label, method, *args, **kwargs)
                         return method(*args, **kwargs)
                     finally:
                         elapsed = (time.perf_counter() - started) * 1000
@@ -295,7 +326,7 @@ class Recorder:
                             if probe is not None:
                                 probe.record_timing('preview-layout', started)
                         if label in ('pixmap', 'lift', 'hook') or elapsed >= 8:
-                            self.mark('drag:stage', stage=label, elapsedMs=round(elapsed, 3))
+                            self.mark('drag:stage', stage=label, elapsedMs=round(elapsed, 3), profiled=profiled)
                 return wrapped
             setattr(owner, name, timed(original, stage))
         from ddm.player import TilePlayer
@@ -352,10 +383,11 @@ class Recorder:
             if session.active:
                 return original_start(session, *args, **kwargs)
             started = time.perf_counter()
-            result = original_start(session, *args, **kwargs)
+            profiled = self.profile_first_drag and 'drag-start' not in self._profiled_stages
+            result = self.profile_once('drag-start', original_start, session, *args, **kwargs)
             if session.active:
                 self.mark('internal-drag:start', elapsedMs=round((time.perf_counter()-started)*1000, 3),
-                          source=type(session.source).__name__)
+                          source=type(session.source).__name__, profiled=profiled)
                 session._diagnostic_probe = DragStallProbe()
                 session.timer.timeout.connect(session._diagnostic_probe.pulse)
             return result
@@ -366,10 +398,15 @@ class Recorder:
                 @functools.wraps(method)
                 def update(session, *args, **kwargs):
                     probe = getattr(session, '_diagnostic_probe', None)
+                    previous = self._target_probe
+                    if label == 'target-tick':
+                        self._target_probe = probe
                     started = time.perf_counter()
                     try:
                         return method(session, *args, **kwargs)
                     finally:
+                        if label == 'target-tick':
+                            self._target_probe = previous
                         if probe is not None:
                             probe.record_timing(label, started)
                 return update
