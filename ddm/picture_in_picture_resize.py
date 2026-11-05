@@ -144,3 +144,36 @@ class LiveResize:
         if self.source._live_resize is self:
             self.source._live_resize = None
             self.source._poll_tools()
+
+
+class LiveMove(LiveResize):
+    """Move one live composition while its native video windows stay still."""
+    def __init__(self, source):
+        super().__init__(source)
+        self.system_moving = False
+        self.user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+        self.user32.SendMessageW.restype = ctypes.c_ssize_t
+
+    def set_geometry(self, rect):
+        self.preview.move(rect.topLeft())
+
+    def run_system_move(self):
+        if not self.user32.GetAsyncKeyState(1) & 0x8000:
+            return False
+        self.system_moving = True
+        self.source.releaseMouse()
+        try:
+            # As in WindowMove, WinDLL releases the GIL for the native move loop.
+            self.user32.SendMessageW(int(self.preview.winId()), 0x0112, 0xF012, 0)
+        finally:
+            self.system_moving = False
+        if (self.source._live_move is self and self.source._gesture is not None
+                and self.user32.GetAsyncKeyState(0x1B) & 0x8000):
+            self.preview.setGeometry(self.source._gesture[1])
+        return True
+
+    def stop(self):
+        super().stop()
+        if self.source._live_move is self:
+            self.source._live_move = None
+            self.source._poll_tools()

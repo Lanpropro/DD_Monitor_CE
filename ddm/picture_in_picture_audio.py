@@ -71,10 +71,6 @@ class PictureInPictureAudio(VolumePopup):
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         layout.addWidget(self.scroll)
-        shortcuts = self.controller.host.shortcuts
-        hint = QLabel(f"鼠标指向画面：↑↓ 音量\n{shortcuts.get('mute', 'M')} 静音 · {shortcuts.get('solo', 'Alt+M')} 独听", self)
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
         self.rows = {}
         self.timer = QTimer(self)
         self.timer.setInterval(150)
