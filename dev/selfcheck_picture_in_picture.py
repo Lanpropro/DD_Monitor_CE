@@ -16,10 +16,11 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
-from ddm.picture_in_picture import PictureInPictureDialog, PictureInPictureWindow, pane_rectangles
+from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWindow,
+    composition_aspect, composition_rows, pane_rectangles, video_aspect)
 
 
 def pointer(surface, kind, local, global_pos, button, buttons):
@@ -32,8 +33,10 @@ def check_floating_style(pip, wall, tiles, layer):
     assert floating.windowFlags() & Qt.FramelessWindowHint
     assert floating.box.contentsMargins().isNull() and floating.box.spacing() == 0
     assert wall.geometry() == floating.rect(), 'Video wall must fill the floating window'
-    assert not floating.mask().contains(QPoint(0, 0))
-    assert floating.mask().contains(floating.rect().center())
+    clip = floating.property('presentationMask')
+    assert not clip.contains(QPoint(0, 0))
+    assert clip.contains(floating.rect().center())
+    assert abs(floating.height() - floating.width() / floating.aspect) <= 1
     for tile in tiles[:2]:
         assert tile.video.geometry() == tile.rect(), 'PiP video must have no border inset'
         tile.set_controls_visible(True)
@@ -68,9 +71,15 @@ def check_floating_style(pip, wall, tiles, layer):
         user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
         region = gdi32.CreateRectRgn(0, 0, 0, 0)
         try:
-            assert user32.GetWindowRgn(hwnd, region)
-            assert not gdi32.PtInRegion(region, 0, 0)
-            assert gdi32.PtInRegion(region, client.right // 2, client.bottom // 2)
+            if floating._native_rounding:
+                from ddm.window_fullscreen import _dwm_get
+                assert _dwm_get(hwnd, 33) == 2
+                assert floating.mask().isEmpty()
+                assert not user32.GetWindowRgn(hwnd, region), 'Hard regions disable smooth compositor corners'
+            else:
+                assert user32.GetWindowRgn(hwnd, region)
+                assert not gdi32.PtInRegion(region, 0, 0)
+                assert gdi32.PtInRegion(region, client.right // 2, client.bottom // 2)
         finally:
             gdi32.DeleteObject(region)
     assert all(button.text() == '' and button.toolTip() and button.accessibleName()
@@ -110,12 +119,50 @@ def check_floating_style(pip, wall, tiles, layer):
         pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
         pointer(floating, QEvent.MouseButtonRelease, local, start + delta, Qt.LeftButton, Qt.NoButton)
         if delta.x() == 61:
-            assert floating.size() == bounds.size() + QSize(61, 37)
+            assert floating.width() > bounds.width() and floating.height() > bounds.height()
+            assert abs(floating.height() - floating.width() / floating.aspect) <= 1
         else:
             assert floating.size() == floating.minimumSize()
             assert floating.geometry().bottomRight() == bounds.bottomRight()
     floating.setGeometry(bounds)
     QTest.qWait(50)
+
+
+def check_native_corners(pip):
+    """Optional real compositor evidence over a controlled local backdrop."""
+    floating = pip.floating
+    assert floating._native_rounding
+    previous = floating.geometry()
+    backdrop = QWidget(None, Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
+    backdrop.setAttribute(Qt.WA_ShowWithoutActivating)
+    backdrop.setStyleSheet('background: #ff00ff;')
+    try:
+        floating.resize_to_width(480)
+        origin = floating.screen().availableGeometry().topLeft() + QPoint(36, 36)
+        backdrop.setGeometry(QRect(origin, floating.size() + QSize(48, 48)))
+        backdrop.show()
+        floating.move(origin + QPoint(24, 24))
+        floating.raise_()
+        QTest.qWait(350)
+        position = floating.pos()
+        image = floating.screen().grabWindow(0, position.x(), position.y(), floating.width(), floating.height()).toImage()
+        output = ROOT / 'work/pip-previews'
+        output.mkdir(parents=True, exist_ok=True)
+        image.save(str(output / ('native-rounded-' + os.environ.get('QT_SCALE_FACTOR', '1') + '.png')))
+        # Local blue video against magenta: fractional red and green together
+        # identify compositor blending, rather than a two-color region staircase.
+        scale = floating.devicePixelRatioF()
+        edge = round(12 * scale)
+        for left, top in ((0, 0), (image.width() - edge, 0),
+                          (0, image.height() - edge), (image.width() - edge, image.height() - edge)):
+            corner = image.copy(left, top, edge, edge)
+            colors = [corner.pixelColor(x, y) for y in range(corner.height()) for x in range(corner.width())]
+            assert any(10 < color.red() < 230 and 10 < color.green() < 160 and color.blue() > 190 for color in colors), ('Actual desktop corners must include alpha-blended video', left, top)
+    finally:
+        floating.setGeometry(previous)
+        backdrop.close()
+        backdrop.deleteLater()
+        QTest.qWait(80)
 
 
 def exercise(app, window, native, directory):
@@ -135,11 +182,13 @@ def exercise(app, window, native, directory):
     if native:
         from ddm.player import TilePlayer
         from selfcheck_mpv import ready, pump
-        media = Path(directory) / 'local.mp4'
-        subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-hide_banner', '-loglevel', 'error',
-            '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30', '-t', '30',
-            '-c:v', 'libx264', '-preset', 'ultrafast', str(media)], check=True, timeout=30)
-        for tile in tiles[:2]:
+        for index, tile in enumerate(tiles[:2]):
+            media = Path(directory) / f'local-{index}.mp4'
+            size = '320x180' if index == 0 else '180x320'
+            pattern = 'color=c=0x00aaff' if '--corners' in sys.argv else 'testsrc2'
+            subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-hide_banner', '-loglevel', 'error',
+                '-f', 'lavfi', '-i', f'{pattern}:s={size}:r=30' if pattern.startswith('color') else f'{pattern}=s={size}:r=30', '-t', '30',
+                '-c:v', 'libx264', '-preset', 'ultrafast', str(media)], check=True, timeout=30)
             player = TilePlayer(tile.video, window, silent=True)
             player.freeze_watch = False
             player.play(str(media))
@@ -176,6 +225,11 @@ def exercise(app, window, native, directory):
     assert wall.window() is pip.floating and wall.visible_tiles() == tiles[:2]
     assert not any(tile.bottom.isVisible() for tile in tiles[:2])
     assert wall.layout_id == original_layout
+    if native:
+        assert abs(pip.aspects_for([0])[0] - 16 / 9) < .001
+        assert abs(pip.aspects_for([1])[0] - 9 / 16) < .001
+        if '--corners' in sys.argv:
+            check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
     pip.manage()
     pip.dialog.checks[3].setChecked(True)
@@ -203,17 +257,38 @@ def exercise(app, window, native, directory):
         QTest.qWait(100)
         assert wall.geometry() == pip.floating.rect()
         assert all(tile.video.geometry() == tile.rect() for tile in tiles[:2])
-        assert not pip.floating.mask().contains(QPoint(0, 0))
+        assert not pip.floating.property('presentationMask').contains(QPoint(0, 0))
     for size in ((360, 240), (440, 540), (800, 320)):
         pip.floating.resize(*size)
         QTest.qWait(50)
         assert wall.rect().contains(tiles[0].geometry()) and wall.rect().contains(tiles[1].geometry())
         assert not tiles[0].geometry().intersects(tiles[1].geometry())
+        assert abs(pip.floating.height() - pip.floating.width() / pip.floating.aspect) <= 1
+        for tile, aspect in zip(wall.visible_tiles(), wall.picture_in_picture_aspects):
+            assert abs(tile.width() - tile.height() * aspect) <= 2
     pip.floating.pin.click()
     QTest.qWait(50)
     assert not (pip.floating.windowFlags() & Qt.WindowStaysOnTopHint)
     pip.floating.pin.click()
     QTest.qWait(50)
+    player = window.players.get(tiles[0])
+    before_aspects = list(wall.picture_in_picture_aspects)
+    window.players[tiles[0]] = Mock(_prop=lambda name: {'dw': 800, 'dh': 600})
+    pip._refresh_aspects()
+    QTest.qWait(50)
+    assert wall.picture_in_picture_aspects[0] == 4 / 3
+    assert abs(tiles[0].width() - tiles[0].height() * 4 / 3) <= 2
+    # Missing metadata while the same room reconnects retains its known ratio.
+    window.players[tiles[0]] = Mock(_prop=lambda name: None)
+    pip._refresh_aspects()
+    assert wall.picture_in_picture_aspects[0] == 4 / 3
+    if player is None:
+        window.players.pop(tiles[0])
+    else:
+        window.players[tiles[0]] = player
+    pip._video_aspects.pop(tiles[0])
+    pip._refresh_aspects()
+    assert wall.picture_in_picture_aspects == before_aspects
     with patch.object(window._tray, 'available', return_value=True), patch.object(window._tray, 'icon', Mock()):
         window._tray.hide()
     QTest.qWait(50)
@@ -271,10 +346,17 @@ def main():
         assert app.platformName() == 'windows'
     for count in range(1, 17):
         for columns in (0, 1, 2, 3, 16):
-            area = QRect(0, 0, 280, 160)
-            rectangles = pane_rectangles(count, area, columns)
-            assert len(rectangles) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
-            assert not any(first.intersects(second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
+            for aspects in ([16 / 9] * count, [9 / 16 if index % 2 else 4 / 3 for index in range(count)]):
+                aspect = composition_aspect(composition_rows(aspects, columns))
+                area = QRect(0, 0, 1280, round(1280 / aspect))
+                rectangles = pane_rectangles(count, area, columns, aspects)
+                assert len(rectangles) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
+                assert not any(first.intersects(second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
+                assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height(), 'Partial final rows must fill their width, without vacant grid slots'
+                assert all(abs(rect.width() - rect.height() * ratio) <= 2 for rect, ratio in zip(rectangles, aspects))
+    assert video_aspect(Mock(_prop=lambda name: {'w': 1440, 'h': 1080, 'dw': 1920, 'dh': 1080})) == 16 / 9
+    assert video_aspect(Mock(_prop=lambda name: {'dw': 1920, 'dh': 1080, 'rotate': 90})) == 9 / 16
+    assert video_aspect(Mock(_prop=lambda name: None)) is None
     with tempfile.TemporaryDirectory(prefix='ddm-pip-') as directory, ExitStack() as stack:
         stack.enter_context(patch.object(config, 'REPO', directory))
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(directory) / 'config.json')))

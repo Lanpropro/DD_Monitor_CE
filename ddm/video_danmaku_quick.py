@@ -383,8 +383,9 @@ class QuickDanmakuLayer(QObject):
         region = QRegion(canvas.rect())
         owner = self.parent.window()
         clip_owner = canvas.window()
-        if not clip_owner.mask().isEmpty():
-            region &= clip_owner.mask().translated(clip_owner.mapToGlobal(QPoint()) - origin)
+        clip = clip_owner.property('presentationMask') or clip_owner.mask()
+        if not clip.isEmpty():
+            region &= clip.translated(clip_owner.mapToGlobal(QPoint()) - origin)
         for widget in QApplication.topLevelWidgets():
             if (widget is owner or widget is self._presentation_window
                     or not widget.isVisible() or not _owned_by(widget, owner)):
