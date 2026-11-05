@@ -267,20 +267,28 @@ def check_move_burst(pip):
         assert not floating.tools.isVisible() and not floating.audio_tools.isVisible()
         with patch.object(floating.tools, 'move', wraps=floating.tools.move) as tools_move, \
                 patch.object(floating.audio_tools, 'move', wraps=floating.audio_tools.move) as audio_move:
+            source_geometry = None
             for delta in (QPoint(13, 7), QPoint(-55, 29), QPoint(86, -14), QPoint(21, 18)):
                 target = start + delta
                 pointer(surface, QEvent.MouseMove, surface.mapFromGlobal(target), target, Qt.NoButton, Qt.LeftButton)
                 floating._poll_tools()  # The hover timer must not reveal or move tools during a drag.
-                assert floating.pos() == bounds.topLeft() + delta and floating.size() == bounds.size()
+                presented = floating._live_move.preview if floating._live_move is not None else floating
+                assert presented.pos() == bounds.topLeft() + delta and presented.size() == bounds.size()
+                if floating._live_move is not None:
+                    if source_geometry is None:
+                        source_geometry = floating.geometry()
+                    assert floating.geometry() == source_geometry, 'All source video windows must remain still during movement'
                 assert not floating.tools.isVisible() and not floating.audio_tools.isVisible()
             tools_move.assert_not_called()
             audio_move.assert_not_called()
             target = start + QPoint(29, 24)
             pointer(surface, QEvent.MouseButtonRelease, surface.mapFromGlobal(target), target, Qt.LeftButton, Qt.NoButton)
             assert floating.pos() == bounds.topLeft() + QPoint(29, 24), 'Release must apply the final pointer position'
+            QTest.qWait(120)
             assert floating.tools.isVisible() and floating.audio_tools.isVisible()
             assert tools_move.call_count == audio_move.call_count == 1
         assert floating._gesture is None and QWidget.mouseGrabber() is not floating
+        assert floating._live_move is None
     floating.setGeometry(bounds)
     QTest.qWait(30)
 

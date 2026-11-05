@@ -365,6 +365,7 @@ class PictureInPictureWindow(QWidget):
         self._gesture = None
         self._reorder_drag = None
         self._live_resize = None
+        self._live_move = None
         from .picture_in_picture_audio import AudioFeedback, PictureInPictureAudio
         self.audio_tools = QWidget(self, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.audio_tools.setAttribute(Qt.WA_TranslucentBackground)
@@ -396,6 +397,11 @@ class PictureInPictureWindow(QWidget):
         shortcut.activated.connect(self._escape)
 
     def _poll_tools(self):
+        if self._live_move is not None:
+            if (not self._live_move.starting and not self._live_move.finishing
+                    and not self._live_move.sync()):
+                self._live_move.finish(immediate=True)
+            return
         if self._gesture is not None and not self._gesture[2]:
             return
         if self._live_resize is not None:
@@ -473,6 +479,8 @@ class PictureInPictureWindow(QWidget):
         self._poll_tools()
 
     def saveGeometry(self):
+        if self._live_move is not None:
+            return self._live_move.preview.saveGeometry()
         if self._live_resize is not None:
             return self._live_resize.preview.saveGeometry()
         return super().saveGeometry()
@@ -599,7 +607,8 @@ class PictureInPictureWindow(QWidget):
         if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove,
                         QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
             return False
-        preview = self._live_resize.preview if self._live_resize is not None else None
+        live = self._live_move or self._live_resize
+        preview = live.preview if live is not None else None
         if not isinstance(watched, QWidget) or watched.window() not in (self, preview):
             return False
         wall = self.controller.host.wall
@@ -609,6 +618,8 @@ class PictureInPictureWindow(QWidget):
             return False
         point = event.globalPosition().toPoint()
         if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if self._live_move is not None:
+                self._live_move.finish(immediate=True)
             if self._live_resize is not None:
                 self._live_resize.finish(immediate=True)
             self.setFocus(Qt.MouseFocusReason)
@@ -670,7 +681,7 @@ class PictureInPictureWindow(QWidget):
                     if not self._geometry_timer.isActive():
                         self._geometry_timer.start()
                 else:
-                    self.move(rect.topLeft())
+                    self._move_composition(rect)
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
             source, start = self._reorder_drag
@@ -684,7 +695,13 @@ class PictureInPictureWindow(QWidget):
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
             start, bounds, edges = self._gesture
             if not edges:
-                self.move(bounds.topLeft() + point - start)
+                rect = QRect(bounds)
+                rect.moveTopLeft(bounds.topLeft() + point - start)
+                if self._live_move is not None:
+                    self._live_move.set_geometry(rect)
+                    self._live_move.finish()
+                else:
+                    self.move(rect.topLeft())
             self._flush_geometry(finishing=True)
             self._gesture = None
             self.releaseMouse()
@@ -693,6 +710,18 @@ class PictureInPictureWindow(QWidget):
             self._poll_tools()
             return True
         return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
+
+    def _move_composition(self, rect):
+        if (self._live_move is None and sys.platform == 'win32'
+                and QApplication.platformName() == 'windows'):
+            from .picture_in_picture_resize import LiveMove
+            self._live_move = LiveMove(self)
+            if not self._live_move.begin():
+                self._live_move = None
+        if self._live_move is not None:
+            self._live_move.set_geometry(rect)
+        else:
+            self.move(rect.topLeft())
 
     def _flush_geometry(self, *, finishing=False):
         self._geometry_timer.stop()
@@ -710,6 +739,8 @@ class PictureInPictureWindow(QWidget):
                 self.setGeometry(rect)
 
     def stop(self):
+        if self._live_move is not None:
+            self._live_move.finish(immediate=True)
         if self._live_resize is not None:
             self._live_resize.finish(immediate=True)
         self._hover_timer.stop()
