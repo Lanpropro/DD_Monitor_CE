@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from PySide6.QtCore import QThread, QUrl, Qt, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
+from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QInputDialog, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import bili, theme
@@ -22,6 +22,7 @@ class FollowAccountResolver(QThread):
         self.platform = platform
         self.accounts = deepcopy(accounts)
         self.next_index = start_index
+        self.failures = 0
 
     def run(self):
         cancelled = self.isInterruptionRequested
@@ -30,13 +31,19 @@ class FollowAccountResolver(QThread):
                 break
             account = self.accounts[index]
             if not account.get("room_id") or account.get("live_known") is False:
+                error_kind = ""
                 try:
                     resolved = self.platform.resolve_follow_account(account, cancelled)
-                except Exception:  # 单个账号失败不影响其余关注，也不覆盖原身份。
-                    resolved = None
+                except Exception as error:  # 单个账号失败不影响其余关注，也不覆盖原身份。
+                    self.failures += 1
+                    error_kind = type(error).__name__
+                    resolved = dict(account)
                 if cancelled():
                     break
                 if resolved is not None:
+                    resolved = dict(resolved, follow_resolve_error=error_kind,
+                                    follow_resolve_note="未取得房间号" if not resolved.get("room_id") else
+                                    "未取得直播状态" if resolved.get("live_known") is False else "")
                     self.updated.emit(resolved)
             self.next_index = index + 1
             self.progress.emit(self.next_index, len(self.accounts))
@@ -52,6 +59,7 @@ class AccountPlatformDialog(QDialog):
         self._reauthenticate_kind = platform_kind
         self.rooms = []
         self._account_resolver = None
+        self._room_link_resolver = None
         self.folder_id = ""
         self.folder_changed = False
         self.folder_room_ids = []
@@ -430,7 +438,8 @@ class AccountPlatformDialog(QDialog):
         page.avatarRequested.connect(lambda faces: self.owner._start_avatar_loader(faces, page.set_avatar))
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
             page._resolve_cursor = 0
-            page.resolve_status = QLabel("列表已读取，可直接勾选直播间导入；待识别账号可补充识别。", page)
+            page.resolve_status = QLabel("可勾选已识别直播间导入；点击补充识别可查询房间并刷新未知状态。"
+                                        "待识别账号仅保存选择，取得房间号前不会加入关注栏。", page)
             page.resolve_status.setObjectName("SettingsHint")
             page.resolve_status.setWordWrap(True)
             page.layout().insertWidget(1, page.resolve_status)
@@ -440,6 +449,12 @@ class AccountPlatformDialog(QDialog):
             page.resolve_button.setAutoDefault(False)
             page.resolve_button.clicked.connect(lambda: self._resolve_accounts(page))
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(1, page.resolve_button)
+            page.link_button = QPushButton("关联直播间链接", page)
+            page.link_button.setObjectName("IconButton")
+            page.link_button.setAutoDefault(False)
+            page.link_button.setToolTip("先单击待识别账号，再提供该主播的直播间链接；核对身份后加入可导入列表。")
+            page.link_button.clicked.connect(lambda: self._link_follow_room(page))
+            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(2, page.link_button)
         self._set_page(page)
         page.request_visible_avatars()
         # 打开磁盘缓存不触发网络；新读取的列表才自动补充。
@@ -447,6 +462,8 @@ class AccountPlatformDialog(QDialog):
             self._resolve_accounts(page)
 
     def _resolve_accounts(self, page):
+        if self._room_link_resolver is not None:
+            return
         if self._account_resolver is not None:
             self._account_resolver.requestInterruption()
             page.resolve_button.setText("正在停止…")
@@ -459,6 +476,7 @@ class AccountPlatformDialog(QDialog):
         if running is not None:
             running.add(worker)
         page.resolve_button.setText("停止识别")
+        page.link_button.setEnabled(False)
         def update(account):
             if (self._account_resolver is not worker or worker.isInterruptionRequested()
                     or self._closing_result is not None or getattr(self.owner, "_closing", False)):
@@ -478,13 +496,73 @@ class AccountPlatformDialog(QDialog):
                 self._account_resolver = None
                 page._resolve_cursor = worker.next_index
                 page.resolve_button.setEnabled(True)
+                page.link_button.setEnabled(True)
                 page.resolve_button.setText("继续识别" if worker.next_index < len(page.rooms) else "补充识别")
                 state = "识别已停止" if worker.isInterruptionRequested() else "识别完成"
                 pending = sum(not room.get("room_id") for room in page.rooms)
+                unknown = sum(bool(room.get("room_id")) and room.get("live_known") is False for room in page.rooms)
                 page.resolve_status.setText(f"{state}：已处理 {worker.next_index}/{len(page.rooms)} 个关注，"
-                                            f"{pending} 个账号暂未取得直播间。")
+                                            f"{pending} 个账号暂未取得直播间，{unknown} 个直播状态未知，"
+                                            f"本轮 {worker.failures} 项请求或解析失败。待识别选择仅保存，不加入关注栏。")
+                print(f"[抖音关注识别] 已处理={worker.next_index}/{len(page.rooms)} "
+                      f"待识别={pending} 状态未知={unknown} 失败={worker.failures}")
         worker.progress.connect(progress)
         worker.updated.connect(update)
+        worker.finished.connect(finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _link_follow_room(self, page):
+        if self._account_resolver is not None or self._room_link_resolver is not None:
+            return
+        item = page.list.currentItem()
+        account = dict(item.data(Qt.UserRole)) if item is not None else {}
+        if not account.get("anchor_uid"):
+            page.resolve_status.setText("请先单击需要关联直播间的关注账号。")
+            return
+        text, accepted = QInputDialog.getText(self, "关联抖音直播间", f"请输入 {account['uname']} 的完整直播间链接：")
+        if not accepted or not text.strip():
+            return
+        provider = self.providers["douyin"]
+        try:
+            canonical = provider.normalize(text.strip())
+            if account.get("room_id") and canonical != account["room_id"]:
+                raise ValueError("已有直播间与输入链接不一致，请核对链接。")
+        except ValueError as error:
+            page.resolve_status.setText(str(error))
+            return
+        worker = bili.InfoResolver(canonical, self.owner, platform=provider)
+        self._room_link_resolver = worker
+        self.owner._platform_info_running.add(worker)
+        page.link_button.setEnabled(False)
+        page.resolve_button.setEnabled(False)
+        page.resolve_status.setText("正在读取直播间并核对主播身份…")
+        def current():
+            return (self._closing_result is None and not self.owner._closing
+                    and self._follow_pages.get("douyin") is page)
+        def loaded(room):
+            if not current():
+                return
+            if str(room.get("anchor_uid") or "") != str(account["anchor_uid"]):
+                page.resolve_status.setText("直播间主播与所选账号不一致，未关联，请核对链接。")
+                return
+            result = dict(account, room_id=canonical, live=room["live"], live_known=room.get("live_known", True),
+                          title=room.get("title") or account.get("title", ""),
+                          follow_resolve_error="", follow_resolve_note="")
+            page.update_account(result)
+            self.owner._cache_douyin_follows(page.rooms)
+            page.resolve_status.setText("主播身份已核对，直播间已进入可导入列表；请勾选后导入。")
+        def failed(_rid):
+            if current():
+                page.resolve_status.setText("直播间读取失败，未关联；请核对链接、网络或官网验证后重试。")
+        def finished():
+            self.owner._platform_info_running.discard(worker)
+            self._room_link_resolver = None
+            if current():
+                page.link_button.setEnabled(True)
+                page.resolve_button.setEnabled(True)
+        worker.resolved.connect(loaded)
+        worker.failed.connect(failed)
         worker.finished.connect(finished)
         worker.finished.connect(worker.deleteLater)
         worker.start()

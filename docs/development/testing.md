@@ -256,7 +256,9 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 
 ## 抖音关注选择菜单
 
-`python dev/selfcheck_douyin_account_import.py`：使用隔离插件副本、合成账号和请求替身，验证官网账号读取后进入原生菜单、默认只显示有房间号的直播间、待识别显示开关、异步识别后可见性与勾选保留、停止后从未处理位置继续、失败隔离、文件夹、缓存和重复导入。测试的加密缓存写入临时目录，不读取真实账号，也不发送弹幕。
+`python dev/selfcheck_douyin_account_import.py`：使用隔离插件副本、合成账号和请求替身，验证官网账号读取后进入原生菜单、默认只显示有房间号的直播间、待识别显示开关、异步识别后可见性与勾选保留、停止后从未处理位置继续、失败计数及条目提示、待识别仅保存选择的按钮提示、手动关联未开播直播间的身份核对及同名误关联拒绝、文件夹、缓存和重复导入。测试的加密缓存写入临时目录，不读取真实账号，也不发送弹幕。
+
+官网没有为未开播账号返回固定房间号时，可展开待识别账号，单击目标账号后使用「关联直播间链接」。软件校验主播 UID 后更新菜单及缓存，保留勾选和文件夹，再由用户点击导入；未取得房间号的账号仅保存选择，不加入关注栏。自动补充识别运行时可先停止，再关联链接。
 
 同时运行 `selfcheck_douyin_ui_follows`（本机HTTP与真实WebEngine页面读取）、`selfcheck_douyin_follow_cache`、`selfcheck_douyin_restart_cache`、`selfcheck_account_dialog`、`selfcheck_follow_import`，覆盖官网读取到原生页面切换、缓存重开及其他平台的共享勾选行为。根 `run.cmd` 人工验收：导入关注选择抖音，完成官网读取后，应显示软件菜单；勾选直播间及文件夹并导入，关注栏只新增选中房间，不自动播放。真实官网列表完整性与账号验证需单独人工确认。
 
