@@ -375,6 +375,7 @@
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
 - `dev/selfcheck_startup_windows.py`
+- `dev/selfcheck_startup_scroll_diagnostics.py`
 - `dev/selfcheck_startup_wmi.py`
 - `dev/selfcheck_stream_recovery.py`
 - `dev/selfcheck_stream_relay.py`
