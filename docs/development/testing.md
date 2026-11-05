@@ -259,3 +259,5 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 `python dev/selfcheck_douyin_account_import.py`：使用隔离插件副本、合成账号和请求替身，验证官网账号读取后进入原生菜单、默认只显示有房间号的直播间、待识别显示开关、异步识别后可见性与勾选保留、停止后从未处理位置继续、失败隔离、文件夹、缓存和重复导入。测试的加密缓存写入临时目录，不读取真实账号，也不发送弹幕。
 
 同时运行 `selfcheck_douyin_ui_follows`（本机HTTP与真实WebEngine页面读取）、`selfcheck_douyin_follow_cache`、`selfcheck_douyin_restart_cache`、`selfcheck_account_dialog`、`selfcheck_follow_import`，覆盖官网读取到原生页面切换、缓存重开及其他平台的共享勾选行为。根 `run.cmd` 人工验收：导入关注选择抖音，完成官网读取后，应显示软件菜单；勾选直播间及文件夹并导入，关注栏只新增选中房间，不自动播放。真实官网列表完整性与账号验证需单独人工确认。
+
+日常集成版另跑 `python dev/selfcheck_follow_stress.py` 与 `python dev/selfcheck_pinyin_search.py`。压力脚本等待批量填充结束后再勾选，保留 3000 关注、750 主播的数量断言；与 `selfcheck_follow_import` 一起核对滚动头像、搜索、勾选及分批导入。

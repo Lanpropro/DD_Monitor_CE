@@ -136,7 +136,8 @@ def main():
                 dialog = AccountPlatformDialog(owner, {}, import_follows=True)
                 dialog.show()
                 wait_until(lambda: isinstance(dialog.page, FollowImportDialog)
-                           and not dialog.page.property('loading'))
+                           and not dialog.page.property('loading')
+                           and not getattr(dialog.page, '_populating', False))
             measure('load_and_present', load)
             page = dialog.page
             report['pages_read'] = len(calls)
@@ -144,7 +145,10 @@ def main():
             # Independently exercise the requested 750-row UI even on truncated baselines.
             rooms = [dict(room_id=str(10000+i), uname=f'Anchor {i:04d}', live=i % 8 == 0)
                      for i in range(4, 3001, 4)]
-            measure('present_750', lambda: dialog._show_rooms(rooms))
+            def present():
+                dialog._show_rooms(rooms)
+                wait_until(lambda: not getattr(dialog.page, '_populating', False))
+            measure('present_750', present)
             page = dialog.page
             measure('select_live', page._check_live)
             assert len(page.selected()) == 375

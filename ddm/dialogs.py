@@ -1939,7 +1939,10 @@ class FollowImportDialog(QDialog):
         self.import_button.setEnabled(not self._populating)
         for button in self.filter_buttons:
             button.setEnabled(not self._populating)
-        self._filter_rooms(self.search_edit.text())
+        if self.room_menu:
+            self._filter_rooms(self.search_edit.text())
+        else:
+            self._update_header()
 
     avatarRequested = Signal(dict)
 
@@ -2103,7 +2106,10 @@ class FollowImportDialog(QDialog):
                 item.setText(self._room_text(account))
                 if account.get("room_id"):
                     self._avatar_items[str(account["room_id"])] = item
-                self._filter_rooms(self.search_edit.text())
+                if self.room_menu:
+                    self._filter_rooms(self.search_edit.text())
+                else:
+                    self._update_header()
                 return
 
     # ---- 结果 ----
