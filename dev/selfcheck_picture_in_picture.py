@@ -150,16 +150,11 @@ def check_audio_controls(pip):
             floating._poll_tools()
         assert floating.audio_tools.isVisible()
         floating.audio_button.click()
-        assert panel.isVisible() and not panel.scroll.isVisible()
+        assert panel.isVisible() and panel.scroll.isVisible()
         assert set(panel.rows) == set(tiles)
-        panel.master.slider.setValue(35)
-        panel.master.mute.click()
-        assert pip.master_volume == 35 and pip.master_muted
         assert [(tile.volume, tile.muted) for tile in tiles] == original
-        assert all(tile.video.property('presentationAudioGain') == .35 for tile in tiles)
-        assert other.video.property('presentationAudioGain') is None
-        panel.expand.click()
-        assert panel.scroll.isVisible()
+        assert all(row.slider.value() == tile.volume and row.mute.isChecked() == tile.muted
+                   for tile, row in panel.rows.items())
         assert floating.screen().availableGeometry().contains(panel.geometry())
         if '--audio-preview' in sys.argv:
             output = ROOT / 'work/pip-previews'
@@ -179,7 +174,7 @@ def check_audio_controls(pip):
         QTest.mouseClick(row.slider, Qt.LeftButton, pos=row.slider.rect().center())
         assert floating.geometry() == bounds and pip.selection == order
         floating.tools.reorder.setChecked(False)
-        QTest.keyClick(panel.master.slider, Qt.Key_Escape)
+        QTest.keyClick(row.slider, Qt.Key_Escape)
         assert pip.active and not panel.isVisible(), 'Esc must close the panel before returning'
         # Deliver shortcuts to a PiP video without moving the desktop pointer.
         with patch.object(floating, '_tile_at', return_value=tiles[0]), patch.object(floating, '_pointer_over', return_value=True):
@@ -190,18 +185,12 @@ def check_audio_controls(pip):
             QTest.keySequence(tiles[0].video, QKeySequence(pip.host.shortcuts['solo']))
             assert not tiles[0].muted and tiles[1].muted
         assert (other.volume, other.muted) == other_audio, 'Solo must leave unselected rooms alone'
-        pip._sync_audio([tiles[1]])
-        assert tiles[0].video.property('presentationAudioGain') is None
-        assert tiles[1].video.property('presentationAudioMuted') is True
-        pip._sync_audio(tiles)
-        assert pip.state()['master_volume'] == 35 and pip.state()['master_muted']
     finally:
         panel.hide()
         floating.audio_feedback.hide()
         for tile, (volume, muted) in zip(tiles, original):
             tile.set_volume(volume)
             tile.set_muted(muted)
-        pip.set_master_audio(volume=100, muted=False)
 
 
 def check_native_corners(pip):
@@ -691,14 +680,23 @@ def exercise(app, window, native, directory):
     state = window.current_state()
     assert state['ui']['picture_in_picture']['selection'] == [1, 3]
     assert [row['room_id'] for row in state['wall']] == [tile.room['room_id'] for tile in tiles]
+    panel = pip.floating.audio_panel
+    panel.toggle()
+    panel.rows[tiles[1]].slider.setValue(73)
+    panel.rows[tiles[1]].mute.click()
+    assert window.current_state()['wall'][1]['volume'] == 73
+    panel.hide()
     pip.restore()
     QTest.qWait(100)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     assert not pip.active and wall.parentWidget() is window._content
-    assert all(tile.video.property('presentationAudioGain') is None for tile in tiles)
-    assert all(tile.video.property('presentationAudioMuted') is None for tile in tiles)
     assert wall.visible_tiles() == tiles and all(tile.bottom.isVisible() for tile in tiles)
     assert wall.layout_id == original_layout and (wall.corner_ratios(), wall.layout_ratios()) == original_ratios
+    assert tiles[1].volume == 73 and tiles[1].muted, 'Returning must retain PiP audio edits in the monitor'
+    if native:
+        assert window.players[tiles[1]].volume == 73
+    tiles[1].set_volume(audio[1][0])
+    tiles[1].set_muted(audio[1][1])
     assert all((widget.hasMouseTracking(), widget.cursor().shape()) == (tracking, cursor)
                for widget, tracking, cursor in surface_tracking)
     assert [(tile.volume, tile.muted, tile.audio_channel) for tile in tiles] == audio

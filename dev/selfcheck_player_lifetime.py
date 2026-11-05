@@ -44,7 +44,7 @@ class PlayerLifetimeTests(unittest.TestCase):
                     widget.close()
 
     def test_rebound_core_keeps_the_audio_teardown_option(self):
-        widget = Mock(property=Mock(return_value=None))
+        widget = Mock()
         widget.winId.side_effect = (100, 200)
         with patch('ddm.player.mpv.MPV', side_effect=(Mock(), Mock())) as create:
             player = TilePlayer(widget)

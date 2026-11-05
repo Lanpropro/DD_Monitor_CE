@@ -75,17 +75,11 @@ class PictureInPictureAudio(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(10)
-        self.master = AudioRow('画中画总音量', self._volume, self._mute, self)
-        layout.addWidget(self.master)
-        self.expand = QPushButton('分路音量 +', self)
-        self.expand.setCheckable(True)
-        self.expand.toggled.connect(self._expand)
-        layout.addWidget(self.expand)
+        layout.addWidget(QLabel('分路音量', self))
         self.scroll = QScrollArea(self)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll.hide()
         layout.addWidget(self.scroll)
         shortcuts = self.controller.host.shortcuts
         hint = QLabel(f"鼠标指向画面：↑↓ 音量 · {shortcuts.get('mute', 'M')} 静音 · {shortcuts.get('solo', 'Alt+M')} 独听", self)
@@ -96,14 +90,6 @@ class PictureInPictureAudio(QFrame):
         self.timer = QTimer(self)
         self.timer.setInterval(150)
         self.timer.timeout.connect(self.refresh)
-
-    def _volume(self, value):
-        self.controller.set_master_audio(volume=value)
-        self.refresh()
-
-    def _mute(self, value):
-        self.controller.set_master_audio(muted=value)
-        self.refresh()
 
     def rebuild(self):
         content = QWidget()
@@ -133,14 +119,8 @@ class PictureInPictureAudio(QFrame):
         self.refresh()
 
     def refresh(self):
-        self.master.sync(self.controller.master_volume, self.controller.master_muted)
         for tile, row in self.rows.items():
             row.sync(tile.volume, tile.muted)
-
-    def _expand(self, expanded):
-        self.expand.setText('收起分路音量 −' if expanded else '分路音量 +')
-        self.scroll.setVisible(expanded)
-        self._position()
 
     def _position(self):
         screen = self.owner.screen().availableGeometry().adjusted(6, 6, -6, -6)
@@ -162,7 +142,7 @@ class PictureInPictureAudio(QFrame):
             self.show()
             self.owner.audio_button.setChecked(True)
             self.raise_()
-            self.master.slider.setFocus(Qt.PopupFocusReason)
+            next(iter(self.rows.values())).slider.setFocus(Qt.PopupFocusReason)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -197,10 +177,6 @@ class AudioFeedback(QLabel):
     def display(self, tile):
         owner = self.parentWidget()
         text = '已静音' if tile.muted else str(tile.volume) + '%'
-        if owner.controller.master_muted:
-            text += ' · 总静音'
-        elif owner.controller.master_volume == 0:
-            text += ' · 总音量 0%'
         name = str(tile.room.get('uname') or tile.room.get('room_id'))
         self.setText(name[:16] + '  ' + text)
         self.adjustSize()
