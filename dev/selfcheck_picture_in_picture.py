@@ -16,7 +16,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QCursor, QFocusEvent, QMouseEvent, QPixmap, QRegion, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
 from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWindow,
@@ -161,6 +161,7 @@ def check_audio_controls(pip):
         assert floating.audio_tools.isVisible()
         floating.audio_button.click()
         assert panel.isVisible() and panel.scroll.isVisible()
+        assert not any('鼠标指向画面' in label.text() for label in panel.findChildren(QLabel))
         assert set(panel.rows) == set(tiles)
         assert [(tile.volume, tile.muted) for tile in tiles] == original
         from ddm.ui import VolumeButton
@@ -252,6 +253,36 @@ def check_audio_controls(pip):
         for tile, (volume, muted) in zip(tiles, original):
             tile.set_volume(volume)
             tile.set_muted(muted)
+
+
+def check_move_burst(pip):
+    floating = pip.floating
+    surface = pip.host.wall.visible_tiles()[0].video
+    bounds = floating.geometry()
+    start = surface.mapToGlobal(surface.rect().center())
+    with patch.object(floating, '_pointer_over', return_value=True):
+        floating._poll_tools()
+        assert floating.tools.isVisible() and floating.audio_tools.isVisible()
+        pointer(surface, QEvent.MouseButtonPress, surface.mapFromGlobal(start), start, Qt.LeftButton, Qt.LeftButton)
+        assert not floating.tools.isVisible() and not floating.audio_tools.isVisible()
+        with patch.object(floating.tools, 'move', wraps=floating.tools.move) as tools_move, \
+                patch.object(floating.audio_tools, 'move', wraps=floating.audio_tools.move) as audio_move:
+            for delta in (QPoint(13, 7), QPoint(-55, 29), QPoint(86, -14), QPoint(21, 18)):
+                target = start + delta
+                pointer(surface, QEvent.MouseMove, surface.mapFromGlobal(target), target, Qt.NoButton, Qt.LeftButton)
+                floating._poll_tools()  # The hover timer must not reveal or move tools during a drag.
+                assert floating.pos() == bounds.topLeft() + delta and floating.size() == bounds.size()
+                assert not floating.tools.isVisible() and not floating.audio_tools.isVisible()
+            tools_move.assert_not_called()
+            audio_move.assert_not_called()
+            target = start + QPoint(29, 24)
+            pointer(surface, QEvent.MouseButtonRelease, surface.mapFromGlobal(target), target, Qt.LeftButton, Qt.NoButton)
+            assert floating.pos() == bounds.topLeft() + QPoint(29, 24), 'Release must apply the final pointer position'
+            assert floating.tools.isVisible() and floating.audio_tools.isVisible()
+            assert tools_move.call_count == audio_move.call_count == 1
+        assert floating._gesture is None and QWidget.mouseGrabber() is not floating
+    floating.setGeometry(bounds)
+    QTest.qWait(30)
 
 
 def check_native_corners(pip):
@@ -605,6 +636,7 @@ def exercise(app, window, native, directory):
             check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
     check_audio_controls(pip)
+    check_move_burst(pip)
     check_resize_burst(pip, wall)
     check_reordering(pip, players)
     check_buffer_scale(pip)

@@ -396,6 +396,8 @@ class PictureInPictureWindow(QWidget):
         shortcut.activated.connect(self._escape)
 
     def _poll_tools(self):
+        if self._gesture is not None and not self._gesture[2]:
+            return
         if self._live_resize is not None:
             self.tools.hide()
             self.hide_audio()
@@ -524,7 +526,8 @@ class PictureInPictureWindow(QWidget):
 
     def moveEvent(self, event):
         super().moveEvent(event)
-        self._poll_tools()
+        if self._gesture is None:
+            self._poll_tools()
 
     def hideEvent(self, event):
         self.tools.hide()
@@ -618,6 +621,10 @@ class PictureInPictureWindow(QWidget):
                     self.grabMouse()
                 return True
             self._gesture = (point, self.geometry(), edges)
+            if not edges:
+                # Keep auxiliary native windows out of the pointer-move path.
+                self.tools.hide()
+                self.hide_audio()
             self.grabMouse()
             return True
         if kind == QEvent.MouseMove:
@@ -663,7 +670,7 @@ class PictureInPictureWindow(QWidget):
                     if not self._geometry_timer.isActive():
                         self._geometry_timer.start()
                 else:
-                    self.setGeometry(rect)
+                    self.move(rect.topLeft())
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
             source, start = self._reorder_drag
@@ -675,11 +682,15 @@ class PictureInPictureWindow(QWidget):
                 self.controller.swap_positions(source, target)
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
+            start, bounds, edges = self._gesture
+            if not edges:
+                self.move(bounds.topLeft() + point - start)
             self._flush_geometry(finishing=True)
             self._gesture = None
             self.releaseMouse()
             if self._live_resize is not None:
                 self._live_resize.finish()
+            self._poll_tools()
             return True
         return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
 
