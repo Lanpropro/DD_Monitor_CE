@@ -25,6 +25,7 @@ class DragDiagnosticsTests(unittest.TestCase):
         from ddm.sidebar_drag import SidebarDrag
         from PySide6.QtCore import QMimeData, QPoint, Qt
         from PySide6.QtGui import QDrag, QDragEnterEvent
+        from PySide6.QtWidgets import QApplication
 
         MainNoticesTests.setUpClass()
         fixture = MainNoticesTests()
@@ -32,6 +33,7 @@ class DragDiagnosticsTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 # Restore every temporary hook so this test cannot affect later checks.
+                stack.enter_context(patch.object(QApplication, 'widgetAt', QApplication.widgetAt))
                 for cls, names in ((TilePlayer, ('bind', 'stop', 'release', '_destroy_core')),
                                    (NavItem, ('mousePressEvent', '_drag_pixmap')),
                                    (Sidebar, ('show_drop_indicator',
@@ -115,7 +117,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                     self.assertIn('drag:after', phases)
                     self.assertIn('internal-drag:start', phases)
                     timing = next(row['timing'] for row in rows if row['phase'] == 'internal-drag:cancel')
-                    for stage in ('ghost-callback', 'target-tick', 'preview-layout'):
+                    for stage in ('ghost-callback', 'target-tick', 'preview-layout', 'hit-test'):
                         self.assertGreaterEqual(timing[stage]['calls'], 1)
                         self.assertEqual(set(timing[stage]), {'calls', 'totalMs', 'maxMs', 'maxGapMs'})
                     self.assertIn('internal-drag:cancel', phases)
@@ -143,6 +145,31 @@ class DragDiagnosticsTests(unittest.TestCase):
                     recorder.handler.close()
         finally:
             fixture.doCleanups()
+
+    def test_first_drag_profiles_are_opt_in_bounded_and_keep_returns_and_exceptions(self):
+        from dev import diagnose_drag_windows as diag
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = diag.Recorder(Path(directory) / 'drag.jsonl', profile_first_drag=True)
+            private_value = 'PRIVATE_ARGUMENT_MUST_NOT_BE_CAPTURED'
+            def snapshot(value):
+                return value
+            def fail():
+                raise ValueError('fixture')
+            try:
+                self.assertEqual(recorder.profile_once('pixmap', snapshot, private_value), private_value)
+                self.assertEqual(recorder.profile_once('pixmap', snapshot, private_value), private_value)
+                with self.assertRaisesRegex(ValueError, 'fixture'):
+                    recorder.profile_once('drag-start', fail)
+                self.assertIsNone(sys.getprofile())
+                rows = [json.loads(line) for line in recorder.path.read_text().splitlines()]
+                self.assertEqual([row['stage'] for row in rows], ['pixmap', 'drag-start'])
+                self.assertTrue(all(len(row['functions']) <= 30 for row in rows))
+                self.assertNotIn(private_value, json.dumps(rows))
+                recorder.profile_first_drag = False
+                with patch.object(diag.cProfile, 'Profile', side_effect=AssertionError('No ordinary profiling')):
+                    self.assertEqual(recorder.profile_once('ordinary', snapshot, 42), 42)
+            finally:
+                recorder.handler.close()
 
     def test_timing_summary_counts_fast_callbacks_without_per_frame_records(self):
         from dev import diagnose_drag_windows as diag

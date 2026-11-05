@@ -52,7 +52,7 @@ def install(mode, directory):
         metadata.trace = trace
     elif mode == 'drag':
         from .drag_diagnostics import Recorder
-        metadata.recorder = Recorder(directory / 'drag-windows.jsonl')
+        metadata.recorder = Recorder(directory / 'drag-windows.jsonl', profile_first_drag=True)
         metadata.recorder.install()
         atexit.register(metadata.recorder.handler.close)
     elif mode in ('douyu', 'douyu-deep'):
