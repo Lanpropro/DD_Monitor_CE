@@ -1606,7 +1606,10 @@ class FollowImportDialog(QDialog):
         buttons.addWidget(confirm)
         layout.addLayout(buttons)
 
-        self._filter_rooms(self.search_edit.text())
+        if self.room_menu:
+            self._filter_rooms(self.search_edit.text())
+        else:
+            self._update_header()
 
     def _select_folder(self, action) -> None:
         self.folder_id = action.data()
@@ -1684,7 +1687,10 @@ class FollowImportDialog(QDialog):
                 self.rooms[index] = dict(account)
                 item.setData(Qt.UserRole, dict(account))
                 item.setText(self._room_text(account))
-                self._filter_rooms(self.search_edit.text())
+                if self.room_menu:
+                    self._filter_rooms(self.search_edit.text())
+                else:
+                    self._update_header()
                 return
 
     # ---- 结果 ----
