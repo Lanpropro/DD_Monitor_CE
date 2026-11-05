@@ -315,9 +315,10 @@ class Recorder:
                 @functools.wraps(method)
                 def wrapped(*args, **kwargs):
                     started = time.perf_counter()
-                    profiled = self.profile_first_drag and label == 'pixmap' and label not in self._profiled_stages
+                    profiled = (self.profile_first_drag and label in ('pixmap', 'preview-prepare')
+                                and label not in self._profiled_stages)
                     try:
-                        if label == 'pixmap':
+                        if label in ('pixmap', 'preview-prepare'):
                             return self.profile_once(label, method, *args, **kwargs)
                         return method(*args, **kwargs)
                     finally:
