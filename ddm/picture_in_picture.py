@@ -149,7 +149,7 @@ class PictureInPictureDialog(QDialog):
         self.resize(480, 580)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.addLayout(page_header('画中画', '选择画面组合；关闭小窗后返回原监控室布局'))
+        layout.addLayout(page_header('画中画', '选择画面组合；退出后恢复原监控室布局'))
         self.preview = CompositionPreview(self)
         layout.addWidget(self.preview)
         self.columns = QComboBox(self)
@@ -293,6 +293,19 @@ class PictureInPictureButton(QPushButton):
             painter.drawLine(19, 16, 5, 16)
             painter.drawLine(8, 13, 5, 16)
             painter.drawLine(5, 16, 8, 19)
+        elif self.kind == 'return':
+            painter.drawRoundedRect(QRectF(5, 5, 14, 14), 1, 1)
+            painter.drawLine(8, 12, 16, 12)
+            painter.drawLine(8, 12, 11, 9)
+            painter.drawLine(8, 12, 11, 15)
+        elif self.kind == 'audio':
+            painter.drawLine(5, 10, 8, 10)
+            painter.drawLine(8, 10, 12, 7)
+            painter.drawLine(12, 7, 12, 17)
+            painter.drawLine(12, 17, 8, 14)
+            painter.drawLine(8, 14, 5, 14)
+            painter.drawLine(5, 14, 5, 10)
+            painter.drawArc(QRectF(10, 7, 8, 10), -60 * 16, 120 * 16)
         else:
             painter.drawLine(8, 8, 16, 16)
             painter.drawLine(16, 8, 8, 16)
@@ -304,7 +317,7 @@ class PictureInPictureTools(QWidget):
         super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setFixedSize(108, 24)
+        self.setFixedSize(136, 24)
         box = QHBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(4)
@@ -315,14 +328,16 @@ class PictureInPictureTools(QWidget):
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
         self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
-        self.back = PictureInPictureButton('back', '关闭画中画并返回监控室（Esc）', self)
-        for button in (self.manage, self.reorder, self.pin, self.back):
+        self.back = PictureInPictureButton('return', '关闭画中画并返回监控室（Esc）', self)
+        self.close_only = PictureInPictureButton('close', '仅关闭画中画，保持主窗口状态', self)
+        for button in (self.manage, self.reorder, self.pin, self.back, self.close_only):
             box.addWidget(button)
         self.manage.clicked.connect(owner.controller.manage)
         self.reorder.toggled.connect(owner._set_reordering)
         self.pin.toggled.connect(owner._pin)
-        self.back.clicked.connect(owner.close)
-        QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner.close)
+        self.back.clicked.connect(owner.return_to_monitor)
+        self.close_only.clicked.connect(owner.close)
+        QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner._escape)
 
 
 class PictureInPictureWindow(QWidget):
@@ -350,6 +365,17 @@ class PictureInPictureWindow(QWidget):
         self._gesture = None
         self._reorder_drag = None
         self._live_resize = None
+        from .picture_in_picture_audio import AudioFeedback, PictureInPictureAudio
+        self.audio_tools = QWidget(self, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.audio_tools.setAttribute(Qt.WA_TranslucentBackground)
+        self.audio_tools.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.audio_tools.setFixedSize(24, 24)
+        self.audio_button = PictureInPictureButton('audio', '画中画音量', self.audio_tools)
+        self.audio_button.setCheckable(True)
+        self.audio_panel = PictureInPictureAudio(self)
+        self.audio_feedback = AudioFeedback(self)
+        self.audio_button.clicked.connect(self.audio_panel.toggle)
+        QShortcut(QKeySequence(Qt.Key_Escape), self.audio_tools).activated.connect(self._escape)
         self._pending_geometry = None
         self._geometry_timer = QTimer(self)
         self._geometry_timer.setSingleShot(True)
@@ -367,20 +393,21 @@ class PictureInPictureWindow(QWidget):
         self._hover_timer.start()
         QApplication.instance().installEventFilter(self)
         shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
-        shortcut.activated.connect(self.close)
+        shortcut.activated.connect(self._escape)
 
     def _poll_tools(self):
         if self._live_resize is not None:
             self.tools.hide()
+            self.hide_audio()
             if (not self._live_resize.starting and not self._live_resize.finishing
                     and not self._live_resize.sync()):
                 self._live_resize.finish(immediate=True)
             return
         hovered = self._pointer_over()
         focused = any(button.keyboard_focus and button.hasFocus()
-                      for button in self.tools.findChildren(PictureInPictureButton))
+                      for button in (*self.tools.findChildren(PictureInPictureButton), self.audio_button))
         visible = (self.isVisible() and not self.isMinimized()
-                   and self.controller.dialog is None and (hovered or focused))
+                   and self.controller.dialog is None and (hovered or focused or self.audio_panel.isVisible()))
         position = self.mapToGlobal(QPoint(self.width() - self.tools.width() - 8, 8))
         moved = self.tools.pos() != position
         was_visible = self.tools.isVisible()
@@ -390,6 +417,16 @@ class PictureInPictureWindow(QWidget):
             self.tools.setVisible(visible)
         if visible and (not was_visible or moved):
             self.tools.raise_()
+        audio_position = self.mapToGlobal(QPoint(8 if self.height() < 64 else self.width() - 32, self.height() - 32))
+        audio_moved = self.audio_tools.pos() != audio_position
+        audio_visible = self.audio_tools.isVisible()
+        if audio_moved:
+            self.audio_tools.move(audio_position)
+        self.audio_tools.setVisible(visible)
+        if visible and (not audio_visible or audio_moved):
+            self.audio_tools.raise_()
+        if self.controller.dialog is not None:
+            self.audio_panel.hide()
 
     def _pointer_over(self):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
@@ -413,7 +450,7 @@ class PictureInPictureWindow(QWidget):
                 hit = user32.GetWindow(hit, 4)  # GW_OWNER, including our tooltip.
             return False
         widget = QApplication.widgetAt(QCursor.pos())
-        return widget is not None and widget.window() in (self, self.tools)
+        return widget is not None and widget.window() in (self, self.tools, self.audio_tools, self.audio_panel)
 
     def focusNextPrevChild(self, next):
         self.tools.show()
@@ -440,8 +477,8 @@ class PictureInPictureWindow(QWidget):
 
     def set_composition(self, aspects, columns, primary=0):
         self.aspect = composition_ratio(aspects, columns, primary)
-        minimum = max(self.tools.width() + 16, round(48 * self.aspect))
-        self.setMinimumSize(minimum, round(minimum / self.aspect))
+        minimum_height = max(48, math.ceil((self.tools.width() + 48) / self.aspect))
+        self.setMinimumSize(round(minimum_height * self.aspect), minimum_height)
         screen = self.screen().availableGeometry()
         self.resize_to_width(min(self.width(), screen.width(), round(screen.height() * self.aspect)))
 
@@ -491,7 +528,13 @@ class PictureInPictureWindow(QWidget):
 
     def hideEvent(self, event):
         self.tools.hide()
+        self.hide_audio()
         super().hideEvent(event)
+
+    def hide_audio(self):
+        self.audio_tools.hide()
+        self.audio_panel.hide()
+        self.audio_feedback.hide()
 
     def _resize_edges(self, point):
         edges = Qt.Edges()
@@ -512,6 +555,8 @@ class PictureInPictureWindow(QWidget):
     def _tile_at(self, point):
         if self.tools.isVisible() and self.tools.geometry().contains(point):
             return None
+        if self.audio_tools.isVisible() and self.audio_tools.geometry().contains(point):
+            return None
         return next((tile for tile in self.controller.host.wall.visible_tiles()
                      if tile.rect().contains(tile.mapFromGlobal(point))), None)
 
@@ -526,6 +571,25 @@ class PictureInPictureWindow(QWidget):
 
     def eventFilter(self, watched, event):
         kind = event.type()
+        if (kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and isinstance(watched, QWidget)
+                and watched.window() in (self, self.tools, self.audio_tools)):
+            pressed = QKeySequence(event.keyCombination()).toString()
+            shortcuts = self.controller.host.shortcuts
+            if pressed in ('Up', 'Down', shortcuts.get('mute'), shortcuts.get('solo')):
+                if kind == QEvent.ShortcutOverride:
+                    event.accept()
+                    return True
+                tile = self._tile_at(QCursor.pos()) if self._pointer_over() else None
+                if tile is not None:
+                    if pressed in ('Up', 'Down'):
+                        tile.set_volume(tile.volume + (5 if pressed == 'Up' else -5))
+                    elif pressed == shortcuts.get('mute'):
+                        tile.set_muted(not tile.muted)
+                    else:
+                        for member in self.controller.host.wall.picture_in_picture_tiles:
+                            member.set_muted(member is not tile)
+                    self.audio_feedback.display(tile)
+                return True
         if kind == QEvent.UngrabMouse and watched is self and self._reorder_drag is not None:
             self._reorder_drag = None
             self.setCursor(Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)
@@ -642,6 +706,7 @@ class PictureInPictureWindow(QWidget):
         self._pending_geometry = None
         QApplication.instance().removeEventFilter(self)
         self.tools.hide()
+        self.hide_audio()
         self._gesture = None
         self._reorder_drag = None
         grabber = QWidget.mouseGrabber()
@@ -674,8 +739,17 @@ class PictureInPictureWindow(QWidget):
         else:
             self.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
 
-    def closeEvent(self, event):
+    def return_to_monitor(self):
         self.controller.restore(activate=True)
+
+    def _escape(self):
+        if self.audio_panel.isVisible():
+            self.audio_panel.hide()
+        else:
+            self.return_to_monitor()
+
+    def closeEvent(self, event):
+        self.controller.restore(activate=False)
         event.accept()
 
 
@@ -691,6 +765,9 @@ class PictureInPicture(QObject):
         self.primary = saved.get('primary')
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
+        self.master_volume = max(0, min(100, int(saved.get('master_volume', 100))))
+        self.master_muted = bool(saved.get('master_muted', False))
+        self._audio_tiles = set()
         self._video_aspects = {}
         self._aspect_timer = QTimer(self)
         self._aspect_timer.setInterval(1000)
@@ -721,6 +798,8 @@ class PictureInPicture(QObject):
                 button.update()
 
     def manage(self):
+        if self.active:
+            self.floating.audio_panel.hide()
         if self.dialog is not None:
             self.dialog.raise_()
             self.dialog.activateWindow()
@@ -804,6 +883,8 @@ class PictureInPicture(QObject):
         self.floating.set_composition(aspects, columns, selection.index(primary))
         self.floating.show()
         wall.show()
+        self._sync_audio(tiles)
+        self.floating.audio_panel.hide()
         self._sync_overlays()
         self._aspect_timer.start()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
@@ -813,6 +894,26 @@ class PictureInPicture(QObject):
     def _minimize_host(self):
         if self.active and not self.host._closing:
             self.host.showMinimized()
+
+    def set_master_audio(self, *, volume=None, muted=None):
+        if volume is not None:
+            self.master_volume = max(0, min(100, int(volume)))
+        if muted is not None:
+            self.master_muted = bool(muted)
+        if self.active:
+            self._sync_audio(self.host.wall.picture_in_picture_tiles)
+        self.host._save_timer.start()
+
+    def _sync_audio(self, tiles):
+        selected = set(tiles)
+        for tile in self._audio_tiles | selected:
+            tile.video.setProperty('presentationAudioGain', self.master_volume / 100 if tile in selected else None)
+            tile.video.setProperty('presentationAudioMuted', self.master_muted if tile in selected else None)
+            player = self.host.players.get(tile)
+            if player is not None:
+                player.set_volume(tile.volume)
+                player.set_muted(tile.muted)
+        self._audio_tiles = selected
 
     def _sync_overlays(self):
         wall = self.host.wall
@@ -834,6 +935,7 @@ class PictureInPicture(QObject):
             self.dialog.reject()
         self.geometry = str(floating.saveGeometry().toBase64(), 'ascii')
         floating.stop()
+        self._sync_audio([])
         self._aspect_timer.stop()
         self.floating = None
         wall = self.host.wall
@@ -857,4 +959,5 @@ class PictureInPicture(QObject):
     def state(self):
         geometry = (str(self.floating.saveGeometry().toBase64(), 'ascii')
                     if self.active else self.geometry)
-        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry)
+        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry,
+                    master_volume=self.master_volume, master_muted=self.master_muted)

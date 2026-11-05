@@ -56,7 +56,7 @@ class LiveResize:
         if layer is not None and layer.window.isVisible():
             yield layer.window
         for widget in QApplication.topLevelWidgets():
-            if widget in (source, source.tools, self.preview) or not widget.isVisible():
+            if widget in (source, source.tools, source.audio_tools, source.audio_panel, source.audio_feedback, self.preview) or not widget.isVisible():
                 continue
             owner = widget.parentWidget()
             while owner is not None and owner is not source:
@@ -95,6 +95,7 @@ class LiveResize:
             self.stop()
             return False
         self.source.tools.hide()
+        self.source.hide_audio()
         self.preview.show()
         self.preview.raise_()
         self.dwm.DwmFlush()
