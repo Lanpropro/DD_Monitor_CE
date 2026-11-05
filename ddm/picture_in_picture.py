@@ -1,7 +1,8 @@
 """A selected group of existing playback panes in one independent floating window."""
 import math
+import sys
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QTimer, Qt
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSize, QTimer, Qt
 from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
@@ -12,23 +13,54 @@ from . import theme
 from .ui import ActionButton, ElidedLabel, page_header
 
 
-def pane_rectangles(count, area, columns=0):
+def composition_rows(aspects, columns=0):
+    def rows(cols):
+        return [aspects[index:index + cols] for index in range(0, len(aspects), cols)]
+    if not columns:
+        columns = min(range(1, len(aspects) + 1), key=lambda cols:
+                      (abs(math.log(composition_aspect(rows(cols)) / (16 / 9))), math.ceil(len(aspects) / cols)))
+    return rows(min(len(aspects), columns))
+
+
+def composition_aspect(rows):
+    return 1 / sum(1 / sum(row) for row in rows)
+
+
+def video_aspect(player):
+    if player is not None:
+        for name in ('video-out-params', 'video-params'):
+            params = player._prop(name)
+            if not isinstance(params, dict):
+                continue
+            width, height = params.get('dw', params.get('w')), params.get('dh', params.get('h'))
+            aspect = params.get('aspect') or (width / height if width and height else 0)
+            if isinstance(aspect, (int, float)) and math.isfinite(aspect) and aspect > 0:
+                return 1 / aspect if params.get('rotate', 0) % 180 == 90 else float(aspect)
+    return None
+
+
+def pane_rectangles(count, area, columns=0, aspects=None):
     if not count:
         return []
-    if not columns:
-        # Prefer cells close to a video's aspect ratio, including tall windows.
-        columns = min(range(1, count + 1), key=lambda cols:
-            abs(math.log(max(1, area.width()) * math.ceil(count / cols)
-                         / (max(1, area.height()) * cols * 16 / 9)))
-            + (math.ceil(count / cols) * cols - count) * .08)
-    columns = min(count, columns)
-    rows = math.ceil(count / columns)
-    width, height = max(1, area.width()), max(1, area.height())
-    return [QRect(area.x() + width * (index % columns) // columns,
-                  area.y() + height * (index // columns) // rows,
-                  width * (index % columns + 1) // columns - width * (index % columns) // columns,
-                  height * (index // columns + 1) // rows - height * (index // columns) // rows)
-            for index in range(count)]
+    rows = composition_rows(aspects or [16 / 9] * count, columns)
+    aspect = composition_aspect(rows)
+    width = max(1, min(area.width(), round(area.height() * aspect)))
+    height = max(1, min(area.height(), round(width / aspect)))
+    canvas = QRect(0, 0, width, height)
+    canvas.moveCenter(area.center())
+    rectangles, top, weight = [], 0, 0.0
+    for row in rows:
+        total = sum(row)
+        weight += 1 / total
+        bottom = round(height * weight * aspect)
+        left, offset = 0, 0.0
+        for value in row:
+            offset += value
+            right = round(width * offset / total)
+            rectangles.append(QRect(canvas.x() + left, canvas.y() + top, right - left, bottom - top))
+            left = right
+        top = bottom
+    return rectangles
 
 
 class CompositionPreview(QFrame):
@@ -39,14 +71,15 @@ class CompositionPreview(QFrame):
         self.labels = []
         self.columns = 0
         self.aspect = 16 / 9
+        self.aspects = []
 
-    def set_panes(self, names, columns, aspect=0):
+    def set_panes(self, names, columns, aspects=None):
         for label in self.labels:
             label.deleteLater()
         self.labels = [ElidedLabel(name, self) for name in names]
         self.columns = columns
-        cols = min(len(names), columns or math.ceil(math.sqrt(len(names)))) if names else 1
-        self.aspect = aspect or cols / max(1, math.ceil(len(names) / cols)) * 16 / 9
+        self.aspects = aspects or [16 / 9] * len(names)
+        self.aspect = composition_aspect(composition_rows(self.aspects, columns)) if names else 16 / 9
         for label in self.labels:
             label.setAlignment(Qt.AlignCenter)
             label.setObjectName('PluginCard')
@@ -60,7 +93,7 @@ class CompositionPreview(QFrame):
         canvas = QRect(0, 0, width, min(area.height(), round(width / self.aspect)))
         canvas.moveCenter(area.center())
         for label, rect in zip(self.labels, pane_rectangles(
-                len(self.labels), canvas, self.columns)):
+                len(self.labels), canvas, self.columns, self.aspects)):
             label.setGeometry(rect)
 
     def resizeEvent(self, event):
@@ -125,11 +158,10 @@ class PictureInPictureDialog(QDialog):
 
     def _refresh(self, *_args):
         names = [check.text() for check in self.checks.values() if check.isChecked()]
-        wall = self.controller.host.wall
-        aspect = wall.width() / max(1, wall.height()) if self.controller.active else 0
-        self.preview.set_panes(names, self.columns.currentData(), aspect)
+        selection = [index for index, check in self.checks.items() if check.isChecked()]
+        self.preview.set_panes(names, self.columns.currentData(), self.controller.aspects_for(selection))
         self.start.setEnabled(bool(names))
-        self.hint.setText(f'已选择 {len(names)} 路。小窗支持自由缩放和置顶，其他画面按原声音设置在后台播放。'
+        self.hint.setText(f'已选择 {len(names)} 路。按直播比例缩放并支持置顶，其他画面按原声音设置在后台播放。'
                           if self.checks else '画面墙中还没有直播间，请先添加画面。')
 
     def _apply(self):
@@ -209,8 +241,10 @@ class PictureInPictureWindow(QWidget):
         self.setAttribute(Qt.WA_StyledBackground)
         self.setStyleSheet('#PictureInPicture { background: #000; }')
         self.setFocusPolicy(Qt.StrongFocus)
-        self.setMinimumSize(280, 180)
-        self.resize(640, 400)
+        self.aspect = 16 / 9
+        self._native_rounding = False
+        self._fitting = False
+        self.resize(640, 360)
         self.box = QVBoxLayout(self)
         self.box.setContentsMargins(0, 0, 0, 0)
         self.box.setSpacing(0)
@@ -250,10 +284,51 @@ class PictureInPictureWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()), 10, 10)
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        if not self._fitting and abs(self.height() - self.width() / self.aspect) > 1:
+            by_height = abs(event.size().height() - event.oldSize().height()) * self.aspect > abs(event.size().width() - event.oldSize().width())
+            width = round(self.height() * self.aspect) if by_height else self.width()
+            self.resize_to_width(width)
+        self._apply_rounding()
         self._poll_tools()
+
+    def set_composition(self, aspects, columns):
+        self.aspect = composition_aspect(composition_rows(aspects, columns))
+        minimum = max(96, round(48 * self.aspect))
+        self.setMinimumSize(minimum, round(minimum / self.aspect))
+        screen = self.screen().availableGeometry()
+        self.resize_to_width(min(self.width(), screen.width(), round(screen.height() * self.aspect)))
+
+    def resize_to_width(self, width):
+        self._fitting = True
+        width = max(self.minimumWidth(), width)
+        self.resize(width, round(width / self.aspect))
+        self._fitting = False
+
+    def _apply_rounding(self):
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), 8, 8)
+        region = QRegion(path.toFillPolygon().toPolygon())
+        # Keep comment clipping separate: a hard native region disables DWM's
+        # antialiased window corners, especially visible at fractional DPI.
+        self.setProperty('presentationMask', region)
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            from .window_fullscreen import _dwm_set
+            self._native_rounding = _dwm_set(int(self.winId()), 33, 2) == 0
+            _dwm_set(int(self.winId()), 34, 0xFFFFFFFE)
+        if self._native_rounding:
+            self.clearMask()
+        else:
+            self.setMask(region)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_rounding()
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.DevicePixelRatioChange and hasattr(self, 'tools'):
+            QTimer.singleShot(0, self, self._apply_rounding)
+        return result
 
     def moveEvent(self, event):
         super().moveEvent(event)
@@ -319,6 +394,16 @@ class PictureInPictureWindow(QWidget):
                         rect.setTop(min(bounds.top() + delta.y(), bounds.bottom() - self.minimumHeight() + 1))
                     if edges & Qt.BottomEdge:
                         rect.setBottom(max(bounds.bottom() + delta.y(), bounds.top() + self.minimumHeight() - 1))
+                    by_height = (not edges & (Qt.LeftEdge | Qt.RightEdge)
+                                 or bool(edges & (Qt.TopEdge | Qt.BottomEdge)) and abs(delta.y()) * self.aspect > abs(delta.x()))
+                    width = round(rect.height() * self.aspect) if by_height else rect.width()
+                    width = max(self.minimumWidth(), width)
+                    size = QSize(width, round(width / self.aspect))
+                    rect.setSize(size)
+                    if edges & Qt.LeftEdge:
+                        rect.moveRight(bounds.right())
+                    if edges & Qt.TopEdge:
+                        rect.moveBottom(bounds.bottom())
                 self.setGeometry(rect)
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
@@ -365,6 +450,10 @@ class PictureInPicture(QObject):
         self.columns = saved.get('columns', 0)
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
+        self._video_aspects = {}
+        self._aspect_timer = QTimer(self)
+        self._aspect_timer.setInterval(1000)
+        self._aspect_timer.timeout.connect(self._refresh_aspects)
         theme.signals().changed.connect(self._refresh_theme)
         self.placeholder = QFrame(host._content)
         self.placeholder.setObjectName('PluginCard')
@@ -407,12 +496,36 @@ class PictureInPicture(QObject):
         self.dialog = None
         self._sync_overlays()
 
+    def aspects_for(self, selection):
+        aspects = []
+        for index in selection:
+            tile = self.host.wall.tiles[index]
+            room = tile.room.get('room_id')
+            aspect = video_aspect(self.host.players.get(tile))
+            previous_room, previous_aspect = self._video_aspects.get(tile, (None, 16 / 9))
+            aspect = aspect or (previous_aspect if previous_room == room else 16 / 9)
+            self._video_aspects[tile] = (room, aspect)
+            aspects.append(aspect)
+        return aspects
+
+    def _refresh_aspects(self):
+        if not self.active or self.floating._gesture is not None:
+            return
+        wall = self.host.wall
+        aspects = self.aspects_for(self.selection)
+        if aspects == wall.picture_in_picture_aspects:
+            return
+        wall.picture_in_picture_aspects = aspects
+        self.floating.set_composition(aspects, self.columns)
+        wall.relayout(force=True)
+
     def start(self, selection, columns=0):
         wall = self.host.wall
         tiles = [wall.tiles[index] for index in selection
                  if 0 <= index < len(wall.tiles) and wall.tiles[index].room.get('room_id')]
         if not tiles:
             return
+        selection = [wall.tiles.index(tile) for tile in tiles]
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
@@ -423,19 +536,21 @@ class PictureInPicture(QObject):
             if self.geometry:
                 self.floating.restoreGeometry(QByteArray.fromBase64(self.geometry.encode('ascii')))
             else:
-                cols = min(len(tiles), columns or math.ceil(math.sqrt(len(tiles))))
                 width = 480 if len(tiles) == 1 else 640
-                self.floating.resize(width, round(width * math.ceil(len(tiles) / cols) / cols * 9 / 16))
+                self.floating.resize_to_width(width)
             self._minimums = {tile: tile.minimumSize() for tile in wall.tiles}
             content = self.host._content.layout()
             content.removeWidget(wall)
             content.insertWidget(0, self.placeholder, 1)
             self.placeholder.show()
             self.floating.box.addWidget(wall, 1)
-        wall.set_picture_in_picture(tiles, columns)
+        aspects = self.aspects_for(selection)
+        wall.set_picture_in_picture(tiles, columns, aspects)
+        self.floating.set_composition(aspects, columns)
         self.floating.show()
         wall.show()
         self._sync_overlays()
+        self._aspect_timer.start()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
 
     def _sync_overlays(self):
@@ -458,6 +573,7 @@ class PictureInPicture(QObject):
             self.dialog.reject()
         self.geometry = str(floating.saveGeometry().toBase64(), 'ascii')
         floating.stop()
+        self._aspect_timer.stop()
         self.floating = None
         wall = self.host.wall
         floating.box.removeWidget(wall)
