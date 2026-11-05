@@ -1,76 +1,66 @@
 """Compact audio controls for the selected PiP panes."""
 from PySide6.QtCore import QPoint, QTimer, Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget
 
-from .ui import ElidedLabel
-
-
-class AudioSlider(QSlider):
-    def __init__(self, parent):
-        super().__init__(Qt.Horizontal, parent)
-        self.setRange(0, 100)
-        self.setSingleStep(5)
-        self.setPageStep(10)
-
-    def wheelEvent(self, event):
-        delta = event.angleDelta().y()
-        if delta:
-            self.setValue(self.value() + (5 if delta > 0 else -5))
-        event.accept()
+from . import theme
+from .ui import Avatar, VolumeButton
+from .widgets import VolumePopup
 
 
 class AudioRow(QWidget):
-    def __init__(self, name, change_volume, change_mute, parent):
+    def __init__(self, name, index, change_volume, change_mute, parent):
         super().__init__(parent)
-        layout = QVBoxLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        self.name = ElidedLabel(name, self)
-        self.name.setTextFormat(Qt.PlainText)
-        layout.addWidget(self.name)
-        controls = QHBoxLayout()
-        controls.setSpacing(8)
-        self.mute = QPushButton(self)
-        self.mute.setCheckable(True)
-        self.mute.setFixedWidth(62)
+        layout.setSpacing(8)
+        self.avatar = Avatar(name, index, size=28, parent=self)
+        self.avatar.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.avatar.setToolTip(name)
+        self.avatar.setAccessibleName(name)
+        self._face_key = None
+        self.mute = VolumeButton(self, size=theme.TILE_CONTROL_HEIGHT)
         self.mute.setAccessibleName(name + '静音')
-        self.mute.clicked.connect(change_mute)
-        self.slider = AudioSlider(self)
+        self.mute.clicked.connect(lambda: change_mute(not self.mute.muted))
+        self.mute.volumeChanged.connect(change_volume)
+        self.slider = QSlider(Qt.Horizontal, self)
+        self.slider.setRange(0, 100)
         self.slider.setMinimumWidth(60)
         self.slider.setAccessibleName(name + '音量')
         self.slider.valueChanged.connect(change_volume)
         self.value = QLabel(self)
         self.value.setFixedWidth(34)
         self.value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        for widget in (self.mute, self.slider, self.value):
-            controls.addWidget(widget, 1 if widget is self.slider else 0)
-        layout.addLayout(controls)
+        for widget in (self.avatar, self.mute, self.slider, self.value):
+            layout.addWidget(widget, 1 if widget is self.slider else 0)
 
-    def sync(self, volume, muted):
+    def set_avatar(self, pixmap):
+        if pixmap is not None and not pixmap.isNull() and pixmap.cacheKey() != self._face_key:
+            self._face_key = pixmap.cacheKey()
+            self.avatar.set_pixmap_image(pixmap)
+
+    def sync(self, volume, muted, channel):
         self.slider.blockSignals(True)
         self.slider.setValue(volume)
         self.slider.blockSignals(False)
-        self.mute.setChecked(muted)
-        self.mute.setText('已静音' if muted else '静音')
+        self.mute.set_state(muted, volume, channel)
+        self.mute.setToolTip('点击取消静音，滚轮调音量' if muted else '点击静音，滚轮调音量')
         self.value.setText(str(volume) + '%')
 
 
-class PictureInPictureAudio(QFrame):
+class PictureInPictureAudio(VolumePopup):
     def __init__(self, owner):
         super().__init__(owner, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.owner = owner
         self.controller = owner.controller
         self.setAttribute(Qt.WA_NoMouseReplay)
-        self.setObjectName('PipAudioPanel')
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setObjectName('TileVolumePopup')
+        theme.refresh_theme_properties(self)
         self.setFixedWidth(300)
         self.setStyleSheet('''
-            #PipAudioPanel { background: #202328; color: #e7ebf0; border: 1px solid #41454c; border-radius: 10px; }
-            #PipAudioPanel QLabel { color: #e7ebf0; background: transparent; }
-            #PipAudioPanel QPushButton { background: #30343b; color: #dce1e8; border: none; border-radius: 6px; padding: 5px; min-height: 20px; }
-            #PipAudioPanel QPushButton:hover { background: #414751; }
-            #PipAudioPanel QPushButton:checked { background: #16495b; color: #55c9ef; }
-            #PipAudioPanel QScrollArea { background: transparent; border: none; }
-            #PipAudioPanel QScrollArea > QWidget > QWidget { background: #202328; }
+            #TileVolumePopup QScrollArea, #TileVolumePopup QScrollArea > QWidget,
+            #TileVolumePopup QScrollArea > QWidget > QWidget { background: transparent; border: none; }
         ''')
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
@@ -82,9 +72,8 @@ class PictureInPictureAudio(QFrame):
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         layout.addWidget(self.scroll)
         shortcuts = self.controller.host.shortcuts
-        hint = QLabel(f"鼠标指向画面：↑↓ 音量 · {shortcuts.get('mute', 'M')} 静音 · {shortcuts.get('solo', 'Alt+M')} 独听", self)
+        hint = QLabel(f"鼠标指向画面：↑↓ 音量\n{shortcuts.get('mute', 'M')} 静音 · {shortcuts.get('solo', 'Alt+M')} 独听", self)
         hint.setWordWrap(True)
-        hint.setStyleSheet('font-size: 11px; color: #aab1bc;')
         layout.addWidget(hint)
         self.rows = {}
         self.timer = QTimer(self)
@@ -95,12 +84,12 @@ class PictureInPictureAudio(QFrame):
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 8, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(8)
         self.rows = {}
         for index in self.controller.selection:
             tile = self.controller.host.wall.tiles[index]
             name = str(tile.room.get('uname') or tile.room.get('room_id'))
-            row = AudioRow(name, lambda value, tile=tile: self._tile_volume(tile, value),
+            row = AudioRow(name, index, lambda value, tile=tile: self._tile_volume(tile, value),
                            lambda muted, tile=tile: self._tile_mute(tile, muted), content)
             self.rows[tile] = row
             layout.addWidget(row)
@@ -119,11 +108,16 @@ class PictureInPictureAudio(QFrame):
         self.refresh()
 
     def refresh(self):
+        items = {str(item.room.get('room_id')): item for item in self.controller.host.sidebar._items}
         for tile, row in self.rows.items():
-            row.sync(tile.volume, tile.muted)
+            row.sync(tile.volume, tile.muted, tile.audio_channel)
+            item = items.get(str(tile.room.get('room_id')))
+            if item is not None:
+                row.set_avatar(item.thumb.face_pixmap())
 
     def _position(self):
         screen = self.owner.screen().availableGeometry().adjusted(6, 6, -6, -6)
+        self.ensurePolished()
         content_height = self.scroll.widget().sizeHint().height() if self.scroll.widget() is not None else 0
         self.scroll.setFixedHeight(min(260, max(60, screen.height() - 220), content_height + 4))
         self.layout().activate()
