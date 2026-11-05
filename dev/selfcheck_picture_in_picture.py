@@ -353,7 +353,8 @@ def exercise(app, window, native, directory):
             pip.floating.pin.click()
             QTest.qWait(25)
             assert pip.pinned is pinned and pip.floating.pin.isChecked() is pinned
-            assert bool(pip.floating.windowHandle().flags() & Qt.WindowStaysOnTopHint) is pinned
+            if not native:
+                assert bool(pip.floating.windowHandle().flags() & Qt.WindowStaysOnTopHint) is pinned
             assert not visibility.events, 'Pinning must not hide, show or recreate the video/tool windows'
             assert ('已置顶' if pinned else '未置顶') in pip.floating.pin.toolTip()
             if native:
@@ -363,6 +364,16 @@ def exercise(app, window, native, directory):
                 assert bool(ctypes.windll.user32.GetWindowLongW(int(pip.floating.winId()), -20) & 8) is pinned
     for widget in watched:
         widget.removeEventFilter(visibility)
+    # An unchecked pin stays neutral even with the pointer left on it; blue
+    # communicates pinned state, not hover or automatic activation.
+    with patch('ddm.picture_in_picture.QCursor.pos', return_value=pip.floating.pin.mapToGlobal(QPoint(5, 12))):
+        pip.floating.pin.setChecked(False)
+        image = pip.floating.pin.grab().toImage()
+        scale = image.devicePixelRatio()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)).alpha() < 230
+        pip.floating.pin.setChecked(True)
+        image = pip.floating.pin.grab().toImage()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT)
     button = pip.floating.tools.manage
     with patch.object(button, 'underMouse', return_value=True), \
             patch.object(button, 'hasFocus', return_value=True), \
