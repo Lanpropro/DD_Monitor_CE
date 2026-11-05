@@ -7646,6 +7646,7 @@ class WallGrid(QWidget):
         self.tiles: list[Tile] = []
         self.picture_in_picture_tiles = None
         self.picture_in_picture_columns = 0
+        self.picture_in_picture_primary = 0
         self.picture_in_picture_aspects = []
         self.fullscreen_tile: Tile | None = None
         #: 退出全屏时「布局先算好、格子分批露面」用的状态（见 reveal_tiles_staggered）
@@ -7753,13 +7754,14 @@ class WallGrid(QWidget):
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
         return self._quick_danmaku_layer
 
-    def set_picture_in_picture(self, tiles, columns=0, aspects=None):
+    def set_picture_in_picture(self, tiles, columns=0, aspects=None, primary=0):
         self.set_interactive_resize(False)
         self._clear()
         self._resize_on_show = False
         self._relayout_timer.stop()
         self.picture_in_picture_tiles = list(tiles) if tiles is not None else None
         self.picture_in_picture_columns = columns
+        self.picture_in_picture_primary = primary
         self.picture_in_picture_aspects = aspects or []
         selected = set(tiles or [])
         for tile in self.tiles:
@@ -7789,7 +7791,8 @@ class WallGrid(QWidget):
             window.begin_mask_batch()
         try:
             for tile, rect in zip(selected, pane_rectangles(
-                    len(selected), self.rect(), self.picture_in_picture_columns, self.picture_in_picture_aspects)):
+                    len(selected), self.rect(), self.picture_in_picture_columns,
+                    self.picture_in_picture_aspects, self.picture_in_picture_primary)):
                 tile.setGeometry(rect)
         finally:
             if window is not None:
