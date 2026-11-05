@@ -95,6 +95,7 @@ def main():
         dialog._show_rooms(accounts)
         page = dialog.page
         assert page.resolve_status.isVisible() and page.resolve_button.isVisible()
+        assert page.platform_notice.isVisible()
         assert page.list.count() == 11 and '待识别' in page.list.item(2).text()
         assert not page.list.item(0).isHidden() and page.list.item(2).isHidden()
         assert not page.show_pending.isChecked() and '2 个直播间' in page.header.text()
@@ -224,7 +225,9 @@ def check_account_reference_import(app):
     reference = 'douyin:uid_105'
     assert page.rooms[0]['room_id'] == reference and not page.list.item(0).isHidden()
     assert not any(button.text() == '关联直播间链接' for button in page.findChildren(QPushButton))
-    assert '账号关注' in page.list.item(0).text() and '无需填写直播间链接' in page.resolve_status.text()
+    notice = ('受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。'
+              '你仍可直接勾选账号导入，软件会随后台刷新继续查询')
+    assert '账号关注' in page.list.item(0).text() and page.platform_notice.text() == notice
     reply = requests.Response()
     reply.status_code = 200
     reply._content = b'{"status_code":0,"data":{}}'
@@ -232,6 +235,7 @@ def check_account_reference_import(app):
         page.resolve_button.click()
         wait_for(app, lambda: dialog._account_resolver is None)
     assert '未开播' in page.list.item(0).text() and page.rooms[0]['live_known']
+    assert page.platform_notice.text() == notice
     page.list.item(0).setCheckState(Qt.Checked)
     page._select_folder(next(a for a in page.folder_button.menu().actions() if a.data() == folder))
     page.accept()
