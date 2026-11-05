@@ -102,6 +102,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                     fixture.app.sendEvent(item, moving)
                     self.assertTrue(window.sidebar.drag_session.active)
                     fixture.app.sendEvent(item, moving)
+                    window.sidebar.drag_session.visual_timer.timeout.emit()
                     window.sidebar.drag_session._tick()
                     window.sidebar.show_drop_indicator('1', 0)
                     window.sidebar.drag_session.cancel()

@@ -12,7 +12,7 @@ FOLDER_MIME = 'application/x-ddm-folder'
 
 
 class SidebarDrag(QObject):
-    """拖影随鼠标输入移动，刷新计时器兜底；落点每 16 ms 检查一次。"""
+    """拖影按屏幕刷新节奏合并移动；落点每 16 ms 检查一次。"""
 
     def __init__(self, sidebar):
         super().__init__(sidebar)
@@ -77,8 +77,6 @@ class SidebarDrag(QObject):
             self.position = event.globalPosition().toPoint()
             if not event.buttons() & Qt.LeftButton:
                 self.cancel()
-            else:
-                self._move_ghost()
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             self.position = event.globalPosition().toPoint()
