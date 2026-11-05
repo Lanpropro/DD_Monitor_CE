@@ -48,7 +48,7 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
             'selfcheck_general_settings', 'selfcheck_startup_windows',
-            'selfcheck_single_instance', 'selfcheck_drag_lifecycle',
+            'selfcheck_single_instance', 'selfcheck_drag_lifecycle', 'selfcheck_sidebar_hit_test',
             'selfcheck_room_placement',
             'selfcheck_picture_in_picture',
             'selfcheck_room_status_controller', 'selfcheck_room_images',
