@@ -3762,6 +3762,7 @@ class Sidebar(QFrame):
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
+    pictureInPictureRequested = Signal()
     layoutResetRequested = Signal()
     settingsRequested = Signal()
     appearanceChanged = Signal(str)
@@ -3977,6 +3978,10 @@ class Sidebar(QFrame):
         self.layout_button.setCursor(Qt.PointingHandCursor)
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
+        self.picture_in_picture_button = QPushButton('画中画')
+        self.picture_in_picture_button.setObjectName('IconButton')
+        self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
+        self.picture_in_picture_button.clicked.connect(self.pictureInPictureRequested.emit)
         self.settings_button = QPushButton("设置")
         self.settings_button.setFocusPolicy(Qt.TabFocus)
         self.settings_button.setObjectName("IconButton")
@@ -3984,6 +3989,7 @@ class Sidebar(QFrame):
         self.settings_button.setToolTip("打开设置")
         self.settings_button.clicked.connect(self.settingsRequested.emit)
         tool_box.addWidget(self.layout_button, 1)
+        tool_box.addWidget(self.picture_in_picture_button)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
         self.set_layout_name(layouts.DEFAULT_LAYOUT)
@@ -4017,6 +4023,7 @@ class Sidebar(QFrame):
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
+            self.picture_in_picture_button: self.picture_in_picture_button.sizePolicy(),
             self.settings_button: self.settings_button.sizePolicy(),
         }
         self._account_policy = self.account_row.sizePolicy()
@@ -4197,12 +4204,14 @@ class Sidebar(QFrame):
             if self.collapsed:
                 menu.addSeparator()
                 menu.addAction("布局预设")
+                menu.addAction('画中画')
                 menu.addAction("设置")
         elif self.collapsed:
             # 横屏收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
             # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
             menu.addSeparator()
             menu.addAction("布局预设")
+            menu.addAction('画中画')
             menu.addAction("设置")
         for action in account_actions:
             menu.removeAction(action)
@@ -4240,6 +4249,8 @@ class Sidebar(QFrame):
                 self.logoutRequested.emit()
         elif label == "布局预设":
             self.open_layout_picker()
+        elif label == '画中画':
+            self.pictureInPictureRequested.emit()
         elif label == "设置":
             self.settingsRequested.emit()
         elif label == "导入关注":
@@ -4831,6 +4842,7 @@ class Sidebar(QFrame):
         """
         target = NAV_ITEM_HEIGHT
         buttons = (theme.CONTROL_HEIGHT + self.layout_button.sizeHint().height()
+                   + self.picture_in_picture_button.sizeHint().height()
                    + self.settings_button.sizeHint().height())
         slack = max(0, target - buttons - 2)       # 四条空白加起来的高度
         # 每条空白 = 线上那段 + 1px 线 + 线下那段，所以先把那 1px 加回来再对半分
@@ -4853,7 +4865,7 @@ class Sidebar(QFrame):
         for widget in (*self._bar_gaps, self._bar_divider_label, self._bar_divider_tool):
             widget.setVisible(True)
         self.layout_button.setText("布局预设")
-        for button in (self.layout_button, self.settings_button):
+        for button in (self.layout_button, self.picture_in_picture_button, self.settings_button):
             button.setMaximumWidth(16_777_215)
         self.tool_row.setMinimumWidth(0)
         self.tool_row.setMaximumWidth(16_777_215)
@@ -4978,7 +4990,7 @@ class Sidebar(QFrame):
             tool_box.setStretch(4, 0)
             self._sync_bar_gaps()
             # 三个按钮左右长度一样（都撑满这一块）；高度用横屏那套自然高度
-            for button in (self.layout_button, self.settings_button):
+            for button in (self.layout_button, self.picture_in_picture_button, self.settings_button):
                 button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
@@ -6655,7 +6667,8 @@ class Tile(QFrame):
         self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
-        visible = visible and not getattr(self, "_fullscreen_controls_hidden", False)
+        visible = (visible and not self.property('pictureInPicture')
+                   and not getattr(self, "_fullscreen_controls_hidden", False))
         visible = bool(visible)
         self.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
@@ -6704,6 +6717,12 @@ class Tile(QFrame):
         self._set_control_hover(hovered)
 
     def _poll_control_hover(self) -> None:
+        if self.property('pictureInPicture'):
+            self._restore_normal_cursor()
+            self._normal_hover_active = False
+            self.set_controls_visible(False)
+            self._control_hover_timer.stop()
+            return
         if not self.isVisible():
             self._restore_normal_cursor()
             self._normal_hover_active = False
@@ -6826,8 +6845,9 @@ class Tile(QFrame):
         if self.cover.isHidden():
             return
         if source and not source.isNull():
+            radius = 0 if self.property('pictureInPicture') else 8
             key = (source.cacheKey(), self.video.width(), self.video.height(),
-                   self.devicePixelRatioF(), bool(self.property("fullscreen")))
+                   self.devicePixelRatioF(), bool(self.property("fullscreen")), radius)
             if key == self._cover_key:
                 self.cover.setScaledContents(False)
                 return
@@ -6836,7 +6856,7 @@ class Tile(QFrame):
                     self.cover.setScaledContents(True)
                     self.cover.setPixmap(self._cover_cached)
                 return
-            self._cover_cached = rounded_pixmap(source, self.video.size(), 8)
+            self._cover_cached = rounded_pixmap(source, self.video.size(), radius)
             self._cover_key = key
             self.cover.setScaledContents(False)
             self.cover.setPixmap(self._cover_cached)
@@ -6886,14 +6906,17 @@ class Tile(QFrame):
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(self.property("fullscreen"))
+        compact = bool(self.property('pictureInPicture'))
         self.bottom.set_fullscreen(fullscreen)
         if not fullscreen:
             self._bar_animation.stop()
             self._bar_progress = self._bar_target = 0.0
-            self.bottom.show()
-        video_height = max(60, height if fullscreen else height - TILE_BAR_HEIGHT)
+            self.bottom.setVisible(not compact)
+        video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
         # 普通格子留边框，全屏视频贴齐窗口边缘。
-        inset = 0 if self.property("fullscreen") else 1
+        inset = 0 if fullscreen or compact else 1
+        if compact:
+            self.set_controls_visible(False)
         self.video.setGeometry(inset, inset, max(1, width - inset * 2),
                                max(1, video_height - inset))
         self._round_video()
@@ -6913,7 +6936,7 @@ class Tile(QFrame):
                          if self.controls.y() > 20 else self.controls.x())
         title_left = self.stream_badge.x() + self.stream_badge.width() + 6
         room = max(0, controls_left - title_left - 8)
-        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible
+        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible and not compact
         self.title_badge.setVisible(show_title)
         if show_title:
             self.title_badge.set_max_width(room)
@@ -6960,7 +6983,7 @@ class Tile(QFrame):
         """
         room = self.width() - 10 - self.controls.width() - 12 - 10
         self.stream_badge.set_compact(self.stream_badge.full_width() > room)
-        visible = (self._overlay_visible and bool(self.room.get("room_id"))
+        visible = (not self.property('pictureInPicture') and self._overlay_visible and bool(self.room.get("room_id"))
                    and self.stream_badge.width() <= room)
         self.stream_badge.setVisible(visible)
         return visible
@@ -6973,7 +6996,7 @@ class Tile(QFrame):
         「只留按钮轮廓」的机制才是治它的）。让控制条能点到靠的是
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
-        square_corners = bool(self.property("fullscreen"))
+        square_corners = bool(self.property("fullscreen") or self.property('pictureInPicture'))
         self.video.square_corners = square_corners
         self.video_danmaku.set_quick_rounded(not square_corners)
         for index, corner in enumerate(self.video_corners):
@@ -7194,7 +7217,7 @@ class Tile(QFrame):
         用户要求：它和 LIVE 浮标、标题、控制条一样**自动隐藏** —— 鼠标在格子上
         才露，移开就跟着一起收（以前是只要在播就一直挂在右下角）。
         """
-        return bool(self._overlay_visible
+        return bool(not self.property('pictureInPicture') and self._overlay_visible
                     and getattr(self, "_elapsed_timer", None) is not None
                     and self._elapsed_timer.isActive()
                     and self.room.get("live")
@@ -7605,6 +7628,9 @@ class WallGrid(QWidget):
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
+        self.picture_in_picture_tiles = None
+        self.picture_in_picture_columns = 0
+        self.picture_in_picture_aspects = []
         self.fullscreen_tile: Tile | None = None
         #: 退出全屏时「布局先算好、格子分批露面」用的状态（见 reveal_tiles_staggered）
         self._defer_show = False
@@ -7710,6 +7736,39 @@ class WallGrid(QWidget):
             self._quick_danmaku_layer = None
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
         return self._quick_danmaku_layer
+
+    def set_picture_in_picture(self, tiles, columns=0, aspects=None):
+        self.set_interactive_resize(False)
+        self._clear()
+        self._resize_on_show = False
+        self._relayout_timer.stop()
+        self.picture_in_picture_tiles = list(tiles) if tiles is not None else None
+        self.picture_in_picture_columns = columns
+        self.picture_in_picture_aspects = aspects or []
+        selected = set(tiles or [])
+        for tile in self.tiles:
+            tile.setProperty('pictureInPicture', tile in selected)
+            _repolish(tile)
+            if tiles is not None:
+                tile.setMinimumSize(0, 0)
+        self._sync_danmaku_controls()
+        self.relayout(force=True)
+        for tile in self.tiles:
+            tile._layout_areas()
+
+    def _relayout_picture_in_picture(self):
+        from .picture_in_picture import pane_rectangles
+        self.setMinimumSize(0, 0)
+        self.danmaku.hide()
+        self._divider_rects = {}
+        for border in self._pane_borders.values():
+            border.hide()
+        selected = self.picture_in_picture_tiles
+        for tile in self.tiles:
+            tile.setVisible(tile in selected)
+        for tile, rect in zip(selected, pane_rectangles(
+                len(selected), self.rect(), self.picture_in_picture_columns, self.picture_in_picture_aspects)):
+            tile.setGeometry(rect)
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
@@ -7869,7 +7928,7 @@ class WallGrid(QWidget):
 
     @property
     def has_danmaku(self) -> bool:
-        return self._danmaku_cell is not None and bool(self._cells())
+        return self.picture_in_picture_tiles is None and self._danmaku_cell is not None and bool(self._cells())
 
     def danmaku_target_tile(self):
         main = self.main_index()
@@ -7970,6 +8029,8 @@ class WallGrid(QWidget):
 
     def set_sidebar_animating(self, active: bool) -> None:
         """收缩期间保持原生视频窗口尺寸，结束后统一调整。"""
+        if self.picture_in_picture_tiles is not None:
+            return
         if active == self._sidebar_animating:
             return
         self._sidebar_animating = active
@@ -8002,6 +8063,9 @@ class WallGrid(QWidget):
                 self.setUpdatesEnabled(self._sidebar_updates_enabled)
 
     def relayout(self, force: bool = False) -> None:
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            return
         if self._fullscreen_layout_pending:
             return
         self.sync_sc_placement()
@@ -8121,6 +8185,9 @@ class WallGrid(QWidget):
         return QSize(max(200, widget.minimumWidth()), max(150, widget.minimumHeight()))
 
     def _relayout_preset(self, apply_visibility=False):
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            return
         if self.fullscreen_tile is not None or self.layout_id not in self._partitions:
             return
         widgets = self._preset_widgets()
@@ -8460,6 +8527,9 @@ class WallGrid(QWidget):
         return rectangles, dividers
 
     def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            return
         if len(self.tiles) < 6:
             return
         old_regions = list(self._divider_rects.values())
@@ -8566,6 +8636,11 @@ class WallGrid(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if getattr(self, '_fullscreen_layout_pending', False):
+            return
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.resize()
             return
         if self._sidebar_animating:
             if self._quick_danmaku_layer is not None:

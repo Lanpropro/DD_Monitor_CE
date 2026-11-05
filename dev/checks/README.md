@@ -72,6 +72,11 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
+| [selfcheck_picture_in_picture](../selfcheck_picture_in_picture.py) | `smoke` / `offline`；临时房间、1～16路布局边界、组合与取消、缩放置顶、托盘、恢复与退出；Windows原生单项 `--native` 另验证双路本地 MP4 的核心／HWND／进度及弹幕、醒目留言归属 |
+
+
+| 脚本 | 执行分类 |
+| --- | --- |
 | [selfcheck_add_room_folder](../selfcheck_add_room_folder.py) | 离屏合成数据；添加归类、并发失败提示、网络错误分类与诊断脱敏 |
 | [selfcheck_mobile_share](../selfcheck_mobile_share.py) | `offline`；手机中文分享、短链接跳转及后台查询，无账号和外网 |
 | [selfcheck_add_room_hints](../selfcheck_add_room_hints.py) | 单项执行前核对 |
