@@ -104,6 +104,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:QT_SCALE_FACTOR = '1.5'
           python dev/checks/bootstrap.py dev/selfcheck_sidebar_hit_test.py SidebarHitTests.test_native_ghost_is_excluded_without_hiding_it_or_using_qt_masks
+      - name: Check native preview window isolation
+        env:
+          DDM_NO_SAVE: '1'
+          DDM_CHECK_MODE: offline
+          QT_QPA_PLATFORM: windows
+        run: |
+          python dev/checks/bootstrap.py dev/selfcheck_startup_windows.py StartupWindowsTests.test_preview_native_window_keeps_other_cards_alien
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:QT_SCALE_FACTOR = '1.5'
+          python dev/checks/bootstrap.py dev/selfcheck_startup_windows.py StartupWindowsTests.test_preview_native_window_keeps_other_cards_alien
       - name: Show smoke logs
         if: always()
         shell: pwsh

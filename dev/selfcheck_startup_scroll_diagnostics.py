@@ -89,7 +89,8 @@ class StartupScrollTests(unittest.TestCase):
                     (VideoSurface, ('_clip_native_video',)),
                     (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                     (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
-                    (MainWindow, ('__init__', 'start_all', '_play_on')), (QWidget, ('winId',))):
+                    (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on')),
+                    (QWidget, ('winId',))):
                 for name in names:
                     stack.enter_context(patch.object(owner, name, getattr(owner, name)))
             stack.enter_context(patch.object(mpv, 'MPV', Core))

@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import ClassVar
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 
 from .audio_output import audio_filters, linear_volume
 from .auto_quality import AutoQuality
@@ -143,7 +143,19 @@ class TilePlayer(QObject):
     def bind(self) -> None:
         if self._released:
             return
-        hwnd = int(self.video_widget.winId())
+        if self.silent:
+            # Preview needs one native video surface, not native windows for every
+            # ancestor and sibling card. Limit Qt's promotion to this call.
+            self.video_widget.setAttribute(Qt.WA_DontCreateNativeAncestors)
+            flag = Qt.AA_DontCreateNativeWidgetSiblings
+            previous = QCoreApplication.testAttribute(flag)
+            QCoreApplication.setAttribute(flag, True)
+            try:
+                hwnd = int(self.video_widget.winId())
+            finally:
+                QCoreApplication.setAttribute(flag, previous)
+        else:
+            hwnd = int(self.video_widget.winId())
         if self.player is not None and hwnd != self._bound_hwnd:
             self._destroy_core()
         if self.player is None:
