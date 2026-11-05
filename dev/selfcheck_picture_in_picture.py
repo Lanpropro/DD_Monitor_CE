@@ -562,6 +562,19 @@ def exercise(app, window, native, directory):
         pip.floating.pin.setChecked(True)
         image = pip.floating.pin.grab().toImage()
         assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT)
+    button = pip.floating.tools.reorder
+    with patch('ddm.picture_in_picture.QCursor.pos', return_value=button.mapToGlobal(QPoint(5, 12))):
+        assert not button.isChecked()
+        image = button.grab().toImage()
+        scale = image.devicePixelRatio()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT), 'Reorder hover must match the neighboring controls'
+    with patch('ddm.picture_in_picture.QCursor.pos', return_value=QPoint(-30000, -30000)):
+        image = button.grab().toImage()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)).alpha() < 230
+        button.setChecked(True)
+        image = button.grab().toImage()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT), 'Enabled reorder mode must remain blue after the pointer leaves'
+        button.setChecked(False)
     button = pip.floating.tools.manage
     with patch.object(button, 'underMouse', return_value=True), \
             patch.object(button, 'hasFocus', return_value=True), \

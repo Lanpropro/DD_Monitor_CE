@@ -266,8 +266,8 @@ class PictureInPictureButton(QPushButton):
         painter.setPen(Qt.NoPen)
         hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
         active = hovered or (self.keyboard_focus and self.hasFocus()) or self.isChecked()
-        if self.kind in ('pin', 'reorder'):
-            # Blue denotes an enabled mode rather than a lingering hover.
+        if self.kind == 'pin':
+            # Blue denotes the pinned state rather than a lingering hover.
             background = (theme.qcolor(theme.ACCENT) if self.isChecked()
                           else QColor(45, 49, 55, 210) if active else QColor(0, 0, 0, 170))
         else:
