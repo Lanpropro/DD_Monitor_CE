@@ -144,3 +144,15 @@ class LiveResize:
         if self.source._live_resize is self:
             self.source._live_resize = None
             self.source._poll_tools()
+
+
+class LiveMove(LiveResize):
+    """Move one live composition while its native video windows stay still."""
+    def set_geometry(self, rect):
+        self.preview.move(rect.topLeft())
+
+    def stop(self):
+        super().stop()
+        if self.source._live_move is self:
+            self.source._live_move = None
+            self.source._poll_tools()
