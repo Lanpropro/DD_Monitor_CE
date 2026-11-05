@@ -3777,6 +3777,10 @@ class Sidebar(QFrame):
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH)
         self._items: list[NavItem] = []
+        self._drag_snapshot_ready = False
+        self._drag_snapshot_timer = QTimer(self)
+        self._drag_snapshot_timer.setSingleShot(True)
+        self._drag_snapshot_timer.timeout.connect(self._prepare_drag_snapshot)
         self.browser_url_resolver = lambda _room: ""
         self._collapse_animating = False
         self.collapsed = False
@@ -5340,11 +5344,28 @@ class Sidebar(QFrame):
                     child = child.parentWidget()
         self._set_pointer_hover(item)
 
+    def _prepare_drag_snapshot(self) -> None:
+        if self._drag_snapshot_ready or not self.isVisible():
+            return
+        if self.drag_session.active or QApplication.mouseButtons() != Qt.NoButton:
+            self._drag_snapshot_timer.start(100)
+            return
+        # Qt render() flushes pending move/resize events across the whole window,
+        # including hidden cards. Do this once after show, outside the first drag.
+        # Paint only one pixel without children; keep no stale card snapshot.
+        pixel = QPixmap(1, 1)
+        pixel.fill(Qt.transparent)
+        self.render(pixel, QPoint(), QRegion(QRect(0, 0, 1, 1)), QWidget.RenderFlag(0))
+        self._drag_snapshot_ready = True
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._hover_sync_timer.start()
+        if not self._drag_snapshot_ready:
+            self._drag_snapshot_timer.start(0)
 
     def hideEvent(self, event) -> None:
+        self._drag_snapshot_timer.stop()
         self._hover_sync_timer.stop()
         self._set_pointer_hover(None)
         super().hideEvent(event)
