@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
@@ -26,6 +26,17 @@ from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWind
 def pointer(surface, kind, local, global_pos, button, buttons):
     event = QMouseEvent(kind, QPointF(local), QPointF(global_pos), button, buttons, Qt.NoModifier)
     QApplication.sendEvent(surface, event)
+
+
+class VisibilityEvents(QObject):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Hide, QEvent.Show, QEvent.WinIdChange):
+            self.events.append((watched, event.type()))
+        return False
 
 
 def check_floating_style(pip, wall, tiles, layer):
@@ -222,6 +233,8 @@ def exercise(app, window, native, directory):
     pip.dialog.start.click()
     QTest.qWait(150)
     assert pip.active and pip.placeholder.isVisible()
+    assert window.isMinimized(), 'Opening PiP must minimize the main window after accepting the picker'
+    assert pip.floating.isVisible() and not pip.floating.isMinimized()
     assert wall.window() is pip.floating and wall.visible_tiles() == tiles[:2]
     assert not any(tile.bottom.isVisible() for tile in tiles[:2])
     assert wall.layout_id == original_layout
@@ -266,11 +279,31 @@ def exercise(app, window, native, directory):
         assert abs(pip.floating.height() - pip.floating.width() / pip.floating.aspect) <= 1
         for tile, aspect in zip(wall.visible_tiles(), wall.picture_in_picture_aspects):
             assert abs(tile.width() - tile.height() * aspect) <= 2
-    pip.floating.pin.click()
-    QTest.qWait(50)
-    assert not (pip.floating.windowFlags() & Qt.WindowStaysOnTopHint)
-    pip.floating.pin.click()
-    QTest.qWait(50)
+    visibility = VisibilityEvents()
+    watched = (pip.floating, pip.floating.tools, *(tile.video for tile in tiles[:2]))
+    for widget in watched:
+        widget.installEventFilter(visibility)
+    # Keep hover state stable so a genuine hide/show caused by pinning is visible.
+    with patch.object(pip.floating, '_poll_tools'):
+        for pinned in (False, True, False, True):
+            visibility.events.clear()
+            pip.floating.pin.click()
+            QTest.qWait(25)
+            assert pip.pinned is pinned and pip.floating.pin.isChecked() is pinned
+            assert bool(pip.floating.windowHandle().flags() & Qt.WindowStaysOnTopHint) is pinned
+            assert not visibility.events, 'Pinning must not hide, show or recreate the video/tool windows'
+            assert ('已置顶' if pinned else '未置顶') in pip.floating.pin.toolTip()
+            if native:
+                import ctypes
+                from ctypes import wintypes
+                ctypes.windll.user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+                assert bool(ctypes.windll.user32.GetWindowLongW(int(pip.floating.winId()), -20) & 8) is pinned
+    for widget in watched:
+        widget.removeEventFilter(visibility)
+    with patch.object(pip.floating.tools.manage, 'underMouse', return_value=True), \
+            patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=pip.floating.pin):
+        image = pip.floating.tools.manage.grab().toImage()
+        assert image.pixelColor(12, 21).alpha() < 230, 'A stale hover bit must not flash the composition icon blue'
     player = window.players.get(tiles[0])
     before_aspects = list(wall.picture_in_picture_aspects)
     window.players[tiles[0]] = Mock(_prop=lambda name: {'dw': 800, 'dh': 600})
@@ -294,13 +327,14 @@ def exercise(app, window, native, directory):
     QTest.qWait(50)
     assert not window._tray.playback_suspended
     assert pip.floating.isVisible() and all(tile.isVisible() for tile in tiles[:2])
-    window.show()
+    window.showNormal()
     pip.manage()
     for index, check in pip.dialog.checks.items():
         check.setChecked(index in (1, 3))
     pip.dialog.start.click()
     QTest.qWait(80)
     assert wall.visible_tiles() == [tiles[1], tiles[3]]
+    assert not window.isMinimized(), 'Editing an existing PiP must not minimize the main window again'
     state = window.current_state()
     assert state['ui']['picture_in_picture']['selection'] == [1, 3]
     assert [row['room_id'] for row in state['wall']] == [tile.room['room_id'] for tile in tiles]
@@ -321,6 +355,7 @@ def exercise(app, window, native, directory):
     pip.floating.tools.back.click()
     QTest.qWait(80)
     assert not pip.active and window.isVisible()
+    assert not window.isMinimized(), 'Closing PiP must restore the main window'
     if native:
         pump(app, .2)
         assert [player.player for player in players] == cores
@@ -388,7 +423,10 @@ def main():
         stack.enter_context(patch.object(PictureInPictureDialog, '__init__', background_dialog))
         # Do not restore/activate a real foreground window during the close test.
         from ddm.system_tray import SystemTray
-        stack.enter_context(patch.object(SystemTray, 'restore'))
+        def restore_without_activation(tray):
+            tray.window.setWindowState(tray.window.windowState() & ~Qt.WindowMinimized)
+            tray.window.show()
+        stack.enter_context(patch.object(SystemTray, 'restore', autospec=True, side_effect=restore_without_activation))
         rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
                       muted=True, volume=20 + index * 10) for index in range(4)]
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
