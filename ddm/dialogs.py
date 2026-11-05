@@ -1498,8 +1498,9 @@ class FollowImportDialog(QDialog):
     INDICATOR_WIDTH = 30      # 勾选方块占据的左侧宽度
 
     def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None,
-                 folder_creator=None):
+                 folder_creator=None, room_menu=False):
         super().__init__(parent)
+        self.room_menu = room_menu
         self.setWindowTitle("导入关注")
         self.resize(520, 620)
         self.rooms = rooms
@@ -1515,6 +1516,8 @@ class FollowImportDialog(QDialog):
         live_count = sum(1 for room in rooms if room["live"])
         self.header = QLabel(f"共 {len(rooms)} 个直播间（{live_count} 个直播中）")
         self.header.setObjectName("AppSubtitle")
+        if self.room_menu:
+            self.header.setWordWrap(True)
         layout.addWidget(self.header)
 
         self.search_edit = QLineEdit()
@@ -1564,6 +1567,10 @@ class FollowImportDialog(QDialog):
             button.clicked.connect(handler)
             filters.addWidget(button)
             self.filter_buttons.append(button)
+        if self.room_menu:
+            self.show_pending = QCheckBox("显示待识别账号")
+            self.show_pending.toggled.connect(lambda _: self._filter_rooms(self.search_edit.text()))
+            filters.addWidget(self.show_pending)
         filters.addStretch(1)
         layout.addLayout(filters)
 
@@ -1578,6 +1585,11 @@ class FollowImportDialog(QDialog):
             item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
             self.list.addItem(item)
         layout.addWidget(self.list, 1)
+        if self.room_menu:
+            self.empty_label = QLabel("暂未识别到可导入的直播间；可等待补充识别，或查看待识别账号。")
+            self.empty_label.setObjectName("SettingsHint")
+            self.empty_label.setWordWrap(True)
+            layout.addWidget(self.empty_label)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -1594,7 +1606,7 @@ class FollowImportDialog(QDialog):
         buttons.addWidget(confirm)
         layout.addLayout(buttons)
 
-        self._update_header()
+        self._filter_rooms(self.search_edit.text())
 
     def _select_folder(self, action) -> None:
         self.folder_id = action.data()
@@ -1611,6 +1623,8 @@ class FollowImportDialog(QDialog):
         for index in range(self.list.count()):
             item = self.list.item(index)
             item.setHidden(query not in item.data(Qt.UserRole)["uname"].casefold())
+            if self.room_menu and not self.show_pending.isChecked() and not item.data(Qt.UserRole).get("room_id"):
+                item.setHidden(True)
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----
@@ -1642,6 +1656,16 @@ class FollowImportDialog(QDialog):
         shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
         filtered = f"，当前显示 {shown} 个" if self.search_edit.text().strip() else ""
         pending = sum(not room.get("room_id") for room in self.rooms)
+        if self.room_menu:
+            chosen = sum(bool(room.get("room_id")) for room in self.selected())
+            pending_chosen = len(self.selected()) - chosen
+            saved = f"，{pending_chosen} 个待识别账号已勾选" if pending_chosen else ""
+            self.header.setText(f"共 {len(self.rooms)} 个关注账号，{len(self.rooms) - pending} 个直播间，"
+                                f"{pending} 个待识别{filtered}，已勾选 {chosen} 个直播间{saved}")
+            self.empty_label.setText("没有匹配的主播，请调整搜索条件。" if self.search_edit.text().strip() else
+                                     "暂未识别到可导入的直播间；可补充识别，或显示待识别账号。")
+            self.empty_label.setVisible(shown == 0)
+            return
         noun = "关注账号" if any(room.get("anchor_uid") for room in self.rooms) else "直播间"
         detail = f"，{pending} 个直播间待识别" if pending else ""
         self.header.setText(f"共 {len(self.rooms)} 个{noun}{detail}{filtered}，已勾选 {selected} 个")
@@ -1660,7 +1684,7 @@ class FollowImportDialog(QDialog):
                 self.rooms[index] = dict(account)
                 item.setData(Qt.UserRole, dict(account))
                 item.setText(self._room_text(account))
-                self._update_header()
+                self._filter_rooms(self.search_edit.text())
                 return
 
     # ---- 结果 ----
