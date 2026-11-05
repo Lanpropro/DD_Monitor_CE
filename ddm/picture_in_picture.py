@@ -271,6 +271,7 @@ class PictureInPictureWindow(QWidget):
         self.tools = PictureInPictureTools(self)
         self.pin = self.tools.pin
         self._gesture = None
+        self._live_resize = None
         self._pending_geometry = None
         self._geometry_timer = QTimer(self)
         self._geometry_timer.setSingleShot(True)
@@ -291,6 +292,12 @@ class PictureInPictureWindow(QWidget):
         shortcut.activated.connect(self.close)
 
     def _poll_tools(self):
+        if self._live_resize is not None:
+            self.tools.hide()
+            if (not self._live_resize.starting and not self._live_resize.finishing
+                    and not self._live_resize.sync()):
+                self._live_resize.finish(immediate=True)
+            return
         hovered = self._pointer_over()
         focused = any(button.keyboard_focus and button.hasFocus()
                       for button in self.tools.findChildren(PictureInPictureButton))
@@ -347,6 +354,11 @@ class PictureInPictureWindow(QWidget):
         self.box.activate()
         self._apply_rounding()
         self._poll_tools()
+
+    def saveGeometry(self):
+        if self._live_resize is not None:
+            return self._live_resize.preview.saveGeometry()
+        return super().saveGeometry()
 
     def set_composition(self, aspects, columns):
         self.aspect = composition_aspect(composition_rows(aspects, columns))
@@ -424,21 +436,24 @@ class PictureInPictureWindow(QWidget):
         if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove,
                         QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
             return False
-        if not isinstance(watched, QWidget) or watched.window() is not self:
+        preview = self._live_resize.preview if self._live_resize is not None else None
+        if not isinstance(watched, QWidget) or watched.window() not in (self, preview):
             return False
         wall = self.controller.host.wall
-        surfaces = (self, wall, *(surface for tile in wall.visible_tiles()
+        surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
                                  for surface in (tile, tile.video, tile.cover, tile.video_danmaku)))
         if watched not in surfaces:
             return False
         point = event.globalPosition().toPoint()
         if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if self._live_resize is not None:
+                self._live_resize.finish(immediate=True)
             self.setFocus(Qt.MouseFocusReason)
             self._gesture = (point, self.geometry(), self._resize_edges(self.mapFromGlobal(point)))
-            watched.grabMouse()
+            self.grabMouse()
             return True
         if kind == QEvent.MouseMove:
-            edges = self._resize_edges(self.mapFromGlobal(point))
+            edges = self._gesture[2] if self._gesture is not None else self._resize_edges(self.mapFromGlobal(point))
             cursor = (Qt.SizeFDiagCursor if edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge)
                       else Qt.SizeBDiagCursor if edges in (Qt.TopEdge | Qt.RightEdge, Qt.BottomEdge | Qt.LeftEdge)
                       else Qt.SizeHorCursor if edges & (Qt.LeftEdge | Qt.RightEdge)
@@ -477,19 +492,32 @@ class PictureInPictureWindow(QWidget):
                     self.setGeometry(rect)
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
-            self._flush_geometry()
+            self._flush_geometry(finishing=True)
             self._gesture = None
-            watched.releaseMouse()
+            self.releaseMouse()
+            if self._live_resize is not None:
+                self._live_resize.finish()
             return True
         return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
 
-    def _flush_geometry(self):
+    def _flush_geometry(self, *, finishing=False):
         self._geometry_timer.stop()
         rect, self._pending_geometry = self._pending_geometry, None
         if rect is not None:
-            self.setGeometry(rect)
+            if (not finishing and self._live_resize is None and self._gesture is not None
+                    and sys.platform == 'win32' and QApplication.platformName() == 'windows'):
+                from .picture_in_picture_resize import LiveResize
+                self._live_resize = LiveResize(self)
+                if not self._live_resize.begin():
+                    self._live_resize = None
+            if self._live_resize is not None:
+                self._live_resize.set_geometry(rect)
+            else:
+                self.setGeometry(rect)
 
     def stop(self):
+        if self._live_resize is not None:
+            self._live_resize.finish(immediate=True)
         self._hover_timer.stop()
         self._geometry_timer.stop()
         self._pending_geometry = None

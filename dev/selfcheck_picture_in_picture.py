@@ -238,6 +238,105 @@ def check_quick_mask_batch():
     window.deleteLater()
 
 
+def check_live_resize(pip, players, layer):
+    """Native regression of live composition; this is not a performance benchmark."""
+    from ddm.picture_in_picture_resize import LiveResize
+    from shiboken6 import isValid
+    floating = pip.floating
+    previous = floating.geometry()
+    if '--live-resize' in sys.argv:
+        floating.move(floating.screen().availableGeometry().topLeft() + QPoint(40, 40))
+    bounds = floating.geometry()
+    local = floating.rect().bottomRight() - QPoint(2, 2)
+    start = floating.mapToGlobal(local)
+    cores = [player.player for player in players]
+    tiles = pip.host.wall.visible_tiles()
+    handles = [int(tile.video.winId()) for tile in tiles]
+    positions = [player._prop('time-pos') for player in players]
+    sizes = [tile.video.size() for tile in tiles]
+    try:
+        pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+        delta = QPoint(90, round(90 / floating.aspect))
+        pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        floating._flush_geometry()
+        live = floating._live_resize
+        assert live is not None and live.preview.isVisible()
+        assert floating.size() == bounds.size(), 'The live source must keep its playback size during dragging'
+        assert floating.saveGeometry() == live.preview.saveGeometry(), 'Persist the on-screen geometry, not the parked source'
+        QTest.qWait(150)
+        floating._poll_tools()
+        assert not floating.tools.isVisible(), 'Resize must not leave detached floating controls'
+        expected_sources = {int(floating.winId()), int(layer.window.winId())}
+        expected_sources.update(int(tile.video_danmaku.super_chat_overlay.winId()) for tile in tiles)
+        assert expected_sources <= live.thumbnails.keys(), 'Video, Quick comments and SC must all be composed'
+        image = None
+        for index, width in enumerate((bounds.width() + 150, bounds.width() + 40, bounds.width() + 100)):
+            live.set_geometry(QRect(bounds.topLeft(), QSize(width, round(width / floating.aspect))))
+            QTest.qWait(140)
+            assert floating.size() == bounds.size()
+            assert [tile.video.size() for tile in tiles] == sizes
+            if '--live-resize' in sys.argv:
+                point = live.preview.pos()
+                image = live.preview.screen().grabWindow(0, point.x(), point.y(), live.preview.width(), live.preview.height()).toImage()
+                output = ROOT / 'work/pip-previews'
+                output.mkdir(parents=True, exist_ok=True)
+                image.save(str(output / f'live-resize-{index}.png'))
+        assert all(player._prop('time-pos') > position + .2 for player, position in zip(players, positions)), 'Playback must continue during live scaling'
+        if image is not None:
+            QTest.qWait(250)
+            next_image = live.preview.screen().grabWindow(0, point.x(), point.y(), live.preview.width(), live.preview.height()).toImage()
+            area = QRect(0, image.height() * 2 // 3, image.width() // 2, image.height() // 3)
+            assert image.copy(area) != next_image.copy(area), 'At a fixed output size, the video pixels must advance rather than display one frozen screenshot'
+        assert [player.player for player in players] == cores
+        assert [int(tile.video.winId()) for tile in tiles] == handles
+        target = live.preview.geometry()
+        live.finish()
+        assert floating.geometry() == target
+        # A second press while the final swapchains settle must remain usable.
+        point = target.topLeft() + QPoint(20, 20)
+        pointer(live.preview, QEvent.MouseButtonPress, QPoint(20, 20), point, Qt.LeftButton, Qt.LeftButton)
+        assert floating._live_resize is None
+        pointer(floating, QEvent.MouseButtonRelease, QPoint(20, 20), point, Qt.LeftButton, Qt.NoButton)
+        QTest.qWait(120)
+        assert not live.thumbnails and not isValid(live.preview)
+        with patch.object(floating, '_pointer_over', return_value=True):
+            floating._poll_tools()
+        assert floating.tools.isVisible()
+        # Exercise the actual release path, including a pending final pointer.
+        local = floating.rect().bottomRight() - QPoint(2, 2)
+        start = floating.mapToGlobal(local)
+        pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+        delta = QPoint(70, round(70 / floating.aspect))
+        pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        floating._flush_geometry()
+        live = floating._live_resize
+        with patch.object(floating, 'setGeometry', wraps=floating.setGeometry) as apply_geometry:
+            for offset in (60, 20, 80):
+                delta = QPoint(offset, round(offset / floating.aspect))
+                pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+                floating._flush_geometry()
+            assert apply_geometry.call_count == 0, 'Dragging must resize only the compositor destination'
+            pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
+            assert apply_geometry.call_count == 1, 'Apply one final native player resize on release'
+        target = live.preview.geometry()
+        assert floating.geometry() == target
+        QTest.qWait(140)
+        assert floating._live_resize is None and not live.thumbnails
+        # Failed registration keeps the original live resize path.
+        failed = LiveResize(floating)
+        floating._live_resize = failed
+        with patch.object(failed.dwm, 'DwmRegisterThumbnail', return_value=-1):
+            assert not failed.begin()
+        assert floating._live_resize is None and floating.geometry() == target
+    finally:
+        if floating._live_resize is not None:
+            floating._live_resize.finish(immediate=True)
+        floating._gesture = None
+        floating.releaseMouse()
+        floating.setGeometry(previous)
+        QTest.qWait(100)
+
+
 def exercise(app, window, native, directory):
     pip, wall = window.picture_in_picture, window.wall
     tiles = list(wall.tiles)
@@ -307,6 +406,8 @@ def exercise(app, window, native, directory):
             check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
     check_resize_burst(pip, wall)
+    if native:
+        check_live_resize(pip, players, layer)
     pip.manage()
     pip.dialog.checks[3].setChecked(True)
     pip.dialog.reject()
