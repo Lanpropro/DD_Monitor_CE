@@ -174,6 +174,7 @@ class PictureInPictureButton(QPushButton):
     def __init__(self, kind, tooltip, parent):
         super().__init__(parent)
         self.kind = kind
+        self.keyboard_focus = False
         self.setFixedSize(24, 24)
         self.setToolTip(tooltip)
         self.setAccessibleName(tooltip)
@@ -182,12 +183,29 @@ class PictureInPictureButton(QPushButton):
         self.setAttribute(Qt.WA_Hover)
         self.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; min-width: 0; min-height: 0; }')
 
+    def event(self, event):
+        if event.type() == QEvent.FocusIn:
+            self.keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
+            self.update()
+        elif event.type() == QEvent.FocusOut:
+            self.keyboard_focus = False
+            self.update()
+        return super().event(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        active = self.underMouse() or self.hasFocus() or self.isChecked()
-        painter.setBrush(theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170))
+        hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+        active = hovered or (self.keyboard_focus and self.hasFocus()) or self.isChecked()
+        if self.kind == 'pin':
+            # Blue denotes the pinned state, including while the pointer stays
+            # over an unchecked button after clicking.
+            background = (theme.qcolor(theme.ACCENT) if self.isChecked()
+                          else QColor(45, 49, 55, 210) if active else QColor(0, 0, 0, 170))
+        else:
+            background = theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170)
+        painter.setBrush(background)
         painter.drawEllipse(QRectF(self.rect()))
         painter.setPen(QPen(QColor('#e7ebf0'), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)
@@ -220,6 +238,7 @@ class PictureInPictureTools(QWidget):
         self.pin = PictureInPictureButton('pin', '置顶画中画', self)
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
+        self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
         self.back = PictureInPictureButton('back', '关闭画中画并返回监控室（Esc）', self)
         for button in (self.manage, self.pin, self.back):
             box.addWidget(button)
@@ -243,6 +262,7 @@ class PictureInPictureWindow(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.aspect = 16 / 9
         self._native_rounding = False
+        self._rounding_hwnd = None
         self._fitting = False
         self.resize(640, 360)
         self.box = QVBoxLayout(self)
@@ -251,6 +271,13 @@ class PictureInPictureWindow(QWidget):
         self.tools = PictureInPictureTools(self)
         self.pin = self.tools.pin
         self._gesture = None
+        self._live_resize = None
+        self._pending_geometry = None
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.setTimerType(Qt.PreciseTimer)
+        self._geometry_timer.setInterval(16)
+        self._geometry_timer.timeout.connect(self._flush_geometry)
         self._surface_state = [(widget, widget.hasMouseTracking(),
                                 widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None)
                                for tile in controller.host.wall.tiles for widget in (tile, tile.video)]
@@ -265,16 +292,50 @@ class PictureInPictureWindow(QWidget):
         shortcut.activated.connect(self.close)
 
     def _poll_tools(self):
-        widget = QApplication.widgetAt(QCursor.pos())
-        focus = QApplication.focusWidget()
-        hovered = widget is not None and widget.window() in (self, self.tools)
-        focused = focus is not None and focus.window() is self.tools
+        if self._live_resize is not None:
+            self.tools.hide()
+            if (not self._live_resize.starting and not self._live_resize.finishing
+                    and not self._live_resize.sync()):
+                self._live_resize.finish(immediate=True)
+            return
+        hovered = self._pointer_over()
+        focused = any(button.keyboard_focus and button.hasFocus()
+                      for button in self.tools.findChildren(PictureInPictureButton))
         visible = (self.isVisible() and not self.isMinimized()
                    and self.controller.dialog is None and (hovered or focused))
-        self.tools.move(self.mapToGlobal(QPoint(self.width() - 88, 8)))
-        self.tools.setVisible(visible)
-        if visible:
+        position = self.mapToGlobal(QPoint(self.width() - 88, 8))
+        moved = self.tools.pos() != position
+        was_visible = self.tools.isVisible()
+        if moved:
+            self.tools.move(position)
+        if was_visible != visible:
+            self.tools.setVisible(visible)
+        if visible and (not was_visible or moved):
             self.tools.raise_()
+
+    def _pointer_over(self):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            point = wintypes.POINT()
+            user32.GetCursorPos.argtypes = (ctypes.POINTER(wintypes.POINT),)
+            user32.WindowFromPoint.argtypes = (wintypes.POINT,)
+            user32.WindowFromPoint.restype = wintypes.HWND
+            user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+            user32.GetAncestor.restype = wintypes.HWND
+            user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+            user32.GetWindow.restype = wintypes.HWND
+            user32.GetCursorPos(ctypes.byref(point))
+            hit = user32.GetAncestor(user32.WindowFromPoint(point), 2)  # GA_ROOT
+            roots = (int(self.internalWinId()), int(self.tools.internalWinId()))
+            while hit:
+                if hit in roots:
+                    return True
+                hit = user32.GetWindow(hit, 4)  # GW_OWNER, including our tooltip.
+            return False
+        widget = QApplication.widgetAt(QCursor.pos())
+        return widget is not None and widget.window() in (self, self.tools)
 
     def focusNextPrevChild(self, next):
         self.tools.show()
@@ -288,8 +349,16 @@ class PictureInPictureWindow(QWidget):
             by_height = abs(event.size().height() - event.oldSize().height()) * self.aspect > abs(event.size().width() - event.oldSize().width())
             width = round(self.height() * self.aspect) if by_height else self.width()
             self.resize_to_width(width)
+        # The native top-level has already resized. Activate the wall layout in
+        # this event, before returning to queued pointer/paint events.
+        self.box.activate()
         self._apply_rounding()
         self._poll_tools()
+
+    def saveGeometry(self):
+        if self._live_resize is not None:
+            return self._live_resize.preview.saveGeometry()
+        return super().saveGeometry()
 
     def set_composition(self, aspects, columns):
         self.aspect = composition_aspect(composition_rows(aspects, columns))
@@ -313,21 +382,29 @@ class PictureInPictureWindow(QWidget):
         self.setProperty('presentationMask', region)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             from .window_fullscreen import _dwm_set
-            self._native_rounding = _dwm_set(int(self.winId()), 33, 2) == 0
-            _dwm_set(int(self.winId()), 34, 0xFFFFFFFE)
+            hwnd = int(self.winId())
+            if hwnd != self._rounding_hwnd:
+                self._rounding_hwnd = hwnd
+                self._native_rounding = _dwm_set(hwnd, 33, 2) == 0
+                _dwm_set(hwnd, 34, 0xFFFFFFFE)
         if self._native_rounding:
-            self.clearMask()
+            if not self.mask().isEmpty():
+                self.clearMask()
         else:
             self.setMask(region)
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._refresh_native_window()
+
+    def _refresh_native_window(self):
         self._apply_rounding()
+        self._apply_pin(self.controller.pinned)
 
     def event(self, event):
         result = super().event(event)
-        if event.type() == QEvent.DevicePixelRatioChange and hasattr(self, 'tools'):
-            QTimer.singleShot(0, self, self._apply_rounding)
+        if event.type() in (QEvent.DevicePixelRatioChange, QEvent.WinIdChange) and hasattr(self, 'tools'):
+            QTimer.singleShot(0, self, self._refresh_native_window)
         return result
 
     def moveEvent(self, event):
@@ -359,21 +436,24 @@ class PictureInPictureWindow(QWidget):
         if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove,
                         QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
             return False
-        if not isinstance(watched, QWidget) or watched.window() is not self:
+        preview = self._live_resize.preview if self._live_resize is not None else None
+        if not isinstance(watched, QWidget) or watched.window() not in (self, preview):
             return False
         wall = self.controller.host.wall
-        surfaces = (self, wall, *(surface for tile in wall.visible_tiles()
+        surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
                                  for surface in (tile, tile.video, tile.cover, tile.video_danmaku)))
         if watched not in surfaces:
             return False
         point = event.globalPosition().toPoint()
         if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if self._live_resize is not None:
+                self._live_resize.finish(immediate=True)
             self.setFocus(Qt.MouseFocusReason)
             self._gesture = (point, self.geometry(), self._resize_edges(self.mapFromGlobal(point)))
-            watched.grabMouse()
+            self.grabMouse()
             return True
         if kind == QEvent.MouseMove:
-            edges = self._resize_edges(self.mapFromGlobal(point))
+            edges = self._gesture[2] if self._gesture is not None else self._resize_edges(self.mapFromGlobal(point))
             cursor = (Qt.SizeFDiagCursor if edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge)
                       else Qt.SizeBDiagCursor if edges in (Qt.TopEdge | Qt.RightEdge, Qt.BottomEdge | Qt.LeftEdge)
                       else Qt.SizeHorCursor if edges & (Qt.LeftEdge | Qt.RightEdge)
@@ -404,16 +484,43 @@ class PictureInPictureWindow(QWidget):
                         rect.moveRight(bounds.right())
                     if edges & Qt.TopEdge:
                         rect.moveBottom(bounds.bottom())
-                self.setGeometry(rect)
+                if edges:
+                    self._pending_geometry = rect
+                    if not self._geometry_timer.isActive():
+                        self._geometry_timer.start()
+                else:
+                    self.setGeometry(rect)
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
+            self._flush_geometry(finishing=True)
             self._gesture = None
-            watched.releaseMouse()
+            self.releaseMouse()
+            if self._live_resize is not None:
+                self._live_resize.finish()
             return True
         return kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton
 
+    def _flush_geometry(self, *, finishing=False):
+        self._geometry_timer.stop()
+        rect, self._pending_geometry = self._pending_geometry, None
+        if rect is not None:
+            if (not finishing and self._live_resize is None and self._gesture is not None
+                    and sys.platform == 'win32' and QApplication.platformName() == 'windows'):
+                from .picture_in_picture_resize import LiveResize
+                self._live_resize = LiveResize(self)
+                if not self._live_resize.begin():
+                    self._live_resize = None
+            if self._live_resize is not None:
+                self._live_resize.set_geometry(rect)
+            else:
+                self.setGeometry(rect)
+
     def stop(self):
+        if self._live_resize is not None:
+            self._live_resize.finish(immediate=True)
         self._hover_timer.stop()
+        self._geometry_timer.stop()
+        self._pending_geometry = None
         QApplication.instance().removeEventFilter(self)
         self.tools.hide()
         self._gesture = None
@@ -429,10 +536,23 @@ class PictureInPictureWindow(QWidget):
 
     def _pin(self, pinned):
         self.controller.pinned = pinned
-        geometry = self.geometry()
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, pinned)
-        self.setGeometry(geometry)
-        self.show()
+        self._apply_pin(pinned)
+        self.pin.setToolTip('已置顶，点击取消置顶' if pinned else '未置顶，点击置顶')
+        for button in self.tools.findChildren(PictureInPictureButton):
+            button.update()
+
+    def _apply_pin(self, pinned):
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+            # Change only native Z order. Recomputing all Qt window flags can
+            # disturb alpha tool surfaces even without a QWidget Hide event.
+            user32.SetWindowPos(int(self.winId()), -1 if pinned else -2, 0, 0, 0, 0, 0x13)
+        else:
+            self.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
 
     def closeEvent(self, event):
         self.controller.restore(activate=True)
@@ -530,7 +650,8 @@ class PictureInPicture(QObject):
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
         self.selection, self.columns = list(selection), columns
-        if not self.active:
+        opened = not self.active
+        if opened:
             wall.set_sidebar_animating(False)
             self.floating = PictureInPictureWindow(self)
             if self.geometry:
@@ -552,6 +673,12 @@ class PictureInPicture(QObject):
         self._sync_overlays()
         self._aspect_timer.start()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
+        if opened:
+            QTimer.singleShot(0, self, self._minimize_host)
+
+    def _minimize_host(self):
+        if self.active and not self.host._closing:
+            self.host.showMinimized()
 
     def _sync_overlays(self):
         wall = self.host.wall

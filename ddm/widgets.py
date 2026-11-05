@@ -6386,12 +6386,15 @@ class Tile(QFrame):
         窗口、并且被 raise 过，才既画得出来也点得到。所以每次摆完位都要再抬一次
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
+        compact = bool(self.property('pictureInPicture'))
         self.video_danmaku.raise_()
         for corner in self.video_corners:
-            corner.raise_()
+            if not compact or corner.isVisible():
+                corner.raise_()
         for widget in (self.controls, self.stream_badge, self.title_badge,
                        self.time_badge, self.spinner, self.pause_overlay, self.bottom):
-            widget.raise_()
+            if not compact or widget.isVisible():
+                widget.raise_()
         self._update_quick_danmaku_mask()
         wall = self.parentWidget()
         quick_layer = getattr(wall, "_quick_danmaku_layer", None)
@@ -6903,6 +6906,21 @@ class Tile(QFrame):
         if getattr(self, '_presentation_changing', False):
             return
         width, height = self.width(), self.height()
+        if self.property('pictureInPicture'):
+            # PiP has no per-tile bar, badges or text controls. Keep their native
+            # windows out of the synchronous resize path while retaining video,
+            # comments, SC, loading and pause presentation.
+            self.bottom.hide()
+            self.video.setGeometry(self.rect())
+            self.video_danmaku.setGeometry(self.rect())
+            self._round_video()
+            self.spinner.move(max(0, (width - self.spinner.width()) // 2),
+                              max(8, (height - self.spinner.height()) // 2))
+            self.pause_overlay.move(max(0, (width - self.pause_overlay.width()) // 2),
+                                    max(8, (height - self.pause_overlay.height()) // 2))
+            self._layout_cover()
+            self.raise_overlays()
+            return
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(self.property("fullscreen"))
@@ -6915,8 +6933,6 @@ class Tile(QFrame):
         video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
         # 普通格子留边框，全屏视频贴齐窗口边缘。
         inset = 0 if fullscreen or compact else 1
-        if compact:
-            self.set_controls_visible(False)
         self.video.setGeometry(inset, inset, max(1, width - inset * 2),
                                max(1, video_height - inset))
         self._round_video()
@@ -7749,6 +7765,8 @@ class WallGrid(QWidget):
         for tile in self.tiles:
             tile.setProperty('pictureInPicture', tile in selected)
             _repolish(tile)
+            if tile in selected:
+                tile.set_controls_visible(False)
             if tiles is not None:
                 tile.setMinimumSize(0, 0)
         self._sync_danmaku_controls()
@@ -7766,9 +7784,16 @@ class WallGrid(QWidget):
         selected = self.picture_in_picture_tiles
         for tile in self.tiles:
             tile.setVisible(tile in selected)
-        for tile, rect in zip(selected, pane_rectangles(
-                len(selected), self.rect(), self.picture_in_picture_columns, self.picture_in_picture_aspects)):
-            tile.setGeometry(rect)
+        window = self._quick_danmaku_layer.window if self._quick_danmaku_layer is not None else None
+        if window is not None:
+            window.begin_mask_batch()
+        try:
+            for tile, rect in zip(selected, pane_rectangles(
+                    len(selected), self.rect(), self.picture_in_picture_columns, self.picture_in_picture_aspects)):
+                tile.setGeometry(rect)
+        finally:
+            if window is not None:
+                window.end_mask_batch()
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:

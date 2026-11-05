@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QMouseEvent, QPixmap
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QCursor, QFocusEvent, QMouseEvent, QPixmap, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
@@ -26,6 +26,17 @@ from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWind
 def pointer(surface, kind, local, global_pos, button, buttons):
     event = QMouseEvent(kind, QPointF(local), QPointF(global_pos), button, buttons, Qt.NoModifier)
     QApplication.sendEvent(surface, event)
+
+
+class VisibilityEvents(QObject):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Hide, QEvent.Show, QEvent.WinIdChange):
+            self.events.append((watched, event.type()))
+        return False
 
 
 def check_floating_style(pip, wall, tiles, layer):
@@ -46,7 +57,7 @@ def check_floating_style(pip, wall, tiles, layer):
         assert tile.video.hasMouseTracking()
         if tile.cover.isVisible():
             assert tile.cover.pixmap().toImage().pixelColor(0, 0).alpha() == 255, 'Covers must join without rounded inner corners'
-    with patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=tiles[0].video):
+    with patch.object(floating, '_pointer_over', return_value=True):
         floating._poll_tools()
     assert floating.tools.isVisible()
     assert floating.tools.pos() == floating.mapToGlobal(QPoint(floating.width() - 88, 8))
@@ -96,8 +107,7 @@ def check_floating_style(pip, wall, tiles, layer):
     floating._poll_tools()
     assert not floating.tools.isVisible(), 'The picker must remain above the tools'
     pip.dialog.reject()
-    with patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=None), \
-            patch('ddm.picture_in_picture.QApplication.focusWidget', return_value=None):
+    with patch.object(floating, '_pointer_over', return_value=False):
         floating._poll_tools()
     assert not floating.tools.isVisible()
 
@@ -136,6 +146,7 @@ def check_native_corners(pip):
     backdrop = QWidget(None, Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
     backdrop.setAttribute(Qt.WA_ShowWithoutActivating)
     backdrop.setStyleSheet('background: #ff00ff;')
+    previous_cursor = QCursor.pos()
     try:
         floating.resize_to_width(480)
         origin = floating.screen().availableGeometry().topLeft() + QPoint(36, 36)
@@ -158,11 +169,172 @@ def check_native_corners(pip):
             corner = image.copy(left, top, edge, edge)
             colors = [corner.pixelColor(x, y) for y in range(corner.height()) for x in range(corner.width())]
             assert any(10 < color.red() < 230 and 10 < color.green() < 160 and color.blue() > 190 for color in colors), ('Actual desktop corners must include alpha-blended video', left, top)
+        # Real HWND hit testing must survive a missing QWidget lookup (native
+        # video / transparent Quick windows), including after toggling pin.
+        backdrop.hide()
+        with patch('ddm.picture_in_picture.QApplication.widgetAt', return_value=None):
+            QCursor.setPos(floating.mapToGlobal(floating.rect().center()))
+            QTest.qWait(150)
+            assert floating._pointer_over() and floating.tools.isVisible()
+            for pinned in (False, True):
+                QCursor.setPos(floating.pin.mapToGlobal(floating.pin.rect().center()))
+                floating.pin.click()
+                QTest.qWait(150)
+                assert pip.pinned is pinned and floating.tools.isVisible()
+            QCursor.setPos(origin + QPoint(2, 2))
+            QTest.qWait(150)
+            assert not floating.tools.isVisible()
+            QCursor.setPos(floating.mapToGlobal(floating.rect().center()))
+            QTest.qWait(150)
+            assert floating.tools.isVisible(), 'Re-entering native video must restore all icons'
     finally:
+        QCursor.setPos(previous_cursor)
         floating.setGeometry(previous)
         backdrop.close()
         backdrop.deleteLater()
         QTest.qWait(80)
+
+
+def check_resize_burst(pip, wall):
+    floating = pip.floating
+    bounds = floating.geometry()
+    local = floating.rect().bottomRight() - QPoint(2, 2)
+    start = floating.mapToGlobal(local)
+    pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+    with patch.object(floating, 'setGeometry', wraps=floating.setGeometry) as apply_geometry:
+        for offset in range(1, 121):
+            delta = QPoint(offset, round(offset / floating.aspect))
+            pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        assert apply_geometry.call_count == 0, 'Pointer bursts must retain one latest geometry until the frame timer or release'
+        assert floating._geometry_timer.isActive()
+        pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
+        assert apply_geometry.call_count == 1, 'Releasing the pointer must apply the latest size exactly once'
+    assert floating._pending_geometry is None and not floating._geometry_timer.isActive()
+    assert wall.geometry() == floating.rect(), 'Wall geometry must be synchronized when resizing returns'
+    expected = pane_rectangles(len(wall.visible_tiles()), wall.rect(), pip.columns, wall.picture_in_picture_aspects)
+    assert [tile.geometry() for tile in wall.visible_tiles()] == expected
+    # This checks event coalescing and geometry consistency, not live-stream FPS
+    # or compositor tearing. The user's native trace is separate evidence.
+    floating.setGeometry(bounds)
+    QTest.qWait(50)
+
+
+def check_quick_mask_batch():
+    from ddm.video_danmaku_quick import _MovingDanmakuWindow
+    window = _MovingDanmakuWindow()
+    window.resize(240, 120)
+    base = QRegion(0, 0, 240, 120)
+    window.setMask(base)
+    window.begin_mask_batch()
+    window.begin_move(1, QRegion(10, 10, 30, 30))
+    window.begin_move(2, QRegion(80, 10, 30, 30))
+    assert window.mask() == base, 'A batch must preserve the current native clip until the group is ready'
+    window.end_mask_batch()
+    assert not window.mask().contains(QPoint(20, 20)) and not window.mask().contains(QPoint(90, 20))
+    assert window.mask().contains(QPoint(200, 100)), 'The final clip must retain unaffected areas'
+    window.cancel_move(1)
+    window.cancel_move(2)
+    assert window.mask() == base
+    window.deleteLater()
+
+
+def check_live_resize(pip, players, layer):
+    """Native regression of live composition; this is not a performance benchmark."""
+    from ddm.picture_in_picture_resize import LiveResize
+    from shiboken6 import isValid
+    floating = pip.floating
+    previous = floating.geometry()
+    if '--live-resize' in sys.argv:
+        floating.move(floating.screen().availableGeometry().topLeft() + QPoint(40, 40))
+    bounds = floating.geometry()
+    local = floating.rect().bottomRight() - QPoint(2, 2)
+    start = floating.mapToGlobal(local)
+    cores = [player.player for player in players]
+    tiles = pip.host.wall.visible_tiles()
+    handles = [int(tile.video.winId()) for tile in tiles]
+    positions = [player._prop('time-pos') for player in players]
+    sizes = [tile.video.size() for tile in tiles]
+    try:
+        pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+        delta = QPoint(90, round(90 / floating.aspect))
+        pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        floating._flush_geometry()
+        live = floating._live_resize
+        assert live is not None and live.preview.isVisible()
+        assert floating.size() == bounds.size(), 'The live source must keep its playback size during dragging'
+        assert floating.saveGeometry() == live.preview.saveGeometry(), 'Persist the on-screen geometry, not the parked source'
+        QTest.qWait(150)
+        floating._poll_tools()
+        assert not floating.tools.isVisible(), 'Resize must not leave detached floating controls'
+        expected_sources = {int(floating.winId()), int(layer.window.winId())}
+        expected_sources.update(int(tile.video_danmaku.super_chat_overlay.winId()) for tile in tiles)
+        assert expected_sources <= live.thumbnails.keys(), 'Video, Quick comments and SC must all be composed'
+        image = None
+        for index, width in enumerate((bounds.width() + 150, bounds.width() + 40, bounds.width() + 100)):
+            live.set_geometry(QRect(bounds.topLeft(), QSize(width, round(width / floating.aspect))))
+            QTest.qWait(140)
+            assert floating.size() == bounds.size()
+            assert [tile.video.size() for tile in tiles] == sizes
+            if '--live-resize' in sys.argv:
+                point = live.preview.pos()
+                image = live.preview.screen().grabWindow(0, point.x(), point.y(), live.preview.width(), live.preview.height()).toImage()
+                output = ROOT / 'work/pip-previews'
+                output.mkdir(parents=True, exist_ok=True)
+                image.save(str(output / f'live-resize-{index}.png'))
+        assert all(player._prop('time-pos') > position + .2 for player, position in zip(players, positions)), 'Playback must continue during live scaling'
+        if image is not None:
+            QTest.qWait(250)
+            next_image = live.preview.screen().grabWindow(0, point.x(), point.y(), live.preview.width(), live.preview.height()).toImage()
+            area = QRect(0, image.height() * 2 // 3, image.width() // 2, image.height() // 3)
+            assert image.copy(area) != next_image.copy(area), 'At a fixed output size, the video pixels must advance rather than display one frozen screenshot'
+        assert [player.player for player in players] == cores
+        assert [int(tile.video.winId()) for tile in tiles] == handles
+        target = live.preview.geometry()
+        live.finish()
+        assert floating.geometry() == target
+        # A second press while the final swapchains settle must remain usable.
+        point = target.topLeft() + QPoint(20, 20)
+        pointer(live.preview, QEvent.MouseButtonPress, QPoint(20, 20), point, Qt.LeftButton, Qt.LeftButton)
+        assert floating._live_resize is None
+        pointer(floating, QEvent.MouseButtonRelease, QPoint(20, 20), point, Qt.LeftButton, Qt.NoButton)
+        QTest.qWait(120)
+        assert not live.thumbnails and not isValid(live.preview)
+        with patch.object(floating, '_pointer_over', return_value=True):
+            floating._poll_tools()
+        assert floating.tools.isVisible()
+        # Exercise the actual release path, including a pending final pointer.
+        local = floating.rect().bottomRight() - QPoint(2, 2)
+        start = floating.mapToGlobal(local)
+        pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+        delta = QPoint(70, round(70 / floating.aspect))
+        pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        floating._flush_geometry()
+        live = floating._live_resize
+        with patch.object(floating, 'setGeometry', wraps=floating.setGeometry) as apply_geometry:
+            for offset in (60, 20, 80):
+                delta = QPoint(offset, round(offset / floating.aspect))
+                pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+                floating._flush_geometry()
+            assert apply_geometry.call_count == 0, 'Dragging must resize only the compositor destination'
+            pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
+            assert apply_geometry.call_count == 1, 'Apply one final native player resize on release'
+        target = live.preview.geometry()
+        assert floating.geometry() == target
+        QTest.qWait(140)
+        assert floating._live_resize is None and not live.thumbnails
+        # Failed registration keeps the original live resize path.
+        failed = LiveResize(floating)
+        floating._live_resize = failed
+        with patch.object(failed.dwm, 'DwmRegisterThumbnail', return_value=-1):
+            assert not failed.begin()
+        assert floating._live_resize is None and floating.geometry() == target
+    finally:
+        if floating._live_resize is not None:
+            floating._live_resize.finish(immediate=True)
+        floating._gesture = None
+        floating.releaseMouse()
+        floating.setGeometry(previous)
+        QTest.qWait(100)
 
 
 def exercise(app, window, native, directory):
@@ -222,6 +394,8 @@ def exercise(app, window, native, directory):
     pip.dialog.start.click()
     QTest.qWait(150)
     assert pip.active and pip.placeholder.isVisible()
+    assert window.isMinimized(), 'Opening PiP must minimize the main window after accepting the picker'
+    assert pip.floating.isVisible() and not pip.floating.isMinimized()
     assert wall.window() is pip.floating and wall.visible_tiles() == tiles[:2]
     assert not any(tile.bottom.isVisible() for tile in tiles[:2])
     assert wall.layout_id == original_layout
@@ -231,6 +405,9 @@ def exercise(app, window, native, directory):
         if '--corners' in sys.argv:
             check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
+    check_resize_burst(pip, wall)
+    if native:
+        check_live_resize(pip, players, layer)
     pip.manage()
     pip.dialog.checks[3].setChecked(True)
     pip.dialog.reject()
@@ -266,11 +443,53 @@ def exercise(app, window, native, directory):
         assert abs(pip.floating.height() - pip.floating.width() / pip.floating.aspect) <= 1
         for tile, aspect in zip(wall.visible_tiles(), wall.picture_in_picture_aspects):
             assert abs(tile.width() - tile.height() * aspect) <= 2
-    pip.floating.pin.click()
-    QTest.qWait(50)
-    assert not (pip.floating.windowFlags() & Qt.WindowStaysOnTopHint)
-    pip.floating.pin.click()
-    QTest.qWait(50)
+    visibility = VisibilityEvents()
+    watched = (pip.floating, pip.floating.tools, *(tile.video for tile in tiles[:2]))
+    for widget in watched:
+        widget.installEventFilter(visibility)
+    # Keep hover state stable so a genuine hide/show caused by pinning is visible.
+    with patch.object(pip.floating, '_poll_tools'):
+        for pinned in (False, True, False, True):
+            visibility.events.clear()
+            pip.floating.pin.click()
+            QTest.qWait(25)
+            assert pip.pinned is pinned and pip.floating.pin.isChecked() is pinned
+            if not native:
+                assert bool(pip.floating.windowHandle().flags() & Qt.WindowStaysOnTopHint) is pinned
+            assert not visibility.events, 'Pinning must not hide, show or recreate the video/tool windows'
+            assert ('已置顶' if pinned else '未置顶') in pip.floating.pin.toolTip()
+            if native:
+                import ctypes
+                from ctypes import wintypes
+                ctypes.windll.user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+                assert bool(ctypes.windll.user32.GetWindowLongW(int(pip.floating.winId()), -20) & 8) is pinned
+    for widget in watched:
+        widget.removeEventFilter(visibility)
+    # An unchecked pin stays neutral even with the pointer left on it; blue
+    # communicates pinned state, not hover or automatic activation.
+    with patch('ddm.picture_in_picture.QCursor.pos', return_value=pip.floating.pin.mapToGlobal(QPoint(5, 12))):
+        pip.floating.pin.setChecked(False)
+        image = pip.floating.pin.grab().toImage()
+        scale = image.devicePixelRatio()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)).alpha() < 230
+        pip.floating.pin.setChecked(True)
+        image = pip.floating.pin.grab().toImage()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT)
+    button = pip.floating.tools.manage
+    with patch.object(button, 'underMouse', return_value=True), \
+            patch.object(button, 'hasFocus', return_value=True), \
+            patch('ddm.picture_in_picture.QCursor.pos', return_value=QPoint(-30000, -30000)):
+        QApplication.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.ActiveWindowFocusReason))
+        image = button.grab().toImage()
+        scale = image.devicePixelRatio()
+        assert image.pixelColor(round(12 * scale), round(21 * scale)).alpha() < 230, 'Automatic tool-window focus must not light the composition icon'
+        with patch.object(pip.floating, '_pointer_over', return_value=False):
+            pip.floating._poll_tools()
+            assert not pip.floating.tools.isVisible(), 'Automatic focus must not pin the hover tools open'
+        QApplication.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+        image = button.grab().toImage()
+        assert image.pixelColor(round(12 * scale), round(21 * scale)).alpha() > 230, 'Keyboard focus must remain visible'
+        QApplication.sendEvent(button, QFocusEvent(QEvent.FocusOut, Qt.ActiveWindowFocusReason))
     player = window.players.get(tiles[0])
     before_aspects = list(wall.picture_in_picture_aspects)
     window.players[tiles[0]] = Mock(_prop=lambda name: {'dw': 800, 'dh': 600})
@@ -294,13 +513,14 @@ def exercise(app, window, native, directory):
     QTest.qWait(50)
     assert not window._tray.playback_suspended
     assert pip.floating.isVisible() and all(tile.isVisible() for tile in tiles[:2])
-    window.show()
+    window.showNormal()
     pip.manage()
     for index, check in pip.dialog.checks.items():
         check.setChecked(index in (1, 3))
     pip.dialog.start.click()
     QTest.qWait(80)
     assert wall.visible_tiles() == [tiles[1], tiles[3]]
+    assert not window.isMinimized(), 'Editing an existing PiP must not minimize the main window again'
     state = window.current_state()
     assert state['ui']['picture_in_picture']['selection'] == [1, 3]
     assert [row['room_id'] for row in state['wall']] == [tile.room['room_id'] for tile in tiles]
@@ -321,6 +541,7 @@ def exercise(app, window, native, directory):
     pip.floating.tools.back.click()
     QTest.qWait(80)
     assert not pip.active and window.isVisible()
+    assert not window.isMinimized(), 'Closing PiP must restore the main window'
     if native:
         pump(app, .2)
         assert [player.player for player in players] == cores
@@ -342,6 +563,7 @@ def main():
         os.environ['DDM_QTQUICK_DANMAKU'] = '1'
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_quick_mask_batch()
     if native:
         assert app.platformName() == 'windows'
     for count in range(1, 17):
@@ -388,7 +610,10 @@ def main():
         stack.enter_context(patch.object(PictureInPictureDialog, '__init__', background_dialog))
         # Do not restore/activate a real foreground window during the close test.
         from ddm.system_tray import SystemTray
-        stack.enter_context(patch.object(SystemTray, 'restore'))
+        def restore_without_activation(tray):
+            tray.window.setWindowState(tray.window.windowState() & ~Qt.WindowMinimized)
+            tray.window.show()
+        stack.enter_context(patch.object(SystemTray, 'restore', autospec=True, side_effect=restore_without_activation))
         rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
                       muted=True, volume=20 + index * 10) for index in range(4)]
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
