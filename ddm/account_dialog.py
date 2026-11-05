@@ -30,7 +30,7 @@ class FollowAccountResolver(QThread):
             if cancelled():
                 break
             account = self.accounts[index]
-            if not account.get("room_id") or account.get("live_known") is False:
+            if account.get("follow_account_ref") or not account.get("room_id") or account.get("live_known") is False:
                 error_kind = ""
                 try:
                     resolved = self.platform.resolve_follow_account(account, cancelled)
@@ -408,6 +408,22 @@ class AccountPlatformDialog(QDialog):
             rooms = [dict(room, pending_import=True,
                           pending_folder_id=pending[room.get("anchor_uid")].get("pending_folder_id", ""))
                      if room.get("anchor_uid") in pending else dict(room) for room in rooms]
+            reference = getattr(self.providers.get("douyin"), "follow_account_reference", None)
+            if callable(reference):
+                existing_accounts = {str(room.get("anchor_uid")): room for room in self.owner.sidebar.rooms()
+                                     if room.get("platform") == "douyin" and room.get("anchor_uid")}
+                converted = []
+                for room in rooms:
+                    saved = existing_accounts.get(str(room.get("anchor_uid")))
+                    if saved is not None:
+                        room = dict(room, room_id=saved["room_id"],
+                                    follow_account_ref=saved.get("follow_account_ref", False))
+                    if not room.get("room_id") or room.get("follow_account_ref"):
+                        room = reference(room)
+                    if saved is None and room.get("resolved_room_id") in existing:
+                        room = dict(room, room_id=room["resolved_room_id"], follow_account_ref=False)
+                    converted.append(room)
+                rooms = converted
         page = FollowImportDialog(rooms, existing, self.owner,
                                   folders=self.owner.sidebar.folder_state(),
                                   folder_creator=self.owner.sidebar.create_folder,
@@ -430,8 +446,10 @@ class AccountPlatformDialog(QDialog):
         self._follow_pages[self.kind] = page
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
             page._resolve_cursor = 0
-            page.resolve_status = QLabel("可勾选已识别直播间导入；点击补充识别可查询房间并刷新未知状态。"
-                                        "待识别账号仅保存选择，取得房间号前不会加入关注栏。", page)
+            page.resolve_status = QLabel("未开播的账号也可直接勾选导入，无需填写直播间链接；"
+                                        "导入后随状态刷新自动查找直播间。", page)
+            if not callable(getattr(self.providers["douyin"], "follow_account_reference", None)):
+                page.resolve_status.setText("待识别账号仅保存选择，取得房间号前不会加入关注栏；更新插件可直接按账号导入。")
             page.resolve_status.setObjectName("SettingsHint")
             page.resolve_status.setWordWrap(True)
             page.layout().insertWidget(1, page.resolve_status)
@@ -493,11 +511,12 @@ class AccountPlatformDialog(QDialog):
                 page.link_button.setEnabled(True)
                 page.resolve_button.setText("继续识别" if worker.next_index < len(page.rooms) else "补充识别")
                 state = "识别已停止" if worker.isInterruptionRequested() else "识别完成"
-                pending = sum(not room.get("room_id") for room in page.rooms)
+                pending = sum(not room.get("room_id") or (bool(room.get("follow_account_ref")) and
+                              not room.get("resolved_room_id")) for room in page.rooms)
                 unknown = sum(bool(room.get("room_id")) and room.get("live_known") is False for room in page.rooms)
                 page.resolve_status.setText(f"{state}：已处理 {worker.next_index}/{len(page.rooms)} 个关注，"
                                             f"{pending} 个账号暂未取得直播间，{unknown} 个直播状态未知，"
-                                            f"本轮 {worker.failures} 项请求或解析失败。待识别选择仅保存，不加入关注栏。")
+                                            f"本轮 {worker.failures} 项请求或解析失败。按账号关注的条目也可直接导入。")
                 print(f"[抖音关注识别] 已处理={worker.next_index}/{len(page.rooms)} "
                       f"待识别={pending} 状态未知={unknown} 失败={worker.failures}")
         worker.progress.connect(progress)
@@ -520,7 +539,8 @@ class AccountPlatformDialog(QDialog):
         provider = self.providers["douyin"]
         try:
             canonical = provider.normalize(text.strip())
-            if account.get("room_id") and canonical != account["room_id"]:
+            if (account.get("room_id") and not account.get("follow_account_ref")
+                    and canonical != account["room_id"]):
                 raise ValueError("已有直播间与输入链接不一致，请核对链接。")
         except ValueError as error:
             page.resolve_status.setText(str(error))
@@ -543,6 +563,8 @@ class AccountPlatformDialog(QDialog):
             result = dict(account, room_id=canonical, live=room["live"], live_known=room.get("live_known", True),
                           title=room.get("title") or account.get("title", ""),
                           follow_resolve_error="", follow_resolve_note="")
+            if account.get("follow_account_ref"):
+                result.update(room_id=account["room_id"], resolved_room_id=canonical)
             page.update_account(result)
             self.owner._cache_douyin_follows(page.rooms)
             page.resolve_status.setText("主播身份已核对，直播间已进入可导入列表；请勾选后导入。")

@@ -1002,7 +1002,9 @@ class MainWindow(QMainWindow):
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
-                                       ("uname", "title", "platform", "playback_mode")}
+                                       (("uname", "title", "platform", "playback_mode") +
+                                        (("anchor_uid", "sec_uid", "follow_account_ref", "resolved_room_id")
+                                         if room.get("platform") == "douyin" else ()))}
                 for room in self.sidebar.rooms() if ":" in str(room.get("room_id") or "")
             },
             # 空格子也要存，下次打开还是原来的布局
@@ -3295,7 +3297,7 @@ class MainWindow(QMainWindow):
                     # 只保存房间身份与显示信息；带签名的媒体地址始终重新获取。
                     keys = ("room_id", "platform", "uname", "title", "live", "live_known", "viewers",
                             "cover_url", "face", "playback_mode", "anchor_uid", "sec_uid",
-                            "pending_folder_id", "pending_import")
+                            "pending_folder_id", "pending_import", "follow_account_ref", "resolved_room_id")
                     store.save([], {"uid": uid, "rooms": [
                         {key: room[key] for key in keys if key in room} for room in rooms], "pending": [
                         {key: room[key] for key in keys if key in room} for room in pending]})

@@ -1569,6 +1569,7 @@ class FollowImportDialog(QDialog):
             self.filter_buttons.append(button)
         if self.room_menu:
             self.show_pending = QCheckBox("显示待识别账号")
+            self.show_pending.setVisible(any(not room.get("room_id") for room in rooms))
             self.show_pending.toggled.connect(lambda _: self._filter_rooms(self.search_edit.text()))
             filters.addWidget(self.show_pending)
         filters.addStretch(1)
@@ -1661,13 +1662,17 @@ class FollowImportDialog(QDialog):
         pending = sum(not room.get("room_id") for room in self.rooms)
         if self.room_menu:
             chosen = sum(bool(room.get("room_id")) for room in self.selected())
+            references = sum(bool(room.get("follow_account_ref")) for room in self.rooms)
             pending_chosen = len(self.selected()) - chosen
             self.import_button.setText("导入并保存待识别" if pending_chosen and chosen else
                                        "保存待识别选择" if pending_chosen else "导入")
             self.import_button.setToolTip("待识别账号只保存选择，取得房间号后才能加入关注栏。")
+            if references:
+                self.import_button.setToolTip("未开播的账号也可直接导入，导入后随状态刷新自动识别直播间。")
             saved = f"，{pending_chosen} 个待识别账号已勾选" if pending_chosen else ""
-            self.header.setText(f"共 {len(self.rooms)} 个关注账号，{len(self.rooms) - pending} 个直播间，"
-                                f"{pending} 个待识别{filtered}，已勾选 {chosen} 个直播间{saved}")
+            accounts = f"，{references} 个按账号关注" if references else ""
+            self.header.setText(f"共 {len(self.rooms)} 个关注账号，{len(self.rooms) - pending - references} 个直播间"
+                                f"{accounts}，{pending} 个待识别{filtered}，已勾选 {chosen} 项{saved}")
             self.empty_label.setText("没有匹配的主播，请调整搜索条件。" if self.search_edit.text().strip() else
                                      "暂未识别到可导入的直播间；可补充识别，或显示待识别账号。")
             self.empty_label.setVisible(shown == 0)
@@ -1681,6 +1686,8 @@ class FollowImportDialog(QDialog):
         status = ("直播间待识别" if not room.get("room_id") else
                   "直播状态待刷新" if room.get("live_known") is False else
                   "直播中" if room["live"] else "未开播")
+        if room.get("follow_account_ref"):
+            status += "（账号关注）"
         if room.get("follow_resolve_error"):
             status += "（本次识别失败）"
         elif room.get("follow_resolve_note"):
