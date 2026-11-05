@@ -70,7 +70,7 @@ def install(probe):
     for owner, names in ((TilePlayer, ('bind', '_destroy_core')),
                          (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                          (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
-                         (MainWindow, ('start_all', '_play_on'))):
+                         (MainWindow, ('start_all', '_start_startup_tiles', 'start_tile', '_play_on'))):
         for name in names:
             label = 'player.bind' if owner is TilePlayer and name == 'bind' else f'{owner.__name__}.{name}'
             setattr(owner, name, timed(getattr(owner, name), label))

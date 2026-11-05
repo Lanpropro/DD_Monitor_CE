@@ -5,7 +5,8 @@ from pathlib import Path
 import runpy
 import sys
 import tempfile
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,12 +14,13 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 
-from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject
+from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
 from ddm.fullscreen_bar import FullscreenBar
+from ddm.player import TilePlayer
 from ddm.widgets import Sidebar
 
 
@@ -79,6 +81,87 @@ class StartupWindowsTests(unittest.TestCase):
             sidebar.close()
             sidebar.deleteLater()
             self.app.processEvents()
+
+    def test_preview_native_window_keeps_other_cards_alien(self):
+        window = QWidget(None, Qt.WindowDoesNotAcceptFocus)
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        sidebar = Sidebar([dict(room_id=str(i), uname=f'Fixture {i}') for i in range(24)], window)
+        sidebar.setGeometry(0, 0, 248, 600)
+        window.resize(500, 650)
+        window.move(-20000, -20000)
+        try:
+            window.show()
+            self.app.processEvents()
+            first, other = sidebar.items()[:2]
+            self.assertFalse(other.testAttribute(Qt.WA_NativeWindow))
+            flag = Qt.AA_DontCreateNativeWidgetSiblings
+            previous = QApplication.testAttribute(flag)
+            with patch('ddm.player.mpv.MPV'):
+                player = TilePlayer(first.thumb.video, silent=True)
+                player.bind()
+                self.assertTrue(first.thumb.video.internalWinId())
+                self.assertEqual(QApplication.testAttribute(flag), previous)
+                first.thumb.video.show()
+                self.app.processEvents()
+                player.release()
+            self.assertFalse(first.testAttribute(Qt.WA_NativeWindow))
+            self.assertFalse(first.thumb.testAttribute(Qt.WA_NativeWindow))
+            self.assertFalse(other.testAttribute(Qt.WA_NativeWindow), 'One preview must not promote the whole list')
+            self.assertFalse(other.thumb.video.testAttribute(Qt.WA_NativeWindow))
+            self.assertFalse(other.internalWinId())
+        finally:
+            window.close()
+            window.deleteLater()
+            self.app.processEvents()
+
+    def test_unchanged_status_does_not_repolish_or_relayout_cards(self):
+        sidebar = Sidebar([dict(room_id='1', uname='Fixture', title='Title', live=False)])
+        item = sidebar.items()[0]
+        try:
+            with patch('ddm.widgets._repolish') as polish, \
+                    patch.object(item.thumb, '_layout_overlay') as layout:
+                item.set_live(False)
+                item.set_title('Title')
+                item.set_uname('Fixture')
+                sidebar._sync_count()
+                polish.assert_not_called()
+                layout.assert_not_called()
+                # Tiles may already have mutated the shared model: compare displayed state.
+                item.room.update(live=True, title='New', uname='Renamed')
+                item.set_live(True)
+                item.set_title('New')
+                item.set_uname('Renamed')
+                self.assertEqual(item.badge.text(), '直播中')
+                self.assertEqual(item.sub._full_text, 'New')
+                self.assertEqual(item.name_label._full_text, 'Renamed')
+                self.assertEqual(polish.call_count, 1)
+                self.assertEqual(layout.call_count, 3)
+        finally:
+            sidebar.close()
+            sidebar.deleteLater()
+            self.app.processEvents()
+
+    def test_startup_starts_one_current_tile_per_event_loop_turn_and_stops_on_close(self):
+        tiles = [object(), object(), object()]
+        host = SimpleNamespace(_closing=False, wall=SimpleNamespace(tiles=tiles[:]),
+            players={tiles[1]: object()}, _resolvers={}, apply_quality_policy=Mock(), start_tile=Mock())
+        callbacks = []
+        with patch('ddm.app.QTimer.singleShot', side_effect=lambda delay, context, callback: callbacks.append(callback)):
+            MainWindow._start_startup_tiles(host)
+            host.apply_quality_policy.assert_called_once_with(restart=False)
+            host.start_tile.assert_not_called()
+            callbacks.pop(0)()
+            host.start_tile.assert_called_once_with(tiles[0])
+            self.assertEqual(len(callbacks), 1)
+            callbacks.pop(0)()
+            self.assertEqual([call.args[0] for call in host.start_tile.call_args_list], [tiles[0], tiles[2]])
+            self.assertEqual(callbacks, [])
+            host.start_tile.reset_mock()
+            MainWindow._start_startup_tiles(host)
+            host._closing = True
+            callbacks.pop(0)()
+            host.start_tile.assert_not_called()
+            self.assertEqual(callbacks, [])
 
     def test_first_show_and_resize_fill_wall_before_the_settle_timer(self):
         for identifier, size in (('corner', (1600, 900)), ('2x2', (1600, 900)),

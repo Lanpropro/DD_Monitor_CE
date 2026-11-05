@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import isValid
 from ddm.player import TilePlayer
@@ -19,6 +19,22 @@ class PlayerLifetimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_preview_native_sibling_policy_is_restored_when_window_creation_fails(self):
+        flag = Qt.AA_DontCreateNativeWidgetSiblings
+        previous = QCoreApplication.testAttribute(flag)
+        video = QWidget()
+        player = TilePlayer(video, silent=True)
+        try:
+            with patch.object(video, 'winId', side_effect=RuntimeError('fixture')), \
+                    patch('ddm.player.mpv.MPV') as core:
+                with self.assertRaisesRegex(RuntimeError, 'fixture'):
+                    player.bind()
+                core.assert_not_called()
+            self.assertEqual(QCoreApplication.testAttribute(flag), previous)
+        finally:
+            player.release()
+            video.close()
 
     def test_audio_output_is_not_retained_until_gui_thread_termination(self):
         for silent in (False, True):

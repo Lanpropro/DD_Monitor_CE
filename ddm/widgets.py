@@ -2644,27 +2644,36 @@ class NavItem(QFrame):
 
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
-        self.badge.setText("直播中" if live else "未开播")
+        text = "直播中" if live else "未开播"
+        name = "BadgeLive" if live else "BadgeOff"
+        changed = self.badge.text() != text or self.badge.objectName() != name
+        self.badge.setText(text)
         if not self.room.get("title"):
-            self.sub.setText("直播中" if live else "未开播")
-        self.badge.setObjectName("BadgeLive" if live else "BadgeOff")
-        theme.refresh_theme_properties(self.badge)
-        _repolish(self.badge)
-        self._sync_live_dot()
-        self.thumb._layout_overlay()
+            changed = changed or self.sub._full_text != text
+            self.sub.setText(text)
+        if self.badge.objectName() != name:
+            self.badge.setObjectName(name)
+            theme.refresh_theme_properties(self.badge)
+            _repolish(self.badge)
+        if changed:
+            self._sync_live_dot()
+            self.thumb._layout_overlay()
 
     def set_title(self, title: str) -> None:
         """更新卡片上的直播间名，并同步悬停时的完整提示。"""
         self.room["title"] = title or ""
-        self.sub.setText(title or "未开播")
-        self.thumb._layout_overlay()
+        text = title or "未开播"
+        if self.sub._full_text != text:
+            self.sub.setText(text)
+            self.thumb._layout_overlay()
 
     def set_uname(self, uname: str) -> None:
         """补上主播名：启动时占位条目只有「房间 X」，状态刷新后才拿到真名。"""
         self.room["uname"] = uname or ""
-        self.name_label.setText(self.room["uname"]
-                                or str(self.room.get("room_id") or ""))
-        self.thumb._layout_overlay()
+        text = self.room["uname"] or str(self.room.get("room_id") or "")
+        if self.name_label._full_text != text:
+            self.name_label.setText(text)
+            self.thumb._layout_overlay()
 
     def set_pinned(self, pinned: bool) -> None:
         self._pinned = bool(pinned)
@@ -5860,9 +5869,12 @@ class Sidebar(QFrame):
                      for item in self._items}
         for item in self._items:
             show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
-            item.platform_badge.setProperty("showPlatform", show)
+            changed = item.platform_badge.property("showPlatform") != show
+            if changed:
+                item.platform_badge.setProperty("showPlatform", show)
             item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
-            item.thumb._layout_overlay()
+            if changed:
+                item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
             # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了

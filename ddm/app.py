@@ -387,7 +387,7 @@ class MainWindow(QMainWindow):
         self._tray = SystemTray(self)
         QTimer.singleShot(0, lambda: self.plugins.emit(plugin_api.EVENT_STARTED))
 
-        QTimer.singleShot(0, self.start_all)
+        QTimer.singleShot(0, self._start_startup_tiles)
         # 封面和头像都先用本地留的那张顶上去（纯读文件、不联网），别让卡片空着
         # 等状态轮询 —— 收起的关注栏整条只剩一个头像，更等不得
         QTimer.singleShot(120, self.load_cached_covers)
@@ -1695,6 +1695,24 @@ class MainWindow(QMainWindow):
             self._save_timer.start()
 
     # ---- 播放 ----
+    def _start_startup_tiles(self) -> None:
+        if self._closing:
+            return
+        self.apply_quality_policy(restart=False)
+        pending = list(self.wall.tiles)
+        def start_next():
+            if self._closing:
+                return
+            while pending:
+                tile = pending.pop(0)
+                if (tile in self.wall.tiles and tile not in self.players
+                        and tile not in self._resolvers):
+                    self.start_tile(tile)
+                    break
+            if pending:
+                QTimer.singleShot(0, self, start_next)
+        QTimer.singleShot(0, self, start_next)
+
     def start_all(self) -> None:
         # 启动阶段先静默写好主次画质，再统一启动；否则 set_quality 的信号会
         # 先取一次流，下面的循环又取一次，同一格两个 resolver 会互相抢播放器。
