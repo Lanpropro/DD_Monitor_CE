@@ -6563,6 +6563,11 @@ class Tile(QFrame):
         if getattr(self, '_presentation_changing', False):
             return
         width, height = self.width(), self.height()
+        scale = 1.0
+        if self.property('pictureInPicture'):
+            natural = self.spinner.natural_size()
+            scale = min(.75, max(1, width - 12) / natural.width(), max(1, height - 12) / natural.height())
+        self.spinner.set_presentation_scale(scale)
         if self.property('pictureInPicture'):
             # PiP has no per-tile bar, badges or text controls. Keep their native
             # windows out of the synchronous resize path while retaining video,

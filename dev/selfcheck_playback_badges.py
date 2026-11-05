@@ -83,6 +83,40 @@ class PlaybackBadgeTests(unittest.TestCase):
             if icon:
                 self.assertEqual(badge._movie.state(), QMovie.NotRunning)
 
+    def test_loading_uniform_scale_keeps_animation_and_restores_normal_size(self):
+        for icon in (True, False):
+            badge = LoadingIndicator(self.owner, icon=icon)
+            badge.start()
+            normal = badge.size()
+            self.assertEqual(normal, badge.natural_size())
+            badge.set_presentation_scale(.75)
+            self.assertEqual(badge.width(), round(normal.width() * .75))
+            self.assertEqual(badge.height(), round(normal.height() * .75))
+            badge.start()
+            self.assertEqual(badge._presentation_scale, .75)
+            badge.adjustSize()
+            self.assertEqual(badge.size(), badge.sizeHint())
+            self.assertEqual(badge.width(), round(normal.width() * .75))
+            if icon:
+                self.assertEqual(badge._movie.state(), QMovie.Running)
+                self.assertEqual(badge._movie.scaledSize().width(), round(32 * .75 * badge.devicePixelRatioF()))
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                self.assertEqual(badge._presentation_scale, .75)
+                for dpi in (1, 1.5, 2):
+                    image = QImage(round(badge.width() * dpi), round(badge.height() * dpi), QImage.Format_ARGB32_Premultiplied)
+                    image.setDevicePixelRatio(dpi)
+                    image.fill(Qt.transparent)
+                    painter = QPainter(image)
+                    badge._render_badge(painter)
+                    painter.end()
+                    self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+                    self.assertGreater(image.pixelColor(image.width() // 2, image.height() // 2).alpha(), 0)
+            badge.set_presentation_scale(1)
+            self.assertEqual(badge.size(), badge.natural_size())
+            self.assertEqual(badge._icon.size().width() if icon else 32, 32)
+            badge.stop()
+
 
 if __name__ == '__main__':
     app = QApplication.instance() or QApplication([])

@@ -4,7 +4,7 @@ import sys
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QMovie, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QWidget
 
 from . import theme
 from .badge_surface import BadgeSurface
@@ -174,10 +174,13 @@ class LoadingIndicator(BadgeSurface):
         self.setObjectName("LoadingIndicator")
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self._mask_path = QPainterPath()
-        layout = QHBoxLayout(self)
+        self._presentation_scale = 1.0
+        self._content = QWidget(self)
+        self._content.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout = QHBoxLayout(self._content)
         layout.setContentsMargins(12 if icon else 14, 7, 16 if icon else 14, 7)
         layout.setSpacing(8)
-        self._icon = LoadingLabel(self) if icon else None
+        self._icon = LoadingLabel(self._content) if icon else None
         self._movie = None
         if self._icon is not None:
             self._movie = QMovie(os.path.join(ASSETS_DIR, "loading.gif"))
@@ -189,16 +192,42 @@ class LoadingIndicator(BadgeSurface):
         self._text = LoadingLabel(text)
         self._text.setObjectName("LoadingText")
         layout.addWidget(self._text)
+        self._sync_size()
         self.setVisible(False)
+
+    def natural_size(self) -> QSize:
+        self._content.ensurePolished()
+        return self._content.sizeHint()
+
+    def sizeHint(self) -> QSize:
+        natural = self.natural_size()
+        return QSize(round(natural.width() * self._presentation_scale),
+                     round(natural.height() * self._presentation_scale))
+
+    def set_presentation_scale(self, scale: float) -> None:
+        if abs(scale - self._presentation_scale) < .001:
+            return
+        self._presentation_scale = scale
+        self._sync_size()
+        if self._movie is not None:
+            pixels = round(32 * self.devicePixelRatioF() * scale)
+            self._movie.setScaledSize(QSize(pixels, pixels))
+        self.update()
+
+    def _sync_size(self) -> None:
+        self._content.resize(self.natural_size())
+        self._content.layout().activate()
+        self.resize(round(self._content.width() * self._presentation_scale),
+                    round(self._content.height() * self._presentation_scale))
+        self._apply_mask()
 
     def start(self) -> None:
         if self._movie is not None:
-            scale = self.devicePixelRatioF()
+            scale = self.devicePixelRatioF() * self._presentation_scale
             self._movie.setScaledSize(QSize(round(32 * scale), round(32 * scale)))
         if self._movie is not None and self._movie.isValid():
             self._movie.start()
-        self.adjustSize()
-        self._apply_mask()
+        self._sync_size()
         self.setVisible(True)
         self.raise_()
 
@@ -209,19 +238,21 @@ class LoadingIndicator(BadgeSurface):
 
     def _apply_mask(self) -> None:
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), self.height()),
-                            self.height() / 2, self.height() / 2)
+        path.addRoundedRect(QRectF(self._content.rect()),
+                            self._content.height() / 2, self._content.height() / 2)
         self._mask_path = path
         self.clearMask()
 
     def refresh_theme(self):
         self.clearMask()
         if getattr(self, '_movie', None) is not None:
-            scale = self.devicePixelRatioF()
+            scale = self.devicePixelRatioF() * self._presentation_scale
             self._movie.setScaledSize(QSize(round(32 * scale), round(32 * scale)))
+        self._sync_size()
         self.update()
 
     def _render_badge(self, painter):
+        painter.scale(self._presentation_scale, self._presentation_scale)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         painter.setOpacity(205 / 255)
