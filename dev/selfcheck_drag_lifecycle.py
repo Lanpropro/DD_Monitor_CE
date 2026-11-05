@@ -212,6 +212,32 @@ class DragLifecycleTests(unittest.TestCase):
         self.release(self.target.mapToGlobal(QPoint(120, 10)))
         self.assertEqual(self.target.received, ['0'])
 
+    def test_mouse_input_moves_ghost_before_target_or_visual_timer(self):
+        self.start()
+        self.hit = self.target
+        for x in (20, 60, 25, 150):
+            point = self.target.mapToGlobal(QPoint(x, 20))
+            self.move(point)
+            self.assertEqual(self.session.ghost.pos(), point - self.session.hotspot)
+        self.assertEqual(self.target.moves, 0, 'Pointer following must not perform target work')
+        self.session._tick()
+        self.assertEqual(self.target.moves, 1)
+        self.release(point)
+        self.assertEqual(self.target.received, ['0'])
+
+    def test_stationary_visual_timer_does_not_move_native_ghost_again(self):
+        self.start()
+        ghost = self.session.ghost
+        with patch.object(ghost, 'move', wraps=ghost.move) as move:
+            for _ in range(20):
+                self.session._move_ghost()
+            move.assert_not_called()
+            self.session.position += QPoint(10, 5)
+            self.session._move_ghost()
+            move.assert_called_once_with(self.session.position - self.session.hotspot)
+            self.session._move_ghost()
+            self.assertEqual(move.call_count, 1)
+
     def test_visual_updates_follow_screen_without_extra_target_work(self):
         self.start()
         self.hit = self.target

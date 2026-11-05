@@ -38,7 +38,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                                               'finish_drag', 'reorder_items', 'refresh_strip')),
                                    (HoverPreview, ('_stop_now', '_check_hover', '_begin_resolve', '_on_resolved')),
                                    (motion, ('lifted_drag',)),
-                                   (SidebarDrag, ('start', 'finish', 'cancel')),
+                                   (SidebarDrag, ('start', 'finish', 'cancel', '_move_ghost', '_tick')),
                                    (diag.MainWindow, ('showEvent', '_on_layout_changed',
                                                      '_stop_tile', '_clear_tile_room', '_on_room_dropped'))):
                     for name in names:
@@ -101,6 +101,9 @@ class DragDiagnosticsTests(unittest.TestCase):
                                         Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
                     fixture.app.sendEvent(item, moving)
                     self.assertTrue(window.sidebar.drag_session.active)
+                    fixture.app.sendEvent(item, moving)
+                    window.sidebar.drag_session._tick()
+                    window.sidebar.show_drop_indicator('1', 0)
                     window.sidebar.drag_session.cancel()
                     self.assertIsNone(window.sidebar.drag_session._diagnostic_probe)
                     rows = [json.loads(line) for line in path.read_text().splitlines()]
@@ -110,6 +113,10 @@ class DragDiagnosticsTests(unittest.TestCase):
                     self.assertIn('drag:before', phases)
                     self.assertIn('drag:after', phases)
                     self.assertIn('internal-drag:start', phases)
+                    timing = next(row['timing'] for row in rows if row['phase'] == 'internal-drag:cancel')
+                    for stage in ('ghost-callback', 'target-tick', 'preview-layout'):
+                        self.assertGreaterEqual(timing[stage]['calls'], 1)
+                        self.assertEqual(set(timing[stage]), {'calls', 'totalMs', 'maxMs', 'maxGapMs'})
                     self.assertIn('internal-drag:cancel', phases)
                     stages = [row for row in rows if row['phase'] == 'drag:stage']
                     self.assertTrue({'pixmap', 'lift'} <= {row['stage'] for row in stages})
@@ -135,6 +142,22 @@ class DragDiagnosticsTests(unittest.TestCase):
                     recorder.handler.close()
         finally:
             fixture.doCleanups()
+
+    def test_timing_summary_counts_fast_callbacks_without_per_frame_records(self):
+        from dev import diagnose_drag_windows as diag
+        probe = diag.DragStallProbe()
+        probe.finish()
+        with patch.object(diag.time, 'perf_counter', side_effect=[1.003, 1.023]):
+            probe.record_timing('ghost-callback', 1.0)
+            probe.record_timing('ghost-callback', 1.02)
+        self.assertEqual(probe.timing_summary(), {'ghost-callback':
+            {'calls': 2, 'totalMs': 6.0, 'maxMs': 3.0, 'maxGapMs': 20.0}})
+        with patch.object(diag.time, 'perf_counter', return_value=1.04):
+            for _ in range(1000):
+                probe.record_timing('ghost-callback', 1.039)
+        self.assertEqual(probe.timing_summary()['ghost-callback']['calls'], 1002)
+        self.assertEqual(len(probe.timings), 1)
+        self.assertLess(len(json.dumps(probe.timing_summary())), 140)
 
     def test_trace_files_rotate_and_keep_only_three_backups(self):
         from dev.diagnose_drag_windows import Recorder
