@@ -212,13 +212,20 @@ class DragLifecycleTests(unittest.TestCase):
         self.release(self.target.mapToGlobal(QPoint(120, 10)))
         self.assertEqual(self.target.received, ['0'])
 
-    def test_mouse_input_moves_ghost_before_target_or_visual_timer(self):
+    def test_mouse_burst_moves_ghost_once_on_visual_frame_without_target_work(self):
         self.start()
         self.hit = self.target
-        for x in (20, 60, 25, 150):
-            point = self.target.mapToGlobal(QPoint(x, 20))
-            self.move(point)
-            self.assertEqual(self.session.ghost.pos(), point - self.session.hotspot)
+        ghost = self.session.ghost
+        original = ghost.pos()
+        with patch.object(ghost, 'move', wraps=ghost.move) as move:
+            for x in range(200):
+                point = self.target.mapToGlobal(QPoint(x, 20))
+                self.move(point)
+            move.assert_not_called()
+            self.assertEqual(ghost.pos(), original)
+            self.session._move_ghost()
+            move.assert_called_once_with(point - self.session.hotspot)
+            self.assertEqual(ghost.pos(), point - self.session.hotspot)
         self.assertEqual(self.target.moves, 0, 'Pointer following must not perform target work')
         self.session._tick()
         self.assertEqual(self.target.moves, 1)
