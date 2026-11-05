@@ -420,10 +420,6 @@ class AccountPlatformDialog(QDialog):
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
-        self._set_page(page)
-        faces = {str(room.get("room_id") or "account:" + str(room.get("anchor_uid"))): room.get("face")
-                 for room in rooms if room.get("face")}
-        self.owner._start_avatar_loader(faces, page.set_avatar)
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
             page._resolve_cursor = 0
             page.resolve_status = QLabel("列表已读取，可直接勾选直播间导入；待识别账号可补充识别。", page)
@@ -436,9 +432,13 @@ class AccountPlatformDialog(QDialog):
             page.resolve_button.setAutoDefault(False)
             page.resolve_button.clicked.connect(lambda: self._resolve_accounts(page))
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(1, page.resolve_button)
-            # 打开磁盘缓存不触发网络；新读取的列表才自动补充。
-            if "douyin" in self._platform_pages:
-                self._resolve_accounts(page)
+        self._set_page(page)
+        faces = {str(room.get("room_id") or "account:" + str(room.get("anchor_uid"))): room.get("face")
+                 for room in rooms if room.get("face")}
+        self.owner._start_avatar_loader(faces, page.set_avatar)
+        # 打开磁盘缓存不触发网络；新读取的列表才自动补充。
+        if hasattr(page, "resolve_button") and "douyin" in self._platform_pages:
+            self._resolve_accounts(page)
 
     def _resolve_accounts(self, page):
         if self._account_resolver is not None:

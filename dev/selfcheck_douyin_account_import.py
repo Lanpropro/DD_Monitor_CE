@@ -87,7 +87,11 @@ def main():
             side_effect=lambda kind: AccountStore(kind, root=root)):
         owner._cache_douyin_follows(accounts)
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
+        dialog.show()
+        app.processEvents()
+        dialog._show_rooms(accounts)
         page = dialog.page
+        assert page.resolve_status.isVisible() and page.resolve_button.isVisible()
         assert page.list.count() == 11 and '待识别' in page.list.item(2).text()
         assert not page.list.item(0).isHidden() and page.list.item(2).isHidden()
         assert not page.show_pending.isChecked() and '2 个直播间' in page.header.text()
