@@ -14,7 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import requests
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
-from ddm.account_dialog import AccountPlatformDialog
+from ddm.account_dialog import AccountPlatformDialog, FollowAccountResolver
 from ddm.account_store import AccountStore
 from ddm.app import MainWindow
 from ddm.platform_login import PlatformFollowLoader
@@ -60,7 +60,7 @@ def main():
     provider.restore_follow_rooms(accounts)
     restored = []
     context = SimpleNamespace(setting=lambda key, default: saved.get(key, default),
-                              register_platform=restored.append)
+                              register_platform=restored.append, log=lambda *_: None, window=None)
     LivePlatformsPlugin().on_load(context)
     assert restored[-1]._anchor_uids == {'douyin:1002': '102', 'douyin:1001': '101'}
     with patch.object(provider, '_follow_room', return_value={}):
@@ -89,6 +89,11 @@ def main():
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
         page = dialog.page
         assert page.list.count() == 11 and '待识别' in page.list.item(2).text()
+        assert not page.list.item(0).isHidden() and page.list.item(2).isHidden()
+        assert not page.show_pending.isChecked() and '2 个直播间' in page.header.text()
+        page.show_pending.setChecked(True)
+        assert not page.list.item(2).isHidden()
+        page.show_pending.setChecked(False)
         assert '状态待刷新' in page.list.item(1).text()
         page.list.item(2).setCheckState(Qt.Checked)
         # 补充在后台；选择、切换及取消操作仍可用。停止后迟到结果不能改勾选条目。
@@ -116,6 +121,8 @@ def main():
             page.resolve_button.click()
             wait_for(app, lambda: dialog._account_resolver is None)
         assert page.list.count() == 11 and page.selected()[0]['room_id'] == 'douyin:1003'
+        assert not page.list.item(2).isHidden() and page.list.item(3).isHidden()
+        assert '已处理' in page.resolve_status.text()
         page.list.item(3).setCheckState(Qt.Checked)
         page._select_folder(next(action for action in page.folder_button.menu().actions()
                                 if action.data() == target_folder))
@@ -137,6 +144,7 @@ def main():
         assert len(owner._douyin_follow_cache['rooms']) == 11
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
         assert dialog.page.selected()[0]['anchor_uid'] == '104'
+        dialog.page.show_pending.setChecked(True)
         dialog.page._check_all(False)
         dialog.page.accept()
         dispose(app, dialog)
@@ -162,6 +170,22 @@ def main():
         dialog._show_rooms(accounts)
         assert not dialog.page.selected() and owner._douyin_follow_cache['pending'] == []
         dispose(app, dialog)
+    # A stopped pass resumes at the unprocessed account, including after a failed lookup.
+    candidates=[dict(accounts[2],anchor_uid=str(index)) for index in range(3)]
+    attempted=[]
+    def identify(account,cancelled):
+        attempted.append(account['anchor_uid'])
+        raise requests.Timeout('fixture')
+    stub=SimpleNamespace(resolve_follow_account=identify)
+    worker=FollowAccountResolver(stub,candidates,owner)
+    with patch.object(worker,'isInterruptionRequested',side_effect=[False,False,True]):
+        worker.run()
+    assert worker.next_index==1 and attempted==['0']
+    worker=FollowAccountResolver(stub,candidates,owner,start_index=worker.next_index)
+    progress=[]
+    worker.progress.connect(lambda current,total:progress.append((current,total)))
+    worker.run()
+    assert attempted==['0','1','2'] and worker.next_index==3 and progress[-1]==(3,3)
     owner.close()
     app.processEvents()
     print('PASS: all 11 accounts; cached offline identity; plugin mapping restart; separate pending import; cancellation; failure isolation; encrypted restore; selection preservation')

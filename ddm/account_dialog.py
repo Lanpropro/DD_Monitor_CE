@@ -1,6 +1,5 @@
 """在同一窗口内切换平台、登录和勾选关注。"""
 import os
-import time
 from copy import deepcopy
 
 from PySide6.QtCore import QThread, QUrl, Qt, Signal
@@ -16,26 +15,31 @@ from .widgets import AccountRow, BRAND_ASSETS_DIR
 
 class FollowAccountResolver(QThread):
     updated = Signal(dict)
+    progress = Signal(int, int)
 
-    def __init__(self, platform, accounts, parent):
+    def __init__(self, platform, accounts, parent, *, start_index=0):
         super().__init__(parent)
         self.platform = platform
         self.accounts = deepcopy(accounts)
+        self.next_index = start_index
 
     def run(self):
-        deadline = time.monotonic() + 30
-        cancelled = lambda: self.isInterruptionRequested() or time.monotonic() >= deadline
-        for account in self.accounts:
+        cancelled = self.isInterruptionRequested
+        for index in range(self.next_index, len(self.accounts)):
             if cancelled():
                 break
-            if account.get("room_id") and account.get("live_known") is not False:
-                continue
-            try:
-                resolved = self.platform.resolve_follow_account(account, cancelled)
-            except Exception:  # 单个账号失败不影响其余关注，也不覆盖原身份。
-                continue
-            if not cancelled():
-                self.updated.emit(resolved)
+            account = self.accounts[index]
+            if not account.get("room_id") or account.get("live_known") is False:
+                try:
+                    resolved = self.platform.resolve_follow_account(account, cancelled)
+                except Exception:  # 单个账号失败不影响其余关注，也不覆盖原身份。
+                    resolved = None
+                if cancelled():
+                    break
+                if resolved is not None:
+                    self.updated.emit(resolved)
+            self.next_index = index + 1
+            self.progress.emit(self.next_index, len(self.accounts))
 
 
 class AccountPlatformDialog(QDialog):
@@ -195,7 +199,9 @@ class AccountPlatformDialog(QDialog):
             self._account_resolver.requestInterruption()
             old_page = self._follow_pages.get(self.kind)
             if hasattr(old_page, "resolve_button"):
-                old_page.resolve_button.setText("补充识别")
+                old_page._resolve_cursor = self._account_resolver.next_index
+                old_page.resolve_button.setText("继续识别")
+                old_page.resolve_button.setEnabled(True)
             self._account_resolver = None
         if reread:
             self._follow_pages.pop(kind, None)
@@ -403,7 +409,8 @@ class AccountPlatformDialog(QDialog):
                      if room.get("anchor_uid") in pending else dict(room) for room in rooms]
         page = FollowImportDialog(rooms, existing, self.owner,
                                   folders=self.owner.sidebar.folder_state(),
-                                  folder_creator=self.owner.sidebar.create_folder)
+                                  folder_creator=self.owner.sidebar.create_folder,
+                                  room_menu=self.kind == "douyin")
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:
@@ -424,6 +431,11 @@ class AccountPlatformDialog(QDialog):
         self._set_page(page)
         page.request_visible_avatars()
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
+            page._resolve_cursor = 0
+            page.resolve_status = QLabel("列表已读取，可直接勾选直播间导入；待识别账号可补充识别。", page)
+            page.resolve_status.setObjectName("SettingsHint")
+            page.resolve_status.setWordWrap(True)
+            page.layout().insertWidget(1, page.resolve_status)
             page.resolve_button = QPushButton("补充识别", page)
             page.resolve_button.setObjectName("IconButton")
             page.resolve_button.setCursor(Qt.PointingHandCursor)
@@ -437,8 +449,11 @@ class AccountPlatformDialog(QDialog):
     def _resolve_accounts(self, page):
         if self._account_resolver is not None:
             self._account_resolver.requestInterruption()
+            page.resolve_button.setText("正在停止…")
+            page.resolve_button.setEnabled(False)
             return
-        worker = FollowAccountResolver(self.providers["douyin"], page.rooms, self.owner)
+        start = page._resolve_cursor if page._resolve_cursor < len(page.rooms) else 0
+        worker = FollowAccountResolver(self.providers["douyin"], page.rooms, self.owner, start_index=start)
         self._account_resolver = worker
         running = getattr(self.owner, "_platform_info_running", None)
         if running is not None:
@@ -452,12 +467,23 @@ class AccountPlatformDialog(QDialog):
             cache = getattr(self.owner, "_cache_douyin_follows", None)
             if callable(cache):
                 cache(page.rooms)
+        def progress(current, total):
+            if self._account_resolver is worker and self._closing_result is None:
+                page.resolve_status.setText(f"正在识别直播间：已处理 {current}/{total} 个关注，"
+                                            "已识别的直播间可随时勾选导入。")
         def finished():
             if running is not None:
                 running.discard(worker)
             if self._account_resolver is worker:
                 self._account_resolver = None
-                page.resolve_button.setText("补充识别")
+                page._resolve_cursor = worker.next_index
+                page.resolve_button.setEnabled(True)
+                page.resolve_button.setText("继续识别" if worker.next_index < len(page.rooms) else "补充识别")
+                state = "识别已停止" if worker.isInterruptionRequested() else "识别完成"
+                pending = sum(not room.get("room_id") for room in page.rooms)
+                page.resolve_status.setText(f"{state}：已处理 {worker.next_index}/{len(page.rooms)} 个关注，"
+                                            f"{pending} 个账号暂未取得直播间。")
+        worker.progress.connect(progress)
         worker.updated.connect(update)
         worker.finished.connect(finished)
         worker.finished.connect(worker.deleteLater)
