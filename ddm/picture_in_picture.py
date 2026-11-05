@@ -186,7 +186,7 @@ class PictureInPictureButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        active = self.underMouse() or self.hasFocus() or self.isChecked()
+        active = QApplication.widgetAt(QCursor.pos()) is self or self.hasFocus() or self.isChecked()
         painter.setBrush(theme.qcolor(theme.ACCENT) if active else QColor(0, 0, 0, 170))
         painter.drawEllipse(QRectF(self.rect()))
         painter.setPen(QPen(QColor('#e7ebf0'), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -220,6 +220,7 @@ class PictureInPictureTools(QWidget):
         self.pin = PictureInPictureButton('pin', '置顶画中画', self)
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
+        self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
         self.back = PictureInPictureButton('back', '关闭画中画并返回监控室（Esc）', self)
         for button in (self.manage, self.pin, self.back):
             box.addWidget(button)
@@ -429,10 +430,12 @@ class PictureInPictureWindow(QWidget):
 
     def _pin(self, pinned):
         self.controller.pinned = pinned
-        geometry = self.geometry()
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, pinned)
-        self.setGeometry(geometry)
-        self.show()
+        # Updating the existing QWindow keeps native video and tool windows
+        # visible; QWidget.setWindowFlag hides and re-shows the whole group.
+        self.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
+        self.pin.setToolTip('已置顶，点击取消置顶' if pinned else '未置顶，点击置顶')
+        for button in self.tools.findChildren(PictureInPictureButton):
+            button.update()
 
     def closeEvent(self, event):
         self.controller.restore(activate=True)
@@ -530,7 +533,8 @@ class PictureInPicture(QObject):
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
         self.selection, self.columns = list(selection), columns
-        if not self.active:
+        opened = not self.active
+        if opened:
             wall.set_sidebar_animating(False)
             self.floating = PictureInPictureWindow(self)
             if self.geometry:
@@ -552,6 +556,12 @@ class PictureInPicture(QObject):
         self._sync_overlays()
         self._aspect_timer.start()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
+        if opened:
+            QTimer.singleShot(0, self, self._minimize_host)
+
+    def _minimize_host(self):
+        if self.active and not self.host._closing:
+            self.host.showMinimized()
 
     def _sync_overlays(self):
         wall = self.host.wall
