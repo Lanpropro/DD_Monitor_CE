@@ -1662,6 +1662,9 @@ class FollowImportDialog(QDialog):
         if self.room_menu:
             chosen = sum(bool(room.get("room_id")) for room in self.selected())
             pending_chosen = len(self.selected()) - chosen
+            self.import_button.setText("导入并保存待识别" if pending_chosen and chosen else
+                                       "保存待识别选择" if pending_chosen else "导入")
+            self.import_button.setToolTip("待识别账号只保存选择，取得房间号后才能加入关注栏。")
             saved = f"，{pending_chosen} 个待识别账号已勾选" if pending_chosen else ""
             self.header.setText(f"共 {len(self.rooms)} 个关注账号，{len(self.rooms) - pending} 个直播间，"
                                 f"{pending} 个待识别{filtered}，已勾选 {chosen} 个直播间{saved}")
@@ -1678,6 +1681,10 @@ class FollowImportDialog(QDialog):
         status = ("直播间待识别" if not room.get("room_id") else
                   "直播状态待刷新" if room.get("live_known") is False else
                   "直播中" if room["live"] else "未开播")
+        if room.get("follow_resolve_error"):
+            status += "（本次识别失败）"
+        elif room.get("follow_resolve_note"):
+            status += "（本次" + room["follow_resolve_note"] + "）"
         return "　".join([room["uname"], status] + ([room["title"][:18]] if room.get("title") else []))
 
     def update_account(self, account):

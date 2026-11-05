@@ -18,6 +18,7 @@ from ddm.account_dialog import AccountPlatformDialog, FollowAccountResolver
 from ddm.account_store import AccountStore
 from ddm.app import MainWindow
 from ddm.platform_login import PlatformFollowLoader
+from ddm.plugins import RoomInfo
 from dev.selfcheck_account_dialog import dispose
 from dev.selfcheck_platform_follows import wait_for
 from plugins_user.domestic_live.plugin import DouyinPlatform, LivePlatformsPlugin
@@ -127,6 +128,9 @@ def main():
         assert page.list.count() == 11 and page.selected()[0]['room_id'] == 'douyin:1003'
         assert not page.list.item(2).isHidden() and page.list.item(3).isHidden()
         assert '已处理' in page.resolve_status.text()
+        assert '本轮 1 项请求或解析失败' in page.resolve_status.text()
+        assert '本次识别失败' in page.list.item(1).text()
+        assert '本次未取得房间号' in page.list.item(3).text()
         page.list.item(3).setCheckState(Qt.Checked)
         page._select_folder(next(action for action in page.folder_button.menu().actions()
                                 if action.data() == target_folder))
@@ -148,6 +152,8 @@ def main():
         assert len(owner._douyin_follow_cache['rooms']) == 11
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
         assert dialog.page.selected()[0]['anchor_uid'] == '104'
+        assert dialog.page.import_button.text() == '保存待识别选择'
+        assert '不会加入关注栏' in dialog.page.resolve_status.text()
         dialog.page.show_pending.setChecked(True)
         dialog.page._check_all(False)
         dialog.page.accept()
@@ -173,6 +179,35 @@ def main():
         owner._accounts['douyin'] = {'uid': '99'}
         dialog._show_rooms(accounts)
         assert not dialog.page.selected() and owner._douyin_follow_cache['pending'] == []
+        dispose(app, dialog)
+        # A supplied offline room must match the selected account, including for same-name anchors.
+        owner._accounts['douyin'] = {'uid': '42'}
+        owner._cache_douyin_follows(accounts)
+        dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
+        page = dialog.page
+        page.show_pending.setChecked(True)
+        page.list.setCurrentRow(4)
+        page.list.item(4).setCheckState(Qt.Checked)
+        room = RoomInfo(room_id='douyin:1005', platform='douyin', uname='Account 4', live=False,
+                        extra={'anchor_uid': '999', 'live_known': True})
+        with patch('ddm.account_dialog.QInputDialog.getText', return_value=('https://live.douyin.com/1005', True)), \
+                patch.object(provider, 'room_info', return_value=room):
+            page.link_button.click()
+            wait_for(app, lambda: dialog._room_link_resolver is None)
+        assert not page.rooms[4]['room_id'] and '不一致' in page.resolve_status.text()
+        room.extra['anchor_uid'] = '105'
+        with patch('ddm.account_dialog.QInputDialog.getText', return_value=('https://live.douyin.com/1005', True)), \
+                patch.object(provider, 'room_info', return_value=room):
+            page.link_button.click()
+            wait_for(app, lambda: dialog._room_link_resolver is None)
+        assert page.rooms[4]['room_id'] == 'douyin:1005' and page.rooms[4]['live_known']
+        assert not page.rooms[4]['live'] and not page.list.item(4).isHidden()
+        assert page.list.item(4).checkState() == Qt.Checked
+        assert owner._douyin_follow_cache['rooms'][4]['room_id'] == 'douyin:1005'
+        assert provider._anchor_uids['douyin:1005'] == '105'
+        assert not any(tile.room.get('room_id') for tile in owner.wall.tiles)
+        page.accept()
+        assert [room['room_id'] for room in dialog.rooms] == ['douyin:1005']
         dispose(app, dialog)
     # A stopped pass resumes at the unprocessed account, including after a failed lookup.
     candidates=[dict(accounts[2],anchor_uid=str(index)) for index in range(3)]
