@@ -94,7 +94,7 @@ def check_floating_style(pip, wall, tiles, layer):
         finally:
             gdi32.DeleteObject(region)
     assert all(button.text() == '' and button.toolTip() and button.accessibleName()
-               for button in (floating.tools.manage, floating.tools.reorder, floating.pin, floating.tools.back))
+               for button in (floating.tools.manage, floating.tools.reorder, floating.pin, floating.tools.back, floating.tools.close_only))
     image = floating.tools.grab().toImage()
     assert image.pixelColor(0, 0).alpha() == 0, 'No rectangular backing behind the icons'
     assert image.pixelColor(12, 20).alpha() > 0
@@ -136,6 +136,72 @@ def check_floating_style(pip, wall, tiles, layer):
             assert floating.geometry().bottomRight() == bounds.bottomRight()
     floating.setGeometry(bounds)
     QTest.qWait(50)
+
+
+def check_audio_controls(pip):
+    floating, wall = pip.floating, pip.host.wall
+    tiles = list(wall.picture_in_picture_tiles)
+    original = [(tile.volume, tile.muted) for tile in tiles]
+    other = next(tile for tile in wall.tiles if tile not in tiles)
+    other_audio = other.volume, other.muted
+    panel = floating.audio_panel
+    try:
+        with patch.object(floating, '_pointer_over', return_value=True):
+            floating._poll_tools()
+        assert floating.audio_tools.isVisible()
+        floating.audio_button.click()
+        assert panel.isVisible() and not panel.scroll.isVisible()
+        assert set(panel.rows) == set(tiles)
+        panel.master.slider.setValue(35)
+        panel.master.mute.click()
+        assert pip.master_volume == 35 and pip.master_muted
+        assert [(tile.volume, tile.muted) for tile in tiles] == original
+        assert all(tile.video.property('presentationAudioGain') == .35 for tile in tiles)
+        assert other.video.property('presentationAudioGain') is None
+        panel.expand.click()
+        assert panel.scroll.isVisible()
+        assert floating.screen().availableGeometry().contains(panel.geometry())
+        if '--audio-preview' in sys.argv:
+            output = ROOT / 'work/pip-previews'
+            output.mkdir(parents=True, exist_ok=True)
+            panel.grab().save(str(output / 'audio-expanded.png'))
+            floating.tools.grab().save(str(output / 'audio-toolbar.png'))
+        row = panel.rows[tiles[0]]
+        row.slider.setValue(65)
+        assert tiles[0].volume == 65 and not tiles[0].muted
+        row.mute.click()
+        assert tiles[0].muted
+        tiles[0].set_volume(40)
+        panel.refresh()
+        assert row.slider.value() == 40 and not row.mute.isChecked()
+        bounds, order = floating.geometry(), list(pip.selection)
+        floating.tools.reorder.setChecked(True)
+        QTest.mouseClick(row.slider, Qt.LeftButton, pos=row.slider.rect().center())
+        assert floating.geometry() == bounds and pip.selection == order
+        floating.tools.reorder.setChecked(False)
+        QTest.keyClick(panel.master.slider, Qt.Key_Escape)
+        assert pip.active and not panel.isVisible(), 'Esc must close the panel before returning'
+        # Deliver shortcuts to a PiP video without moving the desktop pointer.
+        with patch.object(floating, '_tile_at', return_value=tiles[0]), patch.object(floating, '_pointer_over', return_value=True):
+            before = tiles[0].volume
+            QTest.keyClick(tiles[0].video, Qt.Key_Up)
+            assert tiles[0].volume == min(100, before + 5)
+            from PySide6.QtGui import QKeySequence
+            QTest.keySequence(tiles[0].video, QKeySequence(pip.host.shortcuts['solo']))
+            assert not tiles[0].muted and tiles[1].muted
+        assert (other.volume, other.muted) == other_audio, 'Solo must leave unselected rooms alone'
+        pip._sync_audio([tiles[1]])
+        assert tiles[0].video.property('presentationAudioGain') is None
+        assert tiles[1].video.property('presentationAudioMuted') is True
+        pip._sync_audio(tiles)
+        assert pip.state()['master_volume'] == 35 and pip.state()['master_muted']
+    finally:
+        panel.hide()
+        floating.audio_feedback.hide()
+        for tile, (volume, muted) in zip(tiles, original):
+            tile.set_volume(volume)
+            tile.set_muted(muted)
+        pip.set_master_audio(volume=100, muted=False)
 
 
 def check_native_corners(pip):
@@ -488,6 +554,7 @@ def exercise(app, window, native, directory):
         if '--corners' in sys.argv:
             check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
+    check_audio_controls(pip)
     check_resize_burst(pip, wall)
     check_reordering(pip, players)
     check_buffer_scale(pip)
@@ -628,6 +695,8 @@ def exercise(app, window, native, directory):
     QTest.qWait(100)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     assert not pip.active and wall.parentWidget() is window._content
+    assert all(tile.video.property('presentationAudioGain') is None for tile in tiles)
+    assert all(tile.video.property('presentationAudioMuted') is None for tile in tiles)
     assert wall.visible_tiles() == tiles and all(tile.bottom.isVisible() for tile in tiles)
     assert wall.layout_id == original_layout and (wall.corner_ratios(), wall.layout_ratios()) == original_ratios
     assert all((widget.hasMouseTracking(), widget.cursor().shape()) == (tracking, cursor)
@@ -642,6 +711,24 @@ def exercise(app, window, native, directory):
     QTest.qWait(80)
     assert not pip.active and window.isVisible()
     assert not window.isMinimized(), 'Closing PiP must restore the main window'
+    # Minimized/tray-hidden lifecycle needs a native window manager.
+    if native:
+        pip.start([0, 1], 0)
+        QTest.qWait(80)
+        assert window.isMinimized()
+        pip.floating.tools.close_only.click()
+        QTest.qWait(80)
+        assert not pip.active and window.isMinimized(), 'Close-only must keep the main window minimized'
+        window.showNormal()
+        pip.start([0, 1], 0)
+        QTest.qWait(80)
+        with patch.object(window._tray, 'available', return_value=True), patch.object(window._tray, 'icon', Mock()):
+            window._tray.hide()
+        assert not window.isVisible()
+        pip.floating.tools.close_only.click()
+        QTest.qWait(80)
+        assert not pip.active and not window.isVisible(), 'Close-only must not wake a tray-hidden monitor'
+        window.showNormal()
     if native:
         pump(app, .2)
         assert [player.player for player in players] == cores
