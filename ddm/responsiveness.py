@@ -476,7 +476,7 @@ def install_theme_animation_capture(probe):
     WaveOverlay.paintEvent = paint
 
 
-def install(path, *, extended_folders=False):
+def install(path, *, extended_folders=False, profile_sidebar=True):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
@@ -494,7 +494,7 @@ def install(path, *, extended_folders=False):
             method = getattr(owner, name)
             label = f'{method.__module__}.{owner.__name__}.{name}'
             setattr(owner, name, probe.timed(method, label,
-                    profile_sidebar=owner is Sidebar and name == 'set_collapsed'))
+                    profile_sidebar=profile_sidebar and owner is Sidebar and name == 'set_collapsed'))
 
     @functools.wraps(original)
     def initialize(window, *args, **kwargs):
@@ -512,3 +512,4 @@ def install(path, *, extended_folders=False):
         timer.start()
 
     MainWindow.__init__ = initialize
+    return probe
