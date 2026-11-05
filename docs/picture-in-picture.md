@@ -10,7 +10,7 @@
 
 组合按钮仅在鼠标悬停或通过 Tab 聚焦时高亮，工具窗口自动取得焦点不会将它常亮。Windows 悬浮工具显隐依据实际命中的原生窗口，覆盖原生视频、透明弹幕层及切换置顶后的鼠标移出／重新移入。
 
-快速拖动边角时，缩放请求合并到约一帧一次，松手立即落实最终尺寸；画面墙在同一轮尺寸事件中同步更新。播放器继续使用原实例，视频不切换为截图；实际直播中的拼接稳定性仍以人工复测为准。
+Windows 拖动边角时，通过 DWM 实时合成缩放整组视频、弹幕和醒目留言；原生播放器保持原尺寸继续播放，避免每次鼠标移动都逐个重建输出尺寸。松手只落实一次最终尺寸，合成窗口短暂覆盖这次更新后退出。缩放期间收起悬浮按钮，结束后按鼠标位置恢复；快速再次拖动仍可接续。视频不切换为静态截图、不新增播放器或音频实例。非 Windows 或 DWM 注册失败时沿用约一帧合并一次的原路径；实际直播中的流畅度仍以人工复测为准。
 
 隐藏每格底部信息条、文字播放控件和状态浮标，保留原有右键菜单、弹幕与醒目留言。组合选择窗口打开时收起悬浮图标，避免遮挡；返回监控室后恢复每格样式与交互。
 
@@ -25,6 +25,10 @@
 根入口 `run.cmd --check-picture-in-picture` 依次执行 Windows 原生本地视频检查和离屏功能回归；不打开或重启用户客户端。
 
 Windows 原生后端可用 `QT_QPA_PLATFORM=windows` 执行 `dev/checks/bootstrap.py dev/selfcheck_picture_in_picture.py --native`。检查横屏和竖屏两路本地 MP4、真实 libmpv 核心与视频 HWND 保持不变、播放进度继续、共享弹幕和醒目留言归属、比例更新／重连、托盘及清理；该检查不代替真实直播、音频听感或跨显示器人工验收。
+
+原生专项同时检查实时合成缩放：拖动期间源窗口和各播放器尺寸不变，DWM 视频／Quick 弹幕／醒目留言表面均保留，松手只调整一次源窗口，连续再次拖动、按钮恢复、保存可见尺寸和注册失败回退正常。附加 `--live-resize` 可短暂显示本地测试画面，保存 `work/pip-previews/live-resize-*.png` 并在相同输出尺寸下比较视频区域的连续帧，验证显示内容确实更新。这些是功能与呈现回归，不作为真实直播 FPS 或延迟改善证据。
+
+这一呈现路径参考用户提供的 B 站画中画连续缩放录像：缩放期间实时播放并保持比例。Chromium 的视频画中画使用 [合成视频表面](https://chromium.googlesource.com/chromium/src/+/main/chrome/browser/ui/views/overlay/video_overlay_window_views.cc)；本项目保留既有 libmpv，使用 [Windows DWM 的实时窗口表面映射](https://learn.microsoft.com/en-us/windows/win32/dwm/thumbnail-ovw)实现组合缩放，后端并非同一套浏览器代码。DWM 缩略图是持续更新的窗口连接，不是任务栏截图的静态拷贝。
 
 需要检查实际桌面圆角像素时附加 `--corners`，在短暂显示的受控洋红背景上播放本地蓝色视频，断言圆角存在视频与背景的混合过渡色，保存 `work/pip-previews/native-rounded-<倍率>.png`；该项要求支持原生圆角的 Windows 11。普通根检查入口保持屏幕外运行，不显示此取证窗口。API依据见 [Windows 原生圆角说明](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/ui/apply-rounded-corners)；显示比例读取 [mpv 的 video-params / video-out-params](https://mpv.io/manual/master/)。
 
