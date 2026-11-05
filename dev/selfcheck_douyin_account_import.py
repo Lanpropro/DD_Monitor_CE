@@ -14,12 +14,11 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import requests
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 from ddm.account_dialog import AccountPlatformDialog, FollowAccountResolver
 from ddm.account_store import AccountStore
 from ddm.app import MainWindow
 from ddm.platform_login import PlatformFollowLoader
-from ddm.plugins import RoomInfo
 from dev.selfcheck_account_dialog import dispose
 from dev.selfcheck_platform_follows import wait_for
 from plugins_user.domestic_live.plugin import DouyinPlatform, LivePlatformsPlugin
@@ -183,35 +182,6 @@ def main():
         dialog._show_rooms(accounts)
         assert not dialog.page.selected() and owner._douyin_follow_cache['pending'] == []
         dispose(app, dialog)
-        # A supplied offline room must match the selected account, including for same-name anchors.
-        owner._accounts['douyin'] = {'uid': '42'}
-        owner._cache_douyin_follows(accounts)
-        dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
-        page = dialog.page
-        page.show_pending.setChecked(True)
-        page.list.setCurrentRow(4)
-        page.list.item(4).setCheckState(Qt.Checked)
-        room = RoomInfo(room_id='douyin:1005', platform='douyin', uname='Account 4', live=False,
-                        extra={'anchor_uid': '999', 'live_known': True})
-        with patch('ddm.account_dialog.QInputDialog.getText', return_value=('https://live.douyin.com/1005', True)), \
-                patch.object(provider, 'room_info', return_value=room):
-            page.link_button.click()
-            wait_for(app, lambda: dialog._room_link_resolver is None)
-        assert not page.rooms[4]['room_id'] and '不一致' in page.resolve_status.text()
-        room.extra['anchor_uid'] = '105'
-        with patch('ddm.account_dialog.QInputDialog.getText', return_value=('https://live.douyin.com/1005', True)), \
-                patch.object(provider, 'room_info', return_value=room):
-            page.link_button.click()
-            wait_for(app, lambda: dialog._room_link_resolver is None)
-        assert page.rooms[4]['room_id'] == 'douyin:1005' and page.rooms[4]['live_known']
-        assert not page.rooms[4]['live'] and not page.list.item(4).isHidden()
-        assert page.list.item(4).checkState() == Qt.Checked
-        assert owner._douyin_follow_cache['rooms'][4]['room_id'] == 'douyin:1005'
-        assert provider._anchor_uids['douyin:1005'] == '105'
-        assert not any(tile.room.get('room_id') for tile in owner.wall.tiles)
-        page.accept()
-        assert [room['room_id'] for room in dialog.rooms] == ['douyin:1005']
-        dispose(app, dialog)
     # A stopped pass resumes at the unprocessed account, including after a failed lookup.
     candidates=[dict(accounts[2],anchor_uid=str(index)) for index in range(3)]
     attempted=[]
@@ -253,6 +223,7 @@ def check_account_reference_import(app):
     page = dialog.page
     reference = 'douyin:uid_105'
     assert page.rooms[0]['room_id'] == reference and not page.list.item(0).isHidden()
+    assert not any(button.text() == '关联直播间链接' for button in page.findChildren(QPushButton))
     assert '账号关注' in page.list.item(0).text() and '无需填写直播间链接' in page.resolve_status.text()
     reply = requests.Response()
     reply.status_code = 200
