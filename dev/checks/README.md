@@ -72,7 +72,7 @@
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [selfcheck_picture_in_picture](../selfcheck_picture_in_picture.py) | `smoke` / `offline`；临时房间、1～16路布局边界、组合与取消、缩放置顶、托盘、恢复与退出；Windows原生单项 `--native` 另验证双路本地 MP4 的核心／HWND／进度、DWM 实时合成缩放及弹幕、醒目留言归属；`--live-resize` 可见连续帧取证 |
+| [selfcheck_picture_in_picture](../selfcheck_picture_in_picture.py) | `smoke` / `offline`；临时房间、1～16路布局边界、六路单主布局与横竖比例、主画面选择／预览／取消／保存、拖动换位模式与缓冲等比缩放、缩放置顶、托盘、恢复与退出；Windows原生单项 `--native` 另验证本地横竖 MP4 的核心／HWND／进度、DWM 实时合成缩放及弹幕、醒目留言归属；`--live-resize` 可见连续帧取证 |
 
 
 | 脚本 | 执行分类 |

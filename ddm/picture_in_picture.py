@@ -13,6 +13,9 @@ from . import theme
 from .ui import ActionButton, ElidedLabel, page_header
 
 
+FOCUS_LAYOUT = -1
+
+
 def composition_rows(aspects, columns=0):
     def rows(cols):
         return [aspects[index:index + cols] for index in range(0, len(aspects), cols)]
@@ -24,6 +27,20 @@ def composition_rows(aspects, columns=0):
 
 def composition_aspect(rows):
     return 1 / sum(1 / sum(row) for row in rows)
+
+
+def _focus_parts(aspects, primary):
+    order = [primary] + [index for index in range(6) if index != primary]
+    values = [aspects[index] for index in order]
+    right = 1 / (1 / values[1] + 1 / values[2])
+    return order, values, values[0] + right, sum(values[3:])
+
+
+def composition_ratio(aspects, columns=0, primary=0):
+    if columns == FOCUS_LAYOUT and len(aspects) == 6:
+        _order, _values, top, bottom = _focus_parts(aspects, primary)
+        return 1 / (1 / top + 1 / bottom)
+    return composition_aspect(composition_rows(aspects, 0 if columns == FOCUS_LAYOUT else columns))
 
 
 def video_aspect(player):
@@ -39,15 +56,34 @@ def video_aspect(player):
     return None
 
 
-def pane_rectangles(count, area, columns=0, aspects=None):
+def pane_rectangles(count, area, columns=0, aspects=None, primary=0):
     if not count:
         return []
-    rows = composition_rows(aspects or [16 / 9] * count, columns)
-    aspect = composition_aspect(rows)
+    aspects = aspects or [16 / 9] * count
+    aspect = composition_ratio(aspects, columns, primary)
     width = max(1, min(area.width(), round(area.height() * aspect)))
     height = max(1, min(area.height(), round(width / aspect)))
     canvas = QRect(0, 0, width, height)
     canvas.moveCenter(area.center())
+    if columns == FOCUS_LAYOUT and count == 6:
+        order, values, top_aspect, bottom_aspect = _focus_parts(aspects, primary)
+        split_y = round(height * aspect / top_aspect)
+        split_x = round(width * values[0] / top_aspect)
+        right_y = round(split_y * values[2] / (values[1] + values[2]))
+        arranged = [QRect(0, 0, split_x, split_y),
+                    QRect(split_x, 0, width - split_x, right_y),
+                    QRect(split_x, right_y, width - split_x, split_y - right_y)]
+        left, offset = 0, 0.0
+        for value in values[3:]:
+            offset += value
+            right = round(width * offset / bottom_aspect)
+            arranged.append(QRect(left, split_y, right - left, height - split_y))
+            left = right
+        rectangles = [None] * count
+        for index, rect in zip(order, arranged):
+            rectangles[index] = rect.translated(canvas.topLeft())
+        return rectangles
+    rows = composition_rows(aspects, 0 if columns == FOCUS_LAYOUT else columns)
     rectangles, top, weight = [], 0, 0.0
     for row in rows:
         total = sum(row)
@@ -72,14 +108,17 @@ class CompositionPreview(QFrame):
         self.columns = 0
         self.aspect = 16 / 9
         self.aspects = []
+        self.primary = 0
 
-    def set_panes(self, names, columns, aspects=None):
+    def set_panes(self, names, columns, aspects=None, primary=0):
         for label in self.labels:
             label.deleteLater()
-        self.labels = [ElidedLabel(name, self) for name in names]
+        self.labels = [ElidedLabel('主画面 · ' + name if columns == FOCUS_LAYOUT and index == primary else name, self)
+                       for index, name in enumerate(names)]
         self.columns = columns
+        self.primary = primary
         self.aspects = aspects or [16 / 9] * len(names)
-        self.aspect = composition_aspect(composition_rows(self.aspects, columns)) if names else 16 / 9
+        self.aspect = composition_ratio(self.aspects, columns, primary) if names else 16 / 9
         for label in self.labels:
             label.setAlignment(Qt.AlignCenter)
             label.setObjectName('PluginCard')
@@ -93,7 +132,7 @@ class CompositionPreview(QFrame):
         canvas = QRect(0, 0, width, min(area.height(), round(width / self.aspect)))
         canvas.moveCenter(area.center())
         for label, rect in zip(self.labels, pane_rectangles(
-                len(self.labels), canvas, self.columns, self.aspects)):
+                len(self.labels), canvas, self.columns, self.aspects, self.primary)):
             label.setGeometry(rect)
 
     def resizeEvent(self, event):
@@ -114,11 +153,22 @@ class PictureInPictureDialog(QDialog):
         self.preview = CompositionPreview(self)
         layout.addWidget(self.preview)
         self.columns = QComboBox(self)
-        for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3)):
+        for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
+                             ('单主＋五辅（6路）', FOCUS_LAYOUT)):
             self.columns.addItem(title, value)
         self.columns.setAccessibleName('画中画排列方式')
         self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
         layout.addWidget(self.columns)
+        self.primary_row = QWidget(self)
+        primary_box = QHBoxLayout(self.primary_row)
+        primary_box.setContentsMargins(0, 0, 0, 0)
+        primary_label = QLabel('主画面', self.primary_row)
+        self.primary = QComboBox(self.primary_row)
+        self.primary.setAccessibleName('画中画主画面')
+        primary_label.setBuddy(self.primary)
+        primary_box.addWidget(primary_label)
+        primary_box.addWidget(self.primary, 1)
+        layout.addWidget(self.primary_row)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -154,19 +204,37 @@ class PictureInPictureDialog(QDialog):
         footer.addWidget(self.start)
         layout.addLayout(footer)
         self.columns.currentIndexChanged.connect(self._refresh)
+        self.primary.currentIndexChanged.connect(self._refresh)
         self._refresh()
 
+    def _selected(self):
+        checked = [index for index, check in self.checks.items() if check.isChecked()]
+        return ([index for index in self.controller.selection if index in checked]
+                + [index for index in checked if index not in self.controller.selection])
+
     def _refresh(self, *_args):
-        names = [check.text() for check in self.checks.values() if check.isChecked()]
-        selection = [index for index, check in self.checks.items() if check.isChecked()]
-        self.preview.set_panes(names, self.columns.currentData(), self.controller.aspects_for(selection))
-        self.start.setEnabled(bool(names))
-        self.hint.setText(f'已选择 {len(names)} 路。按直播比例缩放并支持置顶，其他画面按原声音设置在后台播放。'
+        selection = self._selected()
+        names = [self.checks[index].text() for index in selection]
+        primary = self.primary.currentData() if self.primary.count() else self.controller.primary
+        self.primary.blockSignals(True)
+        self.primary.clear()
+        for index, name in zip(selection, names):
+            self.primary.addItem(name, index)
+        self.primary.setCurrentIndex(max(0, self.primary.findData(primary)))
+        self.primary.blockSignals(False)
+        focus = self.columns.currentData() == FOCUS_LAYOUT
+        self.primary_row.setVisible(focus)
+        primary = selection.index(self.primary.currentData()) if selection else 0
+        self.preview.set_panes(names, self.columns.currentData(), self.controller.aspects_for(selection), primary)
+        valid = bool(names) and (not focus or len(names) == 6)
+        self.start.setEnabled(valid)
+        self.hint.setText('单主＋五辅需要选择6路画面；主画面可在上方指定。' if focus and len(names) != 6 else
+                          f'已选择 {len(names)} 路。按直播比例缩放并支持置顶，其他画面按原声音设置在后台播放。'
                           if self.checks else '画面墙中还没有直播间，请先添加画面。')
 
     def _apply(self):
-        selected = [index for index, check in self.checks.items() if check.isChecked()]
-        self.controller.start(selected, self.columns.currentData())
+        selected = self._selected()
+        self.controller.start(selected, self.columns.currentData(), self.primary.currentData())
         self.accept()
 
 
@@ -199,8 +267,7 @@ class PictureInPictureButton(QPushButton):
         hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
         active = hovered or (self.keyboard_focus and self.hasFocus()) or self.isChecked()
         if self.kind == 'pin':
-            # Blue denotes the pinned state, including while the pointer stays
-            # over an unchecked button after clicking.
+            # Blue denotes the pinned state rather than a lingering hover.
             background = (theme.qcolor(theme.ACCENT) if self.isChecked()
                           else QColor(45, 49, 55, 210) if active else QColor(0, 0, 0, 170))
         else:
@@ -219,6 +286,13 @@ class PictureInPictureButton(QPushButton):
             painter.drawLine(14, 6, 15, 12)
             painter.drawLine(8, 13, 16, 13)
             painter.drawLine(12, 13, 12, 19)
+        elif self.kind == 'reorder':
+            painter.drawLine(5, 8, 19, 8)
+            painter.drawLine(16, 5, 19, 8)
+            painter.drawLine(19, 8, 16, 11)
+            painter.drawLine(19, 16, 5, 16)
+            painter.drawLine(8, 13, 5, 16)
+            painter.drawLine(5, 16, 8, 19)
         else:
             painter.drawLine(8, 8, 16, 16)
             painter.drawLine(16, 8, 8, 16)
@@ -230,19 +304,22 @@ class PictureInPictureTools(QWidget):
         super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setFixedSize(80, 24)
+        self.setFixedSize(108, 24)
         box = QHBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(4)
         self.manage = PictureInPictureButton('composition', '选择画面组合', self)
+        self.reorder = PictureInPictureButton('reorder', '调整画面位置', self)
+        self.reorder.setCheckable(True)
         self.pin = PictureInPictureButton('pin', '置顶画中画', self)
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
         self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
         self.back = PictureInPictureButton('back', '关闭画中画并返回监控室（Esc）', self)
-        for button in (self.manage, self.pin, self.back):
+        for button in (self.manage, self.reorder, self.pin, self.back):
             box.addWidget(button)
         self.manage.clicked.connect(owner.controller.manage)
+        self.reorder.toggled.connect(owner._set_reordering)
         self.pin.toggled.connect(owner._pin)
         self.back.clicked.connect(owner.close)
         QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner.close)
@@ -271,6 +348,7 @@ class PictureInPictureWindow(QWidget):
         self.tools = PictureInPictureTools(self)
         self.pin = self.tools.pin
         self._gesture = None
+        self._reorder_drag = None
         self._live_resize = None
         self._pending_geometry = None
         self._geometry_timer = QTimer(self)
@@ -303,7 +381,7 @@ class PictureInPictureWindow(QWidget):
                       for button in self.tools.findChildren(PictureInPictureButton))
         visible = (self.isVisible() and not self.isMinimized()
                    and self.controller.dialog is None and (hovered or focused))
-        position = self.mapToGlobal(QPoint(self.width() - 88, 8))
+        position = self.mapToGlobal(QPoint(self.width() - self.tools.width() - 8, 8))
         moved = self.tools.pos() != position
         was_visible = self.tools.isVisible()
         if moved:
@@ -360,9 +438,9 @@ class PictureInPictureWindow(QWidget):
             return self._live_resize.preview.saveGeometry()
         return super().saveGeometry()
 
-    def set_composition(self, aspects, columns):
-        self.aspect = composition_aspect(composition_rows(aspects, columns))
-        minimum = max(96, round(48 * self.aspect))
+    def set_composition(self, aspects, columns, primary=0):
+        self.aspect = composition_ratio(aspects, columns, primary)
+        minimum = max(self.tools.width() + 16, round(48 * self.aspect))
         self.setMinimumSize(minimum, round(minimum / self.aspect))
         screen = self.screen().availableGeometry()
         self.resize_to_width(min(self.width(), screen.width(), round(screen.height() * self.aspect)))
@@ -431,8 +509,26 @@ class PictureInPictureWindow(QWidget):
             edges |= Qt.BottomEdge
         return edges
 
+    def _tile_at(self, point):
+        if self.tools.isVisible() and self.tools.geometry().contains(point):
+            return None
+        return next((tile for tile in self.controller.host.wall.visible_tiles()
+                     if tile.rect().contains(tile.mapFromGlobal(point))), None)
+
+    def _set_reordering(self, enabled):
+        self._reorder_drag = None
+        if self._gesture is None and QWidget.mouseGrabber() is self:
+            self.releaseMouse()
+        self.setCursor(Qt.OpenHandCursor if enabled else Qt.ArrowCursor)
+        for widget, _tracking, _cursor in self._surface_state:
+            widget.unsetCursor()
+        self.tools.reorder.setToolTip('拖到另一格后松开互换；点击结束调整' if enabled else '调整画面位置')
+
     def eventFilter(self, watched, event):
         kind = event.type()
+        if kind == QEvent.UngrabMouse and watched is self and self._reorder_drag is not None:
+            self._reorder_drag = None
+            self.setCursor(Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)
         if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove,
                         QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
             return False
@@ -441,7 +537,7 @@ class PictureInPictureWindow(QWidget):
             return False
         wall = self.controller.host.wall
         surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
-                                 for surface in (tile, tile.video, tile.cover, tile.video_danmaku)))
+                                 for surface in (tile, tile.video, tile.cover, tile.video_danmaku, tile.spinner, tile.pause_overlay)))
         if watched not in surfaces:
             return False
         point = event.globalPosition().toPoint()
@@ -449,15 +545,29 @@ class PictureInPictureWindow(QWidget):
             if self._live_resize is not None:
                 self._live_resize.finish(immediate=True)
             self.setFocus(Qt.MouseFocusReason)
-            self._gesture = (point, self.geometry(), self._resize_edges(self.mapFromGlobal(point)))
+            edges = self._resize_edges(self.mapFromGlobal(point))
+            if self.tools.reorder.isChecked() and not edges:
+                tile = self._tile_at(point)
+                if tile is not None:
+                    self._reorder_drag = (tile, point)
+                    self.setCursor(Qt.ClosedHandCursor)
+                    self.grabMouse()
+                return True
+            self._gesture = (point, self.geometry(), edges)
             self.grabMouse()
             return True
         if kind == QEvent.MouseMove:
+            if self._reorder_drag is not None:
+                source, _start = self._reorder_drag
+                target = self._tile_at(point)
+                self.setCursor(Qt.DragMoveCursor if target is not None and target is not source
+                               else Qt.ClosedHandCursor if target is source else Qt.ForbiddenCursor)
+                return True
             edges = self._gesture[2] if self._gesture is not None else self._resize_edges(self.mapFromGlobal(point))
             cursor = (Qt.SizeFDiagCursor if edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge)
                       else Qt.SizeBDiagCursor if edges in (Qt.TopEdge | Qt.RightEdge, Qt.BottomEdge | Qt.LeftEdge)
                       else Qt.SizeHorCursor if edges & (Qt.LeftEdge | Qt.RightEdge)
-                      else Qt.SizeVerCursor if edges else Qt.ArrowCursor)
+                      else Qt.SizeVerCursor if edges else Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)
             watched.setCursor(cursor)
             if self._gesture is not None:
                 start, bounds, edges = self._gesture
@@ -491,6 +601,15 @@ class PictureInPictureWindow(QWidget):
                 else:
                     self.setGeometry(rect)
                 return True
+        if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
+            source, start = self._reorder_drag
+            target = self._tile_at(point)
+            self._reorder_drag = None
+            self.releaseMouse()
+            self.setCursor(Qt.OpenHandCursor)
+            if target is not None and (point - start).manhattanLength() >= QApplication.startDragDistance():
+                self.controller.swap_positions(source, target)
+            return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
             self._flush_geometry(finishing=True)
             self._gesture = None
@@ -524,6 +643,7 @@ class PictureInPictureWindow(QWidget):
         QApplication.instance().removeEventFilter(self)
         self.tools.hide()
         self._gesture = None
+        self._reorder_drag = None
         grabber = QWidget.mouseGrabber()
         if grabber is not None and grabber.window() is self:
             grabber.releaseMouse()
@@ -568,6 +688,7 @@ class PictureInPicture(QObject):
         saved = host.state.get('ui', {}).get('picture_in_picture', {})
         self.selection = list(saved.get('selection', []))
         self.columns = saved.get('columns', 0)
+        self.primary = saved.get('primary')
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
         self._video_aspects = {}
@@ -629,27 +750,40 @@ class PictureInPicture(QObject):
         return aspects
 
     def _refresh_aspects(self):
-        if not self.active or self.floating._gesture is not None:
+        if not self.active or self.floating._gesture is not None or self.floating._reorder_drag is not None:
             return
         wall = self.host.wall
         aspects = self.aspects_for(self.selection)
         if aspects == wall.picture_in_picture_aspects:
             return
         wall.picture_in_picture_aspects = aspects
-        self.floating.set_composition(aspects, self.columns)
+        self.floating.set_composition(aspects, self.columns, self.selection.index(self.primary))
         wall.relayout(force=True)
 
-    def start(self, selection, columns=0):
+    def swap_positions(self, source, target):
+        tiles = self.host.wall.picture_in_picture_tiles
+        if source is target or source not in tiles or target not in tiles:
+            return
+        first, second = tiles.index(source), tiles.index(target)
+        primary = self.selection.index(self.primary)
+        self.selection[first], self.selection[second] = self.selection[second], self.selection[first]
+        if self.columns == FOCUS_LAYOUT:
+            self.primary = self.selection[primary]
+        self.start(self.selection, self.columns, self.primary)
+
+    def start(self, selection, columns=0, primary=None):
         wall = self.host.wall
         tiles = [wall.tiles[index] for index in selection
                  if 0 <= index < len(wall.tiles) and wall.tiles[index].room.get('room_id')]
         if not tiles:
             return
         selection = [wall.tiles.index(tile) for tile in tiles]
+        primary = primary if primary in selection else selection[0]
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
         self.selection, self.columns = list(selection), columns
+        self.primary = primary
         opened = not self.active
         if opened:
             wall.set_sidebar_animating(False)
@@ -666,8 +800,8 @@ class PictureInPicture(QObject):
             self.placeholder.show()
             self.floating.box.addWidget(wall, 1)
         aspects = self.aspects_for(selection)
-        wall.set_picture_in_picture(tiles, columns, aspects)
-        self.floating.set_composition(aspects, columns)
+        wall.set_picture_in_picture(tiles, columns, aspects, selection.index(primary))
+        self.floating.set_composition(aspects, columns, selection.index(primary))
         self.floating.show()
         wall.show()
         self._sync_overlays()
@@ -723,4 +857,4 @@ class PictureInPicture(QObject):
     def state(self):
         geometry = (str(self.floating.saveGeometry().toBase64(), 'ascii')
                     if self.active else self.geometry)
-        return dict(selection=self.selection, columns=self.columns, pinned=self.pinned, geometry=geometry)
+        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry)

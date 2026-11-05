@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
 from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWindow,
-    composition_aspect, composition_rows, pane_rectangles, video_aspect)
+    FOCUS_LAYOUT, composition_aspect, composition_ratio, composition_rows, pane_rectangles, video_aspect)
 
 
 def pointer(surface, kind, local, global_pos, button, buttons):
@@ -60,7 +60,7 @@ def check_floating_style(pip, wall, tiles, layer):
     with patch.object(floating, '_pointer_over', return_value=True):
         floating._poll_tools()
     assert floating.tools.isVisible()
-    assert floating.tools.pos() == floating.mapToGlobal(QPoint(floating.width() - 88, 8))
+    assert floating.tools.pos() == floating.mapToGlobal(QPoint(floating.width() - floating.tools.width() - 8, 8))
     assert floating.tools.windowHandle().transientParent() is floating.windowHandle()
     if QApplication.platformName() == 'windows':
         import ctypes
@@ -94,7 +94,7 @@ def check_floating_style(pip, wall, tiles, layer):
         finally:
             gdi32.DeleteObject(region)
     assert all(button.text() == '' and button.toolTip() and button.accessibleName()
-               for button in (floating.tools.manage, floating.pin, floating.tools.back))
+               for button in (floating.tools.manage, floating.tools.reorder, floating.pin, floating.tools.back))
     image = floating.tools.grab().toImage()
     assert image.pixelColor(0, 0).alpha() == 0, 'No rectangular backing behind the icons'
     assert image.pixelColor(12, 20).alpha() > 0
@@ -211,8 +211,10 @@ def check_resize_burst(pip, wall):
         assert apply_geometry.call_count == 1, 'Releasing the pointer must apply the latest size exactly once'
     assert floating._pending_geometry is None and not floating._geometry_timer.isActive()
     assert wall.geometry() == floating.rect(), 'Wall geometry must be synchronized when resizing returns'
-    expected = pane_rectangles(len(wall.visible_tiles()), wall.rect(), pip.columns, wall.picture_in_picture_aspects)
-    assert [tile.geometry() for tile in wall.visible_tiles()] == expected
+    selected = wall.picture_in_picture_tiles
+    expected = pane_rectangles(len(selected), wall.rect(), pip.columns,
+                               wall.picture_in_picture_aspects, wall.picture_in_picture_primary)
+    assert [tile.geometry() for tile in selected] == expected
     # This checks event coalescing and geometry consistency, not live-stream FPS
     # or compositor tearing. The user's native trace is separate evidence.
     floating.setGeometry(bounds)
@@ -236,6 +238,87 @@ def check_quick_mask_batch():
     window.cancel_move(2)
     assert window.mask() == base
     window.deleteLater()
+
+
+def drag_pane(floating, source, target):
+    start = source.mapToGlobal(source.rect().center())
+    end = target.mapToGlobal(target.rect().center())
+    pointer(source.video, QEvent.MouseButtonPress, source.video.rect().center(), start, Qt.LeftButton, Qt.LeftButton)
+    pointer(floating, QEvent.MouseMove, floating.mapFromGlobal(end), end, Qt.NoButton, Qt.LeftButton)
+    pointer(floating, QEvent.MouseButtonRelease, floating.mapFromGlobal(end), end, Qt.LeftButton, Qt.NoButton)
+
+
+def check_reordering(pip, players):
+    floating, wall = pip.floating, pip.host.wall
+    original = list(pip.selection)
+    wall_order = list(wall.tiles)
+    selected = list(wall.picture_in_picture_tiles)
+    primary = pip.primary
+    origin = floating.pos()
+    cores = [player.player for player in players]
+    handles = [int(tile.video.winId()) for tile in selected]
+    audio = [(tile.volume, tile.muted, tile.audio_channel) for tile in selected]
+    assert not floating.tools.reorder.isChecked()
+    floating.tools.reorder.click()
+    assert floating.tools.reorder.isChecked()
+    drag_pane(floating, selected[0], selected[1])
+    assert pip.selection[:2] == original[:2][::-1]
+    assert floating.pos() == origin and wall.tiles == wall_order
+    assert [player.player for player in players] == cores
+    assert [int(tile.video.winId()) for tile in selected] == handles
+    assert [(tile.volume, tile.muted, tile.audio_channel) for tile in selected] == audio
+    assert not floating._geometry_timer.isActive(), 'Reordering must not queue a window move or resize'
+    assert pip.state()['selection'] == pip.selection
+    check_resize_burst(pip, wall)
+    assert floating.tools.reorder.isChecked(), 'Outer-edge resizing must remain available in reorder mode'
+    if pip.columns == FOCUS_LAYOUT and primary in original[:2]:
+        expected_primary = original[1] if primary == original[0] else original[0]
+        assert pip.primary == expected_primary
+    pip.manage()
+    assert pip.dialog._selected() == pip.selection
+    pip.dialog.start.click()
+    assert pip.selection[:2] == original[:2][::-1], 'Applying the same picker must preserve the dragged order'
+    source = selected[0]
+    start = source.mapToGlobal(source.rect().center())
+    for end in (start + QPoint(1, 1), floating.mapToGlobal(floating.rect().bottomRight() + QPoint(30, 30))):
+        before = list(pip.selection)
+        pointer(source.video, QEvent.MouseButtonPress, source.video.rect().center(), start, Qt.LeftButton, Qt.LeftButton)
+        pointer(floating, QEvent.MouseMove, floating.mapFromGlobal(end), end, Qt.NoButton, Qt.LeftButton)
+        pointer(floating, QEvent.MouseButtonRelease, floating.mapFromGlobal(end), end, Qt.LeftButton, Qt.NoButton)
+        assert pip.selection == before and floating.pos() == origin
+    pointer(source.video, QEvent.MouseButtonPress, source.video.rect().center(), start, Qt.LeftButton, Qt.LeftButton)
+    QCoreApplication.sendEvent(floating, QEvent(QEvent.UngrabMouse))
+    assert floating._reorder_drag is None, 'Lost mouse capture must cancel pending swaps'
+    floating.releaseMouse()
+    drag_pane(floating, selected[0], selected[1])
+    assert pip.selection == original and pip.primary == primary
+    floating.tools.reorder.click()
+    assert not floating.tools.reorder.isChecked()
+    bounds = floating.geometry()
+    start = selected[0].mapToGlobal(selected[0].rect().center())
+    pointer(selected[0].video, QEvent.MouseButtonPress, selected[0].video.rect().center(), start, Qt.LeftButton, Qt.LeftButton)
+    pointer(floating, QEvent.MouseMove, floating.mapFromGlobal(start + QPoint(23, 17)), start + QPoint(23, 17), Qt.NoButton, Qt.LeftButton)
+    pointer(floating, QEvent.MouseButtonRelease, floating.mapFromGlobal(start + QPoint(23, 17)), start + QPoint(23, 17), Qt.LeftButton, Qt.NoButton)
+    assert floating.geometry() == bounds.translated(23, 17) and pip.selection == original
+    floating.setGeometry(bounds)
+
+
+def check_buffer_scale(pip):
+    floating = pip.floating
+    previous = floating.geometry()
+    for width in (400, floating.minimumWidth()):
+        floating.resize_to_width(width)
+        for tile in pip.host.wall.visible_tiles():
+            tile.set_buffering(True)
+            indicator = tile.spinner
+            assert 0 < indicator._presentation_scale <= .75
+            assert indicator.width() <= max(1, tile.width() - 12) + 1
+            assert indicator.height() <= max(1, tile.height() - 12) + 1
+            assert abs(indicator.width() - indicator.natural_size().width() * indicator._presentation_scale) <= 1
+            assert abs(indicator.height() - indicator.natural_size().height() * indicator._presentation_scale) <= 1
+            assert tile.pause_overlay._presentation_scale == 1, 'Pause presentation was not requested to change'
+            tile.set_buffering(False)
+    floating.setGeometry(previous)
 
 
 def check_live_resize(pip, players, layer):
@@ -406,7 +489,11 @@ def exercise(app, window, native, directory):
             check_native_corners(pip)
     check_floating_style(pip, wall, tiles, layer)
     check_resize_burst(pip, wall)
+    check_reordering(pip, players)
+    check_buffer_scale(pip)
     if native:
+        for tile in wall.visible_tiles():
+            tile.video_danmaku.add_event({'text': 'Local resize comment'})
         check_live_resize(pip, players, layer)
     pip.manage()
     pip.dialog.checks[3].setChecked(True)
@@ -475,6 +562,19 @@ def exercise(app, window, native, directory):
         pip.floating.pin.setChecked(True)
         image = pip.floating.pin.grab().toImage()
         assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT)
+    button = pip.floating.tools.reorder
+    with patch('ddm.picture_in_picture.QCursor.pos', return_value=button.mapToGlobal(QPoint(5, 12))):
+        assert not button.isChecked()
+        image = button.grab().toImage()
+        scale = image.devicePixelRatio()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT), 'Reorder hover must match the neighboring controls'
+    with patch('ddm.picture_in_picture.QCursor.pos', return_value=QPoint(-30000, -30000)):
+        image = button.grab().toImage()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)).alpha() < 230
+        button.setChecked(True)
+        image = button.grab().toImage()
+        assert image.pixelColor(round(5 * scale), round(12 * scale)) == theme.qcolor(theme.ACCENT), 'Enabled reorder mode must remain blue after the pointer leaves'
+        button.setChecked(False)
     button = pip.floating.tools.manage
     with patch.object(button, 'underMouse', return_value=True), \
             patch.object(button, 'hasFocus', return_value=True), \
@@ -556,6 +656,109 @@ def exercise(app, window, native, directory):
     assert not pip.active and all(player._released for player in players)
 
 
+def check_focus_geometry():
+    profiles = ([16 / 9] * 6, [9 / 16] * 6,
+                [16 / 9, 9 / 16, 4 / 3, 1, 9 / 16, 32 / 9])
+    for aspects in profiles:
+        for primary in range(6):
+            ratio = composition_ratio(aspects, FOCUS_LAYOUT, primary)
+            for width in (320, 641, 1280):
+                area = QRect(7, 11, width, round(width / ratio))
+                rectangles = pane_rectangles(6, area, FOCUS_LAYOUT, aspects, primary)
+                assert all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
+                assert not any(a.intersects(b) for index, a in enumerate(rectangles) for b in rectangles[index + 1:])
+                assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height()
+                assert all(min(abs(rect.width() - rect.height() * value), abs(rect.height() - rect.width() / value)) <= 2
+                           for rect, value in zip(rectangles, aspects)), 'Focus layout must preserve each display aspect, including a portrait primary'
+                assert rectangles[primary].topLeft() == QPoint(min(rect.left() for rect in rectangles), min(rect.top() for rect in rectangles))
+    area = QRect(0, 0, 960, 540)
+    for primary in range(6):
+        rectangles = pane_rectangles(6, area, FOCUS_LAYOUT, primary=primary)
+        assert rectangles[primary] == QRect(0, 0, 640, 360)
+        assert all(rect.size() == QSize(320, 180) for index, rect in enumerate(rectangles) if index != primary)
+
+
+def exercise_focus(app, native, directory):
+    rooms = [dict(room_id=str(2200 + index), uname=f'Focus {index}', live=False, muted=True) for index in range(6)]
+    window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x2',
+        state={'plugins_enabled': [], 'ui': {'picture_in_picture': {
+            'selection': list(range(6)), 'columns': FOCUS_LAYOUT, 'primary': 4}},
+            'settings': {'close_behavior': 'exit', 'auto_quality': False, 'auto_update': False,
+                         'recording_enabled': False, 'recording_replay_enabled': False}})
+    window.setAttribute(Qt.WA_ShowWithoutActivating)
+    window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+    window.setGeometry(-12000, 0, 1100, 750)
+    window.show()
+    pip, wall = window.picture_in_picture, window.wall
+    tiles = list(wall.tiles)
+    players = []
+    try:
+        if native:
+            from ddm.player import TilePlayer
+            from selfcheck_mpv import ready
+            for index, tile in enumerate(tiles[:2]):
+                player = TilePlayer(tile.video, window, silent=True)
+                player.freeze_watch = False
+                player.play(str(Path(directory) / f'local-{index}.mp4'))
+                player.set_muted(True)
+                tile.set_video_active(True)
+                window.players[tile] = player
+                players.append(player)
+                ready(app, player)
+        cores = [player.player for player in players]
+        handles = [int(tile.video.winId()) for tile in tiles]
+        positions = [player._prop('time-pos') for player in players]
+        pip.manage()
+        dialog = pip.dialog
+        QTest.qWait(30)
+        assert dialog.columns.currentData() == FOCUS_LAYOUT
+        assert dialog.primary_row.isVisible() and dialog.primary.currentData() == 4
+        assert dialog.rect().contains(dialog.start.geometry()) and dialog.start.isVisible()
+        assert dialog.rect().contains(QRect(dialog.primary.mapTo(dialog, QPoint()), dialog.primary.size()))
+        dialog.checks[5].setChecked(False)
+        assert not dialog.start.isEnabled() and dialog.primary.count() == 5
+        dialog.checks[5].setChecked(True)
+        assert dialog.start.isEnabled() and dialog.primary.currentData() == 4
+        dialog.primary.setCurrentIndex(dialog.primary.findData(0))
+        assert dialog.preview.primary == 0 and dialog.preview.labels[0].text().startswith('主画面')
+        dialog.start.click()
+        QTest.qWait(100)
+        assert pip.columns == FOCUS_LAYOUT and pip.primary == 0 and wall.picture_in_picture_primary == 0
+        assert wall.visible_tiles() == tiles
+        before = [tile.geometry() for tile in tiles]
+        pip.manage()
+        pip.dialog.primary.setCurrentIndex(pip.dialog.primary.findData(1))
+        pip.dialog.reject()
+        assert pip.primary == 0 and [tile.geometry() for tile in tiles] == before
+        pip.manage()
+        pip.dialog.primary.setCurrentIndex(pip.dialog.primary.findData(1))
+        pip.dialog.start.click()
+        QTest.qWait(100)
+        assert pip.primary == 1 and wall.picture_in_picture_primary == 1
+        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, pip.aspects_for(pip.selection), 1)
+        assert [tile.geometry() for tile in tiles] == expected
+        assert tiles[1].geometry().topLeft() == QPoint(0, 0)
+        check_reordering(pip, players)
+        check_buffer_scale(pip)
+        check_resize_burst(pip, wall)
+        assert [player.player for player in players] == cores
+        assert [int(tile.video.winId()) for tile in tiles] == handles
+        assert all(player._prop('time-pos') > position for player, position in zip(players, positions))
+        state = window.current_state()['ui']['picture_in_picture']
+        assert state['primary'] == 1 and state['columns'] == FOCUS_LAYOUT
+        pip.restore()
+        QTest.qWait(50)
+        assert wall.tiles == tiles and wall.layout_id == '3x2'
+        assert all(tile.spinner._presentation_scale == 1 for tile in tiles)
+        pip.manage()
+        assert pip.dialog.primary.currentData() == 1
+        pip.dialog.reject()
+    finally:
+        window.close()
+        QTest.qWait(100)
+    assert not pip.active and all(player._released for player in players)
+
+
 def main():
     app = QApplication([])
     native = '--native' in sys.argv or app.platformName() == 'windows'
@@ -564,6 +767,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
     check_quick_mask_batch()
+    check_focus_geometry()
     if native:
         assert app.platformName() == 'windows'
     for count in range(1, 17):
@@ -629,6 +833,7 @@ def main():
         finally:
             window.close()
             app.processEvents()
+        exercise_focus(app, native, directory)
     print('PASS: PiP selection, shared playback, resizing, pinning, independent visibility, restore and shutdown')
 
 
