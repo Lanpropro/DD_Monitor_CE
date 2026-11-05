@@ -266,7 +266,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
         if ":" in room_id:
             room.update(platform=room_id.split(":", 1)[0], playback_mode="stream")
         if saved.get("playback_mode") in ("browser", "stream"):
-            for key in ("uname", "title", "platform", "playback_mode", "anchor_uid", "sec_uid", "resolved_room_id"):
+            for key in ("uname", "title", "platform", "playback_mode", "anchor_uid", "sec_uid", "resolved_room_id", "face"):
                 if isinstance(saved.get(key), str):
                     room[key] = saved[key]
             if saved.get("follow_account_ref") is True:

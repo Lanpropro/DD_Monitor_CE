@@ -13,6 +13,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import requests
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 from ddm.account_dialog import AccountPlatformDialog, FollowAccountResolver
 from ddm.account_store import AccountStore
@@ -245,7 +246,8 @@ def check_account_reference_import(app):
     folder = owner.sidebar.create_folder('Account follows')
     sec_uid = 'MS4wLjAB' + 'x' * 20
     account = dict(room_id='', platform='douyin', anchor_uid='105', sec_uid=sec_uid,
-                   uname='Offline account', title='', live=False, live_known=False)
+                   uname='Offline account', title='', live=False, live_known=False,
+                   face='https://p3.douyinpic.com/follow-avatar.jpg')
     owner._cache_douyin_follows([account])
     dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
     page = dialog.page
@@ -268,10 +270,17 @@ def check_account_reference_import(app):
     assert [r['room_id'] for r in owner.sidebar.rooms()] == [reference]
     assert owner.sidebar.folder_for(reference) == folder
     assert not any(tile.room.get('room_id') for tile in owner.wall.tiles)
+    picture = QPixmap(32, 32)
+    picture.fill(Qt.blue)
+    owner._on_room_avatar(reference, picture)
+    thumb = owner.sidebar._items[0].thumb
+    assert thumb._face_source is not None and not thumb.face.isHidden()
+    assert thumb._cover_source is None and getattr(thumb, '_banner_source', None) is None
     state = owner.current_state()
     restored, _ = build_rooms(state)
     assert restored[0]['anchor_uid'] == '105' and restored[0]['sec_uid'] == sec_uid
     assert restored[0]['follow_account_ref'] and restored[0]['uname'] == account['uname']
+    assert restored[0]['face'] == account['face']
     restarted = DouyinPlatform()
     restarted.restore_follow_rooms(restored)
     assert restarted.room_url(reference) == 'https://www.douyin.com/user/' + sec_uid
