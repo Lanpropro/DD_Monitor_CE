@@ -193,8 +193,8 @@
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
-| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；隔离透明/近透明窗口检查最大化拖动后 Qt/Win32 状态一致、取消及主动最大化、预览首帧先于原窗隐藏、交接动画的完成/取消清理；不注入鼠标，不作为真实故障首次定位证据 |
-| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；静态窗口移动预览、取消/抓图失败/关闭/异常清理及双击消息路由；`--screens --players 3` 使用两块屏幕、123 张合成关注和本地视频，检查截图视频像素、隐藏时连续播放、原生几何、跨屏/最大化及 HWND/播放器保持；无账号或真实直播，真实输入与吸附另验 |
+| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；隔离透明/近透明窗口检查最大化拖动后 Qt/Win32 状态一致、取消及主动最大化、首帧先于原窗遮蔽、交接动画清理、屏幕外窗口无需桌面截图及合成注册失败回退；不注入鼠标，不作为真实故障首次定位证据 |
+| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；合成窗口移动预览、取消/合成不可用/关闭/异常清理及双击消息路由；`--screens --players 3` 使用两块屏幕、123 张合成关注和本地视频，检查合成预览的视频像素、遮蔽时连续播放、原生几何、跨屏/最大化及 HWND/播放器保持；无账号或真实直播，真实输入与吸附另验 |
 
 ## 弹幕与表情
 
