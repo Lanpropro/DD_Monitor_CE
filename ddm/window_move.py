@@ -1,4 +1,4 @@
-"""Move a single static window preview, then let Qt relocate the live window."""
+"""Move a composed window preview, then let Qt relocate the live window."""
 import ctypes
 from ctypes import wintypes
 
@@ -7,14 +7,19 @@ from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .window_fullscreen import _dwm_set, sync_titlebar
+from .picture_in_picture_resize import _ThumbnailProperties
 
 
 class MovePreview(QWidget):
-    def __init__(self, owner, frame):
+    def __init__(self, owner):
         super().__init__(None, Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint |
                          Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
         self.owner = owner
-        self.frame = frame
+        self.thumbnail = wintypes.HANDLE()
+        self.dwm = ctypes.windll.dwmapi
+        self.dwm.DwmRegisterThumbnail.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.POINTER(wintypes.HANDLE))
+        self.dwm.DwmUpdateThumbnailProperties.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ThumbnailProperties))
+        self.dwm.DwmUnregisterThumbnail.argtypes = (wintypes.HANDLE,)
         self.physical_size = None
         self.setAttribute(Qt.WA_OpaquePaintEvent)
         self.setWindowTitle(owner.source.windowTitle())
@@ -22,7 +27,18 @@ class MovePreview(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.drawPixmap(self.rect(), self.frame)
+        painter.fillRect(self.rect(), Qt.black)
+        if self.thumbnail:
+            scale = self.devicePixelRatioF()
+            properties = _ThumbnailProperties(1 | 4 | 8 | 16,
+                wintypes.RECT(0, 0, round(self.width()*scale), round(self.height()*scale)),
+                wintypes.RECT(), 255, True, True)
+            self.dwm.DwmUpdateThumbnailProperties(self.thumbnail, ctypes.byref(properties))
+
+    def detach(self):
+        if self.thumbnail:
+            self.dwm.DwmUnregisterThumbnail(self.thumbnail)
+            self.thumbnail = wintypes.HANDLE()
 
     def nativeEvent(self, event_type, message):
         msg = wintypes.MSG.from_address(int(message))
@@ -126,13 +142,6 @@ class WindowMove(QObject):
         if self.preview is not None or not self.source.isVisible():
             return None
         screen = self.source.screen()
-        # Capture the composed screen pixels in our client rectangle. The window
-        # DC alone omits libmpv's D3D11 swapchains and produces black video panes.
-        offset = self.source.mapToGlobal(QPoint()) - screen.geometry().topLeft()
-        frame = screen.grabWindow(0, offset.x(), offset.y(),
-                                  self.source.width(), self.source.height())
-        if frame.isNull():
-            return None
         self.was_maximized = self.source.isMaximized()
         self.original_geometry = QRect(self.source.normalGeometry() if self.was_maximized
                                        else self.source.geometry())
@@ -146,12 +155,18 @@ class WindowMove(QObject):
             pointer = QCursor.pos()
             geometry.moveTopLeft(QPoint(pointer.x()-round(geometry.width()*fraction),
                                          pointer.y()-anchor.y()))
-        preview = MovePreview(self, frame)
+        preview = MovePreview(self)
         self.preview = preview
         preview.setGeometry(geometry)
         preview.winId()
         preview.windowHandle().setScreen(screen)
         preview.setGeometry(geometry)
+        # A DWM thumbnail includes the full native client surface even when the
+        # source extends off-screen. A desktop screenshot cannot capture that.
+        if preview.dwm.DwmRegisterThumbnail(int(preview.winId()), self.hwnd,
+                                            ctypes.byref(preview.thumbnail)) != 0:
+            self.reveal()
+            return None
         # These windows exchange one image; independent DWM fades expose the
         # desktop and a scaled/grey intermediate surface during every handoff.
         _dwm_set(int(preview.winId()), 3, 1)  # DWMWA_TRANSITIONS_FORCEDISABLED
@@ -168,7 +183,11 @@ class WindowMove(QObject):
         bounds = wintypes.RECT()
         self.user32.GetWindowRect(int(preview.winId()), ctypes.byref(bounds))
         preview.physical_size = bounds.right-bounds.left, bounds.bottom-bounds.top
-        self.source.hide()
+        # Cloaking keeps the source composed (including native video children)
+        # without a Qt hide/show cycle or a second decoder.
+        if _dwm_set(self.hwnd, 13, 1) != 0:  # DWMWA_CLOAK
+            self.reveal()
+            return None
         return preview
 
     def run_move(self):
@@ -194,6 +213,7 @@ class WindowMove(QObject):
         preview = self.preview
         self.revealing = True
         maximized = preview.isMaximized()
+        _dwm_set(self.hwnd, 15, 1)  # Freeze thumbnail while the real layout settles.
         bounds = wintypes.RECT()
         self.user32.GetWindowRect(int(preview.winId()), ctypes.byref(bounds))
         resized = (bounds.right-bounds.left, bounds.bottom-bounds.top) != preview.physical_size
@@ -240,8 +260,11 @@ class WindowMove(QObject):
         self.revealing = False
         self.destination = None
         if preview is not None:
+            _dwm_set(self.hwnd, 15, 0)
+            _dwm_set(self.hwnd, 13, 0)
             ctypes.windll.dwmapi.DwmFlush()
             preview.hide()
+            preview.detach()
             preview.deleteLater()
             _dwm_set(self.hwnd, 3, 0)
 

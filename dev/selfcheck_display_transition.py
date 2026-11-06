@@ -1,4 +1,4 @@
-"""Offline static move preview and normal Qt DPI transitions; --screens uses attached monitors."""
+"""Offline composed move preview and Qt DPI transitions; --screens uses attached monitors."""
 import argparse
 import ctypes
 from ctypes import wintypes
@@ -18,13 +18,14 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QPixmap, QScreen
+from PySide6.QtGui import QMouseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.plugins import PluginManager
 from ddm.window_move import WindowMove
+from ddm.window_fullscreen import _dwm_get
 from dev.selfcheck_mpv import ready
 from dev.selfcheck_window_resize import Work, latest_geometry, settle, wait_orientation
 
@@ -145,14 +146,14 @@ def check_lifecycle():
         assert window._root_layout.isEnabled() and window.updatesEnabled()
         for _ in range(3):
             preview = controller.begin()
-            assert preview is not None and not preview.frame.isNull()
-            assert not window.isVisible() and preview.isVisible()
+            assert preview is not None and preview.thumbnail
+            assert window.isVisible() and _dwm_get(int(window.winId()), 14) == 1 and preview.isVisible()
             assert controller.begin() is None, 'Only one move preview may exist'
             preview.move(preview.pos()+QPoint(10, 10))
             controller.finish(cancelled=True)
             assert window.isVisible() and window.geometry() == original
             assert controller.preview is None and not controller.timer.isActive()
-        with patch.object(QScreen, 'grabWindow', return_value=QPixmap()):
+        with patch.object(ctypes.windll.dwmapi, 'DwmRegisterThumbnail', return_value=-1):
             assert controller.begin() is None
             assert window.isVisible() and controller.preview is None
         with patch.object(controller, 'begin', return_value=None), patch.object(controller, 'user32') as api:
@@ -205,7 +206,7 @@ def check_lifecycle():
             controller._release_press()
             preview = controller.begin()
         assert controller.was_maximized and window.isMaximized()
-        assert not window.isVisible() and window.geometry() == maximized_geometry
+        assert _dwm_get(int(window.winId()), 14) == 1 and window.geometry() == maximized_geometry
         assert preview.size() == normal_size
         controller.finish(cancelled=True)
         assert window.isVisible() and window.isMaximized()
@@ -267,8 +268,11 @@ def check_native_drag(window, target, return_to=None):
     capture_ms = (time.perf_counter()-started)*1000
     assert preview is not None
     # The local FFmpeg clip is blue: inspect captured native video pixels, not Qt grab().
-    frame = preview.frame.toImage()
-    scale = preview.frame.devicePixelRatioF()
+    screen = preview.screen()
+    offset = preview.mapToGlobal(QPoint()) - screen.geometry().topLeft()
+    image = screen.grabWindow(0, offset.x(), offset.y(), preview.width(), preview.height())
+    frame = image.toImage()
+    scale = image.devicePixelRatioF()
     checked_pixels = 0
     for tile in window.wall.tiles[:len(players)]:
         point = tile.video.mapTo(window, tile.video.rect().center())
@@ -278,7 +282,7 @@ def check_native_drag(window, target, return_to=None):
             continue
         pixel = frame.pixelColor(round(point.x()*scale), round(point.y()*scale))
         if not (pixel.blue() > 150 and pixel.red() < 80):
-            preview.frame.save(str(ROOT / 'work/move-preview-failed.png'))
+            image.save(str(ROOT / 'work/move-preview-failed.png'))
             raise AssertionError(('Missing native video in preview', pixel.name(),
                                   frame.size(), scale, point))
         checked_pixels += 1
@@ -292,7 +296,7 @@ def check_native_drag(window, target, return_to=None):
                     area.y()+round(offset*screen.devicePixelRatio()), 0, 0, 0x0015)
                 settle(70)
                 assert size(int(preview.winId())) == preview.physical_size, 'Preview scaled while held'
-                assert not window.isVisible() and window.geometry() == geometry
+                assert _dwm_get(int(window.winId()), 14) == 1 and window.geometry() == geometry
                 assert size(int(window.winId())) == before and window.devicePixelRatioF() == dpr
                 assert all(size(handle) == previous for handle, previous in videos.items())
         for player, position, audio_position, core, session in players:

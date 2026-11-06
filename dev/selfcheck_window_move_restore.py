@@ -10,11 +10,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPixmap, QScreen
+from PySide6.QtGui import QScreen
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.window_move import MovePreview, WindowMove
-from ddm.window_fullscreen import _dwm_set
+from ddm.window_fullscreen import _dwm_get, _dwm_set
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows native window state')
@@ -42,9 +42,6 @@ class MoveRestoreTests(unittest.TestCase):
         self.preview_patch = patch.object(MovePreview, '__init__', transparent)
         self.preview_patch.start()
         self.addCleanup(self.preview_patch.stop)
-        self.frame_patch = patch.object(QScreen, 'grabWindow', return_value=QPixmap(100, 70))
-        self.frame_patch.start()
-        self.addCleanup(self.frame_patch.stop)
 
     def close(self):
         self.controller.cancel(restore=False)
@@ -121,11 +118,11 @@ class MoveRestoreTests(unittest.TestCase):
         painted = []
         paint = MovePreview.paintEvent
         def record(preview, event):
-            painted.append(self.window.isVisible())
+            painted.append(_dwm_get(int(self.window.winId()), 14) == 0)
             return paint(preview, event)
         with patch.object(MovePreview, '__init__', paintable), patch.object(MovePreview, 'paintEvent', record):
             self.begin()
-        self.assertIn(True, painted, 'Source hidden before preview first paint')
+        self.assertIn(True, painted, 'Source cloaked before preview first paint')
 
     def test_handoff_disables_transitions_and_cancel_restores_them(self):
         self.window.resize(1000, 700)
@@ -140,8 +137,13 @@ class MoveRestoreTests(unittest.TestCase):
             self.controller.cancel()
         self.assertEqual(changes, [(hwnd, 3, 1, True),
                                   (int(self.window.winId()), 3, 1, True),
+                                  (int(self.window.winId()), 13, 1, True),
+                                  (int(self.window.winId()), 15, 0, True),
+                                  (int(self.window.winId()), 13, 0, True),
                                   (int(self.window.winId()), 3, 0, True)])
         self.assertTrue(self.window.isVisible())
+        self.assertEqual(_dwm_get(int(self.window.winId()), 14), 0)
+        self.assertFalse(preview.thumbnail)
 
     def test_completed_handoff_restores_source_transitions(self):
         self.window.resize(1000, 700)
@@ -153,6 +155,28 @@ class MoveRestoreTests(unittest.TestCase):
         self.assertIsNone(self.controller.preview)
         self.assertTrue(self.window.isVisible())
         setter.assert_called_with(int(self.window.winId()), 3, 0)
+
+    def test_offscreen_move_uses_full_composition_without_desktop_capture(self):
+        area = self.window.screen().availableGeometry()
+        self.window.setGeometry(area.right()-100, area.bottom()-100, 1000, 700)
+        self.window.show()
+        with patch.object(QScreen, 'grabWindow', side_effect=AssertionError('Desktop capture')):
+            preview = self.begin()
+        self.assertTrue(preview.thumbnail)
+        self.assertEqual(preview.size(), self.window.size())
+        self.assertTrue(self.window.isVisible())
+        self.assertEqual(_dwm_get(int(self.window.winId()), 14), 1)
+        self.controller.cancel()
+        self.assertEqual(_dwm_get(int(self.window.winId()), 14), 0)
+        self.assertFalse(preview.thumbnail)
+
+    def test_unavailable_composition_leaves_source_visible(self):
+        self.window.show()
+        with patch.object(ctypes.windll.dwmapi, 'DwmRegisterThumbnail', return_value=-1):
+            self.assertIsNone(self.controller.begin())
+        self.assertTrue(self.window.isVisible())
+        self.assertEqual(_dwm_get(int(self.window.winId()), 14), 0)
+        self.assertIsNone(self.controller.preview)
 
 
 if __name__ == '__main__':
