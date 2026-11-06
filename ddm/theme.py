@@ -784,8 +784,6 @@ QSlider::handle:horizontal:hover {{
     border: none;
     border-radius: {RADIUS_MD}px;
     padding: 0;
-    min-width: 0;
-    min-height: 0;
 }}
 #NavigationButton:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
 #NavigationButton:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}

@@ -3333,7 +3333,7 @@ class AppearanceButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("ChipButton")
         self.setFixedSize(22, 22)
-        self.setStyleSheet("padding: 0; min-width: 20px; min-height: 20px;")
+        self.setStyleSheet("padding: 0;")
         self.setCursor(Qt.PointingHandCursor)
         self.refresh_theme()
 
