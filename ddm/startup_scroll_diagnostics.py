@@ -31,7 +31,7 @@ class StartupEvents:
         self.records.clear()
 
     def dispatch(self, notify, receiver, event):
-        if (not self.enabled or self.probe.stopped.is_set() or self.depth
+        if (not self.enabled or self.probe.stopped.is_set()
                 or threading.get_ident() != self.probe.main_thread):
             return notify(receiver, event)
         if time.monotonic() >= self.deadline:
@@ -39,8 +39,13 @@ class StartupEvents:
             return notify(receiver, event)
         # Capture type values before delivery: dispatch may delete the receiver/event.
         kind, event_type = type(receiver).__name__, event.type()
+        nested = self.depth > 0
+        painting = event_type == QEvent.Paint
+        if nested and not painting:
+            return notify(receiver, event)
+        size = receiver.size() if painting and isinstance(receiver, QWidget) else None
         self.depth += 1
-        self.probe.active.append('Qt.notify')
+        self.probe.active.append('Qt.paint' if painting else 'Qt.notify')
         started = time.perf_counter()
         try:
             return notify(receiver, event)
@@ -48,15 +53,22 @@ class StartupEvents:
             elapsed = (time.perf_counter() - started) * 1000
             self.probe.active.pop()
             self.depth -= 1
-            key = (kind, event_type.name)
-            record = self.records.setdefault(key, dict(receiver_class=kind,
-                event_type=event_type.name, count=0, total_ms=0, max_ms=0))
-            record['count'] += 1
-            record['total_ms'] += elapsed
-            record['max_ms'] = max(record['max_ms'], elapsed)
+            if not nested:
+                key = (kind, event_type.name)
+                record = self.records.setdefault(key, dict(receiver_class=kind,
+                    event_type=event_type.name, count=0, total_ms=0, max_ms=0))
+                record['count'] += 1
+                record['total_ms'] += elapsed
+                record['max_ms'] = max(record['max_ms'], elapsed)
             if elapsed >= 16:
-                self.probe.write('startup-qt-event', receiver_class=kind,
-                    event_type=event_type.name, duration_ms=round(elapsed, 3))
+                if painting:
+                    self.probe.write('startup-qt-paint', receiver_class=kind,
+                        width=size.width() if size is not None else 0,
+                        height=size.height() if size is not None else 0,
+                        nested=nested, duration_ms=round(elapsed, 3))
+                else:
+                    self.probe.write('startup-qt-event', receiver_class=kind,
+                        event_type=event_type.name, duration_ms=round(elapsed, 3))
 
 
 class ScrollCapture(QObject):

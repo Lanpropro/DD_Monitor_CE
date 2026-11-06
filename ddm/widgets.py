@@ -6477,7 +6477,9 @@ class Tile(QFrame):
         self._refresh_badge()
         self.stream_badge.set_offline()
         self.set_status("已下播")
-        self.video.repaint()                  # 立刻把上一帧擦掉
+        # The cover already hides the last frame; let Qt coalesce the clearing
+        # with pending startup/layout paints instead of flushing the whole wall.
+        self.video.update()
 
     def set_buffering(self, active: bool) -> None:
         """卡顿/缓冲中：显示缓冲动画（和连接时同一套样式）。"""

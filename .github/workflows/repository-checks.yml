@@ -104,7 +104,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:QT_SCALE_FACTOR = '1.5'
           python dev/checks/bootstrap.py dev/selfcheck_sidebar_hit_test.py SidebarHitTests.test_native_ghost_is_excluded_without_hiding_it_or_using_qt_masks
-      - name: Check deferred native player output
+      - name: Check deferred native output and offline paints
         env:
           DDM_NO_SAVE: '1'
           DDM_CHECK_MODE: offline
@@ -112,8 +112,12 @@ jobs:
         run: |
           python dev/checks/bootstrap.py dev/selfcheck_player_lifetime.py PlayerLifetimeTests.test_normal_player_opens_output_only_when_local_media_is_ready
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python dev/checks/bootstrap.py dev/selfcheck_startup_windows.py StartupWindowsTests.test_offline_tiles_clear_state_without_reentrant_paint_delivery
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:QT_SCALE_FACTOR = '1.5'
           python dev/checks/bootstrap.py dev/selfcheck_player_lifetime.py PlayerLifetimeTests.test_normal_player_opens_output_only_when_local_media_is_ready
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python dev/checks/bootstrap.py dev/selfcheck_startup_windows.py StartupWindowsTests.test_offline_tiles_clear_state_without_reentrant_paint_delivery
       - name: Check native preview window isolation
         env:
           DDM_NO_SAVE: '1'

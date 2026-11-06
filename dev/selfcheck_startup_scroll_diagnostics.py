@@ -66,9 +66,10 @@ class StartupScrollTests(unittest.TestCase):
 
     def test_installed_application_receives_real_qt_dispatch_in_fresh_process(self):
         code = '''
-import json, tempfile
+import json, tempfile, time
 from pathlib import Path
 from PySide6.QtCore import QEvent
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QWidget
 from ddm import app as host
 from ddm.responsiveness import Probe
@@ -78,20 +79,60 @@ with tempfile.TemporaryDirectory() as directory:
     probe = Probe(path)
     install(probe)
     app = host.QApplication([])
-    widget = QWidget()
+    class Painted(QWidget):
+        def paintEvent(self, event):
+            time.sleep(.02)  # Exercise the slow-record threshold, not performance.
+    widget = Painted()
+    widget.resize(64, 64)
+    target = QPixmap(64, 64)
+    class Trigger(QWidget):
+        def event(self, event):
+            if event.type() == QEvent.User:
+                widget.render(target)
+                return True
+            return super().event(event)
+    trigger = Trigger()
     capture = app._startup_event_capture
     capture.start(widget)
-    app.sendEvent(widget, QEvent(QEvent.User))
+    app.sendEvent(trigger, QEvent(QEvent.User))
     capture.finish()
     rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
     assert any(item['event_type'] == 'User' for item in rows[-1]['events']), rows
+    assert any(row['phase'] == 'startup-qt-paint' and row['receiver_class'] == 'Painted'
+               and row['nested'] for row in rows), rows
     probe.stop()
     widget.deleteLater()
+    trigger.deleteLater()
     app.shutdown()
 '''
         result = subprocess.run([sys.executable, '-c', code], cwd=Path(__file__).resolve().parents[1],
                                 capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_slow_child_paint_is_identified_without_double_counting_window_update(self):
+        capture = StartupEvents(self.probe)
+        receiver = QWidget()
+        receiver.resize(321, 123)
+        capture.start(receiver)
+        token = object()
+        def window_update(widget, _event):
+            return capture.dispatch(lambda *_: token, widget, QEvent(QEvent.Paint))
+        try:
+            with patch('ddm.startup_scroll_diagnostics.time.perf_counter',
+                       side_effect=[0, .001, .026, .030]):
+                self.assertIs(capture.dispatch(window_update, receiver, QEvent(QEvent.UpdateRequest)), token)
+            self.assertEqual(self.probe.active, [])
+            capture.finish()
+            paint, outer, summary = self.records()
+            self.assertEqual(paint['phase'], 'startup-qt-paint')
+            self.assertEqual((paint['receiver_class'], paint['width'], paint['height']), ('QWidget', 321, 123))
+            self.assertTrue(paint['nested'])
+            self.assertEqual(paint['duration_ms'], 25)
+            self.assertEqual(outer['event_type'], 'UpdateRequest')
+            self.assertEqual(len(summary['events']), 1, 'Nested paints must not inflate total dispatch time')
+            self.assertEqual(summary['events'][0]['count'], 1)
+        finally:
+            receiver.deleteLater()
 
     def test_real_wheel_dispatch_is_preserved_and_written_once_per_scroll(self):
         sidebar = QWidget()

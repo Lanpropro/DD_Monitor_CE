@@ -208,6 +208,46 @@ class StartupWindowsTests(unittest.TestCase):
             window.close()
             self.app.processEvents()
 
+    def test_offline_tiles_clear_state_without_reentrant_paint_delivery(self):
+        window = MainWindow([], [], layout_id='single', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        window.setAttribute(Qt.WA_DontShowOnScreen)
+        window.resize(900, 600)
+        class Paints(QObject):
+            def __init__(self):
+                super().__init__()
+                self.seen = []
+            def eventFilter(self, watched, event):
+                if (event.type() == QEvent.Paint and isinstance(watched, QWidget)
+                        and (watched is window or window.isAncestorOf(watched))):
+                    self.seen.append(type(watched).__name__)
+                return False
+        paints = Paints()
+        try:
+            window.show()
+            self.app.processEvents()
+            tile = window.wall.tiles[0]
+            tile.room = {'room_id': 'fixture:offline', 'live': True}
+            tile.set_video_active(True)
+            tile.set_buffering(True)
+            self.app.processEvents()
+            self.app.installEventFilter(paints)
+            for _ in range(3):
+                tile.set_offline()
+            self.assertEqual(paints.seen, [], 'Offline initialization must not synchronously paint the window')
+            self.assertFalse(tile.room['live'])
+            self.assertFalse(tile._player_active)
+            self.assertFalse(tile._buffering)
+            self.assertIsNone(tile._cover_source)
+            self.assertTrue(tile.cover.isVisible())
+            self.app.processEvents()
+            self.assertTrue(paints.seen, 'Queued clearing must still be painted on the next event-loop turn')
+            self.assertEqual(tile.cover.text(), '已下播')
+        finally:
+            self.app.removeEventFilter(paints)
+            window.close()
+            self.app.processEvents()
+
     def test_hidden_construction_does_not_create_native_video_windows(self):
         window = MainWindow([], [], layout_id='corner', state={
             'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
