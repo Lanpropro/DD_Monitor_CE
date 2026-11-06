@@ -21,6 +21,7 @@ def main():
     app = QApplication([])
     assert sys.platform == "win32" and app.platformName() == "windows"
     surface = VideoSurface()
+    surface.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
     surface.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
     surface.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
     surface.resize(800, 500)
@@ -75,6 +76,15 @@ def main():
     path.addRoundedRect(QRectF(surface.rect()), 9, 9)
     mask = QRegion(path.toFillPolygon().toPolygon())
     try:
+        with patch.object(gdi32, 'CreateRectRgn', wraps=gdi32.CreateRectRgn) as create_region:
+            surface.setMask(mask)
+            placeholder = create_child()  # Its actual class is STATIC, not mpv.
+            for _ in range(10):
+                assert not surface._clip_native_video()
+            assert not create_region.called, 'No mpv output must not rebuild native clipping regions'
+            user32.DestroyWindow(placeholder)
+            children.remove(placeholder)
+        assert region_width(root) == round(surface.width() * surface.devicePixelRatioF()), 'Qt must keep the idle surface mask'
         with patch.object(user32, "GetClassNameW", side_effect=class_name):
             child = create_child()
             with patch.object(user32, "EnumChildWindows", wraps=user32.EnumChildWindows) as enum:
@@ -185,7 +195,7 @@ def main():
             surface.show()
             app.processEvents()
             assert surface._clip_timer.isActive()
-        print("PASS: one clip per committed resize, duplicate masks, DPI/clear/root/events, replacement, guard and bounded retries")
+        print("PASS: idle mask without native regions, committed resize, DPI/clear/root/events, replacement, guard and bounded retries")
     finally:
         for child in children:
             user32.DestroyWindow(child)

@@ -1278,7 +1278,7 @@ class MainNoticesTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.addCleanup(theme.signals().changed.disconnect)
-        for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+        for method in ('_start_startup_tiles', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
                        '_check_startup_update'):

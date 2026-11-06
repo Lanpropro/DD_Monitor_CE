@@ -2269,27 +2269,36 @@ class NavItem(QFrame):
 
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
-        self.badge.setText("直播中" if live else "未开播")
+        text = "直播中" if live else "未开播"
+        name = "BadgeLive" if live else "BadgeOff"
+        changed = self.badge.text() != text or self.badge.objectName() != name
+        self.badge.setText(text)
         if not self.room.get("title"):
-            self.sub.setText("直播中" if live else "未开播")
-        self.badge.setObjectName("BadgeLive" if live else "BadgeOff")
-        theme.refresh_theme_properties(self.badge)
-        _repolish(self.badge)
-        self._sync_live_dot()
-        self.thumb._layout_overlay()
+            changed = changed or self.sub._full_text != text
+            self.sub.setText(text)
+        if self.badge.objectName() != name:
+            self.badge.setObjectName(name)
+            theme.refresh_theme_properties(self.badge)
+            _repolish(self.badge)
+        if changed:
+            self._sync_live_dot()
+            self.thumb._layout_overlay()
 
     def set_title(self, title: str) -> None:
         """更新卡片上的直播间名，并同步悬停时的完整提示。"""
         self.room["title"] = title or ""
-        self.sub.setText(title or "未开播")
-        self.thumb._layout_overlay()
+        text = title or "未开播"
+        if self.sub._full_text != text:
+            self.sub.setText(text)
+            self.thumb._layout_overlay()
 
     def set_uname(self, uname: str) -> None:
         """补上主播名：启动时占位条目只有「房间 X」，状态刷新后才拿到真名。"""
         self.room["uname"] = uname or ""
-        self.name_label.setText(self.room["uname"]
-                                or str(self.room.get("room_id") or ""))
-        self.thumb._layout_overlay()
+        text = self.room["uname"] or str(self.room.get("room_id") or "")
+        if self.name_label._full_text != text:
+            self.name_label.setText(text)
+            self.thumb._layout_overlay()
 
     def set_pinned(self, pinned: bool) -> None:
         self._pinned = bool(pinned)
@@ -3406,6 +3415,10 @@ class Sidebar(QFrame):
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self._items: list[NavItem] = []
+        self._drag_snapshot_ready = False
+        self._drag_snapshot_timer = QTimer(self)
+        self._drag_snapshot_timer.setSingleShot(True)
+        self._drag_snapshot_timer.timeout.connect(self._prepare_drag_snapshot)
         self.browser_url_resolver = lambda _room: ""
         self._collapse_animating = False
         self.collapsed = False
@@ -4990,11 +5003,28 @@ class Sidebar(QFrame):
                     child = child.parentWidget()
         self._set_pointer_hover(item)
 
+    def _prepare_drag_snapshot(self) -> None:
+        if self._drag_snapshot_ready or not self.isVisible():
+            return
+        if self.drag_session.active or QApplication.mouseButtons() != Qt.NoButton:
+            self._drag_snapshot_timer.start(100)
+            return
+        # Qt render() flushes pending move/resize events across the whole window,
+        # including hidden cards. Do this once after show, outside the first drag.
+        # Paint only one pixel without children; keep no stale card snapshot.
+        pixel = QPixmap(1, 1)
+        pixel.fill(Qt.transparent)
+        self.render(pixel, QPoint(), QRegion(QRect(0, 0, 1, 1)), QWidget.RenderFlag(0))
+        self._drag_snapshot_ready = True
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._hover_sync_timer.start()
+        if not self._drag_snapshot_ready:
+            self._drag_snapshot_timer.start(0)
 
     def hideEvent(self, event) -> None:
+        self._drag_snapshot_timer.stop()
         self._hover_sync_timer.stop()
         self._set_pointer_hover(None)
         super().hideEvent(event)
@@ -5489,9 +5519,12 @@ class Sidebar(QFrame):
                      for item in self._items}
         for item in self._items:
             show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
-            item.platform_badge.setProperty("showPlatform", show)
+            changed = item.platform_badge.property("showPlatform") != show
+            if changed:
+                item.platform_badge.setProperty("showPlatform", show)
             item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
-            item.thumb._layout_overlay()
+            if changed:
+                item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
             # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了
@@ -6096,7 +6129,9 @@ class Tile(QFrame):
         self._refresh_badge()
         self.stream_badge.set_offline()
         self.set_status("已下播")
-        self.video.repaint()                  # 立刻把上一帧擦掉
+        # The cover already hides the last frame; let Qt coalesce the clearing
+        # with pending startup/layout paints instead of flushing the whole wall.
+        self.video.update()
 
     def set_buffering(self, active: bool) -> None:
         """卡顿/缓冲中：显示缓冲动画（和连接时同一套样式）。"""

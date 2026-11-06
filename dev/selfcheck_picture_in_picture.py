@@ -1019,7 +1019,7 @@ def main():
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(directory) / 'config.json')))
         stack.enter_context(patch.object(plugins, 'DEFAULT_PLUGINS_DIR', str(Path(directory) / 'plugins')))
         stack.enter_context(patch.object(plugins.PluginManager, 'load'))
-        for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+        for name in ('start_all', '_start_startup_tiles', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                      'load_cached_covers', 'load_cached_avatars', 'load_room_avatars', 'sync_danmaku',
                      '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, name))

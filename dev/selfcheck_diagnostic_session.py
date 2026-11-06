@@ -37,6 +37,10 @@ def child(mode, directory):
             window.hover_preview._grace.timeout.emit()
         elif mode == 'notices':
             show_result(window, 'PRIVATE_NOTICE_MUST_NOT_BE_CAPTURED', persistent=True, kind='live')
+        elif mode == 'drag':
+            assert capture.recorder.profile_first_drag
+        if mode == 'responsiveness':
+            assert window._startup_scroll_capture.probe is capture.probe
         entries = window.sidebar._items + list(window.sidebar._folder_buttons.values())
         before_geometry = [entry.geometry() for entry in entries]
         before_scroll = window.sidebar.scroll.verticalScrollBar().value()

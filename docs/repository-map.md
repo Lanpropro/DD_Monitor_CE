@@ -169,6 +169,7 @@
 - `dev/selfcheck_download_retry.py`
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_lifecycle.py`
+- `dev/selfcheck_sidebar_hit_test.py`
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_control_swap.py`
 - `dev/diagnose_drag_windows.py`
@@ -381,6 +382,7 @@
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
 - `dev/selfcheck_startup_windows.py`
+- `dev/selfcheck_startup_scroll_diagnostics.py`
 - `dev/selfcheck_startup_wmi.py`
 - `dev/selfcheck_stream_recovery.py`
 - `dev/selfcheck_stream_relay.py`

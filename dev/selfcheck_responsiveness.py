@@ -55,6 +55,12 @@ class ProbeTests(unittest.TestCase):
             self.assertEqual(set(frame), {'file', 'function', 'line'})
             self.assertFalse(Path(frame['file']).is_absolute())
 
+    def test_stack_capture_does_not_query_the_filesystem_per_frame(self):
+        with patch.object(Path, 'resolve', side_effect=AssertionError('No filesystem lookup in GUI stack capture')):
+            frames = diag.stack_locations(sys._getframe())
+        self.assertTrue(frames)
+        self.assertTrue(all(not Path(frame['file']).is_absolute() for frame in frames))
+
     def test_sidebar_profile_records_nested_costs_and_preserves_exceptions(self):
         token = object()
         def inner(value):
