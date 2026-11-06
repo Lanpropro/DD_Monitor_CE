@@ -163,7 +163,7 @@ class LiveMove(LiveResize):
         self.system_moving = True
         self.source.releaseMouse()
         try:
-            # As in WindowMove, WinDLL releases the GIL for the native move loop.
+            # WinDLL releases the GIL for the native move loop.
             self.user32.SendMessageW(int(self.preview.winId()), 0x0112, 0xF012, 0)
         finally:
             self.system_moving = False
