@@ -630,6 +630,10 @@ class UpdateNotice(QFrame):
         self._motion.setEasingCurve(QEasingCurve.OutCubic)
         self._motion.valueChanged.connect(self._motion_frame)
         self._motion.finished.connect(self._motion_finished)
+        # Closing must complete even if Qt's shared animation clock stops advancing.
+        self._close_timer = QTimer(self)
+        self._close_timer.setSingleShot(True)
+        self._close_timer.timeout.connect(self._motion_finished)
         parent.installEventFilter(self)
         sidebar = getattr(parent, 'sidebar', None)
         if isinstance(sidebar, QWidget):
@@ -639,6 +643,7 @@ class UpdateNotice(QFrame):
         if _notifications_hidden(self.parentWidget()):
             return
         was_visible = self.isVisible()
+        self._close_timer.stop()
         self._motion.stop()
         self._leaving = False
         self.title.setText('发现新版本 v' + offer['version'])
@@ -672,6 +677,8 @@ class UpdateNotice(QFrame):
 
     def _motion_finished(self):
         if self._leaving:
+            self._close_timer.stop()
+            self._motion.stop()
             self.hide()
 
     def paintEvent(self, event):
@@ -738,6 +745,7 @@ class UpdateNotice(QFrame):
 
     def hideEvent(self, event):
         self.timer.stop()
+        self._close_timer.stop()
         notices = getattr(self.parentWidget(), '_notices', [])
         if self in notices:
             notices.remove(self)
@@ -779,6 +787,8 @@ class UpdateNotice(QFrame):
                 and not getattr(self.parentWidget(), '_closing', False) and motion.enabled()):
             self._leaving = True
             self._animate_to(0.0, 180)
+            if not self._close_timer.isActive():
+                self._close_timer.start(280)  # Allow the normal exit its final frame.
         else:
             self._motion.stop()
             self.hide()
@@ -927,6 +937,7 @@ class ResultNotice(UpdateNotice):
         self.setToolTip(self._file_path if pending else
                         self._file_path + '\n点击打开文件位置；右键复制完整路径' if self._file_path
                         else ('点击跳转' if on_click else ''))
+        self._close_timer.stop()
         self._motion.stop()
         self._leaving = False
         self.title.setWordWrap(not bool(self._file_path))
