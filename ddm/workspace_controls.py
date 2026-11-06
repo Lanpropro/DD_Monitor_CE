@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineE
                               QVBoxLayout, QWidget)
 from . import theme
 from .sidebar_navigation import NavigationButton
+from .dock_feedback import attach
 
 
 class WorkspaceIcon(QIconEngine):
@@ -44,6 +45,7 @@ class WorkspaceControls(QFrame):
         self.actions.setExclusionPolicy(QActionGroup.ExclusionPolicy.ExclusiveOptional)
         self._pin_ids = None
         self._rows = {}
+        self._before_center = None
         self.setObjectName('WorkspacePanel')
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         box = QVBoxLayout(self)
@@ -120,8 +122,10 @@ class WorkspaceControls(QFrame):
         else:
             widget.setIcon(icon)
         widget.setParent(self.row)
+        attach(widget)
         widget.installEventFilter(self)
         widget.toggled.connect(self._sync_rows)
+        widget.toggled.connect(lambda checked, widget=widget: self._entry_toggled(widget, checked))
         self.sync_layout()
         self._rebuild_rows()
 
@@ -129,6 +133,8 @@ class WorkspaceControls(QFrame):
         entry = self.entries.pop((owner, str(key)), None)
         if entry is not None:
             widget = entry[1]
+            if self.sidebar.navigation.active_button is widget:
+                self.sidebar.navigation.activate(self.sidebar.navigation.follow_button)
             if widget.defaultAction() is not None:
                 self.actions.removeAction(widget.defaultAction())
             self.buttons.removeWidget(widget)
@@ -179,6 +185,7 @@ class WorkspaceControls(QFrame):
         if navigation is None:
             return
         top = self.sidebar.side == 'top'
+        self.launcher.setProperty('dockRail', not top)
         if close_popup:
             self.popup.hide()
         if top and self.sidebar._bar_row_box is not None:
@@ -194,8 +201,10 @@ class WorkspaceControls(QFrame):
             navigation.top.addWidget(self.launcher)
         self.launcher.show()
         pinned = self.pinned()
+        navigation.divider.setVisible(not top and bool(pinned))
         for identity in self.ordered():
             widget = self.entries[identity][1]
+            widget.setProperty('dockRail', not top)
             self.buttons.removeWidget(widget)
             widget.hide()
         for identity in pinned:
@@ -211,6 +220,13 @@ class WorkspaceControls(QFrame):
             widget.setAccessibleName(widget.text())
             widget.setVisible(not top)
         self.setVisible(not top and bool(pinned))
+
+    def _entry_toggled(self, widget, checked):
+        navigation = self.sidebar.navigation
+        if checked:
+            navigation.activate(widget)
+        elif navigation.active_button is widget:
+            navigation.activate(navigation.follow_button)
 
     def _rebuild_rows(self):
         for row, _launch, _pin in self._rows.values():
@@ -283,6 +299,8 @@ class WorkspaceControls(QFrame):
             self.popup.hide()
             return
         self._rebuild_rows()
+        self._before_center = self.sidebar.navigation.active_button
+        self.sidebar.navigation.activate(self.launcher)
         anchor = self.launcher.mapToGlobal(QPoint(self.launcher.width()+7, 0))
         screen = QApplication.screenAt(anchor) or self.launcher.screen()
         area = screen.availableGeometry().adjusted(8, 8, -8, -8)
@@ -297,6 +315,10 @@ class WorkspaceControls(QFrame):
     def eventFilter(self, watched, event):
         if watched is self.popup and event.type() == QEvent.Hide:
             self.launcher.setChecked(False)
+            navigation = self.sidebar.navigation
+            if navigation.active_button is self.launcher:
+                previous = self._before_center
+                navigation.activate(previous if previous in navigation.buttons() else navigation.follow_button)
         elif watched is self.sidebar and event.type() in (QEvent.Hide, QEvent.Close, QEvent.Resize):
             self.popup.hide()
         elif event.type() in (QEvent.EnabledChange, QEvent.ActionChanged):

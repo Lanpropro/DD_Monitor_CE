@@ -392,6 +392,22 @@ class NotificationTests(unittest.TestCase):
             sidebar.set_collapsed(False, animate=False)
             self.assertTrue(button.isVisible())
 
+    def test_bottom_dock_opens_upward_and_keeps_newest_message_first(self):
+        self.button.setProperty('dockRail', True)
+        layout = self.owner.layout()
+        layout.removeWidget(self.button)
+        layout.addWidget(self.button, 0, Qt.AlignBottom)
+        self.center.add('较早消息')
+        self.center.add('最新消息')
+        self.app.processEvents()
+        self.open()
+        top = self.button.mapToGlobal(QPoint()).y()
+        self.assertLess(self.center.frameGeometry().bottom(), top)
+        self.assertGreaterEqual(self.center.height(), 240)
+        self.assertTrue(self.owner.screen().availableGeometry().contains(self.center.frameGeometry()))
+        rows = sorted(self.center.rows.values(), key=lambda row: row.y())
+        self.assertEqual([row.entry.message for row in rows], ['最新消息', '较早消息'])
+
     def test_card_style_scrollbar_and_four_corners_follow_theme(self):
         self.addCleanup(theme.apply, theme.mode())
         sidebar = Sidebar([{'room_id': '1'}])
