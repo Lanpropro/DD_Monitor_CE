@@ -1,5 +1,6 @@
 """Wall-only chat pane actions, shared subscriptions, identity and persistence."""
 from copy import deepcopy
+import json
 import os
 from pathlib import Path
 import shutil
@@ -17,8 +18,6 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QEvent, QCoreApplication
-from PySide6.QtWidgets import QApplication
 from ddm import config, layouts, room_presets
 from ddm.app import MainWindow
 from ddm.widgets import WallGrid
@@ -145,16 +144,15 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(window.room_preset_snapshot(), snapshot)
         state = window.current_state()
         state["settings"]["danmaku_font_size"] = 18
-        follows, rooms = config.build_rooms(state)
-        restored = MainWindow(follows, rooms, layout_id='2x2', state=state)
-        restored.settings["close_behavior"] = "exit"
-        self.addCleanup(self.close_window, restored)
-        restored.show()
-        self.app.processEvents()
-        other = restored.wall.pane_danmaku
-        self.assertEqual(set(other.panels), {2, 3})
-        self.assertTrue(all(panel.font_slider.value() == 18 for panel in other.panels.values()))
-        self.assertEqual([other.target(panel).room['room_id'] for panel in other.panels.values()], ['1001', '1002'])
+        # A software restart creates a fresh QApplication in a new process.
+        with tempfile.TemporaryDirectory(prefix='ddm-pane-state-') as directory:
+            state_file = Path(directory) / 'state.json'
+            state_file.write_text(json.dumps(state), encoding='utf-8')
+            result = subprocess.run([sys.executable, str(Path(__file__).parent / 'checks/bootstrap.py'),
+                str(Path(__file__).resolve()), '--restore-state', str(state_file)],
+                capture_output=True, text=True, encoding='utf-8', timeout=45)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('PASS: fresh-process pane restoration', result.stdout)
         invalid = deepcopy(snapshot)
         invalid['layout']['panels'][0]['source'] = 3
         with self.assertRaises(ValueError):
@@ -216,5 +214,31 @@ class PaneDanmakuTests(unittest.TestCase):
                                     (widget.geometry() for widget in widgets.values())))
 
 
+def restore_state(path):
+    state = json.loads(Path(path).read_text(encoding='utf-8'))
+    case = PaneDanmakuTests('test_state_and_named_presets_restore_type_links_and_backing_slots')
+    case.setUpClass()
+    case.setUp()
+    try:
+        follows, rooms = config.build_rooms(state)
+        window = MainWindow(follows, rooms, layout_id='2x2', state=state)
+        window.settings['close_behavior'] = 'exit'
+        case.addCleanup(case.close_window, window)
+        window.move(-10000, -10000)
+        window.show()
+        case.app.processEvents()
+        panes = window.wall.pane_danmaku
+        case.assertEqual(set(panes.panels), {2, 3})
+        case.assertTrue(all(panel.font_slider.value() == 18 for panel in panes.panels.values()))
+        case.assertEqual([panes.target(panel).room['room_id'] for panel in panes.panels.values()], ['1001', '1002'])
+        case.assertEqual(window.current_state()['ui']['pane_layouts'], state['ui']['pane_layouts'])
+        print('PASS: fresh-process pane restoration', flush=True)
+    finally:
+        case.doCleanups()
+
+
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    if '--restore-state' in sys.argv:
+        restore_state(sys.argv[sys.argv.index('--restore-state') + 1])
+    else:
+        unittest.main(verbosity=2)
