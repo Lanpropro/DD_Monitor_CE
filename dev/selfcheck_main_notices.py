@@ -20,7 +20,7 @@ runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QPushButton, QWidget, QLineEdit
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -1289,7 +1289,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def window(self, rooms, *, offscreen=False):
         window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
-                            layout_id='2x2', state={'plugins_enabled': []})
+                            layout_id='2x2', state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         window.resize(1000, 700)
         if offscreen:
             window.move(-10000, -10000)
@@ -1497,6 +1497,59 @@ class MainNoticesTests(unittest.TestCase):
                 patch.object(window, '_clear_tile_room') as clear:
             QTest.keyClick(window, Qt.Key_Delete)
             clear.assert_not_called()
+
+    def test_clear_wall_requires_confirmation_and_empty_wall_is_a_noop(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        with patch('ddm.app.QMessageBox.question', return_value=QMessageBox.No) as confirm, \
+                patch.object(window, '_clear_tile_room') as clear:
+            window.sidebar.clear_wall_button.click()
+            self.assertIn('全部 1 个画面', confirm.call_args.args[2])
+            self.assertEqual(confirm.call_args.args[-1], QMessageBox.No)
+            clear.assert_not_called()
+            self.assertEqual(tile.room['room_id'], '1001')
+            tile.set_room(None)
+            window._refresh_meta()
+            self.assertFalse(window.sidebar.clear_wall_button.isEnabled())
+            confirm.reset_mock()
+            window._clear_wall()
+            confirm.assert_not_called()
+
+    def test_clear_wall_cleans_duplicate_offline_and_hidden_tiles_without_changing_layout(self):
+        rooms = [{'room_id': '1001', 'live': True}, {'room_id': '1001', 'live': False},
+                 {'room_id': '1002', 'live': False}]
+        window = self.window(rooms)
+        wall = window.wall
+        wall.set_layout('1x1')
+        original_tiles = list(wall.tiles)
+        original_layout = (wall.layout_id, wall.layout_ratios(), wall.corner_ratios())
+        follows = window.sidebar.rooms()
+        occupied = [tile for tile in wall.tiles if tile.room.get('room_id')]
+        self.assertTrue(any(tile.isHidden() for tile in occupied))
+        players = {tile: Mock() for tile in occupied}
+        resolvers = {tile: Mock() for tile in occupied}
+        window.players.update(players)
+        window._resolvers.update(resolvers)
+        window._pending_capture.update({tile: True for tile in occupied})
+        with patch('ddm.app.QMessageBox.question', return_value=QMessageBox.Yes) as confirm, \
+                patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop, \
+                patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh:
+            window.sidebar.clear_wall_button.click()
+            self.assertIn('全部 3 个画面', confirm.call_args.args[2])
+            self.assertEqual([call.args[0] for call in stop.call_args_list], occupied)
+            refresh.assert_called_once_with()
+        self.assertEqual(wall.tiles, original_tiles)
+        self.assertEqual((wall.layout_id, wall.layout_ratios(), wall.corner_ratios()), original_layout)
+        self.assertEqual(window.sidebar.rooms(), follows)
+        self.assertTrue(all(not slot['room_id'] for slot in window.current_state()['wall']))
+        self.assertFalse(window.players)
+        self.assertFalse(window._resolvers)
+        self.assertFalse(window._pending_capture)
+        self.assertTrue(window._save_timer.isActive())
+        self.assertFalse(window.sidebar.clear_wall_button.isEnabled())
+        for tile in occupied:
+            players[tile].release.assert_called_once_with()
+            resolvers[tile].cancel.assert_called_once_with()
 
     def test_delete_preserves_search_and_composer_editing(self):
         window = self.window([{'room_id': '1001'}])
