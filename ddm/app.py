@@ -130,7 +130,6 @@ class MainWindow(QMainWindow):
         self._startup_layout_pending = True
         self._settling_resize = False
         self._native_size_state = 0
-        self._window_move = None
         self._resize_idle_timer = QTimer(self)
         self._resize_idle_timer.setSingleShot(True)
         self._resize_idle_timer.setInterval(RESIZE_SETTLE_MS)
@@ -788,12 +787,8 @@ class MainWindow(QMainWindow):
             from ctypes import wintypes
 
             msg = wintypes.MSG.from_address(int(message))
-            if hasattr(self, "wall") and not self._closing:
-                if self._window_move is None and msg.message == 0x00A1 and msg.wParam == 2:
-                    from .window_move import WindowMove
-                    self._window_move = WindowMove(self, int(msg.hWnd))
-                if self._window_move is not None and self._window_move.native_message(msg):
-                    return True, 0
+            # Keep caption dragging on the real HWND. Replacing it with a
+            # preview at the drag threshold causes a visible window handoff.
             if msg.message == 0x0231:  # WM_ENTERSIZEMOVE
                 self._begin_interactive_resize()
             elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
@@ -1237,8 +1232,6 @@ class MainWindow(QMainWindow):
         self._default_audio_output_id = device_id
 
     def closeEvent(self, event) -> None:
-        if self._window_move is not None:
-            self._window_move.cancel(restore=False)
         if self._tray.handle_close(event):
             return
         self.picture_in_picture.restore()

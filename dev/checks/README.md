@@ -193,8 +193,8 @@
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
-| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；隔离透明/近透明窗口检查最大化拖动后 Qt/Win32 状态一致、取消及主动最大化、首帧先于原窗遮蔽、交接动画清理、屏幕外窗口无需桌面截图及合成注册失败回退；不注入鼠标，不作为真实故障首次定位证据 |
-| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；合成窗口移动预览、取消/合成不可用/关闭/异常清理及双击消息路由；`--screens --players 3` 使用两块屏幕、123 张合成关注和本地视频，检查合成预览的视频像素、遮蔽时连续播放、原生几何、跨屏/最大化及 HWND/播放器保持；无账号或真实直播，真实输入与吸附另验 |
+| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；原生标题栏消息委托、无鼠标接管/替代窗口、同屏移动不隐藏且不重排、等尺寸最大化原生还原及双击；功能回归不代替真实鼠标与视觉验收 |
+| [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；方向切换排布合并与异常恢复；`--screens --players 3` 使用双屏、123张合成关注和三路本地视频，检查3/6/16格原生跨屏/DPI、连续播放、几何、HWND/播放器保持及无替代窗口；不代表实际拖动帧率 |
 
 ## 弹幕与表情
 
