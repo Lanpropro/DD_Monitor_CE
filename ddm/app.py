@@ -3116,9 +3116,6 @@ class MainWindow(QMainWindow):
     def load_room_avatars(self) -> None:
         return self.room_images.load_room_avatars()
 
-    def _prime_cached_avatars(self, faces: dict) -> int:
-        return self.room_images.prime_cached_avatars(faces, load_cached_avatar)
-
     def load_avatars_for(self, rooms: list) -> None:
         return self.room_images.load_avatars_for(rooms)
 
