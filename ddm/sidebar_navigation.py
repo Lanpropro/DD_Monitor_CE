@@ -1,5 +1,5 @@
 """Global tool rail and compact follow controls, using the existing sidebar actions."""
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, Qt
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
@@ -72,10 +72,13 @@ class NavigationButton(QPushButton):
 
 
 class SidebarNavigation(QObject):
+    orderChanged = Signal()
+
     def __init__(self, sidebar, root_box):
         super().__init__(sidebar)
         self.sidebar = sidebar
         self.in_rail = False
+        self._tool_order = []
         self.rail = QFrame(sidebar)
         self.rail.setObjectName('SidebarRail')
         self.rail.setFixedWidth(RAIL_WIDTH)
@@ -107,6 +110,13 @@ class SidebarNavigation(QObject):
         self.pin_box.setAlignment(Qt.AlignTop)
         self.pin_scroll.setWidget(self.pin_holder)
         rail_box.addWidget(self.pin_scroll, 1)
+        self.tools_divider = QFrame(self.rail)
+        self.tools_divider.setObjectName('NavigationDivider')
+        self.tools_divider.setFixedSize(24, 2)
+        rail_box.addWidget(self.tools_divider, 0, Qt.AlignHCenter)
+        self.fixed_divider = QFrame(self.rail)
+        self.fixed_divider.setObjectName('NavigationDivider')
+        self.fixed_divider.setFixedSize(24, 2)
         self.bottom = QVBoxLayout()
         self.bottom.setSpacing(6)
         rail_box.addLayout(self.bottom)
@@ -151,7 +161,52 @@ class SidebarNavigation(QObject):
         self.density_button.clicked.connect(self.toggle_density)
         filters.addWidget(self.density_button)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
+        from .sidebar_icon_drag import SidebarIconDrag
+        self.icon_drag = SidebarIconDrag(self)
         QApplication.instance().installEventFilter(self)
+
+    def movable_tools(self):
+        fixed = (self.fixed_divider, self.sidebar.notification_button,
+                 self.sidebar.appearance_button, self.sidebar.settings_button)
+        return [self.bottom.itemAt(index).widget() for index in range(self.bottom.count())
+                if self.bottom.itemAt(index).widget() not in fixed]
+
+    def tool_key(self, button):
+        return button.kind
+
+    def order_state(self):
+        return list(self._tool_order)
+
+    def restore_order(self, value):
+        self._tool_order = list(dict.fromkeys(key for key in value
+            if isinstance(key, str) and key in ('layout', 'clear', 'pip'))) if isinstance(value, list) else []
+        self._sort_tools()
+
+    def _sort_tools(self):
+        if not self.in_rail:
+            return
+        tools = {self.tool_key(button): button for button in self.movable_tools()}
+        keys = [key for key in self._tool_order if key in tools]
+        keys.extend(key for key in tools if key not in keys)
+        for index, key in enumerate(keys):
+            self.bottom.insertWidget(index, tools[key], 0, Qt.AlignHCenter)
+        for index, widget in enumerate((self.fixed_divider, self.sidebar.notification_button,
+                                        self.sidebar.appearance_button, self.sidebar.settings_button), len(keys)):
+            self.bottom.insertWidget(index, widget, 0, Qt.AlignHCenter)
+        self.fixed_divider.show()
+
+    def reorder_group(self, before, after):
+        if before == after:
+            return
+        controls = self.sidebar.workspace_controls
+        pinned = controls.pinned()
+        if before == [controls.entries[key][1] for key in pinned]:
+            identities = {widget: key for key, (_priority, widget) in controls.entries.items()}
+            controls.reorder_pins([identities[button] for button in after])
+        elif before == self.movable_tools():
+            self._tool_order = [self.tool_key(button) for button in after]
+            self._sort_tools()
+            self.orderChanged.emit()
 
     def buttons(self):
         return [self.follow_button, self.sidebar.workspace_controls.launcher,
@@ -243,6 +298,7 @@ class SidebarNavigation(QObject):
     def release(self):
         """Return original controls before the portrait header adopts them."""
         sidebar = self.sidebar
+        self.icon_drag.cancel()
         self.rail.hide()
         self.header.hide()
         self.filters.hide()
@@ -262,11 +318,13 @@ class SidebarNavigation(QObject):
 
     def sync(self):
         sidebar = self.sidebar
+        self.icon_drag.cancel()
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
         self.header.setVisible(left)
         self.filters.setVisible(left and not sidebar.collapsed)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
+        self.tools_divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         if not left:
             return
         sidebar._layout.insertWidget(0, self.header)
@@ -299,4 +357,5 @@ class SidebarNavigation(QObject):
         for widget in (self.title, self.count, self.add_button, self.manage_button):
             widget.setVisible(not sidebar.collapsed)
         sidebar.toggle_button.show()
+        self._sort_tools()
         self.sync_count()
