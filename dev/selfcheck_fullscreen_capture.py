@@ -101,6 +101,17 @@ class CaptureTests(unittest.TestCase):
     def rows(self):
         return [json.loads(line) for line in self.path.read_text(encoding='utf-8').splitlines()]
 
+    def test_bar_first_paint_is_part_of_handoff_evidence(self):
+        tile = self.window.wall.tiles[0]
+        tile.bottom = QWidget(self.window)
+        tile.bottom.resize(300, 36)
+        self.capture.begin('enter', tile)
+        self.capture.eventFilter(tile.bottom, diag.QEvent(diag.QEvent.Paint))
+        self.capture.finish()
+        events = self.rows()[-1]['geometry']
+        self.assertTrue(any(e['role'] == 'bar' and e['event'] == 'Paint' for e in events))
+        self.assertNotIn('private-', self.path.read_text(encoding='utf-8'))
+
     def test_idle_capture_records_animation_without_content_and_stops(self):
         from ddm.widgets import Tile as RuntimeTile
         from ddm.fullscreen_cursor import FullscreenCursor

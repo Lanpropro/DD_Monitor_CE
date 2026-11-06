@@ -148,6 +148,7 @@
       "selfcheck_display_transition",
       "selfcheck_window_move_restore",
       "selfcheck_fullscreen_enter_focus",
+      "selfcheck_fullscreen_switch",
       "selfcheck_video_danmaku_quick",
       "selfcheck_settings_occlusion",
       "selfcheck_danmaku_render_thread",

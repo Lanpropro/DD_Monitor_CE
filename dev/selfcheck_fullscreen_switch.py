@@ -29,22 +29,32 @@ class HandoffEvents(QObject):
         self.enter = []
         self.leave = []
         self.native_cover = []
+        self.bar_paints = {tile.bottom: 0 for tile in (target, *peers)}
+        self.enter_bar_ready = []
+        self.leave_bars_ready = []
         target.installEventFilter(self)
         for peer in peers:
             peer.installEventFilter(self)
+        for bar in self.bar_paints:
+            bar.installEventFilter(self)
 
     @staticmethod
     def native_visible(widget):
         return bool(ctypes.windll.user32.IsWindowVisible(ctypes.c_void_p(int(widget.internalWinId()))))
 
     def eventFilter(self, watched, event):
+        if watched in self.bar_paints and event.type() == QEvent.Paint:
+            self.bar_paints[watched] += 1
         if watched in self.peers and event.type() == QEvent.Hide:
             self.native_cover.append(self.target.isWindow() and self.native_visible(self.target))
         if watched is self.target and watched.isWindow():
             if event.type() == QEvent.Show:
                 self.enter.append(all(peer.isVisible() for peer in self.peers))
+                self.enter_bar_ready.append(self.bar_paints[self.target.bottom] > 0)
             elif event.type() == QEvent.Hide:
                 self.leave.append(all(peer.isVisible() and self.native_visible(peer) for peer in self.peers))
+                self.leave_bars_ready.append(all(self.bar_paints[peer.bottom] > 0
+                    for peer in self.peers if peer.isVisible()))
             if event.type() in (QEvent.Show, QEvent.Hide):
                 self.comments_held.append(all(not sc.isVisible() for sc in self.super_chats)
                     and (self.layer is None or (self.layer._presentation_changing and not self.layer.window.isVisible())))
@@ -53,6 +63,8 @@ class HandoffEvents(QObject):
     def detach(self):
         for widget in (self.target, *self.peers):
             widget.removeEventFilter(self)
+        for bar in self.bar_paints:
+            bar.removeEventFilter(self)
 
 
 def main():
@@ -111,6 +123,7 @@ def main():
                     window._on_fullscreen(target)
                     assert relayout.call_count == 0, 'Independent fullscreen must not relayout the playback wall'
                 assert handoff.enter and all(handoff.enter), 'Peers disappeared before the presentation was shown'
+                assert handoff.enter_bar_ready and all(handoff.enter_bar_ready), 'Presentation shown before the rebuilt bar painted'
                 assert handoff.native_cover and all(handoff.native_cover), 'Peers hidden before fullscreen HWND became visible'
                 assert window.wall.visible_tiles() == [target]
                 assert window._fullscreen_tile is target and window.sidebar.isVisible()
@@ -131,10 +144,14 @@ def main():
                          if shortcut.key().toString() == 'Up').activated.emit()
                     assert target.volume == before + 10, 'Shortcuts must belong to the independent presentation'
                 assert not [w for w in set(QApplication.topLevelWidgets())-before_windows if isinstance(w, QLabel)]
+                handoff.bar_paints = dict.fromkeys(handoff.bar_paints, 0)
+                target.bottom.setUpdatesEnabled(False)
                 with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
                     window._exit_fullscreen()
                     assert relayout.call_count == 0, 'Restoring the original rectangle must not relayout the wall'
                 assert handoff.leave and all(handoff.leave), 'Presentation disappeared before peers were restored'
+                assert handoff.leave_bars_ready and all(handoff.leave_bars_ready), 'Presentation disappeared before restored bars painted'
+                assert handoff.bar_paints[target.bottom] > 0, 'Restored target bar was left for a later event loop'
                 assert handoff.comments_held and all(handoff.comments_held), 'Peer comments or SC leaked during presentation transfer'
                 if layer is not None:
                     assert not layer._presentation_changing
@@ -170,6 +187,12 @@ def main():
                 assert not player.play.called and not player.release.called
             window.players.clear()
         finally:
+            # Release stored focus while fixture buttons are still alive;
+            # native Qt can otherwise deliver FocusOut during deferred deletion.
+            for owner in (window, *window.wall.tiles):
+                focused = owner.focusWidget()
+                if focused is not None:
+                    focused.clearFocus()
             window.close()
             assert window._fullscreen_presentation.tile is None and not tiles[0].isWindow()
             app.processEvents()
