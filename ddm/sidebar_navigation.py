@@ -91,7 +91,7 @@ class SidebarNavigation:
         self.pin_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.pin_holder = QWidget()
         self.pin_box = QVBoxLayout(self.pin_holder)
-        self.pin_box.setContentsMargins(0, 6, 0, 0)
+        self.pin_box.setContentsMargins(0, 0, 0, 0)
         self.pin_box.setSpacing(0)
         self.pin_box.setAlignment(Qt.AlignTop)
         self.pin_scroll.setWidget(self.pin_holder)
@@ -232,6 +232,8 @@ class SidebarNavigation:
         for button in (sidebar.notification_button, sidebar.appearance_button):
             button.setObjectName('NavigationButton')
             button.setProperty('sidebarCompact', False)
+            button.style().unpolish(button)
+            button.style().polish(button)
             button.setFixedSize(34, 34)
             button.show()
         for widget in (sidebar._header_row, sidebar.status_row, sidebar.tool_row, sidebar.normal_bar):
