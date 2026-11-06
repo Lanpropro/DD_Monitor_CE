@@ -120,6 +120,34 @@ class FullscreenEnterTests(unittest.TestCase):
         with patch('ddm.app.QCursor.pos', return_value=QPoint(-20000, -20000)):
             self.focus_with_key()
 
+    def test_editing_keeps_bar_visible_until_video_click_then_idle_hides(self):
+        self.video_focus(hidden=True)
+        self.focus_with_key()
+        cursor = self.window._fullscreen_cursor
+        cursor.timer.stop()
+        cursor._last_move -= cursor.IDLE_SECONDS + 1
+        cursor.update_cursor()
+        self.assertTrue(self.edit.hasFocus())
+        self.assertFalse(cursor.hidden)
+        self.assertTrue(self.tile.bottom.isVisible(), 'Input mode hid while editing')
+
+        QTest.mouseClick(self.tile.video, Qt.LeftButton, pos=self.tile.video.rect().center())
+        QTest.qWait(80)
+        self.assertFalse(self.edit.hasFocus(), 'Video click left editor focus active')
+        self.assertFalse(self.tile.plugin_interaction_active())
+        cursor.update_cursor()
+        cursor._last_move -= cursor.IDLE_SECONDS + 1
+        cursor.update_cursor()
+        QTest.qWait(250)
+        self.assertTrue(cursor.hidden)
+        self.assertTrue(self.tile.bottom.isHidden(), 'Idle did not slide the bar away after leaving input')
+        self.assertEqual(self.edit.text(), 'unsent fixture draft')
+        self.assertEqual(self.calls, [])
+
+        # A second cycle must still enter input mode after the bar has hidden.
+        self.focus_with_key()
+        self.assertFalse(cursor.hidden)
+
 
 if __name__ == '__main__':
     unittest.main()
