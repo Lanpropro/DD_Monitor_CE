@@ -57,6 +57,9 @@ class FullscreenPresentation(QObject):
         if layer is not None:
             layer.set_presentation_changing(True)
             layer.set_presentation_window(tile)
+        # The independent Windows Tool bar needs its own first frame.
+        if tile.bottom.qt_composited:
+            tile.bottom.repaint()
         tile.show()
         tile.raise_()
         if not tile.testAttribute(Qt.WA_ShowWithoutActivating):
@@ -78,6 +81,7 @@ class FullscreenPresentation(QObject):
         tile = self.tile
         if tile is None:
             return
+        native_bar = tile.bottom.qt_composited
         wall = self.window.wall
         layer = wall._quick_danmaku_layer
         self._set_comments_changing(True)
@@ -85,6 +89,10 @@ class FullscreenPresentation(QObject):
         for pane, visible in self._visible:
             if pane is not tile:
                 pane.setVisible(visible)
+                if native_bar and visible and pane in wall.tiles:
+                    # show() queues painting; flush bars while fullscreen still
+                    # covers the wall, rather than exposing empty backing stores.
+                    pane.bottom.repaint()
         for border in self._borders:
             border.show()
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
@@ -111,9 +119,11 @@ class FullscreenPresentation(QObject):
         for pane, visible in self._visible:
             if pane is tile:
                 pane.setVisible(visible)
+        tile.bottom.setUpdatesEnabled(True)
+        if native_bar:
+            tile.bottom.repaint()
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
-        tile.bottom.setUpdatesEnabled(True)
         self._visible = self._borders = []
         if self.window.isVisible() and not self.window.testAttribute(Qt.WA_ShowWithoutActivating):
             self.window.activateWindow()
