@@ -1,8 +1,10 @@
 """Mutually exclusive plugin pages inside the host's existing content area."""
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 
 
 class WorkspacePages(QObject):
+    changed = Signal()
+
     def __init__(self, container):
         super().__init__(container)
         self.container = container
@@ -12,10 +14,8 @@ class WorkspacePages(QObject):
 
     def show_page(self, owner, widget, *, manages_content=False):
         if self.active is not None and self.active[1] is not widget:
-            if not self.active[1].close():
+            if not self.close_active():
                 return False
-            if self.active is not None:
-                self._restore()
         if self.active is None:
             self.active = (owner, widget, manages_content)
             if widget.parentWidget() is not self.container or widget.isWindow():
@@ -33,6 +33,16 @@ class WorkspacePages(QObject):
             widget.setGeometry(self.container.rect())
         widget.show()
         widget.raise_()
+        self.changed.emit()
+        return True
+
+    def close_active(self):
+        current = self.active
+        if current is not None:
+            if not current[1].close():
+                return False
+            if self.active is current:
+                self._restore()
         return True
 
     def close_owner(self, owner):
@@ -49,6 +59,7 @@ class WorkspacePages(QObject):
         for base, visible in hidden.items():
             base.removeEventFilter(self)
             base.setVisible(visible)
+        self.changed.emit()
 
     def eventFilter(self, watched, event):
         if self.active is not None:

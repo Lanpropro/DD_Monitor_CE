@@ -46,6 +46,7 @@ class WorkspaceControls(QFrame):
         self._pin_ids = None
         self._rows = {}
         self._before_center = None
+        self.pages = None
         self.setObjectName('WorkspacePanel')
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         box = QVBoxLayout(self)
@@ -132,6 +133,26 @@ class WorkspaceControls(QFrame):
             self._entry_toggled(widget, True)
         else:
             self.sidebar.navigation.activate(self.sidebar.navigation.active_button)
+        if self.pages is not None:
+            self._sync_page_selection()
+
+    def bind_pages(self, pages):
+        self.pages = pages
+        pages.changed.connect(self._sync_page_selection)
+
+    def page_button(self):
+        if self.pages is not None and self.pages.active is not None:
+            owner = self.pages.active[0]
+            candidates = [self.entries[key][1] for key in self.ordered() if key[0] == owner]
+            if candidates:
+                return next((button for button in candidates if button.isChecked()), candidates[0])
+
+    def _sync_page_selection(self):
+        button = self.page_button() or self.sidebar.navigation.follow_button
+        if self.popup.isVisible():
+            self._before_center = button
+        else:
+            self.sidebar.navigation.activate(button)
 
     def remove(self, owner, key):
         entry = self.entries.pop((owner, str(key)), None)

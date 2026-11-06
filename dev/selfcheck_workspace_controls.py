@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QAction, QFocusEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
 from ddm.dock_feedback import REST, active, icon_color
 from ddm.plugins import PluginContext, PluginManager
@@ -65,6 +65,87 @@ class WorkspaceControlTests(unittest.TestCase):
                        self.sidebar.appearance_button, self.sidebar.workspace_controls.launcher):
             self.assertTrue(widget.isVisible(), widget.accessibleName())
             self.assertTrue(self.sidebar.rect().contains(widget.mapTo(self.sidebar, QPoint(0, 0))))
+
+    def open_page(self):
+        self.host._content = QWidget(self.host)
+        self.host.layout().addWidget(self.host._content, 1)
+        wall = QWidget(self.host._content)
+        QVBoxLayout(self.host._content).addWidget(wall)
+        button, action = self.add('page', '录制切片示例')
+        class Page(QWidget):
+            allow_close = True
+
+            def closeEvent(self, event):
+                if not self.allow_close:
+                    event.ignore()
+                    return
+                action.setChecked(False)
+                super().closeEvent(event)
+        page = Page()
+        button.click()
+        self.assertTrue(self.context.show_workspace(page))
+        settle()
+        return page, button, action, wall
+
+    def test_follow_icon_returns_from_plugin_page_and_follow_browsing_keeps_selection(self):
+        page, button, action, wall = self.open_page()
+        nav = self.sidebar.navigation
+        self.assertTrue(page.isVisible())
+        self.assertTrue(wall.isHidden())
+        QTest.mouseClick(self.sidebar.search, Qt.LeftButton)
+        self.assertIs(nav.active_button, button)
+        self.assertTrue(active(button))
+        self.assertFalse(active(nav.follow_button))
+        nav.follow_button.click()
+        settle()
+        self.assertTrue(page.isHidden())
+        self.assertTrue(wall.isVisible())
+        self.assertFalse(action.isChecked())
+        self.assertIsNone(self.manager._workspace_pages.active)
+        self.assertIs(nav.active_button, nav.follow_button)
+        self.assertEqual(sum(active(entry) for entry in nav.buttons()), 1)
+
+    def test_follow_icon_keeps_page_and_selection_if_close_is_refused(self):
+        page, button, action, wall = self.open_page()
+        page.allow_close = False
+        self.sidebar.navigation.follow_button.click()
+        settle()
+        self.assertTrue(page.isVisible())
+        self.assertTrue(wall.isHidden())
+        self.assertTrue(action.isChecked())
+        self.assertIs(self.sidebar.navigation.active_button, button)
+        self.assertFalse(active(self.sidebar.navigation.follow_button))
+        page.allow_close = True
+
+    def test_page_close_and_replacement_keep_navigation_in_sync(self):
+        page, button, action, wall = self.open_page()
+        page.close()
+        settle()
+        nav = self.sidebar.navigation
+        self.assertTrue(wall.isVisible())
+        self.assertIs(nav.active_button, nav.follow_button)
+        button.click()
+        self.context.show_workspace(page)
+        other = PluginContext(self.manager, 'other-page')
+        other_action = QAction('另一个功能页', self.host)
+        other_action.setCheckable(True)
+        other_button = QToolButton(self.host)
+        other_button.setDefaultAction(other_action)
+        other.register_workspace_control('page', other_button)
+        other_page = QWidget()
+        other_button.click()
+        self.assertTrue(other.show_workspace(other_page))
+        settle()
+        self.assertTrue(page.isHidden())
+        self.assertFalse(action.isChecked())
+        self.assertTrue(other_page.isVisible())
+        self.assertIs(nav.active_button, other_button)
+        # A plugin may update its QAction after the page has closed.
+        other_page.close()
+        settle()
+        self.assertTrue(other_action.isChecked())
+        self.assertIs(nav.active_button, nav.follow_button)
+        self.assertFalse(active(other_button))
 
     def test_card_area_and_global_actions_are_independent(self):
         self.assertEqual(self.sidebar.width(), theme.SIDEBAR_WIDTH + RAIL_WIDTH)

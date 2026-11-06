@@ -88,8 +88,7 @@ class SidebarNavigation(QObject):
         self.follow_button.setProperty('dockRail', True)
         self.active_button = self.follow_button
         self.follow_button.setProperty('dockActive', True)
-        self.follow_button.clicked.connect(sidebar.focus_search)
-        self.follow_button.clicked.connect(lambda: self.activate(self.follow_button))
+        self.follow_button.clicked.connect(self.show_follow)
         self.top.addWidget(self.follow_button)
         rail_box.addLayout(self.top)
         self.divider = QFrame(self.rail)
@@ -159,6 +158,8 @@ class SidebarNavigation(QObject):
                 *[widget for _priority, widget in self.sidebar.workspace_controls.entries.values()]]
 
     def activate(self, button, *, animate=False):
+        if button is self.follow_button:
+            button = self.sidebar.workspace_controls.page_button() or button
         changed = button is not self.active_button
         self.active_button = button
         for entry in self.buttons():
@@ -170,6 +171,15 @@ class SidebarNavigation(QObject):
                 entry.update()
         if changed and animate:
             attach(button).pulse()
+
+    def show_follow(self):
+        controls = self.sidebar.workspace_controls
+        controls.popup.hide()
+        if controls.pages is not None and not controls.pages.close_active():
+            controls._sync_page_selection()
+            return
+        self.sidebar.focus_search()
+        self.activate(self.follow_button)
 
     def eventFilter(self, watched, event):
         pointer = event.type() == QEvent.MouseButtonPress
