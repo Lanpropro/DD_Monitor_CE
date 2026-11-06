@@ -476,7 +476,7 @@ namespace DDMonitorDiagnostics
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(24) };
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 446));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 456));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
@@ -500,7 +500,7 @@ namespace DDMonitorDiagnostics
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             inputs.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
             layout.Controls.Add(inputs, 0, 1);
             AddRow(0, "软件目录", directory, () => Browse(directory, "选择 DD监控室CE 所在文件夹"));
@@ -566,7 +566,7 @@ namespace DDMonitorDiagnostics
                 captureOptions.Text = captureExpanded ? "收起高级采集" : "高级采集…";
                 captureSection.RowStyles[1].Height = captureExpanded ? 90 : 0;
                 inputs.RowStyles[7].Height = captureExpanded ? 136 : 46;
-                layout.RowStyles[1].Height = captureExpanded ? 536 : 446;
+                layout.RowStyles[1].Height = captureExpanded ? 546 : 456;
             };
             captureMode.SelectedIndexChanged += (s, e) => UpdateCaptureHint();
             UpdateCaptureHint();
