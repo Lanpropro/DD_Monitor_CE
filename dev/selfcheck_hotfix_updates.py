@@ -126,7 +126,7 @@ class HotfixTests(unittest.TestCase):
             self.addCleanup(shutil.rmtree, Path(plan).parent)
             replace = os.replace
             def fail_exe(source, target):
-                if Path(target) == old:
+                if Path(target).resolve() == old.resolve():
                     raise OSError('fixture file lock')
                 return replace(source, target)
             with patch.object(update_install.os, 'replace', side_effect=fail_exe), self.assertRaises(OSError):
