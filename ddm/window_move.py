@@ -194,6 +194,10 @@ class WindowMove(QObject):
             preview.setGeometry(destination)
         preview.repaint()
         self.user32.SetWindowPos(int(preview.winId()), -1, 0, 0, 0, 0, 0x0013)  # temporary cover
+        if not maximized:
+            # setGeometry clears Qt's maximized flag even while the hidden HWND
+            # remains maximized. Restore the native state before that happens.
+            self.source.setWindowState(self.source.windowState() & ~Qt.WindowMaximized)
         self.source.setGeometry(destination)
         self.source.showMaximized() if maximized else self.source.showNormal()
         self.source.raise_()
