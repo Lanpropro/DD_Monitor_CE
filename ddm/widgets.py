@@ -6787,6 +6787,11 @@ class Tile(QFrame):
     def eventFilter(self, watched, event) -> bool:
         if watched is self.video:
             if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                if self.property('fullscreen'):
+                    # Native video clicks do not take Qt focus by default.
+                    # End input mode so idle hiding and shortcuts can resume.
+                    self.activateWindow()
+                    self.setFocus(Qt.MouseFocusReason)
                 self._press_pos = self.mapFromGlobal(event.globalPosition().toPoint())
             elif event.type() == QEvent.MouseButtonRelease and self._open_clicked_danmaku(event):
                 event.accept()
