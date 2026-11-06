@@ -190,6 +190,7 @@
 | [selfcheck_resize_preview_cleanup](../selfcheck_resize_preview_cleanup.py) | 单项执行前核对 |
 | [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native`；无mpv输出时保留Qt遮罩且不构建原生裁剪区，播放器子窗口创建/替换、尺寸/DPI/遮罩更新与重试生命周期 |
 | [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
+| [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键转换、多个弹幕栏、独立关联与共享连接、换位／换台／清空、录制保护、重启及组合恢复、横竖屏所有格位；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
 | [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |

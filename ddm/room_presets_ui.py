@@ -17,6 +17,7 @@ def thumbnail(snapshot):
     font.setPointSize(9)
     painter.setFont(font)
     slots = {slot["cell"]: slot for slot in snapshot["slots"]}
+    panels = {item["cell"]: item for item in snapshot["layout"].get("panels", [])}
     for cell, rect in room_presets.thumbnail_geometry(snapshot, QRect(5, 5, 214, 128)).items():
         slot = slots.get(cell)
         occupied = bool(slot and slot['room_id'])
@@ -25,6 +26,10 @@ def thumbnail(snapshot):
         painter.drawRoundedRect(rect, 3, 3)
         painter.setPen(theme.qcolor(theme.TEXT1 if occupied else theme.TEXT2))
         name = (slot["label"] or slot["room_id"]) if slot and slot["room_id"] else ("空位" if slot else "弹幕")
+        if cell in panels:
+            source = panels[cell]["source"]
+            target = slots.get(source, {})
+            name = "弹幕 · " + ("自动" if source is None else target.get("label") or "等待关联")
         text = painter.fontMetrics().elidedText(name, Qt.ElideRight, max(0, rect.width() - 6))
         painter.drawText(rect.adjusted(3, 2, -3, -2), Qt.AlignCenter, text)
     painter.end()

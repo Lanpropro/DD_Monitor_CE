@@ -26,7 +26,7 @@ class FullscreenPresentation(QObject):
         self._flags, self._geometry = tile.windowFlags(), QRect(tile.geometry())
         self._show_without_activating = tile.testAttribute(Qt.WA_ShowWithoutActivating)
         self._grid_enabled = wall.grid.isEnabled()
-        self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, wall.danmaku)]
+        self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall.pane_danmaku.all_panels())]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
         wall._fullscreen_layout_pending = True
