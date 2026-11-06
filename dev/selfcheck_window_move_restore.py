@@ -14,6 +14,7 @@ from PySide6.QtGui import QPixmap, QScreen
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.window_move import MovePreview, WindowMove
+from ddm.window_fullscreen import _dwm_set
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows native window state')
@@ -106,6 +107,52 @@ class MoveRestoreTests(unittest.TestCase):
         self.assertTrue(self.window.isMaximized())
         self.assertTrue(self.user32.IsZoomed(int(self.window.winId())))
         self.assertIsNone(self.controller.preview)
+
+    def test_preview_is_painted_before_source_is_hidden(self):
+        # A fully transparent QWidget skips painting; use a nearly transparent
+        # preview for this paint-delivery regression only.
+        initialize = MovePreview.__init__
+        def paintable(preview, *args):
+            initialize(preview, *args)
+            preview.setWindowOpacity(0.01)
+        self.window.resize(1000, 700)
+        self.window.show()
+        QTest.qWait(30)
+        painted = []
+        paint = MovePreview.paintEvent
+        def record(preview, event):
+            painted.append(self.window.isVisible())
+            return paint(preview, event)
+        with patch.object(MovePreview, '__init__', paintable), patch.object(MovePreview, 'paintEvent', record):
+            self.begin()
+        self.assertIn(True, painted, 'Source hidden before preview first paint')
+
+    def test_handoff_disables_transitions_and_cancel_restores_them(self):
+        self.window.resize(1000, 700)
+        self.window.show()
+        changes = []
+        def record(hwnd, attribute, value):
+            changes.append((hwnd, attribute, value, self.window.isVisible()))
+            return _dwm_set(hwnd, attribute, value)
+        with patch('ddm.window_move._dwm_set', side_effect=record, create=True):
+            preview = self.begin()
+            hwnd = int(preview.winId())
+            self.controller.cancel()
+        self.assertEqual(changes, [(hwnd, 3, 1, True),
+                                  (int(self.window.winId()), 3, 1, True),
+                                  (int(self.window.winId()), 3, 0, True)])
+        self.assertTrue(self.window.isVisible())
+
+    def test_completed_handoff_restores_source_transitions(self):
+        self.window.resize(1000, 700)
+        self.window.show()
+        with patch('ddm.window_move._dwm_set', wraps=_dwm_set, create=True) as setter:
+            self.begin()
+            self.controller.finish()
+            QTest.qWait(300)
+        self.assertIsNone(self.controller.preview)
+        self.assertTrue(self.window.isVisible())
+        setter.assert_called_with(int(self.window.winId()), 3, 0)
 
 
 if __name__ == '__main__':

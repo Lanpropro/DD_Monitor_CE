@@ -2,11 +2,11 @@
 import ctypes
 from ctypes import wintypes
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QEvent, QEventLoop, QObject, QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
-from .window_fullscreen import sync_titlebar
+from .window_fullscreen import _dwm_set, sync_titlebar
 
 
 class MovePreview(QWidget):
@@ -152,8 +152,19 @@ class WindowMove(QObject):
         preview.winId()
         preview.windowHandle().setScreen(screen)
         preview.setGeometry(geometry)
+        # These windows exchange one image; independent DWM fades expose the
+        # desktop and a scaled/grey intermediate surface during every handoff.
+        _dwm_set(int(preview.winId()), 3, 1)  # DWMWA_TRANSITIONS_FORCEDISABLED
+        _dwm_set(self.hwnd, 3, 1)
         preview.show()
         sync_titlebar(preview)
+        # Deliver the new QWindow's expose event before repainting its backing
+        # store; repaint alone does nothing until the first expose is handled.
+        QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+        if self.preview is not preview:
+            return None
+        preview.repaint()
+        ctypes.windll.dwmapi.DwmFlush()
         bounds = wintypes.RECT()
         self.user32.GetWindowRect(int(preview.winId()), ctypes.byref(bounds))
         preview.physical_size = bounds.right-bounds.left, bounds.bottom-bounds.top
@@ -194,6 +205,7 @@ class WindowMove(QObject):
             preview.setGeometry(destination)
         preview.repaint()
         self.user32.SetWindowPos(int(preview.winId()), -1, 0, 0, 0, 0, 0x0013)  # temporary cover
+        ctypes.windll.dwmapi.DwmFlush()
         if not maximized:
             # setGeometry clears Qt's maximized flag even while the hidden HWND
             # remains maximized. Restore the native state before that happens.
@@ -228,13 +240,16 @@ class WindowMove(QObject):
         self.revealing = False
         self.destination = None
         if preview is not None:
+            ctypes.windll.dwmapi.DwmFlush()
             preview.hide()
             preview.deleteLater()
+            _dwm_set(self.hwnd, 3, 0)
 
     def cancel(self, *, restore=True):
         self._release_press()
         active = self.preview is not None
-        self.reveal()
         if active and restore:
             self.source.showMaximized() if self.was_maximized else self.source.showNormal()
             self.source.raise_()
+            self.source.repaint()
+        self.reveal()

@@ -193,7 +193,7 @@
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
-| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；透明隔离窗口检查启动等尺寸下最大化拖动松手后的 Qt/Win32 状态一致、取消保留最大化及预览主动最大化；不注入鼠标，不作为真实故障首次定位证据 |
+| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；隔离透明/近透明窗口检查最大化拖动后 Qt/Win32 状态一致、取消及主动最大化、预览首帧先于原窗隐藏、交接动画的完成/取消清理；不注入鼠标，不作为真实故障首次定位证据 |
 | [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；静态窗口移动预览、取消/抓图失败/关闭/异常清理及双击消息路由；`--screens --players 3` 使用两块屏幕、123 张合成关注和本地视频，检查截图视频像素、隐藏时连续播放、原生几何、跨屏/最大化及 HWND/播放器保持；无账号或真实直播，真实输入与吸附另验 |
 
 ## 弹幕与表情
