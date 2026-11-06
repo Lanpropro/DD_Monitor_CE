@@ -1,6 +1,6 @@
 """Select wall slots for removal and undo the most recent removal."""
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QMessageBox,
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
                               QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget)
 
 from . import layouts
@@ -245,25 +245,16 @@ class WallRemoval(QObject):
             self.menu.refresh()
 
     def remove_selected(self):
-        targets = [(tile, room_id(tile)) for tile in self.host.wall.tiles if tile in self.selected and room_id(tile)]
-        if not targets:
-            return False
-        self.menu.hide()
-        answer = QMessageBox.question(self.host, '移除画面',
-            f'确定移除所选 {len(targets)} 路直播？\n\n将停止这些画面的录制和回放缓存，保留关注列表、布局及空格子。',
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if answer != QMessageBox.Yes:
-            self.sync()
-            self.show_menu()
-            return False
-        if any(tile not in self.host.wall.tiles or room_id(tile) != rid for tile, rid in targets):
+        if self.signature() != self.seen:
             self.sync()
             self.menu.message = '画面已变化，请重新选择'
             self.menu.refresh()
-            self.show_menu()
+            return False
+        targets = [tile for tile in self.host.wall.tiles if tile in self.selected and room_id(tile)]
+        if not targets:
             return False
         removed = []
-        for tile, _rid in targets:
+        for tile in targets:
             room = dict(tile.room, quality=tile.quality)
             saved_quality = self.host._capture_quality.get(tile)
             if saved_quality is not None and saved_quality[0] == room_id(tile):
