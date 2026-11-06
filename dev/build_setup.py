@@ -39,8 +39,12 @@ def payload_files(payload):
     build = json.loads((payload / 'ddm-build.json').read_text(encoding='utf-8-sig'))
     expected = {'version': VERSION, 'update_protocol': 1, 'platform': 'windows-x64'}
     if ({key: build.get(key) for key in expected} != expected
-            or set(build) - set(expected) - {'source_commit'}):
+            or set(build) - set(expected) - {'source_commit', 'revision', 'diagnostics_protocol'}):
         raise ValueError('Portable build does not match this release')
+    from ddm.update_version import revision
+    revision(build.get('revision', 0))
+    if 'diagnostics_protocol' in build and build['diagnostics_protocol'] != 1:
+        raise ValueError('Invalid diagnostics protocol in portable build')
     commit = build.get('source_commit')
     if commit is not None and (not isinstance(commit, str) or len(commit) != 40
                                or any(char not in '0123456789abcdef' for char in commit)):

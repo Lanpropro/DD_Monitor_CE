@@ -15,6 +15,7 @@ from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 from ddm import app as app_module, config, online, plugin_updates, theme
 from ddm.dialogs import SettingsDialog
+from ddm.update_version import update_identity
 from selfcheck_online_ui import Session
 
 
@@ -42,13 +43,13 @@ def main():
             stack.enter_context(patch.object(app_module.MainWindow, method))
         modal = stack.enter_context(patch.object(QMessageBox, 'information'))
         (Path(temporary) / 'RELEASE-v0.3.md').write_text('# 当前版本说明', encoding='utf-8')
-        disabled = app_module.MainWindow([], [], state={'plugins_enabled': []})
+        disabled = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         with patch.object(online, 'app_release') as check:
             assert disabled._startup_update_timer.isActive() == bool(disabled.plugins.catalog())
             disabled._check_startup_update()
             check.assert_not_called()
         disabled.close()
-        window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': True}})
+        window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': True, 'close_behavior': 'exit'}})
         window.show()
         app.processEvents()
         assert window._startup_update_timer.isActive()
@@ -83,6 +84,20 @@ def main():
         assert window.settings['seen_update_versions']['app'] == offer['version']
         window._startup_update_ready((None, offer))
         assert not notice.isVisible(), 'viewed app version must not notify again'
+        before = len(window.sidebar.notification_button.center._seen_keys)
+        for number in (1, 2):
+            hotfix = dict(offer, revision=number)
+            window._startup_update_ready((None, hotfix))
+            assert notice.isVisible() and '热修复' in notice.title.text()
+            assert not window.sidebar.settings_button._update_dot.isHidden()
+            with patch.object(app_module, 'SettingsDialog', InspectDialog):
+                QTest.mouseClick(notice.action, Qt.LeftButton)
+            assert window.settings['seen_update_versions']['app'] == update_identity(hotfix)
+            assert window.settings['seen_update_entry_versions']['app'] == update_identity(hotfix)
+            window._startup_update_ready((None, hotfix))
+            assert not notice.isVisible(), 'Viewed hotfix must not notify repeatedly'
+        assert len(window.sidebar.notification_button.center._seen_keys) == before + 2, \
+            'Two hotfix revisions must have distinct notification identities'
         # 手动检查发现没有新版时，清除本体标记。
         window._set_app_update(None)
         assert window.sidebar.settings_button._update_dot.isHidden()
@@ -106,14 +121,14 @@ def main():
             assert not window.settings['auto_update'] and save.called
             assert window.current_state()['settings']['auto_update'] is False
         window.close()
-        latest = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': True}})
+        latest = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': True, 'close_behavior': 'exit'}})
         with patch.object(online, 'app_release', return_value=None):
             latest._check_startup_update()
             settle(app, latest)
             assert latest._update_notice is None
         latest.close()
         # 本体自动检查关闭时，已安装插件仍可在启动检查后提示。
-        plugins_window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': False}})
+        plugins_window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
         plugins_window.show()
         plugin_offer = {'id': 'domestic_live', 'name': '国内平台', 'description': '测试',
                         'version': '2.0', 'available': True}
@@ -190,7 +205,7 @@ def main():
             assert dialog.plugin_page.store_page.buttons['domestic_live'].property('storeEnabled')
             dialog.reject()
         plugins_window.close()
-        closing = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': True}})
+        closing = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'auto_update': True, 'close_behavior': 'exit'}})
         started = threading.Event()
         def pending(*args):
             started.set()

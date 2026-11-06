@@ -16,6 +16,9 @@ param(
     [string]$FFmpegExe = "",
     [string]$DependencyRoot = "",
     [string]$VulkanRuntimeDir = "",
+    [ValidateRange(0, 2147483647)]
+    [int]$UpdateRevision = 0,
+    [string]$ReleaseTag = "",
     [switch]$SkipZip,
     [switch]$SourceOnly
 )
@@ -36,6 +39,15 @@ $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
 $version = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.VERSION_TAG)").Trim()
 if (-not $version) { throw "读不到版本号（ddm/version.py）" }
+if (-not $ReleaseTag) { $ReleaseTag = $version }
+$releaseIdentity = (& $py -c "import json,sys; sys.path.insert(0,sys.argv[1]); from ddm.update_version import app_tag; print(json.dumps(app_tag(sys.argv[2])))" $repo $ReleaseTag) | ConvertFrom-Json
+if ($releaseIdentity[0] -ne $version.TrimStart('v')) { throw "发布标签与本体版本不一致" }
+if ($releaseIdentity[1] -gt 0) {
+    if ($PSBoundParameters.ContainsKey('UpdateRevision') -and $UpdateRevision -ne $releaseIdentity[1]) {
+        throw "Hotfix 标签与内部修订号不一致"
+    }
+    $UpdateRevision = $releaseIdentity[1]
+}
 $display = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.DISPLAY_NAME)").Trim()
 if (-not $display) { $display = "DD监控室CE" }
 $name = "$display-$version"
@@ -213,7 +225,7 @@ if (-not $SourceOnly) {
     if ($version -eq "v0.3.1") {
         Copy-Item -LiteralPath (Join-Path $exeDir "$display.exe") -Destination (Join-Path $exeDir "$name.exe") -Force
     }
-    @{ version = $version.TrimStart('v'); update_protocol = 1; platform = 'windows-x64'; source_commit = $sourceCommit; diagnostics_protocol = 1 } |
+    @{ version = $version.TrimStart('v'); revision = $UpdateRevision; update_protocol = 1; platform = 'windows-x64'; source_commit = $sourceCommit; diagnostics_protocol = 1 } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $exeDir "ddm-build.json") -Encoding UTF8
     foreach ($diagnosticFile in @("DDMonitorDiagnostics.exe", "诊断工具说明.md")) {
         Copy-Item -LiteralPath (Join-Path $app $diagnosticFile) -Destination $exeDir -Force
@@ -301,11 +313,11 @@ DDMonitorDiagnostics.exe 是独立诊断工具，软件无法启动时也可双�
         $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$version.md"
         $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
         $remoteExeName = "DDMonitorCE-$version-exe.zip"
-        @{ version = $version.TrimStart('v'); asset_name = $remoteExeName;
-           url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/download/$version/$remoteExeName";
+        @{ version = $version.TrimStart('v'); revision = $UpdateRevision; release_tag = $ReleaseTag; asset_name = $remoteExeName;
+           url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/download/$ReleaseTag/$remoteExeName";
            sha256 = (Get-FileHash -LiteralPath $exeZip -Algorithm SHA256).Hash.ToLower();
            size = (Get-Item -LiteralPath $exeZip).Length; notes = [string]$updateNotes;
-           release_url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/$version" } |
+           release_url = "https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/$ReleaseTag" } |
             ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir "app-update.json") -Encoding UTF8
         Write-Output ("  {0:N0} MB" -f ((Get-Item $exeZip).Length / 1MB))
     }

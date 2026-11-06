@@ -11,6 +11,7 @@ import time
 import zipfile
 
 from .data_paths import INSTALL_MARKER
+from .update_version import revision
 
 MANIFEST = '.ddm-program-files.json'
 RESULT = '.ddm-update-result.json'
@@ -39,7 +40,8 @@ def destination(root, name):
     return path
 
 
-def prepare(archive, install_root, current_exe, cancelled=lambda: False, expected_version=None, data_root=None):
+def prepare(archive, install_root, current_exe, cancelled=lambda: False, expected_version=None, data_root=None,
+            expected_revision=None):
     root = Path(install_root).resolve()
     old_exe = Path(current_exe).resolve()
     if root == Path(root.anchor) or old_exe.parent != root or not old_exe.is_file():
@@ -85,6 +87,8 @@ def prepare(archive, install_root, current_exe, cancelled=lambda: False, expecte
         if expected_version and (build.get('version') != expected_version
                                  or executables[0] not in (fixed, f'DD监控室CE-v{expected_version}.exe')):
             raise ValueError('更新包版本与发布记录不一致')
+        if expected_revision is not None and revision(build.get('revision', 0)) != revision(expected_revision):
+            raise ValueError('更新包修订号与发布记录不一致')
         plan = {'root': str(root), 'stage': str(stage), 'files': paths,
                 'old_exe': old_exe.name, 'new_exe': executables[0], 'parent_pid': os.getpid()}
         from .data_paths import writable
