@@ -100,21 +100,22 @@ class WorkspaceControlTests(unittest.TestCase):
 
     def test_drag_tools_keeps_fixed_icons_spacing_and_survives_orientation(self):
         nav = self.sidebar.navigation
-        source, target = self.sidebar.layout_button, self.sidebar.notification_button
+        source, target = self.sidebar.layout_button, self.sidebar.picture_in_picture_button
         changes = []
         clicks = []
         nav.orderChanged.connect(lambda: changes.append(nav.order_state()))
         source.clicked.connect(lambda: clicks.append('layout'))
-        fixed = [self.sidebar.appearance_button.y(), self.sidebar.settings_button.y()]
+        fixed_buttons = [self.sidebar.notification_button, self.sidebar.appearance_button, self.sidebar.settings_button]
+        fixed = [button.y() for button in fixed_buttons]
         self.drag_icon(source, target)
         expected = [button for button in nav.movable_tools()]
         self.assertIs(expected[-1], source)
         self.assertEqual(clicks, [])
         self.assertEqual(len(changes), 1)
-        self.assertEqual([self.sidebar.appearance_button.y(), self.sidebar.settings_button.y()], fixed)
-        group = expected + [self.sidebar.appearance_button, self.sidebar.settings_button]
-        positions = [button.mapTo(nav.rail, QPoint()).y() for button in group]
-        self.assertEqual([b-a for a,b in zip(positions, positions[1:])], [40]*(len(group)-1))
+        self.assertEqual([button.y() for button in fixed_buttons], fixed)
+        for group in (expected, fixed_buttons):
+            positions = [button.mapTo(nav.rail, QPoint()).y() for button in group]
+            self.assertEqual([b-a for a,b in zip(positions, positions[1:])], [40]*(len(group)-1))
         saved = nav.order_state()
         for collapsed in (True, False):
             self.sidebar.set_collapsed(collapsed, animate=False)
@@ -126,7 +127,13 @@ class WorkspaceControlTests(unittest.TestCase):
         settle()
         self.assertEqual(nav.movable_tools(), expected)
         self.assertEqual(nav.order_state(), saved)
+        fixed_after_orientation = [button.y() for button in fixed_buttons]
         nav.restore_order(['notification', 'layout', 'pip'])
+        self.assertNotIn('notification', nav.order_state())
+        self.assertEqual([button.y() for button in fixed_buttons], fixed_after_orientation)
+        self.assertTrue(nav.fixed_divider.isVisible())
+        self.assertGreater(nav.fixed_divider.y(), nav.movable_tools()[-1].mapTo(nav.rail, QPoint()).y()+34)
+        self.assertLess(nav.fixed_divider.geometry().bottom(), fixed_buttons[0].mapTo(nav.rail, QPoint()).y())
         nav.restore_order(saved)
         self.assertEqual(nav.movable_tools(), expected)
 
@@ -135,7 +142,7 @@ class WorkspaceControlTests(unittest.TestCase):
         second, _ = self.add('second', '第二项')
         nav = self.sidebar.navigation
         panel = self.sidebar.workspace_controls
-        for button in (nav.follow_button, panel.launcher, self.sidebar.appearance_button,
+        for button in (nav.follow_button, panel.launcher, self.sidebar.notification_button, self.sidebar.appearance_button,
                        self.sidebar.settings_button):
             QTest.mousePress(button, Qt.LeftButton, pos=button.rect().center())
             self.assertIsNone(nav.icon_drag.source)
@@ -191,8 +198,8 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertLess(second.y(), first.y())
         nav = self.sidebar.navigation
         nav.restore_order(['notification', None, 'settings', 'notification', 'follow', 'pip'])
-        self.assertEqual(nav.order_state(), ['notification', 'pip'])
-        self.assertIs(nav.movable_tools()[0], self.sidebar.notification_button)
+        self.assertEqual(nav.order_state(), ['pip'])
+        self.assertIs(nav.movable_tools()[0], self.sidebar.picture_in_picture_button)
         nav.restore_order(None)
         self.assertEqual(nav.order_state(), [])
 
@@ -306,10 +313,10 @@ class WorkspaceControlTests(unittest.TestCase):
                self.sidebar.workspace_controls.launcher]
         plugins = [self.sidebar.workspace_controls.entries[i][1]
                    for i in self.sidebar.workspace_controls.pinned()]
-        bottom = [self.sidebar.layout_button, self.sidebar.picture_in_picture_button,
-                  self.sidebar.notification_button, self.sidebar.appearance_button,
+        bottom = self.sidebar.navigation.movable_tools()
+        fixed = [self.sidebar.notification_button, self.sidebar.appearance_button,
                   self.sidebar.settings_button]
-        for group in (top, plugins, bottom):
+        for group in (top, plugins, bottom, fixed):
             for button in group:
                 self.assertEqual((button.width(), button.height()), (34, 34))
             positions = [button.mapTo(rail, QPoint()).y() for button in group]
