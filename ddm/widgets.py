@@ -3348,8 +3348,10 @@ class AppearanceButton(QPushButton):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        size = 14*getattr(getattr(self, '_dock_feedback', None), 'scale', 1.0)
-        rect = QRectF((self.width()-size)/2, (self.height()-size)/2, size, size)
+        painter.translate(self.width()/2, self.height()/2)
+        if hasattr(self, '_dock_feedback'):
+            self._dock_feedback.transform(painter)
+        rect = QRectF(-7, -7, 14, 14)
         color = icon_color(self)
         painter.setPen(QPen(color, 1.4))
         painter.setBrush(Qt.NoBrush)

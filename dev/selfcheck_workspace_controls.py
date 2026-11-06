@@ -9,12 +9,12 @@ os.environ['DDM_NO_SAVE'] = '1'
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QAction, QFocusEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QWidget
 from ddm import continuous_corners as corners, motion, theme
-from ddm.dock_feedback import active, icon_color
+from ddm.dock_feedback import REST, active, icon_color
 from ddm.plugins import PluginContext, PluginManager
 from ddm.sidebar_navigation import RAIL_WIDTH
 from ddm.widgets import Sidebar
@@ -122,6 +122,110 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertIs(nav.active_button, first)
         self.context.unregister_workspace_control('first')
         self.assertIs(nav.active_button, nav.follow_button)
+
+    def test_registering_an_already_active_plugin_has_only_one_selected_icon(self):
+        action = QAction('已开启功能', self.host)
+        action.setCheckable(True)
+        action.setChecked(True)
+        button = QToolButton(self.host)
+        button.setDefaultAction(action)
+        self.context.register_workspace_control('already-active', button)
+        settle()
+        nav = self.sidebar.navigation
+        self.assertIs(nav.active_button, button)
+        self.assertEqual(sum(active(entry) for entry in nav.buttons()), 1)
+        self.assertFalse(active(nav.follow_button))
+        QTest.mouseClick(self.sidebar.search, Qt.LeftButton)
+        self.assertTrue(action.isChecked())
+        self.assertEqual(sum(active(entry) for entry in nav.buttons()), 1)
+        self.assertFalse(active(button))
+        self.assertEqual(corners._filter.values(button)['background'], 'transparent')
+        button.click()
+        self.assertFalse(action.isChecked(), 'Second plugin click must retain its original wall-return toggle')
+        self.assertTrue(active(nav.follow_button))
+
+    def test_function_center_toggle_does_not_replay_its_outside_press(self):
+        panel = self.sidebar.workspace_controls
+        nav = self.sidebar.navigation
+        plugin, _action = self.add('first', '第一个')
+        plugin.click()
+        events = []
+        class PopupTrace(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() in (QEvent.Show, QEvent.Hide):
+                    events.append((event.type(), watched.testAttribute(Qt.WA_NoMouseReplay)))
+                return False
+        trace = PopupTrace(panel.popup)
+        panel.popup.installEventFilter(trace)
+        for _ in range(4):
+            panel.launcher.click()
+            settle()
+            self.assertTrue(panel.popup.isVisible())
+            self.assertIs(nav.active_button, panel.launcher)
+            point = panel.popup.mapFromGlobal(panel.launcher.mapToGlobal(panel.launcher.rect().center()))
+            QTest.mouseClick(panel.popup, Qt.LeftButton, pos=point)
+            settle()
+            self.assertEqual(events[-2:], [(QEvent.Show, False), (QEvent.Hide, True)])
+            self.assertFalse(panel.popup.isVisible())
+            self.assertFalse(panel.launcher.isChecked())
+            self.assertIs(nav.active_button, plugin)
+            self.assertEqual(sum(active(entry) for entry in nav.buttons()), 1)
+        panel.launcher.click()
+        QTest.keyClick(panel.search, Qt.Key_Escape)
+        settle()
+        self.assertFalse(panel.popup.isVisible())
+        self.assertIs(nav.active_button, plugin)
+
+    def test_popup_focus_restoration_does_not_select_follow(self):
+        panel = self.sidebar.workspace_controls
+        nav = self.sidebar.navigation
+        plugin, _action = self.add('first', '第一个')
+        plugin.click()
+        APP.setActiveWindow(self.host)
+        plugin.setFocus(Qt.OtherFocusReason)
+        self.sidebar.search.setFocus(Qt.OtherFocusReason)
+        settle()
+        self.assertTrue(self.sidebar.search.hasFocus())
+        self.assertIs(nav.active_button, plugin)
+        panel.launcher.click()
+        APP.sendEvent(self.sidebar.search, QFocusEvent(QEvent.FocusIn, Qt.PopupFocusReason))
+        self.assertIs(nav.active_button, panel.launcher)
+        panel.popup.hide()
+        self.assertIs(nav.active_button, plugin)
+        APP.sendEvent(self.sidebar.search, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+        self.assertIs(nav.active_button, nav.follow_button)
+
+    def test_semantic_hover_plays_once_and_interrupts_without_moving_buttons(self):
+        nav = self.sidebar.navigation
+        for button in (nav.follow_button, self.sidebar.workspace_controls.launcher,
+                       self.sidebar.picture_in_picture_button, self.sidebar.notification_button,
+                       self.sidebar.appearance_button, self.sidebar.settings_button):
+            geometry = button.geometry()
+            feedback = button._dock_feedback
+            with patch.object(motion, 'enabled', return_value=True):
+                feedback.keyboard = False
+                feedback.hover(entering=True)
+                feedback.hover_animation.setCurrentTime(84)
+                self.assertNotEqual(feedback.pose, REST)
+                self.assertFalse(button.grab().isNull())
+                current = feedback.pose
+                feedback.hover()
+                self.assertEqual(feedback.pose, current)
+                feedback.hover_animation.setCurrentTime(160)
+                self.assertEqual(feedback.pose, REST)
+                feedback.hover(entering=True)
+                feedback.hover_animation.setCurrentTime(280)
+                self.assertEqual(feedback.pose, REST)
+                feedback.hover(entering=True)
+                feedback.hover_animation.setCurrentTime(84)
+                APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+                self.assertEqual(feedback.pose, REST)
+                self.assertEqual(feedback.scale, 1)
+                APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
+            with patch.object(motion, 'enabled', return_value=False):
+                feedback.hover(entering=True)
+                self.assertEqual(feedback.pose, REST)
+            self.assertEqual(button.geometry(), geometry)
 
     def test_pointer_focus_has_no_border_and_keyboard_still_activates(self):
         first, action = self.add('first', '第一个')

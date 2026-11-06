@@ -128,6 +128,10 @@ class WorkspaceControls(QFrame):
         widget.toggled.connect(lambda checked, widget=widget: self._entry_toggled(widget, checked))
         self.sync_layout()
         self._rebuild_rows()
+        if widget.isChecked():
+            self._entry_toggled(widget, True)
+        else:
+            self.sidebar.navigation.activate(self.sidebar.navigation.active_button)
 
     def remove(self, owner, key):
         entry = self.entries.pop((owner, str(key)), None)
@@ -313,7 +317,13 @@ class WorkspaceControls(QFrame):
         self.search.setFocus(Qt.PopupFocusReason)
 
     def eventFilter(self, watched, event):
-        if watched is self.popup and event.type() == QEvent.Hide:
+        if watched is self.popup and event.type() == QEvent.MouseButtonPress:
+            point = self.launcher.mapFromGlobal(event.globalPosition().toPoint())
+            if self.launcher.rect().contains(point):
+                # Qt closes an outside-clicked popup before replaying the press.
+                # The same press on our toggle must only close, never reopen it.
+                self.popup.setAttribute(Qt.WA_NoMouseReplay)
+        elif watched is self.popup and event.type() == QEvent.Hide:
             self.launcher.setChecked(False)
             navigation = self.sidebar.navigation
             if navigation.active_button is self.launcher:
