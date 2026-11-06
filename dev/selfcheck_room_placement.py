@@ -32,7 +32,7 @@ class Tile:
 
 class Host:
     def __init__(self, *tiles):
-        self.wall = SimpleNamespace(tiles=list(tiles), relayout=Mock())
+        self.wall = SimpleNamespace(tiles=list(tiles), relayout=Mock(), pane_danmaku=Mock())
         self.players = {}
         self.rooms = {tile.room['room_id']: dict(tile.room) for tile in tiles if tile.room['room_id']}
         self.sidebar = SimpleNamespace(watch_history=Mock())

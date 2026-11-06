@@ -46,6 +46,8 @@ class RoomPlacement:
         host.recorder.stop(tile)
         host._stop_tile(tile)
         tile.set_room(room)
+        if other is not None:
+            host.wall.pane_danmaku.swap_sources(other, tile)
         to_start.append(tile)
         restarted = host.apply_quality_policy()
         for candidate in to_start:
@@ -74,6 +76,7 @@ class RoomPlacement:
         host._stop_tile(target_tile)
         source.set_room(second if second.get("room_id") else None)
         target_tile.set_room(first if first.get("room_id") else None)
+        host.wall.pane_danmaku.swap_sources(source, target_tile)
         restarted = host.apply_quality_policy()
         for tile in (source, target_tile):
             if tile.room.get("room_id") and tile not in restarted:
