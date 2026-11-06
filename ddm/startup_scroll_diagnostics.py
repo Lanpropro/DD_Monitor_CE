@@ -1,5 +1,6 @@
 """Opt-in startup/scroll timings; reuse the responsiveness heartbeat and log."""
 import functools
+from inspect import CO_VARARGS, CO_VARKEYWORDS
 import threading
 import time
 
@@ -54,6 +55,7 @@ def install(probe):
     from .app import MainWindow
     from .player import TilePlayer, mpv
     from .preview import HoverPreview
+    from .video_surface import VideoSurface
     from .widgets import Sidebar
 
     def timed(method, label, *, binding_only=False):
@@ -64,10 +66,21 @@ def install(probe):
                     (binding_only and 'player.bind' not in probe.active)):
                 return method(*args, **kwargs)
             return wrapped(*args, **kwargs)
+        code = getattr(method, '__code__', None)
+        if (code is not None and code.co_argcount == 1 and code.co_kwonlyargcount == 0
+                and not code.co_flags & (CO_VARARGS | CO_VARKEYWORDS)):
+            # PySide uses the callable's positional arity to drop surplus signal
+            # arguments. A *args wrapper would forward valueChanged(int) to a
+            # no-argument slot and raise on every scroll.
+            @functools.wraps(method)
+            def qt_slot(self):
+                return gui_only(self)
+            return qt_slot
         return gui_only
 
     # Install before construction so Qt signals connect to the timed slots.
     for owner, names in ((TilePlayer, ('bind', '_destroy_core')),
+                         (VideoSurface, ('_clip_native_video',)),
                          (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                          (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
                          (MainWindow, ('start_all', '_play_on'))):

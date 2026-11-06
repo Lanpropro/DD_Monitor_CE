@@ -44,7 +44,7 @@ def stack_locations(frame):
     while frame is not None and len(locations) < 16:
         path = Path(frame.f_code.co_filename)
         try:
-            filename = path.resolve().relative_to(ROOT).as_posix()
+            filename = path.relative_to(ROOT).as_posix()
         except ValueError:
             filename = path.name
         locations.append({'file': filename, 'function': frame.f_code.co_name, 'line': frame.f_lineno})
