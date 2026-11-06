@@ -115,6 +115,9 @@ class SidebarNavigation(QObject):
         self.tools_divider.setObjectName('NavigationDivider')
         self.tools_divider.setFixedSize(24, 2)
         rail_box.addWidget(self.tools_divider, 0, Qt.AlignHCenter)
+        self.fixed_divider = QFrame(self.rail)
+        self.fixed_divider.setObjectName('NavigationDivider')
+        self.fixed_divider.setFixedSize(24, 2)
         self.bottom = QVBoxLayout()
         self.bottom.setSpacing(6)
         rail_box.addLayout(self.bottom)
@@ -164,19 +167,20 @@ class SidebarNavigation(QObject):
         QApplication.instance().installEventFilter(self)
 
     def movable_tools(self):
-        fixed = (self.sidebar.appearance_button, self.sidebar.settings_button)
+        fixed = (self.fixed_divider, self.sidebar.notification_button,
+                 self.sidebar.appearance_button, self.sidebar.settings_button)
         return [self.bottom.itemAt(index).widget() for index in range(self.bottom.count())
                 if self.bottom.itemAt(index).widget() not in fixed]
 
     def tool_key(self, button):
-        return 'notification' if button is self.sidebar.notification_button else button.kind
+        return button.kind
 
     def order_state(self):
         return list(self._tool_order)
 
     def restore_order(self, value):
         self._tool_order = list(dict.fromkeys(key for key in value
-            if isinstance(key, str) and key in ('layout', 'clear', 'pip', 'notification'))) if isinstance(value, list) else []
+            if isinstance(key, str) and key in ('layout', 'clear', 'pip'))) if isinstance(value, list) else []
         self._sort_tools()
 
     def _sort_tools(self):
@@ -187,6 +191,10 @@ class SidebarNavigation(QObject):
         keys.extend(key for key in tools if key not in keys)
         for index, key in enumerate(keys):
             self.bottom.insertWidget(index, tools[key], 0, Qt.AlignHCenter)
+        for index, widget in enumerate((self.fixed_divider, self.sidebar.notification_button,
+                                        self.sidebar.appearance_button, self.sidebar.settings_button), len(keys)):
+            self.bottom.insertWidget(index, widget, 0, Qt.AlignHCenter)
+        self.fixed_divider.show()
 
     def reorder_group(self, before, after):
         if before == after:
