@@ -89,13 +89,30 @@ class StartupScrollTests(unittest.TestCase):
                     (VideoSurface, ('_clip_native_video',)),
                     (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                     (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
-                    (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on')),
+                    (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on',
+                                  'load_room_avatars', '_on_player_state')),
                     (QWidget, ('winId',))):
                 for name in names:
                     stack.enter_context(patch.object(owner, name, getattr(owner, name)))
             stack.enter_context(patch.object(mpv, 'MPV', Core))
             stack.enter_context(patch('cProfile.Profile', side_effect=AssertionError('No cross-thread profiling')))
+            states = []
+            token = object()
+            def receive_state(window, tile, state):
+                states.append(state)
+                return token
+            stack.enter_context(patch.object(MainWindow, '_on_player_state', receive_state))
             install(self.probe)
+            tile = object()
+            window = SimpleNamespace(wall=SimpleNamespace(tiles=[tile]))
+            for state in ('connecting', 'buffering', 'playing', 'error'):
+                self.assertIs(MainWindow._on_player_state(window, tile, state), token)
+            self.assertIs(MainWindow._on_player_state(window, None, 'stopped'), token)
+            state_rows = [r for r in self.records() if r['phase'] == 'startup-player-state']
+            self.assertEqual([r['state'] for r in state_rows], states[:4])
+            self.assertTrue(all(r['tile_index'] == 0 for r in state_rows))
+            self.assertTrue(all(set(r) == {'time', 'session', 'elapsed_s', 'phase', 'tile_index', 'state'}
+                                for r in state_rows), 'Playback capture must not record room IDs or stream URLs')
             video = QWidget()
             player = TilePlayer(video)
             clock = itertools.count(0, .02)
@@ -135,7 +152,8 @@ class StartupScrollTests(unittest.TestCase):
                     (VideoSurface, ('_clip_native_video',)),
                     (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                     (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
-                    (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on')),
+                    (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on',
+                                  'load_room_avatars', '_on_player_state')),
                     (QWidget, ('winId',)), (mpv.MPV, ('__init__',))):
                 for name in names:
                     if hasattr(owner, name):
