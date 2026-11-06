@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
-from PySide6.QtGui import QAction, QFocusEvent
+from PySide6.QtGui import QAction, QFocusEvent, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
@@ -58,6 +58,143 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertTrue(self.context.register_workspace_control(key, widget, priority=priority))
         settle()
         return widget, action
+
+    def move_pointer(self, source, position):
+        APP.sendEvent(source, QMouseEvent(QEvent.MouseMove, source.mapFromGlobal(position),
+            position, Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+
+    def drag_icon(self, source, target, *, cancel=False):
+        QTest.mousePress(source, Qt.LeftButton, pos=source.rect().center())
+        position = target.mapToGlobal(QPoint(target.width()//2, target.height()-2))
+        self.move_pointer(source, position)
+        self.assertIsNotNone(self.sidebar.navigation.icon_drag.ghost)
+        if cancel:
+            QTest.keyClick(source, Qt.Key_Escape)
+        QTest.mouseRelease(source, Qt.LeftButton, pos=source.mapFromGlobal(position))
+        settle()
+
+    def test_drag_plugin_icons_reorders_pins_without_triggering_actions(self):
+        first, first_action = self.add('first', '第一项')
+        second, second_action = self.add('second', '第二项')
+        panel = self.sidebar.workspace_controls
+        changes = []
+        clicks = []
+        panel.pinsChanged.connect(lambda: changes.append(panel.pin_state()))
+        first.clicked.connect(lambda: clicks.append('first'))
+        second.clicked.connect(lambda: clicks.append('second'))
+        nav = self.sidebar.navigation
+        nav.activate(first)
+        self.drag_icon(first, second)
+        self.assertEqual(panel.pinned(), [('workspace-test', 'second'), ('workspace-test', 'first')])
+        self.assertLess(second.y(), first.y())
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(clicks, [])
+        self.assertFalse(first_action.isChecked())
+        self.assertFalse(second_action.isChecked())
+        self.assertIs(nav.active_button, first)
+        self.assertIsNone(QWidget.mouseGrabber())
+        self.assertIsNone(nav.icon_drag.ghost)
+        QTest.mouseClick(first, Qt.LeftButton)
+        self.assertEqual(clicks, ['first'])
+        self.assertTrue(first_action.isChecked())
+
+    def test_drag_tools_keeps_fixed_icons_spacing_and_survives_orientation(self):
+        nav = self.sidebar.navigation
+        source, target = self.sidebar.layout_button, self.sidebar.notification_button
+        changes = []
+        clicks = []
+        nav.orderChanged.connect(lambda: changes.append(nav.order_state()))
+        source.clicked.connect(lambda: clicks.append('layout'))
+        fixed = [self.sidebar.appearance_button.y(), self.sidebar.settings_button.y()]
+        self.drag_icon(source, target)
+        expected = [button for button in nav.movable_tools()]
+        self.assertIs(expected[-1], source)
+        self.assertEqual(clicks, [])
+        self.assertEqual(len(changes), 1)
+        self.assertEqual([self.sidebar.appearance_button.y(), self.sidebar.settings_button.y()], fixed)
+        group = expected + [self.sidebar.appearance_button, self.sidebar.settings_button]
+        positions = [button.mapTo(nav.rail, QPoint()).y() for button in group]
+        self.assertEqual([b-a for a,b in zip(positions, positions[1:])], [40]*(len(group)-1))
+        saved = nav.order_state()
+        for collapsed in (True, False):
+            self.sidebar.set_collapsed(collapsed, animate=False)
+            settle()
+            self.assertEqual(nav.movable_tools(), expected)
+        self.sidebar.set_side('top')
+        settle()
+        self.sidebar.set_side('left')
+        settle()
+        self.assertEqual(nav.movable_tools(), expected)
+        self.assertEqual(nav.order_state(), saved)
+        nav.restore_order(['notification', 'layout', 'pip'])
+        nav.restore_order(saved)
+        self.assertEqual(nav.movable_tools(), expected)
+
+    def test_fixed_icons_cannot_drag_and_cross_group_drops_cancel(self):
+        first, _ = self.add('first', '第一项')
+        second, _ = self.add('second', '第二项')
+        nav = self.sidebar.navigation
+        panel = self.sidebar.workspace_controls
+        for button in (nav.follow_button, panel.launcher, self.sidebar.appearance_button,
+                       self.sidebar.settings_button):
+            QTest.mousePress(button, Qt.LeftButton, pos=button.rect().center())
+            self.assertIsNone(nav.icon_drag.source)
+            QTest.mouseRelease(button, Qt.LeftButton, pos=QPoint(-20, -20))
+        before = panel.pin_state()
+        tools = nav.movable_tools()
+        self.drag_icon(first, self.sidebar.notification_button)
+        self.assertEqual(panel.pin_state(), before)
+        self.assertEqual(nav.movable_tools(), tools)
+        self.drag_icon(self.sidebar.layout_button, second)
+        self.assertEqual(panel.pin_state(), before)
+        self.assertEqual(nav.movable_tools(), tools)
+        self.assertTrue(nav.divider.isVisible())
+        divider = nav.tools_divider
+        self.assertTrue(divider.isVisible())
+        self.assertGreater(divider.y(), second.mapTo(nav.rail, QPoint()).y()+second.height())
+        self.assertLess(divider.geometry().bottom(), tools[0].mapTo(nav.rail, QPoint()).y())
+
+    def test_drag_escape_outside_and_plugin_unload_release_input_without_saving(self):
+        first, _ = self.add('first', '第一项')
+        second, _ = self.add('second', '第二项')
+        nav = self.sidebar.navigation
+        panel = self.sidebar.workspace_controls
+        changes = []
+        panel.pinsChanged.connect(lambda: changes.append(True))
+        self.drag_icon(first, second, cancel=True)
+        self.assertEqual(panel.pinned()[0], ('workspace-test', 'first'))
+        QTest.mousePress(first, Qt.LeftButton, pos=first.rect().center())
+        outside = self.host.mapToGlobal(QPoint(self.host.width()-10, 20))
+        self.move_pointer(first, outside)
+        self.assertIsNotNone(nav.icon_drag.ghost)
+        self.assertFalse(nav.icon_drag.marker.isVisible())
+        QTest.mouseRelease(first, Qt.LeftButton, pos=first.mapFromGlobal(outside))
+        self.assertIsNone(nav.icon_drag.source)
+        QTest.mousePress(first, Qt.LeftButton, pos=first.rect().center())
+        self.move_pointer(first, second.mapToGlobal(second.rect().center()))
+        self.context.unregister_workspace_control('first')
+        settle()
+        self.assertIsNone(nav.icon_drag.source)
+        self.assertIsNone(QWidget.mouseGrabber())
+        self.assertFalse(changes)
+
+    def test_pin_reorder_preserves_unavailable_plugins_and_restore_order_validation(self):
+        first, _ = self.add('first', '第一项')
+        second, _ = self.add('second', '第二项')
+        panel = self.sidebar.workspace_controls
+        panel.restore_pins([['workspace-test', 'first'], ['missing', 'entry'], ['workspace-test', 'second']])
+        self.drag_icon(first, second)
+        self.assertEqual(panel.pin_state(), [['workspace-test', 'second'], ['workspace-test', 'first'], ['missing', 'entry']])
+        saved = panel.pin_state()
+        panel.restore_pins([])
+        panel.restore_pins(saved)
+        self.assertLess(second.y(), first.y())
+        nav = self.sidebar.navigation
+        nav.restore_order(['notification', None, 'settings', 'notification', 'follow', 'pip'])
+        self.assertEqual(nav.order_state(), ['notification', 'pip'])
+        self.assertIs(nav.movable_tools()[0], self.sidebar.notification_button)
+        nav.restore_order(None)
+        self.assertEqual(nav.order_state(), [])
 
     def assert_global_buttons(self):
         for widget in (self.sidebar.layout_button, self.sidebar.clear_wall_button, self.sidebar.picture_in_picture_button,

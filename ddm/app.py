@@ -307,6 +307,7 @@ class MainWindow(QMainWindow):
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
         self.sidebar.workspace_controls.pinsChanged.connect(self._save_timer.start)
+        self.sidebar.navigation.orderChanged.connect(self._save_timer.start)
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
         self.wall.layoutRatiosChanged.connect(self._save_timer.start)
         # 音频巡检：`audio_set_mute` / `audio_set_volume` 是在 aout 上生效的，而 aout
@@ -605,6 +606,7 @@ class MainWindow(QMainWindow):
 
     # ---- 界面状态 ----
     def _restore_ui(self) -> None:
+        self.sidebar.navigation.restore_order((self.state.get('ui') or {}).get('sidebar_tool_order'))
         self.sidebar.workspace_controls.restore_pins(
             (self.state.get('ui') or {}).get('workspace_pins'))
         self.sidebar.watch_history = WatchHistory(self.state.get("watch_history"))
@@ -1204,6 +1206,7 @@ class MainWindow(QMainWindow):
                 "room_preset_id": self._active_room_preset_id,
                 "sidebar_collapsed": self.sidebar.collapsed,
                 "workspace_pins": self.sidebar.workspace_controls.pin_state(),
+                "sidebar_tool_order": self.sidebar.navigation.order_state(),
                 "layout_landscape": self._saved_layout("landscape"),
                 "layout_portrait": self._saved_layout("portrait"),
                 "corner_ratios": self.wall.corner_ratios(),

@@ -205,6 +205,13 @@ class WorkspaceControls(QFrame):
         self._sync_rows()
         self.pinsChanged.emit()
 
+    def reorder_pins(self, identities):
+        missing = [] if self._pin_ids is None else [key for key in self._pin_ids if key not in self.entries]
+        self._pin_ids = list(identities) + missing
+        self.sync_layout(close_popup=False)
+        self._sync_rows()
+        self.pinsChanged.emit()
+
     def sync_layout(self, *, close_popup=True):
         navigation = getattr(self.sidebar, 'navigation', None)
         if navigation is None:
@@ -227,6 +234,7 @@ class WorkspaceControls(QFrame):
         self.launcher.show()
         pinned = self.pinned()
         navigation.divider.setVisible(not top and bool(pinned))
+        navigation.tools_divider.setVisible(not top and bool(pinned))
         for identity in self.ordered():
             widget = self.entries[identity][1]
             widget.setProperty('dockRail', not top)

@@ -1304,6 +1304,36 @@ class MainNoticesTests(unittest.TestCase):
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
 
+    def test_sidebar_icon_order_saves_and_restores_independent_groups(self):
+        from ddm.plugins import PluginContext
+        from PySide6.QtWidgets import QToolButton
+        window = self.window([])
+        window.settings['close_behavior'] = 'exit'
+        nav = window.sidebar.navigation
+        context = PluginContext(window.plugins, 'order-fixture')
+        for key in ('first', 'second'):
+            button = QToolButton()
+            button.setText(key)
+            context.register_workspace_control(key, button)
+        controls = window.sidebar.workspace_controls
+        tools = nav.movable_tools()
+        window._save_timer.stop()
+        nav.reorder_group(tools, list(reversed(tools)))
+        self.assertTrue(window._save_timer.isActive())
+        window._save_timer.stop()
+        controls.reorder_pins(list(reversed(controls.pinned())))
+        self.assertTrue(window._save_timer.isActive())
+        state = window.current_state()
+        self.assertEqual(state['ui']['sidebar_tool_order'], [nav.tool_key(button) for button in reversed(tools)])
+        self.assertEqual(state['ui']['workspace_pins'], [['order-fixture', 'second'], ['order-fixture', 'first']])
+        restored = MainWindow([], [], layout_id='2x2', state=state)
+        restored.settings['close_behavior'] = 'exit'
+        self.addCleanup(self.close_window, restored)
+        other = restored.sidebar.navigation
+        self.assertEqual(other.order_state(), nav.order_state())
+        self.assertEqual([other.tool_key(button) for button in other.movable_tools()], other.order_state())
+        self.assertEqual(restored.sidebar.workspace_controls.pin_state(), controls.pin_state())
+
     def complete_startup(self, window):
         poller = Mock()
         window._poller = poller
