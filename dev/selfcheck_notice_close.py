@@ -17,8 +17,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from shiboken6 import isValid
 from ddm import motion, theme
-from ddm.notification_center import NotificationButton
+from ddm.notification_center import NotificationButton, NoticeRow
 from ddm.online_ui import ResultNotice, UpdateNotice, show_result
 
 
@@ -96,6 +97,70 @@ class NoticeCloseTests(unittest.TestCase):
         notice._motion.setCurrentTime(notice._motion.duration())
         self.assert_hidden(notice)
 
+    def test_stalled_exit_still_closes_both_toast_types(self):
+        # Fault injection only: pause the shared animation, keep GUI timers running.
+        for notice in (UpdateNotice(self.owner), ResultNotice(self.owner)):
+            if isinstance(notice, ResultNotice):
+                notice.show_message('Fixture', persistent=True)
+            else:
+                notice.show_offer({'version': 'fixture'}, persistent=True)
+            notice._motion.setCurrentTime(notice._motion.duration())
+            notice.dismiss()
+            notice._motion.pause()
+            QTest.qWait(450)
+            if isinstance(notice, ResultNotice):
+                self.assertFalse(isValid(notice), 'Closed result notices must be deleted')
+            else:
+                self.assert_hidden(notice)
+            self.assertFalse(self.owner._notices)
+
+    def test_reopening_cancels_previous_close_deadline(self):
+        for notice in (UpdateNotice(self.owner), ResultNotice(self.owner)):
+            def show():
+                if isinstance(notice, ResultNotice):
+                    notice.show_message('Fixture', persistent=True)
+                else:
+                    notice.show_offer({'version': 'fixture'}, persistent=True)
+            show()
+            notice.dismiss()
+            notice._motion.pause()
+            QTest.qWait(80)
+            show()
+            QTest.qWait(450)
+            self.assertTrue(notice.isVisible())
+            self.assertFalse(notice._leaving)
+            notice.dismiss(animate=False)
+
+    def test_stalled_history_exit_removes_once_and_clear_finishes(self):
+        center = self.button.center
+        entries = [center.add('Fixture') for _ in range(3)]
+        center.show()
+        self.app.processEvents()
+        rows = [center.rows[entry] for entry in entries]
+        removed = []
+        for row in rows:
+            row.removed.connect(removed.append)
+        center.clear()
+        for row in rows:
+            self.assertIsNotNone(row._paper, 'Exercise the animated removal path')
+            row.animation.pause()
+            row.remove()  # Repeated requests must not postpone removal.
+        QTest.qWait(500)
+        self.assertFalse(center.entries)
+        self.assertFalse(center.rows)
+        self.assertCountEqual(removed, entries)
+        self.assertFalse(center.clear_button.isEnabled())
+
+    def test_history_completion_is_idempotent(self):
+        entry = self.button.center.add('Fixture')
+        row = NoticeRow(entry, self.owner)
+        removed = []
+        row.removed.connect(removed.append)
+        row.remove()
+        row.finish_removal()
+        QTest.qWait(450)
+        self.assertEqual(removed, [entry])
+
     def test_live_artwork_callback_does_not_unconditionally_reopen_hidden_notice(self):
         room = {'room_id': '__notice_probe__', 'uname': 'Fixture'}
         show_result(self.owner, 'Live fixture', rooms=[room], kind='live', persistent=True)
@@ -118,7 +183,8 @@ class NoticeCloseTests(unittest.TestCase):
             stack.callback(trace.timer.stop)
             trace.LIMIT = 50
             for owner, names in ((UpdateNotice, ('__init__', 'dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent')),
-                                 (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar', '_motion_frame', 'reposition', 'paintEvent'))):
+                                 (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar', '_motion_frame', 'reposition', 'paintEvent')),
+                                 (NoticeRow, ('__init__', 'remove', '_frame', 'finish_removal'))):
                 for name in names:
                     stack.enter_context(patch.object(owner, name, getattr(owner, name)))
             trace.install()
@@ -134,6 +200,15 @@ class NoticeCloseTests(unittest.TestCase):
             QTest.mouseClick(notice.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
             notice._motion.setCurrentTime(notice._motion.duration())
             self.assert_hidden(notice)
+            center = self.button.center
+            entry = center.add(secret_text)
+            center.show()
+            self.app.processEvents()
+            history_row = center.rows[entry]
+            QTest.mouseClick(history_row.remove_button, Qt.LeftButton)
+            history_row.animation.pause()
+            QTest.qWait(450)
+            self.assertNotIn(entry, center.entries)
             for _ in range(60):
                 trace.sample()
             rows = [json.loads(line) for line in trace.path.read_text().splitlines()]
@@ -141,6 +216,8 @@ class NoticeCloseTests(unittest.TestCase):
             self.assertFalse(trace.timer.isActive())
             self.assertNotIn(secret_text, trace.path.read_text())
             self.assertTrue(any(row['stage'] == 'button:clicked' for row in rows))
+            self.assertTrue(any(row['stage'] == 'NoticeRow.finish_removal:after'
+                                and row['surface'] == 'history' for row in rows))
             hidden = [row for row in rows if row['stage'] == 'UpdateNotice._motion_finished:after']
             self.assertTrue(hidden)
             self.assertFalse(hidden[-1]['visible'])

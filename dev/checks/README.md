@@ -146,7 +146,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_stream_info](../selfcheck_stream_info.py) | `offline`；合成播放器属性、格子右键入口、单位换算、逐格刷新及窗口清理；根入口 `run.cmd --check-stream-info` 另含 Windows 原生独立全屏窗口归属回归，不连接直播或读取账号 |
-| [selfcheck_notice_close](../selfcheck_notice_close.py) | `run.cmd --check-notice-close`；Windows 原生／离屏通知关闭、动画中关闭、多条通知独立收尾、自动超时及只读采集上限；合成通知，不替代久用或负载故障复现 |
+| [selfcheck_notice_close](../selfcheck_notice_close.py) | `run.cmd --check-notice-close`；Windows 原生／离屏通知关闭、动画停走时两类通知独立收尾、重开取消旧收尾、删除幂等、自动超时及两类通知只读采集上限；合成通知，不替代久用或负载故障复现 |
 | [selfcheck_danmaku_motion_diagnostics](../selfcheck_danmaku_motion_diagnostics.py) | 原生单项；隔离 Quick 层数值采集上限、隐藏恢复、控件保留；不接入渲染线程、不读取消息，不替代真实回退复现 |
 | [check_live_restore](../check_live_restore.py) | `live` |
 | [selfcheck_corner_drag_updates](../selfcheck_corner_drag_updates.py) | 单项执行前核对 |
