@@ -3691,6 +3691,9 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    from .on_demand_diagnostics import DiagnosticEndpoint
+    window._on_demand_diagnostics = DiagnosticEndpoint(
+        window, os.path.join(config_module.data_root(), 'logs'), config_module.REPO)
     app.setQuitOnLastWindowClosed(False)
     t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈

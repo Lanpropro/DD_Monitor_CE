@@ -45,6 +45,7 @@
 
 - `tools/diagnostics/Collector.cs`
 - `tools/diagnostics/NativeDependencies.cs`
+- `tools/diagnostics/OnDemand.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
 - `dev/build_diagnostics.ps1`
@@ -52,6 +53,7 @@
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
 - `dev/selfcheck_sidebar_diagnostics.py`
+- `dev/selfcheck_on_demand_diagnostics.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
