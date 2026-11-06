@@ -5,6 +5,7 @@ import threading
 import time
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QWidget
 
 from .responsiveness import Probe, profile_functions
@@ -28,8 +29,52 @@ class FullscreenCapture(QObject):
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self.frame)
+        self.idle_samples = []
+        self.idle_timer = QTimer(window)
+        self.idle_timer.setInterval(125)
+        self.idle_timer.timeout.connect(self.idle_frame)
+
+    def start_idle(self, tile):
+        if not hasattr(self.window, '_fullscreen_cursor'):
+            return
+        self.idle_tile = tile
+        self.idle_started = time.monotonic()
+        self.idle_samples = []
+        self.idle_timer.start()
+        self.idle_frame()
+
+    def idle_frame(self):
+        from PySide6.QtWidgets import QApplication
+        tile, cursor = self.idle_tile, self.window._fullscreen_cursor
+        now = time.monotonic()
+        point = QCursor.pos()
+        focus = QApplication.focusWidget()
+        self.idle_samples.append({
+            'at_ms': round((now-self.idle_started)*1000),
+            'cursor_hidden': cursor.hidden, 'cursor_timer': cursor.timer.isActive(),
+            'idle_ms': round((now-cursor._last_move)*1000),
+            'hide_bar': bool(self.window.settings.get('fullscreen_auto_hide_controls', True)),
+            'pointer_video': tile.video.rect().contains(tile.video.mapFromGlobal(point)),
+            'focus': type(focus).__name__ if focus is not None else None,
+            'interaction': tile.plugin_interaction_active(),
+            'controls_hidden': getattr(tile, '_fullscreen_controls_hidden', False),
+            'bar_target': tile._bar_target, 'bar_progress': tile._bar_progress,
+            'bar_visible': tile.bottom.isVisible(),
+            'animation_state': tile._bar_animation.state().name,
+            'animation_ms': tile._bar_animation.currentTime(),
+            'animation_signals_blocked': tile._bar_animation.signalsBlocked(),
+        })
+        if now-self.idle_started >= 8 or len(self.idle_samples) >= 65:
+            self.finish_idle('limit')
+
+    def finish_idle(self, reason='exit'):
+        self.idle_timer.stop()
+        if self.idle_samples:
+            self.probe.write('fullscreen-idle', reason=reason, samples=self.idle_samples)
+            self.idle_samples = []
 
     def begin(self, action, tile):
+        self.finish_idle('transition')
         self.finish('interrupted')
         self.target = tile
         self.started = time.perf_counter()
@@ -165,6 +210,7 @@ def install(path, *, profile_calls=False):
         original_init(window, *args, **kwargs)
         capture = window._fullscreen_probe = FullscreenCapture(probe, window, profile_calls=profile_calls)
         QApplication.instance().aboutToQuit.connect(capture.finish)
+        QApplication.instance().aboutToQuit.connect(capture.finish_idle)
         QApplication.instance().aboutToQuit.connect(probe.stop)
 
     MainWindow.__init__ = initialize
@@ -202,6 +248,8 @@ def install(path, *, profile_calls=False):
                     capture.returned = time.perf_counter()
                     if failed:
                         capture.finish('exception')
+                if not failed and direction == 'enter':
+                    capture.start_idle(tile)
         return wrapped
 
     MainWindow._on_fullscreen = operation(MainWindow._on_fullscreen, 'toggle')
