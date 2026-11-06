@@ -44,7 +44,7 @@ class FullscreenCapture(QObject):
         self.idle_frame()
 
     def idle_frame(self):
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication, QLineEdit
         tile, cursor = self.idle_tile, self.window._fullscreen_cursor
         now = time.monotonic()
         point = QCursor.pos()
@@ -63,6 +63,12 @@ class FullscreenCapture(QObject):
             'animation_state': tile._bar_animation.state().name,
             'animation_ms': tile._bar_animation.currentTime(),
             'animation_signals_blocked': tile._bar_animation.signalsBlocked(),
+            'bar_clock': tile._bar_clock.isActive(),
+            'bar_rect': tile.bottom.geometry().getRect(),
+            'bar_translucent': tile.bottom.testAttribute(Qt.WA_TranslucentBackground),
+            'input_rects': [[edit.mapTo(tile.bottom, QPoint()).x(),
+                             edit.mapTo(tile.bottom, QPoint()).y(), edit.width(), edit.height()]
+                            for edit in tile.bottom.findChildren(QLineEdit) if edit.isVisible()],
         })
         if now-self.idle_started >= 8 or len(self.idle_samples) >= 65:
             self.finish_idle('limit')
