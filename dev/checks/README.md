@@ -183,7 +183,7 @@
 | [selfcheck_preset_resize](../selfcheck_preset_resize.py) | 单项执行前核对 |
 | [selfcheck_preset_state](../selfcheck_preset_state.py) | 单项执行前核对 |
 | [selfcheck_resize_preview_cleanup](../selfcheck_resize_preview_cleanup.py) | 单项执行前核对 |
-| [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native` |
+| [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native`；无mpv输出时保留Qt遮罩且不构建原生裁剪区，播放器子窗口创建/替换、尺寸/DPI/遮罩更新与重试生命周期 |
 | [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
 | [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |

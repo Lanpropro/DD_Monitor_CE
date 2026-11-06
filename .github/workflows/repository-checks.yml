@@ -114,6 +114,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:QT_SCALE_FACTOR = '1.5'
           python dev/checks/bootstrap.py dev/selfcheck_startup_windows.py StartupWindowsTests.test_preview_native_window_keeps_other_cards_alien
+      # Synthetic native children, no media, accounts, activation or mouse input.
+      - name: Check native video clipping lifecycle
+        run: python dev/run_checks.py --script selfcheck_resize_surface
       - name: Show smoke logs
         if: always()
         shell: pwsh
