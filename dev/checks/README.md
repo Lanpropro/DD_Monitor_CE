@@ -125,7 +125,7 @@
 | [selfcheck_sidebar_avatar](../selfcheck_sidebar_avatar.py) | 单项执行前核对 |
 | [selfcheck_sidebar_collapse](../selfcheck_sidebar_collapse.py) | 独立 Sidebar；检查封面挂起/重裁及同步切换，可离屏执行 |
 | [selfcheck_sidebar_performance](../selfcheck_sidebar_performance.py) | `native`；60 张合成封面、完整布局切换与屏外封面恢复；`--players` 使用 FFmpeg 生成本地视频，`--background` 置于屏幕外且不激活；耗时仅作功能检查记录 |
-| [selfcheck_startup_scroll_diagnostics](../selfcheck_startup_scroll_diagnostics.py) | `offline` / `smoke`；实际离屏滚轮事件保持投递、每次滚动定长汇总、视频窗口/核心初始化阶段分开计时且排除后台线程；启动12秒内记录Qt慢事件与总量、保留嵌套投递/返回/异常，并以独立进程验证真实notify；仅验证采集机制 |
+| [selfcheck_startup_scroll_diagnostics](../selfcheck_startup_scroll_diagnostics.py) | `offline` / `smoke`；实际离屏滚轮事件保持投递、每次滚动定长汇总、视频窗口/核心初始化阶段分开计时且排除后台线程；启动12秒内记录Qt慢事件与总量，并识别子控件慢绘制而不重复累计窗口耗时；保留返回/异常，以独立进程验证真实notify；仅验证采集机制 |
 | [selfcheck_smart_folder_sources](../selfcheck_smart_folder_sources.py) | 单项执行前核对 |
 | [selfcheck_smart_folders](../selfcheck_smart_folders.py) | 单项执行前核对 |
 | [selfcheck_sort_manager](../selfcheck_sort_manager.py) | `offline` |
