@@ -128,7 +128,7 @@
 | [selfcheck_continuous_corners](../selfcheck_continuous_corners.py) | `offline`；连续曲线边界、圆形/胶囊保留、输入编辑、样式状态与调色板切换、菜单和复选操作；仅合成界面 |
 | [selfcheck_workspace_pages](../selfcheck_workspace_pages.py) | `offline`；嵌入页替换/返回、互斥切换、宿主隐藏/恢复和插件卸载；无账号或媒体 |
 | [selfcheck_sidebar_performance](../selfcheck_sidebar_performance.py) | `native`；60 张合成封面、完整布局切换与屏外封面恢复；`--players` 使用 FFmpeg 生成本地视频，`--background` 置于屏幕外且不激活；耗时仅作功能检查记录 |
-| [selfcheck_startup_scroll_diagnostics](../selfcheck_startup_scroll_diagnostics.py) | `offline` / `smoke`；实际离屏滚轮事件保持投递、每次滚动定长汇总、视频窗口/核心初始化阶段分开计时且排除后台线程；仅验证采集机制 |
+| [selfcheck_startup_scroll_diagnostics](../selfcheck_startup_scroll_diagnostics.py) | `offline` / `smoke`；实际离屏滚轮事件保持投递、每次滚动定长汇总、视频窗口/核心初始化阶段分开计时且排除后台线程；启动12秒内记录Qt慢事件与总量、保留嵌套投递/返回/异常，并以独立进程验证真实notify；仅验证采集机制 |
 | [selfcheck_smart_folder_sources](../selfcheck_smart_folder_sources.py) | 单项执行前核对 |
 | [selfcheck_smart_folders](../selfcheck_smart_folders.py) | 单项执行前核对 |
 | [selfcheck_sort_manager](../selfcheck_sort_manager.py) | `offline` |
