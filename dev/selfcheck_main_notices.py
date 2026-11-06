@@ -20,7 +20,7 @@ runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QPushButton, QWidget, QLineEdit
+from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -1498,27 +1498,26 @@ class MainNoticesTests(unittest.TestCase):
             QTest.keyClick(window, Qt.Key_Delete)
             clear.assert_not_called()
 
-    def test_clear_wall_requires_confirmation_and_empty_wall_is_a_noop(self):
+    def test_clear_wall_removes_immediately_without_confirmation_and_empty_wall_is_a_noop(self):
         window = self.window([{'room_id': '1001', 'live': False}])
         tile = window.wall.tiles[0]
-        with patch('ddm.app.QMessageBox.question', return_value=QMessageBox.No) as confirm, \
-                patch.object(window, '_clear_tile_room') as clear:
+        with patch('ddm.app.QMessageBox.question') as confirm, \
+                patch.object(window, '_clear_tile_room', wraps=window._clear_tile_room) as clear:
             window.sidebar.clear_wall_button.click()
             menu = window.wall_removal.menu
             confirm.assert_not_called()
             menu.remove_button.click()
-            self.assertIn('所选 1 路直播', confirm.call_args.args[2])
-            self.assertEqual(confirm.call_args.args[-1], QMessageBox.No)
-            clear.assert_not_called()
-            self.assertEqual(tile.room['room_id'], '1001')
-            tile.set_room(None)
-            window._refresh_meta()
-            window.wall_removal.sync()
+            confirm.assert_not_called()
+            clear.assert_called_once_with(tile)
+            self.assertFalse(tile.room.get('room_id'))
+            self.assertTrue(menu.isVisible())
             self.assertTrue(window.sidebar.clear_wall_button.isEnabled())
             self.assertFalse(menu.remove_button.isEnabled())
-            self.assertFalse(menu.undo_button.isEnabled())
-            confirm.reset_mock()
-            window.wall_removal.remove_selected()
+            self.assertTrue(menu.undo_button.isEnabled())
+            self.assertFalse(window.wall_removal.remove_selected())
+            self.assertEqual(clear.call_count, 1)
+            menu.undo_button.click()
+            self.assertEqual(tile.room['room_id'], '1001')
             confirm.assert_not_called()
 
     def test_clear_wall_cleans_duplicate_offline_and_hidden_tiles_without_changing_layout(self):
@@ -1537,13 +1536,11 @@ class MainNoticesTests(unittest.TestCase):
         window.players.update(players)
         window._resolvers.update(resolvers)
         window._pending_capture.update({tile: True for tile in occupied})
-        with patch('ddm.app.QMessageBox.question', return_value=QMessageBox.Yes) as confirm, \
-                patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop, \
+        with patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop, \
                 patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh:
             window.sidebar.clear_wall_button.click()
             window.wall_removal.select('all')
             window.wall_removal.menu.remove_button.click()
-            self.assertIn('所选 3 路直播', confirm.call_args.args[2])
             self.assertEqual([call.args[0] for call in stop.call_args_list], occupied)
             refresh.assert_called_once_with()
         self.assertEqual(wall.tiles, original_tiles)
@@ -1646,8 +1643,7 @@ class MainNoticesTests(unittest.TestCase):
         window.sidebar.clear_wall_button.click()
         control = window.wall_removal
         control.toggle_selection(first, True)
-        with patch('ddm.wall_removal.QMessageBox.question', return_value=QMessageBox.Yes), \
-                patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop:
+        with patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop:
             self.assertTrue(control.remove_selected())
             stop.assert_called_once_with(first)
         self.assertIs(window.players[second], keep)
@@ -1668,8 +1664,7 @@ class MainNoticesTests(unittest.TestCase):
         tile = window.wall.tiles[0]
         window.sidebar.clear_wall_button.click()
         control = window.wall_removal
-        with patch('ddm.wall_removal.QMessageBox.question', return_value=QMessageBox.Yes):
-            self.assertTrue(control.remove_selected())
+        self.assertTrue(control.remove_selected())
         tile.set_room({'room_id': 'new', 'live': False})
         control.sync()
         self.assertFalse(control.menu.undo_button.isEnabled())
@@ -1680,16 +1675,13 @@ class MainNoticesTests(unittest.TestCase):
         window.wall.set_layout('1x1')
         self.assertFalse(control.undo())
 
-    def test_removal_rechecks_selected_rooms_after_confirmation(self):
+    def test_removal_does_not_remove_a_replaced_room_before_the_next_menu_poll(self):
         window = self.window([{'room_id': '1', 'live': False}])
         tile = window.wall.tiles[0]
         window.sidebar.clear_wall_button.click()
         control = window.wall_removal
-        def replace(*_args):
-            tile.set_room({'room_id': 'new', 'live': True})
-            return QMessageBox.Yes
-        with patch('ddm.wall_removal.QMessageBox.question', side_effect=replace), \
-                patch.object(window, '_clear_tile_room') as clear:
+        tile.set_room({'room_id': 'new', 'live': True})
+        with patch.object(window, '_clear_tile_room') as clear:
             self.assertFalse(control.remove_selected())
             clear.assert_not_called()
         self.assertEqual(tile.room['room_id'], 'new')
@@ -1698,8 +1690,7 @@ class MainNoticesTests(unittest.TestCase):
         window = self.window([{'room_id': '1', 'live': False}])
         window.sidebar.clear_wall_button.click()
         control = window.wall_removal
-        with patch('ddm.wall_removal.QMessageBox.question', return_value=QMessageBox.Yes):
-            self.assertTrue(control.remove_selected())
+        self.assertTrue(control.remove_selected())
         control.toggle_menu()
         control.toggle_menu()
         self.assertTrue(control.menu.undo_button.isEnabled())
