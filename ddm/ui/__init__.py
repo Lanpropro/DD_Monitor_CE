@@ -5,6 +5,7 @@ from .basics import ActionButton, HintLabel, TitleLabel, page_header, step_butto
 
 _MODULES = {
     'ui.color_dialog': ('ColorDialog',),
+    'corner_geometry': ('continuous_path',),
     'avatar_widgets': ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap'),
     'motion': ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack'),
     'playback_controls': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',

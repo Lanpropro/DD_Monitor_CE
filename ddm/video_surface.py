@@ -7,6 +7,7 @@ from PySide6.QtCore import QEvent, QRectF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPainterPath, QTransform
 from PySide6.QtWidgets import QApplication, QFrame
 
+from .corner_geometry import continuous_path
 from . import theme
 from .badge_surface import BadgeSurface
 
@@ -37,10 +38,9 @@ class VideoCorner(BadgeSurface):
         # cover the skin background outside the rounded tile with a solid block.
         rim = 1 / self.devicePixelRatioF()
         outside = QPainterPath()
-        outside.addRoundedRect(QRectF(-rim, -rim, 24 + rim * 2, 24 + rim * 2),
-                               9 + rim, 9 + rim)
+        outside.addPath(continuous_path(QRectF(-rim, -rim, 24 + rim * 2, 24 + rim * 2), 9 + rim))
         inside = QPainterPath()
-        inside.addRoundedRect(QRectF(0, 0, 24, 24), 9, 9)
+        inside.addPath(continuous_path(QRectF(0, 0, 24, 24), 9))
         painter.fillPath(outside.subtracted(inside),
                          theme.qcolor('#FFFFFF' if theme.is_light() else theme.TILE_BG))
 

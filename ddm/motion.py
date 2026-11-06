@@ -5,6 +5,7 @@ import sys
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPointF, QRectF, QPropertyAnimation, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap, QPolygonF, QTransform
 from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabWidget
+from .corner_geometry import continuous_path
 
 THEME_WAVE_MS = 360
 THEME_WAVE_EASING = QEasingCurve(QEasingCurve.BezierSpline)
@@ -131,8 +132,8 @@ def lifted_drag(pixmap, hotspot):
     painter.setBrush(QColor(0, 0, 0, 18))
     width, height = lifted.width() / ratio, lifted.height() / ratio
     for spread in (8, 6, 4, 2):
-        painter.drawRoundedRect(padding - spread, padding + 3 - spread,
-                                round(width + 2 * spread), round(height + 2 * spread), 12, 12)
+        painter.drawPath(continuous_path(QRectF(padding - spread, padding + 3 - spread,
+                                              round(width + 2 * spread), round(height + 2 * spread)), 12))
     painter.drawPixmap(QPoint(padding, padding), lifted)
     painter.end()
     return result, QPoint(round(hotspot.x() * scale) + padding,

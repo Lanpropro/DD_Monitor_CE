@@ -51,6 +51,7 @@
       "selfcheck_startup_scroll_diagnostics",
       "selfcheck_single_instance",
       "selfcheck_workspace_controls",
+      "selfcheck_continuous_corners",
       "selfcheck_workspace_pages",
       "selfcheck_recording_service",
       "selfcheck_recording",

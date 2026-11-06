@@ -6,6 +6,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QMovie, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QWidget
 
+from .corner_geometry import continuous_path
 from . import theme
 from .badge_surface import BadgeSurface
 
@@ -94,8 +95,7 @@ class StreamBadge(BadgeSurface):
         self.resize(width, BADGE_HEIGHT)
 
         pill = QPainterPath()
-        pill.addRoundedRect(QRectF(0, 0, width, BADGE_HEIGHT),
-                            BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
+        pill.addPath(continuous_path(QRectF(0, 0, width, BADGE_HEIGHT), BADGE_HEIGHT / 2))
         # 圆环和圆点在 paintEvent 里用同一个中心画；不再把圆孔做成遮罩，
         # 避免路径转整数 QRegion 后圆孔边缘与抗锯齿圆点错开 1px。
         self._mask_path = pill
@@ -148,8 +148,7 @@ class TimeBadge(BadgeSurface):
         width = metrics.horizontalAdvance(self.text or "0:00:00") + 20
         self.resize(width, BADGE_HEIGHT)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, BADGE_HEIGHT),
-                            BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
+        path.addPath(continuous_path(QRectF(0, 0, width, BADGE_HEIGHT), BADGE_HEIGHT / 2))
         self._mask_path = path
         self.refresh_theme()
 
@@ -238,8 +237,7 @@ class LoadingIndicator(BadgeSurface):
 
     def _apply_mask(self) -> None:
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self._content.rect()),
-                            self._content.height() / 2, self._content.height() / 2)
+        path.addPath(continuous_path(QRectF(self._content.rect()), self._content.height() / 2))
         self._mask_path = path
         self.clearMask()
 
@@ -326,8 +324,7 @@ class TitleBadge(BadgeSurface):
         width = min(self._max_width, metrics.horizontalAdvance(text) + 20)
         self.resize(max(60, width), BADGE_HEIGHT)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), BADGE_HEIGHT),
-                            BADGE_HEIGHT / 2, BADGE_HEIGHT / 2)
+        path.addPath(continuous_path(QRectF(0, 0, self.width(), BADGE_HEIGHT), BADGE_HEIGHT / 2))
         self._mask_path = path
         self.refresh_theme()
         self.update()
