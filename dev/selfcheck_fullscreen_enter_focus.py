@@ -148,6 +148,27 @@ class FullscreenEnterTests(unittest.TestCase):
         self.focus_with_key()
         self.assertFalse(cursor.hidden)
 
+    def test_bar_finishes_when_shared_animation_clock_does_not_advance(self):
+        self.window._fullscreen_cursor.stop()
+        with patch('ddm.motion.enabled', return_value=True):
+            for cycle in range(3):
+                self.tile.set_fullscreen_controls_hidden(True)
+                # Fault injection for the captured Running/time=0 stall.
+                # This regression is not a replacement for the real idle trace.
+                self.tile._bar_animation.pause()
+                QTest.qWait(300)
+                self.assertTrue(self.tile.bottom.isHidden(), f'Hide stalled in cycle {cycle}')
+                self.tile.set_fullscreen_controls_hidden(False)
+                self.tile._bar_animation.pause()
+                QTest.qWait(300)
+                self.assertTrue(self.tile.bottom.isVisible())
+                self.assertEqual(self.tile._bar_progress, 0.0)
+                if cycle < 2:
+                    self.window._exit_fullscreen()
+                    self.assertFalse(self.tile._bar_clock.isActive())
+                    self.window._on_fullscreen(self.tile)
+                    self.window._fullscreen_cursor.stop()
+
 
 if __name__ == '__main__':
     unittest.main()

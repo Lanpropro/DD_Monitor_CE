@@ -164,7 +164,7 @@
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline`；全屏底栏动画、Qt 透明窗口、输入期间原生像素可见性、窗口跟随及隐藏／恢复回归；原生 Windows 下可用 `python dev/checks/bootstrap.py dev/selfcheck_fullscreen_controls.py --desktop` 检查实际桌面合成，会短暂显示测试窗口 |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_native_focus](../selfcheck_fullscreen_native_focus.py) | 单项执行前核对 |
-| [selfcheck_fullscreen_enter_focus](../selfcheck_fullscreen_enter_focus.py) | `native`；隔离输入控件验证全屏底栏隐藏/显示时一次Enter聚焦、工具窗口激活、小键盘及重绑定、跨屏鼠标位置、不误提交草稿，以及输入保护、点击视频释放焦点后恢复闲置收起；不读取账号或发送弹幕，不代替用户真实复现 |
+| [selfcheck_fullscreen_enter_focus](../selfcheck_fullscreen_enter_focus.py) | `native`；隔离输入控件验证全屏底栏隐藏/显示时一次Enter聚焦、工具窗口激活、小键盘及重绑定、跨屏鼠标位置、不误提交草稿，以及输入保护、点击视频释放焦点后恢复闲置收起；暂停共享动画时钟后连续三轮进出全屏，底栏仍完成收起和展开；不读取账号或发送弹幕，不代替用户真实复现 |
 | [selfcheck_empty_tile_quality](../selfcheck_empty_tile_quality.py) | 离线替身；关闭平台房间、空格子旧画质编号及重启恢复 |
 | [selfcheck_douyu_diagnostics](../selfcheck_douyu_diagnostics.py) | 离线替身；采集器功能回归，不作为真实故障定位依据 |
 | [selfcheck_douyu_deep_capture](../selfcheck_douyu_deep_capture.py) | 本机 HTTP／分段 FLV；逐包解析、单连接转发和采集失败不改字节 |

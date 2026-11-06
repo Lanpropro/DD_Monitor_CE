@@ -5632,6 +5632,10 @@ class Tile(QFrame):
         self._bar_animation.setDuration(180)
         self._bar_animation.setEasingCurve(QEasingCurve.OutCubic)
         self._bar_animation.valueChanged.connect(self._slide_fullscreen_bar)
+        self._bar_clock = QTimer(self)
+        self._bar_clock.setTimerType(Qt.PreciseTimer)
+        self._bar_clock.setInterval(16)
+        self._bar_clock.timeout.connect(self._advance_bar_animation)
         self.bottom.setObjectName("TileBottom")
         self.bottom.setAttribute(Qt.WA_StyledBackground, True)
         bottom_layout = QHBoxLayout(self.bottom)
@@ -6356,6 +6360,7 @@ class Tile(QFrame):
         target = 1.0 if hidden and hide_bar and self.property("fullscreen") else 0.0
         if hidden == getattr(self, "_fullscreen_controls_hidden", False) and target == self._bar_target:
             return
+        self._bar_clock.stop()
         self._bar_animation.stop()
         self._fullscreen_controls_hidden = hidden
         self._bar_target = target
@@ -6369,9 +6374,22 @@ class Tile(QFrame):
             self._bar_animation.setEndValue(target)
             self._bar_animation.blockSignals(False)
             self._bar_animation.start()
+            # Advance this QWidget slide independently of Quick's shared
+            # animation clock, which stopped ticking in captured re-entries.
+            self._bar_animation.pause()
+            self._bar_started = time.monotonic()
+            self._bar_clock.start()
         else:
             self._slide_fullscreen_bar(target)
             self._layout_areas()
+
+    def _advance_bar_animation(self) -> None:
+        duration = self._bar_animation.duration()
+        elapsed = min(duration, round((time.monotonic() - self._bar_started) * 1000))
+        self._bar_animation.setCurrentTime(elapsed)
+        if elapsed >= duration:
+            self._bar_clock.stop()
+            self._bar_animation.stop()
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
@@ -6652,6 +6670,7 @@ class Tile(QFrame):
         compact = bool(self.property('pictureInPicture'))
         self.bottom.set_fullscreen(fullscreen)
         if not fullscreen:
+            self._bar_clock.stop()
             self._bar_animation.stop()
             self._bar_progress = self._bar_target = 0.0
             self.bottom.setVisible(not compact)
