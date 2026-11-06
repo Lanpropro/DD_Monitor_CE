@@ -129,8 +129,20 @@ class VideoSurface(QFrame):
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         user32.EnumChildWindows.argtypes = (wintypes.HWND, callback_type, wintypes.LPARAM)
-        user32.EnableWindow.argtypes = (wintypes.HWND, wintypes.BOOL)
         user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        output_found = []
+        def find_output(hwnd, _unused):
+            name = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, name, len(name))
+            if name.value.lower().startswith("mpv"):
+                output_found.append(hwnd)
+            return True
+        user32.EnumChildWindows(root, callback_type(find_output), 0)
+        if not output_found:
+            # Idle/offline tiles still receive the retry timer. Qt already masks
+            # their surface; native regions are only needed for an mpv output.
+            return False
+        user32.EnableWindow.argtypes = (wintypes.HWND, wintypes.BOOL)
         user32.MapWindowPoints.argtypes = (wintypes.HWND, wintypes.HWND,
                                           ctypes.POINTER(wintypes.POINT), wintypes.UINT)
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HANDLE, wintypes.BOOL)
@@ -153,16 +165,9 @@ class VideoSurface(QFrame):
             finally:
                 gdi32.DeleteObject(part)
 
-        output_found = []
         def clip(hwnd, _unused):
             if hwnd != root:
-                name = ctypes.create_unicode_buffer(256)
-                user32.GetClassNameW(hwnd, name, len(name))
-                if not name.value.lower().startswith("mpv"):
-                    return True
-                if name.value.lower().startswith("mpv"):
-                    output_found.append(hwnd)
-                    user32.EnableWindow(hwnd, False)
+                user32.EnableWindow(hwnd, False)
             origin = wintypes.POINT()
             user32.MapWindowPoints(root, hwnd, ctypes.byref(origin), 1)
             # libmpv can grow its output after creation without resizing this Qt
@@ -190,7 +195,8 @@ class VideoSurface(QFrame):
         try:
             if apply_root:
                 clip(root, 0)
-            user32.EnumChildWindows(root, callback_type(clip), 0)
+            for hwnd in output_found:
+                clip(hwnd, 0)
         finally:
             gdi32.DeleteObject(native_mask)
         return bool(output_found)
