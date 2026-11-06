@@ -190,8 +190,10 @@ class DiagnosticEndpoint(QObject):
         logger.addHandler(handler)
         records = []
         identity = str(time.time_ns())
-        self.active = dict(socket=socket, observer=None, handler=handler, records=records)
+        self.active = dict(socket=socket, observer=None, handler=handler, records=records, identity=identity)
         def emit(stage, **values):
+            if self.active is None or self.active['identity'] != identity:
+                return
             record = dict(time=time.time(), session=identity, stage=stage, pid=os.getpid(), **values)
             if len(records) < 100:
                 records.append(record)

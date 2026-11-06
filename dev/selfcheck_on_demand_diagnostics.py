@@ -143,6 +143,19 @@ class OnDemandTests(unittest.TestCase):
             self.assertIs(QDrag.exec, original)
             original.assert_called_once()
 
+    def test_cancel_during_native_drag_does_not_write_when_drag_later_returns(self):
+        def cancel_inside_drag(*args, **kwargs):
+            self.endpoint.active['observer'].finish('timeout')
+            log = self.root / 'logs/on-demand.jsonl'
+            self.stopped_contents = log.read_bytes()
+            return 'fixture-ignore'
+        with patch.object(QDrag, 'exec', side_effect=cancel_inside_drag):
+            socket = self.request('drag')
+            self.assertEqual(self.reply(socket)['status'], 'armed')
+            self.assertEqual(QDrag(self.window.sidebar).exec(), 'fixture-ignore')
+            self.assertEqual(self.reply(socket)['reason'], 'timeout')
+            self.assertEqual((self.root / 'logs/on-demand.jsonl').read_bytes(), self.stopped_contents)
+
     @unittest.skipUnless(os.name == 'nt', 'Windows .NET pipe interoperability')
     def test_dotnet_tool_connects_to_qt_and_packages_exact_live_evidence(self):
         # Compile the existing console test driver, which uses the actual tool client/collector.
