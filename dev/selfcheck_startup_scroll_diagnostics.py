@@ -4,6 +4,7 @@ import itertools
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -11,11 +12,11 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QScrollArea, QWidget
 from ddm.responsiveness import Probe
-from ddm.startup_scroll_diagnostics import ScrollCapture, install
+from ddm.startup_scroll_diagnostics import ScrollCapture, StartupEvents, install
 
 
 class StartupScrollTests(unittest.TestCase):
@@ -31,6 +32,66 @@ class StartupScrollTests(unittest.TestCase):
 
     def records(self):
         return [json.loads(line) for line in self.path.read_text(encoding='utf-8').splitlines()]
+
+    def test_qt_dispatch_preserves_results_errors_and_only_counts_outer_delivery(self):
+        capture = StartupEvents(self.probe)
+        receiver = QWidget()
+        capture.start(receiver)
+        event = QEvent(QEvent.User)
+        token = object()
+        def nested(widget, delivered):
+            self.assertIs(widget, receiver)
+            self.assertIs(delivered, event)
+            return capture.dispatch(lambda *_: token, widget, delivered)
+        try:
+            with patch('ddm.startup_scroll_diagnostics.time.perf_counter', side_effect=[0, .02]):
+                self.assertIs(capture.dispatch(nested, receiver, event), token)
+            with patch('ddm.startup_scroll_diagnostics.time.perf_counter', side_effect=[0, .03]):
+                with self.assertRaisesRegex(ValueError, 'fixture'):
+                    capture.dispatch(lambda *_: (_ for _ in ()).throw(ValueError('fixture')), receiver, event)
+            self.assertEqual(self.probe.active, [])
+            capture.finish()
+            rows = self.records()
+            self.assertEqual([r['phase'] for r in rows],
+                ['startup-qt-event', 'startup-qt-event', 'startup-qt-summary'])
+            record = rows[-1]['events'][0]
+            self.assertEqual(record['count'], 2)
+            self.assertAlmostEqual(record['total_ms'], 50)
+            self.assertEqual(record['receiver_class'], 'QWidget')
+            self.assertEqual(record['event_type'], 'User')
+            self.assertIs(capture.dispatch(lambda *_: token, receiver, event), token)
+            self.assertEqual(len(self.records()), 3, 'Capture must stop after the bounded startup period')
+        finally:
+            receiver.deleteLater()
+
+    def test_installed_application_receives_real_qt_dispatch_in_fresh_process(self):
+        code = '''
+import json, tempfile
+from pathlib import Path
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QWidget
+from ddm import app as host
+from ddm.responsiveness import Probe
+from ddm.startup_scroll_diagnostics import install
+with tempfile.TemporaryDirectory() as directory:
+    path = Path(directory) / 'events.jsonl'
+    probe = Probe(path)
+    install(probe)
+    app = host.QApplication([])
+    widget = QWidget()
+    capture = app._startup_event_capture
+    capture.start(widget)
+    app.sendEvent(widget, QEvent(QEvent.User))
+    capture.finish()
+    rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
+    assert any(item['event_type'] == 'User' for item in rows[-1]['events']), rows
+    probe.stop()
+    widget.deleteLater()
+    app.shutdown()
+'''
+        result = subprocess.run([sys.executable, '-c', code], cwd=Path(__file__).resolve().parents[1],
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_real_wheel_dispatch_is_preserved_and_written_once_per_scroll(self):
         sidebar = QWidget()
@@ -71,6 +132,7 @@ class StartupScrollTests(unittest.TestCase):
             sidebar.close()
 
     def test_player_native_and_core_phases_keep_results_errors_and_thread_scope(self):
+        from ddm import app as app_module
         from ddm.app import MainWindow
         from ddm.player import TilePlayer, mpv
         from ddm.preview import HoverPreview
@@ -85,6 +147,7 @@ class StartupScrollTests(unittest.TestCase):
                 self.options = kwargs
 
         with ExitStack() as stack:
+            stack.enter_context(patch.object(app_module, 'QApplication', app_module.QApplication))
             for owner, names in ((TilePlayer, ('bind', '_destroy_core')),
                     (VideoSurface, ('_clip_native_video',)),
                     (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
@@ -141,6 +204,7 @@ class StartupScrollTests(unittest.TestCase):
             video.close()
 
     def test_installed_capture_preserves_qt_zero_argument_slots_during_scrolling(self):
+        from ddm import app as app_module
         from ddm.app import MainWindow
         from ddm.player import TilePlayer, mpv
         from ddm.preview import HoverPreview
@@ -148,6 +212,7 @@ class StartupScrollTests(unittest.TestCase):
         from ddm.widgets import Sidebar
 
         with ExitStack() as stack:
+            stack.enter_context(patch.object(app_module, 'QApplication', app_module.QApplication))
             for owner, names in ((TilePlayer, ('bind', '_destroy_core')),
                     (VideoSurface, ('_clip_native_video',)),
                     (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),

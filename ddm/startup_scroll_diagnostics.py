@@ -8,6 +8,57 @@ from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtWidgets import QWidget
 
 
+class StartupEvents:
+    """Bracket Qt/C++ dispatch that does not appear in Python method timings."""
+    def __init__(self, probe):
+        self.probe = probe
+        self.enabled = False
+        self.depth = 0
+        self.records = {}
+
+    def start(self, window):
+        self.enabled = True
+        self.deadline = time.monotonic() + 12
+        QTimer.singleShot(12000, window, self.finish)
+
+    def finish(self):
+        if not self.enabled:
+            return
+        self.enabled = False
+        if not self.probe.stopped.is_set():
+            self.probe.write('startup-qt-summary', events=sorted(self.records.values(),
+                key=lambda item: item['total_ms'], reverse=True)[:20])
+        self.records.clear()
+
+    def dispatch(self, notify, receiver, event):
+        if (not self.enabled or self.probe.stopped.is_set() or self.depth
+                or threading.get_ident() != self.probe.main_thread):
+            return notify(receiver, event)
+        if time.monotonic() >= self.deadline:
+            self.finish()
+            return notify(receiver, event)
+        # Capture type values before delivery: dispatch may delete the receiver/event.
+        kind, event_type = type(receiver).__name__, event.type()
+        self.depth += 1
+        self.probe.active.append('Qt.notify')
+        started = time.perf_counter()
+        try:
+            return notify(receiver, event)
+        finally:
+            elapsed = (time.perf_counter() - started) * 1000
+            self.probe.active.pop()
+            self.depth -= 1
+            key = (kind, event_type.name)
+            record = self.records.setdefault(key, dict(receiver_class=kind,
+                event_type=event_type.name, count=0, total_ms=0, max_ms=0))
+            record['count'] += 1
+            record['total_ms'] += elapsed
+            record['max_ms'] = max(record['max_ms'], elapsed)
+            if elapsed >= 16:
+                self.probe.write('startup-qt-event', receiver_class=kind,
+                    event_type=event_type.name, duration_ms=round(elapsed, 3))
+
+
 class ScrollCapture(QObject):
     def __init__(self, sidebar, probe):
         super().__init__(sidebar)
@@ -52,11 +103,21 @@ class ScrollCapture(QObject):
 
 
 def install(probe):
+    from . import app as app_module
     from .app import MainWindow
     from .player import TilePlayer, mpv
     from .preview import HoverPreview
     from .video_surface import VideoSurface
     from .widgets import Sidebar
+
+    events = StartupEvents(probe)
+    application_type = app_module.QApplication
+    class Application(application_type):
+        def notify(self, receiver, event):
+            return events.dispatch(super().notify, receiver, event)
+    Application._startup_event_capture = events
+    if application_type.instance() is None:
+        app_module.QApplication = Application
 
     def timed(method, label, *, binding_only=False):
         wrapped = probe.timed(method, label)
@@ -107,6 +168,8 @@ def install(probe):
         initialize(window, *args, **kwargs)
         capture = ScrollCapture(window.sidebar, probe)
         window._startup_scroll_capture = capture
+        window._startup_event_capture = events
+        events.start(window)
         window.destroyed.connect(capture.finish)
         probe.write('startup-scroll-ready')
     MainWindow.__init__ = watch
