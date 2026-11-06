@@ -1191,6 +1191,14 @@ QPushButton#PrimaryButton:pressed {{
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
+#PipRoomChoice {{
+    background: {CONTENT}; color: {TEXT1}; border: 1px solid {BORDER_STRONG};
+    border-radius: {RADIUS_MD}px; padding: 0;
+}}
+#PipRoomChoice:hover {{background: {CONTENT_HOVER};}}
+#PipRoomChoice:checked, #PipRoomChoice:focus {{border: 1px solid {ACCENT}; outline: none;}}
+#PipChoiceBadge {{background: {ACCENT}; color: white; border: none; border-radius: 8px;}}
+#PluginCard[pipDropTarget="true"] {{border: 1px solid {ACCENT};}}
 #LayoutCard:focus {{
     border: 1px solid {ACCENT};
     outline: none;

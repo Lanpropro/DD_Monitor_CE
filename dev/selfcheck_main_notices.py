@@ -1325,9 +1325,10 @@ class MainNoticesTests(unittest.TestCase):
         for rid in ('3', '4', '5', '6'):
             dialog.checks[rid].setChecked(True)
         dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
-        dialog.primary.setCurrentIndex(dialog.primary.findData('4'))
+        from selfcheck_picture_in_picture import drag_preview
+        drag_preview(dialog, '4', 0)
         self.assertTrue(dialog.start.isEnabled())
-        self.assertEqual(dialog.preview.primary, 3)
+        self.assertEqual(dialog.preview.primary, 0)
         dialog.search.setText('Other 4')
         self.assertTrue(dialog.checks[0].isHidden())
         self.assertFalse(dialog.checks['4'].isHidden())
@@ -1364,6 +1365,79 @@ class MainNoticesTests(unittest.TestCase):
         room['live'] = False
         self.assertFalse(pip.start(['2']))
         self.assertFalse(pip._extra_tiles)
+
+    def test_pip_preview_drag_swaps_positions_and_escape_or_outside_cancels(self):
+        from PySide6.QtWidgets import QComboBox
+        from selfcheck_picture_in_picture import drag_preview, pointer
+        from ddm.picture_in_picture import FOCUS_LAYOUT
+        window = self.window([{'room_id': str(i), 'uname': f'Room {i}', 'live': False} for i in range(6)])
+        window.settings['close_behavior'] = 'exit'
+        window.wall.set_layout('3x2')
+        pip = window.picture_in_picture
+        pip.manage()
+        dialog = pip.dialog
+        before = list(pip.selection)
+        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        self.assertFalse(hasattr(dialog, 'primary_row'))
+        self.assertEqual(len(dialog.findChildren(QComboBox)), 1)
+        drag_preview(dialog, 1, 0)
+        self.assertEqual(dialog._selected()[:2], [1, 0])
+        self.assertEqual(dialog._primary, 1)
+        self.assertEqual(dialog.preview.labels[0]._full_text, dialog.checks[1].preview_name)
+        drag_preview(dialog, 2, 1, cancel=True)
+        self.assertEqual(dialog._primary, 1)
+        self.assertEqual(dialog._selected()[:2], [1, 0])
+        preview = dialog.preview
+        label = preview.labels[0]
+        point = label.mapToGlobal(label.rect().center())
+        pointer(label, QEvent.MouseButtonPress, label.rect().center(), point, Qt.LeftButton, Qt.LeftButton)
+        outside = preview.mapToGlobal(QPoint(-30, -30))
+        pointer(preview, QEvent.MouseMove, QPoint(-30, -30), outside, Qt.NoButton, Qt.LeftButton)
+        pointer(preview, QEvent.MouseButtonRelease, QPoint(-30, -30), outside, Qt.LeftButton, Qt.NoButton)
+        self.assertEqual(dialog._selected()[:2], [1, 0])
+        self.assertIsNone(QWidget.mouseGrabber())
+        for mode in (0, 16, 1, 2, 3):
+            dialog.columns.setCurrentIndex(dialog.columns.findData(mode))
+            drag_preview(dialog, 2, 3)
+            self.assertEqual(set(dialog._selected()), set(before))
+        dialog.reject()
+        self.assertEqual(pip.selection, before)
+        self.assertFalse(pip.active)
+        window.start_tile.assert_not_called()
+
+    def test_pip_room_grid_adapts_and_search_reflows_without_losing_selection(self):
+        window = self.window([{'room_id': '1', 'uname': 'Wall', 'live': False}])
+        window.settings['close_behavior'] = 'exit'
+        window.sidebar.add_rooms([{'room_id': str(5000+i), 'uname': f'主播 {i}', 'live': True} for i in range(80)])
+        pixmap = QPixmap(28, 28)
+        pixmap.fill(QColor('red'))
+        with patch.object(window.sidebar.items()[0].thumb, 'face_pixmap', return_value=pixmap):
+            window.picture_in_picture.manage()
+        dialog = window.picture_in_picture.dialog
+        self.app.processEvents()
+        self.assertEqual(dialog.checks[0].avatar._source.cacheKey(), pixmap.cacheKey())
+        others = [dialog.checks[str(5000+i)] for i in range(80)]
+        self.assertGreaterEqual(len({button.x() for button in others}), 3)
+        self.assertLess(others[0].height(), 80)
+        self.assertEqual(others[0].y(), others[1].y())
+        QTest.mouseClick(others[0], Qt.LeftButton)
+        self.assertTrue(others[0].badge.isVisible())
+        dialog.search.setText('5079')
+        self.app.processEvents()
+        self.assertFalse(others[-1].isHidden())
+        self.assertTrue(all(button.isHidden() for button in others[:-1]))
+        self.assertEqual(dialog.choice_grids[1].getItemPosition(0)[:2], (0, 0))
+        self.assertIn('5000', dialog._selected())
+        dialog.search.clear()
+        dialog.resize(360, 650)
+        self.app.processEvents()
+        self.assertEqual(len({button.x() for button in others}), 2)
+        self.assertTrue(others[0].isChecked())
+        for first, second in zip(others, others[1:]):
+            self.assertFalse(first.geometry().intersects(second.geometry()))
+        self.assertIn('5000', others[0].toolTip())
+        dialog.reject()
+        self.assertFalse(window.picture_in_picture._extra_tiles)
 
     def test_sidebar_icon_order_saves_and_restores_independent_groups(self):
         from ddm.plugins import PluginContext

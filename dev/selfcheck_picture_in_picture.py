@@ -38,6 +38,22 @@ def wheel(widget, delta, modifiers=Qt.NoModifier, *, direct=False):
         QApplication.sendEvent(widget, event)
 
 
+def drag_preview(dialog, source, target, *, cancel=False):
+    preview = dialog.preview
+    selection = dialog._selected()
+    label = preview.labels[selection.index(source)]
+    destination = preview.labels[selection.index(target)]
+    position = label.mapToGlobal(label.rect().center())
+    pointer(label, QEvent.MouseButtonPress, label.rect().center(), position, Qt.LeftButton, Qt.LeftButton)
+    position = destination.mapToGlobal(destination.rect().center())
+    pointer(preview, QEvent.MouseMove, preview.mapFromGlobal(position), position, Qt.NoButton, Qt.LeftButton)
+    assert preview._ghost is not None
+    if cancel:
+        QTest.keyClick(preview, Qt.Key_Escape)
+    pointer(preview, QEvent.MouseButtonRelease, preview.mapFromGlobal(position), position, Qt.LeftButton, Qt.NoButton)
+    assert preview._drag is None and preview._ghost is None and QWidget.mouseGrabber() is not preview
+
+
 class VisibilityEvents(QObject):
     def __init__(self):
         super().__init__()
@@ -932,18 +948,17 @@ def exercise_focus(app, native, directory):
         dialog = pip.dialog
         QTest.qWait(30)
         assert dialog.columns.currentData() == FOCUS_LAYOUT
-        assert dialog.primary_row.isVisible() and dialog.primary.currentData() == 4
+        assert dialog._primary == 4 and not hasattr(dialog, 'primary_row')
         assert dialog.rect().contains(dialog.start.geometry()) and dialog.start.isVisible()
-        assert dialog.rect().contains(QRect(dialog.primary.mapTo(dialog, QPoint()), dialog.primary.size()))
         dialog.checks[5].setChecked(False)
-        assert not dialog.start.isEnabled() and dialog.primary.count() == 5
+        assert not dialog.start.isEnabled() and len(dialog._selected()) == 5
         dialog.checks[5].setChecked(True)
-        assert dialog.start.isEnabled() and dialog.primary.currentData() == 4
-        dialog.primary.setCurrentIndex(dialog.primary.findData(0))
-        assert dialog.preview.primary == 0 and dialog.preview.labels[0].text().startswith('主画面')
+        assert dialog.start.isEnabled() and dialog._primary == 4
+        drag_preview(dialog, 0, 4)
+        assert dialog._primary == 0 and not any(label.text().startswith('主画面') for label in dialog.preview.labels)
         dialog.start.click()
         QTest.qWait(100)
-        assert pip.columns == FOCUS_LAYOUT and pip.primary == 0 and wall.picture_in_picture_primary == 0
+        assert pip.columns == FOCUS_LAYOUT and pip.primary == 0 and wall.picture_in_picture_primary == pip.selection.index(0)
         assert wall.visible_tiles() == tiles
         panel = pip.floating.audio_panel
         panel.toggle()
@@ -958,16 +973,16 @@ def exercise_focus(app, native, directory):
         panel.hide()
         before = [tile.geometry() for tile in tiles]
         pip.manage()
-        pip.dialog.primary.setCurrentIndex(pip.dialog.primary.findData(1))
+        drag_preview(pip.dialog, 1, 0)
         pip.dialog.reject()
         assert pip.primary == 0 and [tile.geometry() for tile in tiles] == before
         pip.manage()
-        pip.dialog.primary.setCurrentIndex(pip.dialog.primary.findData(1))
+        drag_preview(pip.dialog, 1, 0)
         pip.dialog.start.click()
         QTest.qWait(100)
-        assert pip.primary == 1 and wall.picture_in_picture_primary == 1
-        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, pip.aspects_for(pip.selection), 1)
-        assert [tile.geometry() for tile in tiles] == expected
+        assert pip.primary == 1 and wall.picture_in_picture_primary == pip.selection.index(1)
+        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, pip.aspects_for(pip.selection), pip.selection.index(1))
+        assert [tile.geometry() for tile in wall.picture_in_picture_tiles] == expected
         assert tiles[1].geometry().topLeft() == QPoint(0, 0)
         check_reordering(pip, players)
         check_buffer_scale(pip)
@@ -982,7 +997,7 @@ def exercise_focus(app, native, directory):
         assert wall.tiles == tiles and wall.layout_id == '3x2'
         assert all(tile.spinner._presentation_scale == 1 for tile in tiles)
         pip.manage()
-        assert pip.dialog.primary.currentData() == 1
+        assert pip.dialog._primary == 1
         pip.dialog.reject()
     finally:
         window.close()
@@ -1022,8 +1037,9 @@ def exercise_live_room_picker(app, native, directory):
         for rid in ('3101', '3102', '3103', '3104'):
             dialog.checks[rid].setChecked(True)
         dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
-        dialog.primary.setCurrentIndex(dialog.primary.findData('3102'))
-        assert dialog.start.isEnabled() and dialog.preview.primary == 3
+        drag_preview(dialog, '3102', 0)
+        assert dialog.start.isEnabled() and dialog.preview.primary == 0
+        expected_wall_selection = [key for key in dialog._selected() if isinstance(key, int)]
         dialog.search.setText('Other 2')
         assert dialog.checks[0].isHidden() and not dialog.checks['3102'].isHidden()
         assert len(dialog._selected()) == 6, 'Search must not unselect hidden rows'
@@ -1034,7 +1050,7 @@ def exercise_live_room_picker(app, native, directory):
         assert set(pip._extra_tiles) == {'3101', '3102', '3103', '3104'}
         assert wall.tiles[:len(original_tiles)] == original_tiles
         assert window.current_state()['wall'] == original_state
-        assert pip.state()['selection'] == [0, 1]
+        assert pip.state()['selection'] == expected_wall_selection
         assert pip.state()['external_primary'] == '3102'
         assert pip.primary_choice() == '3102'
         window._refresh_meta()
@@ -1062,7 +1078,7 @@ def exercise_live_room_picker(app, native, directory):
         pip.manage()
         dialog = pip.dialog
         assert list(dialog.checks)[:2] == [0, 1]
-        assert dialog.primary.currentData() == '3102'
+        assert dialog._primary == '3102'
         dialog.checks['3101'].setChecked(False)
         dialog.checks['3105'].setChecked(True)
         dialog.start.click()
@@ -1080,7 +1096,7 @@ def exercise_live_room_picker(app, native, directory):
         pip.floating.audio_panel.rebuild()
         assert retained in pip.floating.audio_panel.rows
         assert pip.floating.audio_panel.rows[retained].slider.value() == 73
-        pip.swap_positions(wall.picture_in_picture_tiles[0], pip._extra_tiles['3103'])
+        pip.swap_positions(original_tiles[0], pip._extra_tiles['3103'])
         assert pip.primary_choice() == '3102'
         choices_before_restore = pip.selected_choices()
         assert window.current_state()['wall'] == original_state
@@ -1093,7 +1109,7 @@ def exercise_live_room_picker(app, native, directory):
         assert pip.external_primary == '3102'
         pip.manage()
         assert pip.dialog._selected() == choices_before_restore
-        assert pip.dialog.primary.currentData() == '3102'
+        assert pip.dialog._primary == '3102'
         pip.dialog.reject()
         assert not pip._extra_tiles
         # A follow can go offline while the non-modal picker is open.
