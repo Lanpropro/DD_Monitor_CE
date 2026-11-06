@@ -11,6 +11,7 @@ from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextO
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
                                QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
+from .corner_geometry import continuous_path
 from . import motion, theme
 
 
@@ -378,12 +379,12 @@ class NotificationCenter(QFrame):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(theme.qcolor(theme.ELEVATED))
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12, 12)
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()), 12, 12)
+        path.addPath(continuous_path(QRectF(self.rect()), 12))
         from PySide6.QtGui import QRegion
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 

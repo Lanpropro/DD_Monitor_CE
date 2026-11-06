@@ -4,6 +4,7 @@ from importlib import import_module
 from .basics import ActionButton, HintLabel, TitleLabel, page_header, step_button
 
 _MODULES = {
+    'corner_geometry': ('continuous_path',),
     'avatar_widgets': ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap'),
     'motion': ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack'),
     'playback_controls': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',

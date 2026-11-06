@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPen
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QStyledItemDelegate, QTextBrowser, QVBoxLayout, QWidget
 
+from .corner_geometry import continuous_path
 from . import config, motion, online, plugin_updates, theme, update_install, version
 
 
@@ -684,11 +685,10 @@ class UpdateNotice(QFrame):
             QPen(theme.qcolor(custom.get('border_color', 'rgba(131, 131, 145, 0.31)')),
                  custom.get('border_width', 1)))
         radius = custom.get('radius', theme.RADIUS_LG)
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
-                                radius, radius)
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), radius))
         if custom.get('image'):
             clip = QPainterPath()
-            clip.addRoundedRect(QRectF(self.rect()), radius, radius)
+            clip.addPath(continuous_path(QRectF(self.rect()), radius))
             painter.setClipPath(clip)
             painter.drawPixmap(self.rect(), QPixmap(custom['image']))
 

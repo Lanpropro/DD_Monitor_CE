@@ -5,6 +5,7 @@ from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QFrame, QPushButton, QStyle, QStyleOption, QStyleOptionButton
 
+from .corner_geometry import continuous_path
 from . import motion, theme
 from .config import DEFAULT_VOLUME
 
@@ -41,7 +42,7 @@ class TileButton(QPushButton):
         painter.save()
         if focused:
             clip = QPainterPath()
-            clip.addRoundedRect(frame.adjusted(1, 1, -1, -1), max(0, radius - 1), max(0, radius - 1))
+            clip.addPath(continuous_path(frame.adjusted(1, 1, -1, -1), max(0, radius - 1)))
             painter.setClipPath(clip)
         self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
         painter.restore()
@@ -50,7 +51,7 @@ class TileButton(QPushButton):
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(QPen(QColor('#ffffff'), 1.2))
             painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(frame, radius, radius)
+            painter.drawPath(continuous_path(frame, radius))
 
 
 class VolumeButton(TileButton):

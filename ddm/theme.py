@@ -347,8 +347,9 @@ class ThemeSignals(QObject):
             from .skin_parts import style_for
             extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
             if extra and widget not in _styles:
-                source = widget.styleSheet()
-                styled = source + '\n' + extra
+                from .continuous_corners import source_stylesheet, stylesheet
+                source = source_stylesheet(widget.styleSheet())
+                styled = stylesheet(source + '\n' + extra)
                 _styles[widget] = (source, {name: globals()[name] for name in _DARK}, styled)
                 widget.setStyleSheet(styled)
         return False
@@ -399,13 +400,14 @@ def apply(value):
     _light = light
     palette = _LIGHT if light else _DARK
     widgets = list(app.allWidgets())
+    from .continuous_corners import source_stylesheet, stylesheet
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
     for widget in widgets:
         style = widget.styleSheet()
         saved = _styles.get(widget)
         if not saved or style != saved[2]:
-            _styles[widget] = (style, previous, style)
+            _styles[widget] = (source_stylesheet(style), previous, style)
     globals().update(palette)
     _apply_palette(app, palette)
     stable_style = qss(palette_roles=True)
@@ -425,6 +427,7 @@ def apply(value):
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         if extra:
             styled += '\n' + extra
+        styled = stylesheet(styled)
         properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
@@ -1620,4 +1623,5 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
-    return style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE
+    from .continuous_corners import stylesheet
+    return stylesheet(style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)

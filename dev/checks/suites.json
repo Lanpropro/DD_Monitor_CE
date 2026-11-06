@@ -48,6 +48,7 @@
       "selfcheck_douyu_recovery",
       "selfcheck_single_instance",
       "selfcheck_workspace_controls",
+      "selfcheck_continuous_corners",
       "selfcheck_workspace_pages",
       "selfcheck_recording",
       "selfcheck_recording_shutdown",

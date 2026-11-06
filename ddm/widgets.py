@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
+from .corner_geometry import continuous_path
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 from .workspace_controls import WorkspaceControls
@@ -118,13 +119,14 @@ def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
     painter.setRenderHint(QPainter.Antialiasing, True)
     radius = max(3.0, height * 0.28)
     path = QPainterPath()
-    path.addRoundedRect(QRectF(0, 0, width, height), radius, radius)
+    path.addPath(continuous_path(QRectF(0, 0, width, height), radius))
     painter.fillPath(path, QColor(color))
     painter.setPen(QColor("#14161a" if _brightness(color) > 150 else "#ffffff"))
     painter.setFont(font)
     painter.drawText(QRectF(0, 0, width, height), int(Qt.AlignCenter), text)
     painter.end()
     return pixmap
+
 
 
 class DanmakuTextBrowser(QTextBrowser):
@@ -181,7 +183,7 @@ class DanmakuTextBrowser(QTextBrowser):
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
             painter.setBrush(comment_hover_color())
-            painter.drawRoundedRect(rect.adjusted(0, 0, 0, -1), 8, 8)
+            painter.drawPath(continuous_path(rect.adjusted(0, 0, 0, -1), 8))
 
     def mousePressEvent(self, event):
         self._click_start = event.position().toPoint() if event.button() == Qt.LeftButton else None
@@ -1119,7 +1121,7 @@ def rounded_pixmap(source: QPixmap, size, radius: int) -> QPixmap:
     painter = QPainter(result)
     painter.setRenderHint(QPainter.Antialiasing, True)
     path = QPainterPath()
-    path.addRoundedRect(0, 0, size.width(), size.height(), radius, radius)
+    path.addPath(continuous_path(QRectF(0, 0, size.width(), size.height()), radius))
     painter.setClipPath(path)
     painter.drawPixmap((size.width() - scaled.width()) // 2,
                        (size.height() - scaled.height()) // 2, scaled)
@@ -1484,7 +1486,7 @@ class LiveAlert(QWidget):
             colour.setAlpha(int(200 * (1 - t / 0.6)))
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(colour, 1.6))
-            painter.drawRoundedRect(self._badge.adjusted(-grow, -grow, grow, grow), 8.0, 8.0)
+            painter.drawPath(continuous_path(self._badge.adjusted(-grow, -grow, grow, grow), 8.0))
         for index in range(3):
             phase = t - index * 0.22
             if phase <= 0 or phase >= 1:
@@ -1518,7 +1520,7 @@ class LiveAlert(QWidget):
         painter.translate(-self._anchor.x(), -bottom)
 
         path = QPainterPath()
-        path.addRoundedRect(body, 9.0, 9.0)
+        path.addPath(continuous_path(body, 9.0))
         tail_x = max(body.left() + 12, min(self._anchor.x(), body.right() - 12))
         tail = QPainterPath()
         tail.moveTo(tail_x - 6, body.bottom() - 1)
@@ -1854,7 +1856,7 @@ class NavThumb(QFrame):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, height), self.RADIUS, self.RADIUS)
+        path.addPath(continuous_path(QRectF(0, 0, width, height), self.RADIUS))
         painter.setClipPath(path)
         painter.drawPixmap(QRectF(0, 0, width, height), source, crop)
         if not self._compact_thumb():
@@ -2378,8 +2380,7 @@ class NavItem(QFrame):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1),
-                            theme.RADIUS_MD, theme.RADIUS_MD)
+        path.addPath(continuous_path(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), theme.RADIUS_MD))
         painter.fillPath(path, QColor(theme.ELEVATED))
         painter.setPen(QPen(QColor(theme.ACCENT), 1))
         painter.drawPath(path)
@@ -2390,7 +2391,7 @@ class NavItem(QFrame):
             badge = QRect(max(0, pixmap.width() - 39), 4, 35, 24)
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(theme.ACCENT))
-            painter.drawRoundedRect(badge, 12, 12)
+            painter.drawPath(continuous_path(badge, 12))
             painter.setPen(QColor(theme.BG))
             painter.drawText(badge, Qt.AlignCenter, str(count))
             painter.end()
@@ -3300,7 +3301,7 @@ class BarIconButton(QPushButton):
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2, 2)
+            painter.drawPath(continuous_path(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2))
             painter.drawLine(QPointF(center.x() - 2, center.y() - 6),
                              QPointF(center.x() + 7, center.y() - 6))
             painter.drawLine(QPointF(center.x() + 7, center.y() - 6),
@@ -6682,7 +6683,7 @@ class Tile(QFrame):
         if square_corners:
             path.addRect(rect)
         else:
-            path.addRoundedRect(rect, 9, 9)
+            path.addPath(continuous_path(rect, 9))
             bottom = QPainterPath()
             bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
             path = path.united(bottom)
@@ -6813,7 +6814,7 @@ class Tile(QFrame):
             path = QPainterPath()
             radius = min(rect.height() / 2, theme.TILE_CONTROL_HEIGHT / 2)
             # 原生底色只能按整数区域裁切；扩张轮廓会露出圆角外的黑色底层。
-            path.addRoundedRect(rect, radius, radius)
+            path.addPath(continuous_path(rect, radius))
             region = region.united(QRegion(path.toFillPolygon().toPolygon()))
         if (sys.platform == "win32" and QApplication.platformName() == "windows"
                 and self.controls.internalWinId()):
@@ -7097,11 +7098,9 @@ class WallPaneBorder(BadgeSurface):
         for edge in targets:
             region |= QRegion(self._edge_rect(edge))
         outer, inner = QPainterPath(), QPainterPath()
-        outer.addRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
-                             self.RADIUS - .5, self.RADIUS - .5)
-        inner.addRoundedRect(QRectF(self.rect()).adjusted(
-            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5),
-            self.RADIUS - self.BAND - .5, self.RADIUS - self.BAND - .5)
+        outer.addPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS - .5))
+        inner.addPath(continuous_path(QRectF(self.rect()).adjusted(
+            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5), self.RADIUS - self.BAND - .5))
         self._outline_path = outer.subtracted(inner)
         # 原生遮罩只负责命中；向外留出抗锯齿像素，由逐像素透明绘制轮廓。
         stroker = QPainterPathStroker()

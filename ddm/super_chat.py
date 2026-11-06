@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVaria
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
 from PySide6.QtWidgets import QApplication
 
+from .corner_geometry import continuous_path
 from . import bili, motion, theme
 from .images import AvatarLoader, load_cached_image
 from .skin_preview import SkinPreview
@@ -332,7 +333,7 @@ class SuperChatPlacementPreview(SkinPreview):
         panel = self._panel_rect()
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
         painter.setBrush(theme.qcolor('#EDF2F7' if self.light else '#17202B'))
-        painter.drawRoundedRect(panel, 4, 4)
+        painter.drawPath(continuous_path(panel, 4))
         panel_context = self.preview_context['panel']
         factor = panel.width() / panel_context.get('outer_size', panel_context['size'])[0]
         header_height = panel_context.get('viewport_rect', [0, 0])[1] * factor
@@ -346,12 +347,12 @@ class SuperChatPlacementPreview(SkinPreview):
         viewport_rect = panel_context.get('viewport_rect', [0, 0, *panel_context['size']])
         bottom = panel.y() + (viewport_rect[1] + viewport_rect[3]) * factor
         footer_height = max(0, panel.bottom() - bottom)
-        painter.drawRoundedRect(QRectF(panel.x() + 2, bottom + footer_height * .25,
-                                       panel.width() - 4, footer_height * .5), 2, 2)
+        painter.drawPath(continuous_path(QRectF(panel.x() + 2, bottom + footer_height * .25,
+                                       panel.width() - 4, footer_height * .5), 2))
         stage = self.stage_rect()
         painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(stage, 3, 3)
+        painter.drawPath(continuous_path(stage, 3))
         palette = super_chat_palette(30)
         painter.save()
         painter.setOpacity(self.opacity / 100)
@@ -478,7 +479,7 @@ def paint_sc_background(painter, rect, background, header, header_height):
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
     outline = QPainterPath()
-    outline.addRoundedRect(rect, 7, 7)
+    outline.addPath(continuous_path(rect, 7))
     painter.setClipPath(outline, Qt.IntersectClip)
     height = min(rect.height(), header_height)
     painter.fillRect(QRectF(rect.x(), rect.y(), rect.width(), height), QColor(header))

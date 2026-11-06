@@ -124,6 +124,7 @@
 | [selfcheck_sidebar_avatar](../selfcheck_sidebar_avatar.py) | 单项执行前核对 |
 | [selfcheck_sidebar_collapse](../selfcheck_sidebar_collapse.py) | 独立 Sidebar；检查封面挂起/重裁及同步切换，可离屏执行 |
 | [selfcheck_workspace_controls](../selfcheck_workspace_controls.py) | `offline`；独立功能轨、24 插件不挤压卡片、搜索/固定/持久化、原动作与卸载、收起/竖屏往返、关注筛选/密度、菜单与插件商店；离屏无账号或网络 |
+| [selfcheck_continuous_corners](../selfcheck_continuous_corners.py) | `offline`；连续曲线边界、圆形/胶囊保留、输入编辑、样式状态与调色板切换、菜单和复选操作；仅合成界面 |
 | [selfcheck_workspace_pages](../selfcheck_workspace_pages.py) | `offline`；嵌入页替换/返回、互斥切换、宿主隐藏/恢复和插件卸载；无账号或媒体 |
 | [selfcheck_sidebar_performance](../selfcheck_sidebar_performance.py) | `native`；60 张合成封面、完整布局切换与屏外封面恢复；`--players` 使用 FFmpeg 生成本地视频，`--background` 置于屏幕外且不激活；耗时仅作功能检查记录 |
 | [selfcheck_smart_folder_sources](../selfcheck_smart_folder_sources.py) | 单项执行前核对 |
