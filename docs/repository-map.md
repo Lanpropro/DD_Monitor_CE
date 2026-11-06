@@ -212,6 +212,7 @@
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
 - `dev/selfcheck_fullscreen_native_focus.py`
+- `dev/selfcheck_fullscreen_enter_focus.py`
 - `dev/selfcheck_fullscreen_quality.py`
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`

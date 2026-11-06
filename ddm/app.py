@@ -3566,14 +3566,11 @@ class MainWindow(QMainWindow):
                 if panel._tile_controls is not None:
                     panel._tile_controls.focus_input()
                 return True
-            tile = self._tile_under_cursor()
+            tile = self._fullscreen_tile or self._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
                 if tile is self._fullscreen_tile:
-                    hidden = tile._bar_target > 0.0 or tile.bottom.isHidden()
                     self._fullscreen_cursor.start()
                     tile.set_fullscreen_controls_hidden(False)
-                    if hidden:
-                        return True
                 tile.focus_danmaku_input()
         elif pressed and pressed == shortcuts.get("solo"):
             self._toggle_solo_audio()
