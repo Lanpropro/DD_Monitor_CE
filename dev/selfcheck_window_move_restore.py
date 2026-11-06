@@ -160,6 +160,9 @@ class MoveRestoreTests(unittest.TestCase):
         area = self.window.screen().availableGeometry()
         self.window.setGeometry(area.right()-100, area.bottom()-100, 1000, 700)
         self.window.show()
+        # Windows may select a neighbouring monitor when this fixture straddles
+        # an edge. Deliver its initial DPI/size messages before starting a move.
+        QTest.qWait(120)
         with patch.object(QScreen, 'grabWindow', side_effect=AssertionError('Desktop capture')):
             preview = self.begin()
         self.assertTrue(preview.thumbnail)
