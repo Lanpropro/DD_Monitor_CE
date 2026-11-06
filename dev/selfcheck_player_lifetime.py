@@ -2,13 +2,16 @@
 import os
 from pathlib import Path
 import sys
+import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, Qt, QTimer
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import isValid
 from ddm.player import TilePlayer
@@ -47,7 +50,7 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(options.get('gapless_audio'), False)
                     self.assertEqual(options['ao'], 'null' if silent else 'wasapi')
                     self.assertEqual(options['audio'], 'no' if silent else 'auto')
-                    self.assertEqual(options['force_window'], False if silent else 'immediate')
+                    self.assertIs(options['force_window'], False)
                     self.assertTrue(options['idle'])
                     self.assertTrue(options['keep_open'])
                     player.bind()
@@ -74,6 +77,61 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(call.kwargs.get('gapless_audio'), False)
             finally:
                 player.release()
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows embedded GPU output')
+    def test_normal_player_opens_output_only_when_local_media_is_ready(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Requires native Windows Qt')
+        from ddm.video_surface import VideoSurface
+        widget = VideoSurface()
+        widget.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        widget.setAttribute(Qt.WA_ShowWithoutActivating)
+        widget.setGeometry(-15000, -15000, 320, 180)
+        widget.show()
+        self.app.processEvents()
+        player = TilePlayer(widget)
+        player.set_muted(True)
+        def pump(milliseconds=30):
+            loop = QEventLoop()
+            QTimer.singleShot(milliseconds, loop.quit)
+            loop.exec()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                source = str(Path(temp) / 'blue.png')
+                image = QImage(160, 90, QImage.Format_RGB32)
+                image.fill(Qt.blue)
+                self.assertTrue(image.save(source))
+                player.bind()
+                self.assertFalse(player._prop('current-vo'), 'Idle binding must not initialize GPU output')
+                core = player.player
+                for index in range(2):
+                    player.play(source)
+                    deadline = time.monotonic() + 8
+                    while time.monotonic() < deadline:
+                        pump()
+                        if player._prop('vo-configured', False):
+                            break
+                    self.assertTrue(player._prop('vo-configured', False), 'Local image did not reach video output')
+                    self.assertIs(player.player, core)
+                    self.assertEqual(player._prop('current-vo'), 'gpu')
+                    screenshot = str(Path(temp) / f'frame-{index}.png')
+                    core.command('screenshot-to-file', screenshot, 'video')
+                    captured = QImage(screenshot)
+                    self.assertFalse(captured.isNull())
+                    self.assertGreater(captured.pixelColor(captured.width()//2, captured.height()//2).blue(), 200)
+                    player.stop(keep_core=True)
+                    pump()
+                # Cancellation while mpv's native output is opening must release cleanly.
+                player.play(source)
+                QTimer.singleShot(0, player.release)
+                pump(200)
+                self.assertIsNone(player.player)
+                self.assertEqual(player.state, 'idle')
+                self.assertFalse(isValid(player._watch))
+                self.assertFalse(isValid(player._picture_watch))
+        finally:
+            player.release()
+            widget.close()
 
     def test_destroy_does_not_reconfigure_the_native_window(self):
         class Core:
