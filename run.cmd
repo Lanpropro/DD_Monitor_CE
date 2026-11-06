@@ -70,6 +70,8 @@ set "QT_QPA_PLATFORM=windows"
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_picture_in_picture.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pip_picker
 exit /b %errorlevel%
 
 :qtLogCheck

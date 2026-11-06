@@ -75,6 +75,7 @@
 
 - `dev/selfcheck_image_cache.py`
 - `dev/selfcheck_picture_in_picture.py`
+- `dev/selfcheck_pip_picker.py`
 - `dev/selfcheck_ui_components.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_live_danmaku_motion.py`
