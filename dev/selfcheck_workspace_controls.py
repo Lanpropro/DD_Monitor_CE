@@ -78,6 +78,23 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.settings_button.click()
         self.assertEqual(calls, ['pip', 'settings'])
 
+    def test_rail_button_sizes_and_spacing_match_prototype(self):
+        self.add('first', '第一项')
+        self.add('second', '第二项')
+        rail = self.sidebar.navigation.rail
+        top = [self.sidebar.navigation.follow_button,
+               self.sidebar.workspace_controls.launcher,
+               *[self.sidebar.workspace_controls.entries[i][1]
+                 for i in self.sidebar.workspace_controls.pinned()]]
+        bottom = [self.sidebar.layout_button, self.sidebar.picture_in_picture_button,
+                  self.sidebar.notification_button, self.sidebar.appearance_button,
+                  self.sidebar.settings_button]
+        for group in (top, bottom):
+            for button in group:
+                self.assertEqual((button.width(), button.height()), (34, 34))
+            positions = [button.mapTo(rail, QPoint()).y() for button in group]
+            self.assertEqual([b-a for a,b in zip(positions, positions[1:])], [40]*(len(group)-1))
+
     def test_24_plugins_do_not_reduce_follow_height(self):
         panel = self.sidebar.workspace_controls
         before = self.sidebar.scroll.height()
