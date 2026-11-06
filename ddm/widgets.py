@@ -3630,7 +3630,6 @@ class Sidebar(QFrame):
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
         self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
-        self.clear_wall_button.setEnabled(False)
         self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
         self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
@@ -4319,7 +4318,6 @@ class Sidebar(QFrame):
     def set_wall_rooms(self, room_ids) -> None:
         """同步画面墙占用状态，供卡片和竖屏头像条显示蓝色标记。"""
         ids = {str(room_id) for room_id in room_ids if str(room_id)}
-        self.clear_wall_button.setEnabled(bool(ids))
         if ids == self._wall_room_ids:
             return
         self._wall_room_ids = ids
