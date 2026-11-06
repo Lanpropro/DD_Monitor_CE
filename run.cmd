@@ -31,6 +31,7 @@ if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
 if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
+if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -125,6 +126,11 @@ set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_drag_diagnostics.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_drag
+exit /b %errorlevel%
+
+:hotfixUpdatesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
 exit /b %errorlevel%
 
 :widgetLifetimeCheck

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .update_version import update_identity
 from .super_chat import SuperChatPlacementPreview
 from .follow_folders import default_folder
 from .folder_icons import create_folder_dialog
@@ -1589,8 +1590,8 @@ class SettingsDialog(QDialog):
 
     def _mark_app_update(self, offer):
         if offer and self.nav.currentRow() == 8:
-            self._remember_versions({'app': offer['version']})
-        active = bool(offer and self.seen_versions.get('app') != offer['version'])
+            self._remember_versions({'app': update_identity(offer)})
+        active = bool(offer and self.seen_versions.get('app') != update_identity(offer))
         self._mark_update_page('updates', active)
 
     def _mark_plugin_updates(self, offers):

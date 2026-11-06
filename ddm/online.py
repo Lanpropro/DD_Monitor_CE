@@ -9,6 +9,7 @@ import time
 from urllib.parse import urlsplit
 
 import requests
+from .update_version import app_tag, revision, update_key, version_key
 
 APP_REPOSITORY = 'Lanpropro/DD_Monitor_CE'
 PLUGIN_REPOSITORY = 'Lanpropro/DD_Monitor_Plugins'
@@ -23,14 +24,6 @@ PUBLISHED_PLUGINS = (
     ('global_live', '1.0', 18061, '5d71e1e1658842ca16af66ad49e6531354f1bda85b0e94d400d92f8a149f8807'),
 )
 CATALOG_CHECK_SECONDS = 15 * 60
-
-
-def version_key(value):
-    text = str(value).removeprefix('v')
-    if not re.fullmatch(r'\d+(?:\.\d+){0,3}', text):
-        raise ValueError('版本号必须使用数字，例如 0.3 或 0.3.1')
-    parts = tuple(map(int, text.split('.')))
-    return parts + (0,) * (4 - len(parts))
 
 
 def session():
@@ -116,6 +109,13 @@ def manifest_offer(entry, repository):
     entry.update(info)
     if repository == PLUGIN_REPOSITORY:
         entry['name'] = KNOWN_PLUGINS.get(entry.get('id'), (entry['name'], ''))[0]
+    else:
+        tag = entry.get('release_tag', 'v' + entry['version'].removeprefix('v'))
+        base, tag_revision = app_tag(tag)
+        entry['revision'] = revision(entry.get('revision', tag_revision))
+        if version_key(base) != version_key(entry['version']) or (tag_revision and tag_revision != entry['revision']):
+            raise ValueError('更新清单的标签、版本与修订号不一致')
+        entry['release_tag'] = tag
     return entry
 
 
@@ -203,9 +203,11 @@ def plugin_catalog(client, current_version, cache=None):
     return list(offers.values())
 
 
-def release_notes(client, release_version):
+def release_notes(client, release_version, release_tag=None):
     version_key(release_version)
-    tag = 'v' + release_version.removeprefix('v')
+    tag = release_tag or 'v' + release_version.removeprefix('v')
+    if version_key(app_tag(tag)[0]) != version_key(release_version):
+        raise ValueError('发布说明标签与版本不一致')
     with client.get(f'https://api.github.com/repos/{APP_REPOSITORY}/releases/tags/{tag}',
                     timeout=(5, 15)) as response:
         response.raise_for_status()
@@ -280,40 +282,67 @@ def cached_plugin_catalog(client, current_version, path, force=False):
     return offers
 
 
-def app_release(client, current_version):
+def app_release(client, current_version, current_revision=0):
+    current = update_key(current_version, current_revision)
     try:
         manifest = latest_manifest(client, APP_REPOSITORY, 'app-update.json')
     except requests.RequestException:
         manifest = None
     if manifest is not None:
-        if version_key(manifest['version']) <= version_key(current_version):
-            return None
         offer = manifest_offer(manifest, APP_REPOSITORY)
+        if update_key(offer['version'], offer['revision']) <= current:
+            return None
         offer.setdefault('notes', '暂无更新说明')
         try:
-            offer['notes'] = release_notes(client, offer['version'])
+            offer['notes'] = release_notes(client, offer['version'], offer['release_tag'])
         except (requests.RequestException, ValueError):
             pass
         return offer
     candidates = []
     for release in releases(APP_REPOSITORY, client):
         try:
-            key = version_key(release.get('tag_name', ''))
+            base, number = app_tag(release.get('tag_name', ''))
+            key = version_key(base)
         except ValueError:
             continue
-        if key > version_key(current_version):
-            candidates.append((key, release))
+        if key >= current[0]:
+            candidates.append((key, base, number, release))
     if not candidates:
         return None
-    _, release = max(candidates, key=lambda candidate: candidate[0])
-    offer = {'version': release['tag_name'].removeprefix('v'),
-             'notes': release.get('body') or '暂无更新说明', 'release_url': release.get('html_url', '')}
-    assets = [asset for asset in release.get('assets', [])
-              if asset.get('name', '').lower().endswith('-exe.zip')]
-    if len(assets) != 1:
-        raise ValueError('新版尚未提供唯一的 Windows EXE 更新包')
-    offer.update(asset_info(assets[0], APP_REPOSITORY))
-    return offer
+    latest_base = max(candidate[0] for candidate in candidates)
+    best, best_offer = current, None
+    for key, base, number, release in sorted(candidates, key=lambda entry: (entry[0], entry[2]), reverse=True):
+        if key != latest_base:
+            continue
+        if number and (key, number) <= best:
+            continue
+        metadata = next((asset for asset in release.get('assets', []) if asset.get('name') == 'app-update.json'), None)
+        if metadata is not None:
+            info = asset_info(metadata, APP_REPOSITORY)
+            if info['size'] > 1024 * 1024:
+                raise ValueError('本体更新清单超过大小限制')
+            with tempfile.TemporaryDirectory(prefix='ddm-app-manifest-') as temporary:
+                path = download(info, Path(temporary)/'app-update.json', client)
+                data = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+            data.setdefault('release_tag', release['tag_name'])
+            offer = manifest_offer(data, APP_REPOSITORY)
+            if version_key(offer['version']) != key or (number and offer['revision'] != number):
+                raise ValueError('更新清单与正式发布记录不一致')
+        else:
+            if (key, number) <= best:
+                continue
+            offer = {'version': base, 'revision': number, 'release_tag': release['tag_name']}
+            assets = [asset for asset in release.get('assets', [])
+                      if asset.get('name', '').lower().endswith('-exe.zip')]
+            if len(assets) != 1:
+                raise ValueError('新版尚未提供唯一的 Windows EXE 更新包')
+            offer.update(asset_info(assets[0], APP_REPOSITORY))
+        offer.update(notes=release.get('body') or offer.get('notes') or '暂无更新说明',
+                     release_url=release.get('html_url', ''))
+        candidate = update_key(offer['version'], offer['revision'])
+        if candidate > best:
+            best, best_offer = candidate, offer
+    return best_offer
 
 
 def download(offer, destination, client, cancelled=lambda: False, progress=lambda *_: None):

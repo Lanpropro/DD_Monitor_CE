@@ -31,6 +31,7 @@ from . import overlay
 from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
+from .update_version import installed_revision, release_label, update_identity
 from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
@@ -432,7 +433,8 @@ class MainWindow(QMainWindow):
         self._startup_update_checked = True
         def check(cancelled, progress):
             with online.session() as client:
-                return online.app_release(client, version_module.VERSION)
+                return online.app_release(client, version_module.VERSION,
+                    installed_revision(config_module.REPO, version_module.VERSION))
         task = OnlineTask(check, None, self)
         self._startup_update_task = task
         task.succeeded.connect(self._startup_update_ready)
@@ -461,7 +463,7 @@ class MainWindow(QMainWindow):
         from .online_ui import set_update_dot
         seen = self.settings.get('seen_update_entry_versions') or {}
         offer = self._unread_app_update()
-        active = bool((offer and seen.get('app') != offer['version']) or any(
+        active = bool((offer and seen.get('app') != update_identity(offer)) or any(
             seen.get(entry['id']) != entry['version'] for entry in self._unread_plugin_updates()))
         set_update_dot(self.sidebar.settings_button, active)
         self.sidebar.settings_button.setToolTip('有新版本，打开设置查看' if active else '打开设置')
@@ -469,7 +471,7 @@ class MainWindow(QMainWindow):
     def _unread_app_update(self):
         seen = self.settings.get('seen_update_versions') or {}
         return self._available_update if (self._available_update
-            and seen.get('app') != self._available_update['version']) else None
+            and seen.get('app') != update_identity(self._available_update)) else None
 
     def _unread_plugin_updates(self):
         seen = self.settings.get('seen_update_versions') or {}
@@ -524,18 +526,18 @@ class MainWindow(QMainWindow):
             self._update_notice = UpdateNotice(self)
             self._update_notice.activated.connect(lambda: self.open_settings(
                 "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')},
+        self._update_notice.show_offer(app_offer or {'version': ''},
             persistent=self.settings.get('notice_persist_updates', True))
         parts = []
         if app_offer:
-            parts.append('软件有新版 v' + app_offer['version'])
+            parts.append('软件有新版 v' + release_label(app_offer))
         if plugin_offers:
             parts.append(f'{len(plugin_offers)} 个插件可更新')
         self._update_notice.title.setText(' · '.join(parts))
         center = self.sidebar.notification_button.center
         entry = center.add(' · '.join(parts), kind='update',
             callback=lambda: self.open_settings('updates' if self._unread_app_update() else 'plugins'),
-            action='查看更新', key=('update', (app_offer or {}).get('version', ''),
+            action='查看更新', key=('update', update_identity(app_offer) if app_offer else '',
                 tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
         self._update_notice.track_history((center, entry))
 
@@ -996,7 +998,7 @@ class MainWindow(QMainWindow):
     def _create_settings_dialog(self, settings=None, shortcuts=None):
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
-            seen['app'] = self._available_update['version']
+            seen['app'] = update_identity(self._available_update)
         seen.update({offer['id']: offer['version'] for offer in self._plugin_update_offers})
         if seen != (self.settings.get('seen_update_entry_versions') or {}):
             self.settings['seen_update_entry_versions'] = seen
@@ -1014,7 +1016,9 @@ class MainWindow(QMainWindow):
                 if self._plugin_catalog_offers:
                     widget.store_page._catalog_ready(self._plugin_catalog_offers)
             elif key == 'updates':
-                if self._available_update and not (widget._checked or widget.jobs or widget.plan_path):
+                if (self._available_update and not (widget.jobs or widget.plan_path)
+                        and (not widget._checked or not widget.offer
+                             or update_identity(widget.offer) != update_identity(self._available_update))):
                     widget._release_ready(self._available_update)
                     widget._busy(False)
         dialog.pageCreated.connect(page_created)
@@ -1023,7 +1027,7 @@ class MainWindow(QMainWindow):
         dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
                                                 for offer in self._plugin_update_offers))
         dialog._mark_update_page('updates', bool(self._available_update and
-                                                dialog.seen_versions.get('app') != self._available_update['version']))
+                                                dialog.seen_versions.get('app') != update_identity(self._available_update)))
         return dialog
 
     def open_settings(self, page: str = "general") -> bool:

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QFrame, QHBoxL
 from .corner_geometry import continuous_path
 from . import config, motion, online, plugin_updates, theme, update_install, version
 from .ui import ActionButton, AnimatedDialog, ElidedLabel, page_header
+from .update_version import installed_revision, release_label
 
 
 class UpdateDot(QLabel):
@@ -696,7 +697,7 @@ class AppUpdatePage(OnlinePage):
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
             with online.session() as client:
-                offer = online.app_release(client, version.VERSION)
+                offer = online.app_release(client, version.VERSION, installed_revision(config.REPO, version.VERSION))
                 notes = ''
                 if offer is None:
                     try:
@@ -718,13 +719,13 @@ class AppUpdatePage(OnlinePage):
         self._busy(bool(self.jobs))
         self.releaseChecked.emit(offer)
         if offer:
-            self.notes_title.setText('新版 ' + offer['version'] + ' 更新说明')
+            self.notes_title.setText('新版 ' + release_label(offer) + ' 更新说明')
             self.notes.setMarkdown(offer.get('notes') or '此版本暂未提供更新说明。')
         else:
             self.show_current_notes()
-        self.status.setText('发现新版 ' + offer['version'] if offer else '当前已是最新正式版本。')
+        self.status.setText('发现新版 ' + release_label(offer) if offer else '当前已是最新正式版本。')
         if offer and not getattr(sys, 'frozen', False):
-            self.status.setText('发现新版 ' + offer['version'] + '；源码版请从仓库更新，EXE 版可自动安装。')
+            self.status.setText('发现新版 ' + release_label(offer) + '；源码版请从仓库更新，EXE 版可自动安装。')
 
     def download_update(self):
         if not getattr(sys, 'frozen', False):
@@ -741,7 +742,7 @@ class AppUpdatePage(OnlinePage):
             with tempfile.TemporaryDirectory(prefix='ddm-app-download-') as temporary, online.session() as client:
                 archive = online.download(offer, Path(temporary) / 'app.zip', client, cancelled, progress)
                 return update_install.prepare(archive, config.REPO, sys.executable, cancelled, offer['version'],
-                                              data_root=config.data_root())
+                                              data_root=config.data_root(), expected_revision=offer.get('revision', 0))
         self.start(prepare, self._prepared)
 
     def _prepared(self, plan_path):
@@ -823,7 +824,7 @@ class UpdateNotice(QFrame):
         was_visible = self.isVisible()
         self._motion.stop()
         self._leaving = False
-        self.title.setText('发现新版本 v' + offer['version'])
+        self.title.setText('发现新版本 v' + release_label(offer))
         self._resize_to_content()
         self._progress = self._progress if was_visible else 0.0
         if not motion.enabled():
