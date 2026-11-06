@@ -1673,6 +1673,7 @@ class MainNoticesTests(unittest.TestCase):
         tile.set_room({'room_id': 'new', 'live': False})
         control.sync()
         self.assertFalse(control.menu.undo_button.isEnabled())
+        self.assertNotIn('可撤回上次移除', control.menu.summary.text())
         self.assertFalse(control.undo())
         self.assertEqual(tile.room['room_id'], 'new')
         tile.set_room(None)

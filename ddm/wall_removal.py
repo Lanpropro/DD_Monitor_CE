@@ -238,6 +238,7 @@ class WallRemoval(QObject):
     def sync(self):
         if self.signature() != self.seen:
             self.seen = self.signature()
+            self.menu.message = ''
             self.selected = {tile for tile in self.host.wall.tiles if offline(tile)}
             self.menu.rebuild()
         else:
