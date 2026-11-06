@@ -121,6 +121,7 @@
       "selfcheck_diagnostic_session",
       "selfcheck_development_hang",
       "selfcheck_sidebar_diagnostics",
+      "selfcheck_on_demand_diagnostics",
       "selfcheck_ui_components",
       "selfcheck_logging",
       "selfcheck_qt_log",

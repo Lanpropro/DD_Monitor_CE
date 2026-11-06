@@ -37,6 +37,7 @@ class DiagnosticTests(unittest.TestCase):
         if not gui:
             command += ['/main:DiagnosticsTests']
         command += list(map(str, sources))
+        command += [str(ROOT / 'tools/diagnostics/OnDemand.cs')]
         result = subprocess.run(command, capture_output=True, timeout=40)
         if result.returncode:
             raise AssertionError(result.stdout.decode('utf-8', errors='replace') + result.stderr.decode('utf-8', errors='replace'))
