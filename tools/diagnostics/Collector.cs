@@ -197,7 +197,7 @@ namespace DDMonitorDiagnostics
         internal const string ToolVersion = "1.3";
         internal static readonly string[] CaptureModes = { "folders", "responsiveness", "notices", "danmaku", "drag", "douyu", "douyu-deep", "theme", "fullscreen" };
         internal static readonly string[] CaptureLabels = { "文件夹 / 列表错位", "界面卡顿", "开播通知关闭残留", "弹幕回退", "拖放异常", "斗鱼播放", "斗鱼深度采集（使用本地中继）", "主题切换耗时", "全屏切换耗时" };
-        static readonly string[] TraceNames = { "diagnostic-session", "folder-motion", "responsiveness", "notice-close", "danmaku-motion", "drag-windows", "douyu-playback", "douyu-responsiveness", "theme-switch", "fullscreen" };
+        static readonly string[] TraceNames = { "diagnostic-session", "on-demand", "folder-motion", "responsiveness", "notice-close", "danmaku-motion", "drag-windows", "douyu-playback", "douyu-responsiveness", "theme-switch", "fullscreen" };
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
         readonly string root;
@@ -499,7 +499,7 @@ namespace DDMonitorDiagnostics
         }
 
         internal string Collect(string destination, string problem, string happened, Action<int, string> progress,
-            string reproducibility = "尚未确认", string[] attachments = null)
+            string reproducibility = "尚未确认", string[] attachments = null, object liveEvidence = null)
         {
             if (!new[] { "稳定复现", "概率触发", "尚未确认" }.Contains(reproducibility)) throw new ArgumentException("请选择有效的复现情况。");
             attachments = attachments ?? new string[0];
@@ -517,6 +517,7 @@ namespace DDMonitorDiagnostics
             config = redact.Clean(config);
             var entries = new Dictionary<string, string>();
             Action<string, object> add = (name, value) => entries[name] = json.Serialize(redact.Clean(value));
+            if (liveEvidence != null) add("live-capture.json", liveEvidence);
             Action<string, Func<object>> section = (name, collect) => {
                 try { add(name, collect()); }
                 catch (Exception error)
