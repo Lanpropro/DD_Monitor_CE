@@ -136,10 +136,13 @@ class FullscreenCapture(QObject):
                      or (self.geometry_widgets[watched] == 'bar' and event.type() == QEvent.Paint))
                 and len(record['geometry']) < 96):
             origin = watched.mapToGlobal(QPoint())
-            record['geometry'].append({'at_ms': round((time.perf_counter()-self.started)*1000, 3),
+            item = {'at_ms': round((time.perf_counter()-self.started)*1000, 3),
                 'role': self.geometry_widgets[watched], 'event': event.type().name,
                 'visible': watched.isVisible(), 'window': watched.isWindow(),
-                'rect': [origin.x(), origin.y(), watched.width(), watched.height()]})
+                'rect': [origin.x(), origin.y(), watched.width(), watched.height()]}
+            if item['role'] == 'bar':
+                item['opacity'] = watched.windowOpacity()
+            record['geometry'].append(item)
         return super().eventFilter(watched, event)
 
     def stage(self, name, started):
