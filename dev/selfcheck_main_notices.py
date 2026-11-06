@@ -1306,6 +1306,65 @@ class MainNoticesTests(unittest.TestCase):
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
 
+    def test_pip_picker_lists_wall_first_then_live_follows_without_allocating_players(self):
+        from ddm.picture_in_picture import FOCUS_LAYOUT
+        window = self.window([{'room_id': '1', 'uname': 'Wall', 'live': False},
+                              {'room_id': '2', 'uname': 'Wall live', 'live': True}])
+        window.settings['close_behavior'] = 'exit'
+        window.sidebar.add_rooms([{'room_id': str(index), 'uname': f'Other {index}', 'live': True}
+                                  for index in range(3, 7)] +
+                                 [{'room_id': '7', 'live': False}, {'room_id': '8', 'live': True, 'live_known': False}])
+        pip = window.picture_in_picture
+        tiles = list(window.wall.tiles)
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(list(dialog.checks), [0, 1, '3', '4', '5', '6'])
+        self.assertEqual([heading.text() for heading, _keys in dialog.sections], ['已入墙', '其他已开播'])
+        self.assertEqual(dialog._selected(), [0, 1])
+        self.assertEqual(dialog.columns.count(), 6)
+        for rid in ('3', '4', '5', '6'):
+            dialog.checks[rid].setChecked(True)
+        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        dialog.primary.setCurrentIndex(dialog.primary.findData('4'))
+        self.assertTrue(dialog.start.isEnabled())
+        self.assertEqual(dialog.preview.primary, 3)
+        dialog.search.setText('Other 4')
+        self.assertTrue(dialog.checks[0].isHidden())
+        self.assertFalse(dialog.checks['4'].isHidden())
+        self.assertEqual(len(dialog._selected()), 6)
+        dialog.reject()
+        self.assertEqual(window.wall.tiles, tiles)
+        self.assertFalse(pip._extra_tiles)
+        window.start_tile.assert_not_called()
+
+    def test_pip_external_session_does_not_change_saved_wall_and_releases_on_exit(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        window.settings['close_behavior'] = 'exit'
+        window.sidebar.add_rooms([{'room_id': '2', 'uname': 'Extra', 'live': True}])
+        pip, wall = window.picture_in_picture, window.wall
+        tiles = list(wall.tiles)
+        snapshot = window.current_state()['wall']
+        with patch.object(window, '_stop_tile', wraps=window._stop_tile) as stop:
+            self.assertTrue(pip.start([0, '2'], primary='2'))
+            temporary = pip._extra_tiles['2']
+            self.assertTrue(temporary.property('pictureInPictureTemporary'))
+            window.start_tile.assert_called_once_with(temporary)
+            self.assertEqual(window.current_state()['wall'], snapshot)
+            self.assertEqual(pip.state()['external_rooms'], ['2'])
+            self.assertEqual(pip.state()['external_primary'], '2')
+            self.assertEqual(pip.state()['choice_order'], [0, '2'])
+            window._refresh_meta()
+            self.assertEqual(window.sidebar._wall_room_ids, {'1'})
+            pip.restore()
+            self.assertEqual(wall.tiles, tiles)
+            self.assertFalse(pip._extra_tiles)
+            stop.assert_called_once_with(temporary)
+            self.assertEqual(window.current_state()['wall'], snapshot)
+        room = next(room for room in window.sidebar.rooms() if room['room_id'] == '2')
+        room['live'] = False
+        self.assertFalse(pip.start(['2']))
+        self.assertFalse(pip._extra_tiles)
+
     def test_sidebar_icon_order_saves_and_restores_independent_groups(self):
         from ddm.plugins import PluginContext
         from PySide6.QtWidgets import QToolButton

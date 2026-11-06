@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSize, QTimer, Qt
 from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
+    QApplication, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -146,7 +146,8 @@ class PictureInPictureDialog(QDialog):
         self.controller = controller
         self.setWindowTitle('组合画中画')
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.resize(480, 580)
+        available = self.screen().availableGeometry()
+        self.resize(min(520, available.width() - 48), min(720, available.height() - 80))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.addLayout(page_header('画中画', '选择画面组合；退出后恢复原监控室布局'))
@@ -169,23 +170,39 @@ class PictureInPictureDialog(QDialog):
         primary_box.addWidget(primary_label)
         primary_box.addWidget(self.primary, 1)
         layout.addWidget(self.primary_row)
+        self.search = QLineEdit(self)
+        self.search.setObjectName('Search')
+        self.search.setPlaceholderText('搜索主播或房间号')
+        self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName('搜索画中画直播间')
+        self.search.textChanged.connect(self._filter)
+        layout.addWidget(self.search)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         choices = QVBoxLayout(content)
         self.checks = {}
-        capacity = controller.host.wall._capacity() or len(controller.host.wall.tiles)
-        for index, tile in enumerate(controller.host.wall.tiles[:capacity]):
-            if not tile.room.get('room_id'):
-                continue
-            name = f'{index + 1} · ' + str(tile.room.get('uname') or tile.room['room_id'])
-            check = QCheckBox(name, content)
-            check.setToolTip(name)
-            check.setChecked(index in controller.selection)
-            check.toggled.connect(self._refresh)
-            self.checks[index] = check
-            choices.addWidget(check)
+        self.rooms = {}
+        self.sections = []
+        selected = controller.selected_choices()
+        for title, entries in controller.candidate_groups():
+            heading = QLabel(title, content)
+            heading.setObjectName('SectionLabel')
+            heading.setVisible(bool(entries))
+            choices.addWidget(heading)
+            group = []
+            for key, room in entries:
+                name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
+                check = QCheckBox(name, content)
+                check.setToolTip(name + ' · ' + str(room['room_id']))
+                check.setChecked(key in selected)
+                check.toggled.connect(self._refresh)
+                self.checks[key] = check
+                self.rooms[key] = room
+                choices.addWidget(check)
+                group.append(key)
+            self.sections.append((heading, group))
         choices.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
@@ -209,13 +226,25 @@ class PictureInPictureDialog(QDialog):
 
     def _selected(self):
         checked = [index for index, check in self.checks.items() if check.isChecked()]
-        return ([index for index in self.controller.selection if index in checked]
-                + [index for index in checked if index not in self.controller.selection])
+        previous = self.controller.selected_choices()
+        return ([index for index in previous if index in checked]
+                + [index for index in checked if index not in previous])
+
+    def _filter(self, value):
+        query = value.strip().casefold()
+        for heading, keys in self.sections:
+            visible = []
+            for key in keys:
+                room = self.rooms[key]
+                matches = query in (str(room.get('uname', '')) + ' ' + str(room['room_id'])).casefold()
+                self.checks[key].setVisible(matches)
+                visible.append(matches)
+            heading.setVisible(any(visible))
 
     def _refresh(self, *_args):
         selection = self._selected()
         names = [self.checks[index].text() for index in selection]
-        primary = self.primary.currentData() if self.primary.count() else self.controller.primary
+        primary = self.primary.currentData() if self.primary.count() else self.controller.primary_choice()
         self.primary.blockSignals(True)
         self.primary.clear()
         for index, name in zip(selection, names):
@@ -229,13 +258,15 @@ class PictureInPictureDialog(QDialog):
         valid = bool(names) and (not focus or len(names) == 6)
         self.start.setEnabled(valid)
         self.hint.setText('单主＋五辅需要选择6路画面；主画面可在上方指定。' if focus and len(names) != 6 else
-                          f'已选择 {len(names)} 路。按直播比例缩放并支持置顶，其他画面按原声音设置在后台播放。'
-                          if self.checks else '画面墙中还没有直播间，请先添加画面。')
+                          f'已选择 {len(names)} 路。按直播比例缩放并支持置顶；墙外直播仅在本次画中画中观看。'
+                          if self.checks else '暂无可选直播间，请先添加关注或画面。')
 
     def _apply(self):
         selected = self._selected()
-        self.controller.start(selected, self.columns.currentData(), self.primary.currentData())
-        self.accept()
+        if self.controller.start(selected, self.columns.currentData(), self.primary.currentData()):
+            self.accept()
+        else:
+            self.hint.setText('所选直播间已变化或下播，请重新选择。')
 
 
 class PictureInPictureButton(QPushButton):
@@ -383,11 +414,8 @@ class PictureInPictureWindow(QWidget):
         self._geometry_timer.setTimerType(Qt.PreciseTimer)
         self._geometry_timer.setInterval(16)
         self._geometry_timer.timeout.connect(self._flush_geometry)
-        self._surface_state = [(widget, widget.hasMouseTracking(),
-                                widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None)
-                               for tile in controller.host.wall.tiles for widget in (tile, tile.video)]
-        for widget, _tracking, _cursor in self._surface_state:
-            widget.setMouseTracking(True)
+        self._surface_state = []
+        self.track_tiles(controller.host.wall.tiles)
         self._hover_timer = QTimer(self)
         self._hover_timer.setInterval(100)
         self._hover_timer.timeout.connect(self._poll_tools)
@@ -395,6 +423,18 @@ class PictureInPictureWindow(QWidget):
         QApplication.instance().installEventFilter(self)
         shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         shortcut.activated.connect(self._escape)
+
+    def track_tiles(self, tiles):
+        tracked = {widget for widget, _tracking, _cursor in self._surface_state}
+        for tile in tiles:
+            for widget in (tile, tile.video):
+                if widget not in tracked:
+                    self._surface_state.append((widget, widget.hasMouseTracking(),
+                        widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None))
+                    widget.setMouseTracking(True)
+
+    def forget_tile(self, tile):
+        self._surface_state = [entry for entry in self._surface_state if entry[0] not in (tile, tile.video)]
 
     def _poll_tools(self):
         if self._live_move is not None:
@@ -815,6 +855,10 @@ class PictureInPicture(QObject):
         self.selection = list(saved.get('selection', []))
         self.columns = saved.get('columns', 0)
         self.primary = saved.get('primary')
+        self.external_rooms = list(saved.get('external_rooms', []))
+        self.external_primary = saved.get('external_primary', '')
+        self._choice_order = list(saved.get('choice_order', []))
+        self._extra_tiles = {}
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
         self._video_aspects = {}
@@ -853,7 +897,7 @@ class PictureInPicture(QObject):
             self.dialog.raise_()
             self.dialog.activateWindow()
             return
-        if not self.selection:
+        if not self.selection and not self.external_rooms:
             capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
             self.selection = [index for index, tile in enumerate(self.host.wall.tiles[:capacity])
                               if tile.room.get('room_id')]
@@ -865,10 +909,61 @@ class PictureInPicture(QObject):
         self.dialog = None
         self._sync_overlays()
 
+    def candidate_groups(self):
+        wall = [(index, tile.room) for index, tile in enumerate(self.host.wall.tiles)
+                if tile.room.get('room_id') and not tile.property('pictureInPictureTemporary')]
+        wall_ids = {str(room['room_id']) for _index, room in wall}
+        others = {}
+        for room in self.host.sidebar.rooms():
+            rid = str(room.get('room_id') or '')
+            if rid and rid not in wall_ids and room.get('live') and room.get('live_known', True):
+                others.setdefault(rid, room)
+        for rid, tile in self._extra_tiles.items():
+            if tile.room.get('room_id') and rid in self.external_rooms:
+                others.setdefault(rid, tile.room)
+        return [('已入墙', wall), ('其他已开播', list(others.items()))]
+
+    def choice_for_index(self, index):
+        tiles = self.host.wall.tiles
+        if isinstance(index, int) and 0 <= index < len(tiles) and tiles[index].property('pictureInPictureTemporary'):
+            return str(tiles[index].room.get('room_id') or '')
+        return index
+
+    def selected_choices(self):
+        choices = [self.choice_for_index(index) for index in self.selection]
+        choices += [rid for rid in self.external_rooms if rid not in choices]
+        if self.active:
+            return choices
+        return ([key for key in self._choice_order if key in choices]
+                + [key for key in choices if key not in self._choice_order])
+
+    def primary_choice(self):
+        return self.external_primary or self.choice_for_index(self.primary)
+
+    def _remove_extra(self, rid):
+        tile = self._extra_tiles.pop(rid)
+        if self.floating is not None:
+            self.floating.forget_tile(tile)
+        self._video_aspects.pop(tile, None)
+        self._minimums.pop(tile, None)
+        dialog = self.host._stream_info_dialogs.get(tile)
+        if dialog is not None:
+            dialog.close()
+        self.host._clear_tile_room(tile)
+        if tile in self.host.recorder.sessions:
+            tile.hide()
+            self.host.wall.tiles.remove(tile)
+            self.host._preset_retired_tiles.add(tile)
+        else:
+            self.host.wall._drop_tile(tile)
+
     def aspects_for(self, selection):
         aspects = []
         for index in selection:
-            tile = self.host.wall.tiles[index]
+            tile = self._extra_tiles.get(index) if isinstance(index, str) else self.host.wall.tiles[index]
+            if tile is None:
+                aspects.append(16 / 9)
+                continue
             room = tile.room.get('room_id')
             aspect = video_aspect(self.host.players.get(tile))
             previous_room, previous_aspect = self._video_aspects.get(tile, (None, 16 / 9))
@@ -901,17 +996,39 @@ class PictureInPicture(QObject):
 
     def start(self, selection, columns=0, primary=None):
         wall = self.host.wall
-        tiles = [wall.tiles[index] for index in selection
-                 if 0 <= index < len(wall.tiles) and wall.tiles[index].room.get('room_id')]
-        if not tiles:
-            return
-        selection = [wall.tiles.index(tile) for tile in tiles]
-        primary = primary if primary in selection else selection[0]
+        candidates = dict(self.candidate_groups()[1][1])
+        for key in selection:
+            if isinstance(key, str) and key not in candidates:
+                return False
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
+        tiles, primary_tile, starting = [], None, []
+        for key in selection:
+            if isinstance(key, str):
+                tile = self._extra_tiles.get(key)
+                if tile is None:
+                    tile = wall._make_tile(dict(candidates[key]))
+                    tile.setProperty('pictureInPictureTemporary', True)
+                    self._extra_tiles[key] = tile
+                    starting.append(tile)
+            else:
+                tile = wall.tiles[key] if 0 <= key < len(wall.tiles) else None
+            if tile is not None and tile.room.get('room_id'):
+                if tile not in tiles:
+                    tiles.append(tile)
+                if key == primary:
+                    primary_tile = tile
+        if not tiles:
+            return False
+        selection = [wall.tiles.index(tile) for tile in tiles]
+        primary = wall.tiles.index(primary_tile) if primary_tile in tiles else selection[0]
         self.selection, self.columns = list(selection), columns
         self.primary = primary
+        self.external_rooms = [str(tile.room['room_id']) for tile in tiles if tile.property('pictureInPictureTemporary')]
+        self.external_primary = (str(wall.tiles[primary].room['room_id'])
+                                 if wall.tiles[primary].property('pictureInPictureTemporary') else '')
+        self._choice_order = [self.choice_for_index(index) for index in self.selection]
         opened = not self.active
         if opened:
             wall.set_sidebar_animating(False)
@@ -927,17 +1044,29 @@ class PictureInPicture(QObject):
             content.insertWidget(0, self.placeholder, 1)
             self.placeholder.show()
             self.floating.box.addWidget(wall, 1)
+        else:
+            self.floating.track_tiles(starting)
+            self._minimums.update((tile, tile.minimumSize()) for tile in starting)
         aspects = self.aspects_for(selection)
         wall.set_picture_in_picture(tiles, columns, aspects, selection.index(primary))
         self.floating.set_composition(aspects, columns, selection.index(primary))
         self.floating.show()
         wall.show()
+        for rid, tile in list(self._extra_tiles.items()):
+            if tile not in tiles:
+                self._remove_extra(rid)
+        self.selection = [wall.tiles.index(tile) for tile in tiles]
+        self.primary = wall.tiles.index(primary_tile) if primary_tile in tiles else self.selection[0]
+        for tile in starting:
+            self.host.start_tile(tile)
         self.floating.audio_panel.hide()
         self._sync_overlays()
         self._aspect_timer.start()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
         if opened:
             QTimer.singleShot(0, self, self._minimize_host)
+        self.host._save_timer.start()
+        return True
 
     def _minimize_host(self):
         if self.active and not self.host._closing:
@@ -966,6 +1095,12 @@ class PictureInPicture(QObject):
         self._aspect_timer.stop()
         self.floating = None
         wall = self.host.wall
+        selected = [wall.tiles[index] for index in self.selection]
+        primary_tile = wall.tiles[self.primary]
+        for rid in list(self._extra_tiles):
+            self._remove_extra(rid)
+        self.selection = [wall.tiles.index(tile) for tile in selected if tile in wall.tiles]
+        self.primary = wall.tiles.index(primary_tile) if primary_tile in wall.tiles else None
         floating.box.removeWidget(wall)
         content = self.host._content.layout()
         content.removeWidget(self.placeholder)
@@ -986,4 +1121,9 @@ class PictureInPicture(QObject):
     def state(self):
         geometry = (str(self.floating.saveGeometry().toBase64(), 'ascii')
                     if self.active else self.geometry)
-        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry)
+        selection = [index for index in self.selection if 0 <= index < len(self.host.wall.tiles)
+                     and not self.host.wall.tiles[index].property('pictureInPictureTemporary')]
+        primary = self.primary if self.primary in selection else None
+        return dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
+                    geometry=geometry, external_rooms=list(self.external_rooms), external_primary=self.external_primary,
+                    choice_order=self.selected_choices())

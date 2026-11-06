@@ -1193,7 +1193,7 @@ class MainWindow(QMainWindow):
                     "codec_overrides": dict(tile.codec_overrides),
                     "video_danmaku_enabled": tile.danmaku_button.isChecked(),
                 }
-                for tile in self.wall.tiles
+                for tile in self.wall.tiles if not tile.property('pictureInPictureTemporary')
             ],
             "ui": {
                 "picture_in_picture": self.picture_in_picture.state(),
@@ -3291,7 +3291,8 @@ class MainWindow(QMainWindow):
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
         self.sidebar.set_wall_rooms(
-            str(tile.room.get("room_id") or "") for tile in self.wall.tiles)
+            str(tile.room.get("room_id") or "") for tile in self.wall.tiles
+            if not tile.property('pictureInPictureTemporary'))
         # 替换后格子仍保持聚焦，卡片选择需跟随它当前的房间。
         focused = next((tile for tile in self.wall.tiles if tile.property("focused")), None)
         if focused is not None:
