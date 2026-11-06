@@ -21,6 +21,7 @@ class FullscreenPresentation(QObject):
 
     def enter(self, tile, geometry=None):
         wall = self.window.wall
+        geometry = QRect(geometry if geometry is not None else self.window.screen().geometry())
         self.tile = tile
         self._flags, self._geometry = tile.windowFlags(), QRect(tile.geometry())
         self._show_without_activating = tile.testAttribute(Qt.WA_ShowWithoutActivating)
@@ -49,7 +50,9 @@ class FullscreenPresentation(QObject):
             tile.setWindowFlags(flags)
             tile.setProperty('fullscreen', True)
             _repolish(tile)
-            tile.setGeometry(geometry if geometry is not None else self.window.screen().geometry())
+            tile.winId()
+            tile.setGeometry(geometry)
+            tile.bottom.set_fullscreen(True)
         finally:
             tile._presentation_changing = False
         tile._layout_areas()
@@ -57,10 +60,16 @@ class FullscreenPresentation(QObject):
         if layer is not None:
             layer.set_presentation_changing(True)
             layer.set_presentation_window(tile)
-        # The independent Windows Tool bar needs its own first frame.
+        # Exposing a new Tool bar can dispatch the owner's old native resize.
+        # Finish that work before restoring the final rectangle and first frame.
         if tile.bottom.qt_composited:
-            tile.bottom.repaint()
+            tile.bottom.prepare_fullscreen_frame()
+            tile.setGeometry(geometry)
+            tile._layout_areas()
+            tile.bottom.prepare_fullscreen_frame()
         tile.show()
+        if tile.bottom.qt_composited:
+            tile.bottom.setWindowOpacity(1.0)
         tile.raise_()
         if not tile.testAttribute(Qt.WA_ShowWithoutActivating):
             tile.activateWindow()

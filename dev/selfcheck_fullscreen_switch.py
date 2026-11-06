@@ -30,6 +30,7 @@ class HandoffEvents(QObject):
         self.leave = []
         self.native_cover = []
         self.bar_paints = {tile.bottom: 0 for tile in (target, *peers)}
+        self.bar_paint_rects = {}
         self.enter_bar_ready = []
         self.leave_bars_ready = []
         target.installEventFilter(self)
@@ -45,12 +46,16 @@ class HandoffEvents(QObject):
     def eventFilter(self, watched, event):
         if watched in self.bar_paints and event.type() == QEvent.Paint:
             self.bar_paints[watched] += 1
+            self.bar_paint_rects[watched] = QRect(watched.geometry())
         if watched in self.peers and event.type() == QEvent.Hide:
             self.native_cover.append(self.target.isWindow() and self.native_visible(self.target))
         if watched is self.target and watched.isWindow():
             if event.type() == QEvent.Show:
                 self.enter.append(all(peer.isVisible() for peer in self.peers))
-                self.enter_bar_ready.append(self.bar_paints[self.target.bottom] > 0)
+                bar = self.target.bottom
+                painted = self.bar_paint_rects.get(bar)
+                self.enter_bar_ready.append(painted == bar.geometry()
+                    and painted.topLeft() == self.target.geometry().topLeft() + bar._tile_rect.topLeft())
             elif event.type() == QEvent.Hide:
                 self.leave.append(all(peer.isVisible() and self.native_visible(peer) for peer in self.peers))
                 self.leave_bars_ready.append(all(self.bar_paints[peer.bottom] > 0
@@ -128,6 +133,7 @@ def main():
                 assert window.wall.visible_tiles() == [target]
                 assert window._fullscreen_tile is target and window.sidebar.isVisible()
                 assert target.isWindow() and target.geometry() == area
+                assert target.bottom.windowOpacity() == 1.0, 'Prepared bar must be revealed with the video'
                 user32 = ctypes.windll.user32
                 user32.GetWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
                 user32.GetWindow.restype = ctypes.c_void_p
