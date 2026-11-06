@@ -6529,6 +6529,10 @@ class Tile(QFrame):
     def focus_danmaku_input(self) -> None:
         controls = getattr(self, '_plugin_controls', None)
         if controls is not None:
+            # The fullscreen bar is a separate tool window. setFocus alone
+            # only records a pending focus child while the video stays active.
+            if self.bottom.isWindow() and controls.widget.isVisible():
+                self.bottom.activateWindow()
             controls.focus_input()
 
     def enterEvent(self, event) -> None:
