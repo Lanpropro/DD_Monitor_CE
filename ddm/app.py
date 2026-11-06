@@ -255,6 +255,8 @@ class MainWindow(QMainWindow):
         from .picture_in_picture import PictureInPicture
         self.picture_in_picture = PictureInPicture(self)
         self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage)
+        from .wall_removal import WallRemoval
+        self.wall_removal = WallRemoval(self)
 
         self.setCentralWidget(root)
         from .skins import SkinController
@@ -2626,18 +2628,7 @@ class MainWindow(QMainWindow):
             self._restore_capture_quality(tile)
 
     def _clear_wall(self) -> None:
-        count = sum(bool(tile.room.get('room_id')) for tile in self.wall.tiles)
-        if not count:
-            return
-        if QMessageBox.question(self, '清空画面墙',
-                f'确定清空全部 {count} 个画面？\n\n将停止这些画面的录制和回放缓存，保留关注列表、布局及空格子。',
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
-            return
-        for tile in list(self.wall.tiles):
-            if tile.room.get('room_id'):
-                self._clear_tile_room(tile)
-        self._refresh_meta()
-        self._save_timer.start()
+        self.wall_removal.toggle_menu()
 
     def _on_close_tile(self, room: dict) -> None:
         """关掉这一路，但留下空格子等新的直播间拖进来。"""

@@ -30,6 +30,7 @@ if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
 if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
+if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
@@ -55,6 +56,11 @@ exit /b 0
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:wallRemovalCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_main_notices
 exit /b %errorlevel%
 
 :sidebarNavigationCheck
