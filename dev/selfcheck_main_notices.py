@@ -1289,7 +1289,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def window(self, rooms, *, offscreen=False):
         window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
-                            layout_id='2x2', state={'plugins_enabled': []})
+                            layout_id='2x2', state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         window.resize(1000, 700)
         if offscreen:
             window.move(-10000, -10000)
@@ -1497,6 +1497,207 @@ class MainNoticesTests(unittest.TestCase):
                 patch.object(window, '_clear_tile_room') as clear:
             QTest.keyClick(window, Qt.Key_Delete)
             clear.assert_not_called()
+
+    def test_clear_wall_removes_immediately_without_confirmation_and_empty_wall_is_a_noop(self):
+        window = self.window([{'room_id': '1001', 'live': False}])
+        tile = window.wall.tiles[0]
+        with patch('ddm.app.QMessageBox.question') as confirm, \
+                patch.object(window, '_clear_tile_room', wraps=window._clear_tile_room) as clear:
+            window.sidebar.clear_wall_button.click()
+            menu = window.wall_removal.menu
+            confirm.assert_not_called()
+            menu.remove_button.click()
+            confirm.assert_not_called()
+            clear.assert_called_once_with(tile)
+            self.assertFalse(tile.room.get('room_id'))
+            self.assertTrue(menu.isVisible())
+            self.assertTrue(window.sidebar.clear_wall_button.isEnabled())
+            self.assertFalse(menu.remove_button.isEnabled())
+            self.assertTrue(menu.undo_button.isEnabled())
+            self.assertFalse(window.wall_removal.remove_selected())
+            self.assertEqual(clear.call_count, 1)
+            menu.undo_button.click()
+            self.assertEqual(tile.room['room_id'], '1001')
+            confirm.assert_not_called()
+
+    def test_clear_wall_cleans_duplicate_offline_and_hidden_tiles_without_changing_layout(self):
+        rooms = [{'room_id': '1001', 'live': True}, {'room_id': '1001', 'live': False},
+                 {'room_id': '1002', 'live': False}]
+        window = self.window(rooms)
+        wall = window.wall
+        wall.set_layout('1x1')
+        original_tiles = list(wall.tiles)
+        original_layout = (wall.layout_id, wall.layout_ratios(), wall.corner_ratios())
+        follows = window.sidebar.rooms()
+        occupied = [tile for tile in wall.tiles if tile.room.get('room_id')]
+        self.assertTrue(any(tile.isHidden() for tile in occupied))
+        players = {tile: Mock() for tile in occupied}
+        resolvers = {tile: Mock() for tile in occupied}
+        window.players.update(players)
+        window._resolvers.update(resolvers)
+        window._pending_capture.update({tile: True for tile in occupied})
+        with patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop, \
+                patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh:
+            window.sidebar.clear_wall_button.click()
+            window.wall_removal.select('all')
+            window.wall_removal.menu.remove_button.click()
+            self.assertEqual([call.args[0] for call in stop.call_args_list], occupied)
+            refresh.assert_called_once_with()
+        self.assertEqual(wall.tiles, original_tiles)
+        self.assertEqual((wall.layout_id, wall.layout_ratios(), wall.corner_ratios()), original_layout)
+        self.assertEqual(window.sidebar.rooms(), follows)
+        self.assertTrue(all(not slot['room_id'] for slot in window.current_state()['wall']))
+        self.assertFalse(window.players)
+        self.assertFalse(window._resolvers)
+        self.assertFalse(window._pending_capture)
+        self.assertTrue(window._save_timer.isActive())
+        self.assertTrue(window.sidebar.clear_wall_button.isEnabled())
+        self.assertTrue(window.wall_removal.menu.undo_button.isEnabled())
+        for tile in occupied:
+            players[tile].release.assert_called_once_with()
+            resolvers[tile].cancel.assert_called_once_with()
+        self.assertTrue(window.wall_removal.undo())
+        self.assertEqual([tile.room.get('room_id') for tile in occupied], ['1001', '1001', '1002'])
+
+    def test_removal_preview_selects_known_offline_only_and_supports_each_scope(self):
+        window = self.window([{'room_id': '1', 'live': True, 'uname': '正在直播'},
+                              {'room_id': '2', 'live': False, 'uname': '未开播主播'},
+                              {'room_id': '3', 'live': False, 'live_known': False}])
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        menu = control.menu
+        first, second, unknown, empty = window.wall.tiles
+        self.assertEqual(control.selected, {second})
+        panes = {tile: button for tile, button, _rect in menu.preview.panes}
+        self.assertEqual(set(panes), set(window.wall.tiles))
+        self.assertFalse(panes[empty].isEnabled())
+        self.assertIn('状态未知', panes[unknown].accessibleName())
+        panes[first].click()
+        self.assertEqual(control.selected, {first, second})
+        menu.scope_buttons['all'].click()
+        self.assertEqual(control.selected, {first, second, unknown})
+        menu.scope_buttons['none'].click()
+        self.assertFalse(menu.remove_button.isEnabled())
+        menu.scope_buttons['offline'].click()
+        self.assertEqual(control.selected, {second})
+        control.toggle_menu()
+        control.toggle_menu()
+        self.assertEqual(control.selected, {second})
+        self.assertTrue(menu.isVisible())
+
+    def test_removal_preview_matches_resized_portrait_and_danmaku_layouts(self):
+        window = self.window([{'room_id': str(i), 'live': False} for i in range(4)])
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        for identifier in ('corner', 'dm_left', 'portrait_main4', 'portrait_dm2'):
+            window.wall.set_layout(identifier)
+            control.sync()
+            preview = control.menu.preview
+            self.assertEqual(len(preview.panes), len(window.wall._preset_widgets()))
+            for tile, button, rect in preview.panes:
+                self.assertTrue(preview.rect().contains(button.geometry()), identifier)
+                self.assertEqual(rect, (tile or window.wall.danmaku).geometry())
+            if window.wall.has_danmaku:
+                dm = next(button for tile, button, _rect in preview.panes if tile is None)
+                self.assertFalse(dm.isEnabled())
+                self.assertEqual(dm.accessibleName(), '弹幕')
+
+    def test_removal_menu_toggle_outside_click_and_escape_do_not_remove_rooms(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        button = window.sidebar.clear_wall_button
+        button.click()
+        menu = window.wall_removal.menu
+        hidden = []
+        class PopupTrace(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Hide:
+                    hidden.append(watched.testAttribute(Qt.WA_NoMouseReplay))
+                return False
+        trace = PopupTrace(menu)
+        menu.installEventFilter(trace)
+        menu.hide()
+        for _ in range(3):
+            button.click()
+            menu = window.wall_removal.menu
+            self.assertTrue(menu.isVisible())
+            point = menu.mapFromGlobal(button.mapToGlobal(button.rect().center()))
+            QTest.mouseClick(menu, Qt.LeftButton, pos=point)
+            self.app.processEvents()
+            self.assertFalse(menu.isVisible())
+            self.assertTrue(hidden[-1])
+            self.assertFalse(menu.timer.isActive())
+        button.click()
+        QTest.keyClick(menu, Qt.Key_Escape)
+        self.assertFalse(menu.isVisible())
+        self.assertEqual(window.wall.tiles[0].room['room_id'], '1')
+
+    def test_selected_removal_and_undo_keep_other_players_and_slot_sound(self):
+        window = self.window([{'room_id': '1', 'live': True}, {'room_id': '2', 'live': True}])
+        first, second = window.wall.tiles[:2]
+        first.set_volume(65)
+        first.set_muted(False)
+        first.set_quality(80)
+        first.set_paused(True)
+        keep = Mock()
+        window.players[second] = keep
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        control.toggle_selection(first, True)
+        with patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop:
+            self.assertTrue(control.remove_selected())
+            stop.assert_called_once_with(first)
+        self.assertIs(window.players[second], keep)
+        keep.release.assert_not_called()
+        window.start_tile.reset_mock()
+        with patch.object(window, '_start_capture') as record:
+            self.assertTrue(control.undo())
+            record.assert_not_called()
+        self.assertEqual(first.room['room_id'], '1')
+        self.assertEqual((first.volume, first.muted, first.quality, first.paused), (65, False, 80, True))
+        self.assertEqual(second.room['room_id'], '2')
+        window.start_tile.assert_called_once_with(first)
+        self.assertIs(window.players[second], keep)
+        self.assertFalse(control.can_undo())
+
+    def test_removal_undo_does_not_overwrite_new_rooms_or_layout_changes(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        tile = window.wall.tiles[0]
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        self.assertTrue(control.remove_selected())
+        tile.set_room({'room_id': 'new', 'live': False})
+        control.sync()
+        self.assertFalse(control.menu.undo_button.isEnabled())
+        self.assertNotIn('可撤回上次移除', control.menu.summary.text())
+        self.assertFalse(control.undo())
+        self.assertEqual(tile.room['room_id'], 'new')
+        tile.set_room(None)
+        window.wall.set_layout('1x1')
+        self.assertFalse(control.undo())
+
+    def test_removal_does_not_remove_a_replaced_room_before_the_next_menu_poll(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        tile = window.wall.tiles[0]
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        tile.set_room({'room_id': 'new', 'live': True})
+        with patch.object(window, '_clear_tile_room') as clear:
+            self.assertFalse(control.remove_selected())
+            clear.assert_not_called()
+        self.assertEqual(tile.room['room_id'], 'new')
+
+    def test_removal_undo_uses_latest_live_status_and_survives_empty_menu_reopen(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        self.assertTrue(control.remove_selected())
+        control.toggle_menu()
+        control.toggle_menu()
+        self.assertTrue(control.menu.undo_button.isEnabled())
+        window.sidebar.rooms()[0]['live'] = True
+        window.start_tile.reset_mock()
+        self.assertTrue(control.undo())
+        window.start_tile.assert_called_once_with(window.wall.tiles[0])
 
     def test_delete_preserves_search_and_composer_editing(self):
         window = self.window([{'room_id': '1001'}])

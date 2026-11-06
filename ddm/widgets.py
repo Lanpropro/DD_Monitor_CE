@@ -3399,6 +3399,7 @@ class Sidebar(QFrame):
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
     pictureInPictureRequested = Signal()
+    clearWallRequested = Signal()
     layoutResetRequested = Signal()
     settingsRequested = Signal()
     pluginSettingsRequested = Signal()
@@ -3628,6 +3629,8 @@ class Sidebar(QFrame):
         self.layout_button.setCursor(Qt.PointingHandCursor)
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
+        self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
+        self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
         self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
@@ -4476,7 +4479,7 @@ class Sidebar(QFrame):
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
-        return [self.search, self._head_scroll, self.batch_button, self.notification_button,
+        return [self.search, self._head_scroll, self.batch_button, self.notification_button, self.clear_wall_button,
                 self.appearance_button, self.refresh_button, self.account_row, self.tool_row,
                 self.batch_bar, self.toggle_button]
 
@@ -4545,7 +4548,8 @@ class Sidebar(QFrame):
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
-        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button)
+        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button,
+                self.clear_wall_button)
 
     def _sync_bar_icons(self) -> None:
         """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
@@ -4609,7 +4613,7 @@ class Sidebar(QFrame):
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
                            self.batch_bar, self.batch_button, self.notification_button,
-                           self.appearance_button, self.refresh_button, self.toggle_button):
+                           self.appearance_button, self.refresh_button, self.clear_wall_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
             # 左边是 logo，然后是搜索框（收起时换成头像排）、多选条、图标、展开键。

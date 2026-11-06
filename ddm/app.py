@@ -255,6 +255,8 @@ class MainWindow(QMainWindow):
         from .picture_in_picture import PictureInPicture
         self.picture_in_picture = PictureInPicture(self)
         self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage)
+        from .wall_removal import WallRemoval
+        self.wall_removal = WallRemoval(self)
 
         self.setCentralWidget(root)
         from .skins import SkinController
@@ -284,6 +286,7 @@ class MainWindow(QMainWindow):
         self.sidebar.foldersChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self._open_sidebar_settings)
+        self.sidebar.clearWallRequested.connect(self._clear_wall)
         self.sidebar.pluginSettingsRequested.connect(lambda: self.open_settings('plugins'))
         self.sidebar.cardModeChanged.connect(self._sidebar_card_mode_changed)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
@@ -2623,6 +2626,9 @@ class MainWindow(QMainWindow):
         tile.set_room(None)
         if tile not in self.recorder.sessions:
             self._restore_capture_quality(tile)
+
+    def _clear_wall(self) -> None:
+        self.wall_removal.toggle_menu()
 
     def _on_close_tile(self, room: dict) -> None:
         """关掉这一路，但留下空格子等新的直播间拖进来。"""
