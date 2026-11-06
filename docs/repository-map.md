@@ -32,6 +32,12 @@
 
 多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
 
+侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
+
+矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
+
+播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
+
 ## 已跟踪的其他文件：逐项标注
 
 - `docs/image-cache.md`
@@ -202,6 +208,7 @@
 - `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_playback_badges.py`
+- `dev/selfcheck_playback_controls.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
 - `dev/selfcheck_fullscreen_native_focus.py`
@@ -403,6 +410,9 @@
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
+- `dev/selfcheck_workspace_controls.py`
+- `dev/selfcheck_continuous_corners.py`
+- `dev/selfcheck_workspace_pages.py`
 - `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
 

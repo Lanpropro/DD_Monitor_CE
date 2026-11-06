@@ -11,7 +11,9 @@ from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextO
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
                                QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
+from .corner_geometry import continuous_path
 from . import motion, theme
+from .dock_feedback import icon_color
 
 
 def live_notice_action(parent):
@@ -368,22 +370,28 @@ class NotificationCenter(QFrame):
         anchor = self.button.mapToGlobal(QPoint(self.button.width(), self.button.height() + 8))
         left = max(bounds.left() + 12, owner.mapToGlobal(QPoint(12, 0)).x())
         right = min(bounds.right() - 12, owner.mapToGlobal(QPoint(owner.width() - 12, 0)).x())
-        x = max(left, min(anchor.x() - width, right - width))
-        height = min(480, max(120, bounds.bottom() - anchor.y() - 12))
+        dock = bool(self.button.property('dockRail'))
+        top = self.button.mapToGlobal(QPoint(self.button.width(), 0))
+        above = top.y() - bounds.top() - 20
+        below = bounds.bottom() - anchor.y() - 12
+        upwards = dock and (above >= 120 or above > below)
+        x = max(left, min(top.x()+8 if dock else anchor.x()-width, right-width))
+        height = min(480, max(120, above if upwards else below))
         self.resize(max(180, width), height)
-        self.move(x, min(anchor.y(), bounds.bottom() - height - 12))
+        y = top.y()-height-8 if upwards else anchor.y()
+        self.move(x, max(bounds.top()+12, min(y, bounds.bottom()-height-12)))
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(theme.qcolor(theme.ELEVATED))
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12, 12)
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()), 12, 12)
+        path.addPath(continuous_path(QRectF(self.rect()), 12))
         from PySide6.QtGui import QRegion
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
@@ -424,7 +432,10 @@ class NotificationButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width() / 2, self.height() / 2)
-        painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        if hasattr(self, '_dock_feedback'):
+            self._dock_feedback.transform(painter)
+        color = icon_color(self) if self.property('dockRail') else theme.qcolor(theme.TEXT2)
+        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)
         path = QPainterPath()
         path.moveTo(-6, 4)

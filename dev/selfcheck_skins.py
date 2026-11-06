@@ -20,6 +20,7 @@ from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QI
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QToolButton, QWidget
+from ddm.continuous_corners import source_stylesheet
 from ddm import app as module, config, motion, theme
 from ddm.dialogs import SettingsDialog
 from ddm.plugins import PluginManager, read_manifest
@@ -135,8 +136,8 @@ def check_parts(app):
         folder_button = window.sidebar._folder_buttons[folder_id]
         window.set_skin({'skin_background': 'utils/skins/' + managed})
         background = window.skin_controller.layer.path
-        untouched = [tile.video.styleSheet(), tile.stream_badge.styleSheet(), tile.title_badge.styleSheet(),
-                     window.sidebar._items[0].styleSheet()]
+        untouched = [source_stylesheet(tile.video.styleSheet()), source_stylesheet(tile.stream_badge.styleSheet()), source_stylesheet(tile.title_badge.styleSheet()),
+                     source_stylesheet(window.sidebar._items[0].styleSheet())]
         handle = int(tile.video.winId())
         manifest = dict(id='test_parts', name='Parts fixture', description='Offline skin', version='1.0',
                         skin={'version': 2, 'parts': parts})
@@ -153,8 +154,8 @@ def check_parts(app):
         try:
             assert window.skin_controller.override['version'] == 2
             assert window.skin_controller.layer.path == background, 'parts-only pack must preserve the personal background'
-            assert '#ff114455' in tile.bottom.styleSheet()
-            assert '#ff123456' in window.sidebar.styleSheet()
+            assert '#ff114455' in source_stylesheet(tile.bottom.styleSheet())
+            assert '#ff123456' in source_stylesheet(window.sidebar.styleSheet())
             assert icon_path(tile.pause_button).endswith('icon.png')
             folder_button.grab()
             folder = window.sidebar.get_folder(folder_id)
@@ -177,13 +178,13 @@ def check_parts(app):
             dialog.move(-10000, -10000)
             dialog.show()
             app.processEvents()
-            assert '#ff334455' in dialog.styleSheet()
-            assert '#ff223344' in dialog.nav.styleSheet()
-            assert '#ff445566' in dialog.stack.styleSheet()
+            assert '#ff334455' in source_stylesheet(dialog.styleSheet())
+            assert '#ff223344' in source_stylesheet(dialog.nav.styleSheet())
+            assert '#ff445566' in source_stylesheet(dialog.stack.styleSheet())
             menu = QMenu(window)
             menu.addAction('fixture')
             menu.ensurePolished()
-            assert '#ff225544' in menu.styleSheet()
+            assert '#ff225544' in source_stylesheet(menu.styleSheet())
             notice = ResultNotice(window)
             notice.grab()
             controls = dialog.appearance_page.skin_settings
@@ -279,7 +280,7 @@ def check_parts(app):
             picker = window.sidebar._picker
             picker.set_group('直播间组合')
             app.processEvents()
-            assert part_for(picker) == 'layout_menu' and '#ff225544' in picker.styleSheet()
+            assert part_for(picker) == 'layout_menu' and '#ff225544' in source_stylesheet(picker.styleSheet())
             assert part_for(picker.presets_page.save_button) == 'buttons'
             management = picker.findChildren(QToolButton, 'PresetManageButton')
             assert management and part_for(management[0]) == 'buttons'
@@ -618,14 +619,14 @@ def check_parts(app):
             assert values_for('controls')['background'] == '#114455'
             editor.use_builtin()
             assert not values_for('controls')
-            assert 'skinPart="controls"' not in tile.bottom.styleSheet()
+            assert 'skinPart="controls"' not in source_stylesheet(tile.bottom.styleSheet())
             editor.reset_part()
             assert values_for('controls')['background'] == '#114455'
-            assert [tile.video.styleSheet(), tile.stream_badge.styleSheet(), tile.title_badge.styleSheet(),
-                    window.sidebar._items[0].styleSheet()] == untouched
+            assert [source_stylesheet(tile.video.styleSheet()), source_stylesheet(tile.stream_badge.styleSheet()), source_stylesheet(tile.title_badge.styleSheet()),
+                    source_stylesheet(window.sidebar._items[0].styleSheet())] == untouched
             manager.enabled.clear()
             window.refresh_skin()
-            assert 'skinPart="controls"' not in tile.bottom.styleSheet()
+            assert 'skinPart="controls"' not in source_stylesheet(tile.bottom.styleSheet())
             assert icon_path(tile.pause_button), 'personal icon survives package disable'
             window.set_skin_parts({})
             assert not icon_path(tile.pause_button)
@@ -781,6 +782,7 @@ def wait_for(predicate):
 
 
 def main():
+    config.DEFAULT_SETTINGS["close_behavior"] = "exit"
     app = QApplication([])
     QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
     check_frame_conversion(app)
@@ -860,7 +862,7 @@ def main():
             window.set_skin({'skin_mask': 35})
             window.set_appearance('light')
             QTest.qWait(30)
-            assert 'rgba(' in window.sidebar.styleSheet(), 'Background must cover the sidebar by default'
+            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet()), 'Background must cover the sidebar by default'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
                 '-i', 'color=c=blue:size=320x180:rate=15', '-t', '20', '-c:v', 'libx264',
@@ -882,13 +884,13 @@ def main():
             assert controls.choose.isEnabled()
             assert not hasattr(controls, 'sidebar_toggle')
             QTest.qWait(30)
-            assert 'rgba(' in window.sidebar.styleSheet()
+            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
             assert controls.values()['skin_sidebar']
             assert window.settings['skin_background'] == path and layer.mask == 35
             window.set_appearance('dark')
-            assert 'rgba(' in window.sidebar.styleSheet()
+            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
             window.set_appearance('light')
-            assert 'rgba(' in window.sidebar.styleSheet()
+            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
             next_source = folder / 'next.png'
             image.fill(QColor('#426CDB'))
             image.save(str(next_source))
@@ -934,7 +936,7 @@ def main():
             assert controls.choose.isEnabled() and layer.mask == 50
             assert controls.mask_slider.value() == 50
             assert controls.values()['skin_sidebar']
-            assert 'rgba(' in window.sidebar.styleSheet()
+            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
             assert layer.image.pixelColor(0, 0) == QColor('#426CDB')
             manager.enabled.add('test_skin')
             window.refresh_skin()
@@ -959,7 +961,7 @@ def main():
             window.grab().save(str(output/'skin-light.png'))
             dialog.grab().save(str(output/'skin-settings.png'))
             controls.reset()
-            assert window.settings['skin_sidebar'] and 'rgba(' not in window.sidebar.styleSheet()
+            assert window.settings['skin_sidebar'] and 'rgba(' not in source_stylesheet(window.sidebar.styleSheet())
             window.set_skin({'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True})
             dialog.reject()
             # Exercise the new slots while the real libmpv player is running.
@@ -1065,7 +1067,7 @@ def main():
             assert video_editor.preview.background is None
             video_editor.close()
             assert layer.player.playbackState() == QMediaPlayer.StoppedState
-            assert not theme._skin_active and 'rgba(' not in window.sidebar.styleSheet()
+            assert not theme._skin_active and 'rgba(' not in source_stylesheet(window.sidebar.styleSheet())
             missing = 'utils/skins/missing.png'
             window.set_skin({'skin_background': missing, 'skin_mask': 35})
             assert window.skin_controller.error and layer.image is None
@@ -1078,7 +1080,7 @@ def main():
         with patch('PySide6.QtCore.QTimer.singleShot'):
             restored = module.MainWindow([], [], state=persisted)
         assert restored.skin_controller.layer.image.pixelColor(0, 0) == QColor('#426CDB')
-        assert restored.settings['skin_sidebar'] and 'rgba(' in restored.sidebar.styleSheet()
+        assert restored.settings['skin_sidebar'] and 'rgba(' in source_stylesheet(restored.sidebar.styleSheet())
         restored.close()
         theme.set_skin_active(False)
     print('PASS: copied/persisted image, default sidebar coverage, asynchronous import, translucent panels, plugin ownership, path validation, muted video/first-frame mode, pause/resume and stable video HWND')

@@ -78,7 +78,7 @@ def check_icon_centers(app):
             for paused in (False, True):
                 button.set_paused(paused)
                 app.processEvents()
-                with patch("ddm.widgets._icon_color", return_value=QColor("white")):
+                with patch("ddm.playback_controls._icon_color", return_value=QColor("white")):
                     image = button.grab().toImage()
                 mass = x_sum = y_sum = 0
                 for y in range(image.height()):

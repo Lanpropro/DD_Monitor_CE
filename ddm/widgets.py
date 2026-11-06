@@ -6,23 +6,27 @@ import time
 from uuid import uuid4
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
+    QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
     QTimer, QUrl, Signal, QVariantAnimation,
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
+    QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QRegion,
     QShortcut, QTextDocument, QTextOption,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QStyleOption, QStyleOptionButton, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
+from .corner_geometry import continuous_path
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
+from .workspace_controls import WorkspaceControls
+from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
+from .dock_feedback import icon_color
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
 from .config import DEFAULT_VOLUME, codec_overrides
@@ -41,6 +45,10 @@ from .badge_surface import BadgeSurface
 from .playback_badges import (ASSETS_DIR, BADGE_HEIGHT, HOLE_MARGIN, HOLE_SIZE,
                               LoadingIndicator, LoadingLabel, StreamBadge, TimeBadge,
                               TitleBadge, _badge_font)
+# Preserve legacy control imports and shared drawing helpers.
+from .playback_controls import (DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton,
+                                SidebarToggleButton, TileButton, VolumeButton, VolumePopup,
+                                _draw_arrow_head, _icon_color)
 from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
 from .video_danmaku import VideoDanmaku
@@ -112,7 +120,7 @@ def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
     painter.setRenderHint(QPainter.Antialiasing, True)
     radius = max(3.0, height * 0.28)
     path = QPainterPath()
-    path.addRoundedRect(QRectF(0, 0, width, height), radius, radius)
+    path.addPath(continuous_path(QRectF(0, 0, width, height), radius))
     painter.fillPath(path, QColor(color))
     painter.setPen(QColor("#14161a" if _brightness(color) > 150 else "#ffffff"))
     painter.setFont(font)
@@ -120,389 +128,6 @@ def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
     painter.end()
     return pixmap
 
-
-class TileButton(QPushButton):
-    def focusInEvent(self, event):
-        self._keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason)
-        super().focusInEvent(event)
-        self.update()
-
-    def focusOutEvent(self, event):
-        self._keyboard_focus = False
-        super().focusOutEvent(event)
-        self.update()
-
-    def mousePressEvent(self, event):
-        self._keyboard_focus = False
-        super().mousePressEvent(event)
-        self.update()
-
-    def paintEvent(self, event):
-        if not self.property('tileButton'):
-            return super().paintEvent(event)
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        painter = QPainter(self)
-        self._paint_button(painter, option)
-
-    def _paint_button(self, painter, option):
-        focused = self.hasFocus() and getattr(self, '_keyboard_focus', False)
-        option.state &= ~QStyle.State_HasFocus
-        frame = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
-        radius = min(9.0, frame.height() / 2)
-        painter.save()
-        if focused:
-            clip = QPainterPath()
-            clip.addRoundedRect(frame.adjusted(1, 1, -1, -1), max(0, radius - 1), max(0, radius - 1))
-            painter.setClipPath(clip)
-        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
-        painter.restore()
-        self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
-        if focused:
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setPen(QPen(QColor('#ffffff'), 1.2))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(frame, radius, radius)
-
-
-class VolumeButton(TileButton):
-    """音量按钮：细线喇叭 + 声道标记，静音时喇叭右边打一个 ×。
-
-    点击切换静音，滚轮调音量；声道（原始 / 仅左 / 仅右）由右键菜单切换，
-    这里只用 L / R 标出当前在听哪一路。
-    """
-
-    volumeChanged = Signal(int)
-
-    CHANNEL_LEFT = 3
-    CHANNEL_RIGHT = 4
-
-    def __init__(self, parent=None, size: int = theme.CONTROL_HEIGHT):
-        super().__init__(parent)
-        self.setObjectName("BiliVolumeButton")
-        self._size = size
-        # 喇叭 + 右边的 L / R 两个标记：比纯图标按钮宽一点，字才不会贴边
-        self.setFixedSize(size + (8 if size >= 30 else 14), size)
-        self.setCursor(Qt.PointingHandCursor)
-        self.muted = False
-        self.level = DEFAULT_VOLUME
-        self.audio_channel = 0
-        self.compact_popup = False
-        self._update_tooltip()
-
-    def set_state(self, muted: bool, level: int, audio_channel: int = 0) -> None:
-        self.muted = bool(muted)
-        self.level = max(0, min(100, int(level)))
-        self.audio_channel = int(audio_channel)
-        self._update_tooltip()
-        self.update()
-
-    def _update_tooltip(self) -> None:
-        state = "已静音" if self.muted else f"音量 {self.level}"
-        channel = {
-            self.CHANNEL_LEFT: "　声道：左",
-            self.CHANNEL_RIGHT: "　声道：右",
-        }.get(self.audio_channel, "")
-        action = "点击取消静音" if self.muted else "点击静音"
-        if self.compact_popup:
-            action += "，悬停展开音量"
-        self.setToolTip(f"{state}{channel}　（{action}，滚轮调音量，右键调声道）")
-
-    def wheelEvent(self, event) -> None:
-        step = 5 if event.angleDelta().y() > 0 else -5
-        self.level = max(0, min(100, self.level + step))
-        self.muted = self.level == 0
-        self._update_tooltip()
-        self.update()
-        self.volumeChanged.emit(self.level)
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景由样式表画
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1)
-                 if theme.is_light() and not self.property('fullscreen')
-                 else QColor("#9499a0" if self.muted else "#f1f2f3"))
-        if self.underMouse():
-            color = QColor(theme.ACCENT)
-        pen = QPen(color, 1.7)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        center = QRectF(self.rect()).center()
-        # Center the speaker and its right-hand indicator as a single icon.
-        left = center.x() - 11
-        top = center.y() - 6
-        path = QPainterPath()
-        path.moveTo(left, top + 4)
-        path.lineTo(left + 3.5, top + 4)
-        path.lineTo(left + 8, top)
-        path.lineTo(left + 8, top + 12)
-        path.lineTo(left + 3.5, top + 8)
-        path.lineTo(left, top + 8)
-        path.closeSubpath()
-        painter.drawPath(path)
-        if self.muted:
-            # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
-            cross = QPointF(left + 17, center.y())
-            painter.drawLine(cross + QPointF(-3.5, -3.5), cross + QPointF(3.5, 3.5))
-            painter.drawLine(cross + QPointF(-3.5, 3.5), cross + QPointF(3.5, -3.5))
-        else:
-            self._paint_channel(painter, top, left)
-
-    def _paint_channel(self, painter: QPainter, top: float, left: float) -> None:
-        """在喇叭右边标出当前声道：L / R，选中的那一路更亮。"""
-        font = QFont(theme.FONT_DEFAULT)
-        font.setPixelSize(8)
-        font.setBold(True)
-        for label, x, selected in (
-            ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
-            ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
-        ):
-            if selected:
-                colour = QColor(theme.ACCENT)
-            else:
-                colour = QColor("#9499a0" if self.muted else "#6d737d")
-                colour.setAlpha(150)
-            # Center the visible glyph outline, avoiding font baseline/hinting
-            # offsets that put these tiny capitals above or below the speaker.
-            glyph = QPainterPath()
-            glyph.addText(QPointF(), font, label)
-            bounds = glyph.boundingRect()
-            glyph.translate(x - bounds.center().x(), top + 6 - bounds.center().y())
-            painter.fillPath(glyph, colour)
-
-
-
-class VolumePopup(QFrame):
-    def paintEvent(self, event) -> None:
-        # Paint the styled background explicitly for this translucent tool window.
-        option = QStyleOption()
-        option.initFrom(self)
-        painter = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
-
-
-class RecordingButton(TileButton):
-    def paintEvent(self, event):
-        if not self.property('replayOnly'):
-            return super().paintEvent(event)
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        option.text = ''
-        option.icon = QIcon()
-        painter = QPainter(self)
-        if self.property('tileButton'):
-            self._paint_button(painter, option)
-        else:
-            self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        painter.setPen(QColor(theme.ACCENT))
-        painter.setFont(self.font())
-        painter.drawText(self.rect(), Qt.AlignCenter, self.text())
-
-
-def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
-    """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
-    if button.property('fullscreen'):
-        return QColor('#ffffff')
-    if button.underMouse() or button.property("hovered") is True:
-        return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
-    if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
-                            or button.objectName() == "TileCtrl"):
-        return theme.qcolor(theme.TEXT2)
-    return QColor("#e7ebf0")
-
-
-class SidebarToggleButton(QPushButton):
-    """收起 / 展开的箭头键。
-
-    横屏（侧栏在左）沿用原来的左右字形「« / »」；竖屏时侧栏变成顶部横栏，
-    左右箭头方向不对，改成**自己画的上下箭头**（用户要求）。上下箭头不用
-    `⌃`/`⌄` 这类字形 —— 雅黑下不可靠，和 `BarIconButton` 一个路子自己画。
-    展开时箭头朝上（点一下收起来），收起时朝下（点一下放下来）。
-    """
-
-    def __init__(self, parent=None):
-        super().__init__("«", parent)
-        self.setObjectName("SidebarToggle")
-        self.setCursor(Qt.PointingHandCursor)
-        self.portrait = False
-        self.collapsed = False
-
-    def set_orientation(self, portrait: bool, collapsed: bool) -> None:
-        """竖屏走自绘的上下箭头，横屏回到原来的字形。"""
-        self.portrait = bool(portrait)
-        self.collapsed = bool(collapsed)
-        self.setText("" if self.portrait else ("»" if self.collapsed else "«"))
-        self.update()
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景 / 悬停底色交给样式表
-        if not self.portrait:
-            return                         # 横屏：字形已经由 QPushButton 画好
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(theme.qcolor(theme.TEXT1 if self.underMouse() else theme.TEXT3), 1.8)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        center = self.rect().center()
-        half = 4.2
-        up = not self.collapsed
-        tip_y = center.y() - 3.4 if up else center.y() + 3.4
-        base_y = center.y() + 3.4 if up else center.y() - 3.4
-        painter.drawLine(QPointF(center.x() - half, base_y),
-                         QPointF(center.x(), tip_y))
-        painter.drawLine(QPointF(center.x() + half, base_y),
-                         QPointF(center.x(), tip_y))
-
-
-class PauseButton(TileButton):
-    """暂停 / 继续：最常见的 ⏸ / ▶ 图形按钮。"""
-
-    def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT):
-        super().__init__(parent)
-        self.setObjectName("TileCtrl")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(size + 8, size)
-        self.paused = False
-        self._update_tooltip()
-
-    def set_paused(self, paused: bool) -> None:
-        self.paused = bool(paused)
-        self._update_tooltip()
-        self.update()
-
-    def _update_tooltip(self) -> None:
-        self.setToolTip("继续播放" if self.paused else "暂停这一路")
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景交给样式表
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(_icon_color(self))
-        center = QRectF(self.rect()).center()
-        if self.paused:
-            # ▶ 继续
-            path = QPainterPath()
-            path.moveTo(center.x() - 10 / 3, center.y() - 6)
-            path.lineTo(center.x() + 20 / 3, center.y())
-            path.lineTo(center.x() - 10 / 3, center.y() + 6)
-            path.closeSubpath()
-            painter.drawPath(path)
-        else:
-            # ⏸ 暂停
-            painter.drawRoundedRect(
-                QRectF(center.x() - 5.2, center.y() - 6, 3.6, 12), 1.3, 1.3)
-            painter.drawRoundedRect(
-                QRectF(center.x() + 1.6, center.y() - 6, 3.6, 12), 1.3, 1.3)
-
-
-class RefreshButton(TileButton):
-    """刷新：两个箭头首尾相接的圆环图标。"""
-
-    def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT,
-                 object_name: str = "TileCtrl"):
-        super().__init__(parent)
-        self.setObjectName(object_name)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(size + (6 if size < 30 else 8), size)
-        self.setToolTip("刷新")
-        self._angle = 0.0
-        self._spin = QVariantAnimation(self)
-        self._spin.setStartValue(0.0)
-        self._spin.setEndValue(360.0)
-        self._spin.setDuration(1000)
-        self._spin.setLoopCount(-1)
-        self._spin.setEasingCurve(QEasingCurve.Linear)
-        self._spin.valueChanged.connect(self._spin_frame)
-
-    def _spin_frame(self, angle):
-        self._angle = angle
-        self.update()
-
-    def set_refreshing(self, busy):
-        self.setProperty("refreshing", busy)
-        if busy and self._spin.state() == QAbstractAnimation.Running and motion.enabled():
-            return
-        self._spin.stop()
-        self._angle = 0.0
-        if busy and self.isVisible() and motion.enabled():
-            self._spin.start()
-        self.update()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.set_refreshing(bool(self.property("refreshing")))
-
-    def hideEvent(self, event):
-        self._spin.stop()
-        super().hideEvent(event)
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        center = QPointF(self.width() / 2, self.height() / 2)
-        painter.translate(center)
-        painter.rotate(self._angle)
-        painter.translate(-center)
-        if self.property("refreshing"):
-            color = QColor(theme.ACCENT)
-        else:
-            color = _icon_color(self, hover_dark=self.objectName() not in ("ChipButton", "BarIcon"))
-        radius = min(7.0, self.height() / 2 - 5)
-        rect = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
-        pen = QPen(color, 1.7)
-        pen.setCapStyle(Qt.FlatCap)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawArc(rect, 40 * 16, 140 * 16)
-        painter.drawArc(rect, 220 * 16, 140 * 16)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(color)
-        for angle, direction in ((40, -1), (220, -1)):
-            _draw_arrow_head(painter, center, radius, angle, direction)
-
-
-class DanmakuToggleButton(TileButton):
-    """画面弹幕开关：开启时在右下角画一个勾（和 B 站播放器一样），不靠整块底色区分。"""
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        if not self.isChecked():
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor(theme.ACCENT), 1.8)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        x = self.width() - 10.5
-        y = self.height() - 8.0
-        path = QPainterPath()
-        path.moveTo(x, y)
-        path.lineTo(x + 2.6, y + 2.6)
-        path.lineTo(x + 6.0, y - 3.6)
-        painter.drawPath(path)
-
-
-def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,
-                     direction: int, size: float = 3.4) -> None:
-    """在圆环的指定角度处画一个顺着切线的箭头。"""
-    radians = math.radians(angle)
-    x = center.x() + radius * math.cos(radians)
-    y = center.y() - radius * math.sin(radians)
-    tangent = math.radians(angle + 90 * direction)
-    tip = QPointF(x + size * math.cos(tangent), y - size * math.sin(tangent))
-    left = QPointF(x + size * 0.95 * math.cos(tangent + 2.4),
-                   y - size * 0.95 * math.sin(tangent + 2.4))
-    right = QPointF(x + size * 0.95 * math.cos(tangent - 2.4),
-                    y - size * 0.95 * math.sin(tangent - 2.4))
-    painter.drawPolygon(QPolygonF([tip, left, right]))
 
 
 class DanmakuTextBrowser(QTextBrowser):
@@ -559,7 +184,7 @@ class DanmakuTextBrowser(QTextBrowser):
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
             painter.setBrush(comment_hover_color())
-            painter.drawRoundedRect(rect.adjusted(0, 0, 0, -1), 8, 8)
+            painter.drawPath(continuous_path(rect.adjusted(0, 0, 0, -1), 8))
 
     def mousePressEvent(self, event):
         self._click_start = event.position().toPoint() if event.button() == Qt.LeftButton else None
@@ -1497,7 +1122,7 @@ def rounded_pixmap(source: QPixmap, size, radius: int) -> QPixmap:
     painter = QPainter(result)
     painter.setRenderHint(QPainter.Antialiasing, True)
     path = QPainterPath()
-    path.addRoundedRect(0, 0, size.width(), size.height(), radius, radius)
+    path.addPath(continuous_path(QRectF(0, 0, size.width(), size.height()), radius))
     painter.setClipPath(path)
     painter.drawPixmap((size.width() - scaled.width()) // 2,
                        (size.height() - scaled.height()) // 2, scaled)
@@ -1862,7 +1487,7 @@ class LiveAlert(QWidget):
             colour.setAlpha(int(200 * (1 - t / 0.6)))
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(colour, 1.6))
-            painter.drawRoundedRect(self._badge.adjusted(-grow, -grow, grow, grow), 8.0, 8.0)
+            painter.drawPath(continuous_path(self._badge.adjusted(-grow, -grow, grow, grow), 8.0))
         for index in range(3):
             phase = t - index * 0.22
             if phase <= 0 or phase >= 1:
@@ -1896,7 +1521,7 @@ class LiveAlert(QWidget):
         painter.translate(-self._anchor.x(), -bottom)
 
         path = QPainterPath()
-        path.addRoundedRect(body, 9.0, 9.0)
+        path.addPath(continuous_path(body, 9.0))
         tail_x = max(body.left() + 12, min(self._anchor.x(), body.right() - 12))
         tail = QPainterPath()
         tail.moveTo(tail_x - 6, body.bottom() - 1)
@@ -2232,7 +1857,7 @@ class NavThumb(QFrame):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, height), self.RADIUS, self.RADIUS)
+        path.addPath(continuous_path(QRectF(0, 0, width, height), self.RADIUS))
         painter.setClipPath(path)
         painter.drawPixmap(QRectF(0, 0, width, height), source, crop)
         if not self._compact_thumb():
@@ -2765,8 +2390,7 @@ class NavItem(QFrame):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1),
-                            theme.RADIUS_MD, theme.RADIUS_MD)
+        path.addPath(continuous_path(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), theme.RADIUS_MD))
         painter.fillPath(path, QColor(theme.ELEVATED))
         painter.setPen(QPen(QColor(theme.ACCENT), 1))
         painter.drawPath(path)
@@ -2777,7 +2401,7 @@ class NavItem(QFrame):
             badge = QRect(max(0, pixmap.width() - 39), 4, 35, 24)
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(theme.ACCENT))
-            painter.drawRoundedRect(badge, 12, 12)
+            painter.drawPath(continuous_path(badge, 12))
             painter.setPen(QColor(theme.BG))
             painter.drawText(badge, Qt.AlignCenter, str(count))
             painter.end()
@@ -3687,7 +3311,7 @@ class BarIconButton(QPushButton):
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2, 2)
+            painter.drawPath(continuous_path(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2))
             painter.drawLine(QPointF(center.x() - 2, center.y() - 6),
                              QPointF(center.x() + 7, center.y() - 6))
             painter.drawLine(QPointF(center.x() + 7, center.y() - 6),
@@ -3719,7 +3343,7 @@ class AppearanceButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("ChipButton")
         self.setFixedSize(22, 22)
-        self.setStyleSheet("padding: 0; min-width: 20px; min-height: 20px;")
+        self.setStyleSheet("padding: 0;")
         self.setCursor(Qt.PointingHandCursor)
         self.refresh_theme()
 
@@ -3733,8 +3357,11 @@ class AppearanceButton(QPushButton):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = QRectF((self.width()-14)/2, (self.height()-14)/2, 14, 14)
-        color = theme.qcolor(theme.ACCENT if self.underMouse() else theme.TEXT2)
+        painter.translate(self.width()/2, self.height()/2)
+        if hasattr(self, '_dock_feedback'):
+            self._dock_feedback.transform(painter)
+        rect = QRectF(-7, -7, 14, 14)
+        color = icon_color(self)
         painter.setPen(QPen(color, 1.4))
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(rect)
@@ -3774,6 +3401,8 @@ class Sidebar(QFrame):
     pictureInPictureRequested = Signal()
     layoutResetRequested = Signal()
     settingsRequested = Signal()
+    pluginSettingsRequested = Signal()
+    cardModeChanged = Signal(bool)
     appearanceChanged = Signal(str)
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
@@ -3784,7 +3413,7 @@ class Sidebar(QFrame):
                  compact_background: bool = True):
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(theme.SIDEBAR_WIDTH)
+        self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self._items: list[NavItem] = []
         self._drag_snapshot_ready = False
         self._drag_snapshot_timer = QTimer(self)
@@ -3824,7 +3453,12 @@ class Sidebar(QFrame):
         self._folder_buttons: dict[str, FollowFolderButton] = {}
         self._layout_id = layouts.DEFAULT_LAYOUT
 
-        layout = QVBoxLayout(self)
+        self._outer_layout = QHBoxLayout(self)
+        self._outer_layout.setContentsMargins(0, 0, 0, 0)
+        self._outer_layout.setSpacing(0)
+        self._column = QWidget(self)
+        self._outer_layout.addWidget(self._column, 1)
+        layout = QVBoxLayout(self._column)
         layout.setContentsMargins(12, 14, 12, 12)
         layout.setSpacing(10)
         self._layout = layout
@@ -3894,6 +3528,7 @@ class Sidebar(QFrame):
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
+        self.live_only = False
         self.search.textChanged.connect(self.apply_filter)      # 边打字边过滤
         # 回车不再额外「执行搜索」（本来就实时），把焦点交给列表，接着就能直接
         # 点选 / 拖动；Esc 等价于点清空按钮（清空按钮自己会走 textChanged）
@@ -3971,6 +3606,8 @@ class Sidebar(QFrame):
         self.batch_bar.setVisible(False)
         layout.addWidget(self.batch_bar)
 
+        self.workspace_controls = WorkspaceControls(self)
+
         # 已登录账号（在底部操作之上）
         self.account_row = AccountRow(self, allow_logout=True)
         self.account_row.logoutClicked.connect(self.logoutRequested)
@@ -3985,17 +3622,17 @@ class Sidebar(QFrame):
         tool_box = QHBoxLayout(self.tool_row)
         tool_box.setContentsMargins(0, 0, 0, 0)
         tool_box.setSpacing(6)
-        self.layout_button = QPushButton()
+        self.layout_button = NavigationButton('布局预设', 'layout')
         self.layout_button.setFocusPolicy(Qt.TabFocus)
         self.layout_button.setObjectName("IconButton")
         self.layout_button.setCursor(Qt.PointingHandCursor)
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
-        self.picture_in_picture_button = QPushButton('画中画')
+        self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
         self.picture_in_picture_button.clicked.connect(self.pictureInPictureRequested.emit)
-        self.settings_button = QPushButton("设置")
+        self.settings_button = NavigationButton('设置', 'settings')
         self.settings_button.setFocusPolicy(Qt.TabFocus)
         self.settings_button.setObjectName("IconButton")
         self.settings_button.setCursor(Qt.PointingHandCursor)
@@ -4043,11 +3680,14 @@ class Sidebar(QFrame):
         self._bar_row: QWidget | None = None
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
+        self.navigation = SidebarNavigation(self, self._outer_layout)
         self.refresh_filter()
         self._sync_count()
+        self._sync_appearance_row()
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
+        self.workspace_controls.sync_layout()
         self._sync_selection_controls()
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
@@ -4056,6 +3696,7 @@ class Sidebar(QFrame):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,
                 Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
+        self.navigation.sync()
 
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
@@ -4294,6 +3935,7 @@ class Sidebar(QFrame):
         self._apply_filter_marks()
         self.list_box.relayout(animate=False)
         self.refresh_strip()
+        self._sync_count()
 
     def _apply_filter_marks(self) -> None:
         """只更新「谁被过滤掉了」，不动位置 —— 由调用方决定什么时候重排。"""
@@ -4312,6 +3954,8 @@ class Sidebar(QFrame):
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
         """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
+        if self.live_only and not item.room.get('live'):
+            return False
         if not words:
             return True
         room = item.room
@@ -4332,6 +3976,8 @@ class Sidebar(QFrame):
         """列表一条都露不出来时说的话（列表区就摆它一个）。"""
         if self.filter_text:
             return f"没有匹配「{self.filter_text}」的直播间"
+        if self.live_only:
+            return '当前没有正在直播的关注'
         return "还没有关注任何直播间"
 
     # ---- 关注文件夹 ----
@@ -4713,6 +4359,8 @@ class Sidebar(QFrame):
                 # 左栏就只剩一条（用户看到的就是这个）
                 self._apply_scroll_axis()
             return
+        if side == 'top':
+            self.navigation.release()
         self.side = side
         self.set_card_mode(self._effective_card_mode())
         horizontal = side == "top"
@@ -4749,7 +4397,7 @@ class Sidebar(QFrame):
             # 竖条常关、横条 AsNeeded，不回滚的话回横屏后竖向滚动条一直藏着，
             # 滚轮还会被 CarouselScroll 当成横滚吞掉 —— 左栏整列就滚不动了。
             self._apply_scroll_axis()
-        self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
+        self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         if horizontal:
             self._layout.setContentsMargins(10, 8, 10, 8)
             self._layout.setSpacing(6)
@@ -4760,7 +4408,7 @@ class Sidebar(QFrame):
                                             12 if not self.collapsed else 8, 12)
             self._layout.setSpacing(10)
             self.setFixedWidth(
-                theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
+                (theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
         self._sync_top_mode()
         self.list_box.relayout(animate=False)
 
@@ -4781,8 +4429,8 @@ class Sidebar(QFrame):
     # ---- 横栏那一行 ----
     def _detach_from_rows(self, widget: QWidget) -> None:
         """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
-        for holder in (self._layout, self._bar_row_box, self._bar_row2_box,
-                       self._bar_right_box):
+        for holder in (self._layout, self._bar_row_box, getattr(self, '_bar_row2_box', None),
+                       getattr(self, '_bar_right_box', None)):
             if holder is not None:
                 holder.removeWidget(widget)
 
@@ -5063,8 +4711,8 @@ class Sidebar(QFrame):
 
     def _sync_selection_controls(self):
         self.account_row.setVisible(self._account_row_should_show())
-        self.tool_row.setVisible(not self.select_mode and not self.collapsed)
-        self.normal_bar.setVisible(not self.select_mode and not self.collapsed and self.side != 'top')
+        self.tool_row.setVisible(self.side == 'top' and not self.select_mode and not self.collapsed)
+        self.normal_bar.hide()
         if self.select_mode and self.side == 'top':
             self._bar_right.hide()
 
@@ -5255,7 +4903,8 @@ class Sidebar(QFrame):
                 item.thumb.set_cover_hold(True)
             self.collapsed = collapsed
             self._apply_collapsed_controls()
-            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            self._finish_collapse(
+                (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
             prepared = True
         finally:
             self._collapse_animating = False
@@ -5300,6 +4949,7 @@ class Sidebar(QFrame):
             layout = self.parentWidget().layout()
             if layout is not None:
                 layout.activate()
+        self._outer_layout.activate()
         self._layout.activate()
         self._collapse_animating = False
         self.list_box.relayout(animate=False)
@@ -5881,6 +5531,8 @@ class Sidebar(QFrame):
             self.count_label.setText(f"关注中 · {shown} / {len(self._items)}")
         else:
             self.count_label.setText(f"关注中 · {len(self._items)}")
+        if hasattr(self, 'navigation'):
+            self.navigation.sync_count()
 
     def set_refreshing(self, busy: bool) -> None:
         self.refresh_button.setEnabled(True)
@@ -7070,7 +6722,7 @@ class Tile(QFrame):
         if square_corners:
             path.addRect(rect)
         else:
-            path.addRoundedRect(rect, 9, 9)
+            path.addPath(continuous_path(rect, 9))
             bottom = QPainterPath()
             bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
             path = path.united(bottom)
@@ -7201,7 +6853,7 @@ class Tile(QFrame):
             path = QPainterPath()
             radius = min(rect.height() / 2, theme.TILE_CONTROL_HEIGHT / 2)
             # 原生底色只能按整数区域裁切；扩张轮廓会露出圆角外的黑色底层。
-            path.addRoundedRect(rect, radius, radius)
+            path.addPath(continuous_path(rect, radius))
             region = region.united(QRegion(path.toFillPolygon().toPolygon()))
         if (sys.platform == "win32" and QApplication.platformName() == "windows"
                 and self.controls.internalWinId()):
@@ -7485,11 +7137,9 @@ class WallPaneBorder(BadgeSurface):
         for edge in targets:
             region |= QRegion(self._edge_rect(edge))
         outer, inner = QPainterPath(), QPainterPath()
-        outer.addRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
-                             self.RADIUS - .5, self.RADIUS - .5)
-        inner.addRoundedRect(QRectF(self.rect()).adjusted(
-            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5),
-            self.RADIUS - self.BAND - .5, self.RADIUS - self.BAND - .5)
+        outer.addPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS - .5))
+        inner.addPath(continuous_path(QRectF(self.rect()).adjusted(
+            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5), self.RADIUS - self.BAND - .5))
         self._outline_path = outer.subtracted(inner)
         # 原生遮罩只负责命中；向外留出抗锯齿像素，由逐像素透明绘制轮廓。
         stroker = QPainterPathStroker()

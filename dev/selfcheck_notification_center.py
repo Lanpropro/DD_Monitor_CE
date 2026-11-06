@@ -379,19 +379,34 @@ class NotificationTests(unittest.TestCase):
             button = sidebar.notification_button
             self.assertEqual(button.text(), '')
             if side == 'left':
-                self.assertEqual(button.width(), 22)
-                self.assertIs(button.parentWidget(), sidebar.status_row)
-                sidebar.count_label.setText('关注中 · 107')
+                self.assertEqual(button.width(), 34)
+                self.assertIs(button.parentWidget(), sidebar.navigation.rail)
+                sidebar.navigation.count.setText('107')
                 self.app.processEvents()
-                self.assertGreaterEqual(sidebar.count_label.width(),
-                    sidebar.count_label.fontMetrics().horizontalAdvance(sidebar.count_label.text()))
-                self.assertFalse(button.geometry().intersects(sidebar.count_label.geometry()))
+                self.assertGreaterEqual(sidebar.navigation.count.width(),
+                    sidebar.navigation.count.fontMetrics().horizontalAdvance('107'))
             else:
                 self.assertIs(button.parentWidget(), sidebar._bar_row)
             sidebar.set_collapsed(True, animate=False)
-            self.assertFalse(button.isVisible())
+            self.assertEqual(button.isVisible(), side == 'left')
             sidebar.set_collapsed(False, animate=False)
             self.assertTrue(button.isVisible())
+
+    def test_bottom_dock_opens_upward_and_keeps_newest_message_first(self):
+        self.button.setProperty('dockRail', True)
+        layout = self.owner.layout()
+        layout.removeWidget(self.button)
+        layout.addWidget(self.button, 0, Qt.AlignBottom)
+        self.center.add('较早消息')
+        self.center.add('最新消息')
+        self.app.processEvents()
+        self.open()
+        top = self.button.mapToGlobal(QPoint()).y()
+        self.assertLess(self.center.frameGeometry().bottom(), top)
+        self.assertGreaterEqual(self.center.height(), 240)
+        self.assertTrue(self.owner.screen().availableGeometry().contains(self.center.frameGeometry()))
+        rows = sorted(self.center.rows.values(), key=lambda row: row.y())
+        self.assertEqual([row.entry.message for row in rows], ['最新消息', '较早消息'])
 
     def test_card_style_scrollbar_and_four_corners_follow_theme(self):
         self.addCleanup(theme.apply, theme.mode())

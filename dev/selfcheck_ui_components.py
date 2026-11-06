@@ -26,7 +26,9 @@ class ComponentTests(unittest.TestCase):
     def test_lightweight_imports_do_not_load_player_browser_or_app(self):
         code = '''
 import sys
-from ddm.ui import ActionButton, Avatar, AnimatedDialog
+from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
+                    RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
+                    DanmakuToggleButton)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))

@@ -22,10 +22,13 @@ if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
+if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
 if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
+if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
+if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -45,6 +48,18 @@ if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
+
+:continuousCornersCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:sidebarNavigationCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_pages
+exit /b %errorlevel%
 
 :pictureInPictureCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
@@ -71,6 +86,13 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_development_hang
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\selfcheck_diagnostics.py"
+exit /b %errorlevel%
+
+:playbackControlsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_controls
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
 exit /b %errorlevel%
 
 :sidebarDragCheck

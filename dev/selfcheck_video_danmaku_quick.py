@@ -317,7 +317,9 @@ def main():
         window.setAttribute(Qt.WA_ShowWithoutActivating, not visible)
         if not visible:
             window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
-        window.setGeometry(40 if visible else -20000, 60 if visible else -20000, 1200, 800)
+        # Keep the original wall width: caption visibility depends on tile width.
+        window.setGeometry(40 if visible else -20000, 60 if visible else -20000,
+                           1200 + window.sidebar.navigation.rail.width(), 800)
         window.show()
         if visible:
             window.activateWindow()

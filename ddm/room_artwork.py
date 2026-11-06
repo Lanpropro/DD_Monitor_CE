@@ -5,6 +5,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QGraphicsBlurEffect, QGraphicsPixmapItem, QGraphicsScene, QLabel, QWidget
 
+from .corner_geometry import continuous_path
 from . import images
 from .cover_focus import source_rect
 
@@ -89,7 +90,7 @@ def paint_room_background(painter, rect, pixmap, radius, *, focus=True, frost=No
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setRenderHint(QPainter.SmoothPixmapTransform)
     clip = QPainterPath()
-    clip.addRoundedRect(rect, radius, radius)
+    clip.addPath(continuous_path(rect, radius))
     painter.setClipPath(clip)
     source = source_rect(pixmap, rect.width(), rect.height(), focus=focus)
     painter.drawPixmap(rect, frost if frost is not None else pixmap, source)
