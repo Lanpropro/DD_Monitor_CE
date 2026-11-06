@@ -1,7 +1,6 @@
 """Offline checks for per-tile D shortcut, compact notices and startup live baseline."""
 from contextlib import ExitStack
 import faulthandler
-import gc
 import os
 import json
 from pathlib import Path
@@ -1274,8 +1273,6 @@ class MainNoticesTests(unittest.TestCase):
         cls.app.setStyleSheet(theme.qss())
 
     def setUp(self):
-        # Collect Qt/Python cycles after window deletion and mock teardown, between cases.
-        self.addCleanup(gc.collect)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.addCleanup(theme.signals().changed.disconnect)
