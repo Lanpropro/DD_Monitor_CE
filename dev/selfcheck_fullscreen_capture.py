@@ -96,9 +96,34 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(self.probe.stop)
         self.addCleanup(self.window.close)
         self.addCleanup(self.capture.finish)
+        self.addCleanup(self.capture.finish_idle)
 
     def rows(self):
         return [json.loads(line) for line in self.path.read_text(encoding='utf-8').splitlines()]
+
+    def test_idle_capture_records_animation_without_content_and_stops(self):
+        from ddm.widgets import Tile as RuntimeTile
+        from ddm.fullscreen_cursor import FullscreenCursor
+        tile = RuntimeTile({'room_id': 'private-room', 'uname': 'private-name'}, self.window)
+        self.window.settings = {'fullscreen_auto_hide_controls': True}
+        self.window._fullscreen_cursor = FullscreenCursor(self.window)
+        self.window._fullscreen_tile = tile
+        self.capture.start_idle(tile)
+        self.assertTrue(self.capture.idle_timer.isActive())
+        with patch.object(diag.time, 'monotonic', return_value=self.capture.idle_started+8.1):
+            self.capture.idle_frame()
+        self.assertFalse(self.capture.idle_timer.isActive())
+        row = self.rows()[-1]
+        self.assertEqual(row['phase'], 'fullscreen-idle')
+        self.assertEqual(len(row['samples']), 2)
+        self.assertIn('bar_progress', row['samples'][0])
+        self.assertTrue(row['samples'][0]['hide_bar'])
+        self.assertFalse(self.capture.idle_samples)
+        self.assertNotIn('private-', self.path.read_text(encoding='utf-8'))
+        self.capture.start_idle(tile)
+        self.capture.begin('exit', self.window.wall.tiles[0])
+        self.assertFalse(self.capture.idle_timer.isActive())
+        self.assertEqual(self.rows()[-1]['reason'], 'transition')
 
     def test_bounds_privacy_async_callbacks_and_cleanup(self):
         capture = self.capture
@@ -184,6 +209,7 @@ class CaptureTests(unittest.TestCase):
                 finally:
                     capture.finish()
                     APP.aboutToQuit.disconnect(capture.finish)
+                    APP.aboutToQuit.disconnect(capture.finish_idle)
                     APP.aboutToQuit.disconnect(probe.stop)
                     probe.stop()
                     window.close()
