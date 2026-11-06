@@ -284,6 +284,7 @@ class MainWindow(QMainWindow):
         self.sidebar.foldersChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self._open_sidebar_settings)
+        self.sidebar.clearWallRequested.connect(self._clear_wall)
         self.sidebar.pluginSettingsRequested.connect(lambda: self.open_settings('plugins'))
         self.sidebar.cardModeChanged.connect(self._sidebar_card_mode_changed)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
@@ -2623,6 +2624,20 @@ class MainWindow(QMainWindow):
         tile.set_room(None)
         if tile not in self.recorder.sessions:
             self._restore_capture_quality(tile)
+
+    def _clear_wall(self) -> None:
+        count = sum(bool(tile.room.get('room_id')) for tile in self.wall.tiles)
+        if not count:
+            return
+        if QMessageBox.question(self, '清空画面墙',
+                f'确定清空全部 {count} 个画面？\n\n将停止这些画面的录制和回放缓存，保留关注列表、布局及空格子。',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        for tile in list(self.wall.tiles):
+            if tile.room.get('room_id'):
+                self._clear_tile_room(tile)
+        self._refresh_meta()
+        self._save_timer.start()
 
     def _on_close_tile(self, room: dict) -> None:
         """关掉这一路，但留下空格子等新的直播间拖进来。"""
