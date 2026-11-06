@@ -255,7 +255,7 @@ def refresh_theme_properties(widget, *, defer=False):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
-    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
+    if name not in ('NavigationButton', 'BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
                     'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
@@ -771,6 +771,7 @@ QSlider::handle:horizontal:hover {{
     background: {SIDEBAR};
     border-right: 1px solid {BORDER};
 }}
+#NavigationDivider {{background: {BORDER_STRONG}; border: none;}}
 #NavigationButton {{
     background: transparent;
     color: {TEXT2};
@@ -780,7 +781,14 @@ QSlider::handle:horizontal:hover {{
 }}
 #NavigationButton:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
 #NavigationButton:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
-#NavigationButton:focus {{border: 1px solid {ACCENT};}}
+#NavigationButton:focus {{outline: none;}}
+#NavigationButton[keyboardFocus="true"]:focus {{border: 1px solid {ACCENT};}}
+#NavigationButton[dockRail="true"]:checked,
+#NavigationButton[dockRail="true"][dockActive="true"] {{background: {TEXT1}; color: {BG};}}
+#NavigationButton[dockRail="true"][appearanceLight="true"]:checked,
+#NavigationButton[dockRail="true"][appearanceLight="true"][dockActive="true"] {{background: {ACCENT}; color: #ffffff;}}
+#NavigationButton[dockRail="true"][dockActive="false"]:checked {{background: transparent; color: {TEXT2};}}
+#NavigationButton[dockRail="true"][dockActive="false"]:checked:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
 #SidebarFilter {{
     background: transparent;
     color: {TEXT2};

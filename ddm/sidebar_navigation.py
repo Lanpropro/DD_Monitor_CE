@@ -1,11 +1,12 @@
 """Global tool rail and compact follow controls, using the existing sidebar actions."""
-from PySide6.QtCore import QByteArray, QPoint, QRectF, Qt
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
                               QSizePolicy, QVBoxLayout, QWidget)
 
 from . import motion, theme
+from .dock_feedback import active, attach, icon_color
 
 
 RAIL_WIDTH = 48
@@ -33,6 +34,7 @@ class NavigationButton(QPushButton):
         self.setToolTip(text)
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.TabFocus)
+        attach(self)
         self.set_navigation_mode(True)
 
     def setText(self, text):
@@ -55,21 +57,22 @@ class NavigationButton(QPushButton):
         super().paintEvent(event)
         if not self._navigation_mode:
             return
-        color = theme.qcolor(theme.ACCENT if self.isChecked() or self.underMouse() else theme.TEXT2)
-        if not self.isEnabled():
-            color.setAlpha(90)
+        color = icon_color(self)
+        fill = color.name() if self.kind in ('follow', 'functions') and active(self) else 'none'
         svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
-               f'fill="none" stroke="{color.name()}" stroke-opacity="{color.alphaF()}" '
+               f'fill="{fill}" stroke="{color.name()}" stroke-opacity="{color.alphaF()}" '
                'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
                + PATHS[self.kind] + '</svg>')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        size = 18*self._dock_feedback.scale
         QSvgRenderer(QByteArray(svg.encode())).render(
-            painter, QRectF((self.width()-18)/2, (self.height()-18)/2, 18, 18))
+            painter, QRectF((self.width()-size)/2, (self.height()-size)/2, size, size))
 
 
-class SidebarNavigation:
+class SidebarNavigation(QObject):
     def __init__(self, sidebar, root_box):
+        super().__init__(sidebar)
         self.sidebar = sidebar
         self.in_rail = False
         self.rail = QFrame(sidebar)
@@ -81,9 +84,17 @@ class SidebarNavigation:
         self.top = QVBoxLayout()
         self.top.setSpacing(6)
         self.follow_button = NavigationButton('关注直播', 'follow', self.rail)
+        self.follow_button.setProperty('dockRail', True)
+        self.active_button = self.follow_button
+        self.follow_button.setProperty('dockActive', True)
         self.follow_button.clicked.connect(sidebar.focus_search)
+        self.follow_button.clicked.connect(lambda: self.activate(self.follow_button))
         self.top.addWidget(self.follow_button)
         rail_box.addLayout(self.top)
+        self.divider = QFrame(self.rail)
+        self.divider.setObjectName('NavigationDivider')
+        self.divider.setFixedSize(24, 2)
+        rail_box.addWidget(self.divider, 0, Qt.AlignHCenter)
         self.pin_scroll = QScrollArea(self.rail)
         self.pin_scroll.setFrameShape(QFrame.NoFrame)
         self.pin_scroll.setWidgetResizable(True)
@@ -140,6 +151,33 @@ class SidebarNavigation:
         self.density_button.clicked.connect(self.toggle_density)
         filters.addWidget(self.density_button)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
+        QApplication.instance().installEventFilter(self)
+        QApplication.instance().focusChanged.connect(self._focus_changed)
+
+    def buttons(self):
+        return [self.follow_button, self.sidebar.workspace_controls.launcher,
+                *[widget for _priority, widget in self.sidebar.workspace_controls.entries.values()]]
+
+    def activate(self, button, *, animate=False):
+        if button is self.active_button:
+            return
+        self.active_button = button
+        for entry in self.buttons():
+            entry.setProperty('dockActive', entry is button)
+            entry.update()
+        if animate:
+            attach(button).pulse()
+
+    def _focus_changed(self, _old, new):
+        if new is not None and self.sidebar._column.isAncestorOf(new):
+            self.activate(self.follow_button)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget):
+            column = self.sidebar._column
+            if watched is column or column.isAncestorOf(watched):
+                self.activate(self.follow_button, animate=True)
+        return False
 
     def sync_count(self):
         sidebar = self.sidebar
@@ -199,10 +237,13 @@ class SidebarNavigation:
         if not self.in_rail:
             return
         for button in (sidebar.layout_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+            button.setProperty('dockRail', False)
             button.set_navigation_mode(False)
             button.setParent(sidebar.tool_row)
             sidebar.tool_row.layout().addWidget(button)
             button.show()
+        for button in (sidebar.notification_button, sidebar.appearance_button):
+            button.setProperty('dockRail', False)
         sidebar._restore_side_children()
         sidebar._restore_toggle_to_header()
         self.in_rail = False
@@ -213,6 +254,7 @@ class SidebarNavigation:
         self.rail.setVisible(left)
         self.header.setVisible(left)
         self.filters.setVisible(left and not sidebar.collapsed)
+        self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         if not left:
             return
         sidebar._layout.insertWidget(0, self.header)
@@ -227,9 +269,12 @@ class SidebarNavigation:
             self.header.layout().addWidget(sidebar.toggle_button)
             self.in_rail = True
         for button in (sidebar.layout_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+            button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
+            attach(button)
+            button.setProperty('dockRail', True)
             button.setObjectName('NavigationButton')
             button.setProperty('sidebarCompact', False)
             button.style().unpolish(button)

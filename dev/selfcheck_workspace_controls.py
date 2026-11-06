@@ -3,16 +3,18 @@ import os
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QAction, QFocusEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QWidget
-from ddm import theme
+from ddm import continuous_corners as corners, motion, theme
+from ddm.dock_feedback import active, icon_color
 from ddm.plugins import PluginContext, PluginManager
 from ddm.sidebar_navigation import RAIL_WIDTH
 from ddm.widgets import Sidebar
@@ -83,17 +85,99 @@ class WorkspaceControlTests(unittest.TestCase):
         self.add('second', '第二项')
         rail = self.sidebar.navigation.rail
         top = [self.sidebar.navigation.follow_button,
-               self.sidebar.workspace_controls.launcher,
-               *[self.sidebar.workspace_controls.entries[i][1]
-                 for i in self.sidebar.workspace_controls.pinned()]]
+               self.sidebar.workspace_controls.launcher]
+        plugins = [self.sidebar.workspace_controls.entries[i][1]
+                   for i in self.sidebar.workspace_controls.pinned()]
         bottom = [self.sidebar.layout_button, self.sidebar.picture_in_picture_button,
                   self.sidebar.notification_button, self.sidebar.appearance_button,
                   self.sidebar.settings_button]
-        for group in (top, bottom):
+        for group in (top, plugins, bottom):
             for button in group:
                 self.assertEqual((button.width(), button.height()), (34, 34))
             positions = [button.mapTo(rail, QPoint()).y() for button in group]
             self.assertEqual([b-a for a,b in zip(positions, positions[1:])], [40]*(len(group)-1))
+        divider = self.sidebar.navigation.divider
+        self.assertTrue(divider.isVisible())
+        self.assertEqual((divider.width(), divider.height()), (24, 2))
+        self.assertGreater(divider.y(), top[-1].mapTo(rail, QPoint()).y()+34)
+        self.assertLess(divider.geometry().bottom(), plugins[0].mapTo(rail, QPoint()).y())
+        self.assertEqual(divider.geometry().center().x(), rail.rect().center().x())
+
+    def test_dock_selection_tracks_follow_interaction_without_closing_plugin(self):
+        nav = self.sidebar.navigation
+        first, action = self.add('first', '第一个')
+        first.click()
+        self.assertIs(nav.active_button, first)
+        self.assertTrue(active(first))
+        self.assertFalse(active(nav.follow_button))
+        QTest.mouseClick(self.sidebar.search, Qt.LeftButton)
+        self.assertIs(nav.active_button, nav.follow_button)
+        self.assertTrue(active(nav.follow_button))
+        self.assertFalse(active(first))
+        self.assertTrue(action.isChecked(), 'Visual navigation must not stop a running plugin')
+        nav.activate(first)
+        self.sidebar.workspace_controls.launcher.click()
+        self.assertIs(nav.active_button, self.sidebar.workspace_controls.launcher)
+        self.sidebar.workspace_controls.popup.hide()
+        self.assertIs(nav.active_button, first)
+        self.context.unregister_workspace_control('first')
+        self.assertIs(nav.active_button, nav.follow_button)
+
+    def test_pointer_focus_has_no_border_and_keyboard_still_activates(self):
+        first, action = self.add('first', '第一个')
+        QTest.mouseClick(first, Qt.LeftButton)
+        self.assertTrue(action.isChecked())
+        self.assertFalse(first.property('keyboardFocus'))
+        self.assertEqual(corners._filter.values(first)['border'], 'none')
+        APP.sendEvent(first, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+        self.assertTrue(first.property('keyboardFocus'))
+        with patch.object(first, 'hasFocus', return_value=True):
+            self.assertIn(theme.ACCENT, corners._filter.values(first)['border'])
+        QTest.keyClick(first, Qt.Key_Space)
+        self.assertFalse(action.isChecked())
+        QTest.mouseClick(first, Qt.LeftButton)
+        self.assertFalse(first.property('keyboardFocus'))
+        self.assertEqual(corners._filter.values(first)['border'], 'none')
+
+    def test_dock_feedback_preserves_geometry_and_respects_motion_and_keyboard(self):
+        button = self.sidebar.navigation.follow_button
+        feedback = button._dock_feedback
+        geometry = button.geometry()
+        with patch.object(motion, 'enabled', return_value=True):
+            feedback.transition(1.1)
+            feedback.animation.setCurrentTime(80)
+            current = feedback.scale
+            self.assertGreater(current, 1)
+            self.assertLessEqual(current, 1.1)
+            feedback.transition(1)
+            self.assertEqual(feedback.animation.startValue(), current)
+            feedback.animation.setCurrentTime(160)
+            self.assertEqual(feedback.scale, 1)
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+            feedback.transition(1.1)
+            self.assertEqual(feedback.scale, 1)
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
+        with patch.object(motion, 'enabled', return_value=False):
+            feedback.transition(1.1)
+            self.assertEqual(feedback.scale, 1)
+        self.assertEqual(button.geometry(), geometry)
+
+    def test_dock_selected_surface_and_icon_follow_both_themes(self):
+        self.addCleanup(theme.apply, theme.mode())
+        plugin, _action = self.add('first', '第一个')
+        for mode, background, foreground in (('dark', 'TEXT1', 'BG'),
+                                              ('light', 'ACCENT', '#ffffff')):
+            theme.apply(mode)
+            self.host.setStyleSheet(theme.qss())
+            settle()
+            for button in (self.sidebar.navigation.follow_button, plugin):
+                self.sidebar.navigation.activate(button)
+                self.assertEqual(corners._filter.values(button)['background'], getattr(theme, background))
+                self.assertEqual(icon_color(button), theme.qcolor(getattr(theme, foreground, foreground)))
+                image = button.grab().toImage()
+                scale = image.devicePixelRatio()
+                self.assertEqual(image.pixelColor(round(button.width()/2*scale), round(3*scale)).name(),
+                                 theme.qcolor(getattr(theme, background)).name())
 
     def test_24_plugins_do_not_reduce_follow_height(self):
         panel = self.sidebar.workspace_controls
@@ -217,6 +301,7 @@ class WorkspaceControlTests(unittest.TestCase):
         self.context.register_workspace_control('plain', button)
         panel._rows[('workspace-test', 'plain')][1].click()
         self.assertEqual(calls, ['clicked'])
+        self.assertIs(self.sidebar.navigation.active_button, self.sidebar.navigation.follow_button)
 
     def test_menus_emit_existing_signals_and_store_route(self):
         calls = []

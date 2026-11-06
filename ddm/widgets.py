@@ -26,6 +26,7 @@ from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 from .workspace_controls import WorkspaceControls
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
+from .dock_feedback import icon_color
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
 from .config import DEFAULT_VOLUME, codec_overrides
@@ -3347,8 +3348,9 @@ class AppearanceButton(QPushButton):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = QRectF((self.width()-14)/2, (self.height()-14)/2, 14, 14)
-        color = theme.qcolor(theme.ACCENT if self.underMouse() else theme.TEXT2)
+        size = 14*getattr(getattr(self, '_dock_feedback', None), 'scale', 1.0)
+        rect = QRectF((self.width()-size)/2, (self.height()-size)/2, size, size)
+        color = icon_color(self)
         painter.setPen(QPen(color, 1.4))
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(rect)
