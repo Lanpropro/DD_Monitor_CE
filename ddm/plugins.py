@@ -301,6 +301,9 @@ class PluginContext:
         if self._manager._workspace_pages is None:
             from .workspace_pages import WorkspacePages
             self._manager._workspace_pages = WorkspacePages(container)
+            controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
+            if controls is not None:
+                controls.bind_pages(self._manager._workspace_pages)
         return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
 
     def credentials(self, platform) -> CredentialSnapshot | None:
