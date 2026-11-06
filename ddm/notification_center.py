@@ -432,8 +432,8 @@ class NotificationButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width() / 2, self.height() / 2)
-        painter.scale(getattr(getattr(self, '_dock_feedback', None), 'scale', 1.0),
-                      getattr(getattr(self, '_dock_feedback', None), 'scale', 1.0))
+        if hasattr(self, '_dock_feedback'):
+            self._dock_feedback.transform(painter)
         color = icon_color(self) if self.property('dockRail') else theme.qcolor(theme.TEXT2)
         painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)

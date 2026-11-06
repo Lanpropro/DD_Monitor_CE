@@ -65,9 +65,10 @@ class NavigationButton(QPushButton):
                + PATHS[self.kind] + '</svg>')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        size = 18*self._dock_feedback.scale
+        painter.translate(self.width()/2, self.height()/2)
+        self._dock_feedback.transform(painter)
         QSvgRenderer(QByteArray(svg.encode())).render(
-            painter, QRectF((self.width()-size)/2, (self.height()-size)/2, size, size))
+            painter, QRectF(-9, -9, 18, 18))
 
 
 class SidebarNavigation(QObject):
@@ -152,31 +153,32 @@ class SidebarNavigation(QObject):
         filters.addWidget(self.density_button)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
         QApplication.instance().installEventFilter(self)
-        QApplication.instance().focusChanged.connect(self._focus_changed)
 
     def buttons(self):
         return [self.follow_button, self.sidebar.workspace_controls.launcher,
                 *[widget for _priority, widget in self.sidebar.workspace_controls.entries.values()]]
 
     def activate(self, button, *, animate=False):
-        if button is self.active_button:
-            return
+        changed = button is not self.active_button
         self.active_button = button
         for entry in self.buttons():
-            entry.setProperty('dockActive', entry is button)
-            entry.update()
-        if animate:
+            selected = entry is button
+            if entry.property('dockActive') != selected:
+                entry.setProperty('dockActive', selected)
+                entry.style().unpolish(entry)
+                entry.style().polish(entry)
+                entry.update()
+        if changed and animate:
             attach(button).pulse()
 
-    def _focus_changed(self, _old, new):
-        if new is not None and self.sidebar._column.isAncestorOf(new):
-            self.activate(self.follow_button)
-
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget):
+        pointer = event.type() == QEvent.MouseButtonPress
+        keyboard = event.type() == QEvent.FocusIn and event.reason() in (
+            Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
+        if (pointer or keyboard) and isinstance(watched, QWidget):
             column = self.sidebar._column
             if watched is column or column.isAncestorOf(watched):
-                self.activate(self.follow_button, animate=True)
+                self.activate(self.follow_button, animate=pointer)
         return False
 
     def sync_count(self):
@@ -274,6 +276,7 @@ class SidebarNavigation(QObject):
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
             attach(button)
+            button.setProperty('dockMotion', 'notification' if button is sidebar.notification_button else 'appearance')
             button.setProperty('dockRail', True)
             button.setObjectName('NavigationButton')
             button.setProperty('sidebarCompact', False)
