@@ -74,6 +74,7 @@ class StartupScrollTests(unittest.TestCase):
         from ddm.app import MainWindow
         from ddm.player import TilePlayer, mpv
         from ddm.preview import HoverPreview
+        from ddm.video_surface import VideoSurface
         from ddm.widgets import Sidebar
 
         class Core:
@@ -85,6 +86,7 @@ class StartupScrollTests(unittest.TestCase):
 
         with ExitStack() as stack:
             for owner, names in ((TilePlayer, ('bind', '_destroy_core')),
+                    (VideoSurface, ('_clip_native_video',)),
                     (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                     (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
                     (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on')),
@@ -120,6 +122,51 @@ class StartupScrollTests(unittest.TestCase):
             self.assertTrue({'player.bind', 'player.native-window', 'player.core-init'} <= labels)
             self.assertNotIn('options', json.dumps(self.records()))
             video.close()
+
+    def test_installed_capture_preserves_qt_zero_argument_slots_during_scrolling(self):
+        from ddm.app import MainWindow
+        from ddm.player import TilePlayer, mpv
+        from ddm.preview import HoverPreview
+        from ddm.video_surface import VideoSurface
+        from ddm.widgets import Sidebar
+
+        with ExitStack() as stack:
+            for owner, names in ((TilePlayer, ('bind', '_destroy_core')),
+                    (VideoSurface, ('_clip_native_video',)),
+                    (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
+                    (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
+                    (MainWindow, ('__init__', 'start_all', '_start_startup_tiles', 'start_tile', '_play_on')),
+                    (QWidget, ('winId',)), (mpv.MPV, ('__init__',))):
+                for name in names:
+                    if hasattr(owner, name):
+                        stack.enter_context(patch.object(owner, name, getattr(owner, name)))
+            errors = []
+            stack.enter_context(patch.object(sys, 'excepthook', side_effect=lambda *args: errors.append(args[1])))
+            install(self.probe)
+            window = QWidget()
+            window.setGeometry(-10000, -10000, 500, 600)
+            sidebar = Sidebar([dict(room_id=str(i), uname=f'Fixture {i}') for i in range(24)], window)
+            sidebar.setGeometry(0, 0, 248, 550)
+            preview = HoverPreview(sidebar, window)
+            try:
+                window.show()
+                self.app.processEvents()
+                viewport = sidebar.scroll.viewport()
+                point = viewport.rect().center()
+                for _ in range(3):
+                    wheel = QWheelEvent(QPointF(point), QPointF(viewport.mapToGlobal(point)),
+                        QPoint(), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+                    QApplication.sendEvent(viewport, wheel)
+                self.app.processEvents()
+                self.assertGreater(sidebar.scroll.verticalScrollBar().value(), 0)
+                self.assertEqual(errors, [], 'Timed slots must retain Qt signal argument truncation')
+                self.assertGreater(self.probe.calls['Sidebar._sync_pointer_hover']['count'], 0)
+                self.assertGreater(self.probe.calls['HoverPreview._update_popup_position']['count'], 0)
+            finally:
+                preview.stop()
+                window.close()
+                window.deleteLater()
+                self.app.processEvents()
 
 
 if __name__ == '__main__':
