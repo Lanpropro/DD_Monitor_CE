@@ -83,12 +83,23 @@ def install(probe):
                          (VideoSurface, ('_clip_native_video',)),
                          (HoverPreview, ('_begin_resolve', '_on_resolved', '_update_popup_position')),
                          (Sidebar, ('_prepare_drag_snapshot', '_refresh_visible_covers', '_sync_pointer_hover')),
-                         (MainWindow, ('start_all', '_start_startup_tiles', 'start_tile', '_play_on'))):
+                         (MainWindow, ('start_all', '_start_startup_tiles', 'start_tile', '_play_on',
+                                       'load_room_avatars'))):
         for name in names:
             label = 'player.bind' if owner is TilePlayer and name == 'bind' else f'{owner.__name__}.{name}'
             setattr(owner, name, timed(getattr(owner, name), label))
     QWidget.winId = timed(QWidget.winId, 'player.native-window', binding_only=True)
     mpv.MPV.__init__ = timed(mpv.MPV.__init__, 'player.core-init', binding_only=True)
+
+    on_player_state = MainWindow._on_player_state
+    @functools.wraps(on_player_state)
+    def player_state(window, tile, state):
+        result = on_player_state(window, tile, state)
+        if (threading.get_ident() == probe.main_thread and not probe.stopped.is_set()
+                and tile in window.wall.tiles):
+            probe.write('startup-player-state', tile_index=window.wall.tiles.index(tile), state=state)
+        return result
+    MainWindow._on_player_state = player_state
 
     initialize = MainWindow.__init__
     @functools.wraps(initialize)
