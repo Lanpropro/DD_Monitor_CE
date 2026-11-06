@@ -161,8 +161,8 @@ class TilePlayer(QObject):
         if self.player is None:
             self.player = mpv.MPV(
                 wid=str(hwnd), vo="gpu", gpu_api="d3d11", gpu_context="d3d11",
-                # Preview prepares only the core; mpv opens GPU output when media is ready.
-                force_window=False if self.silent else "immediate",
+                # Open GPU output on mpv's playback thread once media is ready.
+                force_window=False,
                 hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
                 audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
