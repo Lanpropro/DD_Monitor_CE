@@ -254,6 +254,7 @@
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
+| [selfcheck_hotfix_updates](../selfcheck_hotfix_updates.py) | `smoke` / `offline`；同版本修订号、hotfix 标签、包校验与回滚；根入口 `run.cmd --check-hotfix-updates` |
 | [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行前核对 |
 | [selfcheck_legacy_cleanup](../selfcheck_legacy_cleanup.py) | `offline`；历史包哈希、备份迁移、用户数据及链接保护 |
 | [selfcheck_update_notifications](../selfcheck_update_notifications.py) | 单项执行前核对 |

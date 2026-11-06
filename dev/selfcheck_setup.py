@@ -52,6 +52,20 @@ class SetupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Invalid source commit'):
             write_script(self.payload, self.root / 'invalid', self.root / 'out')
 
+    def test_hotfix_revision_survives_setup_payload(self):
+        path = self.payload / 'ddm-build.json'
+        build = json.loads(path.read_text(encoding='utf-8'))
+        build.update(revision=2, diagnostics_protocol=1)
+        path.write_text(json.dumps(build), encoding='utf-8')
+        script = write_script(self.payload, self.root / 'hotfix', self.root / 'out')
+        recorded = json.loads((script.parent / MANIFEST).read_text(encoding='utf-8'))
+        self.assertIn('ddm-build.json', recorded)
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['revision'], 2)
+        build['revision'] = -1
+        path.write_text(json.dumps(build), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            payload_files(self.payload)
+
     def test_diagnostic_tool_and_guide_are_installed_and_recorded(self):
         script = write_script(self.payload, self.root / 'build', self.root / 'out')
         recorded = json.loads((script.parent / MANIFEST).read_text(encoding='utf-8'))

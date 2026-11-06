@@ -353,6 +353,7 @@
 - `dev/selfcheck_recording.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
+- `dev/selfcheck_hotfix_updates.py`
 - `dev/selfcheck_remove_follow_position.py`
 - `dev/selfcheck_replay_scope.py`
 - `dev/selfcheck_repository_files.py`

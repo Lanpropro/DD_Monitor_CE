@@ -146,7 +146,7 @@ def check_download_reopen(app, root):
         started, release = threading.Event(), threading.Event()
         messages = []
         with patch.object(app_module.QTimer, 'singleShot'):
-            window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+            window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         if hosted:
             window._settings_process = SimpleNamespace(_send=messages.append, stop=lambda: None)
         plan = str(root / 'retained-update-plan.json')
@@ -223,7 +223,7 @@ def check_download_reopen(app, root):
             app.processEvents()
     print('PASS: same download/progress and prepared update after closing/reopening normal and hosted settings')
     with patch.object(app_module.QTimer, 'singleShot'):
-        window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+        window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
     page = window._get_update_page({})
     started, interrupted = threading.Event(), threading.Event()
     def wait_for_exit(cancelled, progress):
@@ -345,6 +345,15 @@ def main():
             assert not update.action.isEnabled(), 'source checkout must not replace itself with EXE'
             assert update.notes.toPlainText() == '修复内容'
             assert update.notes_title.text() == '新版 0.3.1 更新说明'
+        hotfix = dict(offer, version=VERSION, revision=1)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['updates'])
+        update._release_ready(hotfix)
+        assert '热修复' in update.status.text() and '热修复' in update.notes_title.text()
+        assert VERSION in update.status.text() and VERSION+'.1' not in update.status.text()
+        from ddm.update_version import update_identity
+        assert dialog.settings()['seen_update_versions']['app'] == update_identity(hotfix)
+        update._release_ready(offer)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
         # 已安装和商店的卡片都应使用页面底色，而不是独立的灰底。
         for tab in (0, 1):
             dialog.plugin_page.tabs.setCurrentIndex(tab)
@@ -444,7 +453,7 @@ def main():
         with patch.object(app_module.MainWindow, 'refresh_status'), \
                 patch.object(app_module.MainWindow, 'refresh_stats'), \
                 patch.object(app_module, 'SettingsDialog', InstallDialog), patch.object(config, 'save') as save:
-            window = app_module.MainWindow([], [], state={'plugins_enabled': []})
+            window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
             shutdown = window.recorder.shutdown
             with patch.object(window.recorder, 'shutdown', wraps=shutdown) as finish:
                 assert window.open_settings('updates')
