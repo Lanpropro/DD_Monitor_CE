@@ -3321,13 +3321,13 @@ class MainWindow(QMainWindow):
         self.sync_danmaku()
 
     def _connect_danmaku_panel(self, panel):
-        panel.fontSizeChanged.connect(self._on_danmaku_font_size)
-        panel.superChatDismissed.connect(lambda chat_id, p=panel:
-            self._dismiss_super_chat(getattr(p, '_linked_room_id', ''), chat_id))
         panel.apply_style(str(self.settings.get('danmaku_font') or ''),
                           int(self.settings.get('danmaku_font_size') or 13))
         panel.set_max_blocks(int(self.settings.get('danmaku_max_blocks') or 3000))
         panel.apply_super_chat_settings(self.settings)
+        panel.fontSizeChanged.connect(self._on_danmaku_font_size)
+        panel.superChatDismissed.connect(lambda chat_id, p=panel:
+            self._dismiss_super_chat(getattr(p, '_linked_room_id', ''), chat_id))
 
     def open_pane_menu(self, cell=-1):
         self.wall.pane_danmaku.open_menu(cell, QCursor.pos())

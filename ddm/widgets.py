@@ -818,7 +818,7 @@ class DanmakuPanel(QFrame):
             state = "connected"
         elif any(word in self._status for word in ("连接中", "重连中", "准备重连", "切换服务器")):
             state = "connecting"
-        elif self._status == "未接入":
+        elif self._status in ("未接入", "未关联"):
             state = "idle"
         else:
             state = "error"
@@ -7063,7 +7063,8 @@ class Tile(QFrame):
             for label, callback in self.plugin_actions:
                 menu.addAction(label, callback)
         menu.addSeparator()
-        menu.addAction("格子内容…", self.paneEditRequested.emit)
+        if not (self.property("pictureInPicture") or self.property("fullscreen")):
+            menu.addAction("格子内容…", self.paneEditRequested.emit)
         menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room))
         return menu
 

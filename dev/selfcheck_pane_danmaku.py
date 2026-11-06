@@ -67,6 +67,11 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(panes.panels)
         self.assertTrue(backing.isVisible())
         self.assertEqual((backing.room, backing.volume, backing.muted), original)
+        source.setProperty('pictureInPicture', True)
+        menu = source.build_menu()
+        self.addCleanup(menu.deleteLater)
+        self.assertNotIn('格子内容…', [action.text() for action in menu.actions()])
+        source.setProperty('pictureInPicture', False)
 
     def test_multiple_panes_share_clients_and_route_messages_status_and_sc(self):
         window = self.wall_window()
@@ -101,6 +106,7 @@ class PaneDanmakuTests(unittest.TestCase):
         first.set_room(None)
         window.sync_danmaku()
         self.assertEqual(panels[0]._linked_room_id, '')
+        self.assertEqual(panels[0].count.property("state"), "idle")
         self.assertIsNone(panes.target(panels[0]))
 
     def test_swap_and_move_keep_explicit_sources_and_recording_is_not_interrupted(self):
@@ -138,6 +144,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(window.apply_room_preset(key))
         self.assertEqual(window.room_preset_snapshot(), snapshot)
         state = window.current_state()
+        state["settings"]["danmaku_font_size"] = 18
         follows, rooms = config.build_rooms(state)
         restored = MainWindow(follows, rooms, layout_id='2x2', state=state)
         restored.settings["close_behavior"] = "exit"
@@ -146,6 +153,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.app.processEvents()
         other = restored.wall.pane_danmaku
         self.assertEqual(set(other.panels), {2, 3})
+        self.assertTrue(all(panel.font_slider.value() == 18 for panel in other.panels.values()))
         self.assertEqual([other.target(panel).room['room_id'] for panel in other.panels.values()], ['1001', '1002'])
         invalid = deepcopy(snapshot)
         invalid['layout']['panels'][0]['source'] = 3
