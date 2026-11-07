@@ -47,7 +47,7 @@ class VideoDanmakuSettings(QMenu):
             grid.addWidget(slider, row, 1)
             grid.addWidget(value_label, row, 2)
         self.controls["video_danmaku_area"].setToolTip("从画面顶部起占用的高度")
-        self.controls["video_danmaku_size"].setToolTip("随屏幕缩放开启时，以 720 像素高的画面为基准")
+        self.controls["video_danmaku_size"].setToolTip("随屏幕缩放开启时，以 720 像素高为基准；小画面缓慢缩小，保留可读性")
         self.controls["video_danmaku_speed"].setToolTip("100% 为适中，约 8 秒穿过画面")
         self.controls["video_danmaku_outline_width"].setToolTip("黑色描边宽度，0 为关闭；随弹幕字体缩放")
         self.scale = QCheckBox("弹幕随屏幕缩放", holder)
