@@ -6,7 +6,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from unittest.mock import patch
+import threading
+from unittest.mock import Mock, patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -25,7 +26,97 @@ def package(path, version='0.3.1', extra=None):
             archive.writestr(prefix + name, data)
 
 
+def check_replacement_failures():
+    def denied():
+        error = PermissionError('access denied')
+        error.winerror = 5
+        return error
+
+    with patch.object(updater.time, 'sleep') as pause:
+        operation = Mock(side_effect=[denied(), denied(), 'done'])
+        assert updater.retry_file_operation(operation) == 'done'
+        assert operation.call_count == 3 and pause.call_count == 2
+        operation = Mock(side_effect=denied())
+        try:
+            updater.retry_file_operation(operation, timeout=0)
+            raise AssertionError('persistent denial must propagate')
+        except PermissionError:
+            assert operation.call_count == 1
+        operation = Mock(side_effect=OSError('disk failure'))
+        try:
+            updater.retry_file_operation(operation)
+            raise AssertionError('unrelated I/O errors must not be retried')
+        except OSError:
+            assert operation.call_count == 1
+
+    if os.name != 'nt':
+        return
+    try:
+        updater.check_replaceable(Path(getattr(sys, '_base_executable', sys.executable)))
+        raise AssertionError('a running executable image must be refused')
+    except OSError as error:
+        assert error.winerror in (5, 32, 33)
+    import ctypes
+    with tempfile.TemporaryDirectory(prefix='ddm-replace-check-') as temporary:
+        root = Path(temporary)
+        old = root / 'DD监控室CE.exe'
+        old.write_bytes(b'old')
+        archive = root / 'update.zip'
+        package(archive, extra={old.name: b'new'})
+        plan = updater.prepare(archive, root, old)
+        try:
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                          ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+            kernel.CreateFileW.restype = ctypes.c_void_p
+            kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+            handle = kernel.CreateFileW(str(old), 0x80000000, 1, None, 3, 0x80, None)
+            assert handle != ctypes.c_void_p(-1).value
+            release = None
+            try:
+                retry = updater.retry_file_operation
+                with patch.object(updater, 'retry_file_operation', side_effect=lambda op: retry(op, timeout=0)):
+                    try:
+                        updater.apply_plan(plan)
+                        raise AssertionError('locked original must block before any replacement')
+                    except OSError as error:
+                        assert error.winerror == 32 and error.filename == str(old)
+                assert old.read_bytes() == b'old'
+                assert not (root / '_internal').exists(), 'preflight must precede all payload writes'
+                release = threading.Timer(.3, lambda: kernel.CloseHandle(handle))
+                release.start()
+                updater.apply_plan(plan)
+            finally:
+                if release is None:
+                    kernel.CloseHandle(handle)
+                else:
+                    release.join(timeout=2)
+            assert old.read_bytes() == b'new'
+        finally:
+            shutil.rmtree(Path(plan).parent)
+
+
+def check_result_identity():
+    with tempfile.TemporaryDirectory(prefix='ddm-update-result-') as temporary:
+        root = Path(temporary)
+        result_path = root / updater.RESULT
+        failure = {'ok': False, 'message': 'old failure', 'target_version': '0.7.2', 'target_revision': 1}
+        result_path.write_text(json.dumps(failure), encoding='utf-8')
+        assert updater.result_message(root, root, '0.7.1') == 'old failure'
+        assert updater.result_message(root, root, '0.7.2') == 'old failure', 'pending hotfix must remain visible'
+        (root / 'ddm-build.json').write_text(json.dumps({'version': '0.7.2', 'revision': 1}), encoding='utf-8')
+        assert updater.result_message(root, root, '0.7.2') == ''
+        assert updater.result_message(root, root, '0.7.3') == ''
+        assert json.loads(result_path.read_text()) == failure, 'keep diagnostic evidence'
+        result_path.write_text(json.dumps({'ok': False, 'message': 'legacy failure'}), encoding='utf-8')
+        assert updater.result_message(root, root, '0.7.2') == ''
+        result_path.write_text(json.dumps({'ok': True, 'message': 'updated'}), encoding='utf-8')
+        assert updater.result_message(root, root, '0.7.2') == 'updated'
+
+
 def main():
+    check_replacement_failures()
+    check_result_identity()
     stages = []
     # Match the published 0.5 fixed EXE name and the 0.5.1 documentation layout.
     with tempfile.TemporaryDirectory(prefix='ddm-upgrade-051-') as temporary:
@@ -128,6 +219,8 @@ def main():
             launch.assert_called_once_with([next_entry], cwd=install.resolve())
         result = json.loads((install / updater.RESULT).read_text(encoding='utf-8'))
         assert result['ok']
+        assert result['target_version'] == '0.3.2' and result['target_revision'] == 0
+        assert result['completed_at'] >= result['started_at']
         updater.clean_previous(install)
         assert Path(next_plan).parent.exists(), 'running helper must not have its runtime removed'
         result['helper_pid'] = child.pid

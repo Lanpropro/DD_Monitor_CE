@@ -633,12 +633,9 @@ class AppUpdatePage(OnlinePage):
         layout.addWidget(self.data_page)
         self.status.setText('点击“检查更新”查询可下载的新版。' if getattr(sys, 'frozen', False) else
                             '源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
-        result = Path(config.data_root()) / update_install.RESULT
-        if result.is_file():
-            try:
-                self.status.setText(json.loads(result.read_text(encoding='utf-8'))['message'])
-            except (OSError, ValueError, KeyError):
-                pass
+        message = update_install.result_message(config.REPO, config.data_root(), version.VERSION)
+        if message:
+            self.status.setText(message)
         self.busyChanged.connect(self._busy)
         self._busy(False)
 

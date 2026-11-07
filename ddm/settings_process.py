@@ -202,6 +202,15 @@ class SettingsProcess(QObject):
             self.process.closeWriteChannel()
             self.kill_timer.start(1000)
 
+    def finish(self, timeout=1000):
+        """Final shutdown also works after the host event loop has stopped."""
+        self.stop()
+        self.kill_timer.stop()
+        if self.process.state() == QProcess.NotRunning or self.process.waitForFinished(timeout):
+            return True
+        self.process.kill()
+        return self.process.state() == QProcess.NotRunning or self.process.waitForFinished(timeout)
+
 
 def run_worker():
     # The worker receives a settings snapshot; it must not read/write the
