@@ -195,8 +195,6 @@ namespace DDMonitorDiagnostics
     internal sealed class Collector
     {
         internal const string ToolVersion = "1.3";
-        internal static readonly string[] CaptureModes = { "folders", "responsiveness", "notices", "danmaku", "drag", "douyu", "douyu-deep", "theme", "fullscreen" };
-        internal static readonly string[] CaptureLabels = { "文件夹 / 列表错位", "界面卡顿", "开播通知关闭残留", "弹幕回退", "拖放异常", "斗鱼播放", "斗鱼深度采集（使用本地中继）", "主题切换耗时", "全屏切换耗时" };
         static readonly string[] TraceNames = { "diagnostic-session", "on-demand", "folder-motion", "responsiveness", "notice-close", "danmaku-motion", "drag-windows", "douyu-playback", "douyu-responsiveness", "theme-switch", "fullscreen" };
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
@@ -252,24 +250,6 @@ namespace DDMonitorDiagnostics
         string[] AppExecutables()
         {
             return Directory.GetFiles(root, "*.exe").Where(p => Regex.IsMatch(Path.GetFileNameWithoutExtension(p), @"^(?:DD监控室(?:CE)?|DDMonitorCE)(?:-v[\d.]+)?$", RegexOptions.IgnoreCase)).ToArray();
-        }
-
-        internal ProcessStartInfo CaptureCommand(string mode)
-        {
-            if (!CaptureModes.Contains(mode)) throw new ArgumentException("未知的专项类型。");
-            string argument = "--diagnose-session=" + mode;
-            string sourceEntry = Path.Combine(root, "run.cmd");
-            if (File.Exists(Path.Combine(root, "ddm", "diagnostic_session.py")) && File.Exists(sourceEntry) && Safe(sourceEntry))
-                return new ProcessStartInfo(sourceEntry, argument) { WorkingDirectory = root, UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden };
-            var text = Read("ddm-build.json", 65536, false);
-            var build = text == null ? null : json.DeserializeObject(text) as IDictionary<string, object>;
-            object protocol;
-            if (build == null || !build.TryGetValue("diagnostics_protocol", out protocol) || Convert.ToInt32(protocol) != 1)
-                throw new IOException("所选版本尚不支持专项启动。0.7 / 0.7.1 仍可生成已有日志诊断包；专项采集需要更新后的主程序。");
-            if (((IEnumerable<object>)Processes()).Any()) throw new IOException("请先正常退出所选目录的客户端，再启动专项诊断；工具不会结束已有进程。");
-            var executable = AppExecutables().FirstOrDefault(Safe);
-            if (executable == null) throw new IOException("未找到可启动的主程序。");
-            return new ProcessStartInfo(executable, argument) { WorkingDirectory = root, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden };
         }
 
         string Read(string relative, int maximum, bool tail)
