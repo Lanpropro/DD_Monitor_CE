@@ -24,8 +24,6 @@ from PySide6.QtWidgets import (
     QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 )
 
-from shiboken6 import isValid
-
 from .corner_geometry import continuous_path
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
