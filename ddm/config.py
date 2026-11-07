@@ -130,6 +130,7 @@ DEFAULT_SETTINGS = {
     "super_chat_opacity": 80,
     "super_chat_collapse_delay": 7,
     "super_chat_scale": 100,
+    "super_chat_scale_with_video": False,
     "super_chat_position": None,
     "super_chat_panel_position": None,
     "super_chat_position_sync": False,
