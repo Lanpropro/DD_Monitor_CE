@@ -1,5 +1,6 @@
 """Build DDMonitorSetup.exe from an already verified Windows portable directory."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -77,9 +78,14 @@ def write_script(payload, work, output):
     marker = work / INSTALL_MARKER
     marker.write_text('{"schema":1,"installed":true}', encoding='utf-8')
     helper = ROOT / 'work/setup-native/DDMonitorInstallerHelper.exe'
+    hashes = {}
+    for name in files:
+        with (payload / name).open('rb') as handle:
+            hashes[name] = hashlib.file_digest(handle, 'sha256').hexdigest()
     file_list = work / 'program-files.txt'
-    file_list.write_text('\n'.join(files + ['DDMonitorUninstall.exe', MANIFEST, INSTALL_MARKER,
-                                         'setup-license/ChineseSimplified-LICENSE.txt']), encoding='utf-8-sig')
+    file_list.write_text('\n'.join(value for name in files + [
+        'DDMonitorUninstall.exe', MANIFEST, INSTALL_MARKER,
+        'setup-license/ChineseSimplified-LICENSE.txt'] for value in (name, hashes.get(name, '-'))), encoding='utf-8-sig')
     # Keep the pre-install tool before the large payload, in its own solid block.
     entries = [f'Source: {quote(helper)}; Flags: dontcopy',
                f'Source: {quote(file_list)}; Flags: dontcopy']
@@ -89,7 +95,8 @@ def write_script(payload, work, output):
         suffix = '' if str(parent) == '.' else '\\' + str(parent).replace('/', '\\')
         directories.add(suffix)
         flags = 'ignoreversion solidbreak' if index == 0 else 'ignoreversion'
-        entries.append(f'Source: {quote(payload / name)}; DestDir: "{{app}}{suffix}"; Flags: {flags}')
+        entries.append(f'Source: {quote(payload / name)}; DestDir: "{{app}}{suffix}"; Flags: {flags}; '
+                       f"Check: ProgramFileChanged('{name}', '{hashes[name]}')")
     # Install this early-stored file before the payload to avoid a second seek.
     entries.insert(2, f'Source: {quote(helper)}; DestDir: "{{app}}"; '
                    'DestName: "DDMonitorUninstall.exe"; Flags: ignoreversion')
@@ -287,22 +294,45 @@ begin
   end;
 end;
 
+function ProgramFileChanged(RelativeName, ExpectedHash: String): Boolean;
+var
+  Name: String;
+begin
+  Result := True;
+  if ExpectedHash = '-' then Exit;
+  Name := AddBackslash(WizardDirValue) + RelativeName;
+  if FileExists(Name) then begin
+    try
+      Result := CompareText(GetSHA256OfFile(Name), ExpectedHash) <> 0;
+    except
+      // Keep the file in the access checks when its contents cannot be read.
+      Log('无法读取已有文件以比较内容：' + Name);
+    end;
+  end;
+end;
+
 function ProgramFilesError: String;
 var
   Names: TArrayOfString;
   Index: Integer;
-  Name: String;
+  Name, RelativeName, ExpectedHash: String;
   Handle: THandle;
   Attr, ErrorCode: LongWord;
 begin
   Result := '无法读取安装文件检查清单，安装未执行。';
   if not LoadStringsFromFile(ExpandConstant('{{tmp}}\\program-files.txt'), Names) then Exit;
-  for Index := 0 to GetArrayLength(Names) - 1 do begin
-    Name := AddBackslash(WizardDirValue) + Names[Index];
+  Result := '安装文件检查清单无效，安装未执行。';
+  if GetArrayLength(Names) mod 2 <> 0 then Exit;
+  Index := 0;
+  while Index < GetArrayLength(Names) do begin
+    RelativeName := Names[Index];
+    ExpectedHash := Names[Index + 1];
+    Index := Index + 2;
+    Name := AddBackslash(WizardDirValue) + RelativeName;
     Result := '程序文件包含链接，安装未执行：' + Name;
     if not SafePath(Name) then Exit;
     Attr := GetFileAttributes(Name);
-    if Attr <> $FFFFFFFF then begin
+    if (Attr <> $FFFFFFFF) and ProgramFileChanged(RelativeName, ExpectedHash) then begin
       Result := '程序文件设置了只读属性，无法覆盖：' + Name + #13#10 +
         '请检查该文件的只读属性后重试，无需删除原安装目录。';
       if (Attr and 1) <> 0 then Exit;

@@ -88,16 +88,33 @@ def check(iscc):
                 kernel.CreateFileW.restype = ctypes.c_void_p
                 kernel.CloseHandle.argtypes = [ctypes.c_void_p]
                 for index, target in enumerate((executable, install / '_internal/libmpv-2.dll')):
+                    if index == 1:
+                        target.write_bytes(b'old runtime')
                     handle = kernel.CreateFileW(str(target), 0x80000000, 1, None, 3, 0x80, None)
                     assert handle != ctypes.c_void_p(-1).value
                     try:
                         log = sandbox / f'locked-{index}.log'
                         assert check_setup_install.run_installer(setup,
                             ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], log) != 0
-                        assert '无法覆盖程序文件' in log.read_text(encoding='utf-8-sig')
+                        content = log.read_text(encoding='utf-8-sig')
+                        assert '无法覆盖程序文件' in content, content[-5000:]
                         assert executable.read_bytes() == b'original program'
                     finally:
                         kernel.CloseHandle(handle)
+                        if index == 1:
+                            target.write_bytes(b'runtime')
+                target = install / '_internal/libmpv-2.dll'
+                handle = kernel.CreateFileW(str(target), 0x80000000, 1, None, 3, 0x80, None)
+                assert handle != ctypes.c_void_p(-1).value
+                try:
+                    log = sandbox / 'unchanged-locked.log'
+                    assert check_setup_install.run_installer(setup,
+                        ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], log) == 0
+                    assert target.read_bytes() == b'runtime'
+                finally:
+                    kernel.CloseHandle(handle)
+                executable.write_bytes(b'original program')
+                print('PASS: unchanged locked runtime skipped during checks and actual file installation')
                 os.chmod(executable, stat.S_IREAD)
                 try:
                     log = sandbox / 'readonly.log'
