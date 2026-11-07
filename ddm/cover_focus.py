@@ -7,6 +7,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QImage, QPixmap
 
 _KEY = 'ddm_cover_faces_v1'
+MAX_COVER_EDGE = 640
 _LOCK = threading.Lock()
 _DETECTORS = None
 
@@ -70,7 +71,11 @@ def faces_for(pixmap):
 
 
 def prepare_cover(pixmap):
-    """Called by cover workers; cache positive and negative detections in PNG text."""
+    """Bound worker-side previews and retain normalized face geometry in image text."""
+    if max(pixmap.width(), pixmap.height()) > MAX_COVER_EDGE:
+        image = pixmap.toImage().scaled(MAX_COVER_EDGE, MAX_COVER_EDGE,
+                                        Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap = QPixmap.fromImage(image)
     if faces_for(pixmap) is not None:
         return pixmap
     image = pixmap.toImage()

@@ -1,5 +1,7 @@
 """Isolated image replacement, shared references, clearing and interactive pie checks."""
 import os
+import json
+import random
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +17,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QThreadPool, Qt
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import config, image_cache, images, theme
@@ -120,6 +122,64 @@ class CacheTests(unittest.TestCase):
         self.assertTrue(self.commit('1', next_url, 'covers'))
         self.assertFalse(old.exists())
         self.assertEqual(Path(images.room_cover_path('1')).read_bytes(), new.read_bytes())
+
+    def test_large_cached_cover_is_compacted_locally_and_keeps_focus_metadata(self):
+        from ddm import cover_focus
+        url = 'https://example.invalid/large-cover.jpg'
+        path = Path(images._cache_path(url, 'covers'))
+        path.parent.mkdir(parents=True)
+        pixels = random.Random(178).randbytes(2560 * 1440 * 3)
+        image = QImage(pixels, 2560, 1440, 2560 * 3, QImage.Format_RGB888).copy()
+        boxes = [[.7, .1, .15, .3]]
+        image.setText(cover_focus._KEY, json.dumps(boxes))
+        self.assertTrue(image.save(str(path), 'PNG'))
+        old_size = path.stat().st_size
+        with patch.object(cover_focus, '_detect_faces', side_effect=AssertionError('Cached faces must be reused')):
+            cover = images.load_cover(url)
+        self.assertEqual(cover.size().width(), 640)
+        self.assertEqual(cover.size().height(), 360)
+        self.assertLess(path.stat().st_size, old_size / 4)
+        self.assertEqual(cover_focus.faces_for(QPixmap(str(path))), boxes)
+        self.assertTrue(images.remember_room_cover('1', url))
+        self.assertEqual(cover_focus.faces_for(images.load_room_cover('1')), boxes)
+        saved = path.read_bytes()
+        images.load_cover(url)
+        self.assertEqual(path.read_bytes(), saved, 'Already compacted images must not accumulate lossy recompression')
+
+    def test_small_transparent_cover_and_shared_room_snapshots_survive_compaction(self):
+        from ddm import cover_focus
+        path = self.image('transparent', 'covers', Qt.transparent)
+        with patch.object(cover_focus, '_detect_faces', return_value=[]):
+            images.load_cover('transparent')
+        self.assertEqual(QImage(str(path)).pixelColor(0, 0).alpha(), 0)
+        self.assertTrue(self.commit('1', 'transparent', 'covers'))
+        self.assertTrue(self.commit('2', 'transparent', 'covers'))
+        for room in ('1', '2'):
+            worker = images.CachedCoverLoader([room])
+            worker.run()
+            self.assertIsNotNone(images.load_room_cover(room))
+            self.assertEqual(QImage(images.room_cover_path(room)).pixelColor(0, 0).alpha(), 0)
+
+    def test_legacy_room_cover_compacts_without_url_or_network_and_stays_readable(self):
+        from ddm import cover_focus
+        path = Path(images.room_cover_path('offline'))
+        path.parent.mkdir(parents=True)
+        image = QImage(1920, 1080, QImage.Format_RGB32)
+        image.fill(Qt.blue)
+        image.setText(cover_focus._KEY, '[]')
+        self.assertTrue(image.save(str(path), 'PNG'))
+        worker = images.CachedCoverLoader(['offline'])
+        seen = []
+        worker.loaded.connect(lambda room, cover: seen.append((room, cover.size())))
+        worker.run()
+        self.assertEqual(seen[0][0], 'offline')
+        self.assertEqual((seen[0][1].width(), seen[0][1].height()), (640, 360))
+        cached = images.load_room_cover('offline')
+        self.assertIsNotNone(cached)
+        self.assertEqual(cover_focus.faces_for(cached), [])
+        before = path.read_bytes()
+        images.CachedCoverLoader(['offline']).run()
+        self.assertEqual(path.read_bytes(), before)
 
     def test_late_result_cannot_overwrite_newer_room_image(self):
         first, second = images.AvatarLoader({'1': 'first'}), images.AvatarLoader({'1': 'second'})

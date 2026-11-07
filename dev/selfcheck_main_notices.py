@@ -494,25 +494,27 @@ class MainNoticesTests(unittest.TestCase):
         from ddm import cover_focus
         from PySide6.QtCore import QRectF
         cover = self.focused_cover([[0.75, 0.02, 0.12, 0.18]])
+        sx, sy = cover.width() / 1000, cover.height() / 600
         with patch.object(cover_focus, '_detect_faces', side_effect=AssertionError('paint detection')):
             crop = cover_focus.source_rect(cover, 420, 120)
-            self.assertTrue(crop.contains(QRectF(750, 12, 120, 108)))
+            self.assertTrue(crop.contains(QRectF(750 * sx, 12 * sy, 120 * sx, 108 * sy)))
             centered = cover_focus.source_rect(cover, 420, 120, focus=False)
-            self.assertAlmostEqual(centered.center().y(), 300)
+            self.assertAlmostEqual(centered.center().y(), cover.height() / 2)
             self.assertLess(crop.top(), centered.top())
 
     def test_cover_focus_group_and_largest_face_selection(self):
         from ddm import cover_focus
         from PySide6.QtCore import QRectF
         cover = self.focused_cover([[0.5, 0.1, 0.1, 0.1], [0.7, 0.12, 0.1, 0.1]])
+        sx, sy = cover.width() / 1000, cover.height() / 600
         crop = cover_focus.source_rect(cover, 420, 120)
-        self.assertTrue(crop.contains(QRectF(500, 60, 300, 72)))
+        self.assertTrue(crop.contains(QRectF(500 * sx, 60 * sy, 300 * sx, 72 * sy)))
         cover = self.focused_cover([[0.4, 0.1, 0.1, 0.1], [0.6, 0.12, 0.1, 0.1]])
         crop = cover_focus.source_rect(cover, 60, 100)
-        self.assertTrue(crop.contains(QRectF(400, 60, 300, 72)))
+        self.assertTrue(crop.contains(QRectF(400 * sx, 60 * sy, 300 * sx, 72 * sy)))
         cover = self.focused_cover([[0.1, 0.05, 0.2, 0.2], [0.7, 0.75, 0.1, 0.1]])
         crop = cover_focus.source_rect(cover, 420, 120)
-        self.assertTrue(crop.contains(QRectF(100, 30, 200, 120)))
+        self.assertTrue(crop.contains(QRectF(100 * sx, 30 * sy, 200 * sx, 120 * sy)))
 
     def test_cover_focus_edges_thin_strips_and_no_face_fallback(self):
         from ddm import cover_focus
@@ -527,8 +529,8 @@ class MainNoticesTests(unittest.TestCase):
                 self.assertAlmostEqual(crop.width() / crop.height(), width / height)
         cover = self.focused_cover([])
         crop = cover_focus.source_rect(cover, 420, 120)
-        self.assertAlmostEqual(crop.center().x(), 500)
-        self.assertAlmostEqual(crop.center().y(), 300)
+        self.assertAlmostEqual(crop.center().x(), cover.width() / 2)
+        self.assertAlmostEqual(crop.center().y(), cover.height() / 2)
 
     def test_cover_models_match_pinned_sources_and_load_offline(self):
         import hashlib
