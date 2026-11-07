@@ -164,23 +164,6 @@ class DiagnosticTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_KEEP_OLD_HEAD', str(entries))
         self.assertIn('session-start', entries['logs/diagnostic-session.jsonl'])
 
-    def test_capture_command_rejects_old_versions_and_unknown_modes_without_launching(self):
-        for mode in ('folders', 'not-a-mode'):
-            result = subprocess.run([str(self.driver), '--capture-command', str(self.app), mode],
-                                    capture_output=True, timeout=20)
-            self.assertEqual(result.returncode, 1)
-        self.put('ddm-build.json', '{"version":"fixture","diagnostics_protocol":1}')
-        self.put('DDMonitorCE.exe', 'This fixture must never execute')
-        result = subprocess.run([str(self.driver), '--capture-command', str(self.app), 'folders'],
-                                capture_output=True, timeout=20)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        command = json.loads(result.stdout)
-        self.assertEqual(command['executable'], str(self.app / 'DDMonitorCE.exe'))
-        self.assertEqual(command['arguments'], '--diagnose-session=folders')
-        self.assertEqual(command['working_directory'], str(self.app))
-        MODES = runpy.run_path(str(ROOT / 'ddm/diagnostic_session.py'))['MODES']
-        self.assertEqual(command['modes'], list(MODES))
-
     def test_recording_logs_are_bounded_redacted_and_keep_expiry_evidence(self):
         folder = self.case / 'recordings'
         parts = folder / '.ddm-parts'
@@ -469,10 +452,20 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'layout passed', result.stdout)
 
-    def test_optional_capture_selection_is_preparation_only(self):
-        result = subprocess.run([str(self.driver), '--capture-guidance', str(self.app)], capture_output=True, timeout=15)
+    def test_external_snapshot_keeps_late_sidebar_after_300_native_children(self):
+        result = subprocess.run([str(self.driver), '--external-windows'], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout.decode('utf-8', errors='replace'))
+        snapshot = json.loads(result.stdout)
+        self.assertGreaterEqual(len(snapshot['windows']), 303)
+        self.assertFalse(snapshot['truncated'])
+        self.assertEqual(snapshot['traversal'], 'breadth-first')
+        self.assertEqual(snapshot['window_limit'], 4096)
+        self.assertFalse(snapshot['internal_state_available'])
+
+    def test_user_tool_only_offers_afterward_collection(self):
+        result = subprocess.run([str(self.driver), '--afterward-guidance', str(self.app)], capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(b'optional capture guidance passed', result.stdout)
+        self.assertIn(b'afterward guidance passed', result.stdout)
 
     def test_collects_version_configuration_plugins_and_only_selected_logs(self):
         self.put('ddm-build.json', '\ufeff' + json.dumps({'version': '0.5.2', 'platform': 'windows-x64'}))

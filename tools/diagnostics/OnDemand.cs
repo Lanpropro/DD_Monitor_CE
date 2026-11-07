@@ -29,13 +29,13 @@ namespace DDMonitorDiagnostics
         static extern bool GetNamedPipeServerProcessId(IntPtr pipe, out uint pid);
         delegate bool EnumWindow(IntPtr window, IntPtr data);
         [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindow callback, IntPtr data);
-        [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr window, EnumWindow callback, IntPtr data);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int count);
         [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr window);
         [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr window);
+        [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window, uint command);
         [StructLayout(LayoutKind.Sequential)] struct Rect { internal int Left, Top, Right, Bottom; }
 
         internal static LiveTarget[] Find(string directory)
@@ -72,14 +72,26 @@ namespace DDMonitorDiagnostics
 
         internal static object ExternalSnapshot(int pid)
         {
+            const int limit = 4096;
             var rows = new List<object>();
-            bool truncated = false;
+            var roots = new List<IntPtr>();
+            EnumWindows((window, data) => {
+                uint owner; GetWindowThreadProcessId(window, out owner);
+                if (owner == pid) roots.Add(window);
+                return true;
+            }, IntPtr.Zero);
+            // Read every top-level window before descendants; a busy video wall must
+            // not consume the entire budget before the sidebar is visited.
+            var pending = new Queue<IntPtr>(roots.OrderByDescending(IsWindowVisible));
             var seen = new HashSet<IntPtr>();
-            EnumWindow visit = (window, data) => {
+            bool truncated = false;
+            while (pending.Count > 0)
+            {
+                var window = pending.Dequeue();
                 uint owner;
                 uint thread = GetWindowThreadProcessId(window, out owner);
-                if (owner != pid || !seen.Add(window)) return true;
-                if (rows.Count >= 256) { truncated = true; return true; }
+                if (owner != pid || !seen.Add(window)) continue;
+                if (rows.Count >= limit) { truncated = true; break; }
                 var name = new StringBuilder(256);
                 GetClassName(window, name, name.Capacity);
                 Rect rect;
@@ -87,14 +99,15 @@ namespace DDMonitorDiagnostics
                 rows.Add(new { hwnd = window.ToInt64().ToString("x"), thread, cls = name.ToString(),
                     parent = GetParent(window).ToInt64().ToString("x"), visible = IsWindowVisible(window),
                     hung = IsHungAppWindow(window), rect = valid ? new[] { rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top } : null });
-                return true;
-            };
-            EnumWindows((window, data) => {
-                uint owner; GetWindowThreadProcessId(window, out owner);
-                if (owner == pid) { visit(window, data); EnumChildWindows(window, visit, data); }
-                return true;
-            }, IntPtr.Zero);
-            return new { pid, windows = rows, truncated, internal_state_available = false };
+                var siblings = new HashSet<IntPtr>();
+                for (var child = GetWindow(window, 5); child != IntPtr.Zero && siblings.Add(child); child = GetWindow(child, 2))
+                {
+                    if (pending.Count + rows.Count >= limit + 1) { truncated = true; break; }
+                    pending.Enqueue(child);
+                }
+            }
+            return new { pid, windows = rows, truncated, window_limit = limit,
+                traversal = "breadth-first", internal_state_available = false };
         }
 
         string ReadLine(NamedPipeClientStream stream, int timeout)
