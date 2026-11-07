@@ -1027,7 +1027,7 @@ def exercise_live_room_picker(app, native, directory):
         pip.manage()
         dialog = pip.dialog
         assert list(dialog.checks) == [0, 1, '3101', '3102', '3103', '3104', '3105']
-        assert [label.text() for label, _keys in dialog.sections] == ['已入墙', '其他已开播']
+        assert [label.text() for label, _keys in dialog.sections] == ['已入墙', '默认关注']
         assert dialog._selected() == [0, 1]
         assert not pip._extra_tiles and wall.tiles == original_tiles
         dialog.reject()

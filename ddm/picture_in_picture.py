@@ -2,14 +2,15 @@
 import math
 import sys
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSignalBlocker, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from . import theme
+from . import follow_folders, theme
+from .search import matches_text
 from .ui import ActionButton, Avatar, ElidedLabel, page_header
 
 
@@ -240,6 +241,7 @@ class RoomChoice(QPushButton):
         self.avatar.set_pixmap_image(pixmap)
         box.addWidget(self.avatar, 0, Qt.AlignHCenter)
         label = ElidedLabel(display, self)
+        label.setStyleSheet(f'color: {theme.TEXT1};')
         label.setAlignment(Qt.AlignCenter)
         label.setTextFormat(Qt.PlainText)
         label.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -282,7 +284,8 @@ class PictureInPictureDialog(QDialog):
         layout.addWidget(self.columns)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
-        self.search.setPlaceholderText('搜索主播或房间号')
+        self.search.setPlaceholderText(controller.host.sidebar.search.placeholderText())
+        self.search.setToolTip(controller.host.sidebar.search.toolTip())
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName('搜索画中画直播间')
         self.search.textChanged.connect(self._filter)
@@ -295,33 +298,49 @@ class PictureInPictureDialog(QDialog):
         self.choice_viewport.installEventFilter(self)
         content = QWidget()
         choices = QVBoxLayout(content)
+        choices.setContentsMargins(0, 0, 0, 0)
+        choices.setSpacing(10)
         self.checks = {}
+        self.choice_buttons = {}
         self.rooms = {}
         self.sections = []
         self.choice_grids = []
         selected = controller.selected_choices()
         faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in controller.host.sidebar.items()}
         for title, entries in controller.candidate_groups():
-            heading = QLabel(title, content)
+            if not entries:
+                continue
+            holder = QFrame(content)
+            holder.setObjectName('PluginCard')
+            block = QVBoxLayout(holder)
+            block.setContentsMargins(10, 10, 10, 10)
+            heading = QLabel(title, holder)
             heading.setObjectName('SectionLabel')
-            heading.setVisible(bool(entries))
-            choices.addWidget(heading)
-            holder = QWidget(content)
-            grid = QGridLayout(holder)
+            heading.setTextFormat(Qt.PlainText)
+            block.addWidget(heading)
+            grid = QGridLayout()
             grid.setContentsMargins(0, 0, 0, 0)
             grid.setSpacing(6)
+            block.addLayout(grid)
             choices.addWidget(holder)
             self.choice_grids.append(grid)
             group = []
             for key, room in entries:
                 name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
-                check = RoomChoice(room, name, len(self.checks), faces.get(str(room['room_id'])), holder)
+                index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
+                check = RoomChoice(room, name, index, faces.get(str(room['room_id'])), holder)
+                check.choice = key
+                sidebar = controller.host.sidebar
+                folder = sidebar.get_folder(sidebar.folder_for(str(room['room_id'])))
+                check.folder_names = ' '.join((folder['name'] if folder else '',
+                                               title if title != '已入墙' else ''))
                 check.setChecked(key in selected)
-                check.toggled.connect(self._refresh)
-                self.checks[key] = check
+                self.checks.setdefault(key, check)
+                self.choice_buttons.setdefault(key, []).append(check)
+                check.toggled.connect(lambda checked, choice=key: self._toggle_choice(choice, checked))
                 self.rooms[key] = room
                 check.show()
-                group.append(key)
+                group.append(check)
             self.sections.append((heading, group))
         choices.addStretch()
         scroll.setWidget(content)
@@ -350,28 +369,36 @@ class PictureInPictureDialog(QDialog):
         return ([index for index in previous if index in checked]
                 + [index for index in checked if index not in previous])
 
+    def _toggle_choice(self, key, checked):
+        for button in self.choice_buttons[key]:
+            with QSignalBlocker(button):
+                button.setChecked(checked)
+            button.badge.setVisible(checked)
+        self._refresh()
+
     def _filter(self, value):
-        query = value.strip().casefold()
-        for heading, keys in self.sections:
+        words = value.strip().lower().split()
+        for heading, buttons in self.sections:
             visible = []
-            for key in keys:
-                room = self.rooms[key]
-                matches = query in (str(room.get('uname', '')) + ' ' + str(room['room_id'])).casefold()
-                self.checks[key].setVisible(matches)
+            for button in buttons:
+                room = self.rooms[button.choice]
+                text = ' '.join((str(room.get('uname') or ''), str(room['room_id']), button.folder_names))
+                matches = all(matches_text(text, word) for word in words)
+                button.setVisible(matches)
                 visible.append(matches)
             heading.setVisible(any(visible))
         self._arrange_choices()
 
     def _arrange_choices(self):
-        columns = max(1, min(6, (self.choice_viewport.width() + 6) // 110))
-        for (_heading, keys), grid in zip(self.sections, self.choice_grids):
+        columns = max(1, min(6, (self.choice_viewport.width() - 20 + 6) // 110))
+        for (_heading, buttons), grid in zip(self.sections, self.choice_grids):
             while grid.count():
                 grid.takeAt(0)
-            visible = [key for key in keys if not self.checks[key].isHidden()]
+            visible = [button for button in buttons if not button.isHidden()]
             for column in range(max(columns, grid.columnCount())):
                 grid.setColumnStretch(column, 1 if column < columns else 0)
-            for index, key in enumerate(visible):
-                grid.addWidget(self.checks[key], index // columns, index % columns)
+            for index, button in enumerate(visible):
+                grid.addWidget(button, index // columns, index % columns)
             grid.parentWidget().setVisible(bool(visible))
 
     def eventFilter(self, watched, event):
@@ -1063,7 +1090,22 @@ class PictureInPicture(QObject):
         for rid, tile in self._extra_tiles.items():
             if tile.room.get('room_id') and rid in self.external_rooms:
                 others.setdefault(rid, tile.room)
-        return [('已入墙', wall), ('其他已开播', list(others.items()))]
+        by_room = {}
+        for key, room in wall + list(others.items()):
+            by_room.setdefault(str(room['room_id']), []).append((key, room))
+        sidebar = self.host.sidebar
+        default = sidebar.default_folder()['id']
+        groups = [('已入墙', wall)]
+        for folder in sidebar.folders:
+            copies = folder['type'] == 'smart' and folder['rule'].get('display') == 'copy'
+            members = follow_folders.smart_members(sidebar.rooms(), sidebar.folders, folder,
+                                                  sidebar._folder_pending) if copies else None
+            entries = [entry for rid, choices in by_room.items()
+                       if (rid in members if copies else (sidebar.folder_for(rid) or default) == folder['id'])
+                       for entry in choices]
+            if entries:
+                groups.append((folder['name'], entries))
+        return groups
 
     def choice_for_index(self, index):
         tiles = self.host.wall.tiles
@@ -1138,7 +1180,7 @@ class PictureInPicture(QObject):
 
     def start(self, selection, columns=0, primary=None):
         wall = self.host.wall
-        candidates = dict(self.candidate_groups()[1][1])
+        candidates = {key: room for _title, entries in self.candidate_groups() for key, room in entries}
         for key in selection:
             if isinstance(key, str) and key not in candidates:
                 return False
