@@ -121,14 +121,14 @@ def main():
     dialog.platform_checks["douyu"].setChecked(True)
     dialog.sort_combo.setCurrentIndex(dialog.sort_combo.findData("name"))
     values = dialog.values()
-    with patch("ddm.widgets.SmartFolderDialog", return_value=dialog), patch.object(dialog, "exec", return_value=QDialog.Accepted):
+    with patch("ddm.sidebar_widgets.SmartFolderDialog", return_value=dialog), patch.object(dialog, "exec", return_value=QDialog.Accepted):
         sidebar.prompt_smart_folder(offline)
     assert sidebar.get_folder(offline)["name"] == "规则修改"
     assert sidebar.get_folder(offline)["rule"] == values["rule"]
     snapshot = sidebar.folder_state()
     dialog.name_edit.clear()
     assert not dialog.findChild(QDialogButtonBox).button(QDialogButtonBox.Ok).isEnabled()
-    with patch("ddm.widgets.SmartFolderDialog", return_value=dialog), patch.object(dialog, "exec", return_value=QDialog.Rejected):
+    with patch("ddm.sidebar_widgets.SmartFolderDialog", return_value=dialog), patch.object(dialog, "exec", return_value=QDialog.Rejected):
         sidebar.prompt_smart_folder(offline)
     assert sidebar.folder_state() == snapshot
     dialog.close()

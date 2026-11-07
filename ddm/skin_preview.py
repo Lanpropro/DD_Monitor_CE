@@ -288,7 +288,7 @@ class SkinPreview(QWidget):
         self._capturing = True
         scene = self.scene
         from .dialogs import SettingsDialog
-        from .widgets import LayoutPicker
+        from .layout_picker import LayoutPicker
         from .skin_parts import style_for
         widget = None
         try:

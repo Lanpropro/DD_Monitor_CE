@@ -9,6 +9,7 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QWidget
 from selfcheck_corner_resize import QApplication, QEvent, QTest, WallGrid, theme
 
+from ddm import tile_widgets
 from ddm import widgets
 
 
@@ -152,7 +153,7 @@ def check_covers(app, wall):
     playing.set_video_active(True)
     app.processEvents()
     QTest.qWait(20)
-    with patch.object(widgets, 'rounded_pixmap', wraps=widgets.rounded_pixmap) as render:
+    with patch.object(tile_widgets, 'rounded_pixmap', wraps=tile_widgets.rounded_pixmap) as render:
         wall.set_interactive_resize(True)
         for step in range(12):
             wall.resize(2700 + step, 1200 + step)

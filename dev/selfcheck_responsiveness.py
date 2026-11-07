@@ -324,7 +324,7 @@ class ProbeTests(unittest.TestCase):
             setattr(Component, name, Component.method)
         path = Path(self.directory.name) / 'installed.jsonl'
         with patch.object(app_module, 'MainWindow', Window), \
-                patch.object(widgets, 'Sidebar', Component), patch.object(widgets, 'WallGrid', Component), \
+                patch('ddm.sidebar_widgets.Sidebar', Component), patch('ddm.wall_widgets.WallGrid', Component), \
                 patch.object(preview, 'HoverPreview', Component), \
                 patch.object(diag, 'FolderMotionCapture'), \
                 patch.object(diag.time, 'perf_counter', side_effect=[0, .02, .03, .05]):

@@ -301,3 +301,5 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 同时运行 `selfcheck_douyin_ui_follows`（本机HTTP与真实WebEngine页面读取）、`selfcheck_douyin_follow_cache`、`selfcheck_douyin_restart_cache`、`selfcheck_account_dialog`、`selfcheck_follow_import`，覆盖官网读取到原生页面切换、缓存重开及其他平台的共享勾选行为。根 `run.cmd` 人工验收：导入关注选择抖音，完成官网读取后，应显示软件菜单；勾选直播间及文件夹并导入，关注栏只新增选中房间，不自动播放。真实官网列表完整性与账号验证需单独人工确认。
 
 日常集成版另跑 `python dev/selfcheck_follow_stress.py` 与 `python dev/selfcheck_pinyin_search.py`。压力脚本等待批量填充结束后再勾选，保留 3000 关注、750 主播的数量断言；与 `selfcheck_follow_import` 一起核对滚动头像、搜索、勾选及分批导入。
+
+业务控件拆分使用 `run.cmd --check-widget-boundaries` 检查独立模块导入、主窗口不依赖兼容入口、旧对象身份及完整Qt子类加载顺序。`selfcheck_pane_danmaku` 与 `selfcheck_main_notices` 默认通过 `dev/checks/widget_cases.py` 将每个完整窗口用例放入独立Qt进程，离屏最多并行两个进程，原生参数保持逐项顺序；子进程失败/超时直接导致检查失败；保留全部用例和断言，单项/原生参数仍有效。人工从根 `run.cmd` 检查关注筛选/文件夹/拖动、弹幕字体/SC/来源切换、格子音量/暂停、布局/分区/全屏及小窗；本批不更改交互设计。

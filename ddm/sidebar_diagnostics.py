@@ -182,7 +182,7 @@ class SidebarEvidence(QObject):
     def expected_layout(self):
         """Derive slots from model state, without calling folder_entries/relayout."""
         from . import follow_folders
-        from .widgets import (CAROUSEL_WIDTH, PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT,
+        from .widget_support import (CAROUSEL_WIDTH, PORTRAIT_LIST_WIDTH, PORTRAIT_LIST_HEIGHT,
                               NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_GAP)
         sidebar = self.sidebar
         items = list(sidebar._items)

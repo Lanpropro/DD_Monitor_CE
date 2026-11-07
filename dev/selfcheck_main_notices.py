@@ -101,7 +101,7 @@ class MainNoticesTests(unittest.TestCase):
         clock = [100.0]
         with patch('ddm.widgets.QCursor.pos', return_value=position) as pointer, \
                 patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]), \
-                patch('ddm.widgets.set_native_cursor') as native:
+                patch('ddm.tile_widgets.set_native_cursor') as native:
             tile._poll_control_hover()
             for reason in ('menu', 'outside', 'override', 'fullscreen', 'hide'):
                 clock[0] += 4
@@ -2043,8 +2043,12 @@ class MainNoticesTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    faulthandler.dump_traceback_later(60, repeat=True)
-    try:
-        unittest.main(verbosity=2)
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(MainNoticesTests, __file__))
+    else:
+        faulthandler.dump_traceback_later(60, repeat=True)
+        try:
+            unittest.main(verbosity=2)
+        finally:
+            faulthandler.cancel_dump_traceback_later()

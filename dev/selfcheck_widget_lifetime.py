@@ -96,7 +96,7 @@ class WidgetLifetimeTests(unittest.TestCase):
         event = SimpleNamespace(globalPos=lambda: QPoint())
         before = (len(tile.findChildren(QMenu)), len(tile.findChildren(QSlider)))
         try:
-            with patch('ddm.widgets.QMenu', FailedMenu):
+            with patch('ddm.tile_widgets.QMenu', FailedMenu):
                 for operation in (lambda: tile.contextMenuEvent(event), tile._open_quality_menu):
                     with self.assertRaisesRegex(RuntimeError, 'Fixture menu failure'):
                         operation()

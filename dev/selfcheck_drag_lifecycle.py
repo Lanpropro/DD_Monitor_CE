@@ -51,7 +51,7 @@ class DragLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.animation = patch.object(motion, 'enabled', return_value=False)
         self.animation.start()
-        self.native_drag = patch('ddm.widgets.QDrag', side_effect=AssertionError('Sidebar must not enter native drag'))
+        self.native_drag = patch('ddm.tile_widgets.QDrag', side_effect=AssertionError('Sidebar must not enter native drag'))
         self.native_drag.start()
         self.window = QWidget()
         self.window.setGeometry(-10000, -10000, 900, 750)
@@ -528,7 +528,7 @@ class DragLifecycleTests(unittest.TestCase):
 
     def test_tile_stale_qt_left_flag_cannot_start_native_drag(self):
         import ctypes
-        from ddm import widgets
+        from ddm import tile_widgets as widgets
         tile = widgets.Tile({'room_id': 'fixture'}, self.window)
         event = QMouseEvent(QEvent.MouseMove, QPointF(60, 60), QPointF(),
                             Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
@@ -546,7 +546,7 @@ class DragLifecycleTests(unittest.TestCase):
 
     def test_tile_held_native_button_starts_one_move_and_consumes_anchor(self):
         import ctypes
-        from ddm import widgets
+        from ddm import tile_widgets as widgets
         tile = widgets.Tile({'room_id': 'fixture'}, self.window)
         event = QMouseEvent(QEvent.MouseMove, QPointF(60, 60), QPointF(),
                             Qt.NoButton, Qt.LeftButton, Qt.NoModifier)

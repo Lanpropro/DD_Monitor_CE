@@ -16,9 +16,67 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev import run_checks as runner
 from dev.checks import bootstrap
+from dev.checks.widget_cases import run_widget_cases
 
 
 class CheckRunnerTests(unittest.TestCase):
+    def test_widget_case_processes_keep_all_cases_and_propagate_failure(self):
+        class Cases(unittest.TestCase):
+            def test_first(self):
+                pass
+            def test_second(self):
+                pass
+
+        class Passing(unittest.TestCase):
+            def test_ok(self):
+                pass
+
+        source = '''
+import sys, unittest
+if '--native' in sys.argv:
+    print('NATIVE flag forwarded', flush=True)
+    sys.argv.remove('--native')
+class Cases(unittest.TestCase):
+    def test_first(self):
+        print('FIRST executed', flush=True)
+        self.fail('intentional child failure')
+    def test_second(self):
+        print('SECOND executed', flush=True)
+class Passing(unittest.TestCase):
+    def test_ok(self):
+        pass
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'cases.py'
+            script.write_text(source, encoding='utf-8')
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = run_widget_cases(Cases, script)
+            self.assertEqual(result, 1)
+            self.assertIn('FIRST executed', output.getvalue())
+            self.assertIn('SECOND executed', output.getvalue())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(run_widget_cases(Passing, script), 0)
+            native_output = io.StringIO()
+            with contextlib.redirect_stdout(native_output):
+                self.assertEqual(run_widget_cases(Passing, script, ('--native',)), 0)
+            self.assertIn('NATIVE flag forwarded', native_output.getvalue())
+
+    def test_widget_case_timeout_is_a_failure(self):
+        class Timed(unittest.TestCase):
+            def test_timeout(self):
+                pass
+
+        error = subprocess.TimeoutExpired('fixture', 60, output=b'partial diagnostic')
+        output = io.StringIO()
+        with patch('dev.checks.widget_cases.subprocess.run', side_effect=error), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(run_widget_cases(Timed, 'fixture.py'), 1)
+        self.assertIn('partial diagnostic', output.getvalue())
+        self.assertIn('TIMEOUT', output.getvalue())
+
     def test_catalog_has_explicit_modes_and_a_dependency_free_default(self):
         suites = runner.load_suites()
         self.assertEqual(set(suites), {'repository', 'smoke', 'offline', 'native', 'live'})
@@ -52,7 +110,8 @@ class CheckRunnerTests(unittest.TestCase):
             'selfcheck_room_placement', 'selfcheck_pane_danmaku',
             'selfcheck_picture_in_picture', 'selfcheck_pip_picker',
             'selfcheck_room_status_controller', 'selfcheck_room_images',
-            'selfcheck_playback_badges', 'selfcheck_ui_polish', 'selfcheck_playback_controls', 'selfcheck_responsiveness',
+            'selfcheck_playback_badges', 'selfcheck_ui_polish', 'selfcheck_playback_controls',
+            'selfcheck_widget_modules', 'selfcheck_responsiveness',
             'selfcheck_startup_scroll_diagnostics',
             'selfcheck_hotfix_updates',
             'selfcheck_player_lifetime', 'selfcheck_playback_recovery',

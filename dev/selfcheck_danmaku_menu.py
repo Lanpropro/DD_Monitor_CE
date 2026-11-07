@@ -28,7 +28,7 @@ def main() -> None:
 
         event = QContextMenuEvent(QContextMenuEvent.Mouse, position,
                                  body.viewport().mapToGlobal(position))
-        with patch("ddm.widgets.QMenu", TestMenu):
+        with patch("ddm.danmaku_widgets.QMenu", TestMenu):
             body.contextMenuEvent(event)
 
     def check_empty(actions):

@@ -79,7 +79,7 @@ def main():
         menu = QMenu(parent)
         QTimer.singleShot(0, lambda: choose(menu))
         return menu
-    with patch("ddm.widgets.QMenu", side_effect=create_menu):
+    with patch("ddm.tile_widgets.QMenu", side_effect=create_menu):
         tile._open_quality_menu()
     assert tile.quality == 25000 and selected
     tile.set_actual_quality(25000)
