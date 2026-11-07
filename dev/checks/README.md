@@ -236,7 +236,7 @@
 | --- | --- |
 | [selfcheck_setup](../selfcheck_setup.py) | `offline`；安装输入白名单、初始清单及卸载脚本边界，不运行安装器 |
 | [check_setup_install](../check_setup_install.py) | 单项 Windows 后台隔离安装、修复、更新与卸载；需明确传入包路径，已有安装时拒绝执行 |
-| [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录写入权限拦截和可写自定义路径安装 |
+| [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录／单文件权限、EXE／DLL 占用、只读文件拦截和解除限制后修复安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
 | [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、封面640及头像256长边/JPEG与PNG压缩、下载后头像快照、小图不放大、裁切元数据/透明度保留、无URL旧图本地转存和重复读取不再压缩、跨进程清理及头像迟到转存保护、饼图选择及后台清理；不联网、不读真实账号 |
 | [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、按钮信号及实际页面复用；离屏、临时数据，无账号/外网 |
@@ -261,7 +261,7 @@
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_hotfix_updates](../selfcheck_hotfix_updates.py) | `smoke` / `offline`；同版本修订号、hotfix 标签、包校验与回滚；根入口 `run.cmd --check-hotfix-updates` |
-| [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行前核对 |
+| [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行；临时更新目录验证回滚、目标访问检查、有限重试和失败记录的版本归属；Windows 下只读检查运行中的 Python 映像并使用临时文件句柄验证占用；不操作真实安装。根目录 `run.cmd --check-update-install` 联合执行更新、安装脚本、更新页和设置进程回归 |
 | [selfcheck_legacy_cleanup](../selfcheck_legacy_cleanup.py) | `offline`；历史包哈希、备份迁移、用户数据及链接保护 |
 | [selfcheck_update_notifications](../selfcheck_update_notifications.py) | 单项执行前核对 |
 | [selfcheck_windows_version](../selfcheck_windows_version.py) | 单项执行前核对 |

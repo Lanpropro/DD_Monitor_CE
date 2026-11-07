@@ -1,7 +1,10 @@
 """Check installer write permissions using disposable directories and an isolated AppId."""
 import argparse
+import ctypes
+import os
 from pathlib import Path
 import subprocess
+import stat
 import sys
 import tempfile
 import time
@@ -77,9 +80,49 @@ def check(iscc):
                 assert sorted(path.name for path in parent.iterdir()) == ['新目录']
                 assert not list(install.glob('ddm*.tmp'))
                 assert (install / data_paths.INSTALL_MARKER).is_file()
+                executable = install / f'{DISPLAY_NAME}.exe'
+                executable.write_bytes(b'original program')
+                kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+                kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                              ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+                kernel.CreateFileW.restype = ctypes.c_void_p
+                kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+                for index, target in enumerate((executable, install / '_internal/libmpv-2.dll')):
+                    handle = kernel.CreateFileW(str(target), 0x80000000, 1, None, 3, 0x80, None)
+                    assert handle != ctypes.c_void_p(-1).value
+                    try:
+                        log = sandbox / f'locked-{index}.log'
+                        assert check_setup_install.run_installer(setup,
+                            ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], log) != 0
+                        assert '无法覆盖程序文件' in log.read_text(encoding='utf-8-sig')
+                        assert executable.read_bytes() == b'original program'
+                    finally:
+                        kernel.CloseHandle(handle)
+                os.chmod(executable, stat.S_IREAD)
+                try:
+                    log = sandbox / 'readonly.log'
+                    assert check_setup_install.run_installer(setup,
+                        ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], log) != 0
+                    assert '只读属性' in log.read_text(encoding='utf-8-sig')
+                    assert executable.read_bytes() == b'original program'
+                finally:
+                    os.chmod(executable, stat.S_IREAD | stat.S_IWRITE)
+                subprocess.run(['icacls', str(executable), '/deny', '*S-1-1-0:(W,D)'],
+                               check=True, capture_output=True)
+                try:
+                    log = sandbox / 'file-permission.log'
+                    assert check_setup_install.run_installer(setup,
+                        ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], log) != 0
+                    assert '无法覆盖程序文件' in log.read_text(encoding='utf-8-sig')
+                finally:
+                    subprocess.run(['icacls', str(executable), '/remove:d', '*S-1-1-0'],
+                                   check=True, capture_output=True)
+                assert executable.read_bytes() == b'original program'
+                print('PASS: existing EXE/DLL locks, read-only file and file ACL denied before payload writes')
                 repair_log = sandbox / 'repair.log'
                 assert check_setup_install.run_installer(setup,
                     ['/NOICONS', '/TASKS=', '/DIR=' + str(install)], repair_log) == 0
+                assert executable.read_bytes() == b'program'
                 assert 'DDM_DIR_PAGE' in repair_log.read_text(encoding='utf-8-sig'), 'Repeat install skipped the directory page'
                 subprocess.run(['icacls', str(install), '/deny', '*S-1-1-0:(WD,AD)'],
                                check=True, capture_output=True)
