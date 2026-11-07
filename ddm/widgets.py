@@ -25,7 +25,6 @@ from .corner_geometry import continuous_path
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 from .workspace_controls import WorkspaceControls
-from .ui.primitives import BarIconButton, ElidedLabel, _repolish
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
 from .dock_feedback import icon_color
 # Keep existing imports of avatar components compatible.
@@ -1135,6 +1134,15 @@ def rounded_pixmap(source: QPixmap, size, radius: int) -> QPixmap:
                        (size.height() - scaled.height()) // 2, scaled)
     painter.end()
     return result
+
+
+def _repolish(widget: QWidget) -> None:
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+# Keep Qt subclass loading in the same order as the original definitions.
+from .ui.labels import ElidedLabel
 
 
 class AccountPopupMenu(QMenu):
@@ -3232,6 +3240,10 @@ class CarouselScroll(QScrollArea):
         bar = self.horizontalScrollBar()
         bar.setValue(bar.value() - delta)
         event.accept()
+
+
+# Preserve the original toolbar subclass loading order.
+from .ui.toolbar import BarIconButton
 
 
 class AppearanceButton(QPushButton):

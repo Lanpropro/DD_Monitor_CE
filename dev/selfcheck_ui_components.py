@@ -38,9 +38,9 @@ assert not any(name in sys.modules for name in (
 
     def test_exports_reuse_original_classes_and_keep_old_imports(self):
         from ddm import avatar_widgets, motion, widgets
-        from ddm.ui import primitives
-        for name in ('ElidedLabel', 'BarIconButton', '_repolish'):
-            self.assertIs(getattr(widgets, name), getattr(primitives, name))
+        from ddm.ui import labels, toolbar
+        self.assertIs(widgets.ElidedLabel, labels.ElidedLabel)
+        self.assertIs(widgets.BarIconButton, toolbar.BarIconButton)
         for module, names in (
                 (avatar_widgets, ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap')),
                 (motion, ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack')),
@@ -52,6 +52,28 @@ assert not any(name in sys.modules for name in (
                     self.assertIn(name, dir(ui))
         with self.assertRaises(AttributeError):
             getattr(ui, 'UnknownComponent')
+
+    def test_aggregate_keeps_original_qt_subclass_loading_order(self):
+        code = '''
+import builtins
+seen = []
+original = builtins.__build_class__
+def record(function, name, *bases, **keywords):
+    seen.append(name)
+    return original(function, name, *bases, **keywords)
+builtins.__build_class__ = record
+try:
+    import ddm.widgets
+finally:
+    builtins.__build_class__ = original
+for before, component, after in (
+        ('DanmakuPanel', 'ElidedLabel', 'AccountPopupMenu'),
+        ('CarouselScroll', 'BarIconButton', 'AppearanceButton')):
+    assert seen.index(before) < seen.index(component) < seen.index(after), seen
+'''
+        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_action_button_keeps_qt_signals_parent_and_style_role(self):
         parent = QWidget()
