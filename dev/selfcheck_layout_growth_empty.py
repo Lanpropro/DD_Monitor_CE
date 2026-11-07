@@ -8,6 +8,7 @@ from unittest.mock import patch
 os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 from ddm import config
@@ -22,7 +23,7 @@ def main():
     state = {"plugins_enabled": [], "settings": {"auto_quality": False,
              "recording_enabled": False, "recording_replay_enabled": False,
              "danmaku_enabled": False, "preview_on_hover": False}}
-    with patch("ddm.app.QTimer.singleShot"), patch.object(MainWindow, "sync_danmaku"), \
+    with patch("ddm.app.QTimer.singleShot", lambda *args: None), patch.object(MainWindow, "sync_danmaku"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
             patch.object(MainWindow, "start_tile") as start:
         for layout in ("2x2", "dm_main3", "portrait_main2", "resize"):
@@ -66,6 +67,8 @@ def main():
                 assert start.call_args.args[0] is empty
             finally:
                 window.close()
+                window.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
                 app.processEvents()
     print("PASS: growing layouts and orientation changes keep new slots empty, preserve the current room/audio and allow explicit drops")
 
