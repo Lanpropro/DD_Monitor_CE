@@ -937,14 +937,19 @@ def check_settings(app):
     app.processEvents()
     page = dialog.danmaku_page
     try:
-        watch = {key: value for key, value in values.items() if key.startswith("video_danmaku_")}
+        curve_keys = {'video_danmaku_scale', 'video_danmaku_scale_strength'}
+        watch = {key: value for key, value in values.items()
+                 if key.startswith("video_danmaku_") and key not in curve_keys}
         assert not watch.keys() & page.values().keys()
+        assert page.values()['video_danmaku_scale'] is False
+        page.video_danmaku_scale_strength.setValue(20)
+        assert page.values()['video_danmaku_scale_strength'] == 20
         labels = [label.text() for label in page.findChildren(QLabel)]
         assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
         assert not {"大小", "滚动速度", "不透明度", "顶部显示区域"}.intersection(labels)
         assert {box.text() for box in page.findChildren(QCheckBox)} == {
-            '显示醒目留言（SC）', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置'}, \
-            'Global danmaku settings expose SC controls, not rolling-text controls'
+            '显示醒目留言（SC）', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置', '弹幕随画面缩放'}, \
+            'Global danmaku settings expose SC and scaling curves without unrelated rolling-text controls'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
         page.super_chat_collapse_delay.setValue(12)
@@ -959,6 +964,8 @@ def check_settings(app):
         assert page.values()['super_chat_collapse_delay'] == 7
         assert page.values()['super_chat_scale'] == 100
         assert page.values()['super_chat_scale_with_video'] is False
+        assert page.values()['video_danmaku_scale'] is True
+        assert page.values()['video_danmaku_scale_strength'] == config.DEFAULT_SETTINGS['video_danmaku_scale_strength']
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()
