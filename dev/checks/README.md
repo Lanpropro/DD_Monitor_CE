@@ -254,7 +254,7 @@
 | [selfcheck_plugin_settings](../selfcheck_plugin_settings.py) | 单项执行前核对 |
 | [selfcheck_plugin_update_notes](../selfcheck_plugin_update_notes.py) | 单项执行前核对 |
 | [selfcheck_plugin_windows_lock](../selfcheck_plugin_windows_lock.py) | 单项执行前核对 |
-| [selfcheck_plugin_controls](../selfcheck_plugin_controls.py) | `offline` |
+| [selfcheck_plugin_controls](../selfcheck_plugin_controls.py) | `offline`；插件控件分配、换位与回收；等分格子跨 599/600 宽度边界时统一音量条样式，手动不等宽独立判断，全屏／布局切换恢复及各格音量保留 |
 | [selfcheck_plugin_credentials](../selfcheck_plugin_credentials.py) | `offline` |
 | [selfcheck_plugin_notices](../selfcheck_plugin_notices.py) | `offline` |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
