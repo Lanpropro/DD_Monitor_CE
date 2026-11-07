@@ -66,7 +66,10 @@ class StartupScrollTests(unittest.TestCase):
 
     def test_installed_application_receives_real_qt_dispatch_in_fresh_process(self):
         code = '''
-import json, tempfile, time
+import json, platform, sys, tempfile, time
+# Match checks/bootstrap.py before aiohttp asks Windows for platform details.
+if sys.platform == 'win32':
+    platform._wmi_query = lambda *args: (_ for _ in ()).throw(OSError('Check process'))
 from pathlib import Path
 from PySide6.QtCore import QEvent
 from PySide6.QtGui import QPixmap
