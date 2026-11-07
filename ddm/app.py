@@ -56,7 +56,10 @@ from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
 from .danmaku_lifecycle import DanmakuLifecycle
-from .widgets import Sidebar, Tile, VolumeButton, WallGrid
+from .sidebar_widgets import Sidebar
+from .tile_widgets import Tile
+from .wall_widgets import WallGrid
+from .playback_controls import VolumeButton
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
 from .single_instance import SingleInstance, restore_main_window

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider,
 
 from . import theme
 from .ui import Avatar, VolumeButton
-from .widgets import VolumePopup
+from .playback_controls import VolumePopup
 
 
 class AudioRow(QWidget):

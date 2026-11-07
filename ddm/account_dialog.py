@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
 from . import bili, theme
 from .bili import FollowLoader
 from .dialogs import FollowImportDialog
-from .widgets import AccountRow, BRAND_ASSETS_DIR
+from .account_widgets import AccountRow
+from .widget_support import BRAND_ASSETS_DIR
 
 
 class FollowAccountResolver(QThread):

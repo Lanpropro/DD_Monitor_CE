@@ -30,7 +30,8 @@ assert not any(name in sys.modules for name in (
 
     def test_legacy_classes_and_shared_values_keep_identity(self):
         from ddm import (account_widgets, danmaku_widgets, layout_picker,
-                         sidebar_cards, widget_support, widgets)
+                         sidebar_cards, sidebar_widgets, tile_widgets, wall_widgets,
+                         widget_support, widgets)
         modules = (
             (account_widgets, ('AccountPopupMenu', 'AccountRow')),
             (danmaku_widgets, ('DanmakuTextBrowser', 'DanmakuBottomButton',
@@ -41,6 +42,9 @@ assert not any(name in sys.modules for name in (
                              'SmartFolderDialog', 'SmartFolderCard', 'FollowFolderButton',
                              'RoomListBox', 'CarouselScroll')),
             (layout_picker, ('LayoutPicker',)),
+            (sidebar_widgets, ('AppearanceButton', 'Sidebar')),
+            (tile_widgets, ('Tile',)),
+            (wall_widgets, ('best_columns', 'WallPaneBorder', 'WallResizePreview', 'WallGrid')),
             (widget_support, ('QUALITY_CHOICES', 'QUALITY_NAMES', 'TILE_BAR_HEIGHT',
                                'TILE_MIME', 'DANMAKU_MIME', 'BRAND_ASSETS_DIR',
                                '_repolish', 'rounded_pixmap', '_ignore_mouse', '_allow_shrink')),
@@ -49,6 +53,26 @@ assert not any(name in sys.modules for name in (
             for name in names:
                 with self.subTest(module=module.__name__, name=name):
                     self.assertIs(getattr(widgets, name), getattr(module, name))
+
+    def test_owned_domains_do_not_import_the_compatibility_entry_or_window(self):
+        for module, forbidden in (
+                ('sidebar_cards', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
+                ('sidebar_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
+                ('tile_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
+                ('wall_widgets', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_widgets'))):
+            with self.subTest(module=module):
+                self.child(f'''
+import importlib, sys
+importlib.import_module('ddm.{module}')
+assert not any(name in sys.modules for name in {forbidden!r})
+''')
+
+    def test_main_window_uses_owned_domains_without_the_compatibility_entry(self):
+        self.child('''
+import sys
+import ddm.app
+assert 'ddm.widgets' not in sys.modules
+''')
 
     def test_compatibility_entry_keeps_original_qt_subclass_order(self):
         self.child('''

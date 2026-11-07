@@ -68,3 +68,31 @@ run.cmd --check-image-cache
 组件专项验证轻量导入、原对象身份、旧导入兼容、按钮信号/禁用/归属、标题/说明样式与旧设置入口、实际页面采用共用控件及主题切换；使用离屏 Qt、临时数据，不读取用户账号、不联网。播放按钮专项另检查音量滚轮上下限、声道提示、暂停/方向/弹幕开关、刷新动画显隐与销毁、多缩放绘制；这些回归不代表实际直播性能验收。
 
 弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片与列表在 `ddm/sidebar_cards.py`，布局选择器在 `ddm/layout_picker.py`。这些业务组件保留 `ddm.widgets` 原导入，状态与信号不迁移到新的通用控制器。`widget_support` 仅维护共用常量与绘制辅助；连接、账号和播放器仍归原宿主。
+
+
+## 业务控件的维护边界
+
+| 职责 | 维护模块 | 保留的状态/生命周期 |
+| --- | --- | --- |
+| 弹幕文本、阅读位置、表情、SC卡片 | `ddm/danmaku_widgets.py` | 面板持有消息、图片加载器和Qt子控件；连接/快照仍由宿主协调 |
+| 账号行及账号菜单绘制 | `ddm/account_widgets.py` | 不接管登录、账号存储或刷新线程 |
+| 关注卡片、文件夹控件、列表排版 | `ddm/sidebar_cards.py` | 原卡片/列表对象、预览播放器和动画归属不变 |
+| 关注栏协调、筛选和导航接线 | `ddm/sidebar_widgets.py` | 原Sidebar状态及对卡片/拖动会话的引用不复制 |
+| 单格视频、浮层和播放控件 | `ddm/tile_widgets.py` | 格子和播放器引用保留；启动解析、恢复和退出仍由原宿主负责 |
+| 画面墙、分区、换格和尺寸预览 | `ddm/wall_widgets.py` | 原Tile对象身份和Qt父子关系不变 |
+| 布局选择器 | `ddm/layout_picker.py` | 仅选择界面和信号 |
+| 共有几何常量、图像/样式辅助 | `ddm/widget_support.py` | 不持有窗口、播放器或业务状态 |
+
+项目内部直接导入上述模块，`ddm.widgets` 供旧调用方兼容使用，按原顺序导出同一类对象。独立模块不反向导入兼容入口。Sidebar在打开选择器时导入LayoutPicker，Tile在计算画面墙音量控件宽度时导入WallGrid；不新增通用宿主接口或重复控制器。结构拆分不代表性能提升。
+
+```mermaid
+flowchart LR
+  App[MainWindow] --> Sidebar[sidebar_widgets]
+  Sidebar --> Cards[sidebar_cards]
+  Sidebar --> Account[account_widgets]
+  Sidebar -. 打开时 .-> Picker[layout_picker]
+  App --> Wall[wall_widgets]
+  Wall --> Tile[tile_widgets]
+  Wall --> Chat[danmaku_widgets]
+  Tile -. 类型判断时 .-> Wall
+```

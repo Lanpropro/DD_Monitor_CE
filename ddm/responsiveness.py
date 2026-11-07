@@ -481,7 +481,8 @@ def install(path, *, extended_folders=False, profile_sidebar=True):
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
     from .preview import HoverPreview
-    from .widgets import Sidebar, WallGrid
+    from .sidebar_widgets import Sidebar
+    from .wall_widgets import WallGrid
 
     original = MainWindow.__init__
     probe = Probe(path)
