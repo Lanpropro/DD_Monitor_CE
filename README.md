@@ -71,6 +71,8 @@
 
 当前已发布版本 **0.7.1**，支持 **Windows 10 / 11 64 位**。
 
+本地候选版本 **0.7.2** 正在打包验收，内容见 [0.7.2 待发布说明](docs/releases/RELEASE-v0.7.2.md)。
+
 [查看本次更新与已知问题](docs/releases/RELEASE-v0.7.1.md)。
 
 [安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7.1/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7.1/DDMonitorCE-v0.7.1-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)

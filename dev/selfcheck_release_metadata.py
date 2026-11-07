@@ -13,10 +13,11 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7.1'
-    assert version.VERSION_TAG == 'v0.7.1'
+    assert version.VERSION == '0.7.2'
+    assert version.VERSION_TAG == 'v0.7.2'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
+    assert notes.startswith('# DD监控室CE v0.7.2 更新说明')
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
     for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
         assert feature in technical, feature

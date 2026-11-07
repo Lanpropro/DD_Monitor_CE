@@ -515,6 +515,7 @@
 - `docs/releases/RELEASE-v0.6.md`
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/RELEASE-v0.7.1.md`
+- `docs/releases/RELEASE-v0.7.2.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具
