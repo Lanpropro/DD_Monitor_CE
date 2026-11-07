@@ -69,7 +69,7 @@ SC 的画面位置与弹幕栏位置分别保存，可关闭同步以独立调�
 | 套件 | 依赖与行为 | 命令 |
 | --- | --- | --- |
 | `repository` | Python 标准库和 Git；不导入 Qt，不读取账号，不联网 | `python dev/run_checks.py` |
-| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 120` |
+| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 180` |
 | `offline` | 开发依赖；离屏 Qt、替身接口或本机 HTTP/WebSocket 服务，不访问真实直播 | `python dev/run_checks.py --suite offline` |
 | `native` | Windows、开发依赖、libmpv；部分项目需 FFmpeg，会创建原生窗口 | `python dev/run_checks.py --suite native` |
 | `live` | Windows、运行库和网络；显式指定公开开播房间，只读接收 | 使用下方单项命令 |
@@ -303,3 +303,5 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 日常集成版另跑 `python dev/selfcheck_follow_stress.py` 与 `python dev/selfcheck_pinyin_search.py`。压力脚本等待批量填充结束后再勾选，保留 3000 关注、750 主播的数量断言；与 `selfcheck_follow_import` 一起核对滚动头像、搜索、勾选及分批导入。
 
 业务控件拆分使用 `run.cmd --check-widget-boundaries` 检查独立模块导入、主窗口不依赖兼容入口、旧对象身份及完整Qt子类加载顺序。`selfcheck_pane_danmaku` 与 `selfcheck_main_notices` 默认通过 `dev/checks/widget_cases.py` 将每个完整窗口用例放入独立Qt进程，离屏最多并行两个进程，原生参数保持逐项顺序；子进程失败/超时直接导致检查失败；保留全部用例和断言，单项/原生参数仍有效。人工从根 `run.cmd` 检查关注筛选/文件夹/拖动、弹幕字体/SC/来源切换、格子音量/暂停、布局/分区/全屏及小窗；本批不更改交互设计。
+
+CI 的 smoke 每项上限为180秒，覆盖完整窗口用例各自启动Qt进程的额外时间；每个子用例仍有60秒上限。旧120秒上限在较慢runner仅完成74个主窗口用例，未完成部分不能计作通过，因此增加总时限以执行全部用例，不改变断言或超时失败行为。

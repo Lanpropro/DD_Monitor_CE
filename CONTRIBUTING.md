@@ -100,7 +100,7 @@ python -m compileall -q ddm blivedm main.py
 git diff --check
 ```
 
-GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 120` 的离屏核心功能检查。smoke 使用开发依赖和 libmpv；CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。这些检查不能替代原生播放和真实直播验收。
+GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 180` 的离屏核心功能检查。smoke 使用开发依赖和 libmpv；CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。这些检查不能替代原生播放和真实直播验收。
 
 使用 `python dev/run_checks.py --list` 查看已审查的测试套件。完整命令、依赖与全部专项脚本的分类入口见[验证指南](docs/development/testing.md)。新增测试同步更新分类索引；确认隔离条件后再纳入批量套件。
 

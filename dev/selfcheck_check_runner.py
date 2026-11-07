@@ -122,7 +122,7 @@ if __name__ == '__main__':
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
                      'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
-                     'python dev/run_checks.py --suite smoke --timeout 120'):
+                     'python dev/run_checks.py --suite smoke --timeout 180'):
             self.assertIn(text, workflow)
 
     def test_shared_scripts_require_the_same_isolation_mode(self):
