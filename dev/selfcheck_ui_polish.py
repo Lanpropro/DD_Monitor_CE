@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QImage, QMouseEvent, QPainter
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyleOptionButton, QWidget
 from ddm import config, theme
