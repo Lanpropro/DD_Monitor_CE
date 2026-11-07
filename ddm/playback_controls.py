@@ -38,13 +38,16 @@ class TileButton(QPushButton):
         focused = self.hasFocus() and getattr(self, '_keyboard_focus', False)
         option.state &= ~QStyle.State_HasFocus
         frame = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
-        radius = min(9.0, frame.height() / 2)
+        radius = frame.height() / 2
         painter.save()
         if focused:
-            clip = QPainterPath()
-            clip.addPath(continuous_path(frame.adjusted(1, 1, -1, -1), max(0, radius - 1)))
-            painter.setClipPath(clip)
-        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
+            painter.setClipPath(continuous_path(frame.adjusted(1, 1, -1, -1), max(0, radius - 1)))
+        from . import continuous_corners
+        surfaces = continuous_corners._filter
+        if surfaces is not None:
+            continuous_corners._paint(painter, self.rect(), surfaces.values(self), self.palette())
+        else:
+            self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
         painter.restore()
         self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
         if focused:

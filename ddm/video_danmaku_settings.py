@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QMenu, QSlider, QW
 
 from . import theme
 from .config import DEFAULT_SETTINGS
-from .ui import ActionButton, ColorDialog
+from .ui import ActionButton, ColorDialog, ScaleCurveControl
 
 
 class VideoDanmakuSettings(QMenu):
@@ -62,7 +62,13 @@ class VideoDanmakuSettings(QMenu):
         self._color = QColor('#ffffff')
         grid.addWidget(self.color_button, 5, 1, 1, 2)
         grid.addWidget(self.scale, 6, 0, 1, 3)
-        grid.addWidget(self.independent, 7, 0, 1, 3)
+        self.scale_strength = ScaleCurveControl()
+        self.scale_strength.valueChanged.connect(
+            lambda value: self.settingsChanged.emit({'video_danmaku_scale_strength': value}))
+        self.scale.toggled.connect(self.scale_strength.setEnabled)
+        grid.addWidget(QLabel('缩放强度'), 7, 0)
+        grid.addWidget(self.scale_strength, 7, 1, 1, 2)
+        grid.addWidget(self.independent, 8, 0, 1, 3)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
@@ -107,6 +113,10 @@ class VideoDanmakuSettings(QMenu):
         self.scale.blockSignals(True)
         self.scale.setChecked(bool(settings.get("video_danmaku_scale", True)))
         self.scale.blockSignals(False)
+        self.scale_strength.blockSignals(True)
+        self.scale_strength.setValue(int(settings.get('video_danmaku_scale_strength', 35)))
+        self.scale_strength.blockSignals(False)
+        self.scale_strength.setEnabled(self.scale.isChecked())
 
     def open_at(self, button, settings: dict) -> None:
         self.apply_settings(settings)

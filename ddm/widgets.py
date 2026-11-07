@@ -137,6 +137,7 @@ class DanmakuTextBrowser(QTextBrowser):
     """能告诉面板“用户正在查看旧弹幕”的文本区。"""
 
     userScrolled = Signal()
+    viewportScrolled = Signal()
     messageClicked = Signal(int, QPoint)
 
     def __init__(self, parent=None):
@@ -171,6 +172,7 @@ class DanmakuTextBrowser(QTextBrowser):
 
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)
+        self.viewportScrolled.emit()
         if self.viewport().underMouse():
             self._hover_at(QPointF(self.viewport().mapFromGlobal(QCursor.pos())))
 
@@ -693,6 +695,7 @@ class DanmakuPanel(QFrame):
         self.bottom_button = DanmakuBottomButton(self.body.viewport())
         self.bottom_button.clicked.connect(self.jump_to_bottom)
         self.bottom_button.hide()
+        self.body.viewportScrolled.connect(self._position_bottom_button)
         self.body.viewport().installEventFilter(self)
         self.composer_bar = QWidget(self)
         self.composer_bar.setObjectName("DanmakuBar")
@@ -935,6 +938,7 @@ class DanmakuPanel(QFrame):
                 scroll_bar.setValue(scroll_bar.maximum())
             else:
                 scroll_bar.setValue(min(value, scroll_bar.maximum()))
+            self._update_bottom_button()
 
         restore()
         # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。
@@ -6948,8 +6952,11 @@ class Tile(QFrame):
     def contextMenuEvent(self, event) -> None:
         if not self.room.get("room_id"):
             menu = QMenu(self)
-            menu.addAction("切换为弹幕", self.paneEditRequested.emit)
-            menu.exec(event.globalPos())
+            menu.addAction("切换为弹幕", self.paneEditRequested.emit).setData('switch_danmaku')
+            from .tile_menu import arrange_menu
+            arrange_menu(menu, self._video_danmaku_global_settings.get('tile_context_menu'))
+            if not menu.isEmpty():
+                menu.exec(event.globalPos())
             menu.deleteLater()
             return
         # 插件要先把自己那一组菜单项登记进来（本体不认识它们）
@@ -6981,23 +6988,27 @@ class Tile(QFrame):
         holder_layout.addWidget(slider)
         wrapper = QWidgetAction(menu)
         wrapper.setDefaultWidget(holder)
+        wrapper.setData('volume')
         menu.addAction(wrapper)
         menu.addSeparator()
 
         quality_menu = menu.addMenu("画质")
+        quality_menu.menuAction().setData('quality')
         for name, value in self._quality_choices():
             action = quality_menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(value == self.quality)
             action.triggered.connect(lambda _checked=False, v=value: self.set_quality(v))
 
-        menu.addAction("当前窗口编解码设置…", self.codecSettingsRequested.emit)
+        menu.addAction("当前窗口编解码设置…", self.codecSettingsRequested.emit).setData('codec')
         info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, self, self.streamInfoRequested.emit))
         info.setEnabled(bool(self.room.get('room_id')))
+        info.setData('stream_info')
 
         # 声道：0 默认、3 只左、4 只右、2 反向立体声、5 杜比。
         # 只有「只左 / 只右」能把两路画面分到两只耳朵，其余是原程序的音效档。
         audio_menu = menu.addMenu("声道")
+        audio_menu.menuAction().setData('audio_channel')
         for name, value in (("默认（跟随片源）", 0), ("只播左声道", 3),
                             ("只播右声道", 4), ("反向立体声", 2), ("杜比矩阵下混（多声道源）", 5)):
             action = audio_menu.addAction(name)
@@ -7005,21 +7016,23 @@ class Tile(QFrame):
             action.setChecked(value == self.audio_channel)
             action.triggered.connect(lambda _checked=False, v=value: self.set_audio_channel(v))
         menu.addSeparator()
-        menu.addAction("取消静音" if self.muted else "静音", self._toggle_mute)
+        menu.addAction("取消静音" if self.muted else "静音", self._toggle_mute).setData('mute')
         menu.addAction("弹幕观看设置…", lambda: QTimer.singleShot(0, self,
             lambda: self.danmaku_settings_menu.open_at(
-                self.danmaku_button, self.video_danmaku.settings)))
-        menu.addAction("刷新重连", lambda: self.reloadRequested.emit(self.room))
-        menu.addAction("全屏查看", lambda: self.fullscreenRequested.emit(self))
+                self.danmaku_button, self.video_danmaku.settings))).setData('danmaku_settings')
+        menu.addAction("刷新重连", lambda: self.reloadRequested.emit(self.room)).setData('reload')
+        menu.addAction("全屏查看", lambda: self.fullscreenRequested.emit(self)).setData('fullscreen')
         if self.plugin_actions:
             # 插件加的一项占一行；组与组之间用分隔线断开，免得和本体的项混在一起
             menu.addSeparator()
             for label, callback in self.plugin_actions:
-                menu.addAction(label, callback)
+                menu.addAction(label, callback).setData('plugins')
         menu.addSeparator()
         if not (self.property("pictureInPicture") or self.property("fullscreen")):
-            menu.addAction("切换为弹幕", self.paneEditRequested.emit)
-        menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room))
+            menu.addAction("切换为弹幕", self.paneEditRequested.emit).setData('switch_danmaku')
+        menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room)).setData('close')
+        from .tile_menu import arrange_menu
+        arrange_menu(menu, self._video_danmaku_global_settings.get('tile_context_menu'))
         return menu
 
     def set_volume(self, value: int) -> None:
