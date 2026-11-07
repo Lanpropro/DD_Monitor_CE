@@ -794,7 +794,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
         self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
         self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
-        self.super_chat_position_sync.setChecked(False)
+        self.super_chat_position_sync.setChecked(config_module.DEFAULT_SETTINGS['super_chat_position_sync'])
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
