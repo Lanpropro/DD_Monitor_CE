@@ -64,18 +64,6 @@ class BadgeSurface(QWidget):
                 QTimer.singleShot(0, self, self.refresh_theme)
         return result
 
-    def _clear_layered(self):
-        self._layered_paint_pending = False
-        self._last_alpha_state = None
-        hwnd = getattr(self, "_layered_hwnd", None)
-        if hwnd and sys.platform == "win32":
-            user32 = ctypes.windll.user32
-            user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
-            user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
-            style = user32.GetWindowLongW(hwnd, -20)
-            user32.SetWindowLongW(hwnd, -20, style & ~0x00080000)
-            self._layered_hwnd = None
-
     def _layered_render_key(self):
         return None
 
