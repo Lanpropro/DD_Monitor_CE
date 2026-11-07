@@ -322,6 +322,35 @@ class ControlsTests(unittest.TestCase):
         APP.processEvents()
         self.assertTrue(wall.danmaku.composer_bar.isHidden())
 
+    def test_multiple_panels_exchange_existing_editors_and_share_message_controls(self):
+        self.register()
+        wall = WallGrid([{'room_id': str(12 + i)} for i in range(4)], layout_id='2x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.resize(1200, 800)
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        first, second = wall.tiles[:2]
+        first_edit = first._plugin_controls.entries[0].control.widget
+        second_edit = second._plugin_controls.entries[0].control.widget
+        first_edit.setText('first draft')
+        second_edit.setText('second draft')
+        wall.pane_danmaku.apply({2: first, 3: second})
+        panels = wall.pane_danmaku.panels
+        self.assertIs(first._plugin_controls.widget.parentWidget(), panels[2].composer_bar)
+        self.assertIs(second._plugin_controls.widget.parentWidget(), panels[3].composer_bar)
+        wall.pane_danmaku.apply({2: second, 3: first})
+        self.assertIs(first._plugin_controls.widget.parentWidget(), panels[3].composer_bar)
+        self.assertIs(second._plugin_controls.widget.parentWidget(), panels[2].composer_bar)
+        self.assertEqual(first_edit.text(), 'first draft')
+        self.assertEqual(second_edit.text(), 'second draft')
+        wall.pane_danmaku.apply({2: first, 3: first})
+        self.assertIs(panels[2]._linked_controls, first._plugin_controls)
+        self.assertIs(panels[3]._linked_controls, first._plugin_controls)
+        self.assertTrue(panels[3].composer_bar.isHidden())
+
     def test_every_assignment_is_delivered_as_a_copy(self):
         self.register()
         tile = self.tile({'room_id': '12'})

@@ -15,30 +15,49 @@ class DanmakuLifecycle:
         host = self.host
         if host._closing or not getattr(host, "plugins", None):
             return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
-        panel = host.wall.danmaku
-        host.wall.sync_sc_placement()
-        room = host._danmaku_target_room() if host.wall.has_danmaku else {}
-        room_id = str(room.get("room_id") or "")
-        wanted = {str(tile.room["room_id"]) for tile in host.wall.tiles
+        wall = host.wall
+        wall.sync_sc_placement()
+        targets = {}
+        if wall.has_danmaku:
+            for panel in wall.pane_danmaku.panels.values():
+                tile = wall.pane_danmaku.target(panel)
+                targets[panel] = tile.room if tile is not None else {}
+        wanted = {str(tile.room['room_id']) for tile in wall.tiles
                   if tile.isVisible() and (tile.danmaku_button.isChecked() or
-                      host.wall.has_danmaku and host.settings.get('super_chat_enabled', True))
-                  and tile.room.get("room_id") and (tile.room.get("live") or tile._player_active)}
-        if host.wall.has_danmaku and host._danmaku is None and host._danmaku_room:
-            wanted.add(host._danmaku_room)
-        if room_id:
-            wanted.add(room_id)
-        if room_id != host._danmaku_room:
-            host._danmaku, host._danmaku_room = None, ""
+                      wall.has_danmaku and host.settings.get('super_chat_enabled', True))
+                  and tile.room.get('room_id') and (tile.room.get('live') or tile._player_active)}
+        wanted.update(str(room['room_id']) for room in targets.values() if room.get('room_id'))
+        primary = str(targets.get(wall.danmaku, {}).get('room_id') or '')
+        if primary != host._danmaku_room:
+            host._danmaku, host._danmaku_room = None, ''
+        for panel in wall.pane_danmaku.all_panels():
+            room = targets.get(panel, {})
+            room_id = str(room.get('room_id') or '')
+            previous = getattr(panel, '_linked_room_id', '')
+            panel._linked_room_id = room_id
+            panel.title.setText('弹幕')
+            if not room_id:
+                if previous or not panel._has_content:
+                    panel.set_placeholder('点击上方头像选择关联画面')
+                panel.set_status('未关联')
+                continue
+            if previous != room_id:
+                panel.set_placeholder(f"正在连接 {room.get('uname') or room_id} 的弹幕…")
+            if panel is wall.danmaku:
+                if host._danmaku is None:
+                    host.start_danmaku(room_id, room.get('uname', ''))
+                client = host._danmaku
+            else:
+                client = host._ensure_danmaku_client(room_id)
+            panel.set_status(host._danmaku_status.get(room_id, '连接中…') if client is not None else '暂不支持')
+            if client is None:
+                panel.set_placeholder('此平台弹幕尚未接入，直播画面可正常播放')
+            host._publish_super_chats(room_id)
+        wall.pane_danmaku.refresh_sources()
         for unused in set(host._danmaku_clients) - wanted:
             host._stop_danmaku_client(unused)
-        if room_id and host._danmaku is None:
-            host.start_danmaku(room_id, room.get("uname", ""))
-        elif not room_id:
-            panel.set_placeholder("把直播间拖到主画面，这里就会显示它的弹幕")
-        elif host._danmaku is not None:
-            host._publish_super_chats(room_id)
-        for target in wanted - set(host._danmaku_clients) - {room_id}:
-            host._ensure_danmaku_client(target)
+        for room_id in wanted - set(host._danmaku_clients):
+            host._ensure_danmaku_client(room_id)
 
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         host = self.host

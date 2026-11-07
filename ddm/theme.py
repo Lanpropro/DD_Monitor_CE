@@ -1407,6 +1407,8 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuBody {{
     background: transparent;
     border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
     color: {TEXT2};
     font-size: {FONT_CAPTION}px;
 }}
@@ -1428,6 +1430,8 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuBar {{
     background: rgba(10, 11, 13, 0.52);
     border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
 }}
 #DanmakuBarLabel {{
     color: {TEXT3};

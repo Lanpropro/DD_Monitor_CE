@@ -37,8 +37,17 @@ def validate(snapshot):
         raise ValueError("该组合使用的布局暂不支持")
     count = layouts.capacity(identifier)
     default_dm = layouts.danmaku_cell(identifier)
+    panels = None
+    if "panels" in source:
+        from .pane_danmaku import validate_panels
+        panels = validate_panels(source["panels"], count)
+        if any(item["source"] is not None and (item["source"] >= count or
+                item["source"] in {panel["cell"] for panel in panels}) for item in panels):
+            raise ValueError("弹幕来源越界")
     dm = source.get("danmaku_cell")
-    if default_dm is None:
+    if panels is not None:
+        dm = None
+    elif default_dm is None:
         if dm is not None:
             raise ValueError("当前布局不能放置弹幕格")
     elif type(dm) is not int or not 0 <= dm < count or (
@@ -86,7 +95,10 @@ def validate(snapshot):
         label = slot.get("label")
         result.append(dict(cell=cell, room_id=rid, volume=volume, muted=muted,
                            audio_channel=channel, label=label if isinstance(label, str) else rid))
-    return {"layout": dict(id=identifier, ratios=deepcopy(ratios), danmaku_cell=dm),
+    layout = dict(id=identifier, ratios=deepcopy(ratios), danmaku_cell=dm)
+    if panels is not None:
+        layout["panels"] = panels
+    return {"layout": layout,
             "slots": sorted(result, key=lambda slot: slot["cell"])}
 
 
@@ -118,7 +130,7 @@ def thumbnail_geometry(snapshot, area):
         if node.key != "root" or not layouts.is_portrait_layout(identifier):
             return node.weights
         main = rect.width() * 9 / 16
-        dm = rect.height() * .22 if snapshot["layout"]["danmaku_cell"] is not None else 0
+        dm = rect.height() * .22 if layouts.danmaku_cell(identifier) is not None else 0
         small = max(1, rect.height() - main - dm - 3 * (len(node.children) - 1))
         return [main, small, dm] if dm else [main, small]
     return resize_layout.geometry(partition(identifier), area, 3, lambda _: QSize(1, 1),

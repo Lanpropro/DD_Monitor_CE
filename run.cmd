@@ -27,6 +27,7 @@ if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
+if /i "%~1"=="--check-wall-panes" goto wallPanesCheck
 if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
@@ -59,6 +60,15 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_pages
+exit /b %errorlevel%
+
+:wallPanesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_pane_danmaku.py" --native
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pane_danmaku
 exit /b %errorlevel%
 
 :pictureInPictureCheck
