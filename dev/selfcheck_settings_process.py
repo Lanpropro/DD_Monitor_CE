@@ -46,6 +46,7 @@ def child(action):
                 return
             if action in ('preview-save', 'preview-sync-save'):
                 page = self.danmaku_page
+                page.super_chat_position_sync.setChecked(False)
                 assert not hasattr(page.super_chat_placement, 'frame')
                 page.super_chat_preview_layout.button(1).click()
                 assert page.super_chat_placement.layout_mode == 'panel'
@@ -221,11 +222,11 @@ def check_worker(app, action):
                 if action == 'preview-save':
                     assert saves[0]['settings']['super_chat_position'] == [0.0, .6]
                     assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
-                    assert saves[0]['settings'].get('super_chat_position_sync', False) is False
+                    assert saves[0]['settings']['super_chat_position_sync'] is False
                 if action == 'preview-sync-save':
                     assert saves[0]['settings']['super_chat_position'] == [1.0, .2]
                     assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
-                    assert saves[0]['settings']['super_chat_position_sync'] is True
+                    assert saves[0]['settings'].get('super_chat_position_sync', True) is True
                 assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'

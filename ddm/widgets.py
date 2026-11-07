@@ -467,7 +467,7 @@ class SuperChatStack(QWidget):
         self.hide()
 
     def configure(self, settings):
-        self._position = settings.get('super_chat_position' if settings.get('super_chat_position_sync', False)
+        self._position = settings.get('super_chat_position' if settings.get('super_chat_position_sync', True)
                                       else 'super_chat_panel_position')
         self._enabled = bool(settings.get('super_chat_enabled', True))
         self._opacity = int(settings.get('super_chat_opacity', 80)) / 100

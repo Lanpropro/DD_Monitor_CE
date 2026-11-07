@@ -240,7 +240,7 @@ class SuperChatPlacementPreview(SkinPreview):
         self.setAccessibleName('SC 位置与大小预览')
         self.setToolTip('拖动卡片摆放，拖动右下角调整共用大小；位置是否同步由下方开关决定，双击恢复当前位置和共用大小')
         self._positions = {'video': None, 'panel': None}
-        self.position_sync = False
+        self.position_sync = True
         self.scale = 100
         self.opacity = 80
         self.layout_mode = 'video'
@@ -275,7 +275,7 @@ class SuperChatPlacementPreview(SkinPreview):
                 'super_chat_scale': self.scale}
 
     def apply_settings(self, settings):
-        self.position_sync = bool(settings.get('super_chat_position_sync', False))
+        self.position_sync = bool(settings.get('super_chat_position_sync', True))
         for mode, key in (('video', 'super_chat_position'), ('panel', 'super_chat_panel_position')):
             position = settings.get(key)
             self._positions[mode] = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
