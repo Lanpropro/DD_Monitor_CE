@@ -44,7 +44,7 @@ def child(action):
                     theme.signals().changed.connect(report)
                 report(theme.mode())
                 return
-            if action == 'preview-save':
+            if action in ('preview-save', 'preview-sync-save'):
                 page = self.danmaku_page
                 assert not hasattr(page.super_chat_placement, 'frame')
                 page.super_chat_preview_layout.button(1).click()
@@ -54,6 +54,9 @@ def child(action):
                 page.super_chat_placement.position = [0.0, .6]
                 page.super_chat_preview_layout.button(1).click()
                 assert page.super_chat_placement.position == [1.0, .2]
+                if action == 'preview-sync-save':
+                    page.super_chat_position_sync.click()
+                    assert page.super_chat_placement.position_sync
                 assert page.super_chat_placement.preview_context['panel']['size'] == [800, 450]
                 assert page.super_chat_collapse_delay.suffix() == ''
                 assert page.super_chat_collapse_unit.text() == '秒'
@@ -218,6 +221,11 @@ def check_worker(app, action):
                 if action == 'preview-save':
                     assert saves[0]['settings']['super_chat_position'] == [0.0, .6]
                     assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
+                    assert saves[0]['settings'].get('super_chat_position_sync', False) is False
+                if action == 'preview-sync-save':
+                    assert saves[0]['settings']['super_chat_position'] == [1.0, .2]
+                    assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
+                    assert saves[0]['settings']['super_chat_position_sync'] is True
                 assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
@@ -933,7 +941,7 @@ def main():
         print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
         return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'preview-save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
+                   'save', 'preview-save', 'preview-sync-save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)
