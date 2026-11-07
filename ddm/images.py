@@ -8,7 +8,7 @@ from concurrent.futures import Future
 from urllib.parse import urlsplit
 
 import requests
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QThread, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QThread, Qt, Signal
 from PySide6.QtGui import QPixmap
 
 from . import bili
@@ -26,6 +26,8 @@ _EMOTICON_LOCK = threading.Lock()
 _EMOTICON_BYTES = 0
 _EMOTICON_CACHE_LIMIT = 16 * 1024 * 1024
 _COVER_STORAGE_KEY = 'ddm_cover_storage_v1'
+_AVATAR_STORAGE_KEY = 'ddm_avatar_storage_v1'
+MAX_AVATAR_EDGE = 256
 
 
 def _cache_path(url: str, subdir: str = "avatars") -> str:
@@ -56,7 +58,7 @@ def _cdn_url(url: str, size: str = "") -> str:
 
 
 def _cdn_size_for(subdir: str) -> str:
-    """只有房间封面是 16:9 大图值得缩；头像本来就小，缩了反而糊。"""
+    """封面请求 CDN 小图；头像保持原 URL，在后台本地缩小。"""
     return CDN_SIZE if subdir == "covers" else ""
 
 
@@ -202,9 +204,9 @@ def _remember_image(room_id, url, kind, source, target, stamp):
     return image_cache.remember(REPO, kind, room_id, source, target, stamp)
 
 
-def _store_cover(pixmap, path, stamp, room=None):
+def _store_image(pixmap, path, kind, stamp, room=None):
     image = pixmap.toImage()
-    image.setText(_COVER_STORAGE_KEY, '1')
+    image.setText(_COVER_STORAGE_KEY if kind == 'covers' else _AVATAR_STORAGE_KEY, '1')
     encoded = []
     for format, quality in (('PNG', -1), ('JPEG', 85)):
         if format == 'JPEG' and image.hasAlphaChannel():
@@ -218,7 +220,21 @@ def _store_cover(pixmap, path, stamp, room=None):
         return False
     # Cache paths historically end in .png even for downloaded JPEG/WebP bytes.
     # Qt detects the encoded format; both PNG and JPEG retain our face metadata.
-    return image_cache.store(REPO, 'covers', path, min(encoded, key=len), stamp, room=room)
+    return image_cache.store(REPO, kind, path, min(encoded, key=len), stamp, room=room)
+
+
+def _prepare_avatar(pixmap):
+    if max(pixmap.width(), pixmap.height()) > MAX_AVATAR_EDGE:
+        return pixmap.scaled(MAX_AVATAR_EDGE, MAX_AVATAR_EDGE,
+                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    return pixmap
+
+
+def _compact_avatar(pixmap, path, stamp, room=None):
+    prepared = _prepare_avatar(pixmap)
+    if prepared.cacheKey() != pixmap.cacheKey() or not pixmap.toImage().text(_AVATAR_STORAGE_KEY):
+        _store_image(prepared, path, 'avatars', stamp, room)
+    return prepared
 
 
 def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
@@ -228,6 +244,8 @@ def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
     if os.path.isfile(path):
         pixmap = QPixmap(path)
         if not pixmap.isNull():
+            if subdir == 'avatars':
+                return _compact_avatar(pixmap, path, stamp, room)
             return pixmap
     try:
         headers = dict(bili.HEADERS)
@@ -250,7 +268,11 @@ def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
         pixmap = QPixmap()
         if not pixmap.loadFromData(response.content) or pixmap.isNull():
             return None                    # 解不开就别写缓存，省得下次读到一个坏文件
-        if subdir in image_cache.KINDS:
+        if subdir == 'avatars':
+            pixmap = _prepare_avatar(pixmap)
+            if not _store_image(pixmap, path, subdir, stamp, room):
+                return None
+        elif subdir in image_cache.KINDS:
             if not image_cache.store(REPO, subdir, path, response.content, stamp, room=room):
                 return None
         else:
@@ -335,7 +357,7 @@ def load_cover(url: str, *, stamp=None, room=None) -> QPixmap | None:
         for candidate in (_cdn_url(url, _cdn_size_for('covers')), url):
             path = _cache_path(candidate, 'covers')
             if os.path.isfile(path):
-                _store_cover(prepared, path, stamp, room)
+                _store_image(prepared, path, 'covers', stamp, room)
                 break
     return prepared
 
@@ -361,24 +383,26 @@ class CachedCoverLoader(QThread):
             if pixmap is not None:
                 prepared = prepare_cover(pixmap)
                 if prepared.cacheKey() != pixmap.cacheKey() or not pixmap.toImage().text(_COVER_STORAGE_KEY):
-                    _store_cover(prepared, room_cover_path(room_id), self._stamp, room_id)
+                    _store_image(prepared, room_cover_path(room_id), 'covers', self._stamp, room_id)
                 self.loaded.emit(room_id, prepared)
 
 
 class CachedAvatarLoader(QThread):
-    """启动时按房间号回填上次下载过的头像（纯读文件，不联网）。"""
+    """启动时按房间号回填并压缩旧头像（本地处理，不联网）。"""
 
     loaded = Signal(str, QPixmap)
 
     def __init__(self, room_ids, parent=None):
         super().__init__(parent)
         self.room_ids = [str(room_id) for room_id in room_ids]
+        self._stamp = image_cache.ticket()
 
     def run(self) -> None:
         for room_id in self.room_ids:
             pixmap = load_room_avatar(room_id)
             if pixmap is not None:
-                self.loaded.emit(room_id, pixmap)
+                prepared = _compact_avatar(pixmap, room_avatar_path(room_id), self._stamp, room_id)
+                self.loaded.emit(room_id, prepared)
 
 
 class AvatarLoader(QThread):
