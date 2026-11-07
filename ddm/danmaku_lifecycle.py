@@ -35,10 +35,10 @@ class DanmakuLifecycle:
             room_id = str(room.get('room_id') or '')
             previous = getattr(panel, '_linked_room_id', '')
             panel._linked_room_id = room_id
-            panel.title.setText('弹幕 · ' + str(room.get('uname') or room_id) if room_id else '弹幕')
+            panel.title.setText('弹幕')
             if not room_id:
                 if previous or not panel._has_content:
-                    panel.set_placeholder('等待关联画面；右键标题可更换来源')
+                    panel.set_placeholder('点击上方头像选择关联画面')
                 panel.set_status('未关联')
                 continue
             if previous != room_id:
@@ -53,6 +53,7 @@ class DanmakuLifecycle:
             if client is None:
                 panel.set_placeholder('此平台弹幕尚未接入，直播画面可正常播放')
             host._publish_super_chats(room_id)
+        wall.pane_danmaku.refresh_sources()
         for unused in set(host._danmaku_clients) - wanted:
             host._stop_danmaku_client(unused)
         for room_id in wanted - set(host._danmaku_clients):

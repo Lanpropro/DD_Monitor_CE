@@ -103,6 +103,8 @@ class PaneDanmaku:
         self.panels = dict(zip(cells, self.all_panels()))
         for panel in self.all_panels():
             if not panel.property('paneMenuInstalled'):
+                from .pane_source_picker import SourcePicker
+                panel.source_picker = SourcePicker(panel, self)
                 from PySide6.QtCore import Qt
                 panel.header.setContextMenuPolicy(Qt.CustomContextMenu)
                 panel.header.customContextMenuRequested.connect(
@@ -114,8 +116,14 @@ class PaneDanmaku:
             if panel not in self.panels.values():
                 panel.hide()
 
+    def refresh_sources(self):
+        for panel in self.all_panels():
+            if hasattr(panel, 'source_picker'):
+                panel.source_picker.refresh()
+
     def apply(self, bindings):
         wall = self.wall
+        layout_changed = not self.custom or set(bindings) != set(self.bindings())
         old = dict(self.cell_tiles())
         if not self.custom and wall._danmaku_cell is not None:
             # Give the legacy chat position its own empty backing video slot once.
@@ -126,7 +134,11 @@ class PaneDanmaku:
             wall.tiles = active + [item for item in wall.tiles if item not in active]
         self.settings[wall.layout_id] = dict(bindings)
         self.prepare()
-        wall.relayout(force=True)
+        if layout_changed:
+            wall.relayout(force=True)
+        else:
+            wall._sync_danmaku_controls()
+            wall.sync_sc_placement()
 
     def swap_sources(self, first, second):
         for bindings in self.settings.values():
@@ -177,18 +189,12 @@ class PaneDanmaku:
         heading.setEnabled(False)
         if cell in bindings:
             menu.addAction('恢复直播画面', lambda: self.request(cell, video=True))
-        sources = menu.addMenu('关联画面' if cell in bindings else '改为弹幕栏')
-        automatic = sources.addAction('自动跟随主画面', lambda: self.request(cell, None))
-        automatic.setCheckable(True)
-        automatic.setChecked(cell in bindings and bindings[cell] is None)
-        sources.addSeparator()
-        for index, tile in self.cell_tiles().items():
-            if index == cell or index in bindings:
-                continue
-            name = str(tile.room.get('uname') or tile.room.get('room_id') or '空画面')
-            action = sources.addAction(f'{index + 1} · {name}', lambda _checked=False, t=tile: self.request(cell, t))
-            action.setCheckable(True)
-            action.setChecked(cell in bindings and bindings[cell] is tile)
+            menu.addAction('更换弹幕来源', lambda: self.panels[cell].source_picker.set_expanded(True))
+            automatic = menu.addAction('自动跟随主画面', lambda: self.request(cell, None))
+            automatic.setCheckable(True)
+            automatic.setChecked(bindings[cell] is None)
+        else:
+            menu.addAction('切换为弹幕', lambda: self.wall.paneEditRequested.emit(cell))
         return menu
 
     def request(self, cell, source=None, *, video=False):

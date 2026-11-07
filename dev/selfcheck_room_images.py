@@ -64,6 +64,7 @@ class Host(QObject):
         super().__init__()
         self.sidebar = SimpleNamespace(rooms=lambda: rooms, _items=[item(room) for room in rooms],
             set_room_face=Mock(), notification_button=SimpleNamespace(center=SimpleNamespace(rows={})))
+        self.wall = SimpleNamespace(pane_danmaku=Mock())
         self.room_images = RoomImages(self)
         self.room_images = RoomImages(self)
         self._avatar_loaders = []
