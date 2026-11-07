@@ -226,7 +226,7 @@ class SuperChatPresentation(QObject):
 
 
 class SuperChatPlacementPreview(SkinPreview):
-    """Edit the same relative position and scale used by the live SC overlays."""
+    """Edit independent video/panel positions and the shared live SC scale."""
     changed = Signal(dict)
     VIDEO_AREA = QRectF(10, 10, 540, 474)
     PANEL_AREA = QRectF(560, 332, 230, 178)
@@ -238,8 +238,9 @@ class SuperChatPlacementPreview(SkinPreview):
         self.setFixedHeight(300)
         self.setMouseTracking(True)
         self.setAccessibleName('SC 位置与大小预览')
-        self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
-        self.position = None
+        self.setToolTip('拖动卡片摆放，拖动右下角调整共用大小；位置是否同步由下方开关决定，双击恢复当前位置和共用大小')
+        self._positions = {'video': None, 'panel': None}
+        self.position_sync = False
         self.scale = 100
         self.opacity = 80
         self.layout_mode = 'video'
@@ -249,13 +250,37 @@ class SuperChatPlacementPreview(SkinPreview):
                       'cards': [{'message': '', 'collapsed': False}]}}
         self._gesture = None
 
+    @property
+    def position(self):
+        return self._positions[self.layout_mode]
+
+    @position.setter
+    def position(self, value):
+        self._positions[self.layout_mode] = value
+        if self.position_sync:
+            other = 'panel' if self.layout_mode == 'video' else 'video'
+            self._positions[other] = None if value is None else list(value)
+
+    def set_position_sync(self, enabled):
+        self.position_sync = bool(enabled)
+        if self.position_sync:
+            self.position = self.position
+        self.update()
+        self.changed.emit(self.values())
+
     def values(self):
-        return {'super_chat_position': None if self.position is None else list(self.position),
+        return {'super_chat_position': None if self._positions['video'] is None else list(self._positions['video']),
+                'super_chat_panel_position': None if self._positions['panel'] is None else list(self._positions['panel']),
+                'super_chat_position_sync': self.position_sync,
                 'super_chat_scale': self.scale}
 
     def apply_settings(self, settings):
-        position = settings.get('super_chat_position')
-        self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        self.position_sync = bool(settings.get('super_chat_position_sync', False))
+        for mode, key in (('video', 'super_chat_position'), ('panel', 'super_chat_panel_position')):
+            position = settings.get(key)
+            self._positions[mode] = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        if self.position_sync:
+            self._positions['panel'] = None if self._positions['video'] is None else list(self._positions['video'])
         self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
         self.set_opacity(settings.get('super_chat_opacity', 80))
         self.update()
@@ -394,11 +419,12 @@ class SuperChatPlacementPreview(SkinPreview):
             factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
             margin = (8 if self.layout_mode == 'panel' else 10) * factor
             stage = stage.adjusted(margin, margin, -margin, -margin)
-            self.position = []
+            position = []
             for value, span in ((self._start_rect.x() + delta.x() - stage.x(), stage.width() - self._start_rect.width()),
                                 (self._start_rect.y() + delta.y() - stage.y(), stage.height() - self._start_rect.height())):
                 ratio = max(0, min(1, value / max(1, span)))
-                self.position.append(0.0 if ratio < .04 else 1.0 if ratio > .96 else round(ratio, 6))
+                position.append(0.0 if ratio < .04 else 1.0 if ratio > .96 else round(ratio, 6))
+            self.position = position
         self.update()
         self.changed.emit(self.values())
         event.accept()

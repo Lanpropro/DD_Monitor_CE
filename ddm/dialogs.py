@@ -724,14 +724,14 @@ class DanmakuSettingsPage(QWidget):
         scale_row.addWidget(self.super_chat_scale, 1)
         scale_row.addWidget(scale_value)
         scale_row.addStretch(1)
-        grid.addWidget(QLabel('SC 大小'), 6, 0)
+        grid.addWidget(QLabel('SC 大小（共用）'), 6, 0)
         grid.addLayout(scale_row, 6, 1)
         self.super_chat_placement = SuperChatPlacementPreview()
         self.super_chat_placement.apply_settings(settings)
         self.super_chat_opacity.valueChanged.connect(self.super_chat_placement.set_opacity)
         self.super_chat_placement.changed.connect(self._sc_placement_changed)
         self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
-        grid.addWidget(QLabel('SC 位置与大小（拖动摆放／右下角缩放）'), 7, 0, 1, 2)
+        grid.addWidget(QLabel('SC 位置（画面与弹幕栏分别设置）'), 7, 0, 1, 2)
         self.super_chat_preview_layout = QButtonGroup(self)
         preview_buttons = QHBoxLayout()
         preview_buttons.setSpacing(8)
@@ -747,6 +747,11 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_preview_layout.idClicked.connect(self.super_chat_placement.set_layout_mode)
         grid.addLayout(preview_buttons, 8, 0, 1, 2)
         grid.addWidget(self.super_chat_placement, 9, 0, 1, 2)
+        self.super_chat_position_sync = QCheckBox('同步画面与弹幕栏的 SC 位置')
+        self.super_chat_position_sync.setToolTip('开启时以当前选中的布局位置为准；关闭后可分别调整')
+        self.super_chat_position_sync.setChecked(self.super_chat_placement.position_sync)
+        self.super_chat_position_sync.toggled.connect(self.super_chat_placement.set_position_sync)
+        grid.addWidget(self.super_chat_position_sync, 10, 0, 1, 2)
 
         layout.addLayout(grid)
 
@@ -772,6 +777,7 @@ class DanmakuSettingsPage(QWidget):
 
     def _sc_placement_changed(self, values):
         self.super_chat_scale.setValue(values['super_chat_scale'])
+        self.super_chat_position_sync.setChecked(values['super_chat_position_sync'])
 
     def _sc_scale_changed(self, value):
         self.super_chat_placement.scale = value
@@ -788,6 +794,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
         self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
         self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
+        self.super_chat_position_sync.setChecked(False)
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:
