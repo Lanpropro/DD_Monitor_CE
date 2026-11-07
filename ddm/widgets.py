@@ -7973,11 +7973,13 @@ class WallGrid(QWidget):
             tree, area, gap, self._preset_minimum,
             self._layout_ratios[self.layout_id], self._preset_defaults)
         for cell, rect in leaves.items():
-            widgets[cell].setGeometry(rect)
-            if isinstance(widgets[cell], Tile):
+            widget = widgets[cell]
+            same_size = widget.size() == rect.size()
+            widget.setGeometry(rect)
+            if isinstance(widget, Tile) and same_size:
                 # One equal cell can retain its size while its neighbour gains
-                # the last pixel, changing the group's volume style.
-                widgets[cell]._layout_bottom_controls()
+                # the last pixel. Resized cells use their existing resize path.
+                widget._layout_bottom_controls()
         self._resize_on_show = False
         if apply_visibility:
             active = set(widgets.values())
