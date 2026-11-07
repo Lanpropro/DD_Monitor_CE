@@ -41,7 +41,7 @@
 | [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | 单项执行前核对 |
 | [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | `offline` |
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
-| [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网；面板删除后取消排队滚动恢复，避免访问已删除文本控件 |
+| [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网；面板删除后跳过排队滚动恢复，避免访问已删除文本控件 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |
 | [selfcheck_theme_latency](../selfcheck_theme_latency.py) | `offline` |
 | [selfcheck_theme_native_reveal](../selfcheck_theme_native_reveal.py) | Windows屏幕外单项；默认检查原生裁剪和软件回退，`--render-thread` 检查圆形shader、视频透明孔、GUI暂停时继续渲染、反向切换及移动取消；不移动鼠标或激活窗口，不作为真实直播性能证据 |
