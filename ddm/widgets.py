@@ -5890,9 +5890,27 @@ class Tile(QFrame):
         controls = getattr(self, '_plugin_controls', None)
         return controls.interaction_active() if controls is not None else False
 
+    def _volume_controls_width(self):
+        wall = self.parentWidget()
+        if (not isinstance(wall, WallGrid) or wall.fullscreen_tile is not None
+                or wall.picture_in_picture_tiles is not None):
+            return self.width()
+        spec = layouts.BY_ID.get(wall.layout_id, {}).get('spec')
+        if spec is None:
+            return self.width()
+        rows, columns, cells = spec
+        ratios = wall._layout_ratios.get(wall.layout_id, {})
+        if (cells != layouts.even_cells(rows, columns)
+                or any(node.axis == Qt.Horizontal and len(set(ratios.get(node.key, node.weights))) > 1
+                       for node in wall._partitions[wall.layout_id].nodes())):
+            return self.width()
+        # Equal cells may differ by one pixel. Choose the style for the smallest
+        # cell from the target wall geometry, not siblings still awaiting resize.
+        return (wall._corner_area().width() - wall.grid.spacing() * (columns - 1)) // columns
+
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
-        return (self.width(),
+        return (self.width(), self._volume_controls_width(),
                 self.bottom.width(),
                 tuple((e.owner, e.key, e.control.widget.isHidden(),
                        e.control.minimum_width, e.control.preferred_width)
@@ -5910,6 +5928,7 @@ class Tile(QFrame):
         if signature == getattr(self, "_bottom_layout_signature_value", None):
             return
         self._bottom_layout_signature_value = signature
+        volume_width = self._volume_controls_width()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
@@ -5924,13 +5943,13 @@ class Tile(QFrame):
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
-        self.volume_label.setVisible(width >= 600)
+        self.volume_label.setVisible(volume_width >= 600)
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= 600)
-        self.volume_button.compact_popup = width < 600
+        self.volume_slider.setVisible(volume_width >= 600)
+        self.volume_button.compact_popup = volume_width < 600
         self.volume_button._update_tooltip()
-        if width >= 600:
+        if volume_width >= 600:
             self.volume_menu.hide()
         self.status_label.setVisible(True)
         self.danmaku_settings_button.setVisible(True)
@@ -7995,7 +8014,13 @@ class WallGrid(QWidget):
             tree, area, gap, self._preset_minimum,
             self._layout_ratios[self.layout_id], self._preset_defaults)
         for cell, rect in leaves.items():
-            widgets[cell].setGeometry(rect)
+            widget = widgets[cell]
+            same_size = widget.size() == rect.size()
+            widget.setGeometry(rect)
+            if isinstance(widget, Tile) and same_size:
+                # One equal cell can retain its size while its neighbour gains
+                # the last pixel. Resized cells use their existing resize path.
+                widget._layout_bottom_controls()
         self._resize_on_show = False
         if apply_visibility:
             active = set(widgets.values())
