@@ -43,7 +43,7 @@ def main():
     sidebar.activateWindow()
     app.processEvents()
     for button in (sidebar.layout_button, sidebar.settings_button,
-                   sidebar.import_button, sidebar.add_button):
+                   sidebar.navigation.add_button, sidebar.navigation.manage_button):
         button.clicked.disconnect()  # 不打开设置、登录或添加窗口。
         check_button(app, button)
     sidebar.close()

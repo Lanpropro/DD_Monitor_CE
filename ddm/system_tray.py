@@ -97,7 +97,9 @@ class SystemTray(QObject):
             return
         self.window.hover_preview.stop()
         self.window._fullscreen_cursor.stop()
-        if not self.playback_suspended and self.window.settings.get("tray_pause_playback", True):
+        pip = getattr(self.window, 'picture_in_picture', None)
+        if (not self.playback_suspended and self.window.settings.get("tray_pause_playback", True)
+                and not (pip is not None and pip.active)):
             self.playback_suspended = True
             for tile in self.window.wall.tiles:
                 if self.hold_playback(tile):

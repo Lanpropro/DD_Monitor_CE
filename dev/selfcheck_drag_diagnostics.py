@@ -23,6 +23,7 @@ class DragDiagnosticsTests(unittest.TestCase):
         from ddm import motion
         from ddm.preview import HoverPreview
         from ddm.sidebar_drag import SidebarDrag
+        from ddm import sidebar_drag as drag_module
         from PySide6.QtCore import QMimeData, QPoint, Qt
         from PySide6.QtGui import QDrag, QDragEnterEvent
 
@@ -32,13 +33,14 @@ class DragDiagnosticsTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 # Restore every temporary hook so this test cannot affect later checks.
+                stack.enter_context(patch.object(drag_module, 'widget_at', drag_module.widget_at))
                 for cls, names in ((TilePlayer, ('bind', 'stop', 'release', '_destroy_core')),
                                    (NavItem, ('mousePressEvent', '_drag_pixmap')),
-                                   (Sidebar, ('show_drop_indicator',
+                                   (Sidebar, ('_prepare_drag_snapshot', 'show_drop_indicator',
                                               'finish_drag', 'reorder_items', 'refresh_strip')),
                                    (HoverPreview, ('_stop_now', '_check_hover', '_begin_resolve', '_on_resolved')),
                                    (motion, ('lifted_drag',)),
-                                   (SidebarDrag, ('start', 'finish', 'cancel')),
+                                   (SidebarDrag, ('start', 'finish', 'cancel', '_move_ghost', '_tick')),
                                    (diag.MainWindow, ('showEvent', '_on_layout_changed',
                                                      '_stop_tile', '_clear_tile_room', '_on_room_dropped'))):
                     for name in names:
@@ -101,6 +103,10 @@ class DragDiagnosticsTests(unittest.TestCase):
                                         Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
                     fixture.app.sendEvent(item, moving)
                     self.assertTrue(window.sidebar.drag_session.active)
+                    fixture.app.sendEvent(item, moving)
+                    window.sidebar.drag_session.visual_timer.timeout.emit()
+                    window.sidebar.drag_session._tick()
+                    window.sidebar.show_drop_indicator('1', 0)
                     window.sidebar.drag_session.cancel()
                     self.assertIsNone(window.sidebar.drag_session._diagnostic_probe)
                     rows = [json.loads(line) for line in path.read_text().splitlines()]
@@ -110,6 +116,10 @@ class DragDiagnosticsTests(unittest.TestCase):
                     self.assertIn('drag:before', phases)
                     self.assertIn('drag:after', phases)
                     self.assertIn('internal-drag:start', phases)
+                    timing = next(row['timing'] for row in rows if row['phase'] == 'internal-drag:cancel')
+                    for stage in ('ghost-callback', 'target-tick', 'preview-layout', 'hit-test'):
+                        self.assertGreaterEqual(timing[stage]['calls'], 1)
+                        self.assertEqual(set(timing[stage]), {'calls', 'totalMs', 'maxMs', 'maxGapMs'})
                     self.assertIn('internal-drag:cancel', phases)
                     stages = [row for row in rows if row['phase'] == 'drag:stage']
                     self.assertTrue({'pixmap', 'lift'} <= {row['stage'] for row in stages})
@@ -135,6 +145,49 @@ class DragDiagnosticsTests(unittest.TestCase):
                     recorder.handler.close()
         finally:
             fixture.doCleanups()
+
+    def test_first_drag_profiles_are_opt_in_bounded_and_keep_returns_and_exceptions(self):
+        from dev import diagnose_drag_windows as diag
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = diag.Recorder(Path(directory) / 'drag.jsonl', profile_first_drag=True)
+            private_value = 'PRIVATE_ARGUMENT_MUST_NOT_BE_CAPTURED'
+            def snapshot(value):
+                return value
+            def fail():
+                raise ValueError('fixture')
+            try:
+                self.assertEqual(recorder.profile_once('pixmap', snapshot, private_value), private_value)
+                self.assertEqual(recorder.profile_once('pixmap', snapshot, private_value), private_value)
+                self.assertEqual(recorder.profile_once('preview-prepare', snapshot, private_value), private_value)
+                self.assertEqual(recorder.profile_once('preview-prepare', snapshot, private_value), private_value)
+                with self.assertRaisesRegex(ValueError, 'fixture'):
+                    recorder.profile_once('drag-start', fail)
+                self.assertIsNone(sys.getprofile())
+                rows = [json.loads(line) for line in recorder.path.read_text().splitlines()]
+                self.assertEqual([row['stage'] for row in rows], ['pixmap', 'preview-prepare', 'drag-start'])
+                self.assertTrue(all(len(row['functions']) <= 30 for row in rows))
+                self.assertNotIn(private_value, json.dumps(rows))
+                recorder.profile_first_drag = False
+                with patch.object(diag.cProfile, 'Profile', side_effect=AssertionError('No ordinary profiling')):
+                    self.assertEqual(recorder.profile_once('ordinary', snapshot, 42), 42)
+            finally:
+                recorder.handler.close()
+
+    def test_timing_summary_counts_fast_callbacks_without_per_frame_records(self):
+        from dev import diagnose_drag_windows as diag
+        probe = diag.DragStallProbe()
+        probe.finish()
+        with patch.object(diag.time, 'perf_counter', side_effect=[1.003, 1.023]):
+            probe.record_timing('ghost-callback', 1.0)
+            probe.record_timing('ghost-callback', 1.02)
+        self.assertEqual(probe.timing_summary(), {'ghost-callback':
+            {'calls': 2, 'totalMs': 6.0, 'maxMs': 3.0, 'maxGapMs': 20.0}})
+        with patch.object(diag.time, 'perf_counter', return_value=1.04):
+            for _ in range(1000):
+                probe.record_timing('ghost-callback', 1.039)
+        self.assertEqual(probe.timing_summary()['ghost-callback']['calls'], 1002)
+        self.assertEqual(len(probe.timings), 1)
+        self.assertLess(len(json.dumps(probe.timing_summary())), 140)
 
     def test_trace_files_rotate_and_keep_only_three_backups(self):
         from dev.diagnose_drag_windows import Recorder

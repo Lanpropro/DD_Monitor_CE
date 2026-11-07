@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import ClassVar
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 
 from .audio_output import audio_filters, linear_volume
 from .auto_quality import AutoQuality
@@ -143,14 +143,26 @@ class TilePlayer(QObject):
     def bind(self) -> None:
         if self._released:
             return
-        hwnd = int(self.video_widget.winId())
+        if self.silent:
+            # Preview needs one native video surface, not native windows for every
+            # ancestor and sibling card. Limit Qt's promotion to this call.
+            self.video_widget.setAttribute(Qt.WA_DontCreateNativeAncestors)
+            flag = Qt.AA_DontCreateNativeWidgetSiblings
+            previous = QCoreApplication.testAttribute(flag)
+            QCoreApplication.setAttribute(flag, True)
+            try:
+                hwnd = int(self.video_widget.winId())
+            finally:
+                QCoreApplication.setAttribute(flag, previous)
+        else:
+            hwnd = int(self.video_widget.winId())
         if self.player is not None and hwnd != self._bound_hwnd:
             self._destroy_core()
         if self.player is None:
             self.player = mpv.MPV(
                 wid=str(hwnd), vo="gpu", gpu_api="d3d11", gpu_context="d3d11",
-                # Preview prepares only the core; mpv opens GPU output when media is ready.
-                force_window=False if self.silent else "immediate",
+                # Open GPU output on mpv's playback thread once media is ready.
+                force_window=False,
                 hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
                 audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
@@ -328,7 +340,9 @@ class TilePlayer(QObject):
 
     def refresh_audio_device(self) -> None:
         if self.player is not None and not self.silent and not self._released:
-            self.player.command("ao-reload")
+            # The synchronous API runs WASAPI uninit on its caller and can tear
+            # down Qt's COM STA. Dispatch to mpv's core, then wait for the result.
+            self.player.command_async("ao-reload").result()
 
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)

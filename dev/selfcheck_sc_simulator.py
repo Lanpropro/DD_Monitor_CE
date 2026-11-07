@@ -145,6 +145,97 @@ class NativeSurfaceTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_sc_auto_scale_preserves_proportions_and_manual_size(self):
+        from ddm.video_danmaku import VideoDanmaku
+        owner = VideoDanmaku()
+        self.addCleanup(owner.close)
+        event = dict(kind='super_chat', id='scale', uname='Scale', price=30, message='Short')
+        for manual in (75, 100, 150):
+            owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale=manual,
+                                      super_chat_scale_with_video=True))
+            owner.super_chat_overlay.chats = [event]
+            sizes = []
+            for width, height in ((1280, 720), (640, 360), (320, 180)):
+                owner.resize(width, height)
+                rect = owner.super_chat_overlay.card_rects()[0]
+                sizes.append((rect.width(), rect.height(), owner.super_chat_overlay._paint_scale))
+                self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, manual / 100 * height / 720)
+                self.assertLessEqual(rect.right(), width)
+                self.assertLessEqual(rect.bottom(), height)
+            self.assertAlmostEqual(sizes[1][0], sizes[0][0] / 2)
+            self.assertAlmostEqual(sizes[2][0], sizes[0][0] / 4)
+            self.assertLessEqual(abs(sizes[1][1] - sizes[0][1] / 2), 2)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale_with_video=False))
+        owner.resize(640, 360)
+        owner.super_chat_overlay.card_rects()
+        self.assertEqual(owner.super_chat_overlay._paint_scale, 1)
+
+    def test_small_video_danmaku_shrinks_gently_and_preserves_large_sizes(self):
+        from ddm.video_danmaku import VideoDanmaku
+        owner = VideoDanmaku()
+        self.addCleanup(owner.close)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=28,
+                                  video_danmaku_outline_width=2))
+        for height, expected in ((180, 14), (360, 20), (540, 24), (720, 28), (1080, 42), (1440, 56)):
+            owner.resize(1280, height)
+            self.assertEqual(owner.font_pixels(), expected, height)
+            self.assertAlmostEqual(owner.outline_width(), 2 * expected / 28)
+        values = []
+        for height in range(120, 1450):
+            owner.resize(1280, height)
+            values.append(owner.font_pixels())
+        self.assertEqual(values, sorted(values))
+        self.assertLessEqual(max(b - a for a, b in zip(values, values[1:])), 1)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=28, video_danmaku_scale=False))
+        owner.resize(320, 180)
+        self.assertEqual(owner.font_pixels(), 28)
+
+    def test_sc_auto_scale_setting_updates_preview_roundtrips_and_resets(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        self.addCleanup(page.close)
+        preview = page.super_chat_placement
+        self.assertFalse(page.super_chat_scale_with_video.isChecked())
+        page.super_chat_scale_with_video.click()
+        self.assertTrue(page.values()['super_chat_scale_with_video'])
+        preview.set_preview_context({'video': {'size': [640, 360],
+                                              'cards': [{'message': '', 'collapsed': False}]}})
+        stage = preview.stage_rect()
+        factor = stage.width() / 640
+        self.assertAlmostEqual(preview.card_rect().width() / factor, 170)
+        preview.set_layout_mode(1)
+        before = preview.card_rect()
+        page.super_chat_scale_with_video.click()
+        self.assertEqual(preview.card_rect(), before, 'Video scale must not change chat-panel SC size')
+        restored = DanmakuSettingsPage(dict(page.values(), super_chat_scale_with_video=True))
+        self.addCleanup(restored.close)
+        self.assertTrue(restored.super_chat_scale_with_video.isChecked())
+        restored.reset()
+        self.assertFalse(restored.values()['super_chat_scale_with_video'])
+
+    def test_auto_scale_controls_update_live_cards_and_resize(self):
+        window = self.window
+        window.layout_choice.setCurrentIndex(1)
+        for control in (window.sc_scale_with_video, window.danmaku_scale):
+            QTest.mouseClick(control, Qt.LeftButton, pos=QPoint(8, control.height() // 2))
+            APP.processEvents()
+        self.assertTrue(window.tile.video_danmaku.settings['super_chat_scale_with_video'])
+        self.assertTrue(window.tile.video_danmaku.settings['video_danmaku_scale'])
+        window.change_sc_settings({'super_chat_position': [.4, .6]})
+        owner = window.tile.video_danmaku
+        sc = owner.super_chat_overlay
+        for size in ((1200, 760), (900, 600), (1600, 1000)):
+            window.resize(*size)
+            APP.processEvents()
+            rects = sc.card_rects()
+            self.assertTrue(rects)
+            self.assertAlmostEqual(sc._paint_scale, owner.height() / 720)
+            self.assertTrue(sc.isVisible())
+            self.assertEqual(owner.settings['super_chat_position'], [.4, .6])
+        window.sc_scale.setValue(150)
+        self.assertAlmostEqual(sc._paint_scale, 1.5 * owner.height() / 720)
+        self.assertTrue(window.sc_scale_with_video.isChecked())
+
     def test_restored_danmaku_toggle_does_not_mask_an_unfinished_tile(self):
         from ddm.widgets import Tile
         with patch('sys.excepthook') as errors:
@@ -225,7 +316,8 @@ class SimulatorTests(unittest.TestCase):
                     renderer.presentation.collapse() if collapsed else renderer.presentation.expand()
                     for scale in (75, 100, 150, 200):
                         for position in (None, [0, 0], [.4, .6], [1, 1]):
-                            window.change_sc_settings({'super_chat_scale': scale, 'super_chat_position': position})
+                            window.change_sc_settings({'super_chat_scale': scale, 'super_chat_position_sync': False,
+                                'super_chat_panel_position' if mode == 1 else 'super_chat_position': position})
                             APP.processEvents()
                             context = MainWindow._sc_preview_context(source)
                             preview.set_preview_context(context)
@@ -270,9 +362,9 @@ class SimulatorTests(unittest.TestCase):
             text_height = sc_message_document(event, 340 * scale, scale).size().height()
             self.assertGreaterEqual(height, 56 * scale + 2 * SC_BODY_PADDING * scale + text_height)
 
-    def test_layout_previews_share_position_scale_and_opacity(self):
+    def test_layout_previews_keep_independent_positions_and_shared_scale_opacity(self):
         from ddm.dialogs import DanmakuSettingsPage
-        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS, super_chat_position_sync=False))
         self.addCleanup(page.close)
         page.resize(700, 900)
         page.show()
@@ -292,7 +384,8 @@ class SimulatorTests(unittest.TestCase):
         QTest.mousePress(preview, Qt.LeftButton, pos=start)
         QTest.mouseMove(preview, start + QPoint(-15, 30))
         QTest.mouseRelease(preview, Qt.LeftButton, pos=start + QPoint(-15, 30))
-        self.assertNotEqual(before['super_chat_position'], preview.position)
+        self.assertNotEqual(before['super_chat_panel_position'], preview.position)
+        self.assertEqual(before['super_chat_position'], preview.values()['super_chat_position'])
         changed = preview.values()
         page.super_chat_preview_layout.button(0).click()
         self.assertEqual(preview.layout_mode, 'video')
@@ -644,6 +737,132 @@ class SimulatorTests(unittest.TestCase):
             self.assertEqual(page.values()['super_chat_scale'], 100)
         finally:
             page.close()
+
+    def test_video_and_panel_positions_are_independent_and_roundtrip(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'super_chat_position': [0, .1], 'super_chat_position_sync': False})
+        self.addCleanup(page.deleteLater)
+        preview = page.super_chat_placement
+        self.assertEqual(preview.values()['super_chat_position'], [0, .1])
+        self.assertIsNone(preview.values()['super_chat_panel_position'])
+        preview.set_layout_mode(1)
+        self.assertIsNone(preview.position)
+        preview.position = [1, .3]
+        preview.set_layout_mode(0)
+        self.assertEqual(preview.position, [0, .1])
+        preview.position = [.2, .6]
+        saved = page.values()
+        self.assertEqual(saved['super_chat_panel_position'], [1, .3])
+        restored = DanmakuSettingsPage(saved)
+        self.addCleanup(restored.deleteLater)
+        self.assertEqual(restored.values(), saved)
+        preview.set_layout_mode(1)
+        QTest.mouseDClick(preview, Qt.LeftButton, pos=preview.card_rect().center().toPoint())
+        self.assertIsNone(preview.values()['super_chat_panel_position'])
+        self.assertEqual(preview.values()['super_chat_position'], [.2, .6])
+        preview.position = [.8, .7]
+        page.reset()
+        self.assertIsNone(page.values()['super_chat_position'])
+        self.assertIsNone(page.values()['super_chat_panel_position'])
+
+    def test_panel_position_does_not_follow_video_position(self):
+        window = self.window
+        window.change_sc_settings({'super_chat_position': [0, .1], 'super_chat_position_sync': False})
+        self.assertIsNone(window.wall.danmaku.super_chats._position)
+        window.change_sc_settings({'super_chat_position': [0, .1],
+                                   'super_chat_panel_position': [1, .2]})
+        self.click(window.add_button)
+        APP.processEvents()
+        panel = window.wall.danmaku
+        self.assertEqual(panel.super_chats._position, [1, .2])
+        viewport = panel.body.viewport()
+        origin = panel.body.mapTo(panel, viewport.pos())
+        self.assertEqual(viewport.width() - (panel.super_chats.x() - origin.x())
+                         - panel.super_chats.width(), 8)
+        window.change_sc_settings({'super_chat_position': [.4, .8]})
+        self.assertEqual(panel.super_chats._position, [1, .2])
+        self.assertEqual(window.tile.video_danmaku.settings['super_chat_position'], [.4, .8])
+        window.change_sc_settings({'super_chat_panel_position': [0, .5]})
+        self.assertEqual(window.tile.video_danmaku.settings['super_chat_position'], [.4, .8])
+        self.assertEqual(panel.super_chats._position, [0, .5])
+        window.wall.set_fullscreen_tile(window.tile)
+        APP.processEvents()
+        self.assertEqual(window.tile.video_danmaku.settings['super_chat_position'], [.4, .8])
+        window.wall.set_fullscreen_tile(None)
+        APP.processEvents()
+        self.assertEqual(panel.super_chats._position, [0, .5])
+
+    def test_position_sync_uses_selected_layout_and_can_be_disabled(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'super_chat_position': [0, .1],
+                                   'super_chat_panel_position': [1, .4], 'super_chat_position_sync': False})
+        self.addCleanup(page.deleteLater)
+        page.resize(700, 900)
+        page.move(-13000, -13000)
+        page.show()
+        APP.processEvents()
+        preview = page.super_chat_placement
+        self.assertFalse(page.super_chat_position_sync.isChecked())
+        page.super_chat_preview_layout.button(1).click()
+        page.super_chat_position_sync.click()
+        self.assertTrue(page.values()['super_chat_position_sync'])
+        self.assertEqual(page.values()['super_chat_position'], [1, .4])
+        preview.position = [.2, .8]
+        self.assertEqual(page.values()['super_chat_position'], [.2, .8])
+        self.assertEqual(page.values()['super_chat_panel_position'], [.2, .8])
+        start = preview.card_rect().center().toPoint()
+        QTest.mousePress(preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(preview, start + QPoint(12, -12))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=start + QPoint(12, -12))
+        self.assertEqual(page.values()['super_chat_position'], page.values()['super_chat_panel_position'])
+        self.assertNotEqual(page.values()['super_chat_position'], [.2, .8])
+        restored = DanmakuSettingsPage(page.values())
+        self.addCleanup(restored.deleteLater)
+        self.assertTrue(restored.super_chat_position_sync.isChecked())
+        QTest.mouseDClick(preview, Qt.LeftButton, pos=preview.card_rect().center().toPoint())
+        self.assertIsNone(page.values()['super_chat_position'])
+        self.assertIsNone(page.values()['super_chat_panel_position'])
+        page.super_chat_preview_layout.button(0).click()
+        preview.position = [.7, .1]
+        self.assertEqual(page.values()['super_chat_panel_position'], [.7, .1])
+        page.super_chat_position_sync.click()
+        preview.position = [.5, .5]
+        self.assertEqual(page.values()['super_chat_panel_position'], [.7, .1])
+        page.reset()
+        self.assertTrue(page.values()['super_chat_position_sync'])
+
+    def test_sync_defaults_on_and_respects_explicit_saved_off(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        from ddm.widgets import SuperChatStack
+        self.assertTrue(config.DEFAULT_SETTINGS['super_chat_position_sync'])
+        settings = {'super_chat_position': [0, .1], 'super_chat_panel_position': [1, .4]}
+        for values, enabled in (({}, True), (settings, True),
+                                ({**settings, 'super_chat_position_sync': False}, False)):
+            page = DanmakuSettingsPage(values)
+            self.addCleanup(page.deleteLater)
+            self.assertEqual(page.super_chat_position_sync.isChecked(), enabled)
+            stack = SuperChatStack()
+            self.addCleanup(stack.deleteLater)
+            stack.configure(values)
+            self.assertEqual(stack._position, values.get('super_chat_position' if enabled
+                                                        else 'super_chat_panel_position'))
+            if not enabled:
+                self.assertEqual(page.values()['super_chat_panel_position'], [1, .4])
+                restored = DanmakuSettingsPage(page.values())
+                self.addCleanup(restored.deleteLater)
+                self.assertFalse(restored.super_chat_position_sync.isChecked())
+            page.reset()
+            self.assertTrue(page.super_chat_position_sync.isChecked())
+
+    def test_synced_runtime_follows_video_position_and_independent_mode_restores_panel(self):
+        window = self.window
+        window.change_sc_settings({'super_chat_position': [0, .1],
+            'super_chat_panel_position': [1, .4], 'super_chat_position_sync': True})
+        self.assertEqual(window.wall.danmaku.super_chats._position, [0, .1])
+        window.change_sc_settings({'super_chat_position': [.3, .6]})
+        self.assertEqual(window.wall.danmaku.super_chats._position, [.3, .6])
+        window.change_sc_settings({'super_chat_position_sync': False})
+        self.assertEqual(window.wall.danmaku.super_chats._position, [1, .4])
 
     def test_collapse_timer_survives_refresh_and_click_reopens(self):
         window = self.window

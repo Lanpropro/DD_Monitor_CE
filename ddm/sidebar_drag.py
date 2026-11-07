@@ -6,13 +6,15 @@ from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDro
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from shiboken6 import isValid
 
+from .sidebar_hit_test import widget_at
+
 ROOM_MIME = 'application/x-ddm-room'
 NAV_MIME = 'application/x-ddm-nav'
 FOLDER_MIME = 'application/x-ddm-folder'
 
 
 class SidebarDrag(QObject):
-    """拖影随屏幕刷新率移动；落点每 16 ms 检查一次，松手立即结算。"""
+    """拖影按屏幕刷新节奏合并移动；落点每 16 ms 检查一次。"""
 
     def __init__(self, sidebar):
         super().__init__(sidebar)
@@ -130,7 +132,9 @@ class SidebarDrag(QObject):
 
     def _move_ghost(self):
         if self.active:
-            self.ghost.move(self.position - self.hotspot)
+            target = self.position - self.hotspot
+            if self.ghost.pos() != target:
+                self.ghost.move(target)
 
     def _event(self, kind, target):
         point = target.mapFromGlobal(self.position)
@@ -145,8 +149,7 @@ class SidebarDrag(QObject):
             QApplication.sendEvent(target, QDragLeaveEvent())
 
     def _update_target(self):
-        # widgetAt only returns this application's widgets, including other monitor windows.
-        widget = QApplication.widgetAt(self.position)
+        widget = widget_at(self.position)
         candidate = None
         while widget is not None:
             if widget.acceptDrops() and widget.isEnabled():

@@ -2,13 +2,16 @@
 import os
 from pathlib import Path
 import sys
+import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, Qt, QTimer
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import isValid
 from ddm.player import TilePlayer
@@ -19,6 +22,22 @@ class PlayerLifetimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_preview_native_sibling_policy_is_restored_when_window_creation_fails(self):
+        flag = Qt.AA_DontCreateNativeWidgetSiblings
+        previous = QCoreApplication.testAttribute(flag)
+        video = QWidget()
+        player = TilePlayer(video, silent=True)
+        try:
+            with patch.object(video, 'winId', side_effect=RuntimeError('fixture')), \
+                    patch('ddm.player.mpv.MPV') as core:
+                with self.assertRaisesRegex(RuntimeError, 'fixture'):
+                    player.bind()
+                core.assert_not_called()
+            self.assertEqual(QCoreApplication.testAttribute(flag), previous)
+        finally:
+            player.release()
+            video.close()
 
     def test_audio_output_is_not_retained_until_gui_thread_termination(self):
         for silent in (False, True):
@@ -31,7 +50,7 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(options.get('gapless_audio'), False)
                     self.assertEqual(options['ao'], 'null' if silent else 'wasapi')
                     self.assertEqual(options['audio'], 'no' if silent else 'auto')
-                    self.assertEqual(options['force_window'], False if silent else 'immediate')
+                    self.assertIs(options['force_window'], False)
                     self.assertTrue(options['idle'])
                     self.assertTrue(options['keep_open'])
                     player.bind()
@@ -58,6 +77,61 @@ class PlayerLifetimeTests(unittest.TestCase):
                     self.assertIs(call.kwargs.get('gapless_audio'), False)
             finally:
                 player.release()
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows embedded GPU output')
+    def test_normal_player_opens_output_only_when_local_media_is_ready(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Requires native Windows Qt')
+        from ddm.video_surface import VideoSurface
+        widget = VideoSurface()
+        widget.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        widget.setAttribute(Qt.WA_ShowWithoutActivating)
+        widget.setGeometry(-15000, -15000, 320, 180)
+        widget.show()
+        self.app.processEvents()
+        player = TilePlayer(widget)
+        player.set_muted(True)
+        def pump(milliseconds=30):
+            loop = QEventLoop()
+            QTimer.singleShot(milliseconds, loop.quit)
+            loop.exec()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                source = str(Path(temp) / 'blue.png')
+                image = QImage(160, 90, QImage.Format_RGB32)
+                image.fill(Qt.blue)
+                self.assertTrue(image.save(source))
+                player.bind()
+                self.assertFalse(player._prop('current-vo'), 'Idle binding must not initialize GPU output')
+                core = player.player
+                for index in range(2):
+                    player.play(source)
+                    deadline = time.monotonic() + 8
+                    while time.monotonic() < deadline:
+                        pump()
+                        if player._prop('vo-configured', False):
+                            break
+                    self.assertTrue(player._prop('vo-configured', False), 'Local image did not reach video output')
+                    self.assertIs(player.player, core)
+                    self.assertEqual(player._prop('current-vo'), 'gpu')
+                    screenshot = str(Path(temp) / f'frame-{index}.png')
+                    core.command('screenshot-to-file', screenshot, 'video')
+                    captured = QImage(screenshot)
+                    self.assertFalse(captured.isNull())
+                    self.assertGreater(captured.pixelColor(captured.width()//2, captured.height()//2).blue(), 200)
+                    player.stop(keep_core=True)
+                    pump()
+                # Cancellation while mpv's native output is opening must release cleanly.
+                player.play(source)
+                QTimer.singleShot(0, player.release)
+                pump(200)
+                self.assertIsNone(player.player)
+                self.assertEqual(player.state, 'idle')
+                self.assertFalse(isValid(player._watch))
+                self.assertFalse(isValid(player._picture_watch))
+        finally:
+            player.release()
+            widget.close()
 
     def test_destroy_does_not_reconfigure_the_native_window(self):
         class Core:
@@ -87,6 +161,35 @@ class PlayerLifetimeTests(unittest.TestCase):
             player.player = None
             player.release()
             widget.close()
+
+    def test_audio_refresh_uses_core_thread_and_waits_for_completion(self):
+        player = TilePlayer(Mock())
+        core = player.player = Mock()
+        try:
+            player.refresh_audio_device()
+            core.command.assert_not_called()
+            core.command_async.assert_called_once_with('ao-reload')
+            core.command_async.return_value.result.assert_called_once_with()
+            core.command_async.return_value.result.side_effect = RuntimeError('reload failed')
+            with self.assertRaisesRegex(RuntimeError, 'reload failed'):
+                player.refresh_audio_device()
+        finally:
+            player.release()
+
+    def test_audio_refresh_skips_missing_silent_or_released_core(self):
+        for state in ('missing', 'silent', 'released'):
+            with self.subTest(state=state):
+                player = TilePlayer(Mock(), silent=state == 'silent')
+                core = Mock()
+                player.player = None if state == 'missing' else core
+                player._released = state == 'released'
+                try:
+                    player.refresh_audio_device()
+                    core.command.assert_not_called()
+                    core.command_async.assert_not_called()
+                finally:
+                    player._released = False
+                    player.release()
 
     def test_shared_popup_keeps_one_idle_core_but_releases_media_and_watchers(self):
         widget = QWidget()

@@ -21,11 +21,12 @@ class FullscreenPresentation(QObject):
 
     def enter(self, tile, geometry=None):
         wall = self.window.wall
+        geometry = QRect(geometry if geometry is not None else self.window.screen().geometry())
         self.tile = tile
         self._flags, self._geometry = tile.windowFlags(), QRect(tile.geometry())
         self._show_without_activating = tile.testAttribute(Qt.WA_ShowWithoutActivating)
         self._grid_enabled = wall.grid.isEnabled()
-        self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, wall.danmaku)]
+        self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall.pane_danmaku.all_panels())]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
         wall._fullscreen_layout_pending = True
@@ -49,7 +50,9 @@ class FullscreenPresentation(QObject):
             tile.setWindowFlags(flags)
             tile.setProperty('fullscreen', True)
             _repolish(tile)
-            tile.setGeometry(geometry if geometry is not None else self.window.screen().geometry())
+            tile.winId()
+            tile.setGeometry(geometry)
+            tile.bottom.set_fullscreen(True)
         finally:
             tile._presentation_changing = False
         tile._layout_areas()
@@ -57,7 +60,16 @@ class FullscreenPresentation(QObject):
         if layer is not None:
             layer.set_presentation_changing(True)
             layer.set_presentation_window(tile)
+        # Exposing a new Tool bar can dispatch the owner's old native resize.
+        # Finish that work before restoring the final rectangle and first frame.
+        if tile.bottom.qt_composited:
+            tile.bottom.prepare_fullscreen_frame()
+            tile.setGeometry(geometry)
+            tile._layout_areas()
+            tile.bottom.prepare_fullscreen_frame()
         tile.show()
+        if tile.bottom.qt_composited:
+            tile.bottom.setWindowOpacity(1.0)
         tile.raise_()
         if not tile.testAttribute(Qt.WA_ShowWithoutActivating):
             tile.activateWindow()
@@ -78,6 +90,7 @@ class FullscreenPresentation(QObject):
         tile = self.tile
         if tile is None:
             return
+        native_bar = tile.bottom.qt_composited
         wall = self.window.wall
         layer = wall._quick_danmaku_layer
         self._set_comments_changing(True)
@@ -85,6 +98,10 @@ class FullscreenPresentation(QObject):
         for pane, visible in self._visible:
             if pane is not tile:
                 pane.setVisible(visible)
+                if native_bar and visible and pane in wall.tiles:
+                    # show() queues painting; flush bars while fullscreen still
+                    # covers the wall, rather than exposing empty backing stores.
+                    pane.bottom.repaint()
         for border in self._borders:
             border.show()
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
@@ -111,9 +128,11 @@ class FullscreenPresentation(QObject):
         for pane, visible in self._visible:
             if pane is tile:
                 pane.setVisible(visible)
+        tile.bottom.setUpdatesEnabled(True)
+        if native_bar:
+            tile.bottom.repaint()
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
-        tile.bottom.setUpdatesEnabled(True)
         self._visible = self._borders = []
         if self.window.isVisible() and not self.window.testAttribute(Qt.WA_ShowWithoutActivating):
             self.window.activateWindow()

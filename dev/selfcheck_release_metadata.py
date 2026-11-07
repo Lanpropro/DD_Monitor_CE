@@ -13,10 +13,13 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7.1'
-    assert version.VERSION_TAG == 'v0.7.1'
+    assert version.VERSION == '0.7.2'
+    assert version.VERSION_TAG == 'v0.7.2'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
+    assert notes.startswith('# DD监控室CE v0.7.2 更新说明')
+    for feature in ('0.7.1 Hotfix', '字体回退日志', 'RGB、HEX', '已有日志打包'):
+        assert feature in notes, feature
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
     for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
         assert feature in technical, feature
@@ -96,6 +99,8 @@ def main():
     assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
     assert 'asset_name = $remoteExeName' in source
     assert 'notes = [string]$updateNotes' in source
+    assert source.count('revision = $UpdateRevision') == 2
+    assert 'release_tag = $ReleaseTag' in source
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
     result = subprocess.run(['powershell', '-NoProfile', '-Command',

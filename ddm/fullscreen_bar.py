@@ -77,6 +77,8 @@ class FullscreenBar(QWidget):
             self.setAttribute(Qt.WA_NoSystemBackground, enabled)
             self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint if enabled else Qt.Widget)
             self.set_tile_geometry(local.x(), local.y(), local.width(), local.height())
+            if enabled and getattr(self.parentWidget(), '_presentation_changing', False):
+                self.setWindowOpacity(0.0)
         for widget in (self, *self.findChildren(QWidget)):
             widget.setProperty('fullscreen', enabled)
             widget.style().unpolish(widget)
@@ -89,13 +91,27 @@ class FullscreenBar(QWidget):
 
     def set_tile_geometry(self, x, y, width, height):
         self._tile_rect = QRect(x, y, width, height)
-        position = self.parentWidget().mapToGlobal(QPoint(x, y)) if self.qt_composited else QPoint(x, y)
+        # The hidden fullscreen owner's native frame margins can still be stale.
+        # Its window geometry already contains the intended global client origin.
+        position = (self.parentWidget().geometry().topLeft() + QPoint(x, y)
+                    if self.qt_composited else QPoint(x, y))
         self.setGeometry(QRect(position, self._tile_rect.size()))
         if self.qt_composited:
             visible = self._tile_rect.intersected(self.parentWidget().rect())
             self.setMask(QRegion(visible.translated(-self._tile_rect.topLeft())))
         else:
             self.clearMask()
+
+    def prepare_fullscreen_frame(self):
+        if not self.qt_composited:
+            return
+        # repaint() alone is ignored until the new QWindow receives exposure.
+        user32 = ctypes.windll.user32
+        user32.RedrawWindow.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT),
+                                       wintypes.HRGN, wintypes.UINT)
+        # RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW
+        user32.RedrawWindow(int(self.winId()), None, None, 0x181)
+        self.repaint()
 
     def tile_y(self):
         return self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())).y()

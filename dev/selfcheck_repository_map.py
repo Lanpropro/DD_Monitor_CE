@@ -33,6 +33,8 @@ class RepositoryMapTests(unittest.TestCase):
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",
+                     "docs/development/liveaquarium-learning.md",
+                     "docs/development/bili-shadowreplay-learning.md",
                      "docs/archive/pr11-pr12-integration-testing.md",
                      "docs/archive/repository-integration-20261019.md",
                      "docs/archive/README.md", "dev/benchmarks/README.md",

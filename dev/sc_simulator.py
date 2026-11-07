@@ -124,8 +124,17 @@ class ScSimulator(QMainWindow):
         self.sc_scale.setValue(100)
         self.sc_scale.valueChanged.connect(lambda value: self.change_sc_settings({'super_chat_scale': value}))
         form.addRow('SC 大小', self.sc_scale)
+        self.sc_scale_with_video = QCheckBox('SC 随画面缩放')
+        self.sc_scale_with_video.toggled.connect(
+            lambda checked: self.change_sc_settings({'super_chat_scale_with_video': checked}))
+        form.addRow(self.sc_scale_with_video)
+        self.danmaku_scale = QCheckBox('弹幕随画面缩放')
+        self.danmaku_scale.toggled.connect(
+            lambda checked: self.change_sc_settings({'video_danmaku_scale': checked}))
+        form.addRow(self.danmaku_scale)
         reset_position = QPushButton('恢复 SC 位置')
-        reset_position.clicked.connect(lambda: self.change_sc_settings({'super_chat_position': None}))
+        reset_position.clicked.connect(lambda: self.change_sc_settings(
+            {'super_chat_position': None, 'super_chat_panel_position': None}))
         form.addRow(reset_position)
         self.sc_enabled = QCheckBox('显示醒目留言（SC）')
         self.sc_enabled.setChecked(True)
@@ -217,6 +226,12 @@ class ScSimulator(QMainWindow):
             control.blockSignals(True)
             control.setValue(self.sc_settings[key])
             control.blockSignals(False)
+        self.sc_scale_with_video.blockSignals(True)
+        self.sc_scale_with_video.setChecked(self.sc_settings['super_chat_scale_with_video'])
+        self.sc_scale_with_video.blockSignals(False)
+        self.danmaku_scale.blockSignals(True)
+        self.danmaku_scale.setChecked(self.sc_settings['video_danmaku_scale'])
+        self.danmaku_scale.blockSignals(False)
         self.tile.video_danmaku.apply_settings(self.sc_settings)
         self.publish()
 

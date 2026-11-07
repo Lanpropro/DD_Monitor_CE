@@ -1,5 +1,4 @@
 """Room image requests and delivery; the host owns Qt workers and UI lifetimes."""
-import sys
 
 
 class RoomImages:
@@ -51,35 +50,12 @@ class RoomImages:
                  for room in rooms if room.get("face")}
         covers = {str(room.get("room_id")): room.get("cover_url")
                   for room in rooms if room.get("cover_url")}
-        hit = host._prime_cached_avatars(faces)
-        print(f"[头像] 关注栏 {len(faces)} 张待取，本地缓存命中 {hit} 张",
-              file=sys.stderr, flush=True)
+        # AvatarLoader already reads the URL cache before trying the network.
+        # Keep that file I/O and decoding off the GUI thread during startup.
         host._room_avatar_loader = host._start_avatar_loader(faces, host._on_room_avatar)
         host._cover_loader = host._start_avatar_loader(covers, host._on_room_cover,
                                                        subdir="covers")
         host._load_room_banners(rooms)
-
-    def prime_cached_avatars(self, faces: dict, load_cached) -> int:
-        """把本地缓存里那张头像先摆上（纯读文件，不联网），返回命中张数。
-
-        头像以前只有「下载成功回调」这一条路：CDN 一抽风就永远空着。这里让
-        已经缓存过的 URL 立刻显示，下载只是"换成更新的那张"。
-        """
-        host = self.host
-        if not faces:
-            return 0
-        by_room = {str(item.room.get("room_id")): item for item in host.sidebar._items}  # noqa: SLF001
-        hit = 0
-        for room_id, url in faces.items():
-            item = by_room.get(str(room_id))
-            if item is None:
-                continue
-            cached = load_cached(url)
-            if cached is None:
-                continue
-            item.thumb.set_face(cached)
-            hit += 1
-        return hit
 
     def load_avatars_for(self, rooms: list) -> None:
         """刚加进来的房间立刻取头像和封面，不用等下一轮状态刷新。"""
@@ -148,6 +124,7 @@ class RoomImages:
                 item.thumb.set_face(pixmap)
                 # 竖屏顶部横栏的头像排用的是同一张图（那边不走 NavItem）
                 host.sidebar.set_room_face(room_id, pixmap)
+                host.wall.pane_danmaku.refresh_sources()
                 return
 
     def apply_cover(self, room_id: str, pixmap) -> None:

@@ -70,7 +70,11 @@ BASE = "#2a2d32"
 TILE_FULLSCREEN_STYLE = '''
 #Tile[fullscreen="true"],
 #Tile[fullscreen="true"]:hover,
-#Tile[fullscreen="true"][focused="true"] {
+#Tile[fullscreen="true"][focused="true"],
+#Tile[pictureInPicture="true"],
+#Tile[pictureInPicture="true"]:hover,
+#Tile[pictureInPicture="true"][focused="true"],
+#Tile[pictureInPicture="true"][empty="true"] {
     border: none;
     border-radius: 0px;
 }
@@ -251,7 +255,7 @@ def refresh_theme_properties(widget, *, defer=False):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
-    if name not in ('BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
+    if name not in ('NavigationButton', 'BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
                     'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'):
         return
@@ -343,8 +347,9 @@ class ThemeSignals(QObject):
             from .skin_parts import style_for
             extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
             if extra and widget not in _styles:
-                source = widget.styleSheet()
-                styled = source + '\n' + extra
+                from .continuous_corners import source_stylesheet, stylesheet
+                source = source_stylesheet(widget.styleSheet())
+                styled = stylesheet(source + '\n' + extra)
                 _styles[widget] = (source, {name: globals()[name] for name in _DARK}, styled)
                 widget.setStyleSheet(styled)
         return False
@@ -395,13 +400,14 @@ def apply(value):
     _light = light
     palette = _LIGHT if light else _DARK
     widgets = list(app.allWidgets())
+    from .continuous_corners import source_stylesheet, stylesheet
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
     for widget in widgets:
         style = widget.styleSheet()
         saved = _styles.get(widget)
         if not saved or style != saved[2]:
-            _styles[widget] = (style, previous, style)
+            _styles[widget] = (source_stylesheet(style), previous, style)
     globals().update(palette)
     _apply_palette(app, palette)
     stable_style = qss(palette_roles=True)
@@ -421,6 +427,7 @@ def apply(value):
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         if extra:
             styled += '\n' + extra
+        styled = stylesheet(styled)
         properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)
@@ -684,6 +691,16 @@ QSlider::handle:horizontal:hover {{
     font-weight: 600;
     color: {TEXT1};
 }}
+#PluginDetailsButton {{
+    border: none;
+    background: transparent;
+    color: {ACCENT};
+    padding: 2px 6px;
+    border-radius: {RADIUS_SM}px;
+}}
+#PluginDetailsButton:hover, #PluginDetailsButton:focus {{
+    background: {ACCENT_SOFT};
+}}
 #UpdateNotes, #UpdateNotes:focus {{
     background: transparent;
     border: 1px solid {BORDER};
@@ -759,6 +776,60 @@ QSlider::handle:horizontal:hover {{
 #Sidebar {{
     background: {SIDEBAR};
     border-right: 1px solid {BORDER};
+}}
+#SidebarRail {{
+    background: {SIDEBAR};
+    border-right: 1px solid {BORDER};
+}}
+#NavigationDivider {{background: {BORDER_STRONG}; border: none;}}
+#NavigationButton {{
+    background: transparent;
+    color: {TEXT2};
+    border: none;
+    border-radius: {RADIUS_MD}px;
+    padding: 0;
+}}
+#NavigationButton:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
+#NavigationButton:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
+#NavigationButton:focus {{outline: none;}}
+#NavigationButton[keyboardFocus="true"]:focus {{border: 1px solid {ACCENT};}}
+#NavigationButton[dockRail="true"]:checked,
+#NavigationButton[dockRail="true"][dockActive="true"] {{background: {TEXT1}; color: {BG};}}
+#NavigationButton[dockRail="true"][appearanceLight="true"]:checked,
+#NavigationButton[dockRail="true"][appearanceLight="true"][dockActive="true"] {{background: {ACCENT}; color: #ffffff;}}
+#NavigationButton[dockRail="true"][dockActive="false"]:checked {{background: transparent; color: {TEXT2};}}
+#NavigationButton[dockRail="true"][dockActive="false"]:checked:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
+#SidebarFilter {{
+    background: transparent;
+    color: {TEXT2};
+    border: none;
+    border-radius: {RADIUS_SM}px;
+    padding: 4px 8px;
+    min-height: 22px;
+}}
+#SidebarFilter:hover {{background: {CONTENT_HOVER};}}
+#SidebarFilter:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
+#SidebarFilter:focus {{border: 1px solid {ACCENT};}}
+#FunctionCenter {{
+    background: {SIDEBAR};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px;
+}}
+#FunctionEntry {{
+    text-align: left;
+    background: transparent;
+    color: {TEXT1};
+    border: none;
+    border-radius: {RADIUS_MD}px;
+    padding: 9px;
+    min-height: 28px;
+}}
+#FunctionEntry:hover {{background: {CONTENT_HOVER};}}
+#FunctionEntry:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
+#FunctionEntry:focus {{border: 1px solid {ACCENT};}}
+#WorkspacePanel, #WorkspaceEntries {{
+    background: {SIDEBAR};
+    border: none;
 }}
 #AppTitle {{
     font-size: {FONT_BODY + 1}px;
@@ -1130,6 +1201,14 @@ QPushButton#PrimaryButton:pressed {{
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
+#PipRoomChoice {{
+    background: {CONTENT}; color: {TEXT1}; border: 1px solid {BORDER_STRONG};
+    border-radius: {RADIUS_MD}px; padding: 0;
+}}
+#PipRoomChoice:hover {{background: {CONTENT_HOVER};}}
+#PipRoomChoice:checked, #PipRoomChoice:focus {{border: 1px solid {ACCENT}; outline: none;}}
+#PipChoiceBadge {{background: {ACCENT}; color: white; border: none; border-radius: 8px;}}
+#PluginCard[pipDropTarget="true"] {{border: 1px solid {ACCENT};}}
 #LayoutCard:focus {{
     border: 1px solid {ACCENT};
     outline: none;
@@ -1346,6 +1425,8 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuBody {{
     background: transparent;
     border: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
     color: {TEXT2};
     font-size: {FONT_CAPTION}px;
 }}
@@ -1367,6 +1448,8 @@ QPushButton#PrimaryButton:pressed {{
 #DanmakuBar {{
     background: rgba(10, 11, 13, 0.52);
     border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
 }}
 #DanmakuBarLabel {{
     color: {TEXT3};
@@ -1570,4 +1653,5 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
-    return style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE
+    from .continuous_corners import stylesheet
+    return stylesheet(style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)

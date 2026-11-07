@@ -20,7 +20,7 @@ runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget, QLineEdit
+from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QPushButton, QWidget, QLineEdit
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -29,22 +29,20 @@ from ddm.online_ui import show_result, UpdateNotice
 
 class MainNoticesTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'win32', 'Windows MSG layout required')
-    def test_native_caption_press_uses_the_msg_window_handle(self):
+    def test_native_caption_press_delegates_without_mouse_capture(self):
         import ctypes
         from ctypes import wintypes
-        controller = Mock()
-        controller.native_message.return_value = True
-        host = SimpleNamespace(wall=object(), _closing=False, _window_move=None)
+        window = self.window([])
         message = wintypes.MSG()
-        message.hWnd = 0x12345678
+        message.hWnd = int(window.winId())
         message.message, message.wParam = 0x00A1, 2
         with patch.object(QApplication, 'platformName', return_value='windows'), \
-                patch('ddm.window_move.WindowMove', return_value=controller) as create:
-            result = MainWindow.nativeEvent(host, b'windows_generic_MSG', ctypes.addressof(message))
-        create.assert_called_once_with(host, int(message.hWnd))
-        self.assertIs(host._window_move, controller)
-        self.assertEqual(result, (True, 0))
-        self.assertEqual(controller.native_message.call_args.args[0].hWnd, message.hWnd)
+                patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)) as native, \
+                patch.object(QWidget, 'grabMouse') as capture:
+            result = window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+        self.assertEqual(result, (False, 0))
+        native.assert_called_once()
+        capture.assert_not_called()
 
     def test_native_idle_cursor_only_targets_the_video_window_or_its_children(self):
         from ddm import fullscreen_cursor as module
@@ -196,7 +194,7 @@ class MainNoticesTests(unittest.TestCase):
             if enabled:
                 self.assertFalse(sidebar._collapse_animating)
                 self.assertTrue(wall._sidebar_animating)
-                self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
+                self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                 for item in sidebar.items():
                     self.assertEqual(item._compact, sidebar.collapsed)
                     self.assertFalse(item.thumb._cover_hold)
@@ -214,7 +212,7 @@ class MainNoticesTests(unittest.TestCase):
                 sidebar.set_card_mode(card_mode)
                 for collapsed in (True, False) * 5:
                     sidebar.set_collapsed(collapsed)
-                    self.assertEqual(sidebar.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+                    self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
                     self.assertFalse(sidebar._collapse_animating)
                     self.assertTrue(sidebar.updatesEnabled())
             clear.assert_not_called()
@@ -233,7 +231,7 @@ class MainNoticesTests(unittest.TestCase):
         class PaintRecorder(QObject):
             def eventFilter(self, watched, event):
                 if event.type() == QEvent.Paint:
-                    paints.append((sidebar.collapsed, sidebar.width()))
+                    paints.append((sidebar.collapsed, sidebar._column.width()))
                 return False
 
         recorder = PaintRecorder(sidebar)
@@ -266,7 +264,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(sidebar._collapse_animating or wall._sidebar_animating)
         self.assertFalse(any(item.thumb._cover_hold for item in sidebar.items()))
         sidebar.set_collapsed(False)
-        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertEqual(sidebar._column.width(), theme.SIDEBAR_WIDTH)
         sidebar.setUpdatesEnabled(False)
         sidebar.set_collapsed(True)
         self.assertFalse(sidebar.updatesEnabled())
@@ -286,7 +284,7 @@ class MainNoticesTests(unittest.TestCase):
         sidebar.set_collapsed(False)
         sidebar.show()
         self.app.processEvents()
-        self.assertEqual(sidebar.width(), theme.SIDEBAR_WIDTH)
+        self.assertEqual(sidebar._column.width(), theme.SIDEBAR_WIDTH)
         self.assertTrue(sidebar.updatesEnabled() and window.wall.grid.isEnabled())
 
     def test_sidebar_layout_change_during_hold_still_rebuilds_visibility(self):
@@ -494,25 +492,27 @@ class MainNoticesTests(unittest.TestCase):
         from ddm import cover_focus
         from PySide6.QtCore import QRectF
         cover = self.focused_cover([[0.75, 0.02, 0.12, 0.18]])
+        sx, sy = cover.width() / 1000, cover.height() / 600
         with patch.object(cover_focus, '_detect_faces', side_effect=AssertionError('paint detection')):
             crop = cover_focus.source_rect(cover, 420, 120)
-            self.assertTrue(crop.contains(QRectF(750, 12, 120, 108)))
+            self.assertTrue(crop.contains(QRectF(750 * sx, 12 * sy, 120 * sx, 108 * sy)))
             centered = cover_focus.source_rect(cover, 420, 120, focus=False)
-            self.assertAlmostEqual(centered.center().y(), 300)
+            self.assertAlmostEqual(centered.center().y(), cover.height() / 2)
             self.assertLess(crop.top(), centered.top())
 
     def test_cover_focus_group_and_largest_face_selection(self):
         from ddm import cover_focus
         from PySide6.QtCore import QRectF
         cover = self.focused_cover([[0.5, 0.1, 0.1, 0.1], [0.7, 0.12, 0.1, 0.1]])
+        sx, sy = cover.width() / 1000, cover.height() / 600
         crop = cover_focus.source_rect(cover, 420, 120)
-        self.assertTrue(crop.contains(QRectF(500, 60, 300, 72)))
+        self.assertTrue(crop.contains(QRectF(500 * sx, 60 * sy, 300 * sx, 72 * sy)))
         cover = self.focused_cover([[0.4, 0.1, 0.1, 0.1], [0.6, 0.12, 0.1, 0.1]])
         crop = cover_focus.source_rect(cover, 60, 100)
-        self.assertTrue(crop.contains(QRectF(400, 60, 300, 72)))
+        self.assertTrue(crop.contains(QRectF(400 * sx, 60 * sy, 300 * sx, 72 * sy)))
         cover = self.focused_cover([[0.1, 0.05, 0.2, 0.2], [0.7, 0.75, 0.1, 0.1]])
         crop = cover_focus.source_rect(cover, 420, 120)
-        self.assertTrue(crop.contains(QRectF(100, 30, 200, 120)))
+        self.assertTrue(crop.contains(QRectF(100 * sx, 30 * sy, 200 * sx, 120 * sy)))
 
     def test_cover_focus_edges_thin_strips_and_no_face_fallback(self):
         from ddm import cover_focus
@@ -527,8 +527,8 @@ class MainNoticesTests(unittest.TestCase):
                 self.assertAlmostEqual(crop.width() / crop.height(), width / height)
         cover = self.focused_cover([])
         crop = cover_focus.source_rect(cover, 420, 120)
-        self.assertAlmostEqual(crop.center().x(), 500)
-        self.assertAlmostEqual(crop.center().y(), 300)
+        self.assertAlmostEqual(crop.center().x(), cover.width() / 2)
+        self.assertAlmostEqual(crop.center().y(), cover.height() / 2)
 
     def test_cover_models_match_pinned_sources_and_load_offline(self):
         import hashlib
@@ -1278,7 +1278,7 @@ class MainNoticesTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.addCleanup(theme.signals().changed.disconnect)
-        for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
+        for method in ('_start_startup_tiles', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
                        '_check_startup_update'):
@@ -1289,7 +1289,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def window(self, rooms, *, offscreen=False):
         window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
-                            layout_id='2x2', state={'plugins_enabled': []})
+                            layout_id='2x2', state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         window.resize(1000, 700)
         if offscreen:
             window.move(-10000, -10000)
@@ -1303,8 +1303,46 @@ class MainNoticesTests(unittest.TestCase):
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_fixture_closes_without_interactive_prompt_when_tray_is_available(self):
+        window = self.window([])
+        with patch.object(window._tray, 'available', return_value=True), \
+                patch('ddm.system_tray.CloseWindowDialog') as prompt:
+            window.close()
+        prompt.assert_not_called()
+        self.assertTrue(window._closing)
+
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
+
+    def test_sidebar_icon_order_saves_and_restores_independent_groups(self):
+        from ddm.plugins import PluginContext
+        from PySide6.QtWidgets import QToolButton
+        window = self.window([])
+        window.settings['close_behavior'] = 'exit'
+        nav = window.sidebar.navigation
+        context = PluginContext(window.plugins, 'order-fixture')
+        for key in ('first', 'second'):
+            button = QToolButton()
+            button.setText(key)
+            context.register_workspace_control(key, button)
+        controls = window.sidebar.workspace_controls
+        tools = nav.movable_tools()
+        window._save_timer.stop()
+        nav.reorder_group(tools, list(reversed(tools)))
+        self.assertTrue(window._save_timer.isActive())
+        window._save_timer.stop()
+        controls.reorder_pins(list(reversed(controls.pinned())))
+        self.assertTrue(window._save_timer.isActive())
+        state = window.current_state()
+        self.assertEqual(state['ui']['sidebar_tool_order'], [nav.tool_key(button) for button in reversed(tools)])
+        self.assertEqual(state['ui']['workspace_pins'], [['order-fixture', 'second'], ['order-fixture', 'first']])
+        restored = MainWindow([], [], layout_id='2x2', state=state)
+        restored.settings['close_behavior'] = 'exit'
+        self.addCleanup(self.close_window, restored)
+        other = restored.sidebar.navigation
+        self.assertEqual(other.order_state(), nav.order_state())
+        self.assertEqual([other.tool_key(button) for button in other.movable_tools()], other.order_state())
+        self.assertEqual(restored.sidebar.workspace_controls.pin_state(), controls.pin_state())
 
     def complete_startup(self, window):
         poller = Mock()
@@ -1497,6 +1535,207 @@ class MainNoticesTests(unittest.TestCase):
                 patch.object(window, '_clear_tile_room') as clear:
             QTest.keyClick(window, Qt.Key_Delete)
             clear.assert_not_called()
+
+    def test_clear_wall_removes_immediately_without_confirmation_and_empty_wall_is_a_noop(self):
+        window = self.window([{'room_id': '1001', 'live': False}])
+        tile = window.wall.tiles[0]
+        with patch('ddm.app.QMessageBox.question') as confirm, \
+                patch.object(window, '_clear_tile_room', wraps=window._clear_tile_room) as clear:
+            window.sidebar.clear_wall_button.click()
+            menu = window.wall_removal.menu
+            confirm.assert_not_called()
+            menu.remove_button.click()
+            confirm.assert_not_called()
+            clear.assert_called_once_with(tile)
+            self.assertFalse(tile.room.get('room_id'))
+            self.assertTrue(menu.isVisible())
+            self.assertTrue(window.sidebar.clear_wall_button.isEnabled())
+            self.assertFalse(menu.remove_button.isEnabled())
+            self.assertTrue(menu.undo_button.isEnabled())
+            self.assertFalse(window.wall_removal.remove_selected())
+            self.assertEqual(clear.call_count, 1)
+            menu.undo_button.click()
+            self.assertEqual(tile.room['room_id'], '1001')
+            confirm.assert_not_called()
+
+    def test_clear_wall_cleans_duplicate_offline_and_hidden_tiles_without_changing_layout(self):
+        rooms = [{'room_id': '1001', 'live': True}, {'room_id': '1001', 'live': False},
+                 {'room_id': '1002', 'live': False}]
+        window = self.window(rooms)
+        wall = window.wall
+        wall.set_layout('1x1')
+        original_tiles = list(wall.tiles)
+        original_layout = (wall.layout_id, wall.layout_ratios(), wall.corner_ratios())
+        follows = window.sidebar.rooms()
+        occupied = [tile for tile in wall.tiles if tile.room.get('room_id')]
+        self.assertTrue(any(tile.isHidden() for tile in occupied))
+        players = {tile: Mock() for tile in occupied}
+        resolvers = {tile: Mock() for tile in occupied}
+        window.players.update(players)
+        window._resolvers.update(resolvers)
+        window._pending_capture.update({tile: True for tile in occupied})
+        with patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop, \
+                patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh:
+            window.sidebar.clear_wall_button.click()
+            window.wall_removal.select('all')
+            window.wall_removal.menu.remove_button.click()
+            self.assertEqual([call.args[0] for call in stop.call_args_list], occupied)
+            refresh.assert_called_once_with()
+        self.assertEqual(wall.tiles, original_tiles)
+        self.assertEqual((wall.layout_id, wall.layout_ratios(), wall.corner_ratios()), original_layout)
+        self.assertEqual(window.sidebar.rooms(), follows)
+        self.assertTrue(all(not slot['room_id'] for slot in window.current_state()['wall']))
+        self.assertFalse(window.players)
+        self.assertFalse(window._resolvers)
+        self.assertFalse(window._pending_capture)
+        self.assertTrue(window._save_timer.isActive())
+        self.assertTrue(window.sidebar.clear_wall_button.isEnabled())
+        self.assertTrue(window.wall_removal.menu.undo_button.isEnabled())
+        for tile in occupied:
+            players[tile].release.assert_called_once_with()
+            resolvers[tile].cancel.assert_called_once_with()
+        self.assertTrue(window.wall_removal.undo())
+        self.assertEqual([tile.room.get('room_id') for tile in occupied], ['1001', '1001', '1002'])
+
+    def test_removal_preview_selects_known_offline_only_and_supports_each_scope(self):
+        window = self.window([{'room_id': '1', 'live': True, 'uname': '正在直播'},
+                              {'room_id': '2', 'live': False, 'uname': '未开播主播'},
+                              {'room_id': '3', 'live': False, 'live_known': False}])
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        menu = control.menu
+        first, second, unknown, empty = window.wall.tiles
+        self.assertEqual(control.selected, {second})
+        panes = {tile: button for tile, button, _rect in menu.preview.panes}
+        self.assertEqual(set(panes), set(window.wall.tiles))
+        self.assertFalse(panes[empty].isEnabled())
+        self.assertIn('状态未知', panes[unknown].accessibleName())
+        panes[first].click()
+        self.assertEqual(control.selected, {first, second})
+        menu.scope_buttons['all'].click()
+        self.assertEqual(control.selected, {first, second, unknown})
+        menu.scope_buttons['none'].click()
+        self.assertFalse(menu.remove_button.isEnabled())
+        menu.scope_buttons['offline'].click()
+        self.assertEqual(control.selected, {second})
+        control.toggle_menu()
+        control.toggle_menu()
+        self.assertEqual(control.selected, {second})
+        self.assertTrue(menu.isVisible())
+
+    def test_removal_preview_matches_resized_portrait_and_danmaku_layouts(self):
+        window = self.window([{'room_id': str(i), 'live': False} for i in range(4)])
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        for identifier in ('corner', 'dm_left', 'portrait_main4', 'portrait_dm2'):
+            window.wall.set_layout(identifier)
+            control.sync()
+            preview = control.menu.preview
+            self.assertEqual(len(preview.panes), len(window.wall._preset_widgets()))
+            for tile, button, rect in preview.panes:
+                self.assertTrue(preview.rect().contains(button.geometry()), identifier)
+                self.assertEqual(rect, (tile or window.wall.danmaku).geometry())
+            if window.wall.has_danmaku:
+                dm = next(button for tile, button, _rect in preview.panes if tile is None)
+                self.assertFalse(dm.isEnabled())
+                self.assertEqual(dm.accessibleName(), '弹幕')
+
+    def test_removal_menu_toggle_outside_click_and_escape_do_not_remove_rooms(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        button = window.sidebar.clear_wall_button
+        button.click()
+        menu = window.wall_removal.menu
+        hidden = []
+        class PopupTrace(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Hide:
+                    hidden.append(watched.testAttribute(Qt.WA_NoMouseReplay))
+                return False
+        trace = PopupTrace(menu)
+        menu.installEventFilter(trace)
+        menu.hide()
+        for _ in range(3):
+            button.click()
+            menu = window.wall_removal.menu
+            self.assertTrue(menu.isVisible())
+            point = menu.mapFromGlobal(button.mapToGlobal(button.rect().center()))
+            QTest.mouseClick(menu, Qt.LeftButton, pos=point)
+            self.app.processEvents()
+            self.assertFalse(menu.isVisible())
+            self.assertTrue(hidden[-1])
+            self.assertFalse(menu.timer.isActive())
+        button.click()
+        QTest.keyClick(menu, Qt.Key_Escape)
+        self.assertFalse(menu.isVisible())
+        self.assertEqual(window.wall.tiles[0].room['room_id'], '1')
+
+    def test_selected_removal_and_undo_keep_other_players_and_slot_sound(self):
+        window = self.window([{'room_id': '1', 'live': True}, {'room_id': '2', 'live': True}])
+        first, second = window.wall.tiles[:2]
+        first.set_volume(65)
+        first.set_muted(False)
+        first.set_quality(80)
+        first.set_paused(True)
+        keep = Mock()
+        window.players[second] = keep
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        control.toggle_selection(first, True)
+        with patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop:
+            self.assertTrue(control.remove_selected())
+            stop.assert_called_once_with(first)
+        self.assertIs(window.players[second], keep)
+        keep.release.assert_not_called()
+        window.start_tile.reset_mock()
+        with patch.object(window, '_start_capture') as record:
+            self.assertTrue(control.undo())
+            record.assert_not_called()
+        self.assertEqual(first.room['room_id'], '1')
+        self.assertEqual((first.volume, first.muted, first.quality, first.paused), (65, False, 80, True))
+        self.assertEqual(second.room['room_id'], '2')
+        window.start_tile.assert_called_once_with(first)
+        self.assertIs(window.players[second], keep)
+        self.assertFalse(control.can_undo())
+
+    def test_removal_undo_does_not_overwrite_new_rooms_or_layout_changes(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        tile = window.wall.tiles[0]
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        self.assertTrue(control.remove_selected())
+        tile.set_room({'room_id': 'new', 'live': False})
+        control.sync()
+        self.assertFalse(control.menu.undo_button.isEnabled())
+        self.assertNotIn('可撤回上次移除', control.menu.summary.text())
+        self.assertFalse(control.undo())
+        self.assertEqual(tile.room['room_id'], 'new')
+        tile.set_room(None)
+        window.wall.set_layout('1x1')
+        self.assertFalse(control.undo())
+
+    def test_removal_does_not_remove_a_replaced_room_before_the_next_menu_poll(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        tile = window.wall.tiles[0]
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        tile.set_room({'room_id': 'new', 'live': True})
+        with patch.object(window, '_clear_tile_room') as clear:
+            self.assertFalse(control.remove_selected())
+            clear.assert_not_called()
+        self.assertEqual(tile.room['room_id'], 'new')
+
+    def test_removal_undo_uses_latest_live_status_and_survives_empty_menu_reopen(self):
+        window = self.window([{'room_id': '1', 'live': False}])
+        window.sidebar.clear_wall_button.click()
+        control = window.wall_removal
+        self.assertTrue(control.remove_selected())
+        control.toggle_menu()
+        control.toggle_menu()
+        self.assertTrue(control.menu.undo_button.isEnabled())
+        window.sidebar.rooms()[0]['live'] = True
+        window.start_tile.reset_mock()
+        self.assertTrue(control.undo())
+        window.start_tile.assert_called_once_with(window.wall.tiles[0])
 
     def test_delete_preserves_search_and_composer_editing(self):
         window = self.window([{'room_id': '1001'}])

@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, QPointF, QRectF, QThread, Qt, QTimer, QVaria
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption, QTransform
 from PySide6.QtWidgets import QApplication
 
+from .corner_geometry import continuous_path
 from . import bili, motion, theme
 from .images import AvatarLoader, load_cached_image
 from .skin_preview import SkinPreview
@@ -87,12 +88,15 @@ def order_super_chats(chats):
 
 
 def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
-                       position=None, panel=False, collapsed=False):
+                       position=None, panel=False, collapsed=False, scale_with_video=False):
     if not events:
         return [], scale
     margin = 8 if panel else 10
     base_width = min(340, max(150 if panel else 168,
                              round(viewport_width * (.46 if panel else .30))))
+    if scale_with_video and not panel:
+        base_width = 340
+        scale *= max(1, viewport_height) / 720
     width, height, scale, heights = sc_card_geometry(
         events, base_width, scale, viewport_width - 2 * margin,
         viewport_height - 2 * margin, collapsed)
@@ -225,7 +229,7 @@ class SuperChatPresentation(QObject):
 
 
 class SuperChatPlacementPreview(SkinPreview):
-    """Edit the same relative position and scale used by the live SC overlays."""
+    """Edit independent video/panel positions and the shared live SC scale."""
     changed = Signal(dict)
     VIDEO_AREA = QRectF(10, 10, 540, 474)
     PANEL_AREA = QRectF(560, 332, 230, 178)
@@ -237,9 +241,11 @@ class SuperChatPlacementPreview(SkinPreview):
         self.setFixedHeight(300)
         self.setMouseTracking(True)
         self.setAccessibleName('SC 位置与大小预览')
-        self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
-        self.position = None
+        self.setToolTip('拖动卡片摆放，拖动右下角调整共用大小；位置是否同步由下方开关决定，双击恢复当前位置和共用大小')
+        self._positions = {'video': None, 'panel': None}
+        self.position_sync = True
         self.scale = 100
+        self.scale_with_video = False
         self.opacity = 80
         self.layout_mode = 'video'
         self.preview_context = {
@@ -248,14 +254,40 @@ class SuperChatPlacementPreview(SkinPreview):
                       'cards': [{'message': '', 'collapsed': False}]}}
         self._gesture = None
 
+    @property
+    def position(self):
+        return self._positions[self.layout_mode]
+
+    @position.setter
+    def position(self, value):
+        self._positions[self.layout_mode] = value
+        if self.position_sync:
+            other = 'panel' if self.layout_mode == 'video' else 'video'
+            self._positions[other] = None if value is None else list(value)
+
+    def set_position_sync(self, enabled):
+        self.position_sync = bool(enabled)
+        if self.position_sync:
+            self.position = self.position
+        self.update()
+        self.changed.emit(self.values())
+
     def values(self):
-        return {'super_chat_position': None if self.position is None else list(self.position),
+        return {'super_chat_position': None if self._positions['video'] is None else list(self._positions['video']),
+                'super_chat_panel_position': None if self._positions['panel'] is None else list(self._positions['panel']),
+                'super_chat_position_sync': self.position_sync,
+                'super_chat_scale_with_video': self.scale_with_video,
                 'super_chat_scale': self.scale}
 
     def apply_settings(self, settings):
-        position = settings.get('super_chat_position')
-        self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        self.position_sync = bool(settings.get('super_chat_position_sync', True))
+        for mode, key in (('video', 'super_chat_position'), ('panel', 'super_chat_panel_position')):
+            position = settings.get(key)
+            self._positions[mode] = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        if self.position_sync:
+            self._positions['panel'] = None if self._positions['video'] is None else list(self._positions['video'])
         self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
+        self.scale_with_video = bool(settings.get('super_chat_scale_with_video', False))
         self.set_opacity(settings.get('super_chat_opacity', 80))
         self.update()
 
@@ -304,7 +336,8 @@ class SuperChatPlacementPreview(SkinPreview):
         context = self.preview_context[self.layout_mode]
         width, height = context['size']
         rects, scale = sc_placement_rects(context['cards'], width, height,
-            self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'])
+            self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'],
+            scale_with_video=self.scale_with_video)
         stage = self.stage_rect()
         factor = stage.width() / width
         self._card_scale = scale * factor
@@ -332,7 +365,7 @@ class SuperChatPlacementPreview(SkinPreview):
         panel = self._panel_rect()
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
         painter.setBrush(theme.qcolor('#EDF2F7' if self.light else '#17202B'))
-        painter.drawRoundedRect(panel, 4, 4)
+        painter.drawPath(continuous_path(panel, 4))
         panel_context = self.preview_context['panel']
         factor = panel.width() / panel_context.get('outer_size', panel_context['size'])[0]
         header_height = panel_context.get('viewport_rect', [0, 0])[1] * factor
@@ -346,12 +379,12 @@ class SuperChatPlacementPreview(SkinPreview):
         viewport_rect = panel_context.get('viewport_rect', [0, 0, *panel_context['size']])
         bottom = panel.y() + (viewport_rect[1] + viewport_rect[3]) * factor
         footer_height = max(0, panel.bottom() - bottom)
-        painter.drawRoundedRect(QRectF(panel.x() + 2, bottom + footer_height * .25,
-                                       panel.width() - 4, footer_height * .5), 2, 2)
+        painter.drawPath(continuous_path(QRectF(panel.x() + 2, bottom + footer_height * .25,
+                                       panel.width() - 4, footer_height * .5), 2))
         stage = self.stage_rect()
         painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(stage, 3, 3)
+        painter.drawPath(continuous_path(stage, 3))
         palette = super_chat_palette(30)
         painter.save()
         painter.setOpacity(self.opacity / 100)
@@ -393,11 +426,12 @@ class SuperChatPlacementPreview(SkinPreview):
             factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
             margin = (8 if self.layout_mode == 'panel' else 10) * factor
             stage = stage.adjusted(margin, margin, -margin, -margin)
-            self.position = []
+            position = []
             for value, span in ((self._start_rect.x() + delta.x() - stage.x(), stage.width() - self._start_rect.width()),
                                 (self._start_rect.y() + delta.y() - stage.y(), stage.height() - self._start_rect.height())):
                 ratio = max(0, min(1, value / max(1, span)))
-                self.position.append(0.0 if ratio < .04 else 1.0 if ratio > .96 else round(ratio, 6))
+                position.append(0.0 if ratio < .04 else 1.0 if ratio > .96 else round(ratio, 6))
+            self.position = position
         self.update()
         self.changed.emit(self.values())
         event.accept()
@@ -478,7 +512,7 @@ def paint_sc_background(painter, rect, background, header, header_height):
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing)
     outline = QPainterPath()
-    outline.addRoundedRect(rect, 7, 7)
+    outline.addPath(continuous_path(rect, 7))
     painter.setClipPath(outline, Qt.IntersectClip)
     height = min(rect.height(), header_height)
     painter.fillRect(QRectF(rect.x(), rect.y(), rect.width(), height), QColor(header))

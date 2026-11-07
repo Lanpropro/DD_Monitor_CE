@@ -6,23 +6,27 @@ import time
 from uuid import uuid4
 
 from PySide6.QtCore import (
-    QAbstractAnimation, QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
+    QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
     QTimer, QUrl, Signal, QVariantAnimation,
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QColor, QCursor, QDrag, QFont, QFontMetrics, QIcon, QKeySequence,
-    QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QPolygonF, QRegion,
+    QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QRegion,
     QShortcut, QTextDocument, QTextOption,
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel,
     QInputDialog, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QTextBrowser,
-    QStyleOption, QStyleOptionButton, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
+    QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
+from .corner_geometry import continuous_path
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
+from .workspace_controls import WorkspaceControls
+from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
+from .dock_feedback import icon_color
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
 from .config import (DEFAULT_SETTINGS, DEFAULT_VOLUME, VIDEO_DANMAKU_SETTING_KEYS,
@@ -42,6 +46,10 @@ from .badge_surface import BadgeSurface
 from .playback_badges import (ASSETS_DIR, BADGE_HEIGHT, HOLE_MARGIN, HOLE_SIZE,
                               LoadingIndicator, LoadingLabel, StreamBadge, TimeBadge,
                               TitleBadge, _badge_font)
+# Preserve legacy control imports and shared drawing helpers.
+from .playback_controls import (DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton,
+                                SidebarToggleButton, TileButton, VolumeButton, VolumePopup,
+                                _draw_arrow_head, _icon_color)
 from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
 from .video_danmaku import VideoDanmaku
@@ -113,7 +121,7 @@ def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
     painter.setRenderHint(QPainter.Antialiasing, True)
     radius = max(3.0, height * 0.28)
     path = QPainterPath()
-    path.addRoundedRect(QRectF(0, 0, width, height), radius, radius)
+    path.addPath(continuous_path(QRectF(0, 0, width, height), radius))
     painter.fillPath(path, QColor(color))
     painter.setPen(QColor("#14161a" if _brightness(color) > 150 else "#ffffff"))
     painter.setFont(font)
@@ -121,389 +129,6 @@ def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
     painter.end()
     return pixmap
 
-
-class TileButton(QPushButton):
-    def focusInEvent(self, event):
-        self._keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason)
-        super().focusInEvent(event)
-        self.update()
-
-    def focusOutEvent(self, event):
-        self._keyboard_focus = False
-        super().focusOutEvent(event)
-        self.update()
-
-    def mousePressEvent(self, event):
-        self._keyboard_focus = False
-        super().mousePressEvent(event)
-        self.update()
-
-    def paintEvent(self, event):
-        if not self.property('tileButton'):
-            return super().paintEvent(event)
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        painter = QPainter(self)
-        self._paint_button(painter, option)
-
-    def _paint_button(self, painter, option):
-        focused = self.hasFocus() and getattr(self, '_keyboard_focus', False)
-        option.state &= ~QStyle.State_HasFocus
-        frame = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
-        radius = min(9.0, frame.height() / 2)
-        painter.save()
-        if focused:
-            clip = QPainterPath()
-            clip.addRoundedRect(frame.adjusted(1, 1, -1, -1), max(0, radius - 1), max(0, radius - 1))
-            painter.setClipPath(clip)
-        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
-        painter.restore()
-        self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
-        if focused:
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setPen(QPen(QColor('#ffffff'), 1.2))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(frame, radius, radius)
-
-
-class VolumeButton(TileButton):
-    """音量按钮：细线喇叭 + 声道标记，静音时喇叭右边打一个 ×。
-
-    点击切换静音，滚轮调音量；声道（原始 / 仅左 / 仅右）由右键菜单切换，
-    这里只用 L / R 标出当前在听哪一路。
-    """
-
-    volumeChanged = Signal(int)
-
-    CHANNEL_LEFT = 3
-    CHANNEL_RIGHT = 4
-
-    def __init__(self, parent=None, size: int = theme.CONTROL_HEIGHT):
-        super().__init__(parent)
-        self.setObjectName("BiliVolumeButton")
-        self._size = size
-        # 喇叭 + 右边的 L / R 两个标记：比纯图标按钮宽一点，字才不会贴边
-        self.setFixedSize(size + (8 if size >= 30 else 14), size)
-        self.setCursor(Qt.PointingHandCursor)
-        self.muted = False
-        self.level = DEFAULT_VOLUME
-        self.audio_channel = 0
-        self.compact_popup = False
-        self._update_tooltip()
-
-    def set_state(self, muted: bool, level: int, audio_channel: int = 0) -> None:
-        self.muted = bool(muted)
-        self.level = max(0, min(100, int(level)))
-        self.audio_channel = int(audio_channel)
-        self._update_tooltip()
-        self.update()
-
-    def _update_tooltip(self) -> None:
-        state = "已静音" if self.muted else f"音量 {self.level}"
-        channel = {
-            self.CHANNEL_LEFT: "　声道：左",
-            self.CHANNEL_RIGHT: "　声道：右",
-        }.get(self.audio_channel, "")
-        action = "点击取消静音" if self.muted else "点击静音"
-        if self.compact_popup:
-            action += "，悬停展开音量"
-        self.setToolTip(f"{state}{channel}　（{action}，滚轮调音量，右键调声道）")
-
-    def wheelEvent(self, event) -> None:
-        step = 5 if event.angleDelta().y() > 0 else -5
-        self.level = max(0, min(100, self.level + step))
-        self.muted = self.level == 0
-        self._update_tooltip()
-        self.update()
-        self.volumeChanged.emit(self.level)
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景由样式表画
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1)
-                 if theme.is_light() and not self.property('fullscreen')
-                 else QColor("#9499a0" if self.muted else "#f1f2f3"))
-        if self.underMouse():
-            color = QColor(theme.ACCENT)
-        pen = QPen(color, 1.7)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        center = QRectF(self.rect()).center()
-        # Center the speaker and its right-hand indicator as a single icon.
-        left = center.x() - 11
-        top = center.y() - 6
-        path = QPainterPath()
-        path.moveTo(left, top + 4)
-        path.lineTo(left + 3.5, top + 4)
-        path.lineTo(left + 8, top)
-        path.lineTo(left + 8, top + 12)
-        path.lineTo(left + 3.5, top + 8)
-        path.lineTo(left, top + 8)
-        path.closeSubpath()
-        painter.drawPath(path)
-        if self.muted:
-            # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
-            cross = QPointF(left + 17, center.y())
-            painter.drawLine(cross + QPointF(-3.5, -3.5), cross + QPointF(3.5, 3.5))
-            painter.drawLine(cross + QPointF(-3.5, 3.5), cross + QPointF(3.5, -3.5))
-        else:
-            self._paint_channel(painter, top, left)
-
-    def _paint_channel(self, painter: QPainter, top: float, left: float) -> None:
-        """在喇叭右边标出当前声道：L / R，选中的那一路更亮。"""
-        font = QFont(theme.FONT_DEFAULT)
-        font.setPixelSize(8)
-        font.setBold(True)
-        for label, x, selected in (
-            ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
-            ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
-        ):
-            if selected:
-                colour = QColor(theme.ACCENT)
-            else:
-                colour = QColor("#9499a0" if self.muted else "#6d737d")
-                colour.setAlpha(150)
-            # Center the visible glyph outline, avoiding font baseline/hinting
-            # offsets that put these tiny capitals above or below the speaker.
-            glyph = QPainterPath()
-            glyph.addText(QPointF(), font, label)
-            bounds = glyph.boundingRect()
-            glyph.translate(x - bounds.center().x(), top + 6 - bounds.center().y())
-            painter.fillPath(glyph, colour)
-
-
-
-class VolumePopup(QFrame):
-    def paintEvent(self, event) -> None:
-        # Paint the styled background explicitly for this translucent tool window.
-        option = QStyleOption()
-        option.initFrom(self)
-        painter = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
-
-
-class RecordingButton(TileButton):
-    def paintEvent(self, event):
-        if not self.property('replayOnly'):
-            return super().paintEvent(event)
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        option.text = ''
-        option.icon = QIcon()
-        painter = QPainter(self)
-        if self.property('tileButton'):
-            self._paint_button(painter, option)
-        else:
-            self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        painter.setPen(QColor(theme.ACCENT))
-        painter.setFont(self.font())
-        painter.drawText(self.rect(), Qt.AlignCenter, self.text())
-
-
-def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
-    """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
-    if button.property('fullscreen'):
-        return QColor('#ffffff')
-    if button.underMouse() or button.property("hovered") is True:
-        return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
-    if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
-                            or button.objectName() == "TileCtrl"):
-        return theme.qcolor(theme.TEXT2)
-    return QColor("#e7ebf0")
-
-
-class SidebarToggleButton(QPushButton):
-    """收起 / 展开的箭头键。
-
-    横屏（侧栏在左）沿用原来的左右字形「« / »」；竖屏时侧栏变成顶部横栏，
-    左右箭头方向不对，改成**自己画的上下箭头**（用户要求）。上下箭头不用
-    `⌃`/`⌄` 这类字形 —— 雅黑下不可靠，和 `BarIconButton` 一个路子自己画。
-    展开时箭头朝上（点一下收起来），收起时朝下（点一下放下来）。
-    """
-
-    def __init__(self, parent=None):
-        super().__init__("«", parent)
-        self.setObjectName("SidebarToggle")
-        self.setCursor(Qt.PointingHandCursor)
-        self.portrait = False
-        self.collapsed = False
-
-    def set_orientation(self, portrait: bool, collapsed: bool) -> None:
-        """竖屏走自绘的上下箭头，横屏回到原来的字形。"""
-        self.portrait = bool(portrait)
-        self.collapsed = bool(collapsed)
-        self.setText("" if self.portrait else ("»" if self.collapsed else "«"))
-        self.update()
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景 / 悬停底色交给样式表
-        if not self.portrait:
-            return                         # 横屏：字形已经由 QPushButton 画好
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(theme.qcolor(theme.TEXT1 if self.underMouse() else theme.TEXT3), 1.8)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        center = self.rect().center()
-        half = 4.2
-        up = not self.collapsed
-        tip_y = center.y() - 3.4 if up else center.y() + 3.4
-        base_y = center.y() + 3.4 if up else center.y() - 3.4
-        painter.drawLine(QPointF(center.x() - half, base_y),
-                         QPointF(center.x(), tip_y))
-        painter.drawLine(QPointF(center.x() + half, base_y),
-                         QPointF(center.x(), tip_y))
-
-
-class PauseButton(TileButton):
-    """暂停 / 继续：最常见的 ⏸ / ▶ 图形按钮。"""
-
-    def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT):
-        super().__init__(parent)
-        self.setObjectName("TileCtrl")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(size + 8, size)
-        self.paused = False
-        self._update_tooltip()
-
-    def set_paused(self, paused: bool) -> None:
-        self.paused = bool(paused)
-        self._update_tooltip()
-        self.update()
-
-    def _update_tooltip(self) -> None:
-        self.setToolTip("继续播放" if self.paused else "暂停这一路")
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景交给样式表
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(_icon_color(self))
-        center = QRectF(self.rect()).center()
-        if self.paused:
-            # ▶ 继续
-            path = QPainterPath()
-            path.moveTo(center.x() - 10 / 3, center.y() - 6)
-            path.lineTo(center.x() + 20 / 3, center.y())
-            path.lineTo(center.x() - 10 / 3, center.y() + 6)
-            path.closeSubpath()
-            painter.drawPath(path)
-        else:
-            # ⏸ 暂停
-            painter.drawRoundedRect(
-                QRectF(center.x() - 5.2, center.y() - 6, 3.6, 12), 1.3, 1.3)
-            painter.drawRoundedRect(
-                QRectF(center.x() + 1.6, center.y() - 6, 3.6, 12), 1.3, 1.3)
-
-
-class RefreshButton(TileButton):
-    """刷新：两个箭头首尾相接的圆环图标。"""
-
-    def __init__(self, parent=None, size: int = theme.TILE_CONTROL_HEIGHT,
-                 object_name: str = "TileCtrl"):
-        super().__init__(parent)
-        self.setObjectName(object_name)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(size + (6 if size < 30 else 8), size)
-        self.setToolTip("刷新")
-        self._angle = 0.0
-        self._spin = QVariantAnimation(self)
-        self._spin.setStartValue(0.0)
-        self._spin.setEndValue(360.0)
-        self._spin.setDuration(1000)
-        self._spin.setLoopCount(-1)
-        self._spin.setEasingCurve(QEasingCurve.Linear)
-        self._spin.valueChanged.connect(self._spin_frame)
-
-    def _spin_frame(self, angle):
-        self._angle = angle
-        self.update()
-
-    def set_refreshing(self, busy):
-        self.setProperty("refreshing", busy)
-        if busy and self._spin.state() == QAbstractAnimation.Running and motion.enabled():
-            return
-        self._spin.stop()
-        self._angle = 0.0
-        if busy and self.isVisible() and motion.enabled():
-            self._spin.start()
-        self.update()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.set_refreshing(bool(self.property("refreshing")))
-
-    def hideEvent(self, event):
-        self._spin.stop()
-        super().hideEvent(event)
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        center = QPointF(self.width() / 2, self.height() / 2)
-        painter.translate(center)
-        painter.rotate(self._angle)
-        painter.translate(-center)
-        if self.property("refreshing"):
-            color = QColor(theme.ACCENT)
-        else:
-            color = _icon_color(self, hover_dark=self.objectName() not in ("ChipButton", "BarIcon"))
-        radius = min(7.0, self.height() / 2 - 5)
-        rect = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
-        pen = QPen(color, 1.7)
-        pen.setCapStyle(Qt.FlatCap)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawArc(rect, 40 * 16, 140 * 16)
-        painter.drawArc(rect, 220 * 16, 140 * 16)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(color)
-        for angle, direction in ((40, -1), (220, -1)):
-            _draw_arrow_head(painter, center, radius, angle, direction)
-
-
-class DanmakuToggleButton(TileButton):
-    """画面弹幕开关：开启时在右下角画一个勾（和 B 站播放器一样），不靠整块底色区分。"""
-
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        if not self.isChecked():
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor(theme.ACCENT), 1.8)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        painter.setPen(pen)
-        x = self.width() - 10.5
-        y = self.height() - 8.0
-        path = QPainterPath()
-        path.moveTo(x, y)
-        path.lineTo(x + 2.6, y + 2.6)
-        path.lineTo(x + 6.0, y - 3.6)
-        painter.drawPath(path)
-
-
-def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,
-                     direction: int, size: float = 3.4) -> None:
-    """在圆环的指定角度处画一个顺着切线的箭头。"""
-    radians = math.radians(angle)
-    x = center.x() + radius * math.cos(radians)
-    y = center.y() - radius * math.sin(radians)
-    tangent = math.radians(angle + 90 * direction)
-    tip = QPointF(x + size * math.cos(tangent), y - size * math.sin(tangent))
-    left = QPointF(x + size * 0.95 * math.cos(tangent + 2.4),
-                   y - size * 0.95 * math.sin(tangent + 2.4))
-    right = QPointF(x + size * 0.95 * math.cos(tangent - 2.4),
-                    y - size * 0.95 * math.sin(tangent - 2.4))
-    painter.drawPolygon(QPolygonF([tip, left, right]))
 
 
 class DanmakuTextBrowser(QTextBrowser):
@@ -560,7 +185,7 @@ class DanmakuTextBrowser(QTextBrowser):
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
             painter.setBrush(comment_hover_color())
-            painter.drawRoundedRect(rect.adjusted(0, 0, 0, -1), 8, 8)
+            painter.drawPath(continuous_path(rect.adjusted(0, 0, 0, -1), 8))
 
     def mousePressEvent(self, event):
         self._click_start = event.position().toPoint() if event.button() == Qt.LeftButton else None
@@ -843,7 +468,8 @@ class SuperChatStack(QWidget):
         self.hide()
 
     def configure(self, settings):
-        self._position = settings.get('super_chat_position')
+        self._position = settings.get('super_chat_position' if settings.get('super_chat_position_sync', True)
+                                      else 'super_chat_panel_position')
         self._enabled = bool(settings.get('super_chat_enabled', True))
         self._opacity = int(settings.get('super_chat_opacity', 80)) / 100
         self._scale = max(.75, min(2.0, int(settings.get('super_chat_scale', 100)) / 100))
@@ -1011,7 +637,8 @@ class DanmakuPanel(QFrame):
         header_box.setSpacing(6)
         dot = QLabel("●")
         dot.setObjectName("DanmakuDot")
-        title = QLabel("弹幕")
+        title = ElidedLabel("弹幕")
+        self.title = title
         title.setObjectName("DanmakuTitle")
         self.count = DanmakuConnectionIcon("未接入")
         self.count.setObjectName("DanmakuCount")
@@ -1120,6 +747,8 @@ class DanmakuPanel(QFrame):
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData(DANMAKU_MIME, b"1")
+        if self.property("paneCell") is not None:
+            mime.setData("application/x-ddm-danmaku-cell", str(self.property("paneCell")).encode())
         mime.setText("弹幕")
         drag.setMimeData(mime)
         drag.exec(Qt.MoveAction)
@@ -1155,7 +784,8 @@ class DanmakuPanel(QFrame):
         def finished():
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
-        show_comment_menu(self, self._blocks[index], self._tile_controls, position, finished)
+        show_comment_menu(self, self._blocks[index],
+                          getattr(self, "_linked_controls", None) or self._tile_controls, position, finished)
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
@@ -1190,7 +820,7 @@ class DanmakuPanel(QFrame):
             state = "connected"
         elif any(word in self._status for word in ("连接中", "重连中", "准备重连", "切换服务器")):
             state = "connecting"
-        elif self._status == "未接入":
+        elif self._status in ("未接入", "未关联"):
             state = "idle"
         else:
             state = "error"
@@ -1498,7 +1128,7 @@ def rounded_pixmap(source: QPixmap, size, radius: int) -> QPixmap:
     painter = QPainter(result)
     painter.setRenderHint(QPainter.Antialiasing, True)
     path = QPainterPath()
-    path.addRoundedRect(0, 0, size.width(), size.height(), radius, radius)
+    path.addPath(continuous_path(QRectF(0, 0, size.width(), size.height()), radius))
     painter.setClipPath(path)
     painter.drawPixmap((size.width() - scaled.width()) // 2,
                        (size.height() - scaled.height()) // 2, scaled)
@@ -1863,7 +1493,7 @@ class LiveAlert(QWidget):
             colour.setAlpha(int(200 * (1 - t / 0.6)))
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(colour, 1.6))
-            painter.drawRoundedRect(self._badge.adjusted(-grow, -grow, grow, grow), 8.0, 8.0)
+            painter.drawPath(continuous_path(self._badge.adjusted(-grow, -grow, grow, grow), 8.0))
         for index in range(3):
             phase = t - index * 0.22
             if phase <= 0 or phase >= 1:
@@ -1897,7 +1527,7 @@ class LiveAlert(QWidget):
         painter.translate(-self._anchor.x(), -bottom)
 
         path = QPainterPath()
-        path.addRoundedRect(body, 9.0, 9.0)
+        path.addPath(continuous_path(body, 9.0))
         tail_x = max(body.left() + 12, min(self._anchor.x(), body.right() - 12))
         tail = QPainterPath()
         tail.moveTo(tail_x - 6, body.bottom() - 1)
@@ -2233,7 +1863,7 @@ class NavThumb(QFrame):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, height), self.RADIUS, self.RADIUS)
+        path.addPath(continuous_path(QRectF(0, 0, width, height), self.RADIUS))
         painter.setClipPath(path)
         painter.drawPixmap(QRectF(0, 0, width, height), source, crop)
         if not self._compact_thumb():
@@ -2645,27 +2275,36 @@ class NavItem(QFrame):
 
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
-        self.badge.setText("直播中" if live else "未开播")
+        text = "直播中" if live else "未开播"
+        name = "BadgeLive" if live else "BadgeOff"
+        changed = self.badge.text() != text or self.badge.objectName() != name
+        self.badge.setText(text)
         if not self.room.get("title"):
-            self.sub.setText("直播中" if live else "未开播")
-        self.badge.setObjectName("BadgeLive" if live else "BadgeOff")
-        theme.refresh_theme_properties(self.badge)
-        _repolish(self.badge)
-        self._sync_live_dot()
-        self.thumb._layout_overlay()
+            changed = changed or self.sub._full_text != text
+            self.sub.setText(text)
+        if self.badge.objectName() != name:
+            self.badge.setObjectName(name)
+            theme.refresh_theme_properties(self.badge)
+            _repolish(self.badge)
+        if changed:
+            self._sync_live_dot()
+            self.thumb._layout_overlay()
 
     def set_title(self, title: str) -> None:
         """更新卡片上的直播间名，并同步悬停时的完整提示。"""
         self.room["title"] = title or ""
-        self.sub.setText(title or "未开播")
-        self.thumb._layout_overlay()
+        text = title or "未开播"
+        if self.sub._full_text != text:
+            self.sub.setText(text)
+            self.thumb._layout_overlay()
 
     def set_uname(self, uname: str) -> None:
         """补上主播名：启动时占位条目只有「房间 X」，状态刷新后才拿到真名。"""
         self.room["uname"] = uname or ""
-        self.name_label.setText(self.room["uname"]
-                                or str(self.room.get("room_id") or ""))
-        self.thumb._layout_overlay()
+        text = self.room["uname"] or str(self.room.get("room_id") or "")
+        if self.name_label._full_text != text:
+            self.name_label.setText(text)
+            self.thumb._layout_overlay()
 
     def set_pinned(self, pinned: bool) -> None:
         self._pinned = bool(pinned)
@@ -2757,8 +2396,7 @@ class NavItem(QFrame):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, True)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1),
-                            theme.RADIUS_MD, theme.RADIUS_MD)
+        path.addPath(continuous_path(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), theme.RADIUS_MD))
         painter.fillPath(path, QColor(theme.ELEVATED))
         painter.setPen(QPen(QColor(theme.ACCENT), 1))
         painter.drawPath(path)
@@ -2769,7 +2407,7 @@ class NavItem(QFrame):
             badge = QRect(max(0, pixmap.width() - 39), 4, 35, 24)
             painter.setPen(Qt.NoPen)
             painter.setBrush(QColor(theme.ACCENT))
-            painter.drawRoundedRect(badge, 12, 12)
+            painter.drawPath(continuous_path(badge, 12))
             painter.setPen(QColor(theme.BG))
             painter.drawText(badge, Qt.AlignCenter, str(count))
             painter.end()
@@ -3679,7 +3317,7 @@ class BarIconButton(QPushButton):
             pen.setJoinStyle(Qt.RoundJoin)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2, 2)
+            painter.drawPath(continuous_path(QRectF(center.x() - 6, center.y() - 3, 10, 10), 2))
             painter.drawLine(QPointF(center.x() - 2, center.y() - 6),
                              QPointF(center.x() + 7, center.y() - 6))
             painter.drawLine(QPointF(center.x() + 7, center.y() - 6),
@@ -3711,7 +3349,7 @@ class AppearanceButton(QPushButton):
         super().__init__(parent)
         self.setObjectName("ChipButton")
         self.setFixedSize(22, 22)
-        self.setStyleSheet("padding: 0; min-width: 20px; min-height: 20px;")
+        self.setStyleSheet("padding: 0;")
         self.setCursor(Qt.PointingHandCursor)
         self.refresh_theme()
 
@@ -3725,8 +3363,11 @@ class AppearanceButton(QPushButton):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = QRectF((self.width()-14)/2, (self.height()-14)/2, 14, 14)
-        color = theme.qcolor(theme.ACCENT if self.underMouse() else theme.TEXT2)
+        painter.translate(self.width()/2, self.height()/2)
+        if hasattr(self, '_dock_feedback'):
+            self._dock_feedback.transform(painter)
+        rect = QRectF(-7, -7, 14, 14)
+        color = icon_color(self)
         painter.setPen(QPen(color, 1.4))
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(rect)
@@ -3763,8 +3404,12 @@ class Sidebar(QFrame):
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
+    pictureInPictureRequested = Signal()
+    clearWallRequested = Signal()
     layoutResetRequested = Signal()
     settingsRequested = Signal()
+    pluginSettingsRequested = Signal()
+    cardModeChanged = Signal(bool)
     appearanceChanged = Signal(str)
     # 注意：菜单项要走**已经接好的**信号 —— addRoomClicked / importFollowsClicked
     # 才是 MainWindow 连了槽的那两个；另起名字会是「发了没人听」的空信号
@@ -3775,8 +3420,12 @@ class Sidebar(QFrame):
                  compact_background: bool = True):
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(theme.SIDEBAR_WIDTH)
+        self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self._items: list[NavItem] = []
+        self._drag_snapshot_ready = False
+        self._drag_snapshot_timer = QTimer(self)
+        self._drag_snapshot_timer.setSingleShot(True)
+        self._drag_snapshot_timer.timeout.connect(self._prepare_drag_snapshot)
         self.browser_url_resolver = lambda _room: ""
         self._collapse_animating = False
         self.collapsed = False
@@ -3811,7 +3460,12 @@ class Sidebar(QFrame):
         self._folder_buttons: dict[str, FollowFolderButton] = {}
         self._layout_id = layouts.DEFAULT_LAYOUT
 
-        layout = QVBoxLayout(self)
+        self._outer_layout = QHBoxLayout(self)
+        self._outer_layout.setContentsMargins(0, 0, 0, 0)
+        self._outer_layout.setSpacing(0)
+        self._column = QWidget(self)
+        self._outer_layout.addWidget(self._column, 1)
+        layout = QVBoxLayout(self._column)
         layout.setContentsMargins(12, 14, 12, 12)
         layout.setSpacing(10)
         self._layout = layout
@@ -3881,6 +3535,7 @@ class Sidebar(QFrame):
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
         self.filter_text = ""
+        self.live_only = False
         self.search.textChanged.connect(self.apply_filter)      # 边打字边过滤
         # 回车不再额外「执行搜索」（本来就实时），把焦点交给列表，接着就能直接
         # 点选 / 拖动；Esc 等价于点清空按钮（清空按钮自己会走 textChanged）
@@ -3958,6 +3613,8 @@ class Sidebar(QFrame):
         self.batch_bar.setVisible(False)
         layout.addWidget(self.batch_bar)
 
+        self.workspace_controls = WorkspaceControls(self)
+
         # 已登录账号（在底部操作之上）
         self.account_row = AccountRow(self, allow_logout=True)
         self.account_row.logoutClicked.connect(self.logoutRequested)
@@ -3972,19 +3629,26 @@ class Sidebar(QFrame):
         tool_box = QHBoxLayout(self.tool_row)
         tool_box.setContentsMargins(0, 0, 0, 0)
         tool_box.setSpacing(6)
-        self.layout_button = QPushButton()
+        self.layout_button = NavigationButton('布局预设', 'layout')
         self.layout_button.setFocusPolicy(Qt.TabFocus)
         self.layout_button.setObjectName("IconButton")
         self.layout_button.setCursor(Qt.PointingHandCursor)
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
-        self.settings_button = QPushButton("设置")
+        self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
+        self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
+        self.picture_in_picture_button = NavigationButton('画中画', 'pip')
+        self.picture_in_picture_button.setObjectName('IconButton')
+        self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
+        self.picture_in_picture_button.clicked.connect(self.pictureInPictureRequested.emit)
+        self.settings_button = NavigationButton('设置', 'settings')
         self.settings_button.setFocusPolicy(Qt.TabFocus)
         self.settings_button.setObjectName("IconButton")
         self.settings_button.setCursor(Qt.PointingHandCursor)
         self.settings_button.setToolTip("打开设置")
         self.settings_button.clicked.connect(self.settingsRequested.emit)
         tool_box.addWidget(self.layout_button, 1)
+        tool_box.addWidget(self.picture_in_picture_button)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
         self.set_layout_name(layouts.DEFAULT_LAYOUT)
@@ -4018,17 +3682,21 @@ class Sidebar(QFrame):
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
+            self.picture_in_picture_button: self.picture_in_picture_button.sizePolicy(),
             self.settings_button: self.settings_button.sizePolicy(),
         }
         self._account_policy = self.account_row.sizePolicy()
         self._bar_row: QWidget | None = None
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
+        self.navigation = SidebarNavigation(self, self._outer_layout)
         self.refresh_filter()
         self._sync_count()
+        self._sync_appearance_row()
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
+        self.workspace_controls.sync_layout()
         self._sync_selection_controls()
         self.appearance_button.setVisible(not self.collapsed)
         if self.side == "left":
@@ -4037,6 +3705,7 @@ class Sidebar(QFrame):
                 widget.setVisible(not self.collapsed)
             self.status_row.layout().setAlignment(self.appearance_button,
                 Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
+        self.navigation.sync()
 
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
@@ -4198,12 +3867,14 @@ class Sidebar(QFrame):
             if self.collapsed:
                 menu.addSeparator()
                 menu.addAction("布局预设")
+                menu.addAction('画中画')
                 menu.addAction("设置")
         elif self.collapsed:
             # 横屏收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
             # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
             menu.addSeparator()
             menu.addAction("布局预设")
+            menu.addAction('画中画')
             menu.addAction("设置")
         for action in account_actions:
             menu.removeAction(action)
@@ -4241,6 +3912,8 @@ class Sidebar(QFrame):
                 self.logoutRequested.emit()
         elif label == "布局预设":
             self.open_layout_picker()
+        elif label == '画中画':
+            self.pictureInPictureRequested.emit()
         elif label == "设置":
             self.settingsRequested.emit()
         elif label == "导入关注":
@@ -4271,6 +3944,7 @@ class Sidebar(QFrame):
         self._apply_filter_marks()
         self.list_box.relayout(animate=False)
         self.refresh_strip()
+        self._sync_count()
 
     def _apply_filter_marks(self) -> None:
         """只更新「谁被过滤掉了」，不动位置 —— 由调用方决定什么时候重排。"""
@@ -4289,6 +3963,8 @@ class Sidebar(QFrame):
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
         """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
+        if self.live_only and not item.room.get('live'):
+            return False
         if not words:
             return True
         room = item.room
@@ -4309,6 +3985,8 @@ class Sidebar(QFrame):
         """列表一条都露不出来时说的话（列表区就摆它一个）。"""
         if self.filter_text:
             return f"没有匹配「{self.filter_text}」的直播间"
+        if self.live_only:
+            return '当前没有正在直播的关注'
         return "还没有关注任何直播间"
 
     # ---- 关注文件夹 ----
@@ -4690,6 +4368,8 @@ class Sidebar(QFrame):
                 # 左栏就只剩一条（用户看到的就是这个）
                 self._apply_scroll_axis()
             return
+        if side == 'top':
+            self.navigation.release()
         self.side = side
         self.set_card_mode(self._effective_card_mode())
         horizontal = side == "top"
@@ -4726,7 +4406,7 @@ class Sidebar(QFrame):
             # 竖条常关、横条 AsNeeded，不回滚的话回横屏后竖向滚动条一直藏着，
             # 滚轮还会被 CarouselScroll 当成横滚吞掉 —— 左栏整列就滚不动了。
             self._apply_scroll_axis()
-        self.setFixedWidth(theme.SIDEBAR_WIDTH)      # 先恢复宽度约束，下面再改
+        self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         if horizontal:
             self._layout.setContentsMargins(10, 8, 10, 8)
             self._layout.setSpacing(6)
@@ -4737,7 +4417,7 @@ class Sidebar(QFrame):
                                             12 if not self.collapsed else 8, 12)
             self._layout.setSpacing(10)
             self.setFixedWidth(
-                theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH)
+                (theme.SIDEBAR_RAIL_WIDTH if self.collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
         self._sync_top_mode()
         self.list_box.relayout(animate=False)
 
@@ -4758,8 +4438,8 @@ class Sidebar(QFrame):
     # ---- 横栏那一行 ----
     def _detach_from_rows(self, widget: QWidget) -> None:
         """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
-        for holder in (self._layout, self._bar_row_box, self._bar_row2_box,
-                       self._bar_right_box):
+        for holder in (self._layout, self._bar_row_box, getattr(self, '_bar_row2_box', None),
+                       getattr(self, '_bar_right_box', None)):
             if holder is not None:
                 holder.removeWidget(widget)
 
@@ -4805,7 +4485,7 @@ class Sidebar(QFrame):
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
-        return [self.search, self._head_scroll, self.batch_button, self.notification_button,
+        return [self.search, self._head_scroll, self.batch_button, self.notification_button, self.clear_wall_button,
                 self.appearance_button, self.refresh_button, self.account_row, self.tool_row,
                 self.batch_bar, self.toggle_button]
 
@@ -4832,6 +4512,7 @@ class Sidebar(QFrame):
         """
         target = NAV_ITEM_HEIGHT
         buttons = (theme.CONTROL_HEIGHT + self.layout_button.sizeHint().height()
+                   + self.picture_in_picture_button.sizeHint().height()
                    + self.settings_button.sizeHint().height())
         slack = max(0, target - buttons - 2)       # 四条空白加起来的高度
         # 每条空白 = 线上那段 + 1px 线 + 线下那段，所以先把那 1px 加回来再对半分
@@ -4854,7 +4535,7 @@ class Sidebar(QFrame):
         for widget in (*self._bar_gaps, self._bar_divider_label, self._bar_divider_tool):
             widget.setVisible(True)
         self.layout_button.setText("布局预设")
-        for button in (self.layout_button, self.settings_button):
+        for button in (self.layout_button, self.picture_in_picture_button, self.settings_button):
             button.setMaximumWidth(16_777_215)
         self.tool_row.setMinimumWidth(0)
         self.tool_row.setMaximumWidth(16_777_215)
@@ -4873,7 +4554,8 @@ class Sidebar(QFrame):
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
-        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button)
+        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button,
+                self.clear_wall_button)
 
     def _sync_bar_icons(self) -> None:
         """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
@@ -4937,7 +4619,7 @@ class Sidebar(QFrame):
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
                            self.batch_bar, self.batch_button, self.notification_button,
-                           self.appearance_button, self.refresh_button, self.toggle_button):
+                           self.appearance_button, self.refresh_button, self.clear_wall_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
             # 左边是 logo，然后是搜索框（收起时换成头像排）、多选条、图标、展开键。
@@ -4979,7 +4661,7 @@ class Sidebar(QFrame):
             tool_box.setStretch(4, 0)
             self._sync_bar_gaps()
             # 三个按钮左右长度一样（都撑满这一块）；高度用横屏那套自然高度
-            for button in (self.layout_button, self.settings_button):
+            for button in (self.layout_button, self.picture_in_picture_button, self.settings_button):
                 button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
             self._layout.insertWidget(index + 1 if index >= 0 else 1, self._bar_row)
@@ -5039,8 +4721,8 @@ class Sidebar(QFrame):
 
     def _sync_selection_controls(self):
         self.account_row.setVisible(self._account_row_should_show())
-        self.tool_row.setVisible(not self.select_mode and not self.collapsed)
-        self.normal_bar.setVisible(not self.select_mode and not self.collapsed and self.side != 'top')
+        self.tool_row.setVisible(self.side == 'top' and not self.select_mode and not self.collapsed)
+        self.normal_bar.hide()
         if self.select_mode and self.side == 'top':
             self._bar_right.hide()
 
@@ -5231,7 +4913,8 @@ class Sidebar(QFrame):
                 item.thumb.set_cover_hold(True)
             self.collapsed = collapsed
             self._apply_collapsed_controls()
-            self._finish_collapse(theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
+            self._finish_collapse(
+                (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
             prepared = True
         finally:
             self._collapse_animating = False
@@ -5276,6 +4959,7 @@ class Sidebar(QFrame):
             layout = self.parentWidget().layout()
             if layout is not None:
                 layout.activate()
+        self._outer_layout.activate()
         self._layout.activate()
         self._collapse_animating = False
         self.list_box.relayout(animate=False)
@@ -5329,11 +5013,28 @@ class Sidebar(QFrame):
                     child = child.parentWidget()
         self._set_pointer_hover(item)
 
+    def _prepare_drag_snapshot(self) -> None:
+        if self._drag_snapshot_ready or not self.isVisible():
+            return
+        if self.drag_session.active or QApplication.mouseButtons() != Qt.NoButton:
+            self._drag_snapshot_timer.start(100)
+            return
+        # Qt render() flushes pending move/resize events across the whole window,
+        # including hidden cards. Do this once after show, outside the first drag.
+        # Paint only one pixel without children; keep no stale card snapshot.
+        pixel = QPixmap(1, 1)
+        pixel.fill(Qt.transparent)
+        self.render(pixel, QPoint(), QRegion(QRect(0, 0, 1, 1)), QWidget.RenderFlag(0))
+        self._drag_snapshot_ready = True
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._hover_sync_timer.start()
+        if not self._drag_snapshot_ready:
+            self._drag_snapshot_timer.start(0)
 
     def hideEvent(self, event) -> None:
+        self._drag_snapshot_timer.stop()
         self._hover_sync_timer.stop()
         self._set_pointer_hover(None)
         super().hideEvent(event)
@@ -5828,15 +5529,20 @@ class Sidebar(QFrame):
                      for item in self._items}
         for item in self._items:
             show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
-            item.platform_badge.setProperty("showPlatform", show)
+            changed = item.platform_badge.property("showPlatform") != show
+            if changed:
+                item.platform_badge.setProperty("showPlatform", show)
             item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
-            item.thumb._layout_overlay()
+            if changed:
+                item.thumb._layout_overlay()
         shown = len(self.visible_items())
         if self.filter_text:
             # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了
             self.count_label.setText(f"关注中 · {shown} / {len(self._items)}")
         else:
             self.count_label.setText(f"关注中 · {len(self._items)}")
+        if hasattr(self, 'navigation'):
+            self.navigation.sync_count()
 
     def set_refreshing(self, busy: bool) -> None:
         self.refresh_button.setEnabled(True)
@@ -5858,6 +5564,8 @@ class Tile(QFrame):
     closeRequested = Signal(dict)
     roomDropped = Signal(str)
     tileDropped = Signal(str)          # 拖过来的来源房间号
+    paneEditRequested = Signal()
+    danmakuPaneDropped = Signal(int)
     danmakuDropped = Signal()          # 弹幕格被拖到本格上
     volumeChanged = Signal(dict, int)
     audioChannelChanged = Signal(dict, int)
@@ -5931,6 +5639,10 @@ class Tile(QFrame):
         self._bar_animation.setDuration(180)
         self._bar_animation.setEasingCurve(QEasingCurve.OutCubic)
         self._bar_animation.valueChanged.connect(self._slide_fullscreen_bar)
+        self._bar_clock = QTimer(self)
+        self._bar_clock.setTimerType(Qt.PreciseTimer)
+        self._bar_clock.setInterval(16)
+        self._bar_clock.timeout.connect(self._advance_bar_animation)
         self.bottom.setObjectName("TileBottom")
         self.bottom.setAttribute(Qt.WA_StyledBackground, True)
         bottom_layout = QHBoxLayout(self.bottom)
@@ -6208,9 +5920,27 @@ class Tile(QFrame):
         controls = getattr(self, '_plugin_controls', None)
         return controls.interaction_active() if controls is not None else False
 
+    def _volume_controls_width(self):
+        wall = self.parentWidget()
+        if (not isinstance(wall, WallGrid) or wall.fullscreen_tile is not None
+                or wall.picture_in_picture_tiles is not None):
+            return self.width()
+        spec = layouts.BY_ID.get(wall.layout_id, {}).get('spec')
+        if spec is None:
+            return self.width()
+        rows, columns, cells = spec
+        ratios = wall._layout_ratios.get(wall.layout_id, {})
+        if (cells != layouts.even_cells(rows, columns)
+                or any(node.axis == Qt.Horizontal and len(set(ratios.get(node.key, node.weights))) > 1
+                       for node in wall._partitions[wall.layout_id].nodes())):
+            return self.width()
+        # Equal cells may differ by one pixel. Choose the style for the smallest
+        # cell from the target wall geometry, not siblings still awaiting resize.
+        return (wall._corner_area().width() - wall.grid.spacing() * (columns - 1)) // columns
+
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
-        return (self.width(),
+        return (self.width(), self._volume_controls_width(),
                 self.bottom.width(),
                 tuple((e.owner, e.key, e.control.widget.isHidden(),
                        e.control.minimum_width, e.control.preferred_width)
@@ -6228,6 +5958,7 @@ class Tile(QFrame):
         if signature == getattr(self, "_bottom_layout_signature_value", None):
             return
         self._bottom_layout_signature_value = signature
+        volume_width = self._volume_controls_width()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
@@ -6242,13 +5973,13 @@ class Tile(QFrame):
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
-        self.volume_label.setVisible(width >= 600)
+        self.volume_label.setVisible(volume_width >= 600)
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= 600)
-        self.volume_button.compact_popup = width < 600
+        self.volume_slider.setVisible(volume_width >= 600)
+        self.volume_button.compact_popup = volume_width < 600
         self.volume_button._update_tooltip()
-        if width >= 600:
+        if volume_width >= 600:
             self.volume_menu.hide()
         self.status_label.setVisible(True)
         self.danmaku_settings_button.setVisible(True)
@@ -6361,7 +6092,10 @@ class Tile(QFrame):
             self.roomDropped.emit(room_id)
         elif event.mimeData().hasFormat(DANMAKU_MIME):
             event.acceptProposedAction()
-            self.danmakuDropped.emit()
+            if event.mimeData().hasFormat("application/x-ddm-danmaku-cell"):
+                self.danmakuPaneDropped.emit(int(bytes(event.mimeData().data("application/x-ddm-danmaku-cell"))))
+            else:
+                self.danmakuDropped.emit()
         elif event.mimeData().hasFormat(TILE_MIME):
             source = bytes(event.mimeData().data(TILE_MIME)).decode("utf-8", "ignore")
             event.acceptProposedAction()
@@ -6399,12 +6133,15 @@ class Tile(QFrame):
         窗口、并且被 raise 过，才既画得出来也点得到。所以每次摆完位都要再抬一次
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
+        compact = bool(self.property('pictureInPicture'))
         self.video_danmaku.raise_()
         for corner in self.video_corners:
-            corner.raise_()
+            if not compact or corner.isVisible():
+                corner.raise_()
         for widget in (self.controls, self.stream_badge, self.title_badge,
                        self.time_badge, self.spinner, self.pause_overlay, self.bottom):
-            widget.raise_()
+            if not compact or widget.isVisible():
+                widget.raise_()
         self._update_quick_danmaku_mask()
         wall = self.parentWidget()
         quick_layer = getattr(wall, "_quick_danmaku_layer", None)
@@ -6454,7 +6191,9 @@ class Tile(QFrame):
         self._refresh_badge()
         self.stream_badge.set_offline()
         self.set_status("已下播")
-        self.video.repaint()                  # 立刻把上一帧擦掉
+        # The cover already hides the last frame; let Qt coalesce the clearing
+        # with pending startup/layout paints instead of flushing the whole wall.
+        self.video.update()
 
     def set_buffering(self, active: bool) -> None:
         """卡顿/缓冲中：显示缓冲动画（和连接时同一套样式）。"""
@@ -6650,6 +6389,7 @@ class Tile(QFrame):
         target = 1.0 if hidden and hide_bar and self.property("fullscreen") else 0.0
         if hidden == getattr(self, "_fullscreen_controls_hidden", False) and target == self._bar_target:
             return
+        self._bar_clock.stop()
         self._bar_animation.stop()
         self._fullscreen_controls_hidden = hidden
         self._bar_target = target
@@ -6663,9 +6403,22 @@ class Tile(QFrame):
             self._bar_animation.setEndValue(target)
             self._bar_animation.blockSignals(False)
             self._bar_animation.start()
+            # Advance this QWidget slide independently of Quick's shared
+            # animation clock, which stopped ticking in captured re-entries.
+            self._bar_animation.pause()
+            self._bar_started = time.monotonic()
+            self._bar_clock.start()
         else:
             self._slide_fullscreen_bar(target)
             self._layout_areas()
+
+    def _advance_bar_animation(self) -> None:
+        duration = self._bar_animation.duration()
+        elapsed = min(duration, round((time.monotonic() - self._bar_started) * 1000))
+        self._bar_animation.setCurrentTime(elapsed)
+        if elapsed >= duration:
+            self._bar_clock.stop()
+            self._bar_animation.stop()
 
     def _slide_fullscreen_bar(self, progress) -> None:
         self._bar_progress = float(progress)
@@ -6680,7 +6433,8 @@ class Tile(QFrame):
         self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
-        visible = visible and not getattr(self, "_fullscreen_controls_hidden", False)
+        visible = (visible and not self.property('pictureInPicture')
+                   and not getattr(self, "_fullscreen_controls_hidden", False))
         visible = bool(visible)
         self.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
@@ -6729,6 +6483,12 @@ class Tile(QFrame):
         self._set_control_hover(hovered)
 
     def _poll_control_hover(self) -> None:
+        if self.property('pictureInPicture'):
+            self._restore_normal_cursor()
+            self._normal_hover_active = False
+            self.set_controls_visible(False)
+            self._control_hover_timer.stop()
+            return
         if not self.isVisible():
             self._restore_normal_cursor()
             self._normal_hover_active = False
@@ -6816,6 +6576,10 @@ class Tile(QFrame):
     def focus_danmaku_input(self) -> None:
         controls = getattr(self, '_plugin_controls', None)
         if controls is not None:
+            # The fullscreen bar is a separate tool window. setFocus alone
+            # only records a pending focus child while the video stays active.
+            if self.bottom.isWindow() and controls.widget.isVisible():
+                self.bottom.activateWindow()
             controls.focus_input()
 
     def enterEvent(self, event) -> None:
@@ -6851,8 +6615,9 @@ class Tile(QFrame):
         if self.cover.isHidden():
             return
         if source and not source.isNull():
+            radius = 0 if self.property('pictureInPicture') else 8
             key = (source.cacheKey(), self.video.width(), self.video.height(),
-                   self.devicePixelRatioF(), bool(self.property("fullscreen")))
+                   self.devicePixelRatioF(), bool(self.property("fullscreen")), radius)
             if key == self._cover_key:
                 self.cover.setScaledContents(False)
                 return
@@ -6861,7 +6626,7 @@ class Tile(QFrame):
                     self.cover.setScaledContents(True)
                     self.cover.setPixmap(self._cover_cached)
                 return
-            self._cover_cached = rounded_pixmap(source, self.video.size(), 8)
+            self._cover_cached = rounded_pixmap(source, self.video.size(), radius)
             self._cover_key = key
             self.cover.setScaledContents(False)
             self.cover.setPixmap(self._cover_cached)
@@ -6908,17 +6673,39 @@ class Tile(QFrame):
         if getattr(self, '_presentation_changing', False):
             return
         width, height = self.width(), self.height()
+        scale = 1.0
+        if self.property('pictureInPicture'):
+            natural = self.spinner.natural_size()
+            scale = min(.75, max(1, width - 12) / natural.width(), max(1, height - 12) / natural.height())
+        self.spinner.set_presentation_scale(scale)
+        if self.property('pictureInPicture'):
+            # PiP has no per-tile bar, badges or text controls. Keep their native
+            # windows out of the synchronous resize path while retaining video,
+            # comments, SC, loading and pause presentation.
+            self.bottom.hide()
+            self.video.setGeometry(self.rect())
+            self.video_danmaku.setGeometry(self.rect())
+            self._round_video()
+            self.spinner.move(max(0, (width - self.spinner.width()) // 2),
+                              max(8, (height - self.spinner.height()) // 2))
+            self.pause_overlay.move(max(0, (width - self.pause_overlay.width()) // 2),
+                                    max(8, (height - self.pause_overlay.height()) // 2))
+            self._layout_cover()
+            self.raise_overlays()
+            return
         self._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(self.property("fullscreen"))
+        compact = bool(self.property('pictureInPicture'))
         self.bottom.set_fullscreen(fullscreen)
         if not fullscreen:
+            self._bar_clock.stop()
             self._bar_animation.stop()
             self._bar_progress = self._bar_target = 0.0
-            self.bottom.show()
-        video_height = max(60, height if fullscreen else height - TILE_BAR_HEIGHT)
+            self.bottom.setVisible(not compact)
+        video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
         # 普通格子留边框，全屏视频贴齐窗口边缘。
-        inset = 0 if self.property("fullscreen") else 1
+        inset = 0 if fullscreen or compact else 1
         self.video.setGeometry(inset, inset, max(1, width - inset * 2),
                                max(1, video_height - inset))
         self._round_video()
@@ -6938,7 +6725,7 @@ class Tile(QFrame):
                          if self.controls.y() > 20 else self.controls.x())
         title_left = self.stream_badge.x() + self.stream_badge.width() + 6
         room = max(0, controls_left - title_left - 8)
-        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible
+        show_title = bool(self.room.get("uname")) and room >= 110 and self._overlay_visible and not compact
         self.title_badge.setVisible(show_title)
         if show_title:
             self.title_badge.set_max_width(room)
@@ -6985,7 +6772,7 @@ class Tile(QFrame):
         """
         room = self.width() - 10 - self.controls.width() - 12 - 10
         self.stream_badge.set_compact(self.stream_badge.full_width() > room)
-        visible = (self._overlay_visible and bool(self.room.get("room_id"))
+        visible = (not self.property('pictureInPicture') and self._overlay_visible and bool(self.room.get("room_id"))
                    and self.stream_badge.width() <= room)
         self.stream_badge.setVisible(visible)
         return visible
@@ -6998,7 +6785,7 @@ class Tile(QFrame):
         「只留按钮轮廓」的机制才是治它的）。让控制条能点到靠的是
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
-        square_corners = bool(self.property("fullscreen"))
+        square_corners = bool(self.property("fullscreen") or self.property('pictureInPicture'))
         self.video.square_corners = square_corners
         self.video_danmaku.set_quick_rounded(not square_corners)
         for index, corner in enumerate(self.video_corners):
@@ -7016,7 +6803,7 @@ class Tile(QFrame):
         if square_corners:
             path.addRect(rect)
         else:
-            path.addRoundedRect(rect, 9, 9)
+            path.addPath(continuous_path(rect, 9))
             bottom = QPainterPath()
             bottom.addRect(QRectF(0, max(0, self.video.height() - 9), self.video.width(), 9))
             path = path.united(bottom)
@@ -7077,6 +6864,11 @@ class Tile(QFrame):
     def eventFilter(self, watched, event) -> bool:
         if watched is self.video:
             if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                if self.property('fullscreen'):
+                    # Native video clicks do not take Qt focus by default.
+                    # End input mode so idle hiding and shortcuts can resume.
+                    self.activateWindow()
+                    self.setFocus(Qt.MouseFocusReason)
                 self._press_pos = self.mapFromGlobal(event.globalPosition().toPoint())
             elif event.type() == QEvent.MouseButtonRelease and self._open_clicked_danmaku(event):
                 event.accept()
@@ -7147,7 +6939,7 @@ class Tile(QFrame):
             path = QPainterPath()
             radius = min(rect.height() / 2, theme.TILE_CONTROL_HEIGHT / 2)
             # 原生底色只能按整数区域裁切；扩张轮廓会露出圆角外的黑色底层。
-            path.addRoundedRect(rect, radius, radius)
+            path.addPath(continuous_path(rect, radius))
             region = region.united(QRegion(path.toFillPolygon().toPolygon()))
         if (sys.platform == "win32" and QApplication.platformName() == "windows"
                 and self.controls.internalWinId()):
@@ -7219,7 +7011,7 @@ class Tile(QFrame):
         用户要求：它和 LIVE 浮标、标题、控制条一样**自动隐藏** —— 鼠标在格子上
         才露，移开就跟着一起收（以前是只要在播就一直挂在右下角）。
         """
-        return bool(self._overlay_visible
+        return bool(not self.property('pictureInPicture') and self._overlay_visible
                     and getattr(self, "_elapsed_timer", None) is not None
                     and self._elapsed_timer.isActive()
                     and self.room.get("live")
@@ -7250,6 +7042,10 @@ class Tile(QFrame):
     # ---- 右键菜单 ----
     def contextMenuEvent(self, event) -> None:
         if not self.room.get("room_id"):
+            menu = QMenu(self)
+            menu.addAction("切换为弹幕", self.paneEditRequested.emit)
+            menu.exec(event.globalPos())
+            menu.deleteLater()
             return
         # 插件要先把自己那一组菜单项登记进来（本体不认识它们）
         self.pluginMenuRequested.emit()
@@ -7316,6 +7112,8 @@ class Tile(QFrame):
             for label, callback in self.plugin_actions:
                 menu.addAction(label, callback)
         menu.addSeparator()
+        if not (self.property("pictureInPicture") or self.property("fullscreen")):
+            menu.addAction("切换为弹幕", self.paneEditRequested.emit)
         menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room))
         return menu
 
@@ -7431,11 +7229,9 @@ class WallPaneBorder(BadgeSurface):
         for edge in targets:
             region |= QRegion(self._edge_rect(edge))
         outer, inner = QPainterPath(), QPainterPath()
-        outer.addRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
-                             self.RADIUS - .5, self.RADIUS - .5)
-        inner.addRoundedRect(QRectF(self.rect()).adjusted(
-            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5),
-            self.RADIUS - self.BAND - .5, self.RADIUS - self.BAND - .5)
+        outer.addPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS - .5))
+        inner.addPath(continuous_path(QRectF(self.rect()).adjusted(
+            self.BAND + .5, self.BAND + .5, -self.BAND - .5, -self.BAND - .5), self.RADIUS - self.BAND - .5))
         self._outline_path = outer.subtracted(inner)
         # 原生遮罩只负责命中；向外留出抗锯齿像素，由逐像素透明绘制轮廓。
         stroker = QPainterPathStroker()
@@ -7613,9 +7409,13 @@ class WallGrid(QWidget):
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
     cornerRatiosChanged = Signal()         # 松开或重置后通知外层保存，不在拖动帧中写配置
     layoutRatiosChanged = Signal()
+    paneEditRequested = Signal(int)
+    paneApplyRequested = Signal(object)
+    danmakuPanelCreated = Signal(object)
+    paneConfigurationChanged = Signal()
 
     def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None,
-                 corner_ratios=None, layout_ratios=None):
+                 corner_ratios=None, layout_ratios=None, pane_layouts=None):
         super().__init__(parent)
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
@@ -7630,6 +7430,10 @@ class WallGrid(QWidget):
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
         self.tiles: list[Tile] = []
+        self.picture_in_picture_tiles = None
+        self.picture_in_picture_columns = 0
+        self.picture_in_picture_primary = 0
+        self.picture_in_picture_aspects = []
         self.fullscreen_tile: Tile | None = None
         #: 退出全屏时「布局先算好、格子分批露面」用的状态（见 reveal_tiles_staggered）
         self._defer_show = False
@@ -7699,11 +7503,14 @@ class WallGrid(QWidget):
         # 弹幕格：占一整格，只在带弹幕的布局里出现（可以拖到别的格子上）
         self.danmaku = DanmakuPanel(self)
         self.danmaku.setVisible(False)
-        self.danmaku.roomDropped.connect(self._on_danmaku_room_dropped)
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
+        from .pane_danmaku import PaneDanmaku
+        self.pane_danmaku = PaneDanmaku(self, pane_layouts)
 
         for room in rooms:
             self._make_tile(room)
+        self.ensure_slots()
+        self.pane_danmaku.restore_sources()
         self.relayout(force=True)
 
     def refresh_theme(self):
@@ -7735,6 +7542,51 @@ class WallGrid(QWidget):
             self._quick_danmaku_layer = None
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
         return self._quick_danmaku_layer
+
+    def set_picture_in_picture(self, tiles, columns=0, aspects=None, primary=0):
+        self.set_interactive_resize(False)
+        self._clear()
+        self._resize_on_show = False
+        self._relayout_timer.stop()
+        self.picture_in_picture_tiles = list(tiles) if tiles is not None else None
+        self.picture_in_picture_columns = columns
+        self.picture_in_picture_primary = primary
+        self.picture_in_picture_aspects = aspects or []
+        selected = set(tiles or [])
+        for tile in self.tiles:
+            tile.setProperty('pictureInPicture', tile in selected)
+            _repolish(tile)
+            if tile in selected:
+                tile.set_controls_visible(False)
+            if tiles is not None:
+                tile.setMinimumSize(0, 0)
+        self._sync_danmaku_controls()
+        self.relayout(force=True)
+        for tile in self.tiles:
+            tile._layout_areas()
+
+    def _relayout_picture_in_picture(self):
+        from .picture_in_picture import pane_rectangles
+        self.setMinimumSize(0, 0)
+        for panel in self.pane_danmaku.all_panels():
+            panel.hide()
+        self._divider_rects = {}
+        for border in self._pane_borders.values():
+            border.hide()
+        selected = self.picture_in_picture_tiles
+        for tile in self.tiles:
+            tile.setVisible(tile in selected)
+        window = self._quick_danmaku_layer.window if self._quick_danmaku_layer is not None else None
+        if window is not None:
+            window.begin_mask_batch()
+        try:
+            for tile, rect in zip(selected, pane_rectangles(
+                    len(selected), self.rect(), self.picture_in_picture_columns,
+                    self.picture_in_picture_aspects, self.picture_in_picture_primary)):
+                tile.setGeometry(rect)
+        finally:
+            if window is not None:
+                window.end_mask_batch()
 
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
@@ -7838,6 +7690,9 @@ class WallGrid(QWidget):
         tile.roomDropped.connect(lambda rid, t=tile: self.roomDropped.emit(t, rid))
         tile.tileDropped.connect(lambda rid, t=tile: self.tileSwapped.emit(rid, t))
         tile.danmakuDropped.connect(lambda t=tile: self.move_danmaku_to_tile(t))
+        tile.danmakuPaneDropped.connect(lambda cell, t=tile: self.pane_danmaku.move(cell, t))
+        tile.paneEditRequested.connect(lambda t=tile: self.paneEditRequested.emit(
+            self.pane_danmaku.cell_for_tile(t) if self.pane_danmaku.cell_for_tile(t) is not None else -1))
         tile.set_interactive_resize(self._interactive_resize)
         self.tiles.append(tile)
         self.tileCreated.emit(tile)
@@ -7879,6 +7734,8 @@ class WallGrid(QWidget):
     def _cell_order(self) -> list[int]:
         """画面格子依次用哪些 cell（跳过弹幕占的那一格）。"""
         cells = self._cells()
+        if self.pane_danmaku.custom:
+            return list(range(len(cells)))
         return [index for index in range(len(cells)) if index != self._danmaku_cell]
 
     def main_index(self) -> int | None:
@@ -7887,26 +7744,30 @@ class WallGrid(QWidget):
         order = self._cell_order()
         if not cells or not order:
             return None
-        areas = [cells[index][2] * cells[index][3] for index in order]
+        areas = [0 if cell in self.pane_danmaku.bindings() else cells[cell][2] * cells[cell][3]
+                 for cell in order]
         if len(set(areas)) <= 1:
             return None
         return areas.index(max(areas))
 
     @property
     def has_danmaku(self) -> bool:
-        return self._danmaku_cell is not None and bool(self._cells())
+        return self.picture_in_picture_tiles is None and bool(self.pane_danmaku.bindings()) and bool(self._cells())
 
     def danmaku_target_tile(self):
+        if self.pane_danmaku.custom:
+            return self.pane_danmaku.target(self.danmaku)
         main = self.main_index()
         if main is not None and 0 <= main < len(self.tiles):
             return self.tiles[main]
         return next((tile for tile in self.tiles if tile.room.get('room_id')), None)
 
     def sync_sc_placement(self):
-        target = self.danmaku_target_tile() if self.has_danmaku and self.fullscreen_tile is None else None
+        targets = {self.pane_danmaku.target(panel) for panel in self.pane_danmaku.rendered()} if (
+            self.has_danmaku and self.fullscreen_tile is None) else set()
         for tile in self.tiles:
             tile.video_danmaku.set_sc_independent(self.has_danmaku)
-            tile.video_danmaku.set_sc_in_panel(tile is target)
+            tile.video_danmaku.set_sc_in_panel(tile in targets)
 
     def cell_of(self, tile: Tile):
         """这一路画面用的是哪个 cell（排查布局问题时用）。"""
@@ -7995,6 +7856,8 @@ class WallGrid(QWidget):
 
     def set_sidebar_animating(self, active: bool) -> None:
         """收缩期间保持原生视频窗口尺寸，结束后统一调整。"""
+        if self.picture_in_picture_tiles is not None:
+            return
         if active == self._sidebar_animating:
             return
         self._sidebar_animating = active
@@ -8027,8 +7890,12 @@ class WallGrid(QWidget):
                 self.setUpdatesEnabled(self._sidebar_updates_enabled)
 
     def relayout(self, force: bool = False) -> None:
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            return
         if self._fullscreen_layout_pending:
             return
+        self.pane_danmaku.prepare()
         self.sync_sc_placement()
         if self._sidebar_animating:
             return
@@ -8047,6 +7914,8 @@ class WallGrid(QWidget):
             if self._auto_columns() == self._columns:
                 return
         self._clear()
+        for panel in self.pane_danmaku.all_panels():
+            panel.hide()
 
         if self.fullscreen_tile is not None:
             self.danmaku.setVisible(False)
@@ -8080,24 +7949,31 @@ class WallGrid(QWidget):
         self._relayout_preset(apply_visibility=True)
 
     def _sync_danmaku_controls(self) -> None:
-        panel = self.danmaku
-        target = None
-        if self.has_danmaku and self.fullscreen_tile is None:
-            main = self.main_index()
-            tile = (self.tiles[main] if main is not None else
-                    next((tile for tile in self.tiles if tile.room.get("room_id")), None))
+        desired = dict.fromkeys(self.pane_danmaku.all_panels())
+        shared = {}
+        panels = sorted(self.pane_danmaku.rendered(),
+                        key=lambda panel: (panel.geometry().bottom(), panel.geometry().right()), reverse=True)
+        for panel in panels:
+            tile = self.pane_danmaku.target(panel) if self.has_danmaku and self.fullscreen_tile is None else None
             target = getattr(tile, '_plugin_controls', None)
-            if target is not None and target._disposed:
-                target = None
-        previous = panel._tile_controls
-        if previous is not target:
-            if previous is not None:
+            room = str(tile.room.get('room_id') or '') if tile is not None else ''
+            if target is not None and not target._disposed and room not in shared:
+                desired[panel] = target
+                shared[room] = target
+        for panel in self.pane_danmaku.all_panels():
+            tile = self.pane_danmaku.target(panel)
+            room = str(tile.room.get('room_id') or '') if tile is not None else ''
+            panel._linked_controls = shared.get(room)
+        # Detach all old owners first: two panels may exchange their input widgets.
+        for panel, target in desired.items():
+            previous = panel._tile_controls
+            if previous is not None and previous is not target:
                 previous.set_panel(None)
+        for panel, target in desired.items():
             panel._tile_controls = target
             if target is not None:
                 target.set_panel(panel)
-        if target is not None:
-            target.layout_panel()
+                target.layout_panel()
 
     # ---- 其余预设：分区树只计算几何，视频始终是 WallGrid 的直接子窗口 ----
     def layout_ratios(self) -> dict:
@@ -8122,11 +7998,15 @@ class WallGrid(QWidget):
             return node.weights
         gap = self.grid.spacing()
         main = max(80, int(area.width() * 9 / 16))
-        danmaku = max(140, int(area.height() * .22)) if self.has_danmaku else 0
+        danmaku = max(140, int(area.height() * .22)) if layouts.danmaku_cell(self.layout_id) is not None else 0
         small = max(1, area.height() - main - danmaku - gap * (len(node.children) - 1))
-        return [main, small, danmaku] if self.has_danmaku else [main, small]
+        return [main, small, danmaku] if layouts.danmaku_cell(self.layout_id) is not None else [main, small]
 
     def _preset_widgets(self):
+        if self.pane_danmaku.custom:
+            widgets = self.pane_danmaku.cell_tiles()
+            widgets.update(self.pane_danmaku.panels)
+            return widgets
         if layouts.is_portrait_layout(self.layout_id):
             # 竖屏弹幕始终占底部，与原竖屏规则一致。
             count = self._capacity()
@@ -8141,11 +8021,14 @@ class WallGrid(QWidget):
 
     def _preset_minimum(self, cell):
         widget = self._preset_widgets().get(cell)
-        if widget is self.danmaku:
+        if widget in self.pane_danmaku.all_panels():
             return QSize(max(200, widget.minimumWidth()), max(140, widget.minimumHeight()))
         return QSize(max(200, widget.minimumWidth()), max(150, widget.minimumHeight()))
 
     def _relayout_preset(self, apply_visibility=False):
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            return
         if self.fullscreen_tile is not None or self.layout_id not in self._partitions:
             return
         widgets = self._preset_widgets()
@@ -8166,7 +8049,15 @@ class WallGrid(QWidget):
             tree, area, gap, self._preset_minimum,
             self._layout_ratios[self.layout_id], self._preset_defaults)
         for cell, rect in leaves.items():
-            widgets[cell].setGeometry(rect)
+            widget = widgets[cell]
+            same_size = widget.size() == rect.size()
+            widget.setGeometry(rect)
+            if isinstance(widget, Tile) and same_size:
+                # One equal cell can retain its size while its neighbour gains
+                # the last pixel. Resized cells use their existing resize path.
+                widget._layout_bottom_controls()
+        self.pane_danmaku.dividers = dividers
+        widgets = self.pane_danmaku.arrange(leaves, widgets)
         self._resize_on_show = False
         if apply_visibility:
             active = set(widgets.values())
@@ -8177,7 +8068,8 @@ class WallGrid(QWidget):
                     self._pending_reveal.append(tile)
                 else:
                     tile.show()
-            self.danmaku.setVisible(self.has_danmaku)
+            for panel in self.pane_danmaku.all_panels():
+                panel.setVisible(panel in active)
         old_regions = list(self._divider_rects.values())
         self._preset_dividers = {}
         self._divider_rects = {}
@@ -8192,7 +8084,7 @@ class WallGrid(QWidget):
 
     def _sync_pane_borders(self, widgets, dividers):
         for pane, border in list(self._pane_borders.items()):
-            if pane not in self.tiles and pane is not self.danmaku:
+            if pane not in self.tiles and pane not in self.pane_danmaku.all_panels():
                 del self._pane_borders[pane]
             elif pane not in widgets.values() or pane.isHidden():
                 border.hide()
@@ -8238,7 +8130,7 @@ class WallGrid(QWidget):
                        "root/0": [self._corner_width_ratio, 1 - self._corner_width_ratio],
                        "root/0/1": [self._corner_right_ratio, 1 - self._corner_right_ratio],
                        "root/1": [first, second - first, 1 - second]}
-            widgets = dict(enumerate(self.tiles[:6]))
+            widgets = self._preset_widgets()
             minimum = lambda cell: widgets[cell].minimumSize()
             return tree, weights, widgets, minimum, None
         return (self._partitions[self.layout_id], self._layout_ratios[self.layout_id],
@@ -8464,6 +8356,11 @@ class WallGrid(QWidget):
                      min(bottom_width - bottom[2].minimumWidth(),
                          round(bottom_width * sum(weights["root/1"][:2]))))
         boundaries = (0, first, second, bottom_width)
+        if weights["root/0"][0] == 2 / 3:
+            # Default columns share one pixel boundary despite different gap counts.
+            main_width = max(main.minimumWidth(),
+                             min(width - minimum_right, round(bottom_width * 2 / 3) + gap))
+            right_x = x + main_width + gap
         rectangles = {
             0: QRect(x, y, main_width, top_height),
             1: QRect(right_x, y, width - main_width, right_height),
@@ -8485,6 +8382,9 @@ class WallGrid(QWidget):
         return rectangles, dividers
 
     def _relayout_corner(self, *, apply_visibility: bool = False) -> None:
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            return
         if len(self.tiles) < 6:
             return
         old_regions = list(self._divider_rects.values())
@@ -8505,11 +8405,13 @@ class WallGrid(QWidget):
         rectangles, self._divider_rects = self._corner_rectangles(weights, area)
         for cell, rect in rectangles.items():
             widgets[cell].setGeometry(rect)
+        widgets = self.pane_danmaku.arrange(rectangles, widgets)
         self._resize_on_show = False
         if apply_visibility:
-            self.danmaku.hide()
+            for panel in self.pane_danmaku.all_panels():
+                panel.setVisible(panel in widgets.values())
             for index, tile in enumerate(self.tiles):
-                if index >= 6:
+                if tile not in widgets.values():
                     tile.hide()
                 elif self._defer_show and tile is not self._stagger_first:
                     self._pending_reveal.append(tile)
@@ -8523,6 +8425,7 @@ class WallGrid(QWidget):
         # Use the rendered coordinates (corner rounding differs from the generic allocator).
         dividers = [(node, index, self._divider_rects[(node.key, index)], rect, sizes)
                     for node, index, _handle, rect, sizes in dividers]
+        self.pane_danmaku.dividers = dividers
         self._sync_pane_borders(widgets, dividers)
 
     def visible_tiles(self) -> list[Tile]:
@@ -8591,6 +8494,11 @@ class WallGrid(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if getattr(self, '_fullscreen_layout_pending', False):
+            return
+        if self.picture_in_picture_tiles is not None:
+            self._relayout_picture_in_picture()
+            if self._quick_danmaku_layer is not None:
+                self._quick_danmaku_layer.resize()
             return
         if self._sidebar_animating:
             if self._quick_danmaku_layer is not None:

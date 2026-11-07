@@ -37,7 +37,10 @@ def install(mode, directory):
         install_folder_capture(directory / 'folder-motion.jsonl', extended=True)
     elif mode == 'responsiveness':
         from .responsiveness import install as install_responsiveness
-        install_responsiveness(directory / 'responsiveness.jsonl', extended_folders=True)
+        from .startup_scroll_diagnostics import install as install_startup_scroll
+        metadata.probe = install_responsiveness(directory / 'responsiveness.jsonl',
+                                               extended_folders=True, profile_sidebar=False)
+        install_startup_scroll(metadata.probe)
     elif mode in ('notices', 'danmaku'):
         if mode == 'notices':
             from .notice_diagnostics import NoticeCloseTrace as Trace
@@ -52,7 +55,7 @@ def install(mode, directory):
         metadata.trace = trace
     elif mode == 'drag':
         from .drag_diagnostics import Recorder
-        metadata.recorder = Recorder(directory / 'drag-windows.jsonl')
+        metadata.recorder = Recorder(directory / 'drag-windows.jsonl', profile_first_drag=True)
         metadata.recorder.install()
         atexit.register(metadata.recorder.handler.close)
     elif mode in ('douyu', 'douyu-deep'):

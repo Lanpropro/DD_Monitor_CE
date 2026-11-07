@@ -3,6 +3,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QWidget, QToolTip
 
+from .corner_geometry import continuous_path
 from . import theme
 from .skin_parts import PARTS, resolve_values
 
@@ -129,11 +130,11 @@ class SkinPreview(QWidget):
         if values.get('border_width') == 0:
             painter.setPen(Qt.NoPen)
         painter.setBrush(theme.qcolor(bg))
-        painter.drawRoundedRect(rect, radius, radius)
+        painter.drawPath(continuous_path(rect, radius))
         if values.get('image'):
             painter.save()
             clip = QPainterPath()
-            clip.addRoundedRect(rect, radius, radius)
+            clip.addPath(continuous_path(rect, radius))
             painter.setClipPath(clip)
             painter.drawPixmap(rect.toRect(), QPixmap(values['image']))
             painter.restore()
@@ -194,14 +195,14 @@ class SkinPreview(QWidget):
                 glow = QColor(color)
                 glow.setAlpha(55)
                 painter.setPen(QPen(glow, 8))
-                painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 7, 7)
+                painter.drawPath(continuous_path(rect.adjusted(1, 1, -1, -1), 7))
             if not active and key != self.hovered:
                 color.setAlpha(210)
             pen = QPen(color, 2.5 if active else 1.5)
             if not active and key != self.hovered:
                 pen.setStyle(Qt.DashLine)
             painter.setPen(pen)
-            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 7, 7)
+            painter.drawPath(continuous_path(rect.adjusted(1, 1, -1, -1), 7))
 
     def _main(self, p):
         self._box(p, 'sidebar', QRectF(10, 10, 154, 500))

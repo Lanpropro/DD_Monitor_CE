@@ -26,13 +26,24 @@
 
 录制开关、即时回放范围与额度、录制前画质锁定/恢复及录制计时集中在 `ddm/capture_control.py`；主窗口保留原方法入口，继续持有会话、待开始任务、画质记录和退出流程。FFmpeg 执行仍在 `ddm/recording.py`，录制源解析及通知入口保留在主窗口。
 
+画面墙右键的格子类型、多个弹幕栏及来源绑定由 `ddm/pane_danmaku.py` 管理，关联跟随画面换位，并随布局与直播间组合保存。`ddm/pane_source_picker.py` 管理信号图标左侧的头像来源条、从右向左展开／收起、溢出滚动和缓存头像更新。
+
 弹幕连接共享、按需订阅及连接/SC 快照线程退役集中在 `ddm/danmaku_lifecycle.py`。主窗口保留旧入口与回调、按调用时构造器创建线程，继续拥有 Qt 对象、连接状态和退出等待；消息分发、账号凭据与 SC 展示策略保持原归属。
 
 播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
+多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
+
+矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
+
+播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
+
+侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
+
 ## 已跟踪的其他文件：逐项标注
 
 - `docs/image-cache.md`
+- `docs/picture-in-picture.md`
 - `docs/development/ui-components.md`
 
 ### 独立诊断工具
@@ -42,6 +53,7 @@
 
 - `tools/diagnostics/Collector.cs`
 - `tools/diagnostics/NativeDependencies.cs`
+- `tools/diagnostics/OnDemand.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
 - `dev/build_diagnostics.ps1`
@@ -49,6 +61,7 @@
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
 - `dev/selfcheck_sidebar_diagnostics.py`
+- `dev/selfcheck_on_demand_diagnostics.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
@@ -65,6 +78,8 @@
 ### 专项检查脚本
 
 - `dev/selfcheck_image_cache.py`
+- `dev/selfcheck_picture_in_picture.py`
+- `dev/selfcheck_pip_picker.py`
 - `dev/selfcheck_ui_components.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_live_danmaku_motion.py`
@@ -148,6 +163,7 @@
 - `dev/selfcheck_domestic_follows.py`
 - `dev/selfcheck_douyin_account_import.py`
 - `dev/selfcheck_display_transition.py`
+- `dev/selfcheck_window_move_restore.py`
 - `dev/selfcheck_douyin_follow_cache.py`
 - `dev/selfcheck_douyin_follow_resolution.py`
 - `dev/selfcheck_douyin_profile_add.py`
@@ -159,6 +175,7 @@
 - `dev/selfcheck_download_retry.py`
 - `dev/selfcheck_drag_scroll.py`
 - `dev/selfcheck_drag_lifecycle.py`
+- `dev/selfcheck_sidebar_hit_test.py`
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_control_swap.py`
 - `dev/diagnose_drag_windows.py`
@@ -197,9 +214,11 @@
 - `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_playback_badges.py`
+- `dev/selfcheck_playback_controls.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
 - `dev/selfcheck_fullscreen_native_focus.py`
+- `dev/selfcheck_fullscreen_enter_focus.py`
 - `dev/selfcheck_fullscreen_quality.py`
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
@@ -339,8 +358,10 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
+- `dev/selfcheck_recording_service.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
+- `dev/selfcheck_hotfix_updates.py`
 - `dev/selfcheck_remove_follow_position.py`
 - `dev/selfcheck_replay_scope.py`
 - `dev/selfcheck_repository_files.py`
@@ -350,6 +371,7 @@
 - `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_presets.py`
+- `dev/selfcheck_pane_danmaku.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_room_status_controller.py`
 - `dev/selfcheck_room_images.py`
@@ -370,6 +392,7 @@
 - `dev/selfcheck_startup_danmaku.py`
 - `dev/selfcheck_startup_requests.py`
 - `dev/selfcheck_startup_windows.py`
+- `dev/selfcheck_startup_scroll_diagnostics.py`
 - `dev/selfcheck_startup_wmi.py`
 - `dev/selfcheck_stream_recovery.py`
 - `dev/selfcheck_stream_relay.py`
@@ -398,6 +421,9 @@
 - `dev/selfcheck_wall_card_replacement.py`
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
+- `dev/selfcheck_workspace_controls.py`
+- `dev/selfcheck_continuous_corners.py`
+- `dev/selfcheck_workspace_pages.py`
 - `dev/selfcheck_window_resize.py`
 - `dev/selfcheck_windows_version.py`
 
@@ -417,6 +443,8 @@
 
 ### 开发指南
 
+- `docs/development/liveaquarium-learning.md`
+- `docs/development/bili-shadowreplay-learning.md`
 - `docs/development/testing.md`
 - `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
@@ -487,6 +515,7 @@
 - `docs/releases/RELEASE-v0.6.md`
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/RELEASE-v0.7.1.md`
+- `docs/releases/RELEASE-v0.7.2.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具
@@ -528,6 +557,88 @@
 - `docs/archive/website-screenshots/shots/desktop.png`
 - `docs/archive/website-screenshots/shots/hero.png`
 - `docs/archive/website-screenshots/shots/mobile.png`
+
+### Flutter 移动端
+
+- `mobile/.gitignore`
+- `mobile/.metadata`
+- `mobile/README.md`
+- `mobile/analysis_options.yaml`
+- `mobile/android/.gitignore`
+- `mobile/android/app/build.gradle.kts`
+- `mobile/android/app/src/debug/AndroidManifest.xml`
+- `mobile/android/app/src/main/AndroidManifest.xml`
+- `mobile/android/app/src/main/kotlin/io/github/lanpropro/ddmonitor/MainActivity.kt`
+- `mobile/android/app/src/main/res/drawable-v21/launch_background.xml`
+- `mobile/android/app/src/main/res/drawable/launch_background.xml`
+- `mobile/android/app/src/main/res/mipmap-hdpi/ic_launcher.png`
+- `mobile/android/app/src/main/res/mipmap-mdpi/ic_launcher.png`
+- `mobile/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png`
+- `mobile/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png`
+- `mobile/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png`
+- `mobile/android/app/src/main/res/values-night/styles.xml`
+- `mobile/android/app/src/main/res/values/styles.xml`
+- `mobile/android/app/src/profile/AndroidManifest.xml`
+- `mobile/android/build.gradle.kts`
+- `mobile/android/gradle.properties`
+- `mobile/android/gradle/wrapper/gradle-wrapper.properties`
+- `mobile/android/settings.gradle.kts`
+- `mobile/integration_test/watch_test.dart`
+- `mobile/ios/.gitignore`
+- `mobile/ios/Flutter/AppFrameworkInfo.plist`
+- `mobile/ios/Flutter/Debug.xcconfig`
+- `mobile/ios/Flutter/Release.xcconfig`
+- `mobile/ios/Runner.xcodeproj/project.pbxproj`
+- `mobile/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata`
+- `mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist`
+- `mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings`
+- `mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme`
+- `mobile/ios/Runner.xcworkspace/contents.xcworkspacedata`
+- `mobile/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist`
+- `mobile/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings`
+- `mobile/ios/Runner/AppDelegate.swift`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json`
+- `mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage.png`
+- `mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@2x.png`
+- `mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@3x.png`
+- `mobile/ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md`
+- `mobile/ios/Runner/Base.lproj/LaunchScreen.storyboard`
+- `mobile/ios/Runner/Base.lproj/Main.storyboard`
+- `mobile/ios/Runner/Info.plist`
+- `mobile/ios/Runner/Runner-Bridging-Header.h`
+- `mobile/ios/Runner/SceneDelegate.swift`
+- `mobile/ios/RunnerTests/RunnerTests.swift`
+- `mobile/lib/app.dart`
+- `mobile/lib/design.dart`
+- `mobile/lib/follow_view.dart`
+- `mobile/lib/main.dart`
+- `mobile/lib/monitor_model.dart`
+- `mobile/lib/platforms/bilibili.dart`
+- `mobile/lib/wall_view.dart`
+- `mobile/lib/wall_layout.dart`
+- `mobile/lib/watch_session.dart`
+- `mobile/pubspec.lock`
+- `mobile/pubspec.yaml`
+- `mobile/test/app_test.dart`
+- `mobile/test/bilibili_test.dart`
+- `mobile/test/model_test.dart`
+- `mobile/test/watch_session_test.dart`
 
 ## 仅本机存在的其他资料
 

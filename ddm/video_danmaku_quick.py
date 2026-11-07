@@ -166,6 +166,8 @@ class _MovingDanmakuWindow(QQuickWindow):
         self._move_connection = None
         self._move_sync_connection = None
         self._move_epoch = 0
+        self._mask_batch = 0
+        self._mask_pending = False
 
     def setMask(self, region):
         self._base_mask = QRegion(region)
@@ -219,7 +221,19 @@ class _MovingDanmakuWindow(QQuickWindow):
         if self._move_frames:
             self.requestUpdate()
 
+    def begin_mask_batch(self):
+        self._mask_batch += 1
+
+    def end_mask_batch(self):
+        self._mask_batch -= 1
+        if not self._mask_batch and self._mask_pending:
+            self._mask_pending = False
+            self._apply_move_mask()
+
     def _apply_move_mask(self):
+        if self._mask_batch:
+            self._mask_pending = True
+            return
         region = QRegion(self._base_mask)
         if self._move_regions:
             if region.isEmpty():
@@ -382,6 +396,10 @@ class QuickDanmakuLayer(QObject):
         origin = canvas.mapToGlobal(QPoint())
         region = QRegion(canvas.rect())
         owner = self.parent.window()
+        clip_owner = canvas.window()
+        clip = clip_owner.property('presentationMask') or clip_owner.mask()
+        if not clip.isEmpty():
+            region &= clip.translated(clip_owner.mapToGlobal(QPoint()) - origin)
         for widget in QApplication.topLevelWidgets():
             if (widget is owner or widget is self._presentation_window
                     or not widget.isVisible() or not _owned_by(widget, owner)):

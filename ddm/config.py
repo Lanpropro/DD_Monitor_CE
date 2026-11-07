@@ -130,7 +130,10 @@ DEFAULT_SETTINGS = {
     "super_chat_opacity": 80,
     "super_chat_collapse_delay": 7,
     "super_chat_scale": 100,
+    "super_chat_scale_with_video": False,
     "super_chat_position": None,
+    "super_chat_panel_position": None,
+    "super_chat_position_sync": True,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
     "video_danmaku_outline_width": 0,
@@ -305,9 +308,11 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
         if ":" in room_id:
             room.update(platform=room_id.split(":", 1)[0], playback_mode="stream")
         if saved.get("playback_mode") in ("browser", "stream"):
-            for key in ("uname", "title", "platform", "playback_mode"):
+            for key in ("uname", "title", "platform", "playback_mode", "anchor_uid", "sec_uid", "resolved_room_id", "face"):
                 if isinstance(saved.get(key), str):
                     room[key] = saved[key]
+            if saved.get("follow_account_ref") is True:
+                room["follow_account_ref"] = True
         if room.get("platform") == "huya":
             room["playback_mode"] = "stream"     # 迁移旧版虎牙网页卡片
         return room

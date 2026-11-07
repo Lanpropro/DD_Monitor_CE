@@ -10,6 +10,7 @@ set "DDM_FOLDER_MOTION_CAPTURE=1"
 set "DDM_THEME_CAPTURE=1"
 set "DDM_FULLSCREEN_CAPTURE=1"
 set "PROJ=%~dp0"
+if /i "%~1"=="--mobile" goto mobile
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 
 set "PY=%PROJ%.venv\Scripts\pythonw.exe"
@@ -17,13 +18,22 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 set "DIAG_ARG=%~1"
+if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
+if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
+if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
+if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
+if /i "%~1"=="--check-wall-panes" goto wallPanesCheck
+if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
+if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
+if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
+if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -44,6 +54,45 @@ rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fi
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
 
+:continuousCornersCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:wallRemovalCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_main_notices
+exit /b %errorlevel%
+
+:sidebarNavigationCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_pages
+exit /b %errorlevel%
+
+:wallPanesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_pane_danmaku.py" --native
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pane_danmaku
+exit /b %errorlevel%
+
+:pictureInPictureCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_picture_in_picture.py" --native
+if errorlevel 1 exit /b %errorlevel%
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_picture_in_picture.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pip_picker
+exit /b %errorlevel%
+
 :qtLogCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_qt_log
@@ -51,6 +100,8 @@ exit /b %errorlevel%
 
 :diagnosticsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_on_demand_diagnostics
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_diagnostics
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_session
@@ -73,6 +124,31 @@ set "QT_QPA_PLATFORM=offscreen"
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_danmaku_color.py" --native
+exit /b %errorlevel%
+
+:playbackControlsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_controls
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+exit /b %errorlevel%
+
+:sidebarDragCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_drag_lifecycle
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_hit_test
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_drag_diagnostics.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_drag
+exit /b %errorlevel%
+
+:hotfixUpdatesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
 exit /b %errorlevel%
 
 :widgetLifetimeCheck
@@ -146,7 +222,7 @@ if errorlevel 1 exit /b %errorlevel%
 exit /b %errorlevel%
 
 :diagnosticSession
-start "" "%PY%" "%PROJ%main.py" "%~1"
+start "" "%PY%" "%PROJ%main.py" "%DIAG_ARG%"
 exit /b 0
 
 :responsiveness
@@ -179,3 +255,15 @@ echo 请在本目录执行：  python -m venv .venv
 echo 然后执行：        .venv\Scripts\pip install -r requirements.txt
 pause
 exit /b 1
+
+:mobile
+where flutter.bat >nul 2>nul
+if errorlevel 1 (
+    echo 请先将 Flutter SDK 的 bin 目录加入 PATH。
+    exit /b 1
+)
+pushd "%PROJ%mobile"
+call flutter.bat run
+set "MOBILE_EXIT=%ERRORLEVEL%"
+popd
+exit /b %MOBILE_EXIT%

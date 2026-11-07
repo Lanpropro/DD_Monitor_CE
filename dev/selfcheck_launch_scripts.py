@@ -35,6 +35,7 @@ def main():
             'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
             'Path(__file__).with_name("fullscreen-input.txt").write_text(os.environ.get("DDM_FULLSCREEN_INPUT_CAPTURE", ""), encoding="utf-8")\n'
+            'Path(__file__).with_name("arguments.txt").write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
         (root / 'dev').mkdir()
         (root / 'dev/diagnose_drag_windows.py').write_text(
@@ -78,6 +79,23 @@ def main():
             time.sleep(.05)
         assert (root / 'fullscreen-input.txt').read_text() == '1'
         (root / 'trace-enabled.txt').unlink()
+        (root / 'started.txt').unlink()
+        result = invoke(root / 'run.cmd', env, ('--diagnose-session=drag',))
+        assert result.returncode == 0
+        deadline = time.monotonic() + 10
+        while not (root / 'started.txt').exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=drag'
+        assert not (root / 'trace-enabled.txt').exists(), 'Explicit session must bypass the ordinary trace launcher'
+        (root / 'started.txt').unlink()
+        (root / 'quoted-session.cmd').write_bytes(b'@echo off\r\ncall run.cmd "--diagnose-session=drag"\r\n')
+        result = invoke(root / 'quoted-session.cmd', env)
+        assert result.returncode == 0
+        deadline = time.monotonic() + 10
+        while not (root / 'started.txt').exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=drag'
+        assert not (root / 'trace-enabled.txt').exists()
         result = invoke(root / 'run.cmd', env, ('--sc-simulator', '--smoke'))
         assert result.returncode == 0
         deadline = time.monotonic() + 10

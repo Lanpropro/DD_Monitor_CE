@@ -41,7 +41,8 @@ def check_reveal_start(tile, wake):
         with patch.object(tile, '_layout_areas', side_effect=prepare_layout):
             wake()
         assert all(float(value) >= .999 for value in values), 'Reveal flashed a visible frame while configuring its range'
-        assert animation.state() == QAbstractAnimation.Running and animation.currentTime() == 0
+        assert animation.state() == QAbstractAnimation.Paused and animation.currentTime() == 0
+        assert tile._bar_clock.isActive()
     finally:
         animation.valueChanged.disconnect(values.append)
 

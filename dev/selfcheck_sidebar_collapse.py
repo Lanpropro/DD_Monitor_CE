@@ -13,6 +13,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import theme  # noqa: E402
 from ddm.widgets import Sidebar  # noqa: E402
+from ddm.sidebar_navigation import RAIL_WIDTH
 
 ROOMS = [{"room_id": f"94{index:02d}", "uname": f"主播{index}", "title": "t",
           "live": True, "muted": True, "volume": 40, "quality": 250}
@@ -86,13 +87,13 @@ def main() -> None:
         print("\n=== 3. 收起/展开在返回前完成 ===")
         sidebar.set_collapsed(True, animate=True)
         assert not thumb._cover_hold and not sidebar._collapse_animating
-        assert sidebar.width() == theme.SIDEBAR_RAIL_WIDTH
+        assert sidebar.width() == theme.SIDEBAR_RAIL_WIDTH + RAIL_WIDTH
         sidebar.set_collapsed(False, animate=False)
         assert not thumb._cover_hold and not sidebar._collapse_animating
-        assert sidebar.width() == theme.SIDEBAR_WIDTH
+        assert sidebar.width() == theme.SIDEBAR_WIDTH + RAIL_WIDTH
         assert thumb.cover.pixmap().size() == thumb.size()
         settle(app, 0.3)
-        assert sidebar.width() == theme.SIDEBAR_WIDTH
+        assert sidebar.width() == theme.SIDEBAR_WIDTH + RAIL_WIDTH
     finally:
         window.close()
         settle(app, 0.25)

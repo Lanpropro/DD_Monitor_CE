@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QThread, Qt
+from PySide6.QtCore import QObject, QThread, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 from ddm import app as app_module, images
@@ -19,7 +19,7 @@ from ddm.room_images import RoomImages
 
 
 METHODS = ('load_cached_covers', 'load_cached_avatars', 'load_room_avatars',
-    '_prime_cached_avatars', 'load_avatars_for', '_load_room_banners', '_on_room_banner',
+    'load_avatars_for', '_load_room_banners', '_on_room_banner',
     '_on_room_artwork', '_start_avatar_loader', '_on_room_avatar', '_on_room_cover')
 
 
@@ -59,10 +59,12 @@ def item(room):
         set_face=Mock(), set_cover=Mock(), set_banner=Mock()))
 
 
-class Host:
+class Host(QObject):
     def __init__(self, rooms):
+        super().__init__()
         self.sidebar = SimpleNamespace(rooms=lambda: rooms, _items=[item(room) for room in rooms],
             set_room_face=Mock(), notification_button=SimpleNamespace(center=SimpleNamespace(rows={})))
+        self.wall = SimpleNamespace(pane_danmaku=Mock())
         self.room_images = RoomImages(self)
         self.room_images = RoomImages(self)
         self._avatar_loaders = []
@@ -109,7 +111,7 @@ class RoomImageTests(unittest.TestCase):
             loader.finished.emit()
             self.assertTrue(loader.deleted)
 
-    def test_full_refresh_primes_cache_and_routes_images_to_independent_loaders(self):
+    def test_full_refresh_leaves_cache_reads_and_delivery_to_workers(self):
         host = Host([{'room_id': '1001', 'face': 'face-a', 'cover_url': 'cover-a'},
                      {'room_id': 'fixture:2', 'cover_url': 'cover-b'}])
         picture = object()
@@ -118,17 +120,14 @@ class RoomImageTests(unittest.TestCase):
         self.assertEqual(host._room_avatar_loader.items, {'1001': 'face-a'})
         self.assertEqual(host._cover_loader.items, {'1001': 'cover-a', 'fixture:2': 'cover-b'})
         self.assertEqual(host._cover_loader.kwargs, {'subdir': 'covers'})
+        self.cached.assert_not_called()
+        host.sidebar._items[0].thumb.set_face.assert_not_called()
+        host._room_avatar_loader.loaded.emit('1001', picture)
         host.sidebar._items[0].thumb.set_face.assert_called_once_with(picture)
         self.assertEqual(len(host._avatar_loaders), 2)
         for loader in host._avatar_loaders:
             self.assertIs(loader.parent, host)
             self.assertTrue(loader.running)
-
-    def test_cache_misses_and_removed_rooms_are_skipped(self):
-        host = Host([{'room_id': '1001'}])
-        self.assertEqual(host._prime_cached_avatars({'1001': 'miss', 'removed': 'url'}), 0)
-        self.cached.assert_called_once_with('miss')
-        host.sidebar._items[0].thumb.set_face.assert_not_called()
 
     def test_added_rooms_load_immediately_and_banner_identity_deduplicates(self):
         rooms = [{'room_id': '1001', 'uid': 'u1', 'face': 'face'},
@@ -190,6 +189,49 @@ class ImageThreadTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_startup_url_cache_is_decoded_off_gui_and_delivered_without_network(self):
+        with tempfile.TemporaryDirectory() as temp, ExitStack() as stack:
+            stack.enter_context(patch.object(images, 'REPO', temp))
+            network = stack.enter_context(patch.object(images.requests, 'get',
+                side_effect=AssertionError('Cached avatars must not need the CDN')))
+            cached = stack.enter_context(patch.object(app_module, 'load_cached_avatar',
+                side_effect=AssertionError('No synchronous startup avatar decoding')))
+            room = {'room_id': '1001', 'face': 'https://example.invalid/avatar.png'}
+            path = Path(images._cache_path(room['face'], 'avatars'))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            picture = QPixmap(24, 24)
+            picture.fill(Qt.blue)
+            self.assertTrue(picture.save(str(path), 'PNG'))
+            # No room snapshot exists: the URL cache must still supply the avatar.
+            self.assertFalse(Path(images.room_avatar_path('1001')).exists())
+            host = Host([room])
+            decoded, delivered = [], []
+            load = images.load_pixmap
+            def decode(*args, **kwargs):
+                decoded.append(QThread.currentThread() is self.app.thread())
+                return load(*args, **kwargs)
+            stack.enter_context(patch.object(images, 'load_pixmap', side_effect=decode))
+            host.sidebar._items[0].thumb.set_face.side_effect = lambda _pixmap: delivered.append(
+                QThread.currentThread() is self.app.thread())
+            try:
+                host.load_room_avatars()
+                cached.assert_not_called()
+                self.assertEqual(delivered, [])
+                deadline = time.monotonic() + 4
+                while time.monotonic() < deadline:
+                    self.app.processEvents()
+                    if delivered and not host._loader_running(host._room_avatar_loader):
+                        break
+                    time.sleep(0.005)
+                self.assertEqual(decoded, [False])
+                self.assertEqual(delivered, [True])
+                network.assert_not_called()
+                self.assertIsNotNone(images.load_room_avatar('1001'))
+            finally:
+                for worker in host._avatar_loaders:
+                    if host._loader_running(worker):
+                        self.assertTrue(worker.wait(4000))
 
     def test_local_cache_workers_deliver_on_gui_thread_and_close_cleanly(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as stack:

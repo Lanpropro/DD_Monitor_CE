@@ -6,6 +6,7 @@ from PySide6.QtGui import (QColor, QFont, QFontMetrics, QImage, QPainter, QPaint
                           QPen, QTextCharFormat, QTextCursor, QTextDocument)
 
 from .danmaku_content import content_html
+from .corner_geometry import continuous_path
 
 
 class CommentRaster:
@@ -78,8 +79,8 @@ class CommentRaster:
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(QColor(255, 255, 255, 225), 1.6))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(QRectF(1.6, 1.6, image.width() / scale - 3.2,
-                                     image.height() / scale - 3.2), 6, 6)
+        painter.drawPath(continuous_path(QRectF(1.6, 1.6, image.width() / scale - 3.2,
+                                              image.height() / scale - 3.2), 6))
 
     def _render_text(self, text: str, color: QColor, self_sent=False) -> QImage:
         font = self.font

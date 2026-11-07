@@ -11,6 +11,7 @@
 | 开发验证 | [测试套件与执行条件](development/testing.md)、[开发工具导航](../dev/README.md)、[全部专项检查](../dev/checks/README.md) |
 | 本机工作区 | [目录归属、旧运行库归档与检查纳入标准](development/workspace-maintenance.md) |
 | 图片缓存 | [头像与封面饼图、选择清理与自动替换](image-cache.md) |
+| 设计参考 | [直播水族馆：合成与调度](development/liveaquarium-learning.md)、[BiliBili ShadowReplay：录制、回看与切片 UI](development/bili-shadowreplay-learning.md) |
 | 界面组件 | [共用组件目录、统一导入和调用示例](development/ui-components.md) |
 | 本次整合 | [2026-10-19 仓库与 PR 整合记录](archive/repository-integration-20261019.md) |
 | 插件 | [插件说明](plugins.md) |
@@ -18,6 +19,7 @@
 | 布局拖动试用 | [PR #6 / #7 说明与手动测试](archive/pr6-pr7-layout-testing.md) |
 | 窗口缩放性能 | [交互、模块分工与验收](resize-performance.md) |
 | 直播间组合预设 | [首版试用、设计与验收清单](room-presets-design.md) |
+| 多画面画中画 | [独立入口、组合观看与验收步骤](picture-in-picture.md) |
 | 安装与卸载 | [Windows 安装包、卸载范围与验证](development/windows-installer.md) |
 | 更新机制 | [在线更新](online-updates.md) |
 | 下一次更新 | [未发布的修复、验收证据与待办](releases/UNRELEASED.md) |

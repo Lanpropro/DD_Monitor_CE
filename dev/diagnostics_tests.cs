@@ -36,6 +36,16 @@ internal static class DiagnosticsTests
         try
         {
             Console.OutputEncoding = new System.Text.UTF8Encoding(false);
+            if (args[0] == "--live-capture")
+            {
+                using (var client = new OnDemandClient())
+                {
+                    object evidence = client.Capture(args[1], int.Parse(args[2]), args[3]);
+                    new Collector(args[1]).Collect(args[4], "live capture fixture", "test", (p, text) => { }, liveEvidence: evidence);
+                    Console.WriteLine("live capture passed");
+                }
+                return 0;
+            }
             if (args[0] == "--data-location")
             {
                 Console.WriteLine(new Collector(args[1], args[3]).Collect(args[2], "data location test", "test", (p, text) => { }));
@@ -126,6 +136,13 @@ internal static class DiagnosticsTests
                     var exitOption = (CheckBox)typeof(DiagnosticForm).GetField("exitAfterSuccess", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                     if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
                         throw new Exception("Auto-exit option clipped at minimum window size");
+                      foreach (string name in new[] { "liveFolders", "liveDrag", "cancelLive" })
+                      {
+                          var button = (Button)typeof(DiagnosticForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                          if (button.Right > button.Parent.ClientSize.Width || button.Bottom > button.Parent.ClientSize.Height)
+                              throw new Exception("On-demand capture button clipped: " + name);
+                          if (name == "cancelLive" && button.Enabled) throw new Exception("Idle capture must not enable cancellation");
+                      }
                     var captureMode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                     var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                     var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);

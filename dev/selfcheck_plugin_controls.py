@@ -93,6 +93,79 @@ class ControlsTests(unittest.TestCase):
         self.assertEqual(self.controls[0].rooms, [{}, {'room_id': '11'}])
         self.assertFalse(self.controls[0].widget.isHidden())
 
+    def test_equal_tiles_share_volume_style_across_pixel_rounding(self):
+        wall = WallGrid([], layout_id='1x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        # Fixed off-screen placement avoids a monitor/DPI transition at first show.
+        wall.setGeometry(-13000, -13000, 1239, 450)  # 32 margins + 8 gap + 1199 shared.
+        wall.show()
+        APP.processEvents()
+        first, second = wall.tiles
+        self.assertEqual(sorted(tile.width() for tile in wall.tiles), [599, 600])
+        for tile in wall.tiles:
+            self.assertTrue(tile.volume_slider.isHidden())
+            self.assertTrue(tile.volume_label.isHidden())
+            self.assertTrue(tile.volume_button.compact_popup)
+        wall.resize(1240, 450)
+        APP.processEvents()
+        self.assertEqual([tile.width() for tile in wall.tiles], [600, 600])
+        self.assertTrue(all(not tile.volume_slider.isHidden() for tile in wall.tiles))
+        # Saved unequal proportions retain independent responsive behaviour.
+        wall._layout_ratios['1x2'] = {'root': [0.45, 0.55]}
+        wall.relayout(force=True)
+        APP.processEvents()
+        self.assertTrue(first.volume_slider.isHidden())
+        self.assertFalse(second.volume_slider.isHidden())
+        wall.reset_layout_ratios()
+        APP.processEvents()
+        self.assertTrue(all(not tile.volume_slider.isHidden() for tile in wall.tiles))
+        wall.resize(1239, 450)
+        APP.processEvents()
+        self.assertTrue(all(tile.volume_slider.isHidden() for tile in wall.tiles))
+
+    def test_equal_volume_style_does_not_leak_into_fullscreen_or_other_layout(self):
+        wall = WallGrid([], layout_id='1x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        wall.setGeometry(-13000, -13000, 1239, 450)
+        wall.show()
+        APP.processEvents()
+        first = wall.tiles[0]
+        self.assertTrue(first.volume_slider.isHidden())
+        wall.set_fullscreen_tile(first)
+        APP.processEvents()
+        self.assertFalse(first.volume_slider.isHidden())
+        wall.set_fullscreen_tile(None)
+        APP.processEvents()
+        self.assertTrue(first.volume_slider.isHidden())
+        wall.set_layout('1x1')
+        APP.processEvents()
+        self.assertFalse(first.volume_slider.isHidden())
+
+    def test_equal_grid_volume_style_ignores_row_heights_and_keeps_tile_volume(self):
+        wall = WallGrid([], layout_id='2x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall._layout_ratios['2x2'] = {'root': [0.4, 0.6]}
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        wall.setGeometry(-13000, -13000, 1239, 700)
+        wall.show()
+        APP.processEvents()
+        for index, tile in enumerate(wall.tiles):
+            tile.set_volume(10 + index)
+            self.assertTrue(tile.volume_slider.isHidden())
+        wall.resize(1240, 700)
+        APP.processEvents()
+        for index, tile in enumerate(wall.tiles):
+            self.assertFalse(tile.volume_slider.isHidden())
+            self.assertEqual(tile.volume_slider.value(), 10 + index)
+
     def test_danmaku_layout_moves_existing_editor_and_restores_it(self):
         self.register()
         wall = WallGrid([{'room_id': '12'}, {'room_id': '13'}], layout_id='dm_main2')
@@ -321,6 +394,51 @@ class ControlsTests(unittest.TestCase):
         self.manager._remove_tile_owner('demo')
         APP.processEvents()
         self.assertTrue(wall.danmaku.composer_bar.isHidden())
+
+    def test_multiple_panels_exchange_existing_editors_and_share_message_controls(self):
+        self.register()
+        wall = WallGrid([{'room_id': str(12 + i)} for i in range(4)], layout_id='2x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.resize(1200, 800)
+        wall.show()
+        for tile in wall.tiles:
+            self.manager.attach_tile(tile)
+        APP.processEvents()
+        first, second = wall.tiles[:2]
+        first_edit = first._plugin_controls.entries[0].control.widget
+        second_edit = second._plugin_controls.entries[0].control.widget
+        first_edit.setText('first draft')
+        second_edit.setText('second draft')
+        wall.pane_danmaku.apply({2: first, 3: second})
+        panels = wall.pane_danmaku.panels
+        self.assertIs(first._plugin_controls.widget.parentWidget(), panels[2].composer_bar)
+        self.assertIs(second._plugin_controls.widget.parentWidget(), panels[3].composer_bar)
+        wall.pane_danmaku.apply({2: second, 3: first})
+        self.assertIs(first._plugin_controls.widget.parentWidget(), panels[3].composer_bar)
+        self.assertIs(second._plugin_controls.widget.parentWidget(), panels[2].composer_bar)
+        self.assertEqual(first_edit.text(), 'first draft')
+        self.assertEqual(second_edit.text(), 'second draft')
+        wall.pane_danmaku.apply({2: first, 3: first})
+        self.assertIs(panels[2]._linked_controls, first._plugin_controls)
+        self.assertIs(panels[3]._linked_controls, first._plugin_controls)
+        merged, = wall.pane_danmaku.rendered()
+        self.assertIs(first._plugin_controls.widget.parentWidget(), merged.composer_bar)
+        self.assertTrue(merged.composer_bar.isVisible())
+        self.assertEqual(first_edit.text(), 'first draft')
+        # Disconnected panes use the bottom-right region, independent of creation order.
+        wall.pane_danmaku.apply({1: first, 2: first})
+        self.assertEqual(len(wall.pane_danmaku.rendered()), 2)
+        self.assertIs(first._plugin_controls.widget.parentWidget(), wall.pane_danmaku.panels[2].composer_bar)
+        self.assertTrue(wall.pane_danmaku.panels[1].composer_bar.isHidden())
+        self.assertEqual(first_edit.text(), 'first draft')
+        wall.set_layout('corner')
+        wall.pane_danmaku.apply({1: first, 2: first, 5: first})
+        merged, = wall.pane_danmaku.rendered()
+        self.assertIs(first._plugin_controls.widget.parentWidget(), merged.composer_bar)
+        self.assertTrue(merged.composer_bar.isVisible())
+        self.assertEqual(first_edit.text(), 'first draft')
+        self.assertEqual(merged.geometry().bottom(), wall.pane_danmaku.rectangles[5].bottom())
 
     def test_every_assignment_is_delivered_as_a_copy(self):
         self.register()
