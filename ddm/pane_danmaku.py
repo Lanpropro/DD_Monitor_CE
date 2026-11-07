@@ -117,6 +117,9 @@ class PaneDanmaku:
     def arrange(self, rectangles, widgets):
         """Join full shared edges only: a joined rectangle never covers a video cell."""
         self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
+        if not self.panels:
+            self.groups = {}
+            return widgets
         previous = set(self.rendered())
         areas = []
         for cell, panel in self.panels.items():

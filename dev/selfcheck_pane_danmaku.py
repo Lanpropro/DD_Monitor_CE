@@ -321,6 +321,8 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual([a.text() for a in menu.actions()], ['恢复直播画面'])
         menu.actions()[0].trigger()
         self.assertFalse(panes.bindings())
+        self.assertFalse(panes.rendered())
+        self.assertFalse(panes.groups)
         self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:4]))
 
     def test_rectangular_merges_never_cover_unrelated_cells_and_follow_source_changes(self):
