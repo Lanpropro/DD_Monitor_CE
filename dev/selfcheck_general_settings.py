@@ -188,10 +188,14 @@ def check_codecs(app):
                 first.codec_overrides["decode_mode"] = "auto"
                 assert "实际：等待首帧" in window._codec_status(first)
                 first.codec_overrides["decode_mode"] = "none"
-                assert any("当前窗口编解码设置" in action.text()
-                           for action in first.build_menu().actions())
-                next(action for action in first.build_menu().actions()
-                     if "当前窗口编解码设置" in action.text()).trigger()
+                menu = first.build_menu()
+                try:
+                    assert any("当前窗口编解码设置" in action.text() for action in menu.actions())
+                    next(action for action in menu.actions()
+                         if "当前窗口编解码设置" in action.text()).trigger()
+                finally:
+                    menu.deleteLater()
+                    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
                 dialog = window._codec_dialogs[first]
                 assert dialog.isVisible() and dialog._status_timer.isActive()
                 window._open_tile_codecs(first)
