@@ -231,6 +231,10 @@ class UiPolishTests(unittest.TestCase):
         self.assertFalse(menu.scale_curve.isEnabled())
         control.reset()
         self.assertEqual(control.curve(), scale_curve_points())
+        image = graph.grab().toImage()
+        grid_point = graph.point_position([.5, .5]).toPoint()
+        self.assertNotEqual(image.pixelColor(grid_point), theme.qcolor(theme.CONTENT),
+                            'An open curve must not fill over the grid below it')
 
     def test_menu_editor_and_runtime_keep_order_callbacks_and_visibility(self):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)
