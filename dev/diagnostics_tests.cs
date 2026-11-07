@@ -52,14 +52,6 @@ internal static class DiagnosticsTests
                 return 0;
             }
             if (NativeDependencies.TryRun(args)) return 0;
-            if (args[0] == "--capture-command")
-            {
-                var command = new Collector(args[1]).CaptureCommand(args[2]);
-                Console.WriteLine(new JavaScriptSerializer().Serialize(new {
-                    executable = command.FileName, arguments = command.Arguments,
-                    working_directory = command.WorkingDirectory, modes = Collector.CaptureModes }));
-                return 0;
-            }
             if (args[0] == "--auto-exit")
             {
                 foreach (bool enabled in new[] { false, true })
@@ -143,36 +135,6 @@ internal static class DiagnosticsTests
                               throw new Exception("On-demand capture button clipped: " + name);
                           if (name == "cancelLive" && button.Enabled) throw new Exception("Idle capture must not enable cancellation");
                       }
-                    var captureMode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
-                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
-                    form.PerformLayout();
-                    if (captureMode.Items.Count != Collector.CaptureModes.Length + 1 || captureMode.Width < 170 || captureMode.Height < 20)
-                        throw new Exception("Capture selection clipped or incomplete: " + captureMode.Items.Count + ", " + captureMode.Size);
-                    var start = (Button)typeof(DiagnosticForm).GetField("startCapture", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    var directory = (TextBox)typeof(DiagnosticForm).GetField("directory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
-                    var frame = captureMode.Parent;
-                    if (!(frame is DiagnosticInput) || captureMode.DrawMode != DrawMode.OwnerDrawFixed)
-                        throw new Exception("Capture selector must use the shared input surface");
-                    if (frame.Top != start.Top || frame.Height != start.Height)
-                        throw new Exception("Capture input and action must align vertically");
-                    if (frame.PointToScreen(Point.Empty).X != directory.Parent.PointToScreen(Point.Empty).X)
-                        throw new Exception("Capture input must share the main input left edge: " + frame.PointToScreen(Point.Empty).X + " / " + directory.Parent.PointToScreen(Point.Empty).X);
-                    if (hint.PointToScreen(Point.Empty).X != frame.PointToScreen(Point.Empty).X)
-                        throw new Exception("Capture guidance must align with the input");
-                    for (int index = 0; index < captureMode.Items.Count; index++)
-                    {
-                        captureMode.SelectedIndex = index;
-                        required = TextRenderer.MeasureText(hint.Text, hint.Font,
-                            new Size(hint.ClientSize.Width, int.MaxValue), TextFormatFlags.WordBreak);
-                        if (required.Height > hint.ClientSize.Height) throw new Exception("Capture guidance clipped: " + index + ", required=" + required + ", actual=" + hint.ClientSize);
-                    }
-                    captureMode.SelectedIndex = 0;
-                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
-                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
-                    form.PerformLayout();
                     if (args.Length > 2)
                     {
                         form.PerformLayout();
@@ -186,42 +148,68 @@ internal static class DiagnosticsTests
                     return 0;
                 }
             }
-            if (args[0] == "--capture-guidance")
+            if (args[0] == "--afterward-guidance")
             {
                 using (var form = new DiagnosticForm(args[1]))
                 {
                     var handle = form.Handle;
                     var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-                    var mode = (ComboBox)typeof(DiagnosticForm).GetField("captureMode", flags).GetValue(form);
-                    var start = (Button)typeof(DiagnosticForm).GetField("startCapture", flags).GetValue(form);
                     var generate = (Button)typeof(DiagnosticForm).GetField("generate", flags).GetValue(form);
-                    var hint = (Label)typeof(DiagnosticForm).GetField("captureHint", flags).GetValue(form);
-                    var options = (LinkLabel)typeof(DiagnosticForm).GetField("captureOptions", flags).GetValue(form);
-                    var section = (TableLayoutPanel)mode.Parent.Parent.Parent;
-                    if (section.RowStyles[1].Height != 0) throw new Exception("Advanced capture must default to collapsed");
-                    if (mode.SelectedIndex != 0 || start.Enabled || !generate.Enabled || !hint.Text.Contains("无需启动"))
-                        throw new Exception("Existing-log collection must be the usable default");
-                    start.PerformClick(); // Disabled: must not attempt to start any program.
-                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
-                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
-                    if (section.RowStyles[1].Height <= 0 || start.Enabled) throw new Exception("Expanding must not select or start capture");
-                    var before = Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p).ToArray();
-                    for (int index = 1; index < mode.Items.Count; index++)
+                    if (!generate.Enabled) throw new Exception("Existing-log collection must always be available");
+                    var pending = new System.Collections.Generic.Queue<Control>();
+                    pending.Enqueue(form);
+                    bool logs = false;
+                    while (pending.Count > 0)
                     {
-                        mode.SelectedIndex = index;
-                        if (!start.Enabled || !generate.Enabled || !hint.Text.Contains("仅选择不会"))
-                            throw new Exception("Selection must be preparation, without requiring capture before packaging");
-                        if (index == 7 && !hint.Text.Contains("本地中继")) throw new Exception("Deep capture impact missing");
+                        var control = pending.Dequeue();
+                        foreach (Control child in control.Controls) pending.Enqueue(child);
+                        if (control.Text.Contains("启动软件并采集") || control.Text.Contains("高级采集") || control.Text.Contains("Ctrl+Alt+F8"))
+                            throw new Exception("Restart/monitoring guidance remains in the user tool");
+                        if (control.Text.Contains("生成时自动收集已有日志")) logs = true;
                     }
-                    if (!before.SequenceEqual(Directory.GetFiles(args[1], "*", SearchOption.AllDirectories).OrderBy(p => p)))
-                        throw new Exception("Selecting capture type changed the application files");
-                    mode.SelectedIndex = 0;
-                    if (start.Enabled || !generate.Enabled) throw new Exception("Optional capture did not reset");
-                    typeof(LinkLabel).GetMethod("OnLinkClicked", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(options,
-                        new object[] { new LinkLabelLinkClickedEventArgs(new LinkLabel.Link()) });
-                    if (section.RowStyles[1].Height != 0 || !generate.Enabled) throw new Exception("Advanced capture did not collapse");
+                    if (!logs) throw new Exception("Existing-log guidance missing");
+                    if (typeof(Collector).GetMethod("CaptureCommand", flags) != null)
+                        throw new Exception("Collector must not launch the main application");
                 }
-                Console.WriteLine("optional capture guidance passed");
+                Console.WriteLine("afterward guidance passed");
+                return 0;
+            }
+            if (args[0] == "--external-windows")
+            {
+                using (var host = new QuietLayoutHost())
+                {
+                    var handle = host.Handle;
+                    // A wall with many native children used to exhaust the 256-window
+                    // budget before later siblings such as the sidebar were recorded.
+                    var wall = new Panel();
+                    host.Controls.Add(wall);
+                    var wallHandle = wall.Handle;
+                    for (int i = 0; i < 300; i++)
+                    {
+                        var panel = new Panel { Bounds = new Rectangle(i % 10, i / 10, 5, 5) };
+                        wall.Controls.Add(panel);
+                        var child = panel.Handle;
+                    }
+                    var sidebar = new Panel { Bounds = new Rectangle(12, 34, 56, 78) };
+                    host.Controls.Add(sidebar);
+                    var sidebarHandle = sidebar.Handle;
+                    var serializer = new JavaScriptSerializer();
+                    var snapshot = serializer.Deserialize<System.Collections.Generic.Dictionary<string, object>>(
+                        serializer.Serialize(OnDemandClient.ExternalSnapshot(System.Diagnostics.Process.GetCurrentProcess().Id)));
+                    var windows = (System.Collections.ArrayList)snapshot["windows"];
+                    if ((bool)snapshot["truncated"] || windows.Count < 303) throw new Exception("External tree still truncated before sidebar");
+                    var row = windows.Cast<System.Collections.Generic.Dictionary<string, object>>().SingleOrDefault(
+                        entry => (string)entry["hwnd"] == sidebarHandle.ToInt64().ToString("x"));
+                    if (row == null || (string)row["parent"] != handle.ToInt64().ToString("x"))
+                        throw new Exception("Sidebar or parent relation missing");
+                    var ordered = windows.Cast<System.Collections.Generic.Dictionary<string, object>>().ToList();
+                    int sidebarIndex = ordered.IndexOf(row);
+                    int firstWallChild = ordered.FindIndex(entry => (string)entry["parent"] == wallHandle.ToInt64().ToString("x"));
+                    if (firstWallChild < 0 || sidebarIndex >= firstWallChild)
+                        throw new Exception("Sidebar must precede the wall's deeper children");
+                    if (row.ContainsKey("title") || row.ContainsKey("text")) throw new Exception("Snapshot must not read window text");
+                    Console.WriteLine(serializer.Serialize(snapshot));
+                }
                 return 0;
             }
             if (args[0] == "--gallery")
