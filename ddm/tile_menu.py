@@ -68,6 +68,11 @@ class TileMenuEditor(QWidget):
         row.addStretch(1)
         box.addLayout(row)
         self.set_choices(choices)
+        # Settings pages measure their scroll content before first paint. Polish
+        # the controls before calculating the minimum so the buttons cannot
+        # overlap the list when QSS increases their height.
+        self.ensurePolished()
+        self.setMinimumHeight(box.minimumSize().height())
 
     def set_choices(self, choices):
         self.list.clear()
