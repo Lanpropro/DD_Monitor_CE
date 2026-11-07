@@ -427,6 +427,7 @@
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
 - `dev/selfcheck_widget_modules.py`
+- `dev/selfcheck_wall_border.py`
 - `dev/selfcheck_workspace_controls.py`
 - `dev/selfcheck_continuous_corners.py`
 - `dev/selfcheck_workspace_pages.py`
@@ -687,3 +688,5 @@
 测试、构建、软件文档和开发原型属于软件维护资料，已单独标出。
 本轮文档移动与四项删除见 [整理审查](archive/repository-cleanup-review.md)，软件和打包读取路径已相应调整。
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。
+
+画面墙边框组件与拖动会话由 `ddm/wall_border.py` 维护：`WallBorderInteraction` 以画面墙为QObject父对象，统一持有悬停、拖动、待处理位置与32ms合并定时器；预览仍是画面墙的直接Qt子控件，格子边框仍归原格子。WallGrid保留布局/比例/格子状态与旧方法及只读诊断别名，不重复保存活动拖动状态。
