@@ -512,6 +512,7 @@ def check_adaptive_content(app):
 
 def check_settings_persistence():
     expected = {'super_chat_scale': 140, 'super_chat_collapse_delay': 9,
+                'super_chat_scale_with_video': True,
                 'super_chat_position': [.2, .7], 'super_chat_panel_position': [.9, .1],
                 'super_chat_position_sync': False}
     with patch.object(MainWindow, 'refresh_status'), patch.object(MainWindow, 'refresh_stats'):

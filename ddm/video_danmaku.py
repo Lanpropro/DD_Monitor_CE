@@ -356,7 +356,8 @@ class SuperChatOverlay(BadgeSurface):
         rects, self._paint_scale = sc_placement_rects(
             self.chats, owner.width(), owner.height(),
             max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100)),
-            owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed)
+            owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed,
+            scale_with_video=owner.settings.get('super_chat_scale_with_video', False))
         return rects
 
     def _refresh_quick_mask(self):
@@ -604,6 +605,7 @@ class VideoDanmaku(QWidget):
         values['super_chat_opacity'] = settings.get('super_chat_opacity', 80)
         values['super_chat_collapse_delay'] = settings.get('super_chat_collapse_delay', 7)
         values['super_chat_scale'] = settings.get('super_chat_scale', 100)
+        values['super_chat_scale_with_video'] = bool(settings.get('super_chat_scale_with_video', False))
         if values != self.settings:
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
@@ -705,7 +707,8 @@ class VideoDanmaku(QWidget):
     def font_pixels(self) -> int:
         size = int(self.settings.get("video_danmaku_size") or 28)
         if self.settings.get("video_danmaku_scale", True):
-            size = round(size * self.height() / 720)
+            ratio = self.height() / 720
+            size = round(size * (math.sqrt(ratio) if ratio < 1 else ratio))
         return max(10, min(144, size))
 
     def lane_height(self) -> int:

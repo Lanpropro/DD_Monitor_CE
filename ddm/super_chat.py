@@ -88,12 +88,15 @@ def order_super_chats(chats):
 
 
 def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
-                       position=None, panel=False, collapsed=False):
+                       position=None, panel=False, collapsed=False, scale_with_video=False):
     if not events:
         return [], scale
     margin = 8 if panel else 10
     base_width = min(340, max(150 if panel else 168,
                              round(viewport_width * (.46 if panel else .30))))
+    if scale_with_video and not panel:
+        base_width = 340
+        scale *= max(1, viewport_height) / 720
     width, height, scale, heights = sc_card_geometry(
         events, base_width, scale, viewport_width - 2 * margin,
         viewport_height - 2 * margin, collapsed)
@@ -242,6 +245,7 @@ class SuperChatPlacementPreview(SkinPreview):
         self._positions = {'video': None, 'panel': None}
         self.position_sync = False
         self.scale = 100
+        self.scale_with_video = False
         self.opacity = 80
         self.layout_mode = 'video'
         self.preview_context = {
@@ -272,6 +276,7 @@ class SuperChatPlacementPreview(SkinPreview):
         return {'super_chat_position': None if self._positions['video'] is None else list(self._positions['video']),
                 'super_chat_panel_position': None if self._positions['panel'] is None else list(self._positions['panel']),
                 'super_chat_position_sync': self.position_sync,
+                'super_chat_scale_with_video': self.scale_with_video,
                 'super_chat_scale': self.scale}
 
     def apply_settings(self, settings):
@@ -282,6 +287,7 @@ class SuperChatPlacementPreview(SkinPreview):
         if self.position_sync:
             self._positions['panel'] = None if self._positions['video'] is None else list(self._positions['video'])
         self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
+        self.scale_with_video = bool(settings.get('super_chat_scale_with_video', False))
         self.set_opacity(settings.get('super_chat_opacity', 80))
         self.update()
 
@@ -330,7 +336,8 @@ class SuperChatPlacementPreview(SkinPreview):
         context = self.preview_context[self.layout_mode]
         width, height = context['size']
         rects, scale = sc_placement_rects(context['cards'], width, height,
-            self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'])
+            self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'],
+            scale_with_video=self.scale_with_video)
         stage = self.stage_rect()
         factor = stage.width() / width
         self._card_scale = scale * factor
