@@ -1,5 +1,6 @@
 """独立于 Qt/VLC 的本体更新助手：暂存、等待退出、替换和失败回滚。"""
 import ctypes
+import filecmp
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -184,8 +185,13 @@ def apply_plan(plan_path):
         for name in previous:
             destination(root, name)
     obsolete = set(previous + [old_exe]) - set(files)
+    changed = []
+    for name in files:
+        target = destination(root, name)
+        if not target.is_file() or not filecmp.cmp(destination(stage, name), target, shallow=False):
+            changed.append(name)
     # This also protects old plans whose parent did not wait for its settings worker.
-    for name in files + sorted(obsolete) + [MANIFEST]:
+    for name in changed + sorted(obsolete) + [MANIFEST]:
         target = destination(root, name) if name != MANIFEST else manifest
         retry_file_operation(lambda: check_replaceable(target))
     backup = stage / 'backup'
@@ -193,7 +199,7 @@ def apply_plan(plan_path):
     replaced, saved = [], set()
     manifest_before = manifest.read_bytes() if manifest.is_file() else None
     try:
-        for name in files + sorted(obsolete):
+        for name in changed + sorted(obsolete):
             target = destination(root, name)
             if target.is_file():
                 copy = destination(backup, name)

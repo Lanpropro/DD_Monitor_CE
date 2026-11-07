@@ -61,8 +61,11 @@ def check_replacement_failures():
         root = Path(temporary)
         old = root / 'DD监控室CE.exe'
         old.write_bytes(b'old')
+        font = root / '_internal/font.otf'
+        font.parent.mkdir()
+        font.write_bytes(b'unchanged font')
         archive = root / 'update.zip'
-        package(archive, extra={old.name: b'new'})
+        package(archive, extra={old.name: b'new', '_internal/font.otf': font.read_bytes()})
         plan = updater.prepare(archive, root, old)
         try:
             kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -82,7 +85,7 @@ def check_replacement_failures():
                     except OSError as error:
                         assert error.winerror == 32 and error.filename == str(old)
                 assert old.read_bytes() == b'old'
-                assert not (root / '_internal').exists(), 'preflight must precede all payload writes'
+                assert not (root / '_internal/runtime.dll').exists(), 'preflight must precede all payload writes'
                 release = threading.Timer(.3, lambda: kernel.CloseHandle(handle))
                 release.start()
                 updater.apply_plan(plan)
@@ -92,6 +95,15 @@ def check_replacement_failures():
                 else:
                     release.join(timeout=2)
             assert old.read_bytes() == b'new'
+            handle = kernel.CreateFileW(str(font), 0x80000000, 1, None, 3, 0x80, None)
+            assert handle != ctypes.c_void_p(-1).value
+            try:
+                # A system font cache can hold an unchanged font without delete sharing.
+                updater.apply_plan(plan)
+                assert font.read_bytes() == b'unchanged font'
+                assert not (Path(plan).parent / 'backup/_internal/font.otf').exists()
+            finally:
+                kernel.CloseHandle(handle)
         finally:
             shutil.rmtree(Path(plan).parent)
 

@@ -255,7 +255,8 @@ class SetupTests(unittest.TestCase):
 
     def test_existing_targets_are_checked_without_modification_before_install(self):
         script = write_script(self.payload, self.root / 'build', self.root / 'out')
-        paths = (script.parent / 'program-files.txt').read_text(encoding='utf-8-sig').splitlines()
+        records = (script.parent / 'program-files.txt').read_text(encoding='utf-8-sig').splitlines()
+        paths = records[::2]
         self.assertTrue(set(self.files).issubset(paths))
         self.assertIn('DDMonitorUninstall.exe', paths)
         self.assertNotIn('program-files.txt', payload_files(self.payload))
@@ -268,6 +269,20 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn('TerminateProcess', source)
         prepare = source.split('function PrepareToInstall', 1)[1]
         self.assertIn("if Result = '' then Result := ProgramFilesError", prepare)
+
+    def test_unchanged_program_files_skip_both_access_checks_and_copying(self):
+        import hashlib
+        script = write_script(self.payload, self.root / 'build', self.root / 'out')
+        lines = (script.parent / 'program-files.txt').read_text(encoding='utf-8-sig').splitlines()
+        records = dict(zip(lines[::2], lines[1::2]))
+        for name, data in self.files.items():
+            self.assertEqual(records[name], hashlib.sha256(data).hexdigest())
+        source = script.read_text(encoding='utf-8-sig')
+        entries = source.split('[Files]', 1)[1].split('[Icons]', 1)[0]
+        for name in self.files:
+            self.assertIn(f"Check: ProgramFileChanged('{name}', '{records[name]}')", entries)
+        self.assertIn('ProgramFileChanged(RelativeName, ExpectedHash) then begin', source)
+        self.assertIn('CompareText(GetSHA256OfFile(Name), ExpectedHash) <> 0', source)
 
 
 if __name__ == '__main__':
