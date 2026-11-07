@@ -525,5 +525,24 @@ def restore_state(path):
 if __name__ == '__main__':
     if '--restore-state' in sys.argv:
         restore_state(sys.argv[sys.argv.index('--restore-state') + 1])
+    elif len(sys.argv) == 1:
+        # Each case owns an entire Qt window graph; use a fresh application process.
+        # Keep every case and assertion, including the native case's existing skip.
+        failed = []
+        for name in unittest.defaultTestLoader.getTestCaseNames(PaneDanmakuTests):
+            command = [sys.executable, '-u', str(Path(__file__).parent / 'checks' / 'bootstrap.py'),
+                       __file__, 'PaneDanmakuTests.' + name]
+            if NATIVE:
+                command.append('--native')
+            try:
+                result = subprocess.run(command, timeout=60)
+                if result.returncode:
+                    failed.append(name)
+            except subprocess.TimeoutExpired:
+                print('TIMEOUT:', name, flush=True)
+                failed.append(name)
+        if failed:
+            print('FAILED cases:', ', '.join(failed), flush=True)
+            raise SystemExit(1)
     else:
         unittest.main(verbosity=2)
