@@ -701,6 +701,55 @@ class SimulatorTests(unittest.TestCase):
         APP.processEvents()
         self.assertEqual(panel.super_chats._position, [0, .5])
 
+    def test_position_sync_uses_selected_layout_and_can_be_disabled(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'super_chat_position': [0, .1],
+                                   'super_chat_panel_position': [1, .4]})
+        self.addCleanup(page.deleteLater)
+        page.resize(700, 900)
+        page.move(-13000, -13000)
+        page.show()
+        APP.processEvents()
+        preview = page.super_chat_placement
+        self.assertFalse(page.super_chat_position_sync.isChecked())
+        page.super_chat_preview_layout.button(1).click()
+        page.super_chat_position_sync.click()
+        self.assertTrue(page.values()['super_chat_position_sync'])
+        self.assertEqual(page.values()['super_chat_position'], [1, .4])
+        preview.position = [.2, .8]
+        self.assertEqual(page.values()['super_chat_position'], [.2, .8])
+        self.assertEqual(page.values()['super_chat_panel_position'], [.2, .8])
+        start = preview.card_rect().center().toPoint()
+        QTest.mousePress(preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(preview, start + QPoint(12, -12))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=start + QPoint(12, -12))
+        self.assertEqual(page.values()['super_chat_position'], page.values()['super_chat_panel_position'])
+        self.assertNotEqual(page.values()['super_chat_position'], [.2, .8])
+        restored = DanmakuSettingsPage(page.values())
+        self.addCleanup(restored.deleteLater)
+        self.assertTrue(restored.super_chat_position_sync.isChecked())
+        QTest.mouseDClick(preview, Qt.LeftButton, pos=preview.card_rect().center().toPoint())
+        self.assertIsNone(page.values()['super_chat_position'])
+        self.assertIsNone(page.values()['super_chat_panel_position'])
+        page.super_chat_preview_layout.button(0).click()
+        preview.position = [.7, .1]
+        self.assertEqual(page.values()['super_chat_panel_position'], [.7, .1])
+        page.super_chat_position_sync.click()
+        preview.position = [.5, .5]
+        self.assertEqual(page.values()['super_chat_panel_position'], [.7, .1])
+        page.reset()
+        self.assertFalse(page.values()['super_chat_position_sync'])
+
+    def test_synced_runtime_follows_video_position_and_independent_mode_restores_panel(self):
+        window = self.window
+        window.change_sc_settings({'super_chat_position': [0, .1],
+            'super_chat_panel_position': [1, .4], 'super_chat_position_sync': True})
+        self.assertEqual(window.wall.danmaku.super_chats._position, [0, .1])
+        window.change_sc_settings({'super_chat_position': [.3, .6]})
+        self.assertEqual(window.wall.danmaku.super_chats._position, [.3, .6])
+        window.change_sc_settings({'super_chat_position_sync': False})
+        self.assertEqual(window.wall.danmaku.super_chats._position, [1, .4])
+
     def test_collapse_timer_survives_refresh_and_click_reopens(self):
         window = self.window
         stack = window.wall.danmaku.super_chats
