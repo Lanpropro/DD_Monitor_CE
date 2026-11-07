@@ -226,7 +226,7 @@ class SuperChatPresentation(QObject):
 
 
 class SuperChatPlacementPreview(SkinPreview):
-    """Edit the same relative position and scale used by the live SC overlays."""
+    """Edit independent video/panel positions and the shared live SC scale."""
     changed = Signal(dict)
     VIDEO_AREA = QRectF(10, 10, 540, 474)
     PANEL_AREA = QRectF(560, 332, 230, 178)
@@ -238,8 +238,8 @@ class SuperChatPlacementPreview(SkinPreview):
         self.setFixedHeight(300)
         self.setMouseTracking(True)
         self.setAccessibleName('SC 位置与大小预览')
-        self.setToolTip('拖动卡片摆放，拖动右下角调整大小；双击恢复默认位置和大小')
-        self.position = None
+        self.setToolTip('画面和弹幕栏的位置分别保存，大小共用。拖动卡片摆放，拖动右下角调整大小；双击恢复当前布局的默认位置和共用大小')
+        self._positions = {'video': None, 'panel': None}
         self.scale = 100
         self.opacity = 80
         self.layout_mode = 'video'
@@ -249,13 +249,23 @@ class SuperChatPlacementPreview(SkinPreview):
                       'cards': [{'message': '', 'collapsed': False}]}}
         self._gesture = None
 
+    @property
+    def position(self):
+        return self._positions[self.layout_mode]
+
+    @position.setter
+    def position(self, value):
+        self._positions[self.layout_mode] = value
+
     def values(self):
-        return {'super_chat_position': None if self.position is None else list(self.position),
+        return {'super_chat_position': None if self._positions['video'] is None else list(self._positions['video']),
+                'super_chat_panel_position': None if self._positions['panel'] is None else list(self._positions['panel']),
                 'super_chat_scale': self.scale}
 
     def apply_settings(self, settings):
-        position = settings.get('super_chat_position')
-        self.position = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
+        for mode, key in (('video', 'super_chat_position'), ('panel', 'super_chat_panel_position')):
+            position = settings.get(key)
+            self._positions[mode] = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
         self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
         self.set_opacity(settings.get('super_chat_opacity', 80))
         self.update()

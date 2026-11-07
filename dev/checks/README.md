@@ -223,7 +223,7 @@
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
 | [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行 |
-| [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、两种预览与实际尺寸位置对照、紧凑控件及外置单位、透明度、正文留白与背景混色；合成消息、隔离数据 |
+| [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、画面／弹幕栏独立位置与实际对照、设置重开及重置、全屏恢复、紧凑控件及外置单位、共用大小和透明度、正文留白与背景混色；合成消息、隔离数据 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline`；含后台尺寸重绘、最终像素／进度、两个尺寸缓存、旧结果丢弃与 GUI 事件交付 |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline`；含按格独立设置、全局隔离、SC 范围、全屏、换格、空格及重启恢复 |
 | [selfcheck_danmaku_color](../selfcheck_danmaku_color.py) | `offline`；根入口 `run.cmd --check-danmaku-color` 另验 Windows Quick RGB 纹理；合成文字，无直播连接 |

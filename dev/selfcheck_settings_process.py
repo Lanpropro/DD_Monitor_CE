@@ -49,6 +49,11 @@ def child(action):
                 assert not hasattr(page.super_chat_placement, 'frame')
                 page.super_chat_preview_layout.button(1).click()
                 assert page.super_chat_placement.layout_mode == 'panel'
+                page.super_chat_placement.position = [1.0, .2]
+                page.super_chat_preview_layout.button(0).click()
+                page.super_chat_placement.position = [0.0, .6]
+                page.super_chat_preview_layout.button(1).click()
+                assert page.super_chat_placement.position == [1.0, .2]
                 assert page.super_chat_placement.preview_context['panel']['size'] == [800, 450]
                 assert page.super_chat_collapse_delay.suffix() == ''
                 assert page.super_chat_collapse_unit.text() == '秒'
@@ -227,6 +232,9 @@ def check_worker(app, action):
             assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
             if saves:
                 assert saves[0]['settings']['default_volume'] == 17
+                if action == 'preview-save':
+                    assert saves[0]['settings']['super_chat_position'] == [0.0, .6]
+                    assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
                 assert saves[0]['settings']['volume_normalization'] is True
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
