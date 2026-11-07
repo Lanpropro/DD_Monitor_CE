@@ -19,6 +19,7 @@ results = args.out_dir.resolve()
 sys.path.insert(0, str(repo))
 from ddm.version import DISPLAY_NAME, VERSION, VERSION_TAG
 from ddm.legacy_cleanup import INVENTORY
+from ddm.update_version import app_tag, revision
 name = f"{DISPLAY_NAME}-{VERSION_TAG}"
 source = results / name
 exe = results / DISPLAY_NAME
@@ -77,10 +78,15 @@ assert metadata["version"] == VERSION and metadata["asset_name"] == remote_name
 assert metadata["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
 assert metadata["size"] == archive.stat().st_size
 assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
-assert metadata["url"].endswith(f"/{VERSION_TAG}/{remote_name}")
+tag = metadata.get('release_tag', VERSION_TAG)
+base, tag_revision = app_tag(tag)
+number = revision(metadata.get('revision', 0))
+assert base == VERSION and (not tag_revision or tag_revision == number)
+assert number == revision(build_metadata.get('revision', 0))
+assert metadata["url"].endswith(f"/{tag}/{remote_name}")
 build = json.loads((exe / "ddm-build.json").read_text(encoding="utf-8-sig"))
 assert build == {"version": VERSION, "update_protocol": 1, "platform": "windows-x64",
-                 "source_commit": build_metadata['source_commit']}
+                 "source_commit": build_metadata['source_commit'], "revision": number, "diagnostics_protocol": 1}
 inventory = json.loads((exe / INVENTORY).read_text(encoding='utf-8'))
 assert inventory['schema'] == 1 and inventory['version'] == VERSION
 with zipfile.ZipFile(archive) as package:

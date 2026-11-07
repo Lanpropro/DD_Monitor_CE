@@ -204,7 +204,7 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual(nav.order_state(), [])
 
     def assert_global_buttons(self):
-        for widget in (self.sidebar.layout_button, self.sidebar.picture_in_picture_button,
+        for widget in (self.sidebar.layout_button, self.sidebar.clear_wall_button, self.sidebar.picture_in_picture_button,
                        self.sidebar.settings_button, self.sidebar.notification_button,
                        self.sidebar.appearance_button, self.sidebar.workspace_controls.launcher):
             self.assertTrue(widget.isVisible(), widget.accessibleName())
@@ -301,9 +301,12 @@ class WorkspaceControlTests(unittest.TestCase):
         calls = []
         self.sidebar.pictureInPictureRequested.connect(lambda: calls.append('pip'))
         self.sidebar.settingsRequested.connect(lambda: calls.append('settings'))
+        self.sidebar.clearWallRequested.connect(lambda: calls.append('clear'))
+        self.sidebar.set_wall_rooms(['1'])
+        self.sidebar.clear_wall_button.click()
         self.sidebar.picture_in_picture_button.click()
         self.sidebar.settings_button.click()
-        self.assertEqual(calls, ['pip', 'settings'])
+        self.assertEqual(calls, ['clear', 'pip', 'settings'])
 
     def test_rail_button_sizes_and_spacing_match_prototype(self):
         self.add('first', '第一项')
@@ -584,6 +587,9 @@ class WorkspaceControlTests(unittest.TestCase):
             settle()
             self.assertTrue(self.sidebar.navigation.rail.isHidden())
             self.assertIs(panel.launcher.parentWidget(), self.sidebar._bar_row)
+            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
+            self.assertTrue(self.sidebar.clear_wall_button.isVisible())
+            self.assertEqual(self.sidebar.clear_wall_button.size().width(), 30)
             for collapsed in (True, False):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 settle()

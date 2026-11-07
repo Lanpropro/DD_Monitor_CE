@@ -38,6 +38,22 @@ def wheel(widget, delta, modifiers=Qt.NoModifier, *, direct=False):
         QApplication.sendEvent(widget, event)
 
 
+def drag_preview(dialog, source, target, *, cancel=False):
+    preview = dialog.preview
+    selection = dialog._selected()
+    label = preview.labels[selection.index(source)]
+    destination = preview.labels[selection.index(target)]
+    position = label.mapToGlobal(label.rect().center())
+    pointer(label, QEvent.MouseButtonPress, label.rect().center(), position, Qt.LeftButton, Qt.LeftButton)
+    position = destination.mapToGlobal(destination.rect().center())
+    pointer(preview, QEvent.MouseMove, preview.mapFromGlobal(position), position, Qt.NoButton, Qt.LeftButton)
+    assert preview._ghost is not None
+    if cancel:
+        QTest.keyClick(preview, Qt.Key_Escape)
+    pointer(preview, QEvent.MouseButtonRelease, preview.mapFromGlobal(position), position, Qt.LeftButton, Qt.NoButton)
+    assert preview._drag is None and preview._ghost is None and QWidget.mouseGrabber() is not preview
+
+
 class VisibilityEvents(QObject):
     def __init__(self):
         super().__init__()
@@ -932,18 +948,17 @@ def exercise_focus(app, native, directory):
         dialog = pip.dialog
         QTest.qWait(30)
         assert dialog.columns.currentData() == FOCUS_LAYOUT
-        assert dialog.primary_row.isVisible() and dialog.primary.currentData() == 4
+        assert dialog._primary == 4 and not hasattr(dialog, 'primary_row')
         assert dialog.rect().contains(dialog.start.geometry()) and dialog.start.isVisible()
-        assert dialog.rect().contains(QRect(dialog.primary.mapTo(dialog, QPoint()), dialog.primary.size()))
         dialog.checks[5].setChecked(False)
-        assert not dialog.start.isEnabled() and dialog.primary.count() == 5
+        assert not dialog.start.isEnabled() and len(dialog._selected()) == 5
         dialog.checks[5].setChecked(True)
-        assert dialog.start.isEnabled() and dialog.primary.currentData() == 4
-        dialog.primary.setCurrentIndex(dialog.primary.findData(0))
-        assert dialog.preview.primary == 0 and dialog.preview.labels[0].text().startswith('主画面')
+        assert dialog.start.isEnabled() and dialog._primary == 4
+        drag_preview(dialog, 0, 4)
+        assert dialog._primary == 0 and not any(label.text().startswith('主画面') for label in dialog.preview.labels)
         dialog.start.click()
         QTest.qWait(100)
-        assert pip.columns == FOCUS_LAYOUT and pip.primary == 0 and wall.picture_in_picture_primary == 0
+        assert pip.columns == FOCUS_LAYOUT and pip.primary == 0 and wall.picture_in_picture_primary == pip.selection.index(0)
         assert wall.visible_tiles() == tiles
         panel = pip.floating.audio_panel
         panel.toggle()
@@ -958,16 +973,16 @@ def exercise_focus(app, native, directory):
         panel.hide()
         before = [tile.geometry() for tile in tiles]
         pip.manage()
-        pip.dialog.primary.setCurrentIndex(pip.dialog.primary.findData(1))
+        drag_preview(pip.dialog, 1, 0)
         pip.dialog.reject()
         assert pip.primary == 0 and [tile.geometry() for tile in tiles] == before
         pip.manage()
-        pip.dialog.primary.setCurrentIndex(pip.dialog.primary.findData(1))
+        drag_preview(pip.dialog, 1, 0)
         pip.dialog.start.click()
         QTest.qWait(100)
-        assert pip.primary == 1 and wall.picture_in_picture_primary == 1
-        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, pip.aspects_for(pip.selection), 1)
-        assert [tile.geometry() for tile in tiles] == expected
+        assert pip.primary == 1 and wall.picture_in_picture_primary == pip.selection.index(1)
+        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, pip.aspects_for(pip.selection), pip.selection.index(1))
+        assert [tile.geometry() for tile in wall.picture_in_picture_tiles] == expected
         assert tiles[1].geometry().topLeft() == QPoint(0, 0)
         check_reordering(pip, players)
         check_buffer_scale(pip)
@@ -982,12 +997,162 @@ def exercise_focus(app, native, directory):
         assert wall.tiles == tiles and wall.layout_id == '3x2'
         assert all(tile.spinner._presentation_scale == 1 for tile in tiles)
         pip.manage()
-        assert pip.dialog.primary.currentData() == 1
+        assert pip.dialog._primary == 1
         pip.dialog.reject()
     finally:
         window.close()
         QTest.qWait(100)
     assert not pip.active and all(player._released for player in players)
+
+
+def exercise_live_room_picker(app, native, directory):
+    rooms = [dict(room_id='2101', uname='Wall live', live=True),
+             dict(room_id='2102', uname='Wall offline', live=False)]
+    rooms += [dict(room_id=str(3100 + index), uname=f'Other {index}', live=True) for index in range(1, 6)]
+    rooms += [dict(room_id='4101', uname='Offline', live=False),
+              dict(room_id='4102', uname='Unknown', live=True, live_known=False)]
+    window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms[:2]], layout_id='2x2',
+        state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False,
+            'auto_update': False, 'recording_enabled': False, 'recording_replay_enabled': False}})
+    window.setAttribute(Qt.WA_ShowWithoutActivating)
+    window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+    window.setGeometry(-12000, 0, 1100, 750)
+    window.show()
+    QTest.qWait(80)
+    pip, wall = window.picture_in_picture, window.wall
+    original_tiles = list(wall.tiles)
+    original_state = window.current_state()['wall']
+    original_layout = wall.layout_id, wall.layout_ratios(), wall.corner_ratios()
+    try:
+        pip.manage()
+        dialog = pip.dialog
+        assert list(dialog.checks) == [0, 1, '3101', '3102', '3103', '3104', '3105']
+        assert [label.text() for label, _keys in dialog.sections] == ['已入墙', '默认关注']
+        assert dialog._selected() == [0, 1]
+        assert not pip._extra_tiles and wall.tiles == original_tiles
+        dialog.reject()
+        assert window.current_state()['wall'] == original_state
+        pip.manage()
+        dialog = pip.dialog
+        for rid in ('3101', '3102', '3103', '3104'):
+            dialog.checks[rid].setChecked(True)
+        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        drag_preview(dialog, '3102', 0)
+        assert dialog.start.isEnabled() and dialog.preview.primary == 0
+        expected_wall_selection = [key for key in dialog._selected() if isinstance(key, int)]
+        dialog.search.setText('Other 2')
+        assert dialog.checks[0].isHidden() and not dialog.checks['3102'].isHidden()
+        assert len(dialog._selected()) == 6, 'Search must not unselect hidden rows'
+        dialog.search.clear()
+        dialog.start.click()
+        QTest.qWait(50)
+        assert pip.active and len(wall.picture_in_picture_tiles) == 6
+        assert set(pip._extra_tiles) == {'3101', '3102', '3103', '3104'}
+        assert wall.tiles[:len(original_tiles)] == original_tiles
+        assert window.current_state()['wall'] == original_state
+        assert pip.state()['selection'] == expected_wall_selection
+        assert pip.state()['external_primary'] == '3102'
+        assert pip.primary_choice() == '3102'
+        window._refresh_meta()
+        assert window.sidebar._wall_room_ids == {'2101', '2102'}
+        removed = pip._extra_tiles['3101']
+        retained = pip._extra_tiles['3102']
+        retained.set_volume(73)
+        retained.set_muted(False)
+        old_player = None
+        retained_player = None
+        if native:
+            from ddm.player import TilePlayer
+            from selfcheck_mpv import ready
+            old_player = TilePlayer(removed.video, window, silent=True)
+            old_player.freeze_watch = False
+            old_player.play(str(Path(directory) / 'local-0.mp4'))
+            window.players[removed] = old_player
+            ready(app, old_player)
+            retained_player = TilePlayer(retained.video, window, silent=True)
+            retained_player.freeze_watch = False
+            retained_player.play(str(Path(directory) / 'local-0.mp4'))
+            window.players[retained] = retained_player
+            ready(app, retained_player)
+            retained_core, retained_handle = retained_player.player, int(retained.video.winId())
+        pip.manage()
+        dialog = pip.dialog
+        assert list(dialog.checks)[:2] == [0, 1]
+        assert dialog._primary == '3102'
+        dialog.checks['3101'].setChecked(False)
+        dialog.checks['3105'].setChecked(True)
+        dialog.start.click()
+        assert '3101' not in pip._extra_tiles and removed not in wall.tiles
+        assert removed not in window.players
+        if old_player is not None:
+            assert old_player._released
+        assert pip._extra_tiles['3102'] is retained and retained.volume == 73 and not retained.muted
+        if retained_player is not None:
+            assert window.players[retained] is retained_player and retained_player.player is retained_core
+            assert int(retained.video.winId()) == retained_handle
+        assert all(entry[0] not in (removed, removed.video) for entry in pip.floating._surface_state)
+        assert pip.primary_choice() == '3102'
+        assert len(wall.picture_in_picture_tiles) == 6
+        pip.floating.audio_panel.rebuild()
+        assert retained in pip.floating.audio_panel.rows
+        assert pip.floating.audio_panel.rows[retained].slider.value() == 73
+        pip.swap_positions(original_tiles[0], pip._extra_tiles['3103'])
+        assert pip.primary_choice() == '3102'
+        choices_before_restore = pip.selected_choices()
+        assert window.current_state()['wall'] == original_state
+        pip.restore()
+        if retained_player is not None:
+            assert retained_player._released
+        assert wall.tiles == original_tiles and not pip._extra_tiles
+        assert (wall.layout_id, wall.layout_ratios(), wall.corner_ratios()) == original_layout
+        assert window.current_state()['wall'] == original_state
+        assert pip.external_primary == '3102'
+        pip.manage()
+        assert pip.dialog._selected() == choices_before_restore
+        assert pip.dialog._primary == '3102'
+        pip.dialog.reject()
+        assert not pip._extra_tiles
+        # A follow can go offline while the non-modal picker is open.
+        pip.manage()
+        dialog = pip.dialog
+        dialog.columns.setCurrentIndex(dialog.columns.findData(0))
+        for check in dialog.checks.values():
+            check.setChecked(False)
+        dialog.checks['3101'].setChecked(True)
+        room = next(room for room in window.sidebar.rooms() if room['room_id'] == '3101')
+        room['live'] = False
+        dialog.start.click()
+        assert not pip.active and pip.dialog is dialog and not pip._extra_tiles
+        dialog.reject()
+        room['live'] = True
+        assert pip.start(['3101'], primary='3101')
+        pip.restore()
+        assert not pip.selection and pip.external_rooms == ['3101']
+        pip.manage()
+        assert pip.dialog._selected() == ['3101'], 'An external-only composition must stay external-only'
+        pip.dialog.reject()
+        assert pip.start(['3101'], primary='3101')
+        # Finishing capture sessions must retain their tile until the existing completion hook runs.
+        temporary = pip._extra_tiles['3101']
+        window.recorder.sessions[temporary] = Mock(stopping=True, recording=False)
+        with patch.object(window.recorder, 'stop'):
+            pip.restore()
+        assert temporary in window._preset_retired_tiles and temporary not in wall.tiles
+        window.recorder.sessions.pop(temporary)
+        window._record_state_changed(temporary)
+        assert temporary not in window._preset_retired_tiles
+        assert pip.start(['3101'], primary='3101')
+        window.close()
+        app.processEvents()
+        assert not pip.active and not pip._extra_tiles and wall.tiles == original_tiles
+    finally:
+        theme.signals().changed.disconnect()
+        focused = app.focusWidget()
+        if focused is not None:
+            focused.clearFocus()
+        window.close()
+        QTest.qWait(100)
+        app.processEvents()
 
 
 def main():
@@ -1065,6 +1230,10 @@ def main():
             window.close()
             app.processEvents()
         exercise_focus(app, native, directory)
+        if native:
+            # This case creates and retires native video surfaces from a picker.
+            # The offscreen Qt backend crashes at teardown even with the baseline implementation.
+            exercise_live_room_picker(app, native, directory)
     print('PASS: PiP selection, shared playback, resizing, pinning, independent visibility, restore and shutdown')
 
 

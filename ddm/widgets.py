@@ -29,7 +29,8 @@ from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
 from .dock_feedback import icon_color
 # Keep existing imports of avatar components compatible.
 from .avatar_widgets import AVATAR_COLORS, Avatar, PinnedArc, RoomStrip, circular_pixmap
-from .config import DEFAULT_VOLUME, codec_overrides
+from .config import (DEFAULT_SETTINGS, DEFAULT_VOLUME, VIDEO_DANMAKU_SETTING_KEYS,
+                     codec_overrides, video_danmaku_overrides)
 from . import version as version_module
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .images import AvatarLoader
@@ -3404,6 +3405,7 @@ class Sidebar(QFrame):
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
     pictureInPictureRequested = Signal()
+    clearWallRequested = Signal()
     layoutResetRequested = Signal()
     settingsRequested = Signal()
     pluginSettingsRequested = Signal()
@@ -3633,6 +3635,8 @@ class Sidebar(QFrame):
         self.layout_button.setCursor(Qt.PointingHandCursor)
         self.layout_button.setToolTip("选择布局方式")
         self.layout_button.clicked.connect(self.open_layout_picker)
+        self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
+        self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
         self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
@@ -4481,7 +4485,7 @@ class Sidebar(QFrame):
 
     def _bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
-        return [self.search, self._head_scroll, self.batch_button, self.notification_button,
+        return [self.search, self._head_scroll, self.batch_button, self.notification_button, self.clear_wall_button,
                 self.appearance_button, self.refresh_button, self.account_row, self.tool_row,
                 self.batch_bar, self.toggle_button]
 
@@ -4550,7 +4554,8 @@ class Sidebar(QFrame):
 
     def _bar_icons(self) -> tuple:
         """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
-        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button)
+        return (self.batch_button, self.notification_button, self.appearance_button, self.refresh_button,
+                self.clear_wall_button)
 
     def _sync_bar_icons(self) -> None:
         """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
@@ -4614,7 +4619,7 @@ class Sidebar(QFrame):
             index = self._layout.indexOf(self._header_row)
             for widget in (self._header_row, self.search, self._head_scroll,
                            self.batch_bar, self.batch_button, self.notification_button,
-                           self.appearance_button, self.refresh_button, self.toggle_button):
+                           self.appearance_button, self.refresh_button, self.clear_wall_button, self.toggle_button):
                 self._detach_from_rows(widget)
                 widget.setParent(self._bar_row)
             # 左边是 logo，然后是搜索框（收起时换成头像排）、多选条、图标、展开键。
@@ -5606,6 +5611,8 @@ class Tile(QFrame):
         self.volume = int(room.get("volume", DEFAULT_VOLUME))
         self.audio_channel = int(room.get("audio_channel", 0))
         self.codec_overrides = codec_overrides(room.get("codec_overrides"))
+        self.video_danmaku_overrides = video_danmaku_overrides(room.get('video_danmaku_overrides'))
+        self._video_danmaku_global_settings = dict(DEFAULT_SETTINGS)
         self.codec_reconnect_pending = False
         self.codec_probe_note = ""
         self._buffering = False
@@ -5687,6 +5694,8 @@ class Tile(QFrame):
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
         self.danmaku_settings_menu = VideoDanmakuSettings(self)
         self.danmaku_settings_menu.settingsChanged.connect(self._change_video_danmaku_settings)
+        self.danmaku_settings_menu.independentChanged.connect(self._set_video_danmaku_independent)
+        self.apply_video_danmaku_settings()
         self.danmaku_settings_menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
         self.danmaku_settings_button.clicked.connect(
             lambda: self.danmaku_settings_menu.open_at(self.danmaku_settings_button, self.video_danmaku.settings))
@@ -5884,16 +5893,54 @@ class Tile(QFrame):
         self.videoDanmakuChanged.emit(enabled)
 
     def _change_video_danmaku_settings(self, values: dict) -> None:
-        self.video_danmaku.apply_settings({**self.video_danmaku.settings, **values})
-        self.videoDanmakuSettingsChanged.emit(values)
+        global_values = dict(values)
+        if self.video_danmaku_overrides is not None:
+            for key in VIDEO_DANMAKU_SETTING_KEYS:
+                if key in global_values:
+                    self.video_danmaku_overrides[key] = global_values.pop(key)
+        self._video_danmaku_global_settings.update(global_values)
+        self.apply_video_danmaku_settings()
+        self.videoDanmakuSettingsChanged.emit(global_values)
+
+    def apply_video_danmaku_settings(self, settings=None) -> None:
+        if settings is not None:
+            self._video_danmaku_global_settings = dict(settings)
+        effective = {**self._video_danmaku_global_settings, **(self.video_danmaku_overrides or {})}
+        self.video_danmaku.apply_settings(effective)
+        self.danmaku_settings_menu.apply_settings(
+            effective, independent=self.video_danmaku_overrides is not None)
+
+    def _set_video_danmaku_independent(self, enabled: bool) -> None:
+        self.video_danmaku_overrides = (
+            video_danmaku_overrides(self._video_danmaku_global_settings) if enabled else None)
+        self.apply_video_danmaku_settings()
+        self.videoDanmakuSettingsChanged.emit({})
 
     def plugin_interaction_active(self) -> bool:
         controls = getattr(self, '_plugin_controls', None)
         return controls.interaction_active() if controls is not None else False
 
+    def _volume_controls_width(self):
+        wall = self.parentWidget()
+        if (not isinstance(wall, WallGrid) or wall.fullscreen_tile is not None
+                or wall.picture_in_picture_tiles is not None):
+            return self.width()
+        spec = layouts.BY_ID.get(wall.layout_id, {}).get('spec')
+        if spec is None:
+            return self.width()
+        rows, columns, cells = spec
+        ratios = wall._layout_ratios.get(wall.layout_id, {})
+        if (cells != layouts.even_cells(rows, columns)
+                or any(node.axis == Qt.Horizontal and len(set(ratios.get(node.key, node.weights))) > 1
+                       for node in wall._partitions[wall.layout_id].nodes())):
+            return self.width()
+        # Equal cells may differ by one pixel. Choose the style for the smallest
+        # cell from the target wall geometry, not siblings still awaiting resize.
+        return (wall._corner_area().width() - wall.grid.spacing() * (columns - 1)) // columns
+
     def _bottom_layout_signature(self):
         """影响底栏布局的输入；没变就不用重排（悬停会频繁触发 _layout_areas）。"""
-        return (self.width(),
+        return (self.width(), self._volume_controls_width(),
                 self.bottom.width(),
                 tuple((e.owner, e.key, e.control.widget.isHidden(),
                        e.control.minimum_width, e.control.preferred_width)
@@ -5911,6 +5958,7 @@ class Tile(QFrame):
         if signature == getattr(self, "_bottom_layout_signature_value", None):
             return
         self._bottom_layout_signature_value = signature
+        volume_width = self._volume_controls_width()
         compact = width < 420
         layout = self.bottom.layout()
         margin, spacing = (6, 4) if compact else (10, 8)
@@ -5925,13 +5973,13 @@ class Tile(QFrame):
         self.danmaku_button.setFixedWidth(26 if compact else 34)
         self.danmaku_button.setText("弹")
         # 保留原有功能入口；小格子的音量改由向上展开的竖向滑条调整。
-        self.volume_label.setVisible(width >= 600)
+        self.volume_label.setVisible(volume_width >= 600)
         self.recording_time.setVisible(bool(self.recording_time.text()) and width >= 360
                                        and getattr(self, "_recording_available", True))
-        self.volume_slider.setVisible(width >= 600)
-        self.volume_button.compact_popup = width < 600
+        self.volume_slider.setVisible(volume_width >= 600)
+        self.volume_button.compact_popup = volume_width < 600
         self.volume_button._update_tooltip()
-        if width >= 600:
+        if volume_width >= 600:
             self.volume_menu.hide()
         self.status_label.setVisible(True)
         self.danmaku_settings_button.setVisible(True)
@@ -8001,7 +8049,13 @@ class WallGrid(QWidget):
             tree, area, gap, self._preset_minimum,
             self._layout_ratios[self.layout_id], self._preset_defaults)
         for cell, rect in leaves.items():
-            widgets[cell].setGeometry(rect)
+            widget = widgets[cell]
+            same_size = widget.size() == rect.size()
+            widget.setGeometry(rect)
+            if isinstance(widget, Tile) and same_size:
+                # One equal cell can retain its size while its neighbour gains
+                # the last pixel. Resized cells use their existing resize path.
+                widget._layout_bottom_controls()
         self.pane_danmaku.dividers = dividers
         widgets = self.pane_danmaku.arrange(leaves, widgets)
         self._resize_on_show = False

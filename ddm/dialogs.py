@@ -15,13 +15,14 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .update_version import update_identity
 from .super_chat import SuperChatPlacementPreview
 from .follow_folders import default_folder
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
-from .ui import page_header as _page_head, step_button as _step_button
+from .ui import ElidedLabel, page_header as _page_head, step_button as _step_button
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
 
@@ -726,12 +727,17 @@ class DanmakuSettingsPage(QWidget):
         scale_row.addStretch(1)
         grid.addWidget(QLabel('SC 大小（共用）'), 6, 0)
         grid.addLayout(scale_row, 6, 1)
+        self.super_chat_scale_with_video = QCheckBox('SC 随画面缩放')
+        self.super_chat_scale_with_video.setToolTip('以 720 像素高的画面为基准，卡片、文字和头像一起等比缩放；弹幕栏保持手动大小')
+        self.super_chat_scale_with_video.setChecked(bool(settings.get('super_chat_scale_with_video', False)))
         self.super_chat_placement = SuperChatPlacementPreview()
         self.super_chat_placement.apply_settings(settings)
         self.super_chat_opacity.valueChanged.connect(self.super_chat_placement.set_opacity)
         self.super_chat_placement.changed.connect(self._sc_placement_changed)
         self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
-        grid.addWidget(QLabel('SC 位置（画面与弹幕栏分别设置）'), 7, 0, 1, 2)
+        self.super_chat_scale_with_video.toggled.connect(self._sc_video_scale_changed)
+        grid.addWidget(self.super_chat_scale_with_video, 7, 0, 1, 2)
+        grid.addWidget(QLabel('SC 位置（画面与弹幕栏分别设置）'), 8, 0, 1, 2)
         self.super_chat_preview_layout = QButtonGroup(self)
         preview_buttons = QHBoxLayout()
         preview_buttons.setSpacing(8)
@@ -745,13 +751,13 @@ class DanmakuSettingsPage(QWidget):
             preview_buttons.addWidget(button)
         self.super_chat_preview_layout.button(0).setChecked(True)
         self.super_chat_preview_layout.idClicked.connect(self.super_chat_placement.set_layout_mode)
-        grid.addLayout(preview_buttons, 8, 0, 1, 2)
-        grid.addWidget(self.super_chat_placement, 9, 0, 1, 2)
+        grid.addLayout(preview_buttons, 9, 0, 1, 2)
+        grid.addWidget(self.super_chat_placement, 10, 0, 1, 2)
         self.super_chat_position_sync = QCheckBox('同步画面与弹幕栏的 SC 位置')
         self.super_chat_position_sync.setToolTip('开启时以当前选中的布局位置为准；关闭后可分别调整')
         self.super_chat_position_sync.setChecked(self.super_chat_placement.position_sync)
         self.super_chat_position_sync.toggled.connect(self.super_chat_placement.set_position_sync)
-        grid.addWidget(self.super_chat_position_sync, 10, 0, 1, 2)
+        grid.addWidget(self.super_chat_position_sync, 11, 0, 1, 2)
 
         layout.addLayout(grid)
 
@@ -783,6 +789,10 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_placement.scale = value
         self.super_chat_placement.update()
 
+    def _sc_video_scale_changed(self, checked):
+        self.super_chat_placement.scale_with_video = checked
+        self.super_chat_placement.update()
+
     def reset(self) -> None:
         from . import config as config_module
 
@@ -793,6 +803,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
         self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
         self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
+        self.super_chat_scale_with_video.setChecked(config_module.DEFAULT_SETTINGS['super_chat_scale_with_video'])
         self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
         self.super_chat_position_sync.setChecked(config_module.DEFAULT_SETTINGS['super_chat_position_sync'])
         self.block_edit.setPlainText("")
@@ -1057,6 +1068,10 @@ class PluginSettingsPage(QWidget):
         self.checks = {}
         self.card_details = {}
         self.update_buttons = {}
+        self._installed_entries = {}
+        self._installed_cards = {}
+        self._installed_authors = {}
+        self._available_update_ids = set()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -1069,49 +1084,47 @@ class PluginSettingsPage(QWidget):
         actions.addStretch(1)
         layout.addLayout(actions)
 
-        scroll = QScrollArea()
+        from .online_ui import PluginBrowserToolbar, PluginStorePage
+        installed_page = QWidget()
+        installed_page_layout = QVBoxLayout(installed_page)
+        installed_page_layout.setContentsMargins(0, 10, 4, 8)
+        self.installed_browser = PluginBrowserToolbar(installed_page, ('全部插件', '已启用', '已禁用', '可更新'))
+        installed_page_layout.addWidget(self.installed_browser)
+        self.installed_browser.search.textChanged.connect(self._filter_installed)
+        self.installed_browser.filter.currentIndexChanged.connect(self._filter_installed)
+        self.installed_browser.sort.currentIndexChanged.connect(self._filter_installed)
+        scroll = QScrollArea(installed_page)
+        self.installed_scroll = scroll
         scroll.setObjectName("PluginScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         installed_layout = QVBoxLayout(content)
-        installed_layout.setContentsMargins(0, 0, 4, 0)
-        hint_space = QLabel(" ")
-        hint_space.setObjectName("SettingsHint")
-        installed_layout.addWidget(hint_space)
+        installed_layout.setContentsMargins(0, 0, 4, 12)
         self.cards = QVBoxLayout()
         self.cards.setContentsMargins(0, 0, 0, 0)
-        self.cards.setSpacing(10)
+        self.cards.setSpacing(6)
         installed_layout.addLayout(self.cards)
+        self.empty = QLabel('未发现插件。可装载 ZIP 插件包', content)
+        self.empty.setObjectName('SettingsHint')
+        self.empty.setWordWrap(True)
+        installed_layout.addWidget(self.empty)
+        installed_layout.addStretch(1)
         entries = manager.catalog() if manager else []
         self._initial_enabled = {entry["id"]: entry["enabled"] for entry in entries}
         self._files_changed = any(entry["status"] == "待重启" for entry in entries) or bool(
             getattr(manager, "_removed", None))
         from .plugin_updates import pending_versions
         self._files_changed = self._files_changed or bool(manager and pending_versions(manager))
-        self.empty = None
-        if not entries:
-            self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
-            self.empty.setObjectName("SettingsHint")
-            self.empty.setWordWrap(True)
-            self.cards.addWidget(self.empty)
-        self.cards.addStretch(1)
         for entry in entries:
             self._add_card(entry)
         scroll.setWidget(content)
-        from .online_ui import PluginStorePage
+        installed_page_layout.addWidget(scroll, 1)
         self.store_page = PluginStorePage(manager)
-        store_scroll = QScrollArea()
-        store_scroll.setObjectName("PluginScroll")
-        store_scroll.setWidgetResizable(True)
-        store_scroll.setFrameShape(QFrame.NoFrame)
-        store_scroll.setWidget(self.store_page)
         self.tabs = SlidingTabs()
         self.tabs.setObjectName("PluginTabs")
-        self.tabs.addTab(scroll, "已安装")
-        self.tabs.addTab(store_scroll, "插件商店")
-        self.tabs.setCornerWidget(self.store_page.refresh, Qt.TopRightCorner)
-        self.store_page.refresh.hide()
+        self.tabs.addTab(installed_page, "已安装")
+        self.tabs.addTab(self.store_page, "插件商店")
         self.tabs.currentChanged.connect(self._store_tab_changed)
         self.store_page.installed.connect(self._store_installed)
         self.store_page.offersChanged.connect(self._show_update_notes)
@@ -1124,7 +1137,6 @@ class PluginSettingsPage(QWidget):
         self.store_page.open_catalog()
 
     def _store_tab_changed(self, index):
-        self.store_page.refresh.setVisible(index == 1)
         if index == 1:
             self.store_page.open_catalog()
 
@@ -1133,11 +1145,13 @@ class PluginSettingsPage(QWidget):
         self.checks = {}
         self.card_details = {}
         self.update_buttons = {}
-        self.empty = None
-        while self.cards.count() > 1:
-            item = self.cards.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        while self.cards.count():
+            self.cards.takeAt(0)
+        for card in self._installed_cards.values():
+            card.deleteLater()
+        self._installed_entries = {}
+        self._installed_cards = {}
+        self._installed_authors = {}
         from .plugin_updates import pending_versions
         pending = pending_versions(self.manager)
         for entry in self.manager.catalog():
@@ -1146,14 +1160,16 @@ class PluginSettingsPage(QWidget):
                 entry["status"] = "更新至 " + pending[entry["id"]] + " · 待重启"
             self._add_card(entry)
         self._files_changed = True
+        self._show_update_notes(self.store_page.offers)
         self.changed.emit()
 
     def _show_update_notes(self, offers):
-        from .online_ui import plugin_update_notes
-        updates = plugin_update_notes(self.manager, offers)
-        for plugin_id, (description, status, text) in self.card_details.items():
-            description.setText(updates.get(plugin_id, text))
-            status.setVisible(plugin_id not in updates)
+        metadata = {offer['id']: offer for offer in offers}
+        for plugin_id in self.card_details:
+            author = str(metadata.get(plugin_id, {}).get('author') or '').strip().lstrip('@')
+            self._installed_authors[plugin_id].setText('@' + author if author else '')
+            self._installed_authors[plugin_id].setToolTip('@' + author if author else '')
+            self._installed_authors[plugin_id].setVisible(bool(author))
         self._sync_update_buttons()
 
     def _sync_update_buttons(self):
@@ -1161,6 +1177,7 @@ class PluginSettingsPage(QWidget):
         from .plugin_updates import pending_versions
         offers = {offer['id']: offer for offer in
                   plugin_update_offers(self.manager, self.store_page.offers)}
+        self._available_update_ids = set(offers)
         pending = pending_versions(self.manager) if self.manager else {}
         running = {task.key: task for task in self.store_page.jobs}
         for plugin_id, button in self.update_buttons.items():
@@ -1169,6 +1186,55 @@ class PluginSettingsPage(QWidget):
             button.setEnabled(plugin_id in offers and None not in running and task is None)
             button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
                            if task else ('待重启' if plugin_id in pending else '更新'))
+        self._filter_installed(reset_scroll=False)
+
+    def _filter_installed(self, *_args, reset_scroll=True):
+        terms = self.installed_browser.search.text().casefold().split()
+        scope = self.installed_browser.filter.currentIndex()
+        metadata = {offer['id']: offer for offer in self.store_page.offers}
+        visible = []
+        for plugin_id, entry in self._installed_entries.items():
+            enabled = self.checks[plugin_id].isChecked()
+            text = ' '.join(str(entry.get(key) or '') for key in ('id', 'name', 'description'))
+            text += ' ' + str(metadata.get(plugin_id, {}).get('author') or '')
+            matches = all(term in text.casefold() for term in terms)
+            matches = matches and (scope == 0 or (scope == 1 and enabled)
+                or (scope == 2 and not enabled) or (scope == 3 and plugin_id in self._available_update_ids))
+            self._installed_cards[plugin_id].setVisible(matches)
+            status = entry['status']
+            if enabled != self._initial_enabled.get(plugin_id, entry['enabled']):
+                status += ' · 已选择' + ('启用' if enabled else '禁用') + '，保存后生效'
+            self.card_details[plugin_id][1].setText(status)
+            self.card_details[plugin_id][1].setToolTip(status)
+            if matches:
+                visible.append(entry)
+        order = self.installed_browser.sort.currentIndex()
+        if order == 1:
+            visible.sort(key=lambda entry: (entry['name'].casefold(), entry['id']))
+        elif order == 2:
+            visible.sort(key=lambda entry: (entry['id'] not in self._available_update_ids, entry['name'].casefold(), entry['id']))
+        position = self.installed_scroll.verticalScrollBar().value()
+        while self.cards.count():
+            self.cards.takeAt(0)
+        for entry in visible:
+            self.cards.addWidget(self._installed_cards[entry['id']])
+        self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
+        self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
+        self.empty.setVisible(not visible)
+        self.installed_scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
+
+    def _installed_selection_changed(self):
+        self._filter_installed(reset_scroll=False)
+        self.changed.emit()
+
+    def _show_installed_details(self, plugin_id):
+        from .online_ui import PluginDetailsDialog
+        entry = dict(self._installed_entries[plugin_id], enabled=self.checks[plugin_id].isChecked())
+        offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), entry)
+        dialog = PluginDetailsDialog(self, offer, installed_entry=entry)
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.open()
+        return dialog
 
     def _update_plugin(self, plugin_id):
         offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), None)
@@ -1179,41 +1245,62 @@ class PluginSettingsPage(QWidget):
     def _add_card(self, entry):
         card = QFrame()
         card.setObjectName("PluginCard")
-        body = QVBoxLayout(card)
-        body.setContentsMargins(14, 12, 14, 12)
-        body.setSpacing(6)
-        top = QHBoxLayout()
-        title = QLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
+        self._installed_entries[entry['id']] = dict(entry)
+        self._installed_cards[entry['id']] = card
+        body = QHBoxLayout(card)
+        body.setContentsMargins(14, 10, 14, 10)
+        body.setSpacing(12)
+        summary = QVBoxLayout()
+        summary.setSpacing(4)
+        body.addLayout(summary, 1)
+        title = ElidedLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
         title.setObjectName("PluginName")
-        top.addWidget(title)
-        top.addStretch(1)
+        title.setTextFormat(Qt.PlainText)
+        title.setToolTip(entry['name'])
+        summary.addWidget(title)
+        controls = QGridLayout()
+        controls.setSpacing(4)
         check = QCheckBox("启用")
         check.setChecked(entry["enabled"])
         self.checks[entry["id"]] = check
-        check.toggled.connect(lambda _checked: self.changed.emit())
-        top.addWidget(check)
+        check.toggled.connect(self._installed_selection_changed)
+        controls.addWidget(check, 0, 0)
         update = QPushButton("更新")
         update.setObjectName("IconButton")
+        update.setMinimumWidth(update.fontMetrics().horizontalAdvance('校验/解压中') + 28)
         update.hide()
         update.clicked.connect(lambda: self._update_plugin(entry["id"]))
         self.update_buttons[entry["id"]] = update
-        top.addWidget(update)
+        controls.addWidget(update, 0, 1)
         remove = QPushButton("删除")
         remove.setObjectName("IconButton")
         remove.clicked.connect(lambda: self._remove(entry["id"], card))
-        top.addWidget(remove)
-        body.addLayout(top)
-        description = QLabel(entry["description"] or "暂无说明")
+        controls.addWidget(remove, 1, 1)
+        details = QPushButton('详情', card)
+        details.setObjectName('PluginDetailsButton')
+        details.setAccessibleName('查看 ' + entry['name'] + ' 的详情')
+        details.clicked.connect(lambda: self._show_installed_details(entry['id']))
+        controls.addWidget(details, 1, 0)
+        body.addLayout(controls)
+        description = ElidedLabel(' '.join((entry["description"] or "暂无说明").split()))
+        description.setObjectName('SettingsHint')
         description.setTextFormat(Qt.PlainText)
-        description.setWordWrap(True)
-        body.addWidget(description)
-        status = QLabel(entry["id"] + "  ·  " + entry["status"] +
-                        ("：" + entry["reason"] if entry["status"] == "加载失败" else ""))
+        description.setToolTip(entry['description'])
+        summary.addWidget(description)
+        status = ElidedLabel(entry['status'])
         status.setObjectName("SettingsHint")
-        status.setWordWrap(True)
-        body.addWidget(status)
-        self.card_details[entry["id"]] = (description, status, description.text())
-        self.cards.insertWidget(self.cards.count() - 1, card)
+        status.setTextFormat(Qt.PlainText)
+        footer = QHBoxLayout()
+        footer.addWidget(status, 1)
+        author = ElidedLabel(parent=card)
+        author.setObjectName('PluginAuthor')
+        author.setTextFormat(Qt.PlainText)
+        author.setStyleSheet(f'color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px;')
+        self._installed_authors[entry['id']] = author
+        footer.addWidget(author)
+        summary.addLayout(footer)
+        self.card_details[entry["id"]] = (description, status, entry['description'])
+        self.cards.addWidget(card)
 
     def _remove(self, plugin_id, card):
         if self.manager is None:
@@ -1233,16 +1320,16 @@ class PluginSettingsPage(QWidget):
         del self.checks[plugin_id]
         self.card_details.pop(plugin_id, None)
         self.update_buttons.pop(plugin_id, None)
+        self._installed_entries.pop(plugin_id, None)
+        self._installed_cards.pop(plugin_id, None)
+        self._installed_authors.pop(plugin_id, None)
         self.cards.removeWidget(card)
         card.deleteLater()
         self.store_page.show_offers(self.store_page.offers)
         self.store_page.offersChanged.emit(self.store_page.offers)
         self._files_changed = True
         self.changed.emit()
-        if not self.checks:
-            self.empty = QLabel("未发现插件。可装载 ZIP 插件包")
-            self.empty.setObjectName("SettingsHint")
-            self.cards.insertWidget(0, self.empty)
+        self._filter_installed(reset_scroll=False)
 
     def dragEnterEvent(self, event):
         urls = event.mimeData().urls()
@@ -1279,11 +1366,10 @@ class PluginSettingsPage(QWidget):
         except (OSError, ValueError, zipfile.BadZipFile) as error:
             QMessageBox.warning(self, "装载插件失败", str(error))
             return
-        if self.empty is not None:
-            self.empty.deleteLater()
-            self.empty = None
         entry = next(item for item in self.manager.catalog() if item["id"] == plugin_id)
         self._add_card(entry)
+        self.store_page.show_offers(self.store_page.offers)
+        self.store_page.offersChanged.emit(self.store_page.offers)
         self._files_changed = True
         self.changed.emit()
         from .online_ui import show_result
@@ -1521,8 +1607,8 @@ class SettingsDialog(QDialog):
 
     def _mark_app_update(self, offer):
         if offer and self.nav.currentRow() == 8:
-            self._remember_versions({'app': offer['version']})
-        active = bool(offer and self.seen_versions.get('app') != offer['version'])
+            self._remember_versions({'app': update_identity(offer)})
+        active = bool(offer and self.seen_versions.get('app') != update_identity(offer))
         self._mark_update_page('updates', active)
 
     def _mark_plugin_updates(self, offers):
@@ -1745,8 +1831,9 @@ class FollowImportDialog(QDialog):
     INDICATOR_WIDTH = 30      # 勾选方块占据的左侧宽度
 
     def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None,
-                 folder_creator=None):
+                 folder_creator=None, room_menu=False):
         super().__init__(parent)
+        self.room_menu = room_menu
         self.setWindowTitle("导入关注")
         self.resize(520, 620)
         self.rooms = rooms
@@ -1763,6 +1850,8 @@ class FollowImportDialog(QDialog):
         live_count = sum(1 for room in rooms if room["live"])
         self.header = QLabel(f"共 {len(rooms)} 个直播间（{live_count} 个直播中）")
         self.header.setObjectName("AppSubtitle")
+        if self.room_menu:
+            self.header.setWordWrap(True)
         layout.addWidget(self.header)
 
         self.search_edit = QLineEdit()
@@ -1813,6 +1902,11 @@ class FollowImportDialog(QDialog):
             button.clicked.connect(handler)
             filters.addWidget(button)
             self.filter_buttons.append(button)
+        if self.room_menu:
+            self.show_pending = QCheckBox("显示待识别账号")
+            self.show_pending.setVisible(any(not room.get("room_id") for room in rooms))
+            self.show_pending.toggled.connect(lambda _: self._filter_rooms(self.search_edit.text()))
+            filters.addWidget(self.show_pending)
         filters.addStretch(1)
         layout.addLayout(filters)
 
@@ -1839,6 +1933,12 @@ class FollowImportDialog(QDialog):
         self._offset = self.list.count()
         layout.addWidget(self.list, 1)
         self.list.itemChanged.connect(self._track_checked)
+        if self.room_menu:
+            self.empty_label = QLabel("暂未识别到可导入的直播间；可等待补充识别，或查看待识别账号。")
+            self.empty_label.setObjectName("SettingsHint")
+            self.empty_label.setWordWrap(True)
+            layout.addWidget(self.empty_label)
+            self.empty_label.hide()
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
@@ -1858,7 +1958,10 @@ class FollowImportDialog(QDialog):
         self.import_button.setEnabled(not self._populating)
         for button in self.filter_buttons:
             button.setEnabled(not self._populating)
-        self._update_header()
+        if self.room_menu:
+            self._filter_rooms(self.search_edit.text())
+        else:
+            self._update_header()
 
     avatarRequested = Signal(dict)
 
@@ -1877,6 +1980,8 @@ class FollowImportDialog(QDialog):
                 self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
             query = self.search_edit.text().strip().casefold()
             item.setHidden(not matches_text(room['uname'], query))
+            if self.room_menu and not self.show_pending.isChecked() and not room.get("room_id"):
+                item.setHidden(True)
             for key in (room_id, 'account:' + str(room.get('anchor_uid'))):
                 pixmap = self._pending_avatars.pop(key, None)
                 if pixmap is not None:
@@ -1937,6 +2042,8 @@ class FollowImportDialog(QDialog):
         for index in range(self.list.count()):
             item = self.list.item(index)
             item.setHidden(not matches_text(item.data(Qt.UserRole)["uname"], query))
+            if self.room_menu and not self.show_pending.isChecked() and not item.data(Qt.UserRole).get("room_id"):
+                item.setHidden(True)
         self._update_header()
 
     # ---- 勾选交互：整行可点 ----
@@ -1986,6 +2093,23 @@ class FollowImportDialog(QDialog):
         shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
         filtered = f"，当前显示 {shown} 个" if self.search_edit.text().strip() else ""
         pending = sum(not room.get("room_id") for room in self.rooms)
+        if self.room_menu:
+            chosen = sum(bool(room.get("room_id")) for room in self.selected())
+            references = sum(bool(room.get("follow_account_ref")) for room in self.rooms)
+            pending_chosen = len(self.selected()) - chosen
+            self.import_button.setText("导入并保存待识别" if pending_chosen and chosen else
+                                       "保存待识别选择" if pending_chosen else "导入")
+            self.import_button.setToolTip("待识别账号只保存选择，取得房间号后才能加入关注栏。")
+            if references:
+                self.import_button.setToolTip("未开播的账号也可直接导入，导入后随状态刷新自动识别直播间。")
+            saved = f"，{pending_chosen} 个待识别账号已勾选" if pending_chosen else ""
+            accounts = f"，{references} 个按账号关注" if references else ""
+            self.header.setText(f"共 {len(self.rooms)} 个关注账号，{len(self.rooms) - pending - references} 个直播间"
+                                f"{accounts}，{pending} 个待识别{filtered}，已勾选 {chosen} 项{saved}")
+            self.empty_label.setText("没有匹配的主播，请调整搜索条件。" if self.search_edit.text().strip() else
+                                     "暂未识别到可导入的直播间；可补充识别，或显示待识别账号。")
+            self.empty_label.setVisible(shown == 0)
+            return
         noun = "关注账号" if any(room.get("anchor_uid") for room in self.rooms) else "直播间"
         detail = f"，{pending} 个直播间待识别" if pending else ""
         self.header.setText(f"共 {len(self.rooms)} 个{noun}{detail}{filtered}，已勾选 {selected} 个")
@@ -1995,6 +2119,12 @@ class FollowImportDialog(QDialog):
         status = ("直播间待识别" if not room.get("room_id") else
                   "直播状态待刷新" if room.get("live_known") is False else
                   "直播中" if room["live"] else "未开播")
+        if room.get("follow_account_ref"):
+            status += "（账号关注）"
+        if room.get("follow_resolve_error"):
+            status += "（本次识别失败）"
+        elif room.get("follow_resolve_note"):
+            status += "（本次" + room["follow_resolve_note"] + "）"
         return "　".join([room["uname"], status] + ([room["title"][:18]] if room.get("title") else []))
 
     def update_account(self, account):
@@ -2008,7 +2138,10 @@ class FollowImportDialog(QDialog):
                 item.setText(self._room_text(account))
                 if account.get("room_id"):
                     self._avatar_items[str(account["room_id"])] = item
-                self._update_header()
+                if self.room_menu:
+                    self._filter_rooms(self.search_edit.text())
+                else:
+                    self._update_header()
                 return
 
     # ---- 结果 ----

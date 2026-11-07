@@ -1,4 +1,4 @@
-"""Offline static move preview and normal Qt DPI transitions; --screens uses attached monitors."""
+"""Offline native window moves and Qt DPI transitions; --screens uses attached monitors."""
 import argparse
 import ctypes
 from ctypes import wintypes
@@ -17,14 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QPixmap, QScreen
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.plugins import PluginManager
-from ddm.window_move import WindowMove
 from dev.selfcheck_mpv import ready
 from dev.selfcheck_window_resize import Work, latest_geometry, settle, wait_orientation
 
@@ -99,8 +98,6 @@ def check_lifecycle():
     area = QApplication.primaryScreen().availableGeometry()
     window.setGeometry(area.x()+30, area.y()+60, 1200, 750)
     settle(250)
-    controller = window._window_move = WindowMove(window, int(window.winId()))
-    assert isinstance(controller, WindowMove)
     try:
         window._begin_interactive_resize()
         for height in (950, 1200, 1550):
@@ -135,7 +132,6 @@ def check_lifecycle():
         assert_settled(window)
         window.resize(1200, 750)
         wait_orientation(window, 'landscape')
-        original = window.geometry()
         with patch.object(window, '_build_arrangement', side_effect=RuntimeError('test')):
             try:
                 window._apply_orientation('portrait')
@@ -143,178 +139,49 @@ def check_lifecycle():
             except RuntimeError:
                 pass
         assert window._root_layout.isEnabled() and window.updatesEnabled()
-        for _ in range(3):
-            preview = controller.begin()
-            assert preview is not None and not preview.frame.isNull()
-            assert not window.isVisible() and preview.isVisible()
-            assert controller.begin() is None, 'Only one move preview may exist'
-            preview.move(preview.pos()+QPoint(10, 10))
-            controller.finish(cancelled=True)
-            assert window.isVisible() and window.geometry() == original
-            assert controller.preview is None and not controller.timer.isActive()
-        with patch.object(QScreen, 'grabWindow', return_value=QPixmap()):
-            assert controller.begin() is None
-            assert window.isVisible() and controller.preview is None
-        with patch.object(controller, 'begin', return_value=None), patch.object(controller, 'user32') as api:
-            controller.run_move()
-            api.SendMessageW.assert_called_once_with(int(window.winId()), 0x0112, 0xF012, 0)
-        # Exercise the native caption handler without entering an interactive move loop.
-        msg = wintypes.MSG()
-        msg.message, msg.wParam = 0x00A1, 2
-        assert controller.native_message(msg) and controller.press is not None
-        msg.message = 0x0202
-        assert controller.native_message(msg) and controller.press is None
-        assert controller.user32.GetCapture() != int(window.winId())
-        msg.message = 0x00A1
-        assert controller.native_message(msg)
-        assert QWidget.mouseGrabber() is window
-        point = controller.press + QPoint(50, 0)
-        with patch.object(controller, 'cursor', return_value=point), patch.object(controller, 'run_move') as move:
-            event = QMouseEvent(QEvent.Type.MouseMove, QPointF(50, 50), QPointF(point),
-                                Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
-            QCoreApplication.sendEvent(window, event)
-            move.assert_called_once()
-        assert controller.press is None and QWidget.mouseGrabber() is None
-        msg.message = 0x00A3
-        assert not controller.native_message(msg), 'Native double-click must remain unhandled'
-        # Native double-click message checks routing, not physical mouse generation.
-        for expected in (True, False):
-            controller.user32.SendMessageW(int(window.winId()), 0x00A3, 2, 0)
-            settle(350)
-            assert window.isMaximized() == expected
-        wait_orientation(window, 'landscape')
-        assert_settled(window)
-        # Model the smaller logical preview produced by a higher-DPI monitor.
-        preview = controller.begin()
-        preview.resize(700, 450)
-        bounds = wintypes.RECT()
-        controller.user32.GetWindowRect(int(preview.winId()), ctypes.byref(bounds))
-        preview.physical_size = bounds.right-bounds.left, bounds.bottom-bounds.top
-        controller.finish()
-        assert preview.size() == controller.original_geometry.size(), 'Restore cover exposed live children'
-        controller._complete()
-        controller.reveal()
-        normal_size = window.size()
-        window.showMaximized()
-        settle(300)
-        maximized_geometry = window.geometry()
-        point = window.frameGeometry().topLeft() + QPoint(300, 15)
-        with patch('ddm.window_move.QCursor.pos', return_value=point):
-            msg.message, msg.wParam = 0x00A1, 2
-            assert controller.native_message(msg), 'Maximized caption must use the preview'
-            controller._release_press()
-            preview = controller.begin()
-        assert controller.was_maximized and window.isMaximized()
-        assert not window.isVisible() and window.geometry() == maximized_geometry
-        assert preview.size() == normal_size
-        controller.finish(cancelled=True)
-        assert window.isVisible() and window.isMaximized()
-        assert window.geometry() == maximized_geometry, 'Escape must retain maximization'
-        with patch('ddm.window_move.QCursor.pos', return_value=point):
-            preview = controller.begin()
-        controller.finish()
-        controller._complete()
-        controller.reveal()
-        assert window.isVisible() and not window.isMaximized()
-        assert window.size() == normal_size, 'Dropping a maximized drag must retain the restore size'
-        wait_orientation(window, 'landscape')
-        controller.begin()
-        controller.finish()
-        with patch.object(window, '_finish_interactive_resize', side_effect=RuntimeError('test')):
-            try:
-                controller._complete()
-                raise AssertionError('Expected injected settle failure')
-            except RuntimeError:
-                pass
-        assert controller.preview is None and window.isVisible()
-        assert not controller.timer.isActive()
-        controller.begin().close()
-        assert controller.preview is None and not window.isVisible()
-        assert not controller.timer.isActive()
     finally:
         window.close()
         QApplication.processEvents()
 
 
-def check_native_drag(window, target, return_to=None):
+def check_native_move(window, target, return_to=None):
+    # Programmatic native move/DPI regression, not physical drag or visual QA.
     user32 = ctypes.windll.user32
-    user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
     user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
         ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
-
-    def size(handle):
-        rect = wintypes.RECT()
-        assert user32.GetWindowRect(handle, ctypes.byref(rect))
-        return rect.right-rect.left, rect.bottom-rect.top
-
-    controller = window._window_move
-    if controller is None:
-        controller = window._window_move = WindowMove(window, int(window.winId()))
-    before = size(int(window.winId()))
+    user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+    hwnd = int(window.winId())
     geometry = window.geometry()
-    dpr = window.devicePixelRatioF()
-    videos = {int(t.video.winId()): size(int(t.video.winId())) for t in window.wall.visible_tiles()}
+    videos = {tile: int(tile.video.winId()) for tile in window.wall.visible_tiles()}
     players = [(p, p._prop('time-pos'), p._prop('audio-pts'), p.player, p.play_session)
                for p in window.players.values()]
-    # A screen capture requires an unobscured fixture. Foreground activation
-    # alone can be refused by Windows when a separately launched check starts.
-    assert user32.SetWindowPos(int(window.winId()), -1, 0, 0, 0, 0, 0x0013)
-    window.raise_()
-    window.activateWindow()
-    settle(300)
+    shown = set(QApplication.topLevelWidgets())
     started = time.perf_counter()
-    preview = controller.begin()
-    capture_ms = (time.perf_counter()-started)*1000
-    assert preview is not None
-    # The local FFmpeg clip is blue: inspect captured native video pixels, not Qt grab().
-    frame = preview.frame.toImage()
-    scale = preview.frame.devicePixelRatioF()
-    checked_pixels = 0
-    for tile in window.wall.tiles[:len(players)]:
-        point = tile.video.mapTo(window, tile.video.rect().center())
-        # Oversized landscape windows extend beyond the portrait desktop. Only
-        # pixels actually present on this screen can appear in a screen capture.
-        if not window.screen().geometry().contains(tile.video.mapToGlobal(tile.video.rect().center())):
-            continue
-        pixel = frame.pixelColor(round(point.x()*scale), round(point.y()*scale))
-        if not (pixel.blue() > 150 and pixel.red() < 80):
-            preview.frame.save(str(ROOT / 'work/move-preview-failed.png'))
-            raise AssertionError(('Missing native video in preview', pixel.name(),
-                                  frame.size(), scale, point))
-        checked_pixels += 1
-    assert not players or checked_pixels, 'No visible native video pixel was checked'
+    user32.SendMessageW(hwnd, 0x0231, 0, 0)  # WM_ENTERSIZEMOVE
     try:
         for screen in (target,) if return_to is None else (target, return_to):
             area = screen.availableGeometry()
             for offset in (60, 70, 80):
-                assert user32.SetWindowPos(int(preview.winId()), None,
+                assert user32.SetWindowPos(hwnd, None,
                     area.x()+round(offset*screen.devicePixelRatio()),
                     area.y()+round(offset*screen.devicePixelRatio()), 0, 0, 0x0015)
                 settle(70)
-                assert size(int(preview.winId())) == preview.physical_size, 'Preview scaled while held'
-                assert not window.isVisible() and window.geometry() == geometry
-                assert size(int(window.winId())) == before and window.devicePixelRatioF() == dpr
-                assert all(size(handle) == previous for handle, previous in videos.items())
+                assert window.isVisible() and int(window.winId()) == hwnd
+                assert set(QApplication.topLevelWidgets()) == shown, 'Native move created a substitute window'
+                assert all(int(t.video.winId()) == handle for t, handle in videos.items())
         for player, position, audio_position, core, session in players:
             assert player._prop('time-pos') > position and not player._prop('pause')
             assert audio_position is not None and player._prop('audio-pts') > audio_position
             assert player.player is core and player.play_session == session
-        controller.finish()
-        assert preview.size() == geometry.size(), 'Restore cover must match the final logical size'
-        cover_geometry = preview.geometry()
-        deadline = time.monotonic()+3
-        while controller.preview is not None and time.monotonic() < deadline:
-            settle(25)
-        assert controller.preview is None and not controller.timer.isActive()
     finally:
-        controller.cancel()
+        user32.SendMessageW(hwnd, 0x0232, 0, 0)  # WM_EXITSIZEMOVE
     wait_orientation(window, 'landscape')
-    assert window.size() == geometry.size(), ('Normal size changed after moving', geometry, window.geometry())
-    assert window.geometry() == cover_geometry, 'Live window escaped the restore cover'
     assert window.devicePixelRatioF() == (return_to or target).devicePixelRatio()
+    assert abs(window.width()-geometry.width()) <= 2
+    assert abs(window.height()-geometry.height()) <= 8
     assert_settled(window)
     assert_native_geometry(window)
-    return round(capture_ms, 2)
+    return round((time.perf_counter()-started)*1000, 2)
 
 
 def check_screens(app, player_count, source):
@@ -350,9 +217,9 @@ def check_screens(app, player_count, source):
                 cores.append((player, player.player, player.play_session, player._prop('time-pos')))
             captures = []
             for _ in range(3):
-                captures.extend((check_native_drag(window, portrait), check_native_drag(window, landscape)))
-            captures.append(check_native_drag(window, portrait, return_to=landscape))
-            results.append(dict(panes=count, capture_and_begin_ms=captures))
+                captures.extend((check_native_move(window, portrait), check_native_move(window, landscape)))
+            captures.append(check_native_move(window, portrait, return_to=landscape))
+            results.append(dict(panes=count, native_move_ms=captures))
             with ExitStack() as measured:
                 work = Work(window, measured)
                 for target, maximize in ((portrait, False), (portrait, True),

@@ -1,5 +1,37 @@
 # 插件接口
 
+## 录制服务 v1（配套开发接口）
+
+`context.recording` 在 GUI 线程提供 `api_version == 1` 的录制桥接；旧版本没有该属性。
+默认沿用本体录制；功能插件可注册录制会话实现，播放后端不变。`options()` 返回录制目录、FFmpeg 路径及尚在导出的文件；
+`sources()` 返回来源 ID、房间、会话 ID、状态和开始时间，不返回流 URL 或凭据。
+
+`control(source_id, action, session_id=...)` 支持 `record`、`stop`、`buffer`、
+`stop_buffer`、`save_replay`，沿用本体画质/设置流程。会话已变化时拒绝旧操作。
+`open_settings()` 打开本体录制设置。
+
+`register_backend(RecordingSessionSubclass, enabled=True)` 将本体后续新建的录制/缓存会话交给插件，
+沿用原按钮、画质控制、重连、磁盘空间和退出管理；同一时间仅允许一个插件拥有注册。
+基类为 `ddm.recording.RecordingSession`，扩展 `parts_directory`、`segment_options`、
+`update_review`、`save_recording` 和 `review_info`。`segment_seconds` 同时用于分段与缓存范围计算。
+`export_input(parts, playlist)` 为本体快速保存提供稳定的 FFmpeg 输入参数，默认仍为 concat；
+HLS 会话可生成含初始化段/断点的冻结 VOD 输入。`snapshot_info(parts)` 可补充 `index_format`
+及 `segments`（含 `init` 路径）；宿主同时为媒体与初始化段建立租约，调用者不可将 fMP4 片段当独立 MP4。
+`save_recording(parts)` 返回已有的持久录播入口时不重复合并或删除其原分段；返回 None 使用原导出。
+`live_recording(source_id, session_id)` 返回插件已发布的可读索引及媒体范围，拒绝过期会话。
+卸载恢复默认会话工厂，已开始的会话仍使用原实现正常收尾；会话不得依赖插件界面或有效 context。
+`set_backend_enabled(bool)` 在已注册实现与本体原版之间互斥切换，有活动录制/缓存时拒绝切换；`enabled=False` 可在装载时直接保留本体录制。会话类的 `supports_replay=False` 禁止纯缓存、手动/自动即时重放；会话的 `recording_message(event, path)` 为开始、续录、持久保存提供对应通知。普通原版录制在插件拥有后端注册时保留房间信息与封面/头像旁路文件，供录像库检索，不改动未装载插件时的文件命名和输出。
+此项是 v1 的新增能力，插件应检查方法是否存在；已发布版本号不保证包含该开发接口。
+
+`snapshot(source_id, session_id)` 返回已封口分段列表、房间、会话及快照时间和 `lease`。
+分段租约同时防止缓存裁剪与录制合并后的删除；调用者只能读取，不能修改原分段。
+插件应在后台生成稳定本地副本，GUI 线程调用 `release(lease)`，不可长时间占用缓存。
+活动尾段不在快照中；断流后媒体时间与墙钟时间不是无缝映射。
+
+停用或关闭后拒绝新操作，`release`/`close` 仍可释放已有租约；装载失败与卸载会兜底释放。
+插件自己的进程、线程与预览由插件 `on_unload` 收尾。当前本体先收尾录制、再发关闭事件及卸载插件，
+因此插件不得依赖 `app.closing` 提前于本体录制收尾。
+
 美化插件通过清单的 `skin` 字段或 `Plugin.skin` 提供素材。新版 `skin.version: 2` 支持分区底色、背景、按钮和图标，个人修改优先于美化包；旧版背景插件保持原有接管行为。包仍使用普通插件的安装、启停及卸载流程。格式与逐项测试步骤见 [皮肤与美化包](skins.md)。
 
 不想塞进本体的功能放这里：录像、接抖音/YouTube/Twitch、发弹幕、给格子加菜单项。

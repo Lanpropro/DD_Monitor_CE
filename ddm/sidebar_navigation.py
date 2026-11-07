@@ -14,6 +14,7 @@ PATHS = {
     'follow': '<path d="M12 21 3.5 12.5C-2 6 7 0 12 7c5-7 14-1 8.5 5.5Z"/>',
     'functions': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     'layout': '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18M14 12h7"/>',
+    'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
     'plus': '<path d="M12 5v14M5 12h14"/>',
@@ -312,6 +313,7 @@ class SidebarNavigation(QObject):
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
             button.setProperty('dockRail', False)
+        sidebar.clear_wall_button.setProperty('dockRail', False)
         sidebar._restore_side_children()
         sidebar._restore_toggle_to_header()
         self.in_rail = False
@@ -331,14 +333,14 @@ class SidebarNavigation(QObject):
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
         if not self.in_rail:
-            for button in (sidebar.layout_button, sidebar.picture_in_picture_button,
+            for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button,
                            sidebar.notification_button, sidebar.appearance_button, sidebar.settings_button):
                 button.setParent(self.rail)
                 self.bottom.addWidget(button, 0, Qt.AlignHCenter)
             sidebar.toggle_button.setParent(self.header)
             self.header.layout().addWidget(sidebar.toggle_button)
             self.in_rail = True
-        for button in (sidebar.layout_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+        for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button, sidebar.settings_button):
             button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
             button.show()

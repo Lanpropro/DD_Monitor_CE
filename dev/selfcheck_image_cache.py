@@ -1,5 +1,7 @@
 """Isolated image replacement, shared references, clearing and interactive pie checks."""
 import os
+import json
+import random
 from pathlib import Path
 import subprocess
 import sys
@@ -15,7 +17,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QThreadPool, Qt
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import config, image_cache, images, theme
@@ -111,6 +113,86 @@ class CacheTests(unittest.TestCase):
             self.assertTrue(self.commit('1', 'same'))
         self.assertTrue(source.exists())
 
+    def test_large_cached_avatar_compacts_locally_and_keeps_shared_snapshots(self):
+        path = Path(images._cache_path('large-avatar'))
+        path.parent.mkdir(parents=True)
+        pixels = random.Random(178).randbytes(1024 * 512 * 3)
+        image = QImage(pixels, 1024, 512, 1024 * 3, QImage.Format_RGB888).copy()
+        self.assertTrue(image.save(str(path), 'PNG'))
+        original_size = path.stat().st_size
+        avatar = images.load_pixmap('large-avatar')
+        self.assertEqual((avatar.width(), avatar.height()), (256, 128))
+        self.assertLess(path.stat().st_size, original_size / 4)
+        for room in ('1', '2'):
+            self.assertTrue(self.commit(room, 'large-avatar'))
+            cached = images.load_room_avatar(room)
+            self.assertEqual((cached.width(), cached.height()), (256, 128))
+        saved = path.read_bytes()
+        images.load_pixmap('large-avatar')
+        self.assertEqual(path.read_bytes(), saved, 'Do not repeatedly recompress stored avatars')
+        self.image('replacement')
+        self.assertTrue(self.commit('1', 'replacement'))
+        self.assertTrue(path.exists(), 'The second room still references the shared avatar')
+
+    def test_downloaded_avatar_is_compacted_before_source_and_snapshot_are_saved(self):
+        fixture = self.image('download-fixture')
+        image = QPixmap(800, 400)
+        image.fill(Qt.blue)
+        self.assertTrue(image.save(str(fixture), 'PNG'))
+        with patch.object(images.requests, 'get', return_value=SimpleNamespace(
+                status_code=200, content=fixture.read_bytes())) as request:
+            worker = images.AvatarLoader({'1': 'https://example.invalid/avatar.png'})
+            seen = []
+            worker.loaded.connect(lambda room, pixmap: seen.append((room, pixmap.size())))
+            worker.run()
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual((seen[0][0], seen[0][1].width(), seen[0][1].height()), ('1', 256, 128))
+        source = Path(images._cache_path('https://example.invalid/avatar.png'))
+        self.assertEqual(source.read_bytes(), Path(images.room_avatar_path('1')).read_bytes())
+        self.assertLess(source.stat().st_size, fixture.stat().st_size)
+
+    def test_avatar_transparency_and_small_image_dimensions_are_preserved(self):
+        large = Path(images._cache_path('transparent-avatar'))
+        large.parent.mkdir(parents=True)
+        image = QImage(768, 512, QImage.Format_ARGB32)
+        image.fill(0x7f3366ff)
+        self.assertTrue(image.save(str(large), 'PNG'))
+        images.load_pixmap('transparent-avatar')
+        decoded = QImage(str(large))
+        self.assertEqual((decoded.width(), decoded.height()), (256, 170))
+        self.assertEqual(decoded.pixelColor(0, 0).alpha(), 127)
+        self.assertTrue(large.read_bytes().startswith(b'\x89PNG'))
+        small = self.image('small-avatar', color=Qt.transparent)
+        avatar = images.load_pixmap('small-avatar')
+        self.assertEqual((avatar.width(), avatar.height()), (24, 24))
+        self.assertEqual(QImage(str(small)).pixelColor(0, 0).alpha(), 0)
+
+    def test_legacy_room_avatar_compacts_without_url_or_network_only_once(self):
+        path = Path(images.room_avatar_path('offline'))
+        path.parent.mkdir(parents=True)
+        image = QImage(1024, 1024, QImage.Format_RGB32)
+        image.fill(Qt.blue)
+        self.assertTrue(image.save(str(path), 'PNG'))
+        worker = images.CachedAvatarLoader(['offline'])
+        seen = []
+        worker.loaded.connect(lambda room, pixmap: seen.append((room, pixmap.size())))
+        worker.run()
+        self.assertEqual((seen[0][0], seen[0][1].width(), seen[0][1].height()), ('offline', 256, 256))
+        self.assertEqual(images.load_room_avatar('offline').width(), 256)
+        before = path.read_bytes()
+        images.CachedAvatarLoader(['offline']).run()
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_cached_avatar_compaction_cannot_restore_files_after_manual_clear(self):
+        self.image('old-avatar')
+        self.assertTrue(self.commit('1', 'old-avatar'))
+        cached = images.load_room_avatar('1')
+        worker = images.CachedAvatarLoader(['1'])
+        image_cache.clear(self.root, ['avatars'])
+        with patch.object(images, 'load_room_avatar', return_value=cached):
+            worker.run()
+        self.assertEqual(image_cache.usage(self.root)['avatars']['files'], 0)
+
     def test_new_cover_records_actual_cdn_fallback_path(self):
         url = 'https://i0.hdslb.com/cover.jpg'
         old = self.image(url, 'covers')
@@ -120,6 +202,64 @@ class CacheTests(unittest.TestCase):
         self.assertTrue(self.commit('1', next_url, 'covers'))
         self.assertFalse(old.exists())
         self.assertEqual(Path(images.room_cover_path('1')).read_bytes(), new.read_bytes())
+
+    def test_large_cached_cover_is_compacted_locally_and_keeps_focus_metadata(self):
+        from ddm import cover_focus
+        url = 'https://example.invalid/large-cover.jpg'
+        path = Path(images._cache_path(url, 'covers'))
+        path.parent.mkdir(parents=True)
+        pixels = random.Random(178).randbytes(2560 * 1440 * 3)
+        image = QImage(pixels, 2560, 1440, 2560 * 3, QImage.Format_RGB888).copy()
+        boxes = [[.7, .1, .15, .3]]
+        image.setText(cover_focus._KEY, json.dumps(boxes))
+        self.assertTrue(image.save(str(path), 'PNG'))
+        old_size = path.stat().st_size
+        with patch.object(cover_focus, '_detect_faces', side_effect=AssertionError('Cached faces must be reused')):
+            cover = images.load_cover(url)
+        self.assertEqual(cover.size().width(), 640)
+        self.assertEqual(cover.size().height(), 360)
+        self.assertLess(path.stat().st_size, old_size / 4)
+        self.assertEqual(cover_focus.faces_for(QPixmap(str(path))), boxes)
+        self.assertTrue(images.remember_room_cover('1', url))
+        self.assertEqual(cover_focus.faces_for(images.load_room_cover('1')), boxes)
+        saved = path.read_bytes()
+        images.load_cover(url)
+        self.assertEqual(path.read_bytes(), saved, 'Already compacted images must not accumulate lossy recompression')
+
+    def test_small_transparent_cover_and_shared_room_snapshots_survive_compaction(self):
+        from ddm import cover_focus
+        path = self.image('transparent', 'covers', Qt.transparent)
+        with patch.object(cover_focus, '_detect_faces', return_value=[]):
+            images.load_cover('transparent')
+        self.assertEqual(QImage(str(path)).pixelColor(0, 0).alpha(), 0)
+        self.assertTrue(self.commit('1', 'transparent', 'covers'))
+        self.assertTrue(self.commit('2', 'transparent', 'covers'))
+        for room in ('1', '2'):
+            worker = images.CachedCoverLoader([room])
+            worker.run()
+            self.assertIsNotNone(images.load_room_cover(room))
+            self.assertEqual(QImage(images.room_cover_path(room)).pixelColor(0, 0).alpha(), 0)
+
+    def test_legacy_room_cover_compacts_without_url_or_network_and_stays_readable(self):
+        from ddm import cover_focus
+        path = Path(images.room_cover_path('offline'))
+        path.parent.mkdir(parents=True)
+        image = QImage(1920, 1080, QImage.Format_RGB32)
+        image.fill(Qt.blue)
+        image.setText(cover_focus._KEY, '[]')
+        self.assertTrue(image.save(str(path), 'PNG'))
+        worker = images.CachedCoverLoader(['offline'])
+        seen = []
+        worker.loaded.connect(lambda room, cover: seen.append((room, cover.size())))
+        worker.run()
+        self.assertEqual(seen[0][0], 'offline')
+        self.assertEqual((seen[0][1].width(), seen[0][1].height()), (640, 360))
+        cached = images.load_room_cover('offline')
+        self.assertIsNotNone(cached)
+        self.assertEqual(cover_focus.faces_for(cached), [])
+        before = path.read_bytes()
+        images.CachedCoverLoader(['offline']).run()
+        self.assertEqual(path.read_bytes(), before)
 
     def test_late_result_cannot_overwrite_newer_room_image(self):
         first, second = images.AvatarLoader({'1': 'first'}), images.AvatarLoader({'1': 'second'})

@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextOption
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
                                QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
@@ -161,6 +161,10 @@ class NoticeRow(QFrame):
         self._paper = None
         self._progress = 0.0
         self.animation = motion.paper_animation(self, self._frame, self.finish_removal)
+        self._removed = False
+        self._close_timer = QTimer(self)
+        self._close_timer.setSingleShot(True)
+        self._close_timer.timeout.connect(self.finish_removal)
         self.ensurePolished()
         style_room_notice(self, self.artwork)
         self.setMinimumHeight(layout.totalHeightForWidth(max(80, parent.width())))
@@ -185,22 +189,28 @@ class NoticeRow(QFrame):
             self.layout().activate()
 
     def remove(self):
-        if self._paper is not None:
+        if self._removed or self._paper is not None:
             return
         if not self.isVisible() or self.visibleRegion().isEmpty() or not motion.enabled():
-            self.removed.emit(self.entry)
+            self.finish_removal()
             return
         self._paper = self.grab()
         self.setFixedHeight(self.height())
         for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
             child.hide()
         self.animation.start()
+        # Removal cannot depend solely on Qt's shared animation clock.
+        self._close_timer.start(motion.PAPER_DISMISS_MS + 100)
 
     def _frame(self, progress):
         self._progress = progress
         self.update()
 
     def finish_removal(self):
+        if self._removed:
+            return
+        self._removed = True
+        self._close_timer.stop()
         self.animation.stop()
         self.removed.emit(self.entry)
 

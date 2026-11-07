@@ -145,6 +145,97 @@ class NativeSurfaceTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
+    def test_sc_auto_scale_preserves_proportions_and_manual_size(self):
+        from ddm.video_danmaku import VideoDanmaku
+        owner = VideoDanmaku()
+        self.addCleanup(owner.close)
+        event = dict(kind='super_chat', id='scale', uname='Scale', price=30, message='Short')
+        for manual in (75, 100, 150):
+            owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale=manual,
+                                      super_chat_scale_with_video=True))
+            owner.super_chat_overlay.chats = [event]
+            sizes = []
+            for width, height in ((1280, 720), (640, 360), (320, 180)):
+                owner.resize(width, height)
+                rect = owner.super_chat_overlay.card_rects()[0]
+                sizes.append((rect.width(), rect.height(), owner.super_chat_overlay._paint_scale))
+                self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, manual / 100 * height / 720)
+                self.assertLessEqual(rect.right(), width)
+                self.assertLessEqual(rect.bottom(), height)
+            self.assertAlmostEqual(sizes[1][0], sizes[0][0] / 2)
+            self.assertAlmostEqual(sizes[2][0], sizes[0][0] / 4)
+            self.assertLessEqual(abs(sizes[1][1] - sizes[0][1] / 2), 2)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale_with_video=False))
+        owner.resize(640, 360)
+        owner.super_chat_overlay.card_rects()
+        self.assertEqual(owner.super_chat_overlay._paint_scale, 1)
+
+    def test_small_video_danmaku_shrinks_gently_and_preserves_large_sizes(self):
+        from ddm.video_danmaku import VideoDanmaku
+        owner = VideoDanmaku()
+        self.addCleanup(owner.close)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=28,
+                                  video_danmaku_outline_width=2))
+        for height, expected in ((180, 14), (360, 20), (540, 24), (720, 28), (1080, 42), (1440, 56)):
+            owner.resize(1280, height)
+            self.assertEqual(owner.font_pixels(), expected, height)
+            self.assertAlmostEqual(owner.outline_width(), 2 * expected / 28)
+        values = []
+        for height in range(120, 1450):
+            owner.resize(1280, height)
+            values.append(owner.font_pixels())
+        self.assertEqual(values, sorted(values))
+        self.assertLessEqual(max(b - a for a, b in zip(values, values[1:])), 1)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=28, video_danmaku_scale=False))
+        owner.resize(320, 180)
+        self.assertEqual(owner.font_pixels(), 28)
+
+    def test_sc_auto_scale_setting_updates_preview_roundtrips_and_resets(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        self.addCleanup(page.close)
+        preview = page.super_chat_placement
+        self.assertFalse(page.super_chat_scale_with_video.isChecked())
+        page.super_chat_scale_with_video.click()
+        self.assertTrue(page.values()['super_chat_scale_with_video'])
+        preview.set_preview_context({'video': {'size': [640, 360],
+                                              'cards': [{'message': '', 'collapsed': False}]}})
+        stage = preview.stage_rect()
+        factor = stage.width() / 640
+        self.assertAlmostEqual(preview.card_rect().width() / factor, 170)
+        preview.set_layout_mode(1)
+        before = preview.card_rect()
+        page.super_chat_scale_with_video.click()
+        self.assertEqual(preview.card_rect(), before, 'Video scale must not change chat-panel SC size')
+        restored = DanmakuSettingsPage(dict(page.values(), super_chat_scale_with_video=True))
+        self.addCleanup(restored.close)
+        self.assertTrue(restored.super_chat_scale_with_video.isChecked())
+        restored.reset()
+        self.assertFalse(restored.values()['super_chat_scale_with_video'])
+
+    def test_auto_scale_controls_update_live_cards_and_resize(self):
+        window = self.window
+        window.layout_choice.setCurrentIndex(1)
+        for control in (window.sc_scale_with_video, window.danmaku_scale):
+            QTest.mouseClick(control, Qt.LeftButton, pos=QPoint(8, control.height() // 2))
+            APP.processEvents()
+        self.assertTrue(window.tile.video_danmaku.settings['super_chat_scale_with_video'])
+        self.assertTrue(window.tile.video_danmaku.settings['video_danmaku_scale'])
+        window.change_sc_settings({'super_chat_position': [.4, .6]})
+        owner = window.tile.video_danmaku
+        sc = owner.super_chat_overlay
+        for size in ((1200, 760), (900, 600), (1600, 1000)):
+            window.resize(*size)
+            APP.processEvents()
+            rects = sc.card_rects()
+            self.assertTrue(rects)
+            self.assertAlmostEqual(sc._paint_scale, owner.height() / 720)
+            self.assertTrue(sc.isVisible())
+            self.assertEqual(owner.settings['super_chat_position'], [.4, .6])
+        window.sc_scale.setValue(150)
+        self.assertAlmostEqual(sc._paint_scale, 1.5 * owner.height() / 720)
+        self.assertTrue(window.sc_scale_with_video.isChecked())
+
     def test_restored_danmaku_toggle_does_not_mask_an_unfinished_tile(self):
         from ddm.widgets import Tile
         with patch('sys.excepthook') as errors:
