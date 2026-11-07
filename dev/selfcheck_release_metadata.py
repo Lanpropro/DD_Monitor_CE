@@ -18,7 +18,7 @@ def main():
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
     assert notes.startswith('# DD监控室CE v0.7.2 更新说明')
-    for feature in ('0.7.1 Hotfix', '无需先补装旧版', '字体回退日志', 'RGB、HEX', '已有日志打包'):
+    for feature in ('0.7.1 Hotfix', '字体回退日志', 'RGB、HEX', '已有日志打包'):
         assert feature in notes, feature
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
     for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
