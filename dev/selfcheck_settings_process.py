@@ -488,6 +488,24 @@ def check_windowed_worker(app):
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
 
 
+def check_finish_without_event_loop(app):
+    client = settings_process.SettingsProcess()
+    command = (getattr(sys, '_base_executable', sys.executable), ['-c', 'import time; time.sleep(30)'])
+    with patch.object(settings_process, 'worker_command', return_value=command):
+        try:
+            client.warm()
+            assert client.process.waitForStarted(5000)
+            client.stop()
+            # Do not pump Qt events: the GUI loop has already returned on this path.
+            assert client.finish(timeout=100)
+            assert client.process.state() == QProcess.NotRunning
+            assert not client.kill_timer.isActive()
+            assert client.finish(timeout=100), 'final shutdown must be idempotent'
+        finally:
+            client.process.kill()
+            client.process.waitForFinished(5000)
+
+
 def check_close_during_edit(app):
     client = settings_process.SettingsProcess()
     messages, saves = [], []
@@ -822,6 +840,7 @@ def restart_host_fixture(action, path):
         QTimer.singleShot(10000, timed_out)
         QTimer.singleShot(0, lambda: client.open(window.settings, window.shortcuts))
         app.exec()
+        report(settings_stopped=client.finish())
         report(restart_requested=window._restart_requested,
                restart_launched=host._launch_restart() if window._restart_requested else False)
         # Match the real host's immediate process exit after requesting restart.
@@ -840,6 +859,7 @@ def check_restart_native():
             try:
                 output, _ = process.communicate(timeout=20)
                 data = json.loads(path.read_text(encoding='utf-8'))
+                assert data['settings_stopped'], 'worker must finish before a new process is launched'
                 print('Native restart:', action, data, flush=True)
                 try:
                     worker = psutil.Process(data['worker_pid'])
@@ -989,6 +1009,7 @@ def main():
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)
+    check_finish_without_event_loop(app)
     check_close_during_edit(app)
     check_host_adapter()
     check_host_save_validation()

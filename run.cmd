@@ -34,6 +34,7 @@ if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
 if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
+if /i "%~1"=="--check-update-install" goto updateInstallCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -57,6 +58,20 @@ exit /b 0
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:updateInstallCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_update_install.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_setup.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_online_ui.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py"
 exit /b %errorlevel%
 
 :wallRemovalCheck

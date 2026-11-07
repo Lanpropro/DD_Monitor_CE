@@ -9,7 +9,7 @@ import time
 import weakref
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
-from PySide6.QtWidgets import QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton
 from shiboken6 import isValid
 
 
@@ -26,12 +26,14 @@ class NoticeCloseTrace(QObject):
         self.targets = {}
         self.capture_until = 0
         self.last_sample = None
+        self.closed = False
+        self.shutdown_connected = False
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.sample)
 
     def record(self, stage, notice, **extra):
-        if self.count >= self.LIMIT or id(notice) not in self.targets or not isValid(notice):
+        if self.closed or self.count >= self.LIMIT or id(notice) not in self.targets or not isValid(notice):
             return
         hwnd = int(notice.internalWinId())  # Read only; never create a native handle.
         native_visible = None
@@ -72,7 +74,7 @@ class NoticeCloseTrace(QObject):
                 output.write(json.dumps(row) + '\n')
 
     def watch(self, notice, *, trigger=True):
-        if self.count >= self.LIMIT:
+        if self.closed or self.count >= self.LIMIT:
             return
         if trigger:
             self.capture_until = time.perf_counter() + 5
@@ -86,6 +88,8 @@ class NoticeCloseTrace(QObject):
             self.timer.start()
 
     def sample(self):
+        if self.closed:
+            return
         now = time.perf_counter()
         gap = round((now - self.last_sample) * 1000, 3)
         self.last_sample = now
@@ -99,6 +103,8 @@ class NoticeCloseTrace(QObject):
             self.timer.stop()
 
     def eventFilter(self, watched, event):
+        if self.closed:
+            return False
         if (event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease)
                 and event.button() == Qt.LeftButton):
             notice = watched.parentWidget()
@@ -108,6 +114,12 @@ class NoticeCloseTrace(QObject):
                         global_position=[event.globalPosition().x(), event.globalPosition().y()])
         return False
 
+    def stop(self):
+        self.closed = True
+        self.targets.clear()
+        if isValid(self.timer):
+            self.timer.stop()
+
     def install(self):
         from ddm.online_ui import UpdateNotice, ResultNotice
         from ddm.notification_center import NoticeRow
@@ -116,6 +128,13 @@ class NoticeCloseTrace(QObject):
             @functools.wraps(original_init)
             def call(notice, *args, **kwargs):
                 original_init(notice, *args, **kwargs)
+                if trace.closed:
+                    return
+                # Installation can precede QApplication creation. The first notice
+                # exists after it, and capture must stop before Qt child teardown.
+                if not trace.shutdown_connected:
+                    QApplication.instance().aboutToQuit.connect(trace.stop)
+                    trace.shutdown_connected = True
                 button = notice.findChild(QPushButton, 'NoticeClose')
                 button.installEventFilter(trace)
                 reference = weakref.ref(notice)

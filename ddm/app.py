@@ -3805,19 +3805,25 @@ def main(argv: list[str] | None = None) -> int:
           f"窗口显示 {(t_show - t0) * 1000:.0f} ms",
           file=sys.stderr, flush=True)
     code = app.exec()
+    settings_process = getattr(window, '_settings_process', None)
+    settings_stopped = settings_process is None or settings_process.finish()
     watchdog.stop()
     if session is not None:
         faulthandler.enable(file=session.crash_handle, all_threads=True)
     if instance is not None:
         instance.close()  # A settings restart must acquire a new instance lock.
     if window._update_plan:
+        update_error = '无法启动更新助手，原程序已保留，请稍后重新下载更新。'
         try:
+            if not settings_stopped:
+                raise OSError('独立设置进程尚未退出，更新未执行；请完全退出软件后重试。')
             launched = _launch_update(window._update_plan)
         except (OSError, ValueError) as error:
             launched = False
+            update_error = str(error)
             print(f"[更新] 启动助手失败：{error}", file=sys.stderr, flush=True)
         if not launched:
-            QMessageBox.critical(None, "更新未执行", "无法启动更新助手，原程序已保留，请稍后重新下载更新。")
+            QMessageBox.critical(None, "更新未执行", update_error)
     elif window._restart_requested and not _launch_restart():
         QMessageBox.critical(None, "重启失败", "无法重新启动软件，请手动打开程序。设置已保存。")
     # 关窗时可能还有网络线程在收尾，Qt / 播放器 的析构顺序会偶发崩在退出瞬间，

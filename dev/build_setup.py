@@ -77,8 +77,12 @@ def write_script(payload, work, output):
     marker = work / INSTALL_MARKER
     marker.write_text('{"schema":1,"installed":true}', encoding='utf-8')
     helper = ROOT / 'work/setup-native/DDMonitorInstallerHelper.exe'
+    file_list = work / 'program-files.txt'
+    file_list.write_text('\n'.join(files + ['DDMonitorUninstall.exe', MANIFEST, INSTALL_MARKER,
+                                         'setup-license/ChineseSimplified-LICENSE.txt']), encoding='utf-8-sig')
     # Keep the pre-install tool before the large payload, in its own solid block.
-    entries = [f'Source: {quote(helper)}; Flags: dontcopy']
+    entries = [f'Source: {quote(helper)}; Flags: dontcopy',
+               f'Source: {quote(file_list)}; Flags: dontcopy']
     directories = {''}
     for index, name in enumerate(files):
         parent = Path(name).parent
@@ -87,7 +91,7 @@ def write_script(payload, work, output):
         flags = 'ignoreversion solidbreak' if index == 0 else 'ignoreversion'
         entries.append(f'Source: {quote(payload / name)}; DestDir: "{{app}}{suffix}"; Flags: {flags}')
     # Install this early-stored file before the payload to avoid a second seek.
-    entries.insert(1, f'Source: {quote(helper)}; DestDir: "{{app}}"; '
+    entries.insert(2, f'Source: {quote(helper)}; DestDir: "{{app}}"; '
                    'DestName: "DDMonitorUninstall.exe"; Flags: ignoreversion')
     entries.append(f'Source: {quote(inventory)}; DestDir: "{{app}}"; Flags: ignoreversion')
     entries.append(f'Source: {quote(marker)}; DestDir: "{{app}}"; Flags: ignoreversion')
@@ -204,6 +208,7 @@ end;
 procedure InitializeWizard;
 begin
   ExtractTemporaryFile('DDMonitorInstallerHelper.exe');
+  ExtractTemporaryFile('program-files.txt');
   WizardForm.DirBrowseButton.OnClick := @BrowseInstallFolder;
 end;
 
@@ -212,6 +217,13 @@ function GetFileAttributes(Name: String): LongWord;
 
 function GetTempFileName(Directory, Prefix: String; Unique: LongWord; Name: String): LongWord;
   external 'GetTempFileNameW@kernel32.dll stdcall';
+
+function OpenProgramFile(Name: String; Access, Sharing: LongWord; Security: LongWord;
+  Disposition, Flags: LongWord; Template: THandle): THandle;
+  external 'CreateFileW@kernel32.dll stdcall';
+
+function CloseProgramFile(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
 
 function CanCreateShortcut(Name: String): Boolean;
 begin
@@ -273,6 +285,42 @@ begin
     DeleteFile(FileName);
     RemoveDir(Probe);
   end;
+end;
+
+function ProgramFilesError: String;
+var
+  Names: TArrayOfString;
+  Index: Integer;
+  Name: String;
+  Handle: THandle;
+  Attr, ErrorCode: LongWord;
+begin
+  Result := '无法读取安装文件检查清单，安装未执行。';
+  if not LoadStringsFromFile(ExpandConstant('{{tmp}}\\program-files.txt'), Names) then Exit;
+  for Index := 0 to GetArrayLength(Names) - 1 do begin
+    Name := AddBackslash(WizardDirValue) + Names[Index];
+    Result := '程序文件包含链接，安装未执行：' + Name;
+    if not SafePath(Name) then Exit;
+    Attr := GetFileAttributes(Name);
+    if Attr <> $FFFFFFFF then begin
+      Result := '程序文件设置了只读属性，无法覆盖：' + Name + #13#10 +
+        '请检查该文件的只读属性后重试，无需删除原安装目录。';
+      if (Attr and 1) <> 0 then Exit;
+      // Open existing files for write/delete without changing or truncating them.
+      Handle := OpenProgramFile(Name, $40010000, 7, 0, 3, $80, 0);
+      if Handle = THandle(-1) then begin
+        ErrorCode := DLLGetLastError;
+        Result := '无法覆盖程序文件：' + Name + #13#10 +
+          'Windows 错误 ' + IntToStr(ErrorCode) + '。' + #13#10 +
+          '请完全退出 DD监控室CE（包括托盘和设置进程）后重试。' + #13#10 +
+          '若仍失败，请检查该文件的访问权限和安全软件拦截记录；安装尚未开始。';
+        Log(Result);
+        Exit;
+      end;
+      CloseProgramFile(Handle);
+    end;
+  end;
+  Result := '';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -550,6 +598,7 @@ begin
     FileExists(ExpandConstant('{{app}}\\.ddm-uninstall\\unins000.dat'));
   if HasFiles and not OwnInstall then
     Result := '此文件夹已有其他内容。请选择新的空文件夹；已安装用户可使用软件内更新。';
+  if Result = '' then Result := ProgramFilesError;
 end;
 
 function InitializeUninstall: Boolean;
