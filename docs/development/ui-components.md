@@ -17,6 +17,8 @@
 | `TileButton`、`VolumeButton`、`RecordingButton` | 播放格按钮、音量、录制控件 | `ddm/playback_controls.py` |
 | `SidebarToggleButton`、`PauseButton`、`RefreshButton`、`DanmakuToggleButton` | 已有侧栏/播放控制按钮 | `ddm/playback_controls.py` |
 | `ElidedLabel`、`BarIconButton` | 省略文字、工具条按钮 | `ddm/ui/primitives.py` |
+| `DanmakuPanel`、`DanmakuTextBrowser` | 弹幕格、富文本消息与阅读位置 | `ddm/danmaku_panel.py`，旧 `widgets` 导入兼容 |
+| `SuperChatCard`、`SuperChatStack` | 醒目留言卡片及堆叠展示 | `ddm/super_chat_widgets.py`，旧 `widgets` 导入兼容 |
 | `continuous_path` | 矩形表面的连续圆角路径；保留圆形、胶囊及明确的直角 | `ddm/corner_geometry.py` |
 
 原有组件通过统一入口导出同一个类/函数对象，仍在原模块维护，不复制实现。原导入路径继续有效。播放器相关组件保留原有宿主、信号、原生窗口和生命周期要求，不是脱离业务上下文的通用播放框架。

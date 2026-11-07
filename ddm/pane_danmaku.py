@@ -175,7 +175,7 @@ class PaneDanmaku:
         return visible
 
     def prepare(self):
-        from .widgets import DanmakuPanel
+        from .danmaku_panel import DanmakuPanel
         cells = sorted(self.bindings())
         while len(self.all_panels()) < len(cells):
             panel = DanmakuPanel(self.wall)

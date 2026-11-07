@@ -213,7 +213,8 @@
 | [selfcheck_danmaku_emoji](../selfcheck_danmaku_emoji.py) | 单项执行前核对 |
 | [selfcheck_danmaku_limit_migration](../selfcheck_danmaku_limit_migration.py) | 单项执行前核对 |
 | [selfcheck_danmaku_limit_settings](../selfcheck_danmaku_limit_settings.py) | 单项执行前核对 |
-| [selfcheck_danmaku_menu](../selfcheck_danmaku_menu.py) | 单项执行前核对 |
+| [selfcheck_danmaku_panel](../selfcheck_danmaku_panel.py) | `smoke` / `offline`；独立导入、旧类与拖放常量兼容、消息/字体/房间投递信号、表情替身回填、SC 与子对象销毁；不启动媒体或读取账号 |
+| [selfcheck_danmaku_menu](../selfcheck_danmaku_menu.py) | `offline`；独立文本控件的复制、全选和链接菜单，替身菜单、不联网 |
 | [selfcheck_danmaku_actions](../selfcheck_danmaku_actions.py) | `offline`；单条悬停、点击、复制和房间绑定发送，使用替身输入控件 |
 | [selfcheck_danmaku_render_thread](../selfcheck_danmaku_render_thread.py) | `native`；另以 `--unthrottled` 检查不等待垂直同步时的实际滚动速度 |
 | [selfcheck_danmaku_retention](../selfcheck_danmaku_retention.py) | 单项执行前核对 |

@@ -40,6 +40,8 @@
 
 省略标签与工具条图标按钮集中在 `ddm/ui/primitives.py`，`ddm.ui` 按需导入；`widgets` 保留同一类和 `_repolish` 辅助函数的兼容导出。基础控件不依赖画面墙、播放器或主窗口，Qt 父子归属与信号行为沿用原实现。
 
+弹幕格及文本渲染由 `ddm/danmaku_panel.py` 维护，SC 卡片和堆叠展示由 `ddm/super_chat_widgets.py` 维护，均不导入 `widgets`、播放器或主窗口。两类格子共用的拖放格式和控制栏高度在 `ddm/wall_constants.py`；旧 `widgets` 类及常量导出兼容。连接共享和 SC 快照仍由 `danmaku_lifecycle` 协调，面板只持有消息、图片加载器及 Qt 子控件。
+
 侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
 
 ## 已跟踪的其他文件：逐项标注
@@ -151,6 +153,7 @@
 - `dev/selfcheck_danmaku_limit_migration.py`
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`
+- `dev/selfcheck_danmaku_panel.py`
 - `dev/selfcheck_danmaku_actions.py`
 - `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
