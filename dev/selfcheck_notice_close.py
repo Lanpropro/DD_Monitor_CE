@@ -176,11 +176,37 @@ class NoticeCloseTests(unittest.TestCase):
         notice.set_room_artwork(room['room_id'], image, 'covers')
         self.assert_hidden(notice)
 
+    def test_capture_stops_at_application_quit_before_qt_children_are_deleted(self):
+        from shiboken6 import delete
+        from ddm.notice_diagnostics import NoticeCloseTrace
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            trace = NoticeCloseTrace(Path(directory) / 'close.jsonl')
+            stack.callback(trace.stop)
+            for owner, names in ((UpdateNotice, ('__init__', 'dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent')),
+                                 (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar', '_motion_frame', 'reposition', 'paintEvent')),
+                                 (NoticeRow, ('__init__', 'remove', '_frame', 'finish_removal'))):
+                for name in names:
+                    stack.enter_context(patch.object(owner, name, getattr(owner, name)))
+            trace.install()
+            notice = UpdateNotice(self.owner)
+            notice.show_offer({'version': 'Fixture'}, persistent=True)
+            trace.watch(notice)
+            trace.record('before-quit', notice)
+            self.app.aboutToQuit.emit()
+            self.assertFalse(trace.timer.isActive(), 'Quit must stop capture before Qt starts destroying children')
+            count = trace.count
+            delete(trace.timer)
+            notice.dismiss(animate=False)
+            trace.watch(notice)
+            trace.sample()
+            trace.record('after-quit', notice)
+            self.assertEqual(trace.count, count, 'Shutdown callbacks must not resume capture or touch deleted timers')
+
     def test_capture_is_read_only_bounded_and_does_not_record_notice_text(self):
         from dev.diagnose_notice_close import NoticeCloseTrace
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             trace = NoticeCloseTrace(Path(directory) / 'close.jsonl')
-            stack.callback(trace.timer.stop)
+            stack.callback(trace.stop)
             trace.LIMIT = 50
             for owner, names in ((UpdateNotice, ('__init__', 'dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent')),
                                  (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar', '_motion_frame', 'reposition', 'paintEvent')),
