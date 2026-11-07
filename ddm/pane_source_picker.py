@@ -55,7 +55,8 @@ class SourcePicker(QWidget):
         self.anchor.clicked.connect(lambda: self.set_expanded(
             not self.expanded, animate=self.anchor.pointer_activation))
         self.tray = QFrame(panel.header)
-        self.tray.setObjectName('DanmakuHeader')
+        self.tray.setObjectName('PaneSourceTray')
+        self.tray.setStyleSheet('#PaneSourceTray {background: transparent; border: none;}')
         self.tray.setAttribute(Qt.WA_StyledBackground)
         self.tray.hide()
         self.scroll = QScrollArea(self.tray)
@@ -72,6 +73,7 @@ class SourcePicker(QWidget):
         self.buttons = {}
         self.order = []
         self.covered = None
+        self._placing = False
         self.expanded = False
         self.progress = 0.0
         self.animation = QVariantAnimation(self)
@@ -116,9 +118,33 @@ class SourcePicker(QWidget):
         self._place()
 
     def _place(self):
+        if self._placing:
+            return
+        self._placing = True
+        try:
+            self._place_header()
+        finally:
+            self._placing = False
+
+    def _place_header(self):
         header = self.panel.header
-        width = max(self.SIZE, self.panel.count.x() - 16)
-        self.tray.setGeometry(10, 0, width, header.height())
+        layout = header.layout()
+        left = layout.contentsMargins().left()
+        if self.covered is not None:
+            avatars = max(self.SIZE, len(self.buttons) * self.STEP - 4)
+            controls = sum(max(widget.minimumWidth(), min(widget.maximumWidth(), widget.sizeHint().width()))
+                           for widget in self.covered)
+            required = (left + controls + layout.spacing() * (len(self.covered) + 1)
+                        + avatars + self.panel.count.width() + layout.contentsMargins().right())
+            compact = header.width() < required
+            for widget in self.covered:
+                widget.setVisible(not compact)
+            layout.activate()
+            if not compact:
+                left = max((widget.geometry().right() + 1 for widget in self.covered), default=left)
+                left += layout.spacing()
+        width = max(self.SIZE, self.panel.count.x() - layout.spacing() - left)
+        self.tray.setGeometry(left, 0, width, header.height())
         self.scroll.setGeometry(0, (header.height() - self.SIZE) // 2, width, self.SIZE)
         self.content.resize(max(width, len(self.buttons) * self.STEP - 4), self.SIZE)
         self.empty.setGeometry(self.tray.rect())
@@ -161,9 +187,6 @@ class SourcePicker(QWidget):
                     if layout.itemAt(index).widget() is not None and
                     layout.itemAt(index).widget() not in (self, self.panel.count) and
                     not layout.itemAt(index).widget().isHidden()]
-                for widget in self.covered:
-                    widget.hide()
-                layout.activate()
             self.refresh()
             self.anchor.hide()
             self.tray.show()

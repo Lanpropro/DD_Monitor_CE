@@ -21,9 +21,10 @@ import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QAbstractAnimation, Qt
 from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtTest import QTest
-from ddm import config, layouts, room_presets
+from PySide6.QtWidgets import QWidget
+from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
-from ddm.widgets import WallGrid
+from ddm.widgets import DanmakuPanel, WallGrid
 from selfcheck_video_danmaku import Client, Snapshot
 
 
@@ -63,8 +64,6 @@ class PaneDanmakuTests(unittest.TestCase):
         self.app.processEvents()
         picker = panel.source_picker
         self.assertTrue(picker.expanded)
-        self.assertTrue(panel.title.isHidden())
-        self.assertTrue(panel.font_controls.isHidden())
         self.assertEqual(set(picker.buttons), {wall.tiles[0], wall.tiles[2], wall.tiles[3]})
         self.assertIsNone(panes.target(panel))
         QTest.mouseClick(picker.buttons[source], Qt.LeftButton)
@@ -127,6 +126,63 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(picker.anchor.face_key, pixmap.cacheKey())
         self.assertEqual(picker.buttons[target].face_key, pixmap.cacheKey())
         self.assertIs(wall.pane_danmaku.target(panel), target)
+
+    def test_avatar_header_only_compacts_when_candidates_do_not_fit(self):
+        window = self.wall_window()
+        window.configure_wall_panes({3: window.wall.tiles[0]})
+        panel = window.wall.pane_danmaku.panels[3]
+        picker = panel.source_picker
+        panel.resize(700, 300)
+        self.app.processEvents()
+        picker.set_expanded(True, animate=False)
+        self.assertTrue(panel.title.isVisible())
+        self.assertTrue(panel.font_controls.isVisible())
+        self.assertGreaterEqual(picker.tray.x(), panel.font_controls.geometry().right())
+        self.assertLessEqual(picker.tray.geometry().right(), panel.count.x())
+        panel.resize(210, 300)
+        self.app.processEvents()
+        self.assertTrue(picker.expanded)
+        self.assertTrue(panel.title.isHidden())
+        self.assertTrue(panel.font_controls.isHidden())
+        self.assertEqual(picker.tray.x(), panel.header.layout().contentsMargins().left())
+        panel.resize(700, 300)
+        self.app.processEvents()
+        self.assertTrue(panel.title.isVisible())
+        self.assertTrue(panel.font_controls.isVisible())
+        self.assertGreaterEqual(picker.tray.x(), panel.font_controls.geometry().right())
+        picker.set_expanded(False, animate=False)
+        self.assertTrue(panel.title.isVisible())
+        self.assertTrue(panel.font_controls.isVisible())
+
+    def test_lower_corners_are_continuous_with_and_without_send_bar(self):
+        from ddm import continuous_corners
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setObjectName('PanelCornersFixture')
+        host.setStyleSheet('#PanelCornersFixture {background: #ff00ff;}')
+        host.setGeometry(-10000, -10000, 384, 304)
+        panel = DanmakuPanel(host)
+        panel.setGeometry(12, 12, 360, 280)
+        panel.body.setPlainText('\n'.join('滚动消息 ' + str(index) for index in range(100)))
+        host.show()
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            self.app.setStyleSheet(theme.qss())
+            for sending in (False, True):
+                with self.subTest(theme=mode, send_bar=sending):
+                    panel.composer_bar.setVisible(sending)
+                    self.app.processEvents()
+                    panel.body.verticalScrollBar().setValue(panel.body.verticalScrollBar().maximum())
+                    surface = panel.composer_bar if sending else panel.body
+                    values = continuous_corners._filter.values(surface)
+                    self.assertEqual(values['border-bottom-left-radius'], '10px')
+                    self.assertEqual(values['border-bottom-right-radius'], '10px')
+                    image = host.grab().toImage()
+                    scale = image.devicePixelRatio()
+                    for x in (12, 13, 370, 371):
+                        self.assertEqual(image.pixelColor(round(x * scale), round(291 * scale)).name(), '#ff00ff')
+                    self.assertNotEqual(image.pixelColor(round(180 * scale), round(291 * scale)).name(), '#ff00ff')
 
     def test_avatar_motion_is_right_anchored_interruptible_and_stops_when_hidden(self):
         from ddm import motion
