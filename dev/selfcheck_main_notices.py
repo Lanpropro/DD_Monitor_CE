@@ -1278,6 +1278,9 @@ class MainNoticesTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.addCleanup(theme.signals().changed.disconnect)
+        self.fixture_plugins = self.stack.enter_context(
+            tempfile.TemporaryDirectory(prefix='ddm-window-plugins-'))
+        self.stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', self.fixture_plugins))
         for method in ('_start_startup_tiles', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
@@ -1310,6 +1313,11 @@ class MainNoticesTests(unittest.TestCase):
             window.close()
         prompt.assert_not_called()
         self.assertTrue(window._closing)
+
+    def test_fixture_uses_empty_plugins_directory(self):
+        window = self.window([])
+        self.assertEqual(window.plugins.plugins_dir, self.fixture_plugins)
+        self.assertEqual(list(Path(self.fixture_plugins).iterdir()), [])
 
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
