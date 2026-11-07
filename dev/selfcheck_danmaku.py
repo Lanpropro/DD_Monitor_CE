@@ -17,7 +17,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
-from ddm import danmaku_panel as panel_module  # noqa: E402
+from ddm import widgets as widgets_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.danmaku import _Client, blivedm_ws_base  # noqa: E402
 
@@ -177,7 +177,7 @@ def main() -> None:
     app_module.SuperChatSnapshot = FakeSuperChatSnapshot
     MainWindow.refresh_status = lambda self: None
     MainWindow.refresh_stats = lambda self: None
-    panel_module.AvatarLoader = FakeImageLoader      # 表情图不真的去下
+    widgets_module.AvatarLoader = FakeImageLoader      # 表情图不真的去下
     FakeDanmakuClient.instances = []
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
