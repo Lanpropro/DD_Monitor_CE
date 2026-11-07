@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 from ddm import config, theme, ui
@@ -28,7 +28,7 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton)
+                    DanmakuToggleButton, ElidedLabel, BarIconButton)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -38,6 +38,9 @@ assert not any(name in sys.modules for name in (
 
     def test_exports_reuse_original_classes_and_keep_old_imports(self):
         from ddm import avatar_widgets, motion, widgets
+        from ddm.ui import primitives
+        for name in ('ElidedLabel', 'BarIconButton', '_repolish'):
+            self.assertIs(getattr(widgets, name), getattr(primitives, name))
         for module, names in (
                 (avatar_widgets, ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap')),
                 (motion, ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack')),
@@ -64,6 +67,49 @@ assert not any(name in sys.modules for name in (
         QTest.mouseClick(button, Qt.LeftButton)
         self.assertEqual(clicked, [True])
         parent.close()
+
+    def test_elided_label_recovers_full_text_after_resize_and_update(self):
+        parent = QWidget()
+        label = ui.ElidedLabel('一段用于验证标签缩放后恢复的完整标题', parent)
+        parent.show()
+        label.resize(65, 25)
+        label.show()
+        self.app.processEvents()
+        hint = label.sizeHint()
+        self.assertNotEqual(label.text(), label._full_text)
+        label.resize(hint.width() + 20, 25)
+        self.app.processEvents()
+        self.assertEqual(label.text(), label._full_text)
+        label.setText('更新标题')
+        self.assertEqual(label.text(), '更新标题')
+        label.setText('')
+        self.assertEqual(label.text(), '')
+        self.assertIs(label.parentWidget(), parent)
+        parent.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_bar_icon_button_preserves_mode_click_and_parent_lifetime(self):
+        parent = QWidget()
+        destroyed = []
+        for kind in ('check', 'sort'):
+            button = ui.BarIconButton('操作', kind, parent)
+            self.assertIs(button.parentWidget(), parent)
+            button.destroyed.connect(lambda: destroyed.append(True))
+            clicked = []
+            button.clicked.connect(lambda: clicked.append(True))
+            button.set_icon_mode(True)
+            self.assertEqual(button.text(), '')
+            button.resize(32, 32)
+            for mode in ('dark', 'light', 'dark'):
+                theme.apply(mode)
+                self.assertFalse(button.grab().isNull())
+            QTest.mouseClick(button, Qt.LeftButton)
+            self.assertEqual(clicked, [True])
+            button.set_icon_mode(False)
+            self.assertEqual(button.text(), '操作')
+        parent.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertEqual(len(destroyed), 2)
 
     def test_headers_and_step_buttons_keep_existing_settings_contract(self):
         from ddm import dialogs
