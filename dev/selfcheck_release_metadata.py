@@ -13,10 +13,13 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7.1'
-    assert version.VERSION_TAG == 'v0.7.1'
+    assert version.VERSION == '0.7.2'
+    assert version.VERSION_TAG == 'v0.7.2'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
+    assert notes.startswith('# DD监控室CE v0.7.2 更新说明')
+    for feature in ('0.7.1 Hotfix', '字体回退日志', 'RGB、HEX', '已有日志打包'):
+        assert feature in notes, feature
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
     for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
         assert feature in technical, feature
@@ -58,6 +61,7 @@ def main():
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
+    assert '--hidden-import ddm.ui.color_dialog' in source, 'The lazy RGB picker must be included in frozen builds'
     assert 'archive --format=zip --output=$snapshot HEAD' in source
     for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
         assert pattern in source
@@ -95,6 +99,8 @@ def main():
     assert '$remoteExeName = "DDMonitorCE-$version-exe.zip"' in source
     assert 'asset_name = $remoteExeName' in source
     assert 'notes = [string]$updateNotes' in source
+    assert source.count('revision = $UpdateRevision') == 2
+    assert 'release_tag = $ReleaseTag' in source
     # 实际解析 PowerShell，防止只验证字符串而漏掉脚本语法。
     import subprocess
     result = subprocess.run(['powershell', '-NoProfile', '-Command',

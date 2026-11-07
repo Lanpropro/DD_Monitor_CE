@@ -31,6 +31,7 @@ from . import overlay
 from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
+from .update_version import installed_revision, release_label, update_identity
 from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
@@ -130,7 +131,6 @@ class MainWindow(QMainWindow):
         self._startup_layout_pending = True
         self._settling_resize = False
         self._native_size_state = 0
-        self._window_move = None
         self._resize_idle_timer = QTimer(self)
         self._resize_idle_timer.setSingleShot(True)
         self._resize_idle_timer.setInterval(RESIZE_SETTLE_MS)
@@ -256,6 +256,8 @@ class MainWindow(QMainWindow):
         from .picture_in_picture import PictureInPicture
         self.picture_in_picture = PictureInPicture(self)
         self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage)
+        from .wall_removal import WallRemoval
+        self.wall_removal = WallRemoval(self)
 
         self.setCentralWidget(root)
         from .skins import SkinController
@@ -285,6 +287,7 @@ class MainWindow(QMainWindow):
         self.sidebar.foldersChanged.connect(self._on_order_changed)
         self.sidebar.refreshRequested.connect(self.refresh_follow)
         self.sidebar.settingsRequested.connect(self._open_sidebar_settings)
+        self.sidebar.clearWallRequested.connect(self._clear_wall)
         self.sidebar.pluginSettingsRequested.connect(lambda: self.open_settings('plugins'))
         self.sidebar.cardModeChanged.connect(self._sidebar_card_mode_changed)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
@@ -439,7 +442,8 @@ class MainWindow(QMainWindow):
         self._startup_update_checked = True
         def check(cancelled, progress):
             with online.session() as client:
-                return online.app_release(client, version_module.VERSION)
+                return online.app_release(client, version_module.VERSION,
+                    installed_revision(config_module.REPO, version_module.VERSION))
         task = OnlineTask(check, None, self)
         self._startup_update_task = task
         task.succeeded.connect(self._startup_update_ready)
@@ -468,7 +472,7 @@ class MainWindow(QMainWindow):
         from .online_ui import set_update_dot
         seen = self.settings.get('seen_update_entry_versions') or {}
         offer = self._unread_app_update()
-        active = bool((offer and seen.get('app') != offer['version']) or any(
+        active = bool((offer and seen.get('app') != update_identity(offer)) or any(
             seen.get(entry['id']) != entry['version'] for entry in self._unread_plugin_updates()))
         set_update_dot(self.sidebar.settings_button, active)
         self.sidebar.settings_button.setToolTip('有新版本，打开设置查看' if active else '打开设置')
@@ -476,7 +480,7 @@ class MainWindow(QMainWindow):
     def _unread_app_update(self):
         seen = self.settings.get('seen_update_versions') or {}
         return self._available_update if (self._available_update
-            and seen.get('app') != self._available_update['version']) else None
+            and seen.get('app') != update_identity(self._available_update)) else None
 
     def _unread_plugin_updates(self):
         seen = self.settings.get('seen_update_versions') or {}
@@ -531,18 +535,18 @@ class MainWindow(QMainWindow):
             self._update_notice = UpdateNotice(self)
             self._update_notice.activated.connect(lambda: self.open_settings(
                 "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer({'version': (app_offer or {}).get('version', '')},
+        self._update_notice.show_offer(app_offer or {'version': ''},
             persistent=self.settings.get('notice_persist_updates', True))
         parts = []
         if app_offer:
-            parts.append('软件有新版 v' + app_offer['version'])
+            parts.append('软件有新版 v' + release_label(app_offer))
         if plugin_offers:
             parts.append(f'{len(plugin_offers)} 个插件可更新')
         self._update_notice.title.setText(' · '.join(parts))
         center = self.sidebar.notification_button.center
         entry = center.add(' · '.join(parts), kind='update',
             callback=lambda: self.open_settings('updates' if self._unread_app_update() else 'plugins'),
-            action='查看更新', key=('update', (app_offer or {}).get('version', ''),
+            action='查看更新', key=('update', update_identity(app_offer) if app_offer else '',
                 tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
         self._update_notice.track_history((center, entry))
 
@@ -795,12 +799,8 @@ class MainWindow(QMainWindow):
             from ctypes import wintypes
 
             msg = wintypes.MSG.from_address(int(message))
-            if hasattr(self, "wall") and not self._closing:
-                if self._window_move is None and msg.message == 0x00A1 and msg.wParam == 2:
-                    from .window_move import WindowMove
-                    self._window_move = WindowMove(self, int(msg.hWnd))
-                if self._window_move is not None and self._window_move.native_message(msg):
-                    return True, 0
+            # Keep caption dragging on the real HWND. Replacing it with a
+            # preview at the drag threshold causes a visible window handoff.
             if msg.message == 0x0231:  # WM_ENTERSIZEMOVE
                 self._begin_interactive_resize()
             elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
@@ -1008,7 +1008,7 @@ class MainWindow(QMainWindow):
     def _create_settings_dialog(self, settings=None, shortcuts=None):
         seen = dict(self.settings.get('seen_update_entry_versions') or {})
         if self._available_update:
-            seen['app'] = self._available_update['version']
+            seen['app'] = update_identity(self._available_update)
         seen.update({offer['id']: offer['version'] for offer in self._plugin_update_offers})
         if seen != (self.settings.get('seen_update_entry_versions') or {}):
             self.settings['seen_update_entry_versions'] = seen
@@ -1026,7 +1026,9 @@ class MainWindow(QMainWindow):
                 if self._plugin_catalog_offers:
                     widget.store_page._catalog_ready(self._plugin_catalog_offers)
             elif key == 'updates':
-                if self._available_update and not (widget._checked or widget.jobs or widget.plan_path):
+                if (self._available_update and not (widget.jobs or widget.plan_path)
+                        and (not widget._checked or not widget.offer
+                             or update_identity(widget.offer) != update_identity(self._available_update))):
                     widget._release_ready(self._available_update)
                     widget._busy(False)
         dialog.pageCreated.connect(page_created)
@@ -1035,7 +1037,7 @@ class MainWindow(QMainWindow):
         dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
                                                 for offer in self._plugin_update_offers))
         dialog._mark_update_page('updates', bool(self._available_update and
-                                                dialog.seen_versions.get('app') != self._available_update['version']))
+                                                dialog.seen_versions.get('app') != update_identity(self._available_update)))
         return dialog
 
     def open_settings(self, page: str = "general") -> bool:
@@ -1183,7 +1185,9 @@ class MainWindow(QMainWindow):
             "rooms": [str(room.get("room_id")) for room in self.sidebar.rooms()],
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
-                                       ("uname", "title", "platform", "playback_mode")}
+                                       (("uname", "title", "platform", "playback_mode") +
+                                        (("anchor_uid", "sec_uid", "follow_account_ref", "resolved_room_id", "face")
+                                         if room.get("platform") == "douyin" else ()))}
                 for room in self.sidebar.rooms() if ":" in str(room.get("room_id") or "")
             },
             # 空格子也要存，下次打开还是原来的布局
@@ -1197,8 +1201,9 @@ class MainWindow(QMainWindow):
                     "audio_channel": int(tile.audio_channel),
                     "codec_overrides": dict(tile.codec_overrides),
                     "video_danmaku_enabled": tile.danmaku_button.isChecked(),
+                    "video_danmaku_overrides": config_module.video_danmaku_overrides(tile.video_danmaku_overrides),
                 }
-                for tile in self.wall.tiles
+                for tile in self.wall.tiles if not tile.property('pictureInPictureTemporary')
             ],
             "ui": {
                 "picture_in_picture": self.picture_in_picture.state(),
@@ -1246,8 +1251,6 @@ class MainWindow(QMainWindow):
         self._default_audio_output_id = device_id
 
     def closeEvent(self, event) -> None:
-        if self._window_move is not None:
-            self._window_move.cancel(restore=False)
         if self._tray.handle_close(event):
             return
         self.picture_in_picture.restore()
@@ -2654,6 +2657,9 @@ class MainWindow(QMainWindow):
         if tile not in self.recorder.sessions:
             self._restore_capture_quality(tile)
 
+    def _clear_wall(self) -> None:
+        self.wall_removal.toggle_menu()
+
     def _on_close_tile(self, room: dict) -> None:
         """关掉这一路，但留下空格子等新的直播间拖进来。"""
         tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
@@ -2693,7 +2699,7 @@ class MainWindow(QMainWindow):
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
-        tile.video_danmaku.apply_settings(self.settings)
+        tile.apply_video_danmaku_settings(self.settings)
         tile.video_danmaku.superChatSettingsChanged.connect(self._on_video_danmaku_settings_changed)
         tile.video_danmaku.superChatDismissed.connect(lambda chat_id, t=tile: self._dismiss_super_chat(str(t.room.get('room_id') or ''), chat_id))
         tile.videoDanmakuChanged.connect(self._on_video_danmaku_changed)
@@ -2790,7 +2796,7 @@ class MainWindow(QMainWindow):
             return
         prefix, separator, path = message.partition('：')
         if separator and path and prefix in (
-                '已保存录制', '已保存即时回放', '正在导出录制', '正在导出即时回放',
+                '已保存录制', '已保存切片素材', '已保存即时回放', '正在导出录制', '正在导出即时回放',
                 '导出录制失败（原始分段保留）', '导出即时回放失败（原始分段保留）'):
             self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path,
                               kind='warning' if '失败' in prefix else 'info',
@@ -2799,7 +2805,7 @@ class MainWindow(QMainWindow):
             return
         room_id = str((room or {}).get('room_id') or '')
         progress = any(text in message for text in (
-            '开始录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
+            '开始录制', '已开始录制切片素材', '切片素材继续录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
             '重新连接录制流', '正在保存分段', '分段已保存，', '等待 ',
             '重新获取录制地址失败', 'FFmpeg 意外退出'))
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能", "意外退出"))
@@ -3040,7 +3046,7 @@ class MainWindow(QMainWindow):
                     # 只保存房间身份与显示信息；带签名的媒体地址始终重新获取。
                     keys = ("room_id", "platform", "uname", "title", "live", "live_known", "viewers",
                             "cover_url", "face", "playback_mode", "anchor_uid", "sec_uid",
-                            "pending_folder_id", "pending_import")
+                            "pending_folder_id", "pending_import", "follow_account_ref", "resolved_room_id")
                     store.save([], {"uid": uid, "rooms": [
                         {key: room[key] for key in keys if key in room} for room in rooms], "pending": [
                         {key: room[key] for key in keys if key in room} for room in pending]})
@@ -3318,7 +3324,8 @@ class MainWindow(QMainWindow):
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
         self.sidebar.set_wall_rooms(
-            str(tile.room.get("room_id") or "") for tile in self.wall.tiles)
+            str(tile.room.get("room_id") or "") for tile in self.wall.tiles
+            if not tile.property('pictureInPictureTemporary'))
         # 替换后格子仍保持聚焦，卡片选择需跟随它当前的房间。
         focused = next((tile for tile in self.wall.tiles if tile.property("focused")), None)
         if focused is not None:
@@ -3418,8 +3425,7 @@ class MainWindow(QMainWindow):
             panel.set_max_blocks(int(self.settings.get("danmaku_max_blocks") or 3000))
             panel.apply_super_chat_settings(self.settings)
         for tile in self.wall.tiles:
-            tile.video_danmaku.apply_settings(self.settings)
-            tile.danmaku_settings_menu.apply_settings(self.settings)
+            tile.apply_video_danmaku_settings(self.settings)
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
@@ -3775,6 +3781,9 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    from .on_demand_diagnostics import DiagnosticEndpoint
+    window._on_demand_diagnostics = DiagnosticEndpoint(
+        window, os.path.join(config_module.data_root(), 'logs'), config_module.REPO)
     app.setQuitOnLastWindowClosed(False)
     t_window = time.perf_counter()
     # 界面卡死看门狗：主线程靠这个 QTimer 报平安，卡死时日志里会留下所有线程的调用栈

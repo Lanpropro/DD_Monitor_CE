@@ -25,7 +25,7 @@ class Client:
 
 
 def response(data, etag):
-    result = Response(data=json.dumps(data).encode())
+    result = Response(data=json.dumps(data).encode(), payload=data)
     result.headers = {'ETag': etag}
     return result
 
@@ -37,30 +37,31 @@ def main():
         'size': 3, 'sha256': hashlib.sha256(b'zip').hexdigest()}]}
     with tempfile.TemporaryDirectory(prefix='ddm-plugin-cache-') as temporary:
         path = Path(temporary) / 'plugin-catalog.json'
-        first = Client([response(manifest, 'first')])
+        first = Client([response(manifest, 'first'), response([], 'releases')])
         offers = online.cached_plugin_catalog(first, '0.3', path)
         assert offers[0]['name'] == '海外直播平台', 'asset filename must not replace the display name'
-        assert len(first.calls) == 1 and online.load_plugin_cache(path)['offers'] == offers
+        assert len(first.calls) == 2 and online.load_plugin_cache(path)['offers'] == offers
         fresh = Client([])
         assert online.cached_plugin_catalog(fresh, '0.3', path) == offers and not fresh.calls
-        unchanged = Client([Response(status_code=304)])
+        unchanged = Client([Response(status_code=304), Response(status_code=304)])
         assert online.cached_plugin_catalog(unchanged, '0.3', path, force=True) == offers
         assert unchanged.calls[0][1]['headers'] == {'If-None-Match': 'first'}
         later = online.load_plugin_cache(path)['checked_at'] + online.CATALOG_CHECK_SECONDS + 1
         with patch.object(online.time, 'time', return_value=later):
-            stale = Client([Response(status_code=304)])
-            assert online.cached_plugin_catalog(stale, '0.3', path) == offers and len(stale.calls) == 1
+            stale = Client([Response(status_code=304), Response(status_code=304)])
+            assert online.cached_plugin_catalog(stale, '0.3', path) == offers and len(stale.calls) == 2
         updated = json.loads(json.dumps(manifest))
         updated['plugins'][0].update(version='1.2', min_app_version='0.4')
-        changed = Client([response(updated, 'second')])
+        changed = Client([response(updated, 'second'), response([], 'releases')])
         latest = online.cached_plugin_catalog(changed, '0.3', path, force=True)
         assert latest[0]['version'] == '1.2' and not latest[0]['available']
         assert online.cached_plugin_catalog(Client([]), '0.4', path)[0]['available']
         offline = Client([online.requests.ConnectionError('offline'), online.requests.ConnectionError('offline')])
-        assert online.cached_plugin_catalog(offline, '0.3', path, force=True) == latest
-        assert online.load_plugin_cache(path)['offers'] == latest, 'network failure must retain the newer cached catalog'
+        cached_latest = [dict(offer, cached=True) for offer in latest]
+        assert online.cached_plugin_catalog(offline, '0.3', path, force=True) == cached_latest
+        assert online.load_plugin_cache(path)['offers'] == cached_latest, 'network failure must retain the newer cached catalog'
         retry = Client([])
-        assert online.cached_plugin_catalog(retry, '0.3', path) == latest and not retry.calls, \
+        assert online.cached_plugin_catalog(retry, '0.3', path) == cached_latest and not retry.calls, \
             'offline reopenings must also respect the check interval'
         corrupted = online.load_plugin_cache(path)
         corrupted['offers'][0]['url'] = 'https://example.com/untrusted.zip'

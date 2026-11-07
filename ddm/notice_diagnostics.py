@@ -42,15 +42,25 @@ class NoticeCloseTrace(QObject):
         kind = {'开播提醒': 'live', '版本更新': 'update', '操作提示': 'info',
                 '需要留意': 'warning'}.get(notice.category.text(), 'other')
         artwork = getattr(getattr(notice, 'artwork', None), 'source', None)
+        animation = getattr(notice, '_motion', None)
+        history_row = animation is None
+        if history_row:
+            animation = notice.animation
+        timer = getattr(notice, 'timer', None)
+        close_timer = notice._close_timer
         row = dict(session=self.session, at_ms=round((time.perf_counter() - self.started) * 1000, 3),
                    stage=stage, kind=kind, id=id(notice), hwnd=hex(hwnd), visible=notice.isVisible(),
                    native_visible=native_visible, opacity=notice.windowOpacity(),
-                   geometry=list(notice.geometry().getRect()), leaving=notice._leaving,
-                   progress=notice._progress, animation=notice._motion.state().name,
-                   animation_ms=notice._motion.currentTime(), duration_ms=notice._motion.duration(),
-                   timer=notice.timer.isActive(), timer_remaining_ms=notice.timer.remainingTime(),
+                   geometry=list(notice.geometry().getRect()),
+                   surface='history' if history_row else 'toast',
+                   leaving=notice._paper is not None if history_row else notice._leaving,
+                   progress=notice._progress, animation=animation.state().name,
+                   animation_ms=animation.currentTime(), duration_ms=animation.duration(),
+                   timer=timer.isActive() if timer is not None else False,
+                   timer_remaining_ms=timer.remainingTime() if timer is not None else -1,
+                   close_timer=close_timer.isActive(), close_remaining_ms=close_timer.remainingTime(),
                    stack_size=len(getattr(notice.parentWidget(), '_notices', [])),
-                   history_links=len(notice._history_entries), updates=notice.updatesEnabled(),
+                   history_links=len(getattr(notice, '_history_entries', ())), updates=notice.updatesEnabled(),
                    artwork_key=artwork.cacheKey() if artwork is not None else None,
                    **extra)
         self.count += 1
@@ -91,7 +101,7 @@ class NoticeCloseTrace(QObject):
     def eventFilter(self, watched, event):
         if (event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease)
                 and event.button() == Qt.LeftButton):
-            notice = watched.window()
+            notice = watched.parentWidget()
             self.watch(notice)
             self.record('button:' + event.type().name, notice,
                         button_down=watched.isDown(), inside=watched.rect().contains(event.position().toPoint()),
@@ -100,27 +110,31 @@ class NoticeCloseTrace(QObject):
 
     def install(self):
         from ddm.online_ui import UpdateNotice, ResultNotice
+        from ddm.notification_center import NoticeRow
         trace = self
-        original_init = UpdateNotice.__init__
-        @functools.wraps(original_init)
-        def initialize(notice, *args, **kwargs):
-            original_init(notice, *args, **kwargs)
-            button = notice.findChild(QPushButton, 'NoticeClose')
-            button.installEventFilter(trace)
-            reference = weakref.ref(notice)
-            def clicked():
-                item = reference()
-                if item is not None:
-                    trace.record('button:clicked', item)
-            button.clicked.connect(clicked)
-        UpdateNotice.__init__ = initialize
+        def initialize(original_init):
+            @functools.wraps(original_init)
+            def call(notice, *args, **kwargs):
+                original_init(notice, *args, **kwargs)
+                button = notice.findChild(QPushButton, 'NoticeClose')
+                button.installEventFilter(trace)
+                reference = weakref.ref(notice)
+                def clicked():
+                    item = reference()
+                    if item is not None:
+                        trace.record('button:clicked', item)
+                button.clicked.connect(clicked)
+            return call
+        for owner in (UpdateNotice, NoticeRow):
+            owner.__init__ = initialize(owner.__init__)
         hooks = ((UpdateNotice, ('dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent')),
                  (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar',
-                                 '_motion_frame', 'reposition', 'paintEvent')))
+                                 '_motion_frame', 'reposition', 'paintEvent')),
+                 (NoticeRow, ('remove', '_frame', 'finish_removal')))
         def wrap(method, label):
             @functools.wraps(method)
             def call(notice, *args, **kwargs):
-                if label.endswith('.dismiss') and kwargs.get('handled', False):
+                if label.endswith(('.dismiss', '.remove')):
                     trace.watch(notice)
                 elif label.endswith('.show_message'):
                     trace.watch(notice, trigger=False)

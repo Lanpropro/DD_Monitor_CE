@@ -340,7 +340,9 @@ class TilePlayer(QObject):
 
     def refresh_audio_device(self) -> None:
         if self.player is not None and not self.silent and not self._released:
-            self.player.command("ao-reload")
+            # The synchronous API runs WASAPI uninit on its caller and can tear
+            # down Qt's COM STA. Dispatch to mpv's core, then wait for the result.
+            self.player.command_async("ao-reload").result()
 
     def set_paused(self, paused: bool) -> None:
         self.paused = bool(paused)

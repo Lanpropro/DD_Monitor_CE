@@ -45,7 +45,7 @@ def main():
                 output.setsampwidth(2)
                 output.setframerate(48000)
                 output.writeframes(b'\0' * (48000 * 4 * 8))
-            for mode in ('terminate', 'release', 'preview'):
+            for mode in ('refresh', 'terminate', 'release', 'preview'):
                 for cycle in range(args.cycles):
                     player = TilePlayer(widget, silent=mode == 'preview')
                     try:
@@ -65,6 +65,18 @@ def main():
                         if mode == 'terminate':
                             player.player.terminate()
                             player.player = None
+                        if mode == 'refresh':
+                            position = player._prop('time-pos', 0)
+                            player.refresh_audio_device()
+                            current = apartment()
+                            assert current == baseline, f'{mode} cycle {cycle}: COM changed {baseline} -> {current}'
+                            deadline = time.monotonic() + 10
+                            while (player._prop('time-pos', 0) or 0) < position + .1:
+                                if time.monotonic() > deadline:
+                                    raise AssertionError('Playback did not resume after audio device refresh')
+                                app.processEvents()
+                                time.sleep(.01)
+                            assert player._prop('current-ao') == 'wasapi', 'Refresh lost WASAPI output'
                         player.release()
                         current = apartment()
                         assert current == baseline, f'{mode} cycle {cycle}: COM changed {baseline} -> {current}'

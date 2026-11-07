@@ -98,7 +98,8 @@ def child(action):
             if action.startswith('embed-'):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
-                self.sequence = iter((7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
+                self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
+                                     (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action in ('focus', 'zorder'):
@@ -139,10 +140,25 @@ def child(action):
                 assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
+                extra = {}
+                if action == 'embed-footer':
+                    import ctypes
+                    from ctypes import wintypes
+                    from PySide6.QtCore import QPoint
+                    from PySide6.QtWidgets import QPushButton
+                    origin = wintypes.POINT()
+                    ctypes.windll.user32.ClientToScreen(ctypes.c_void_p(int(self.winId())), ctypes.byref(origin))
+                    scale = self.devicePixelRatioF()
+                    buttons = [self.confirm_button, next(button for button in self.findChildren(QPushButton) if button.text() == '取消')]
+                    extra['footer_top'] = min(origin.y + round(button.mapTo(self, QPoint()).y() * scale) for button in buttons)
+                    extra['footer_visible'] = all(button.isVisible() and self.rect().contains(button.geometry()) for button in buttons)
+                    start = self.host_container.mapTo(self, QPoint())
+                    extra['content_rect'] = [origin.x + round(start.x() * scale), origin.y + round(start.y() * scale),
+                                             round(self.host_container.width() * scale), round(self.host_container.height() * scale)]
                 print(settings_process.PREFIX + json.dumps({
                     'kind': 'shell', 'index': index, 'hwnd': int(self.winId()),
                     'embedded': self.host_container is not None,
-                    'size': [self.width(), self.height()]}), flush=True)
+                    'size': [self.width(), self.height()], **extra}), flush=True)
                 QTimer.singleShot(50, self.step)
             QTimer.singleShot(200, observed)
 
@@ -152,7 +168,8 @@ def child(action):
             from PySide6.QtCore import Qt
             dialog.setAttribute(Qt.WA_ShowWithoutActivating)
             dialog.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
-            dialog.setGeometry(-10000, -10000, 980, 720)
+            dialog.setGeometry(-10000, -10000, 720 if action == 'embed-footer' else 980,
+                               650 if action == 'embed-footer' else 720)
             dialog.show()
         settings_process._activate_dialog = background_activate
     if action == 'zorder':
@@ -571,6 +588,10 @@ def check_host_application(app, action='save', *, installed_controls=False):
                                                    'appearance_mode': 'light' if action == 'embed-cancel' else 'dark',
                                                    'sidebar_platform_logos': not action.startswith('logos-')}})
         plugin_saves = {}
+        if action == 'embed-footer':
+            entries = [dict(id=f'footer_{index}', name=f'插件 {index}', description='插件说明',
+                            version='1.0', enabled=True, status='已加载', reason='') for index in range(12)]
+            stack.enter_context(patch.object(window.plugins, 'catalog', return_value=entries))
         if action.startswith('logos-'):
             from PySide6.QtCore import QEvent, QObject
             from PySide6.QtWidgets import QCheckBox
@@ -642,6 +663,15 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert message['embedded']
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
+                    if action == 'embed-footer':
+                        from ctypes import wintypes
+                        rect = wintypes.RECT()
+                        assert user32.GetWindowRect(handle, ctypes.byref(rect))
+                        assert message['footer_visible'], message
+                        x, y, width, height = message['content_rect']
+                        assert all(abs(actual - expected) <= 2 for actual, expected in zip(
+                            (rect.left, rect.top, rect.right, rect.bottom), (x, y, x + width, y + height))), ('Host must fit the content area', (rect.left, rect.top, rect.right, rect.bottom), message)
+                        assert rect.bottom <= message['footer_top'], ('Embedded page covers save/cancel', (rect.left, rect.top, rect.right, rect.bottom), message)
                     image = session.stack.grab().toImage()
                     actual = image.pixelColor(1, 1)
                     assert actual == theme.qcolor(theme.BG), (message['index'], actual.name(), theme.BG, actual.alpha())
@@ -675,13 +705,21 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == [1, 0, 6, 7, 2, 8, 5, 1, 0]
+                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
                 assert window.settings['default_volume'] == (17 if action == 'embed-save' else initial_volume)
                 assert window.settings['auto_update'] is (action == 'embed-save')
                 assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
+                if action == 'embed-footer':
+                    process_pid = client.process.processId()
+                    messages.clear()
+                    client.open(window.settings, window.shortcuts)
+                    wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
+                    assert client.process.processId() == process_pid, 'Reopen must reuse the worker'
+                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == [7, 0, 7]
+                    assert getattr(window, '_settings_host', None) is None
                 assert not errors, errors
                 return
             assert window.settings['default_volume'] == 17
@@ -922,6 +960,11 @@ def main():
         check_theme_sync(app)
         return 0
     check_nonblocking_online_close(app)
+    if sys.argv[1:] == ['--footer-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-footer')
+        print('PASS: first plugin entry, page switching and reopen keep the native content above save/cancel')
+        return 0
     if sys.argv[1:] == ['--native-zorder']:
         assert app.platformName() == 'windows'
         check_native_zorder(app)

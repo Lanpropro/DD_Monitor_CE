@@ -34,11 +34,11 @@
 
 多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
 
-侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
-
 矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
 
 播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
+
+侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
 
 ## 已跟踪的其他文件：逐项标注
 
@@ -53,6 +53,7 @@
 
 - `tools/diagnostics/Collector.cs`
 - `tools/diagnostics/NativeDependencies.cs`
+- `tools/diagnostics/OnDemand.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
 - `dev/build_diagnostics.ps1`
@@ -60,6 +61,7 @@
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
 - `dev/selfcheck_sidebar_diagnostics.py`
+- `dev/selfcheck_on_demand_diagnostics.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
@@ -77,6 +79,7 @@
 
 - `dev/selfcheck_image_cache.py`
 - `dev/selfcheck_picture_in_picture.py`
+- `dev/selfcheck_pip_picker.py`
 - `dev/selfcheck_ui_components.py`
 - `dev/check_emoticon_live.py`
 - `dev/check_live_danmaku_motion.py`
@@ -160,6 +163,7 @@
 - `dev/selfcheck_domestic_follows.py`
 - `dev/selfcheck_douyin_account_import.py`
 - `dev/selfcheck_display_transition.py`
+- `dev/selfcheck_window_move_restore.py`
 - `dev/selfcheck_douyin_follow_cache.py`
 - `dev/selfcheck_douyin_follow_resolution.py`
 - `dev/selfcheck_douyin_profile_add.py`
@@ -354,8 +358,10 @@
 - `dev/selfcheck_quality.py`
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
+- `dev/selfcheck_recording_service.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
+- `dev/selfcheck_hotfix_updates.py`
 - `dev/selfcheck_remove_follow_position.py`
 - `dev/selfcheck_replay_scope.py`
 - `dev/selfcheck_repository_files.py`
@@ -405,6 +411,7 @@
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_user_notice.py`
 - `dev/selfcheck_video_danmaku.py`
+- `dev/selfcheck_danmaku_color.py`
 - `dev/selfcheck_video_danmaku_controls.py`
 - `dev/selfcheck_video_danmaku_native.py`
 - `dev/selfcheck_video_danmaku_quick.py`
@@ -508,6 +515,7 @@
 - `docs/releases/RELEASE-v0.6.md`
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/RELEASE-v0.7.1.md`
+- `docs/releases/RELEASE-v0.7.2.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具

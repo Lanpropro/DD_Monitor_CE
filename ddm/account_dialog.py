@@ -1,6 +1,5 @@
 """在同一窗口内切换平台、登录和勾选关注。"""
 import os
-import time
 from copy import deepcopy
 
 from PySide6.QtCore import QThread, QUrl, Qt, Signal
@@ -16,26 +15,38 @@ from .widgets import AccountRow, BRAND_ASSETS_DIR
 
 class FollowAccountResolver(QThread):
     updated = Signal(dict)
+    progress = Signal(int, int)
 
-    def __init__(self, platform, accounts, parent):
+    def __init__(self, platform, accounts, parent, *, start_index=0):
         super().__init__(parent)
         self.platform = platform
         self.accounts = deepcopy(accounts)
+        self.next_index = start_index
+        self.failures = 0
 
     def run(self):
-        deadline = time.monotonic() + 30
-        cancelled = lambda: self.isInterruptionRequested() or time.monotonic() >= deadline
-        for account in self.accounts:
+        cancelled = self.isInterruptionRequested
+        for index in range(self.next_index, len(self.accounts)):
             if cancelled():
                 break
-            if account.get("room_id") and account.get("live_known") is not False:
-                continue
-            try:
-                resolved = self.platform.resolve_follow_account(account, cancelled)
-            except Exception:  # 单个账号失败不影响其余关注，也不覆盖原身份。
-                continue
-            if not cancelled():
-                self.updated.emit(resolved)
+            account = self.accounts[index]
+            if account.get("follow_account_ref") or not account.get("room_id") or account.get("live_known") is False:
+                error_kind = ""
+                try:
+                    resolved = self.platform.resolve_follow_account(account, cancelled)
+                except Exception as error:  # 单个账号失败不影响其余关注，也不覆盖原身份。
+                    self.failures += 1
+                    error_kind = type(error).__name__
+                    resolved = dict(account)
+                if cancelled():
+                    break
+                if resolved is not None:
+                    resolved = dict(resolved, follow_resolve_error=error_kind,
+                                    follow_resolve_note="未取得房间号" if not resolved.get("room_id") else
+                                    "未取得直播状态" if resolved.get("live_known") is False else "")
+                    self.updated.emit(resolved)
+            self.next_index = index + 1
+            self.progress.emit(self.next_index, len(self.accounts))
 
 
 class AccountPlatformDialog(QDialog):
@@ -195,7 +206,9 @@ class AccountPlatformDialog(QDialog):
             self._account_resolver.requestInterruption()
             old_page = self._follow_pages.get(self.kind)
             if hasattr(old_page, "resolve_button"):
-                old_page.resolve_button.setText("补充识别")
+                old_page._resolve_cursor = self._account_resolver.next_index
+                old_page.resolve_button.setText("继续识别")
+                old_page.resolve_button.setEnabled(True)
             self._account_resolver = None
         if reread:
             self._follow_pages.pop(kind, None)
@@ -401,9 +414,26 @@ class AccountPlatformDialog(QDialog):
             rooms = [dict(room, pending_import=True,
                           pending_folder_id=pending[room.get("anchor_uid")].get("pending_folder_id", ""))
                      if room.get("anchor_uid") in pending else dict(room) for room in rooms]
+            reference = getattr(self.providers.get("douyin"), "follow_account_reference", None)
+            if callable(reference):
+                existing_accounts = {str(room.get("anchor_uid")): room for room in self.owner.sidebar.rooms()
+                                     if room.get("platform") == "douyin" and room.get("anchor_uid")}
+                converted = []
+                for room in rooms:
+                    saved = existing_accounts.get(str(room.get("anchor_uid")))
+                    if saved is not None:
+                        room = dict(room, room_id=saved["room_id"],
+                                    follow_account_ref=saved.get("follow_account_ref", False))
+                    if not room.get("room_id") or room.get("follow_account_ref"):
+                        room = reference(room)
+                    if saved is None and room.get("resolved_room_id") in existing:
+                        room = dict(room, room_id=room["resolved_room_id"], follow_account_ref=False)
+                    converted.append(room)
+                rooms = converted
         page = FollowImportDialog(rooms, existing, self.owner,
                                   folders=self.owner.sidebar.folder_state(),
-                                  folder_creator=self.owner.sidebar.create_folder)
+                                  folder_creator=self.owner.sidebar.create_folder,
+                                  room_menu=self.kind == "douyin")
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:
@@ -418,32 +448,50 @@ class AccountPlatformDialog(QDialog):
             page.reread_button.setAutoDefault(False)
             page.reread_button.clicked.connect(lambda: self.select_platform("douyin", reread=True))
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
+            page.platform_notice = QLabel("受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。"
+                                          "你仍可直接勾选账号导入，软件会随后台刷新继续查询", page)
+            page.platform_notice.setObjectName("SettingsHint")
+            page.platform_notice.setWordWrap(True)
+            page.layout().insertWidget(1, page.platform_notice)
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
         page.avatarRequested.connect(lambda faces: self.owner._start_avatar_loader(faces, page.set_avatar))
-        self._set_page(page)
-        page.request_visible_avatars()
         if self.kind == "douyin" and callable(getattr(self.providers.get("douyin"), "resolve_follow_account", None)):
+            page._resolve_cursor = 0
+            page.resolve_status = QLabel("列表已读取，可勾选导入。", page)
+            if not callable(getattr(self.providers["douyin"], "follow_account_reference", None)):
+                page.resolve_status.setText("待识别账号仅保存选择，取得房间号前不会加入关注栏；更新插件可直接按账号导入。")
+            page.resolve_status.setObjectName("SettingsHint")
+            page.resolve_status.setWordWrap(True)
+            page.layout().insertWidget(2, page.resolve_status)
+            page.resolve_status.setVisible(not callable(getattr(self.providers["douyin"], "follow_account_reference", None)))
             page.resolve_button = QPushButton("补充识别", page)
             page.resolve_button.setObjectName("IconButton")
             page.resolve_button.setCursor(Qt.PointingHandCursor)
             page.resolve_button.setAutoDefault(False)
             page.resolve_button.clicked.connect(lambda: self._resolve_accounts(page))
             page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(1, page.resolve_button)
-            # 打开磁盘缓存不触发网络；新读取的列表才自动补充。
-            if "douyin" in self._platform_pages:
-                self._resolve_accounts(page)
+        self._set_page(page)
+        page.request_visible_avatars()
+        # 打开磁盘缓存不触发网络；新读取的列表才自动补充。
+        if hasattr(page, "resolve_button") and "douyin" in self._platform_pages:
+            self._resolve_accounts(page)
 
     def _resolve_accounts(self, page):
         if self._account_resolver is not None:
             self._account_resolver.requestInterruption()
+            page.resolve_button.setText("正在停止…")
+            page.resolve_button.setEnabled(False)
             return
-        worker = FollowAccountResolver(self.providers["douyin"], page.rooms, self.owner)
+        start = page._resolve_cursor if page._resolve_cursor < len(page.rooms) else 0
+        worker = FollowAccountResolver(self.providers["douyin"], page.rooms, self.owner, start_index=start)
         self._account_resolver = worker
         running = getattr(self.owner, "_platform_info_running", None)
         if running is not None:
             running.add(worker)
         page.resolve_button.setText("停止识别")
+        page.resolve_status.setText(f"正在识别直播间：已处理 {start}/{len(page.rooms)} 个关注。")
+        page.resolve_status.show()
         def update(account):
             if (self._account_resolver is not worker or worker.isInterruptionRequested()
                     or self._closing_result is not None or getattr(self.owner, "_closing", False)):
@@ -452,12 +500,26 @@ class AccountPlatformDialog(QDialog):
             cache = getattr(self.owner, "_cache_douyin_follows", None)
             if callable(cache):
                 cache(page.rooms)
+        def progress(current, total):
+            if self._account_resolver is worker and self._closing_result is None:
+                page.resolve_status.setText(f"正在识别直播间：已处理 {current}/{total} 个关注，"
+                                            "已识别的直播间可随时勾选导入。")
         def finished():
             if running is not None:
                 running.discard(worker)
             if self._account_resolver is worker:
                 self._account_resolver = None
-                page.resolve_button.setText("补充识别")
+                page._resolve_cursor = worker.next_index
+                page.resolve_button.setEnabled(True)
+                page.resolve_button.setText("继续识别" if worker.next_index < len(page.rooms) else "补充识别")
+                state = "识别已停止" if worker.isInterruptionRequested() else "识别完成"
+                pending = sum(not room.get("room_id") or (bool(room.get("follow_account_ref")) and
+                              not room.get("resolved_room_id")) for room in page.rooms)
+                unknown = sum(bool(room.get("room_id")) and room.get("live_known") is False for room in page.rooms)
+                page.resolve_status.hide()
+                print(f"[抖音关注识别] 状态={state} 已处理={worker.next_index}/{len(page.rooms)} "
+                      f"待识别={pending} 状态未知={unknown} 失败={worker.failures}")
+        worker.progress.connect(progress)
         worker.updated.connect(update)
         worker.finished.connect(finished)
         worker.finished.connect(worker.deleteLater)

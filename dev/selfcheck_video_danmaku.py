@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import subprocess
 import threading
 import time
 from unittest.mock import AsyncMock, Mock, patch
@@ -941,19 +942,23 @@ def check_settings(app):
         labels = [label.text() for label in page.findChildren(QLabel)]
         assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
         assert not {"大小", "滚动速度", "不透明度", "顶部显示区域"}.intersection(labels)
-        assert [box.text() for box in page.findChildren(QCheckBox)] == ['显示醒目留言（SC）'], \
-            'Global danmaku settings expose the SC switch, not the removed scale switch'
+        assert {box.text() for box in page.findChildren(QCheckBox)} == {
+            '显示醒目留言（SC）', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置'}, \
+            'Global danmaku settings expose SC controls, not rolling-text controls'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
         page.super_chat_collapse_delay.setValue(12)
         page.super_chat_scale.setValue(145)
+        page.super_chat_scale_with_video.setChecked(True)
         assert page.values()['super_chat_enabled'] is False
         assert page.values()['super_chat_opacity'] == 35
         assert page.values()['super_chat_collapse_delay'] == 12
         assert page.values()['super_chat_scale'] == 145
+        assert page.values()['super_chat_scale_with_video'] is True
         page.reset()
         assert page.values()['super_chat_collapse_delay'] == 7
         assert page.values()['super_chat_scale'] == 100
+        assert page.values()['super_chat_scale_with_video'] is False
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()
@@ -1066,8 +1071,19 @@ def check_qt_picture_surface(app):
 
 
 def main():
+    main_window_only = '--main-window-only' in sys.argv
+    if not main_window_only:
+        # Keep main-window/QThread fixtures separate from prior raster/Quick fixtures.
+        subprocess.run([sys.executable, str(Path(__file__).parent / 'checks/bootstrap.py'),
+                        str(Path(__file__).resolve()), '--main-window-only'], check=True, timeout=90)
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.qss())
+    if main_window_only:
+        check_routing(app)
+        check_settings(app)
+        check_cancel(app)
+        print('PASS: isolated main-window routing, settings and connection cancellation')
+        return
     check_quick_surface_recovery(app)
     check_fonts(app)
     check_initial_background_raster(app)
@@ -1080,9 +1096,6 @@ def main():
     check_moved_overlay_refresh(app)
     check_quick_group_follows_tile_move(app)
     check_motion(app)
-    check_routing(app)
-    check_settings(app)
-    check_cancel(app)
     check_quick_owner_destruction(app)
     print("画面弹幕滚动、防追尾、设置、底栏、连接共享、换台、全屏及退出：通过")
 

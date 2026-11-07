@@ -2,15 +2,16 @@
 import math
 import sys
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSize, QTimer, Qt
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSignalBlocker, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from . import theme
-from .ui import ActionButton, ElidedLabel, page_header
+from . import follow_folders, theme
+from .search import matches_text
+from .ui import ActionButton, Avatar, ElidedLabel, page_header
 
 
 FOCUS_LAYOUT = -1
@@ -100,6 +101,8 @@ def pane_rectangles(count, area, columns=0, aspects=None, primary=0):
 
 
 class CompositionPreview(QFrame):
+    positionsSwapped = Signal(int, int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName('PluginCard')
@@ -109,12 +112,17 @@ class CompositionPreview(QFrame):
         self.aspect = 16 / 9
         self.aspects = []
         self.primary = 0
+        self._drag = None
+        self._ghost = None
+        self._drop_target = None
+        self.setAccessibleName('拖动预览画面交换位置')
 
     def set_panes(self, names, columns, aspects=None, primary=0):
+        self.cancel_drag()
         for label in self.labels:
+            label.hide()
             label.deleteLater()
-        self.labels = [ElidedLabel('主画面 · ' + name if columns == FOCUS_LAYOUT and index == primary else name, self)
-                       for index, name in enumerate(names)]
+        self.labels = [ElidedLabel(name, self) for name in names]
         self.columns = columns
         self.primary = primary
         self.aspects = aspects or [16 / 9] * len(names)
@@ -123,6 +131,9 @@ class CompositionPreview(QFrame):
             label.setAlignment(Qt.AlignCenter)
             label.setObjectName('PluginCard')
             label.setTextFormat(Qt.PlainText)
+            label.setCursor(Qt.OpenHandCursor)
+            label.setToolTip(label.text() + '\n拖到另一画面上交换位置')
+            label.installEventFilter(self)
             label.show()
         self._arrange()
 
@@ -136,21 +147,133 @@ class CompositionPreview(QFrame):
             label.setGeometry(rect)
 
     def resizeEvent(self, event):
+        self.cancel_drag()
         super().resizeEvent(event)
         self._arrange()
+
+    def _highlight(self, target):
+        if target is self._drop_target:
+            return
+        previous, self._drop_target = self._drop_target, target
+        for label in (previous, target):
+            if label is not None:
+                label.setProperty('pipDropTarget', label is target)
+                label.style().unpolish(label)
+                label.style().polish(label)
+                label.update()
+
+    def cancel_drag(self):
+        self._drag = None
+        QApplication.instance().removeEventFilter(self)
+        if QWidget.mouseGrabber() is self:
+            self.releaseMouse()
+        if self._ghost is not None:
+            self._ghost.hide()
+            self._ghost.deleteLater()
+            self._ghost = None
+        self._highlight(None)
+
+    def eventFilter(self, watched, event):
+        kind = event.type()
+        if self._drag is None:
+            if watched in self.labels and kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                position = event.globalPosition().toPoint()
+                self._drag = (self.labels.index(watched), position, watched.mapFromGlobal(position))
+                self.grabMouse(Qt.ClosedHandCursor)
+                QApplication.instance().installEventFilter(self)
+                return True
+            return False
+        if kind == QEvent.MouseMove:
+            if not event.buttons() & Qt.LeftButton:
+                self.cancel_drag()
+                return True
+            source, pressed, offset = self._drag
+            position = event.globalPosition().toPoint()
+            if self._ghost is None and (position - pressed).manhattanLength() >= QApplication.startDragDistance():
+                self._ghost = QLabel(self)
+                self._ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
+                self._ghost.setPixmap(self.labels[source].grab())
+                self._ghost.setFixedSize(self.labels[source].size())
+                self._ghost.show()
+            if self._ghost is not None:
+                point = self.mapFromGlobal(position)
+                self._ghost.move(point - offset)
+                self._ghost.raise_()
+                self._highlight(next((label for index, label in enumerate(self.labels)
+                    if index != source and label.geometry().contains(point)), None))
+            return True
+        if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            source = self._drag[0]
+            point = self.mapFromGlobal(event.globalPosition().toPoint())
+            target = next((index for index, label in enumerate(self.labels) if label.geometry().contains(point)), None)
+            moved = self._ghost is not None
+            self.cancel_drag()
+            if moved and target is not None and target != source:
+                self.positionsSwapped.emit(source, target)
+            return True
+        if kind == QEvent.KeyPress and event.key() == Qt.Key_Escape:
+            self.cancel_drag()
+            return True
+        if (kind == QEvent.ApplicationDeactivate or
+                watched is self and kind in (QEvent.Hide, QEvent.UngrabMouse) or
+                watched is self.window() and kind in (QEvent.Hide, QEvent.WindowDeactivate)):
+            self.cancel_drag()
+        return False
+
+
+class RoomChoice(QPushButton):
+    def __init__(self, room, name, index, pixmap, parent):
+        super().__init__(parent)
+        self.preview_name = name
+        self.setObjectName('PipRoomChoice')
+        self.setCheckable(True)
+        self.setAutoDefault(False)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(64)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setToolTip(name + ' · ' + str(room['room_id']))
+        self.setAccessibleName(self.toolTip())
+        box = QVBoxLayout(self)
+        box.setContentsMargins(5, 5, 5, 4)
+        box.setSpacing(3)
+        display = str(room.get('uname') or room['room_id'])
+        self.avatar = Avatar(display, index, size=28, parent=self)
+        self.avatar.set_pixmap_image(pixmap)
+        box.addWidget(self.avatar, 0, Qt.AlignHCenter)
+        label = ElidedLabel(display, self)
+        label.setStyleSheet(f'color: {theme.TEXT1};')
+        label.setAlignment(Qt.AlignCenter)
+        label.setTextFormat(Qt.PlainText)
+        label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        box.addWidget(label)
+        self.badge = QLabel('✓', self)
+        self.badge.setObjectName('PipChoiceBadge')
+        self.badge.setAlignment(Qt.AlignCenter)
+        self.badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.badge.setFixedSize(16, 16)
+        self.badge.hide()
+        self.toggled.connect(self.badge.setVisible)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.badge.move(self.width() - 20, 4)
 
 
 class PictureInPictureDialog(QDialog):
     def __init__(self, controller):
         super().__init__(controller.floating or controller.host)
         self.controller = controller
+        self._order = list(controller.selected_choices())
+        self._primary = controller.primary_choice()
         self.setWindowTitle('组合画中画')
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.resize(480, 580)
+        available = self.screen().availableGeometry()
+        self.resize(min(520, available.width() - 48), min(720, available.height() - 80))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.addLayout(page_header('画中画', '选择画面组合；退出后恢复原监控室布局'))
         self.preview = CompositionPreview(self)
+        self.preview.positionsSwapped.connect(self._swap_preview)
         layout.addWidget(self.preview)
         self.columns = QComboBox(self)
         for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
@@ -159,33 +282,66 @@ class PictureInPictureDialog(QDialog):
         self.columns.setAccessibleName('画中画排列方式')
         self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
         layout.addWidget(self.columns)
-        self.primary_row = QWidget(self)
-        primary_box = QHBoxLayout(self.primary_row)
-        primary_box.setContentsMargins(0, 0, 0, 0)
-        primary_label = QLabel('主画面', self.primary_row)
-        self.primary = QComboBox(self.primary_row)
-        self.primary.setAccessibleName('画中画主画面')
-        primary_label.setBuddy(self.primary)
-        primary_box.addWidget(primary_label)
-        primary_box.addWidget(self.primary, 1)
-        layout.addWidget(self.primary_row)
+        self.search = QLineEdit(self)
+        self.search.setObjectName('Search')
+        self.search.setPlaceholderText(controller.host.sidebar.search.placeholderText())
+        self.search.setToolTip(controller.host.sidebar.search.toolTip())
+        self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName('搜索画中画直播间')
+        self.search.textChanged.connect(self._filter)
+        layout.addWidget(self.search)
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.choice_viewport = scroll.viewport()
+        self.choice_viewport.installEventFilter(self)
         content = QWidget()
         choices = QVBoxLayout(content)
+        choices.setContentsMargins(0, 0, 0, 0)
+        choices.setSpacing(10)
         self.checks = {}
-        capacity = controller.host.wall._capacity() or len(controller.host.wall.tiles)
-        for index, tile in enumerate(controller.host.wall.tiles[:capacity]):
-            if not tile.room.get('room_id'):
+        self.choice_buttons = {}
+        self.rooms = {}
+        self.sections = []
+        self.choice_grids = []
+        selected = controller.selected_choices()
+        faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in controller.host.sidebar.items()}
+        for title, entries in controller.candidate_groups():
+            if not entries:
                 continue
-            name = f'{index + 1} · ' + str(tile.room.get('uname') or tile.room['room_id'])
-            check = QCheckBox(name, content)
-            check.setToolTip(name)
-            check.setChecked(index in controller.selection)
-            check.toggled.connect(self._refresh)
-            self.checks[index] = check
-            choices.addWidget(check)
+            holder = QFrame(content)
+            holder.setObjectName('PluginCard')
+            block = QVBoxLayout(holder)
+            block.setContentsMargins(10, 10, 10, 10)
+            heading = QLabel(title, holder)
+            heading.setObjectName('SectionLabel')
+            heading.setTextFormat(Qt.PlainText)
+            block.addWidget(heading)
+            grid = QGridLayout()
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setSpacing(6)
+            block.addLayout(grid)
+            choices.addWidget(holder)
+            self.choice_grids.append(grid)
+            group = []
+            for key, room in entries:
+                name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
+                index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
+                check = RoomChoice(room, name, index, faces.get(str(room['room_id'])), holder)
+                check.choice = key
+                sidebar = controller.host.sidebar
+                folder = sidebar.get_folder(sidebar.folder_for(str(room['room_id'])))
+                check.folder_names = ' '.join((folder['name'] if folder else '',
+                                               title if title != '已入墙' else ''))
+                check.setChecked(key in selected)
+                self.checks.setdefault(key, check)
+                self.choice_buttons.setdefault(key, []).append(check)
+                check.toggled.connect(lambda checked, choice=key: self._toggle_choice(choice, checked))
+                self.rooms[key] = room
+                check.show()
+                group.append(check)
+            self.sections.append((heading, group))
         choices.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
@@ -204,38 +360,82 @@ class PictureInPictureDialog(QDialog):
         footer.addWidget(self.start)
         layout.addLayout(footer)
         self.columns.currentIndexChanged.connect(self._refresh)
-        self.primary.currentIndexChanged.connect(self._refresh)
         self._refresh()
+        self._arrange_choices()
 
     def _selected(self):
         checked = [index for index, check in self.checks.items() if check.isChecked()]
-        return ([index for index in self.controller.selection if index in checked]
-                + [index for index in checked if index not in self.controller.selection])
+        previous = self._order
+        return ([index for index in previous if index in checked]
+                + [index for index in checked if index not in previous])
+
+    def _toggle_choice(self, key, checked):
+        for button in self.choice_buttons[key]:
+            with QSignalBlocker(button):
+                button.setChecked(checked)
+            button.badge.setVisible(checked)
+        self._refresh()
+
+    def _filter(self, value):
+        words = value.strip().lower().split()
+        for heading, buttons in self.sections:
+            visible = []
+            for button in buttons:
+                room = self.rooms[button.choice]
+                text = ' '.join((str(room.get('uname') or ''), str(room['room_id']), button.folder_names))
+                matches = all(matches_text(text, word) for word in words)
+                button.setVisible(matches)
+                visible.append(matches)
+            heading.setVisible(any(visible))
+        self._arrange_choices()
+
+    def _arrange_choices(self):
+        columns = max(1, min(6, (self.choice_viewport.width() - 20 + 6) // 110))
+        for (_heading, buttons), grid in zip(self.sections, self.choice_grids):
+            while grid.count():
+                grid.takeAt(0)
+            visible = [button for button in buttons if not button.isHidden()]
+            for column in range(max(columns, grid.columnCount())):
+                grid.setColumnStretch(column, 1 if column < columns else 0)
+            for index, button in enumerate(visible):
+                grid.addWidget(button, index // columns, index % columns)
+            grid.parentWidget().setVisible(bool(visible))
+
+    def eventFilter(self, watched, event):
+        if watched is self.choice_viewport and event.type() == QEvent.Resize:
+            self._arrange_choices()
+        return super().eventFilter(watched, event)
+
+    def _swap_preview(self, first, second):
+        selection = self._selected()
+        primary = selection.index(self._primary)
+        selection[first], selection[second] = selection[second], selection[first]
+        self._order = selection
+        if self.columns.currentData() == FOCUS_LAYOUT and len(selection) == 6:
+            self._primary = selection[primary]
+        self._refresh()
 
     def _refresh(self, *_args):
         selection = self._selected()
-        names = [self.checks[index].text() for index in selection]
-        primary = self.primary.currentData() if self.primary.count() else self.controller.primary
-        self.primary.blockSignals(True)
-        self.primary.clear()
-        for index, name in zip(selection, names):
-            self.primary.addItem(name, index)
-        self.primary.setCurrentIndex(max(0, self.primary.findData(primary)))
-        self.primary.blockSignals(False)
+        self._order = selection
+        names = [self.checks[index].preview_name for index in selection]
+        if self._primary not in selection:
+            self._primary = selection[0] if selection else None
         focus = self.columns.currentData() == FOCUS_LAYOUT
-        self.primary_row.setVisible(focus)
-        primary = selection.index(self.primary.currentData()) if selection else 0
+        primary = selection.index(self._primary) if selection else 0
         self.preview.set_panes(names, self.columns.currentData(), self.controller.aspects_for(selection), primary)
         valid = bool(names) and (not focus or len(names) == 6)
         self.start.setEnabled(valid)
-        self.hint.setText('单主＋五辅需要选择6路画面；主画面可在上方指定。' if focus and len(names) != 6 else
-                          f'已选择 {len(names)} 路。按直播比例缩放并支持置顶，其他画面按原声音设置在后台播放。'
-                          if self.checks else '画面墙中还没有直播间，请先添加画面。')
+        self.hint.setText('单主＋五辅需要选择6路画面；在预览中拖动交换位置。' if focus and len(names) != 6 else
+                          f'已选择 {len(names)} 路，可拖动预览交换位置；墙外直播仅在本次画中画中观看。'
+                          if self.checks else '暂无可选直播间，请先添加关注或画面。')
 
     def _apply(self):
         selected = self._selected()
-        self.controller.start(selected, self.columns.currentData(), self.primary.currentData())
-        self.accept()
+        if self.controller.start(selected, self.columns.currentData(), self._primary):
+            self.accept()
+        else:
+            self.hint.setText('所选直播间已变化或下播，请重新选择。')
 
 
 class PictureInPictureButton(QPushButton):
@@ -383,11 +583,8 @@ class PictureInPictureWindow(QWidget):
         self._geometry_timer.setTimerType(Qt.PreciseTimer)
         self._geometry_timer.setInterval(16)
         self._geometry_timer.timeout.connect(self._flush_geometry)
-        self._surface_state = [(widget, widget.hasMouseTracking(),
-                                widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None)
-                               for tile in controller.host.wall.tiles for widget in (tile, tile.video)]
-        for widget, _tracking, _cursor in self._surface_state:
-            widget.setMouseTracking(True)
+        self._surface_state = []
+        self.track_tiles(controller.host.wall.tiles)
         self._hover_timer = QTimer(self)
         self._hover_timer.setInterval(100)
         self._hover_timer.timeout.connect(self._poll_tools)
@@ -395,6 +592,18 @@ class PictureInPictureWindow(QWidget):
         QApplication.instance().installEventFilter(self)
         shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         shortcut.activated.connect(self._escape)
+
+    def track_tiles(self, tiles):
+        tracked = {widget for widget, _tracking, _cursor in self._surface_state}
+        for tile in tiles:
+            for widget in (tile, tile.video):
+                if widget not in tracked:
+                    self._surface_state.append((widget, widget.hasMouseTracking(),
+                        widget.cursor() if widget.testAttribute(Qt.WA_SetCursor) else None))
+                    widget.setMouseTracking(True)
+
+    def forget_tile(self, tile):
+        self._surface_state = [entry for entry in self._surface_state if entry[0] not in (tile, tile.video)]
 
     def _poll_tools(self):
         if self._live_move is not None:
@@ -815,6 +1024,10 @@ class PictureInPicture(QObject):
         self.selection = list(saved.get('selection', []))
         self.columns = saved.get('columns', 0)
         self.primary = saved.get('primary')
+        self.external_rooms = list(saved.get('external_rooms', []))
+        self.external_primary = saved.get('external_primary', '')
+        self._choice_order = list(saved.get('choice_order', []))
+        self._extra_tiles = {}
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
         self._video_aspects = {}
@@ -853,7 +1066,7 @@ class PictureInPicture(QObject):
             self.dialog.raise_()
             self.dialog.activateWindow()
             return
-        if not self.selection:
+        if not self.selection and not self.external_rooms:
             capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
             self.selection = [index for index, tile in enumerate(self.host.wall.tiles[:capacity])
                               if tile.room.get('room_id')]
@@ -865,10 +1078,76 @@ class PictureInPicture(QObject):
         self.dialog = None
         self._sync_overlays()
 
+    def candidate_groups(self):
+        wall = [(index, tile.room) for index, tile in enumerate(self.host.wall.tiles)
+                if tile.room.get('room_id') and not tile.property('pictureInPictureTemporary')]
+        wall_ids = {str(room['room_id']) for _index, room in wall}
+        others = {}
+        for room in self.host.sidebar.rooms():
+            rid = str(room.get('room_id') or '')
+            if rid and rid not in wall_ids and room.get('live') and room.get('live_known', True):
+                others.setdefault(rid, room)
+        for rid, tile in self._extra_tiles.items():
+            if tile.room.get('room_id') and rid in self.external_rooms:
+                others.setdefault(rid, tile.room)
+        by_room = {}
+        for key, room in wall + list(others.items()):
+            by_room.setdefault(str(room['room_id']), []).append((key, room))
+        sidebar = self.host.sidebar
+        default = sidebar.default_folder()['id']
+        groups = [('已入墙', wall)]
+        for folder in sidebar.folders:
+            copies = folder['type'] == 'smart' and folder['rule'].get('display') == 'copy'
+            members = follow_folders.smart_members(sidebar.rooms(), sidebar.folders, folder,
+                                                  sidebar._folder_pending) if copies else None
+            entries = [entry for rid, choices in by_room.items()
+                       if (rid in members if copies else (sidebar.folder_for(rid) or default) == folder['id'])
+                       for entry in choices]
+            if entries:
+                groups.append((folder['name'], entries))
+        return groups
+
+    def choice_for_index(self, index):
+        tiles = self.host.wall.tiles
+        if isinstance(index, int) and 0 <= index < len(tiles) and tiles[index].property('pictureInPictureTemporary'):
+            return str(tiles[index].room.get('room_id') or '')
+        return index
+
+    def selected_choices(self):
+        choices = [self.choice_for_index(index) for index in self.selection]
+        choices += [rid for rid in self.external_rooms if rid not in choices]
+        if self.active:
+            return choices
+        return ([key for key in self._choice_order if key in choices]
+                + [key for key in choices if key not in self._choice_order])
+
+    def primary_choice(self):
+        return self.external_primary or self.choice_for_index(self.primary)
+
+    def _remove_extra(self, rid):
+        tile = self._extra_tiles.pop(rid)
+        if self.floating is not None:
+            self.floating.forget_tile(tile)
+        self._video_aspects.pop(tile, None)
+        self._minimums.pop(tile, None)
+        dialog = self.host._stream_info_dialogs.get(tile)
+        if dialog is not None:
+            dialog.close()
+        self.host._clear_tile_room(tile)
+        if tile in self.host.recorder.sessions:
+            tile.hide()
+            self.host.wall.tiles.remove(tile)
+            self.host._preset_retired_tiles.add(tile)
+        else:
+            self.host.wall._drop_tile(tile)
+
     def aspects_for(self, selection):
         aspects = []
         for index in selection:
-            tile = self.host.wall.tiles[index]
+            tile = self._extra_tiles.get(index) if isinstance(index, str) else self.host.wall.tiles[index]
+            if tile is None:
+                aspects.append(16 / 9)
+                continue
             room = tile.room.get('room_id')
             aspect = video_aspect(self.host.players.get(tile))
             previous_room, previous_aspect = self._video_aspects.get(tile, (None, 16 / 9))
@@ -901,17 +1180,39 @@ class PictureInPicture(QObject):
 
     def start(self, selection, columns=0, primary=None):
         wall = self.host.wall
-        tiles = [wall.tiles[index] for index in selection
-                 if 0 <= index < len(wall.tiles) and wall.tiles[index].room.get('room_id')]
-        if not tiles:
-            return
-        selection = [wall.tiles.index(tile) for tile in tiles]
-        primary = primary if primary in selection else selection[0]
+        candidates = {key: room for _title, entries in self.candidate_groups() for key, room in entries}
+        for key in selection:
+            if isinstance(key, str) and key not in candidates:
+                return False
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
+        tiles, primary_tile, starting = [], None, []
+        for key in selection:
+            if isinstance(key, str):
+                tile = self._extra_tiles.get(key)
+                if tile is None:
+                    tile = wall._make_tile(dict(candidates[key]))
+                    tile.setProperty('pictureInPictureTemporary', True)
+                    self._extra_tiles[key] = tile
+                    starting.append(tile)
+            else:
+                tile = wall.tiles[key] if 0 <= key < len(wall.tiles) else None
+            if tile is not None and tile.room.get('room_id'):
+                if tile not in tiles:
+                    tiles.append(tile)
+                if key == primary:
+                    primary_tile = tile
+        if not tiles:
+            return False
+        selection = [wall.tiles.index(tile) for tile in tiles]
+        primary = wall.tiles.index(primary_tile) if primary_tile in tiles else selection[0]
         self.selection, self.columns = list(selection), columns
         self.primary = primary
+        self.external_rooms = [str(tile.room['room_id']) for tile in tiles if tile.property('pictureInPictureTemporary')]
+        self.external_primary = (str(wall.tiles[primary].room['room_id'])
+                                 if wall.tiles[primary].property('pictureInPictureTemporary') else '')
+        self._choice_order = [self.choice_for_index(index) for index in self.selection]
         opened = not self.active
         if opened:
             wall.set_sidebar_animating(False)
@@ -927,17 +1228,29 @@ class PictureInPicture(QObject):
             content.insertWidget(0, self.placeholder, 1)
             self.placeholder.show()
             self.floating.box.addWidget(wall, 1)
+        else:
+            self.floating.track_tiles(starting)
+            self._minimums.update((tile, tile.minimumSize()) for tile in starting)
         aspects = self.aspects_for(selection)
         wall.set_picture_in_picture(tiles, columns, aspects, selection.index(primary))
         self.floating.set_composition(aspects, columns, selection.index(primary))
         self.floating.show()
         wall.show()
+        for rid, tile in list(self._extra_tiles.items()):
+            if tile not in tiles:
+                self._remove_extra(rid)
+        self.selection = [wall.tiles.index(tile) for tile in tiles]
+        self.primary = wall.tiles.index(primary_tile) if primary_tile in tiles else self.selection[0]
+        for tile in starting:
+            self.host.start_tile(tile)
         self.floating.audio_panel.hide()
         self._sync_overlays()
         self._aspect_timer.start()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
         if opened:
             QTimer.singleShot(0, self, self._minimize_host)
+        self.host._save_timer.start()
+        return True
 
     def _minimize_host(self):
         if self.active and not self.host._closing:
@@ -966,6 +1279,12 @@ class PictureInPicture(QObject):
         self._aspect_timer.stop()
         self.floating = None
         wall = self.host.wall
+        selected = [wall.tiles[index] for index in self.selection]
+        primary_tile = wall.tiles[self.primary]
+        for rid in list(self._extra_tiles):
+            self._remove_extra(rid)
+        self.selection = [wall.tiles.index(tile) for tile in selected if tile in wall.tiles]
+        self.primary = wall.tiles.index(primary_tile) if primary_tile in wall.tiles else None
         floating.box.removeWidget(wall)
         content = self.host._content.layout()
         content.removeWidget(self.placeholder)
@@ -986,4 +1305,9 @@ class PictureInPicture(QObject):
     def state(self):
         geometry = (str(self.floating.saveGeometry().toBase64(), 'ascii')
                     if self.active else self.geometry)
-        return dict(selection=self.selection, columns=self.columns, primary=self.primary, pinned=self.pinned, geometry=geometry)
+        selection = [index for index in self.selection if 0 <= index < len(self.host.wall.tiles)
+                     and not self.host.wall.tiles[index].property('pictureInPictureTemporary')]
+        primary = self.primary if self.primary in selection else None
+        return dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
+                    geometry=geometry, external_rooms=list(self.external_rooms), external_primary=self.external_primary,
+                    choice_order=self.selected_choices())

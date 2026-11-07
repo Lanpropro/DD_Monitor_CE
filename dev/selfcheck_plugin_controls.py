@@ -93,6 +93,79 @@ class ControlsTests(unittest.TestCase):
         self.assertEqual(self.controls[0].rooms, [{}, {'room_id': '11'}])
         self.assertFalse(self.controls[0].widget.isHidden())
 
+    def test_equal_tiles_share_volume_style_across_pixel_rounding(self):
+        wall = WallGrid([], layout_id='1x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        # Fixed off-screen placement avoids a monitor/DPI transition at first show.
+        wall.setGeometry(-13000, -13000, 1239, 450)  # 32 margins + 8 gap + 1199 shared.
+        wall.show()
+        APP.processEvents()
+        first, second = wall.tiles
+        self.assertEqual(sorted(tile.width() for tile in wall.tiles), [599, 600])
+        for tile in wall.tiles:
+            self.assertTrue(tile.volume_slider.isHidden())
+            self.assertTrue(tile.volume_label.isHidden())
+            self.assertTrue(tile.volume_button.compact_popup)
+        wall.resize(1240, 450)
+        APP.processEvents()
+        self.assertEqual([tile.width() for tile in wall.tiles], [600, 600])
+        self.assertTrue(all(not tile.volume_slider.isHidden() for tile in wall.tiles))
+        # Saved unequal proportions retain independent responsive behaviour.
+        wall._layout_ratios['1x2'] = {'root': [0.45, 0.55]}
+        wall.relayout(force=True)
+        APP.processEvents()
+        self.assertTrue(first.volume_slider.isHidden())
+        self.assertFalse(second.volume_slider.isHidden())
+        wall.reset_layout_ratios()
+        APP.processEvents()
+        self.assertTrue(all(not tile.volume_slider.isHidden() for tile in wall.tiles))
+        wall.resize(1239, 450)
+        APP.processEvents()
+        self.assertTrue(all(tile.volume_slider.isHidden() for tile in wall.tiles))
+
+    def test_equal_volume_style_does_not_leak_into_fullscreen_or_other_layout(self):
+        wall = WallGrid([], layout_id='1x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        wall.setGeometry(-13000, -13000, 1239, 450)
+        wall.show()
+        APP.processEvents()
+        first = wall.tiles[0]
+        self.assertTrue(first.volume_slider.isHidden())
+        wall.set_fullscreen_tile(first)
+        APP.processEvents()
+        self.assertFalse(first.volume_slider.isHidden())
+        wall.set_fullscreen_tile(None)
+        APP.processEvents()
+        self.assertTrue(first.volume_slider.isHidden())
+        wall.set_layout('1x1')
+        APP.processEvents()
+        self.assertFalse(first.volume_slider.isHidden())
+
+    def test_equal_grid_volume_style_ignores_row_heights_and_keeps_tile_volume(self):
+        wall = WallGrid([], layout_id='2x2')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall._layout_ratios['2x2'] = {'root': [0.4, 0.6]}
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        wall.setGeometry(-13000, -13000, 1239, 700)
+        wall.show()
+        APP.processEvents()
+        for index, tile in enumerate(wall.tiles):
+            tile.set_volume(10 + index)
+            self.assertTrue(tile.volume_slider.isHidden())
+        wall.resize(1240, 700)
+        APP.processEvents()
+        for index, tile in enumerate(wall.tiles):
+            self.assertFalse(tile.volume_slider.isHidden())
+            self.assertEqual(tile.volume_slider.value(), 10 + index)
+
     def test_danmaku_layout_moves_existing_editor_and_restores_it(self):
         self.register()
         wall = WallGrid([{'room_id': '12'}, {'room_id': '13'}], layout_id='dm_main2')

@@ -20,6 +20,8 @@ if not exist "%PY%" goto nopy
 set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
+if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
@@ -29,7 +31,9 @@ if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
 if /i "%~1"=="--check-wall-panes" goto wallPanesCheck
 if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
+if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
+if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
@@ -53,6 +57,11 @@ exit /b 0
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:wallRemovalCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_main_notices
 exit /b %errorlevel%
 
 :sidebarNavigationCheck
@@ -80,6 +89,8 @@ set "QT_QPA_PLATFORM=windows"
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_picture_in_picture.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pip_picker
 exit /b %errorlevel%
 
 :qtLogCheck
@@ -89,6 +100,8 @@ exit /b %errorlevel%
 
 :diagnosticsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_on_demand_diagnostics
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_diagnostics
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_session
@@ -96,6 +109,21 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_development_hang
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\selfcheck_diagnostics.py"
+exit /b %errorlevel%
+
+:danmakuIndependentCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_video_danmaku_controls
+exit /b %errorlevel%
+
+:danmakuColorCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_danmaku_color.py"
+if errorlevel 1 exit /b %errorlevel%
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_danmaku_color.py" --native
 exit /b %errorlevel%
 
 :playbackControlsCheck
@@ -116,6 +144,11 @@ set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_drag_diagnostics.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_drag
+exit /b %errorlevel%
+
+:hotfixUpdatesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
 exit /b %errorlevel%
 
 :widgetLifetimeCheck

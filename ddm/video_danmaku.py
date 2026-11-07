@@ -356,7 +356,8 @@ class SuperChatOverlay(BadgeSurface):
         rects, self._paint_scale = sc_placement_rects(
             self.chats, owner.width(), owner.height(),
             max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100)),
-            owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed)
+            owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed,
+            scale_with_video=owner.settings.get('super_chat_scale_with_video', False))
         return rects
 
     def _refresh_quick_mask(self):
@@ -598,12 +599,14 @@ class VideoDanmaku(QWidget):
         values = {key: settings.get(key) for key in (
             "danmaku_font", "video_danmaku_size", "video_danmaku_speed",
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale",
+            "video_danmaku_color_mode", "video_danmaku_color",
             "video_danmaku_outline_width", "super_chat_enabled", "super_chat_opacity",
             "super_chat_collapse_delay", "super_chat_scale", "super_chat_position")}
         values['super_chat_enabled'] = settings.get('super_chat_enabled', True)
         values['super_chat_opacity'] = settings.get('super_chat_opacity', 80)
         values['super_chat_collapse_delay'] = settings.get('super_chat_collapse_delay', 7)
         values['super_chat_scale'] = settings.get('super_chat_scale', 100)
+        values['super_chat_scale_with_video'] = bool(settings.get('super_chat_scale_with_video', False))
         if values != self.settings:
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
@@ -611,6 +614,15 @@ class VideoDanmaku(QWidget):
                          for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale",
                                      "video_danmaku_outline_width"))
             self.settings = values
+            color_changed = False
+            for comment in self.comments:
+                color = self._comment_color(comment.event)
+                color_changed |= color != comment.color
+                comment.color = color
+            for token, (text, color, runs, self_sent, event) in list(self._pending_comments.items()):
+                current = self._comment_color(event)
+                color_changed |= current != color
+                self._pending_comments[token] = (text, current, runs, self_sent, event)
             if redraw:
                 self._resize_comments()
             else:
@@ -623,6 +635,8 @@ class VideoDanmaku(QWidget):
                         self._quick_layer.move(comment.render_id, comment.x,
                                                comment.lane * self.lane_height(), comment.speed)
                 self.update()
+            if color_changed:
+                self._comment_resize_timer.start(0)
             if self.super_chats:
                 self.super_chat_overlay.set_chats(
                     self.super_chats,
@@ -705,7 +719,8 @@ class VideoDanmaku(QWidget):
     def font_pixels(self) -> int:
         size = int(self.settings.get("video_danmaku_size") or 28)
         if self.settings.get("video_danmaku_scale", True):
-            size = round(size * self.height() / 720)
+            ratio = self.height() / 720
+            size = round(size * (math.sqrt(ratio) if ratio < 1 else ratio))
         return max(10, min(144, size))
 
     def lane_height(self) -> int:
@@ -744,9 +759,7 @@ class VideoDanmaku(QWidget):
         self._tick()
         if sum(self._lane_available(lane, 0) for lane in range(lanes)) <= len(self._pending_comments):
             return False
-        color = QColor(str(event.get("color") or "#ffffff"))
-        if not color.isValid():
-            color = QColor("#ffffff")
+        color = self._comment_color(event)
         runs = content_runs(dict(event, text=text))
         self_sent = bool(event.get("self_sent"))
         self._pending_comments[object()] = (text, color, runs, self_sent, dict(event))
@@ -755,6 +768,13 @@ class VideoDanmaku(QWidget):
             if url:
                 self._ensure_emoticon(url)
         return True
+
+    def _comment_color(self, event):
+        value = (self.settings.get('video_danmaku_color')
+                 if self.settings.get('video_danmaku_color_mode') == 'custom'
+                 else event.get('color'))
+        color = QColor(str(value or '#ffffff'))
+        return color if color.isValid() else QColor('#ffffff')
 
     def _admit_comment(self, image, key, text, color, runs, self_sent, event):
         image = QPixmap.fromImage(image)
