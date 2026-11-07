@@ -52,6 +52,7 @@ class TileMenuEditor(QWidget):
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         self.list = QListWidget()
+        self.list.setObjectName('TileMenuList')
         self.list.setAccessibleName('画面右键菜单功能与顺序')
         self.list.setDragDropMode(QAbstractItemView.InternalMove)
         self.list.setMinimumHeight(270)

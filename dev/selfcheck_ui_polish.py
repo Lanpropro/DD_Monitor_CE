@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QApplication, QStyleOptionButton, QWidget
 from ddm import config, theme
@@ -161,6 +161,16 @@ class UiPolishTests(unittest.TestCase):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)
         self.addCleanup(page.deleteLater)
         editor = page.tile_menu
+        page.resize(600, 700)
+        page.show()
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            APP.processEvents()
+            viewport = editor.list.viewport()
+            image = editor.list.grab().toImage()
+            point = viewport.mapTo(editor.list, viewport.rect().bottomRight() - QPoint(20, 10))
+            self.assertEqual(image.pixelColor(point),
+                             theme.qcolor(theme.CONTENT))
         editor.list.setCurrentRow(0)
         editor.move_item(1)
         editor.list.item(0).setCheckState(Qt.Unchecked)
