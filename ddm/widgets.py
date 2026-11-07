@@ -8301,6 +8301,11 @@ class WallGrid(QWidget):
                      min(bottom_width - bottom[2].minimumWidth(),
                          round(bottom_width * sum(weights["root/1"][:2]))))
         boundaries = (0, first, second, bottom_width)
+        if weights["root/0"][0] == 2 / 3:
+            # Default columns share one pixel boundary despite different gap counts.
+            main_width = max(main.minimumWidth(),
+                             min(width - minimum_right, round(bottom_width * 2 / 3) + gap))
+            right_x = x + main_width + gap
         rectangles = {
             0: QRect(x, y, main_width, top_height),
             1: QRect(right_x, y, width - main_width, right_height),

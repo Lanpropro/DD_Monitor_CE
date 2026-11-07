@@ -115,7 +115,7 @@ class PaneDanmaku:
         return changed
 
     def arrange(self, rectangles, widgets):
-        """Join full shared edges only: a joined rectangle never covers a video cell."""
+        """Join adjacent sources only when their bounding rectangle covers no other cell."""
         self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
         if not self.panels:
             self.groups = {}
@@ -137,12 +137,16 @@ class PaneDanmaku:
                     continue
                 for second in range(first + 1, len(areas)):
                     others, other, source = areas[second]
-                    horizontal = (rect.top() == other.top() and rect.bottom() == other.bottom() and
+                    horizontal = (max(rect.top(), other.top()) <= min(rect.bottom(), other.bottom()) and
                         (rect.right() + gap + 1 == other.left() or other.right() + gap + 1 == rect.left()))
-                    vertical = (rect.left() == other.left() and rect.right() == other.right() and
+                    vertical = (max(rect.left(), other.left()) <= min(rect.right(), other.right()) and
                         (rect.bottom() + gap + 1 == other.top() or other.bottom() + gap + 1 == rect.top()))
                     if source == room and (horizontal or vertical):
-                        areas[first] = (cells + others, rect.united(other), room)
+                        combined = rect.united(other)
+                        joined = cells + others
+                        if any(combined.intersects(area) for cell, area in rectangles.items() if cell not in joined):
+                            continue
+                        areas[first] = (joined, combined, room)
                         areas.pop(second)
                         changed = True
                         break
