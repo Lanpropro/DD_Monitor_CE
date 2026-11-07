@@ -339,8 +339,16 @@ class TraySettingsPage(QWidget):
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        self.scroll.setWidget(content)
+        outer.addWidget(self.scroll)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(14)
         layout.addLayout(_page_head("托盘行为", "设置关闭窗口的方式及隐藏到系统托盘后的行为"))
         row = QHBoxLayout()
@@ -363,7 +371,7 @@ class TraySettingsPage(QWidget):
         hint.setObjectName("SettingsHint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        layout.addLayout(_page_head('画面右键菜单', '勾选要显示的功能，拖动或使用上移／下移调整顺序；插件扩展作为一组显示。'))
+        layout.addLayout(_page_head('画面右键菜单', '在左侧菜单缩略图上拖动排序，右侧勾选功能；插件扩展作为一组显示。'))
         from .tile_menu import TileMenuEditor
         self.tile_menu = TileMenuEditor(settings.get('tile_context_menu'))
         layout.addWidget(self.tile_menu)
@@ -734,7 +742,7 @@ class DanmakuSettingsPage(QWidget):
         grid.addWidget(QLabel('SC 大小（共用）'), 6, 0)
         grid.addLayout(scale_row, 6, 1)
         self.super_chat_scale_with_video = QCheckBox('SC 随画面缩放')
-        self.super_chat_scale_with_video.setToolTip('以 720 像素高的画面为基准，卡片、文字和头像一起缩放；缩放强度可调，弹幕栏保持手动大小')
+        self.super_chat_scale_with_video.setToolTip('以 720 像素高的画面为基准，卡片、文字和头像一起缩放；曲线可调整，弹幕栏保持手动大小')
         self.super_chat_scale_with_video.setChecked(bool(settings.get('super_chat_scale_with_video', False)))
         self.super_chat_placement = SuperChatPlacementPreview()
         self.super_chat_placement.apply_settings(settings)
@@ -764,20 +772,23 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_position_sync.setChecked(self.super_chat_placement.position_sync)
         self.super_chat_position_sync.toggled.connect(self.super_chat_placement.set_position_sync)
         grid.addWidget(self.super_chat_position_sync, 11, 0, 1, 2)
-        self.super_chat_scale_strength = ScaleCurveControl(int(settings.get('super_chat_scale_strength', 35)))
-        self.super_chat_scale_strength.setEnabled(self.super_chat_scale_with_video.isChecked())
-        self.super_chat_scale_with_video.toggled.connect(self.super_chat_scale_strength.setEnabled)
-        self.super_chat_scale_strength.valueChanged.connect(self._sc_strength_changed)
-        grid.addWidget(QLabel('SC 缩放强度'), 12, 0)
-        grid.addWidget(self.super_chat_scale_strength, 12, 1)
+        self.super_chat_scale_curve = ScaleCurveControl(settings.get('super_chat_scale_curve'),
+                                                       strength=int(settings.get('super_chat_scale_strength', 35)))
+        self.super_chat_placement.scale_curve = self.super_chat_scale_curve.curve()
+        self.super_chat_scale_curve.setEnabled(self.super_chat_scale_with_video.isChecked())
+        self.super_chat_scale_with_video.toggled.connect(self.super_chat_scale_curve.setEnabled)
+        self.super_chat_scale_curve.curveChanged.connect(self._sc_curve_changed)
+        grid.addWidget(QLabel('SC 缩放曲线'), 12, 0)
+        grid.addWidget(self.super_chat_scale_curve, 12, 1)
         self.video_danmaku_scale = QCheckBox('弹幕随画面缩放')
         self.video_danmaku_scale.setChecked(bool(settings.get('video_danmaku_scale', True)))
-        self.video_danmaku_scale_strength = ScaleCurveControl(int(settings.get('video_danmaku_scale_strength', 35)))
-        self.video_danmaku_scale_strength.setEnabled(self.video_danmaku_scale.isChecked())
-        self.video_danmaku_scale.toggled.connect(self.video_danmaku_scale_strength.setEnabled)
+        self.video_danmaku_scale_curve = ScaleCurveControl(settings.get('video_danmaku_scale_curve'),
+                                                          strength=int(settings.get('video_danmaku_scale_strength', 35)))
+        self.video_danmaku_scale_curve.setEnabled(self.video_danmaku_scale.isChecked())
+        self.video_danmaku_scale.toggled.connect(self.video_danmaku_scale_curve.setEnabled)
         grid.addWidget(self.video_danmaku_scale, 13, 0, 1, 2)
-        grid.addWidget(QLabel('弹幕缩放强度'), 14, 0)
-        grid.addWidget(self.video_danmaku_scale_strength, 14, 1)
+        grid.addWidget(QLabel('弹幕缩放曲线'), 14, 0)
+        grid.addWidget(self.video_danmaku_scale_curve, 14, 1)
 
         layout.addLayout(grid)
 
@@ -813,8 +824,8 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_placement.scale_with_video = checked
         self.super_chat_placement.update()
 
-    def _sc_strength_changed(self, value):
-        self.super_chat_placement.scale_strength = value
+    def _sc_curve_changed(self, points):
+        self.super_chat_placement.scale_curve = points
         self.super_chat_placement.update()
 
     def reset(self) -> None:
@@ -828,10 +839,11 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_collapse_delay.setValue(config_module.DEFAULT_SETTINGS['super_chat_collapse_delay'])
         self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
         self.super_chat_scale_with_video.setChecked(config_module.DEFAULT_SETTINGS['super_chat_scale_with_video'])
-        self.super_chat_scale_strength.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale_strength'])
+        self.super_chat_scale_curve.reset()
         self.video_danmaku_scale.setChecked(config_module.DEFAULT_SETTINGS['video_danmaku_scale'])
-        self.video_danmaku_scale_strength.setValue(config_module.DEFAULT_SETTINGS['video_danmaku_scale_strength'])
+        self.video_danmaku_scale_curve.reset()
         self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
+        self.super_chat_placement.scale_curve = self.super_chat_scale_curve.curve()
         self.super_chat_position_sync.setChecked(config_module.DEFAULT_SETTINGS['super_chat_position_sync'])
         self.block_edit.setPlainText("")
 
@@ -849,8 +861,9 @@ class DanmakuSettingsPage(QWidget):
             "super_chat_opacity": self.super_chat_opacity.value(),
             "super_chat_collapse_delay": self.super_chat_collapse_delay.value(),
             "video_danmaku_scale": self.video_danmaku_scale.isChecked(),
-            "video_danmaku_scale_strength": self.video_danmaku_scale_strength.value(),
+            "video_danmaku_scale_curve": self.video_danmaku_scale_curve.curve(),
             **self.super_chat_placement.values(),
+            "super_chat_scale_curve": self.super_chat_scale_curve.curve(),
         }
 
 

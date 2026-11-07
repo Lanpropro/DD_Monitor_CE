@@ -1,7 +1,7 @@
 """画面格右下角的弹幕观看设置，拖动时实时生效。"""
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QMenu, QSlider, QWidget, QWidgetAction
+from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QLabel, QMenu, QScrollArea, QSlider, QWidget, QWidgetAction
 
 from . import theme
 from .config import DEFAULT_SETTINGS
@@ -62,15 +62,21 @@ class VideoDanmakuSettings(QMenu):
         self._color = QColor('#ffffff')
         grid.addWidget(self.color_button, 5, 1, 1, 2)
         grid.addWidget(self.scale, 6, 0, 1, 3)
-        self.scale_strength = ScaleCurveControl()
-        self.scale_strength.valueChanged.connect(
-            lambda value: self.settingsChanged.emit({'video_danmaku_scale_strength': value}))
-        self.scale.toggled.connect(self.scale_strength.setEnabled)
-        grid.addWidget(QLabel('缩放强度'), 7, 0)
-        grid.addWidget(self.scale_strength, 7, 1, 1, 2)
+        self.scale_curve = ScaleCurveControl()
+        self.scale_curve.curveChanged.connect(
+            lambda points: self.settingsChanged.emit({'video_danmaku_scale_curve': points}))
+        self.scale.toggled.connect(self.scale_curve.setEnabled)
+        grid.addWidget(QLabel('缩放曲线'), 7, 0)
+        grid.addWidget(self.scale_curve, 7, 1, 1, 2)
         grid.addWidget(self.independent, 8, 0, 1, 3)
+        self._holder = holder
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setWidget(holder)
         wrapper = QWidgetAction(self)
-        wrapper.setDefaultWidget(holder)
+        wrapper.setDefaultWidget(self.scroll)
         self.addAction(wrapper)
         self.addSeparator()
         self.addAction("更多弹幕设置", self.advancedRequested.emit)
@@ -113,19 +119,29 @@ class VideoDanmakuSettings(QMenu):
         self.scale.blockSignals(True)
         self.scale.setChecked(bool(settings.get("video_danmaku_scale", True)))
         self.scale.blockSignals(False)
-        self.scale_strength.blockSignals(True)
-        self.scale_strength.setValue(int(settings.get('video_danmaku_scale_strength', 35)))
-        self.scale_strength.blockSignals(False)
-        self.scale_strength.setEnabled(self.scale.isChecked())
+        self.scale_curve.set_curve(settings.get('video_danmaku_scale_curve'),
+                                   int(settings.get('video_danmaku_scale_strength', 35)))
+        self.scale_curve.setEnabled(self.scale.isChecked())
 
     def open_at(self, button, settings: dict) -> None:
         self.apply_settings(settings)
         self.ensurePolished()
-        self.adjustSize()
         anchor = button.mapToGlobal(QPoint(button.width(), 0))
         screen = button.screen().availableGeometry()
+        above = anchor.y()-screen.top()-6
+        below = screen.bottom()-button.mapToGlobal(button.rect().bottomLeft()).y()-6
+        available = max(above, below)
+        self.scroll.setFixedSize(min(self._holder.sizeHint().width()+20, screen.width()-20),
+                                 min(self._holder.sizeHint().height(), max(1, available-64)))
+        self.adjustSize()
         x = max(screen.left(), min(anchor.x() - self.width(), screen.right() - self.width() + 1))
         y = anchor.y() - self.height() - 6
-        if y < screen.top():
+        if above < below:
             y = button.mapToGlobal(button.rect().bottomLeft()).y() + 6
-        self.popup(QPoint(x, min(y, screen.bottom() - self.height() + 1)))
+        self.popup(QPoint(x, max(screen.top(), min(y, screen.bottom() - self.height() + 1))))
+        # QWidgetAction receives its final height when the menu is first shown.
+        # Re-anchor synchronously with that size before the next paint.
+        x = max(screen.left(), min(anchor.x()-self.width(), screen.right()-self.width()+1))
+        y = (anchor.y()-self.height()-6 if above >= below else
+             button.mapToGlobal(button.rect().bottomLeft()).y()+6)
+        self.move(x, max(screen.top(), min(y, screen.bottom()-self.height()+1)))
