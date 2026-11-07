@@ -145,6 +145,7 @@ class ScaleCurveGraph(QWidget):
         for point in self.points[1:]:
             path.lineTo(self.point_position(point))
         painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2.5))
+        painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
         for i, point in enumerate(self.points):
             painter.setBrush(theme.qcolor(theme.ACCENT if i == self.selected else theme.ELEVATED))
