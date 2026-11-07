@@ -78,6 +78,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual((backing.room, backing.volume, backing.muted), original)
         menu = panes.create_menu(1)
         self.addCleanup(menu.deleteLater)
+        self.assertEqual([action.text() for action in menu.actions()], ['恢复直播画面'])
         next(action for action in menu.actions() if action.text() == '恢复直播画面').trigger()
         self.assertFalse(panes.panels)
         self.assertTrue(backing.isVisible())
@@ -217,7 +218,8 @@ class PaneDanmakuTests(unittest.TestCase):
         wall, panes = window.wall, window.wall.pane_danmaku
         first, second = wall.tiles[:2]
         window.configure_wall_panes({2: first, 3: first})
-        panels = list(panes.panels.values())
+        panels = panes.rendered()
+        self.assertEqual(len(panels), 1)
         self.assertEqual(set(window._danmaku_clients), {'1001', '1002'})  # visible SC sources too
         client = window._danmaku_clients['1001']
         client.message.emit(dict(kind='danmaku', text='共享消息', uname='测试'))
@@ -232,6 +234,7 @@ class PaneDanmakuTests(unittest.TestCase):
         client.message.emit(dict(kind='super_chat_delete', ids=['shared-sc']))
         self.assertTrue(all(not panel.super_chats._events for panel in panels))
         window.configure_wall_panes({2: first, 3: second})
+        panels = list(panes.panels.values())
         self.assertIs(window._danmaku_clients['1001'], client)
         client.message.emit(dict(kind='danmaku', text='只给第一栏'))
         self.assertEqual(panels[0]._blocks[-1]['text'], '只给第一栏')
@@ -269,6 +272,86 @@ class PaneDanmakuTests(unittest.TestCase):
         self.addCleanup(window.recorder.sessions.clear)
         with self.assertRaisesRegex(ValueError, '录制'):
             window.configure_wall_panes({panes.cell_for_tile(second): None})
+
+    def test_explicit_layout_selection_resets_manual_panes_including_current_layout(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        window.configure_wall_panes({3: wall.tiles[0]})
+        window._on_layout_changed('1x2')
+        window._on_layout_changed('2x2')
+        self.assertFalse(panes.bindings())
+        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:4]))
+        window.configure_wall_panes({3: wall.tiles[0]})
+        window._on_layout_changed('2x2')
+        self.assertFalse(panes.bindings())
+        window._on_layout_changed('dm_main2')
+        default = layouts.danmaku_cell('dm_main2')
+        window.configure_wall_panes({0: -1})
+        window._on_layout_changed('dm_main2')
+        self.assertFalse(panes.custom)
+        self.assertEqual(set(panes.bindings()), {default})
+        self.assertIs(panes.panels[default], wall.danmaku)
+
+    def test_adjacent_regions_merge_preserve_messages_and_restore_all_backing_cells(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.configure_wall_panes({2: source})
+        original = panes.panels[2]
+        client = window._danmaku_clients['1001']
+        client.message.emit(dict(kind='danmaku', text='合并前消息'))
+        window.configure_wall_panes({2: source, 3: source})
+        merged, = panes.rendered()
+        self.assertIs(merged, original)
+        self.assertEqual(merged._blocks[-1]['text'], '合并前消息')
+        self.assertEqual(merged.geometry(), panes.rectangles[2].united(panes.rectangles[3]))
+        self.assertEqual(set(panes.cells_for(2)), {2, 3})
+        wall.set_fullscreen_tile(source)
+        window.sync_danmaku()
+        self.assertTrue(all(panel.isHidden() for panel in panes.all_panels()))
+        wall.set_fullscreen_tile(None)
+        window.sync_danmaku()
+        self.assertIs(panes.rendered()[0], merged)
+        self.assertEqual(merged._blocks[-1]['text'], '合并前消息')
+        panes.room_dropped(merged, '1002')
+        self.assertTrue(all(tile is wall.tiles[1] for tile in panes.bindings().values()))
+        self.assertEqual(len(panes.rendered()), 1)
+        menu = panes.create_menu(2)
+        self.addCleanup(menu.deleteLater)
+        self.assertEqual([a.text() for a in menu.actions()], ['恢复直播画面'])
+        menu.actions()[0].trigger()
+        self.assertFalse(panes.bindings())
+        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:4]))
+
+    def test_rectangular_merges_never_cover_unrelated_cells_and_follow_source_changes(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        window._on_layout_changed('3x3')
+        first, second = wall.tiles[:2]
+        cases = [({3: first, 4: first}, 1), ({3: first, 6: first}, 1),
+                 ({3: first, 4: first, 6: first, 7: first}, 1),
+                 ({3: first, 7: first}, 2), ({3: first, 4: second}, 2),
+                 ({3: -1, 4: -1}, 2), ({3: first, 4: first, 6: first}, 2)]
+        for bindings, count in cases:
+            with self.subTest(cells=tuple(bindings), count=count):
+                window.configure_wall_panes(bindings)
+                self.assertEqual(len(panes.rendered()), count)
+                for panel in panes.rendered():
+                    for cell, rect in panes.rectangles.items():
+                        if cell not in bindings:
+                            self.assertFalse(panel.geometry().intersects(rect))
+        window.configure_wall_panes({3: first, 4: second})
+        second.set_room(dict(first.room))
+        window.sync_danmaku()
+        self.assertEqual(len(panes.rendered()), 1)
+        second.set_room(dict(room_id='2002', uname='换台', live=True))
+        window.sync_danmaku()
+        self.assertEqual(len(panes.rendered()), 2)
+        self.assertEqual({panel._linked_room_id for panel in panes.rendered()}, {'1001', '2002'})
+        second.set_room(None)
+        window.sync_danmaku()
+        self.assertEqual(len(panes.rendered()), 2)
+        self.assertEqual(panes.panels[4]._linked_room_id, '')
 
     def test_state_and_named_presets_restore_type_links_and_backing_slots(self):
         window = self.wall_window()
@@ -325,6 +408,11 @@ class PaneDanmakuTests(unittest.TestCase):
                 self.assertGreater(player._prop('time-pos') or 0, position)
                 self.assertTrue(all(window.wall.pane_danmaku.target(panel) is source
                                     for panel in window.wall.pane_danmaku.panels.values()))
+                window.picture_in_picture.start([window.wall.tiles.index(source)])
+                self.assertTrue(all(panel.isHidden() for panel in window.wall.pane_danmaku.all_panels()))
+                window.picture_in_picture.restore(activate=True)
+                self.assertEqual(len(window.wall.pane_danmaku.rendered()), 1)
+                self.assertTrue(window.wall.pane_danmaku.rendered()[0].isVisible())
                 window.configure_wall_panes({})
                 self.assertIs(player.player, core)
                 self.assertEqual(int(source.video.winId()), handle)

@@ -1415,11 +1415,18 @@ class MainWindow(QMainWindow):
     def _on_layout_changed(self, layout_id: str) -> None:
         self.picture_in_picture.restore()
         self._cancel_interactive_resize()
+        panes_reset = self.wall.pane_danmaku.reset_preset(layout_id)
         want_portrait = layouts.is_portrait_layout(layout_id)
         reshape = (want_portrait != (self.orientation == "portrait")
                    or want_portrait != (self._resize_orientation() == "portrait"))
         if layout_id == self.wall.layout_id and not reshape:
             self.wall.reset_layout_ratios()
+            if panes_reset:
+                self.wall.relayout(force=True)
+                self.apply_quality_policy()
+                self._sync_tile_playback(start_visible=True)
+                self._refresh_meta()
+                self._save_timer.start()
             return
         self._prioritize_live_tiles(layout_id)
         self._clear_expanded_slots(layout_id)
@@ -3469,7 +3476,7 @@ class MainWindow(QMainWindow):
             store.remove(event.get("ids") or ())
             self._publish_super_chats(room_id)
         if kind not in ("super_chat", "super_chat_delete"):
-            for panel in self.wall.pane_danmaku.panels.values():
+            for panel in self.wall.pane_danmaku.rendered():
                 if getattr(panel, "_linked_room_id", "") == room_id:
                     panel.add_event(event)
         for tile in self.wall.tiles:
@@ -3485,7 +3492,7 @@ class MainWindow(QMainWindow):
             for tile in self.wall.tiles:
                 if str(tile.room.get('room_id') or '') == room_id:
                     tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
-            for panel in self.wall.pane_danmaku.panels.values():
+            for panel in self.wall.pane_danmaku.rendered():
                 if getattr(panel, "_linked_room_id", "") == room_id:
                     panel.super_chats.animate_dismiss(chat_id)
             store.dismiss(chat_id)
@@ -3497,7 +3504,7 @@ class MainWindow(QMainWindow):
         for tile in self.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.video_danmaku.set_super_chats(chats)
-        for panel in self.wall.pane_danmaku.panels.values():
+        for panel in self.wall.pane_danmaku.rendered():
             if getattr(panel, "_linked_room_id", "") == room_id:
                 panel.set_super_chats(chats)
 
@@ -3531,7 +3538,7 @@ class MainWindow(QMainWindow):
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.danmaku_button.setToolTip(
                     f"画面弹幕：{text}\n显示参数在「设置 → 弹幕」调整")
-        for panel in self.wall.pane_danmaku.panels.values():
+        for panel in self.wall.pane_danmaku.rendered():
             if getattr(panel, "_linked_room_id", "") == room_id:
                 panel.set_status(text)
         self.plugins.emit(plugin_api.EVENT_DANMAKU_STATUS,
