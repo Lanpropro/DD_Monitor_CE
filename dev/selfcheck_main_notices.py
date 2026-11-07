@@ -1301,6 +1301,14 @@ class MainNoticesTests(unittest.TestCase):
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_fixture_closes_without_interactive_prompt_when_tray_is_available(self):
+        window = self.window([])
+        with patch.object(window._tray, 'available', return_value=True), \
+                patch('ddm.system_tray.CloseWindowDialog') as prompt:
+            window.close()
+        prompt.assert_not_called()
+        self.assertTrue(window._closing)
+
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
 
