@@ -163,6 +163,10 @@ class UiPolishTests(unittest.TestCase):
         editor = page.tile_menu
         page.resize(600, 700)
         page.show()
+        APP.processEvents()
+        from PySide6.QtWidgets import QPushButton
+        for button in editor.findChildren(QPushButton):
+            self.assertFalse(button.geometry().intersects(editor.list.geometry()))
         for mode in ('dark', 'light'):
             theme.apply(mode)
             APP.processEvents()
