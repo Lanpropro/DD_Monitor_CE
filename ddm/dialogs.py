@@ -805,7 +805,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_scale.setValue(config_module.DEFAULT_SETTINGS['super_chat_scale'])
         self.super_chat_scale_with_video.setChecked(config_module.DEFAULT_SETTINGS['super_chat_scale_with_video'])
         self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
-        self.super_chat_position_sync.setChecked(False)
+        self.super_chat_position_sync.setChecked(config_module.DEFAULT_SETTINGS['super_chat_position_sync'])
         self.block_edit.setPlainText("")
 
     def values(self) -> dict:

@@ -316,7 +316,7 @@ class SimulatorTests(unittest.TestCase):
                     renderer.presentation.collapse() if collapsed else renderer.presentation.expand()
                     for scale in (75, 100, 150, 200):
                         for position in (None, [0, 0], [.4, .6], [1, 1]):
-                            window.change_sc_settings({'super_chat_scale': scale,
+                            window.change_sc_settings({'super_chat_scale': scale, 'super_chat_position_sync': False,
                                 'super_chat_panel_position' if mode == 1 else 'super_chat_position': position})
                             APP.processEvents()
                             context = MainWindow._sc_preview_context(source)
@@ -364,7 +364,7 @@ class SimulatorTests(unittest.TestCase):
 
     def test_layout_previews_keep_independent_positions_and_shared_scale_opacity(self):
         from ddm.dialogs import DanmakuSettingsPage
-        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS, super_chat_position_sync=False))
         self.addCleanup(page.close)
         page.resize(700, 900)
         page.show()
@@ -740,7 +740,7 @@ class SimulatorTests(unittest.TestCase):
 
     def test_video_and_panel_positions_are_independent_and_roundtrip(self):
         from ddm.dialogs import DanmakuSettingsPage
-        page = DanmakuSettingsPage({'super_chat_position': [0, .1]})
+        page = DanmakuSettingsPage({'super_chat_position': [0, .1], 'super_chat_position_sync': False})
         self.addCleanup(page.deleteLater)
         preview = page.super_chat_placement
         self.assertEqual(preview.values()['super_chat_position'], [0, .1])
@@ -767,7 +767,7 @@ class SimulatorTests(unittest.TestCase):
 
     def test_panel_position_does_not_follow_video_position(self):
         window = self.window
-        window.change_sc_settings({'super_chat_position': [0, .1]})
+        window.change_sc_settings({'super_chat_position': [0, .1], 'super_chat_position_sync': False})
         self.assertIsNone(window.wall.danmaku.super_chats._position)
         window.change_sc_settings({'super_chat_position': [0, .1],
                                    'super_chat_panel_position': [1, .2]})
@@ -795,7 +795,7 @@ class SimulatorTests(unittest.TestCase):
     def test_position_sync_uses_selected_layout_and_can_be_disabled(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage({'super_chat_position': [0, .1],
-                                   'super_chat_panel_position': [1, .4]})
+                                   'super_chat_panel_position': [1, .4], 'super_chat_position_sync': False})
         self.addCleanup(page.deleteLater)
         page.resize(700, 900)
         page.move(-13000, -13000)
@@ -829,7 +829,30 @@ class SimulatorTests(unittest.TestCase):
         preview.position = [.5, .5]
         self.assertEqual(page.values()['super_chat_panel_position'], [.7, .1])
         page.reset()
-        self.assertFalse(page.values()['super_chat_position_sync'])
+        self.assertTrue(page.values()['super_chat_position_sync'])
+
+    def test_sync_defaults_on_and_respects_explicit_saved_off(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        from ddm.widgets import SuperChatStack
+        self.assertTrue(config.DEFAULT_SETTINGS['super_chat_position_sync'])
+        settings = {'super_chat_position': [0, .1], 'super_chat_panel_position': [1, .4]}
+        for values, enabled in (({}, True), (settings, True),
+                                ({**settings, 'super_chat_position_sync': False}, False)):
+            page = DanmakuSettingsPage(values)
+            self.addCleanup(page.deleteLater)
+            self.assertEqual(page.super_chat_position_sync.isChecked(), enabled)
+            stack = SuperChatStack()
+            self.addCleanup(stack.deleteLater)
+            stack.configure(values)
+            self.assertEqual(stack._position, values.get('super_chat_position' if enabled
+                                                        else 'super_chat_panel_position'))
+            if not enabled:
+                self.assertEqual(page.values()['super_chat_panel_position'], [1, .4])
+                restored = DanmakuSettingsPage(page.values())
+                self.addCleanup(restored.deleteLater)
+                self.assertFalse(restored.super_chat_position_sync.isChecked())
+            page.reset()
+            self.assertTrue(page.super_chat_position_sync.isChecked())
 
     def test_synced_runtime_follows_video_position_and_independent_mode_restores_panel(self):
         window = self.window
