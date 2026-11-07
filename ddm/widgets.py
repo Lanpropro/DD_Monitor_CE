@@ -21,11 +21,12 @@ from PySide6.QtWidgets import (
     QStyleOption, QStyleOptionMenuItem, QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction,
 )
 
+from shiboken6 import isValid
+
 from .corner_geometry import continuous_path
 from . import layouts, motion, resize_layout, theme
 from .sidebar_drag import FOLDER_MIME, NAV_MIME, ROOM_MIME, SidebarDrag
 from .workspace_controls import WorkspaceControls
-from .ui.primitives import BarIconButton, ElidedLabel, _repolish
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
 from .dock_feedback import icon_color
 # Keep existing imports of avatar components compatible.
@@ -926,7 +927,8 @@ class DanmakuPanel(QFrame):
         restore_id = self._scroll_restore_id
 
         def restore() -> None:
-            if revision != self._scroll_revision or restore_id != self._scroll_restore_id:
+            if (not isValid(self) or revision != self._scroll_revision
+                    or restore_id != self._scroll_restore_id):
                 return
             scroll_bar = self.body.verticalScrollBar()
             if self._follow_tail:
@@ -936,7 +938,7 @@ class DanmakuPanel(QFrame):
 
         restore()
         # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。
-        QTimer.singleShot(0, self, restore)
+        QTimer.singleShot(0, restore)
 
     def jump_to_bottom(self) -> None:
         self._scroll_revision += 1
@@ -1135,6 +1137,15 @@ def rounded_pixmap(source: QPixmap, size, radius: int) -> QPixmap:
                        (size.height() - scaled.height()) // 2, scaled)
     painter.end()
     return result
+
+
+def _repolish(widget: QWidget) -> None:
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+# Keep Qt subclass loading in the same order as the original definitions.
+from .ui.labels import ElidedLabel
 
 
 class AccountPopupMenu(QMenu):
@@ -3232,6 +3243,10 @@ class CarouselScroll(QScrollArea):
         bar = self.horizontalScrollBar()
         bar.setValue(bar.value() - delta)
         event.accept()
+
+
+# Preserve the original toolbar subclass loading order.
+from .ui.toolbar import BarIconButton
 
 
 class AppearanceButton(QPushButton):

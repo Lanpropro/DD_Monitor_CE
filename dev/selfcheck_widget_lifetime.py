@@ -30,7 +30,7 @@ class WidgetLifetimeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_queued_scroll_restore_is_cancelled_when_panel_is_deleted(self):
+    def test_queued_scroll_restore_ignores_deleted_panel(self):
         panel = DanmakuPanel()
         panel.add_message('测试用户', '排队重排后立即关闭')
         errors = []
