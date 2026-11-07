@@ -25,6 +25,7 @@ _EMOTICON_PENDING = {}
 _EMOTICON_LOCK = threading.Lock()
 _EMOTICON_BYTES = 0
 _EMOTICON_CACHE_LIMIT = 16 * 1024 * 1024
+_COVER_STORAGE_KEY = 'ddm_cover_storage_v1'
 
 
 def _cache_path(url: str, subdir: str = "avatars") -> str:
@@ -202,12 +203,22 @@ def _remember_image(room_id, url, kind, source, target, stamp):
 
 
 def _store_cover(pixmap, path, stamp, room=None):
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.WriteOnly)
-    if pixmap.save(buffer, 'PNG'):
-        return image_cache.store(REPO, 'covers', path, bytes(data), stamp, room=room)
-    return False
+    image = pixmap.toImage()
+    image.setText(_COVER_STORAGE_KEY, '1')
+    encoded = []
+    for format, quality in (('PNG', -1), ('JPEG', 85)):
+        if format == 'JPEG' and image.hasAlphaChannel():
+            continue
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QIODevice.WriteOnly)
+        if image.save(buffer, format, quality):
+            encoded.append(bytes(data))
+    if not encoded:
+        return False
+    # Cache paths historically end in .png even for downloaded JPEG/WebP bytes.
+    # Qt detects the encoded format; both PNG and JPEG retain our face metadata.
+    return image_cache.store(REPO, 'covers', path, min(encoded, key=len), stamp, room=room)
 
 
 def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
@@ -320,7 +331,7 @@ def load_cover(url: str, *, stamp=None, room=None) -> QPixmap | None:
     if pixmap is None:
         return None
     prepared = prepare_cover(pixmap)
-    if prepared.cacheKey() != pixmap.cacheKey():
+    if prepared.cacheKey() != pixmap.cacheKey() or not pixmap.toImage().text(_COVER_STORAGE_KEY):
         for candidate in (_cdn_url(url, _cdn_size_for('covers')), url):
             path = _cache_path(candidate, 'covers')
             if os.path.isfile(path):
@@ -349,7 +360,7 @@ class CachedCoverLoader(QThread):
             pixmap = load_room_cover(room_id)
             if pixmap is not None:
                 prepared = prepare_cover(pixmap)
-                if prepared.cacheKey() != pixmap.cacheKey():
+                if prepared.cacheKey() != pixmap.cacheKey() or not pixmap.toImage().text(_COVER_STORAGE_KEY):
                     _store_cover(prepared, room_cover_path(room_id), self._stamp, room_id)
                 self.loaded.emit(room_id, prepared)
 
