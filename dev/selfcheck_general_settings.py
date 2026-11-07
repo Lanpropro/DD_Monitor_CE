@@ -3,6 +3,7 @@ import gc
 import os
 from pathlib import Path
 import sys
+import tempfile
 import weakref
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -15,6 +16,12 @@ from PySide6.QtCore import QCoreApplication, QEvent, SIGNAL
 from ddm import app as app_module, config
 from ddm.dialogs import CodecSettingsPanel, GeneralSettingsPage, SettingsDialog
 from dev.selfcheck_tile_fullscreen import SilentPoller
+
+
+def close_window(window):
+    window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def check_volume_page_lifetime():
@@ -37,7 +44,7 @@ def check_volume_page_lifetime():
 
 def check_volume_normalization(app):
     """Saved settings update current players and are inherited by later playback."""
-    with patch('ddm.app.QTimer.singleShot'):
+    with patch('ddm.app.QTimer.singleShot', lambda *args: None):
         window = app_module.MainWindow([], [], layout_id='1x1', state={'plugins_enabled': [],
             'settings': {'auto_update': False, 'close_behavior': 'exit'}})
     try:
@@ -63,12 +70,12 @@ def check_volume_normalization(app):
             window._play_on(tile, 'http://127.0.0.1:9/test', 250, 'app')
             assert window.players[tile].volume_normalization is True
     finally:
-        window.close()
+        close_window(window)
         app.processEvents()
 
 
 def check_settings_lifetime(app):
-    with patch('ddm.app.QTimer.singleShot'):
+    with patch('ddm.app.QTimer.singleShot', lambda *args: None):
         window = app_module.MainWindow([], [], layout_id='1x1', state={'plugins_enabled': []})
     try:
         layer = window.skin_controller.layer
@@ -85,7 +92,7 @@ def check_settings_lifetime(app):
             assert not window.findChildren(SettingsDialog), '关闭设置后必须释放整棵页面控件'
             assert layer.receivers(SIGNAL('frameReady()')) == receivers, '不能累积后台预览更新连接'
     finally:
-        window.close()
+        close_window(window)
 
 
 def check_codecs(app):
@@ -146,7 +153,7 @@ def check_codecs(app):
     settings = {"bili_codec": "av1", "recording_enabled": False,
                 "recording_replay_enabled": False, "preview_on_hover": False,
                 "danmaku_enabled": False, "auto_quality": False}
-    with patch("ddm.app.QTimer.singleShot"), \
+    with patch("ddm.app.QTimer.singleShot", lambda *args: None), \
             patch.object(app_module.MainWindow, "sync_danmaku"), \
             patch.object(app_module.MainWindow, "refresh_status"), \
             patch.object(app_module.MainWindow, "refresh_stats"), \
@@ -255,7 +262,7 @@ def check_codecs(app):
                 dialog.close()
                 assert not dialog._status_timer.isActive() and first not in window._codec_dialogs
             finally:
-                window.close()
+                close_window(window)
                 app.processEvents()
 
 
@@ -306,18 +313,18 @@ def main():
     assert page.compact_threshold_spin.isEnabled()
     assert all(page.values()[key] == config.DEFAULT_SETTINGS[key] for key in page.values())
     app_module.StatusPoller = app_module.StatsPoller = SilentPoller
-    with patch("ddm.app.QTimer.singleShot"):
+    with patch("ddm.app.QTimer.singleShot", lambda *args: None):
         window = app_module.MainWindow([], [], state={"plugins_enabled": [],
             "settings": {"freeze_watch": False, "auto_update": False}})
     assert window.settings["freeze_watch"] is True, "Old setting disabled always-on detection"
     assert window.settings['default_volume'] == 40
     assert all(tile.volume == 40 for tile in window.wall.tiles), 'First-launch slots must start at 40'
-    window.close()
+    close_window(window)
     app.processEvents()
     for default_volume in (40, 0, 100):
         state = {'plugins_enabled': [], 'settings': {
             'default_volume': default_volume, 'auto_update': False}}
-        with patch('ddm.app.QTimer.singleShot'):
+        with patch('ddm.app.QTimer.singleShot', lambda *args: None):
             window = app_module.MainWindow([], [], layout_id='1x1', state=state)
         try:
             first = window.wall.tiles[0]
@@ -334,18 +341,18 @@ def main():
             _, wall = config.build_rooms(saved)
             assert [room['volume'] for room in wall] == [17, 23, 23, 23]
         finally:
-            window.close()
+            close_window(window)
     state = {'plugins_enabled': [], 'settings': {'default_volume': 40, 'auto_update': False},
              'wall': [{'room_id': '1', 'volume': 42}, {'room_id': '2', 'volume': 0},
                       {'room_id': '3'}, {'room_id': ''}, {'room_id': '', 'volume': 17}]}
     rooms, wall = config.build_rooms(state)
     assert [room['volume'] for room in wall] == [42, 0, 40, 40, 17], 'Only missing values should inherit the default'
-    with patch('ddm.app.QTimer.singleShot'):
+    with patch('ddm.app.QTimer.singleShot', lambda *args: None):
         window = app_module.MainWindow(rooms, wall, layout_id='corner', state=state)
     try:
         assert [tile.volume for tile in window.wall.tiles] == [42, 0, 40, 40, 17, 40]
     finally:
-        window.close()
+        close_window(window)
     check_volume_page_lifetime()
     check_volume_normalization(app)
     check_settings_lifetime(app)
@@ -354,4 +361,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with tempfile.TemporaryDirectory(prefix="ddm-settings-plugins-") as directory, \
+            patch("ddm.plugins.DEFAULT_PLUGINS_DIR", directory):
+        main()
