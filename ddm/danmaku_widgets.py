@@ -78,6 +78,7 @@ class DanmakuTextBrowser(QTextBrowser):
     """能告诉面板“用户正在查看旧弹幕”的文本区。"""
 
     userScrolled = Signal()
+    viewportScrolled = Signal()
     messageClicked = Signal(int, QPoint)
 
     def __init__(self, parent=None):
@@ -112,6 +113,7 @@ class DanmakuTextBrowser(QTextBrowser):
 
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)
+        self.viewportScrolled.emit()
         if self.viewport().underMouse():
             self._hover_at(QPointF(self.viewport().mapFromGlobal(QCursor.pos())))
 
@@ -637,6 +639,7 @@ class DanmakuPanel(QFrame):
         self.bottom_button = DanmakuBottomButton(self.body.viewport())
         self.bottom_button.clicked.connect(self.jump_to_bottom)
         self.bottom_button.hide()
+        self.body.viewportScrolled.connect(self._position_bottom_button)
         self.body.viewport().installEventFilter(self)
         self.composer_bar = QWidget(self)
         self.composer_bar.setObjectName("DanmakuBar")
@@ -879,6 +882,7 @@ class DanmakuPanel(QFrame):
                 scroll_bar.setValue(scroll_bar.maximum())
             else:
                 scroll_bar.setValue(min(value, scroll_bar.maximum()))
+            self._update_bottom_button()
 
         restore()
         # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。

@@ -37,6 +37,7 @@ DEFAULT_VOLUME = 40
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 DEFAULT_SETTINGS = {
+    "tile_context_menu": None,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,
     "appearance_mode": "dark",
@@ -131,11 +132,13 @@ DEFAULT_SETTINGS = {
     "super_chat_collapse_delay": 7,
     "super_chat_scale": 100,
     "super_chat_scale_with_video": False,
+    "super_chat_scale_strength": 35,
     "super_chat_position": None,
     "super_chat_panel_position": None,
     "super_chat_position_sync": True,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
+    "video_danmaku_scale_strength": 35,
     "video_danmaku_outline_width": 0,
 }
 

@@ -314,7 +314,7 @@ class SurfaceFilter(QObject):
                 self.cache.pop(widget, None)
         elif kind == QEvent.Paint:
             values = self.values(widget)
-            if any(key.endswith('radius') for key in values):
+            if not widget.property('tileButton') and any(key.endswith('radius') for key in values):
                 painter = QPainter(widget)
                 _paint(painter, widget.rect(), values, widget.palette())
                 painter.end()

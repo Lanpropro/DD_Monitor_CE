@@ -1,5 +1,6 @@
 """Follow cards, folders and their list layout; sidebar coordination stays separate."""
 import os
+import time
 from PySide6.QtCore import (
     QEasingCurve, QEvent, QMimeData, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize,
     QTimer, Qt, Signal
@@ -13,6 +14,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QStyle,
     QStyleOptionToolButton, QToolButton, QVBoxLayout, QWidget, QWidgetAction
 )
+
+from shiboken6 import isValid
 
 from . import follow_folders, motion, theme
 from .avatar_widgets import Avatar
@@ -1644,6 +1647,11 @@ class RoomListBox(QWidget):
         self.empty_hint.setWordWrap(True)
         self.empty_hint.setVisible(False)
         self._animations: dict = {}
+        self._animation_started: dict = {}
+        self._animation_clock = QTimer(self)
+        self._animation_clock.setInterval(16)
+        self._animation_clock.setTimerType(Qt.PreciseTimer)
+        self._animation_clock.timeout.connect(self._advance_row_animations)
         self._scroll_dir = 0
         self._scroll_step = float(self.SCROLL_STEP_MIN)
         self._scroll_timer = QTimer(self)
@@ -1749,10 +1757,11 @@ class RoomListBox(QWidget):
         target = QPoint(x, y)
         previous = self._animations.get(item)
         if previous is not None:
-            if (animate and previous.state() == QPropertyAnimation.Running
+            if (animate and previous.state() != QPropertyAnimation.Stopped
                     and previous.endValue() == target):
                 return  # 同一落点的拖动事件不能重启动画，否则卡片始终追不上目标。
             previous.stop()
+            self._animation_started.pop(previous, None)
             self._animations.pop(item)
             previous.deleteLater()
         if item.pos() == target:
@@ -1767,6 +1776,31 @@ class RoomListBox(QWidget):
         animation.setEasingCurve(QEasingCurve.OutCubic)
         self._animations[item] = animation
         animation.start()
+        # The shared Qt/Quick animation clock stopped at time zero in captured
+        # folder transitions. Keep Qt's interpolation, advance it on a GUI timer.
+        animation.pause()
+        self._animation_started[animation] = time.monotonic()
+        if not self._animation_clock.isActive():
+            self._animation_clock.start()
+
+    def _advance_row_animations(self, *, finish=False) -> None:
+        now = time.monotonic()
+        for animation, started in list(self._animation_started.items()):
+            if not isValid(animation):
+                self._animation_started.pop(animation, None)
+                continue
+            duration = animation.duration()
+            elapsed = duration if finish else min(duration, round((now - started) * 1000))
+            animation.setCurrentTime(elapsed)
+            if elapsed >= duration:
+                animation.stop()
+                self._animation_started.pop(animation, None)
+        if not self._animation_started:
+            self._animation_clock.stop()
+
+    def hideEvent(self, event) -> None:
+        self._advance_row_animations(finish=True)
+        super().hideEvent(event)
 
     def relayout(self, animate: bool = False, preview_order: list | None = None,
                  dragging_ids: set[str] | None = None, *, duration=150, revealing=(),
@@ -1790,6 +1824,7 @@ class RoomListBox(QWidget):
             for item, animation in list(self._animations.items()):
                 if item not in displayed:
                     self._animations.pop(item)
+                    self._animation_started.pop(animation, None)
                     try:
                         animation.stop()
                         animation.deleteLater()
