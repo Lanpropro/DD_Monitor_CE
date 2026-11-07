@@ -937,13 +937,14 @@ def check_settings(app):
     app.processEvents()
     page = dialog.danmaku_page
     try:
-        curve_keys = {'video_danmaku_scale', 'video_danmaku_scale_strength'}
+        curve_keys = {'video_danmaku_scale', 'video_danmaku_scale_curve'}
         watch = {key: value for key, value in values.items()
                  if key.startswith("video_danmaku_") and key not in curve_keys}
         assert not watch.keys() & page.values().keys()
         assert page.values()['video_danmaku_scale'] is False
-        page.video_danmaku_scale_strength.setValue(20)
-        assert page.values()['video_danmaku_scale_strength'] == 20
+        points = [[0, .4], [1, 1], [2, 1.5]]
+        page.video_danmaku_scale_curve.set_curve(points)
+        assert page.values()['video_danmaku_scale_curve'] == points
         labels = [label.text() for label in page.findChildren(QLabel)]
         assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
         assert not {"大小", "滚动速度", "不透明度", "顶部显示区域"}.intersection(labels)
@@ -965,7 +966,8 @@ def check_settings(app):
         assert page.values()['super_chat_scale'] == 100
         assert page.values()['super_chat_scale_with_video'] is False
         assert page.values()['video_danmaku_scale'] is True
-        assert page.values()['video_danmaku_scale_strength'] == config.DEFAULT_SETTINGS['video_danmaku_scale_strength']
+        from ddm.viewport_scale import scale_curve_points
+        assert page.values()['video_danmaku_scale_curve'] == scale_curve_points()
         page.scroll.ensureWidgetVisible(page.block_edit)
         app.processEvents()
         assert page.block_edit.isVisible()

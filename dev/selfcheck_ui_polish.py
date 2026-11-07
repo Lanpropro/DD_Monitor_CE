@@ -10,6 +10,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QImage, QPainter
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QStyleOptionButton, QWidget
 from ddm import config, theme
 from ddm.dialogs import DanmakuSettingsPage, TraySettingsPage
@@ -18,7 +19,8 @@ from ddm.playback_controls import TileButton
 from ddm.super_chat import sc_placement_rects
 from ddm.tile_menu import MENU_ITEMS, menu_choices
 from ddm.video_danmaku import VideoDanmaku
-from ddm.viewport_scale import viewport_scale
+from ddm.viewport_scale import scale_curve_points, viewport_scale
+from ddm.ui import ScaleCurveControl
 from ddm.widgets import DanmakuPanel, Tile
 
 APP = QApplication.instance() or QApplication([])
@@ -149,13 +151,90 @@ class UiPolishTests(unittest.TestCase):
         self.assertIn('video_danmaku_scale_strength', config.VIDEO_DANMAKU_SETTING_KEYS)
         page = DanmakuSettingsPage(config.DEFAULT_SETTINGS)
         self.addCleanup(page.deleteLater)
-        page.super_chat_scale_strength.setValue(12)
-        page.video_danmaku_scale_strength.setValue(23)
-        self.assertEqual(page.values()['super_chat_scale_strength'], 12)
-        self.assertEqual(page.values()['video_danmaku_scale_strength'], 23)
+        points = [[0, .5], [.5, .8], [1, 1], [2, 1.4]]
+        page.super_chat_scale_curve.set_curve(points)
+        page.video_danmaku_scale_curve.set_curve(points)
+        self.assertEqual(page.values()['super_chat_scale_curve'], points)
+        self.assertEqual(page.values()['video_danmaku_scale_curve'], points)
         page.reset()
-        self.assertEqual(page.values()['super_chat_scale_strength'], 35)
-        self.assertEqual(page.values()['video_danmaku_scale_strength'], 35)
+        self.assertEqual(page.values()['super_chat_scale_curve'], scale_curve_points())
+        self.assertEqual(page.values()['video_danmaku_scale_curve'], scale_curve_points())
+        self.assertEqual(page.super_chat_placement.scale_curve, page.super_chat_scale_curve.curve())
+
+    def test_graph_add_drag_delete_anchor_and_runtime_curve(self):
+        control = ScaleCurveControl()
+        self.addCleanup(control.deleteLater)
+        control.resize(380, 290)
+        control.show()
+        APP.processEvents()
+        graph = control.graph
+        points = [[0, .5], [.5, .8], [1, 1], [2, 1.4]]
+        control.set_curve(points)
+        changes = []
+        control.curveChanged.connect(changes.append)
+        self.assertEqual(viewport_scale(360, points=points), .8)
+        self.assertAlmostEqual(viewport_scale(540, points=points), .9)
+        self.assertEqual(viewport_scale(2000, points=points), 1.4)
+        start = graph.point_position([.75, .9]).toPoint()
+        QTest.mousePress(graph, Qt.LeftButton, pos=start)
+        QTest.mouseMove(graph, start-QPoint(0, 15))
+        QTest.mouseRelease(graph, Qt.LeftButton, pos=start-QPoint(0, 15))
+        self.assertEqual(len(control.curve()), 5)
+        added = control.curve()[2]
+        self.assertGreater(added[1], .9)
+        self.assertTrue(changes)
+        # A settings feedback update during dragging must not reset the gesture.
+        original = graph.point_position(added).toPoint()
+        QTest.mousePress(graph, Qt.LeftButton, pos=original)
+        control.set_curve(control.curve())
+        QTest.mouseMove(graph, original-QPoint(0, 8))
+        QTest.mouseRelease(graph, Qt.LeftButton, pos=original-QPoint(0, 8))
+        self.assertGreater(control.curve()[2][1], added[1])
+        QTest.mouseClick(graph, Qt.RightButton, pos=graph.point_position(control.curve()[2]).toPoint())
+        self.assertEqual(len(control.curve()), 4)
+        anchor = graph.point_position([1, 1]).toPoint()
+        QTest.mousePress(graph, Qt.LeftButton, pos=anchor)
+        QTest.mouseRelease(graph, Qt.LeftButton, pos=anchor+QPoint(10, 15))
+        self.assertIn([1, 1], control.curve())
+        QTest.mouseClick(graph, Qt.RightButton, pos=anchor)
+        self.assertIn([1, 1], control.curve())
+        overlay = VideoDanmaku()
+        self.addCleanup(overlay.deleteLater)
+        overlay.resize(1280, 360)
+        overlay.apply_settings({**config.DEFAULT_SETTINGS, 'video_danmaku_size': 40,
+                                'video_danmaku_scale_curve': points})
+        self.assertEqual(overlay.font_pixels(), 32)
+        event = {'id': 'curve', 'message': 'readable', 'price': 30, 'uname': 'fixture'}
+        self.assertEqual(sc_placement_rects([event], 1280, 360, scale_with_video=True,
+                                          collapsed=True, scale_curve=points)[1], .8)
+        self.assertIn('video_danmaku_scale_curve', config.VIDEO_DANMAKU_SETTING_KEYS)
+        tile = Tile({'room_id': 'curve-fixture'})
+        self.addCleanup(tile.deleteLater)
+        tile.apply_video_danmaku_settings(config.DEFAULT_SETTINGS)
+        tile._set_video_danmaku_independent(True)
+        tile.danmaku_settings_menu.settingsChanged.emit({'video_danmaku_scale_curve': points})
+        self.assertEqual(tile.video_danmaku_overrides['video_danmaku_scale_curve'], points)
+        self.assertIsNone(tile._video_danmaku_global_settings['video_danmaku_scale_curve'])
+        tile._set_video_danmaku_independent(False)
+        self.assertIsNone(tile.video_danmaku.settings['video_danmaku_scale_curve'])
+        from ddm.video_danmaku_settings import VideoDanmakuSettings
+        menu = VideoDanmakuSettings()
+        self.addCleanup(menu.deleteLater)
+        received = []
+        menu.settingsChanged.connect(received.append)
+        menu.apply_settings({**config.DEFAULT_SETTINGS, 'video_danmaku_scale_curve': points})
+        self.assertEqual(menu.scale_curve.curve(), points)
+        self.assertFalse(received, 'Applying stored points must not emit edits')
+        menu.scale_curve.reset()
+        self.assertEqual(received[-1]['video_danmaku_scale_curve'], scale_curve_points())
+        menu.scale.setChecked(False)
+        self.assertFalse(menu.scale_curve.isEnabled())
+        control.reset()
+        self.assertEqual(control.curve(), scale_curve_points())
+        image = graph.grab().toImage()
+        grid_point = graph.point_position([.5, .5]).toPoint()
+        self.assertNotEqual(image.pixelColor(grid_point), theme.qcolor(theme.CONTENT),
+                            'An open curve must not fill over the grid below it')
 
     def test_menu_editor_and_runtime_keep_order_callbacks_and_visibility(self):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)
@@ -164,20 +243,21 @@ class UiPolishTests(unittest.TestCase):
         page.resize(600, 700)
         page.show()
         APP.processEvents()
-        from PySide6.QtWidgets import QPushButton
-        for button in editor.findChildren(QPushButton):
-            self.assertFalse(button.geometry().intersects(editor.list.geometry()))
+        self.assertLess(editor.preview.x(), editor.checks['volume'].mapTo(editor, QPoint()).x())
         for mode in ('dark', 'light'):
             theme.apply(mode)
             APP.processEvents()
-            viewport = editor.list.viewport()
-            image = editor.list.grab().toImage()
-            point = viewport.mapTo(editor.list, viewport.rect().bottomRight() - QPoint(20, 10))
-            self.assertEqual(image.pixelColor(point),
-                             theme.qcolor(theme.CONTENT))
-        editor.list.setCurrentRow(0)
-        editor.move_item(1)
-        editor.list.item(0).setCheckState(Qt.Unchecked)
+            image = editor.preview.grab().toImage()
+            self.assertGreater(image.pixelColor(editor.preview.width()//2, 5).alpha(), 0)
+        rows = dict(editor.preview.rows())
+        start = rows['volume'].center().toPoint()
+        end = QPoint(start.x(), int(rows['quality'].bottom()-1))
+        QTest.mousePress(editor.preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(editor.preview, end)
+        QTest.mouseRelease(editor.preview, Qt.LeftButton, pos=end)
+        self.assertEqual(editor.values()[0]['id'], 'quality')
+        editor.checks['quality'].setChecked(False)
+        self.assertNotIn('quality', dict(editor.preview.rows()))
         choices = page.values()['tile_context_menu']
         self.assertEqual(choices[0], {'id': 'quality', 'enabled': False})
         tile = Tile({'room_id': '1'})
@@ -211,13 +291,16 @@ class UiPolishTests(unittest.TestCase):
     def test_menu_and_curves_round_trip_without_touching_real_settings(self):
         settings = {**config.DEFAULT_SETTINGS,
                     'tile_context_menu': list(reversed(menu_choices(None))),
-                    'super_chat_scale_strength': 17, 'video_danmaku_scale_strength': 29}
+                    'super_chat_scale_strength': 17, 'video_danmaku_scale_strength': 29,
+                    'super_chat_scale_curve': [[0, .4], [1, 1], [2, 1.5]],
+                    'video_danmaku_scale_curve': [[0, .6], [1, 1], [2, 1.4]]}
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(config, 'CONFIG_PATH', str(Path(directory)/'config.json')), patch.dict(os.environ):
                 os.environ.pop('DDM_NO_SAVE', None)
                 config.save({'version': 1, 'settings': settings})
                 loaded = config.load()['settings']
-        for key in ('tile_context_menu', 'super_chat_scale_strength', 'video_danmaku_scale_strength'):
+        for key in ('tile_context_menu', 'super_chat_scale_strength', 'video_danmaku_scale_strength',
+                    'super_chat_scale_curve', 'video_danmaku_scale_curve'):
             self.assertEqual(loaded[key], settings[key])
 
 
