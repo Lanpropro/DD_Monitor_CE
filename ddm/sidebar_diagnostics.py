@@ -292,7 +292,7 @@ class SidebarEvidence(QObject):
                 rows.append(row)
         drag = sidebar.drag_session
         bar = sidebar.scroll.horizontalScrollBar() if sidebar.side == 'top' else sidebar.scroll.verticalScrollBar()
-        running = sum(animation.state().name == 'Running' for animation in box._animations.values() if isValid(animation))
+        running = sum(animation.state().name in ('Running', 'Paused') for animation in box._animations.values() if isValid(animation))
         result = dict(at_ms=self.milliseconds(), generation=self.generation, depth=self.depth,
             model=model, mismatches=mismatches, running=running,
             in_transition=bool(self.depth or running or drag.active or sidebar._collapse_animating),

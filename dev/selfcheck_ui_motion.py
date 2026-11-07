@@ -133,7 +133,7 @@ def main():
             QTest.mouseClick(button, Qt.LeftButton)
             assert sidebar.get_folder(folder)["collapsed"]
             animation = sidebar.list_box._animations[following]
-            assert animation.state() == QAbstractAnimation.Running
+            assert animation.state() == QAbstractAnimation.Paused
             assert animation.duration() == 280
             animation.setCurrentTime(75)
             intermediate = following.pos()
@@ -145,13 +145,13 @@ def main():
             delta = entrance.startValue() - entrance.endValue()
             assert (delta.x(), delta.y()) == ((24, 0) if side == "top" else (0, 24))
             assert wait_for(lambda: following.pos() == original_pos and
-                            all(anim.state() != QAbstractAnimation.Running
+                            all(anim.state() == QAbstractAnimation.Stopped
                                 for anim in sidebar.list_box._animations.values())), \
                 (side, following.pos(), original_pos)
             with patch.object(motion, "enabled", return_value=False):
                 QTest.mouseClick(button, Qt.LeftButton)
                 assert sidebar.get_folder(folder)["collapsed"]
-                assert all(anim.state() != QAbstractAnimation.Running for anim in sidebar.list_box._animations.values())
+                assert all(anim.state() == QAbstractAnimation.Stopped for anim in sidebar.list_box._animations.values())
             old_positions = {item: QPoint(item.pos()) for item in sidebar.items()}
             for rid in ("new-a", "new-b"):
                 assert sidebar.add_room({"room_id": rid, "uname": rid, "live": False})

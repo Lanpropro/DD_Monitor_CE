@@ -451,6 +451,65 @@ class DragLifecycleTests(unittest.TestCase):
         finally:
             sidebar.close()
 
+    def test_folder_rows_finish_when_qt_shared_animation_clock_does_not_advance(self):
+        sidebar = self.sidebar
+        folder = sidebar.create_folder('First')
+        following = sidebar.create_folder('Following')
+        sidebar.move_to_folder(['0', '1', '2'], folder)
+        box = sidebar.list_box
+        button = sidebar._folder_buttons[following]
+        for side in ('left', 'top'):
+            sidebar.set_side(side)
+            self.app.processEvents()
+            sidebar.toggle_folder(folder, animate=False)
+            collapsed_position = button.pos()
+            with patch.object(motion, 'enabled', return_value=True):
+                sidebar.toggle_folder(folder, animate=True)
+            animations = list(box._animations.values())
+            self.assertTrue(animations)
+            for animation in animations:
+                animation.pause()  # Fault injection: Qt shared clock supplies no frames.
+            QTest.qWait(400)
+            self.assertNotEqual(button.pos(), collapsed_position)
+            for item, animation in box._animations.items():
+                self.assertEqual(item.pos(), animation.endValue())
+            with patch.object(motion, 'enabled', return_value=True):
+                sidebar.toggle_folder(folder, animate=True)
+                sidebar.toggle_folder(folder, animate=True)
+                sidebar.toggle_folder(folder, animate=True)
+            for animation in box._animations.values():
+                animation.pause()
+            QTest.qWait(400)
+            self.assertEqual(button.pos(), collapsed_position)
+            sidebar.toggle_folder(folder, animate=False)  # Restore for the other axis.
+
+    def test_new_row_targets_do_not_restart_the_shared_gui_timer(self):
+        box = self.sidebar.list_box
+        first, second = self.sidebar.items()[:2]
+        box._glide_to(first, 0, first.y() + 100, True)
+        target = box._animations[first].endValue()
+        for i in range(30):
+            box._glide_to(second, 0, 200 + i, True)
+            QTest.qWait(8)
+        self.assertEqual(first.pos(), target)
+
+    def test_row_clock_finishes_hidden_rows_and_cleans_deleted_targets(self):
+        box = self.sidebar.list_box
+        item = self.sidebar.items()[0]
+        box._glide_to(item, 0, item.y() + 100, True)
+        animation = box._animations[item]
+        animation.pause()
+        self.window.hide()
+        self.assertEqual(item.pos(), animation.endValue())
+        self.assertFalse(box._animation_clock.isActive())
+        self.window.show()
+        disposable = QWidget(box)
+        box._glide_to(disposable, 0, 100, True)
+        disposable.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QTest.qWait(50)
+        self.assertFalse(box._animation_clock.isActive())
+
     def test_tile_release_clears_press_anchor_even_when_comment_consumes_it(self):
         from ddm.widgets import Tile
         tile = Tile({'room_id': 'fixture'}, self.window)
