@@ -432,6 +432,13 @@ class ControlsTests(unittest.TestCase):
         self.assertIs(first._plugin_controls.widget.parentWidget(), wall.pane_danmaku.panels[2].composer_bar)
         self.assertTrue(wall.pane_danmaku.panels[1].composer_bar.isHidden())
         self.assertEqual(first_edit.text(), 'first draft')
+        wall.set_layout('corner')
+        wall.pane_danmaku.apply({1: first, 2: first, 5: first})
+        merged, = wall.pane_danmaku.rendered()
+        self.assertIs(first._plugin_controls.widget.parentWidget(), merged.composer_bar)
+        self.assertTrue(merged.composer_bar.isVisible())
+        self.assertEqual(first_edit.text(), 'first draft')
+        self.assertEqual(merged.geometry().bottom(), wall.pane_danmaku.rectangles[5].bottom())
 
     def test_every_assignment_is_delivered_as_a_copy(self):
         self.register()

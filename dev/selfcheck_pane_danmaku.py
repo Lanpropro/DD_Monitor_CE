@@ -325,6 +325,61 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(panes.groups)
         self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:4]))
 
+    def test_corner_right_column_merges_across_independently_allocated_rows(self):
+        window = self.wall_window()
+        window._on_layout_changed('corner')
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.configure_wall_panes({1: source, 2: source, 5: source})
+        for width in (1200, 1401):
+            with self.subTest(width=width):
+                wall.reset_corner_ratios()
+                window.resize(width, 900)
+                self.app.processEvents()
+                wall.relayout(force=True)
+                window.sync_danmaku()
+                self.assertEqual(panes.rectangles[1].left(), panes.rectangles[5].left())
+                # A small independent drag may offset the column without covering a video.
+                area = wall._corner_area()
+                gap = wall.grid.spacing()
+                wall._corner_width_ratio = (panes.rectangles[1].left() - area.left() - gap + 2) / (area.width() - gap)
+                wall.relayout(force=True)
+                self.assertNotEqual(panes.rectangles[1].left(), panes.rectangles[5].left())
+                merged, = panes.rendered()
+                expected = panes.rectangles[1].united(panes.rectangles[2]).united(panes.rectangles[5])
+                self.assertEqual(merged.geometry(), expected)
+                self.assertEqual(set(panes.cells_for(5)), {1, 2, 5})
+                for cell in (0, 3, 4):
+                    self.assertFalse(merged.geometry().intersects(panes.rectangles[cell]))
+        client = window._danmaku_clients['1001']
+        client.message.emit(dict(kind='danmaku', text='环绕布局单份消息'))
+        self.assertEqual(sum(event.get('text') == '环绕布局单份消息' for event in merged._blocks), 1)
+        panes.request(5, video=True)
+        self.assertFalse(panes.bindings())
+        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:6]))
+
+    def test_corner_default_rows_align_without_overriding_independent_ratios(self):
+        wall = WallGrid([], layout_id='corner')
+        self.addCleanup(wall.deleteLater)
+        self.addCleanup(wall.close)
+        wall.show()
+        for width in (1200, 1401, 3840):
+            with self.subTest(width=width):
+                wall.resize(width, 900)
+                self.app.processEvents()
+                wall.relayout(force=True)
+                self.assertEqual(wall.tiles[1].x(), wall.tiles[5].x())
+                self.assertEqual(wall.tiles[0].geometry().right(), wall.tiles[4].geometry().right())
+        wall.restore_corner_ratios(dict(width=.6, bottom=[.3, .7]))
+        self.assertEqual(wall.corner_ratios()['width'], .6)
+        self.assertEqual(wall.corner_ratios()['bottom'], [.3, .7])
+        self.assertNotEqual(wall.tiles[1].x(), wall.tiles[5].x())
+        wall.reset_corner_ratios()
+        self.assertEqual(wall.tiles[1].x(), wall.tiles[5].x())
+        main = wall.tiles[0].geometry()
+        wall.restore_corner_ratios(dict(width=2 / 3, bottom=[.3, .7]))
+        self.assertEqual(wall.tiles[0].geometry(), main)
+
     def test_rectangular_merges_never_cover_unrelated_cells_and_follow_source_changes(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
