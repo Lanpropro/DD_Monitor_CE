@@ -25,6 +25,7 @@ if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
+if /i "%~1"=="--check-widget-boundaries" goto widgetBoundariesCheck
 if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
@@ -164,6 +165,14 @@ exit /b %errorlevel%
 :hotfixUpdatesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
+exit /b %errorlevel%
+
+
+:widgetBoundariesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
 exit /b %errorlevel%
 
 :widgetLifetimeCheck

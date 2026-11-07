@@ -936,7 +936,7 @@ class DanmakuPanel(QFrame):
 
         restore()
         # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。
-        QTimer.singleShot(0, restore)
+        QTimer.singleShot(0, self, restore)
 
     def jump_to_bottom(self) -> None:
         self._scroll_revision += 1
