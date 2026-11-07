@@ -286,7 +286,7 @@ class FolderMotionCapture:
         running = 0
         for animation in self.sidebar.list_box._animations.values():
             try:
-                running += animation.state().name == 'Running'
+                running += animation.state().name in ('Running', 'Paused')
             except RuntimeError:  # Removing a room/folder deletes its child animations.
                 continue
         return running
