@@ -131,6 +131,16 @@ jobs:
       # Synthetic native children, no media, accounts, activation or mouse input.
       - name: Check native video clipping lifecycle
         run: python dev/run_checks.py --script selfcheck_resize_surface
+      - name: Check native wall border ownership
+        env:
+          DDM_NO_SAVE: '1'
+          DDM_CHECK_MODE: offline
+          QT_QPA_PLATFORM: windows
+        run: |
+          python dev/checks/bootstrap.py dev/selfcheck_wall_border.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:QT_SCALE_FACTOR = '1.5'
+          python dev/checks/bootstrap.py dev/selfcheck_wall_border.py
       - name: Show smoke logs
         if: always()
         shell: pwsh

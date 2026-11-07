@@ -305,3 +305,5 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 业务控件拆分使用 `run.cmd --check-widget-boundaries` 检查独立模块导入、主窗口不依赖兼容入口、旧对象身份及完整Qt子类加载顺序。`selfcheck_pane_danmaku` 与 `selfcheck_main_notices` 默认通过 `dev/checks/widget_cases.py` 将每个完整窗口用例放入独立Qt进程，离屏最多并行两个进程，原生参数保持逐项顺序；子进程失败/超时直接导致检查失败；保留全部用例和断言，单项/原生参数仍有效。人工从根 `run.cmd` 检查关注筛选/文件夹/拖动、弹幕字体/SC/来源切换、格子音量/暂停、布局/分区/全屏及小窗；本批不更改交互设计。
 
 CI 的 smoke 每项上限为180秒，覆盖完整窗口用例各自启动Qt进程的额外时间；每个子用例仍有60秒上限。旧120秒上限在较慢runner仅完成74个主窗口用例，未完成部分不能计作通过，因此增加总时限以执行全部用例，不改变断言或超时失败行为。
+
+边框交互职责拆分由 `selfcheck_wall_border` 验证会话所有权、旧入口、预览/提交、取消/布局切换/隐藏和父对象销毁；根 `run.cmd --check-widget-boundaries` 包含此检查。合成格子与离屏输入不作为真实播放或跨屏验收，人工仍从根入口核对边缘/角点拖动、Esc取消、双击重置及换布局后无残留。

@@ -41,6 +41,7 @@
 | [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | 单项执行前核对 |
 | [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | `offline` |
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
+| [selfcheck_wall_border](../selfcheck_wall_border.py) | `smoke` / `offline`；单一拖动状态、预览与提交、取消/换布局/隐藏清理、父对象销毁和旧入口兼容；合成格子、无媒体/账号/外网 |
 | [selfcheck_widget_modules](../selfcheck_widget_modules.py) | `smoke` / `offline`；独立职责模块导入、主窗口不依赖兼容入口、旧类与常量身份、完整Qt子类加载顺序；无窗口、账号或媒体 |
 | [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网；面板删除后跳过排队滚动恢复，避免访问已删除文本控件 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |

@@ -18,7 +18,7 @@ class WidgetModulesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_presentation_imports_do_not_load_player_aggregate_or_window(self):
-        for module in ('account_widgets', 'danmaku_widgets', 'layout_picker'):
+        for module in ('account_widgets', 'danmaku_widgets', 'layout_picker', 'wall_border'):
             with self.subTest(module=module):
                 self.child(f'''
 import importlib, sys
