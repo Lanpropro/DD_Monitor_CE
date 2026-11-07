@@ -295,7 +295,7 @@ class MainWindow(QMainWindow):
         self.sidebar.room_presets_host = self
         self.sidebar.layoutResetRequested.connect(self.wall.reset_layout_ratios)
         self.sidebar.set_layout_name(self.wall.layout_id)
-        self.wall.paneEditRequested.connect(self.open_pane_menu)
+        self.wall.paneEditRequested.connect(self.switch_tile_to_danmaku)
         self.wall.paneApplyRequested.connect(self._apply_pane_menu)
         self.wall.danmakuPanelCreated.connect(self._connect_danmaku_panel)
         self.wall.paneConfigurationChanged.connect(self._pane_configuration_changed)
@@ -3336,8 +3336,15 @@ class MainWindow(QMainWindow):
         panel.superChatDismissed.connect(lambda chat_id, p=panel:
             self._dismiss_super_chat(getattr(p, '_linked_room_id', ''), chat_id))
 
-    def open_pane_menu(self, cell=-1):
-        self.wall.pane_danmaku.open_menu(cell, QCursor.pos())
+    def switch_tile_to_danmaku(self, cell=-1):
+        panes = self.wall.pane_danmaku
+        if cell not in range(len(self.wall._cells())):
+            return
+        panes.request(cell, -1)
+        panel = panes.panels.get(cell)
+        if panel is not None:
+            picker = panel.source_picker
+            QTimer.singleShot(0, picker, lambda: picker.set_expanded(True))
 
     def _apply_pane_menu(self, bindings):
         try:

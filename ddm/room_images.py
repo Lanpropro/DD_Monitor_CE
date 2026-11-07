@@ -124,6 +124,7 @@ class RoomImages:
                 item.thumb.set_face(pixmap)
                 # 竖屏顶部横栏的头像排用的是同一张图（那边不走 NavItem）
                 host.sidebar.set_room_face(room_id, pixmap)
+                host.wall.pane_danmaku.refresh_sources()
                 return
 
     def apply_cover(self, room_id: str, pixmap) -> None:

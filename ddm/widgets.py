@@ -7023,7 +7023,7 @@ class Tile(QFrame):
     def contextMenuEvent(self, event) -> None:
         if not self.room.get("room_id"):
             menu = QMenu(self)
-            menu.addAction("格子内容…", self.paneEditRequested.emit)
+            menu.addAction("切换为弹幕", self.paneEditRequested.emit)
             menu.exec(event.globalPos())
             menu.deleteLater()
             return
@@ -7093,7 +7093,7 @@ class Tile(QFrame):
                 menu.addAction(label, callback)
         menu.addSeparator()
         if not (self.property("pictureInPicture") or self.property("fullscreen")):
-            menu.addAction("格子内容…", self.paneEditRequested.emit)
+            menu.addAction("切换为弹幕", self.paneEditRequested.emit)
         menu.addAction("关闭这一路", lambda: self.closeRequested.emit(self.room))
         return menu
 

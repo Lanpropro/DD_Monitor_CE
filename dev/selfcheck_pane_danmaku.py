@@ -18,6 +18,9 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
+from PySide6.QtCore import QAbstractAnimation, Qt
+from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets
 from ddm.app import MainWindow
 from ddm.widgets import WallGrid
@@ -50,15 +53,29 @@ class PaneDanmakuTests(unittest.TestCase):
         wall, panes = window.wall, window.wall.pane_danmaku
         backing, source = wall.tiles[1], wall.tiles[0]
         original = deepcopy(backing.room), backing.volume, backing.muted
-        menu = panes.create_menu(1)
+        menu = backing.build_menu()
         self.addCleanup(menu.deleteLater)
-        sources = next(action.menu() for action in menu.actions() if action.menu())
-        next(action for action in sources.actions() if action.text().startswith('1 ·')).trigger()
+        self.assertNotIn('格子内容…', [action.text() for action in menu.actions()])
+        next(action for action in menu.actions() if action.text() == '切换为弹幕').trigger()
         panel = panes.panels[1]
         self.assertTrue(panel.isVisible())
         self.assertTrue(backing.isHidden())
+        self.app.processEvents()
+        picker = panel.source_picker
+        self.assertTrue(picker.expanded)
+        self.assertTrue(panel.title.isHidden())
+        self.assertTrue(panel.font_controls.isHidden())
+        self.assertEqual(set(picker.buttons), {wall.tiles[0], wall.tiles[2], wall.tiles[3]})
+        self.assertIsNone(panes.target(panel))
+        QTest.mouseClick(picker.buttons[source], Qt.LeftButton)
+        self.assertFalse(picker.expanded)
+        self.assertTrue(picker.tray.isHidden())
+        self.assertTrue(picker.anchor.isVisible())
+        self.assertFalse(panel.font_controls.isHidden())
         self.assertIs(panes.target(panel), source)
         self.assertEqual(panel._linked_room_id, '1001')
+        self.assertLessEqual(picker.geometry().right(), panel.count.x())
+        self.assertLess(panel.count.x() - picker.geometry().right(), 10)
         self.assertEqual((backing.room, backing.volume, backing.muted), original)
         menu = panes.create_menu(1)
         self.addCleanup(menu.deleteLater)
@@ -69,8 +86,75 @@ class PaneDanmakuTests(unittest.TestCase):
         source.setProperty('pictureInPicture', True)
         menu = source.build_menu()
         self.addCleanup(menu.deleteLater)
-        self.assertNotIn('格子内容…', [action.text() for action in menu.actions()])
+        self.assertNotIn('切换为弹幕', [action.text() for action in menu.actions()])
         source.setProperty('pictureInPicture', False)
+
+    def test_avatar_strip_reopens_scrolls_and_receives_late_cached_images(self):
+        window = self.wall_window()
+        wall = window.wall
+        wall.set_layout('4x4')
+        for index, tile in enumerate(wall.tiles[4:], 4):
+            tile.set_room(dict(room_id=str(1001 + index), uname=f'主播 {index + 1}', live=False))
+        window.configure_wall_panes({15: wall.tiles[0]})
+        panel = wall.pane_danmaku.panels[15]
+        picker = panel.source_picker
+        QTest.mouseClick(picker.anchor, Qt.LeftButton)
+        self.assertTrue(picker.expanded)
+        self.assertEqual(len(picker.buttons), 15)
+        positions = [button.x() for button in picker.buttons.values()]
+        self.assertEqual(positions, sorted(positions, reverse=True))
+        self.assertGreater(picker.scroll.horizontalScrollBar().maximum(), 0)
+        # Every candidate remains reachable within the existing header height.
+        bar = picker.scroll.horizontalScrollBar()
+        bar.setValue(0)
+        self.assertEqual(picker.buttons[wall.tiles[14]].x(), 0)
+        height = panel.header.height()
+        selected = wall.tiles[14]
+        QTest.mouseClick(picker.buttons[selected], Qt.LeftButton)
+        self.assertIs(wall.pane_danmaku.target(panel), selected)
+        self.assertEqual(panel.header.height(), height)
+        self.assertEqual(picker.anchor.identity[0], selected.room['room_id'])
+        picker.set_expanded(True, animate=False)
+        QTest.keyClick(picker.buttons[selected], Qt.Key_Escape)
+        self.assertFalse(picker.expanded)
+        self.assertTrue(picker.anchor.isVisible())
+        # Avatar loading updates an already selected anchor without clearing its source.
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(QColor('red'))
+        target = wall.tiles[0]
+        window.configure_wall_panes({15: target})
+        window._on_room_avatar(target.room['room_id'], pixmap)
+        self.assertEqual(picker.anchor.face_key, pixmap.cacheKey())
+        self.assertEqual(picker.buttons[target].face_key, pixmap.cacheKey())
+        self.assertIs(wall.pane_danmaku.target(panel), target)
+
+    def test_avatar_motion_is_right_anchored_interruptible_and_stops_when_hidden(self):
+        from ddm import motion
+        window = self.wall_window()
+        window.configure_wall_panes({3: window.wall.tiles[1]})
+        panel = window.wall.pane_danmaku.panels[3]
+        picker = panel.source_picker
+        with patch.object(motion, 'enabled', return_value=True):
+            picker.set_expanded(True)
+            picker.animation.setCurrentTime(60)
+            progress = picker.progress
+            self.assertGreater(progress, 0)
+            self.assertLess(progress, 1)
+            picker.set_expanded(False)
+            self.assertAlmostEqual(picker.animation.startValue(), progress)
+            picker.animation.setCurrentTime(picker.animation.duration())
+            self.assertTrue(picker.tray.isHidden())
+            self.assertTrue(picker.anchor.isVisible())
+            picker.set_expanded(True)
+            panel.hide()
+            self.assertEqual(picker.animation.state(), QAbstractAnimation.Stopped)
+            self.assertFalse(picker.expanded)
+            self.assertTrue(picker.tray.isHidden())
+        panel.show()
+        with patch.object(motion, 'enabled', return_value=False):
+            picker.set_expanded(True)
+            self.assertEqual(picker.progress, 1)
+            self.assertEqual(picker.animation.state(), QAbstractAnimation.Stopped)
 
     def test_multiple_panes_share_clients_and_route_messages_status_and_sc(self):
         window = self.wall_window()
