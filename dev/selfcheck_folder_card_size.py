@@ -7,7 +7,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
 from PySide6.QtCore import QPoint, QRect
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
 from ddm.widgets import Sidebar
 
@@ -71,6 +71,10 @@ def main():
         for card_mode in (True, False):
             sidebar.set_card_mode(card_mode)
             for _ in range(4):
+                viewport = sidebar.scroll.viewport()
+                visible_before = QRect(box.mapFrom(viewport, QPoint()), viewport.size())
+                before = {item: QRect(item.geometry()) for item in box.children()
+                          if isinstance(item, QWidget)}
                 with patch.object(sidebar, '_sync_count', wraps=sidebar._sync_count) as count:
                     sidebar.toggle_folder('f0', animate=True)
                     assert count.call_count == 1, 'Folder refresh must not repeat platform/count work'
@@ -78,7 +82,14 @@ def main():
                 visible = QRect(box.mapFrom(viewport, QPoint()), viewport.size())
                 running = [(item, animation) for item, animation in box._animations.items()
                            if animation.state().name == 'Running']
-                assert running, 'Visible rows should retain their transition'
+                moved_visible = any(not item.isHidden() and rect != item.geometry()
+                                    and (rect.intersects(visible_before)
+                                         or item.geometry().intersects(visible))
+                                    for item, rect in before.items())
+                # A reversal may remove the entering rows without moving any remaining
+                # visible row. Such a no-op does not need a replacement animation.
+                if not sidebar.get_folder('f0')['collapsed'] or moved_visible:
+                    assert running, 'Visible movement should retain its transition'
                 assert len(running) < 40, 'Offscreen rows must not all animate'
                 for item, animation in running:
                     assert not item.isHidden(), 'Collapsed rows must stop animating'
