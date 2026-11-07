@@ -28,8 +28,9 @@ def run_widget_cases(case, script, arguments=()):
             return name, 1, output + '\nTIMEOUT: ' + name + '\n'
 
     failed = []
-    # Applications have separate Qt state; bound concurrency for CI and local machines.
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    # Native cases share desktop focus; keep their original serial order.
+    workers = 1 if '--native' in arguments else 2
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         for name, code, output in pool.map(run, names):
             print(output, end='', flush=True)
             if code:

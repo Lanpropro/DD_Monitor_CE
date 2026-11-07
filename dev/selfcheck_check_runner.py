@@ -32,7 +32,10 @@ class CheckRunnerTests(unittest.TestCase):
                 pass
 
         source = '''
-import unittest
+import sys, unittest
+if '--native' in sys.argv:
+    print('NATIVE flag forwarded', flush=True)
+    sys.argv.remove('--native')
 class Cases(unittest.TestCase):
     def test_first(self):
         print('FIRST executed', flush=True)
@@ -56,6 +59,10 @@ if __name__ == '__main__':
             self.assertIn('SECOND executed', output.getvalue())
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(run_widget_cases(Passing, script), 0)
+            native_output = io.StringIO()
+            with contextlib.redirect_stdout(native_output):
+                self.assertEqual(run_widget_cases(Passing, script, ('--native',)), 0)
+            self.assertIn('NATIVE flag forwarded', native_output.getvalue())
 
     def test_widget_case_timeout_is_a_failure(self):
         class Timed(unittest.TestCase):
