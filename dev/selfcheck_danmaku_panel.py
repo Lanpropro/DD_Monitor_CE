@@ -127,6 +127,15 @@ assert not any(name in sys.modules for name in (
         for child in (panel, body, stack, presentation):
             self.assertFalse(isValid(child))
 
+    def test_queued_scroll_restore_is_cancelled_when_panel_is_deleted(self):
+        self.panel.add_message('测试用户', '排队重排后立即关闭')
+        errors = []
+        with patch.object(sys, 'excepthook', side_effect=lambda *args: errors.append(args[1])):
+            self.panel.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+        self.assertEqual(errors, [])
+
 
 if __name__ == '__main__':
     unittest.main()
