@@ -644,6 +644,7 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
     background: {CONTENT};
     border: 1px solid {BORDER};
@@ -1501,27 +1502,27 @@ QPushButton#PrimaryButton:pressed {{
 }}
 
 /* 弹出菜单 */
-QListWidget#FollowList, QListWidget#TileMenuList {{
+QListWidget#FollowList {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 4px;
     outline: none;
 }}
-QListWidget#FollowList::item, QListWidget#TileMenuList::item {{
+QListWidget#FollowList::item {{
     padding: 6px 4px;
     border-radius: {RADIUS_SM + 2}px;
     color: {TEXT2};
 }}
-QListWidget#FollowList::item:hover, QListWidget#TileMenuList::item:hover {{
+QListWidget#FollowList::item:hover {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
-QListWidget#FollowList::item:selected, QListWidget#TileMenuList::item:selected {{
+QListWidget#FollowList::item:selected {{
     background: {ACCENT_SOFT};
     color: {ACCENT};
 }}
-QListWidget#FollowList::indicator, QListWidget#TileMenuList::indicator {{
+QListWidget#FollowList::indicator {{
     width: 16px;
     height: 16px;
     border-radius: 4px;
@@ -1529,10 +1530,10 @@ QListWidget#FollowList::indicator, QListWidget#TileMenuList::indicator {{
     background: {CONTENT_HOVER};
     margin-right: 6px;
 }}
-QListWidget#FollowList::indicator:hover, QListWidget#TileMenuList::indicator:hover {{
+QListWidget#FollowList::indicator:hover {{
     border: 1px solid {ACCENT};
 }}
-QListWidget#FollowList::indicator:checked, QListWidget#TileMenuList::indicator:checked {{
+QListWidget#FollowList::indicator:checked {{
     background: {ACCENT};
     border: 1px solid {ACCENT};
 }}

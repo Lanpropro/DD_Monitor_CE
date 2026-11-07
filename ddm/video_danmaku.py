@@ -358,7 +358,8 @@ class SuperChatOverlay(BadgeSurface):
             max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100)),
             owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed,
             scale_with_video=owner.settings.get('super_chat_scale_with_video', False),
-            scale_strength=owner.settings.get('super_chat_scale_strength', 35))
+            scale_strength=owner.settings.get('super_chat_scale_strength', 35),
+            scale_curve=owner.settings.get('super_chat_scale_curve'))
         return rects
 
     def _refresh_quick_mask(self):
@@ -610,11 +611,13 @@ class VideoDanmaku(QWidget):
         values['super_chat_scale_with_video'] = bool(settings.get('super_chat_scale_with_video', False))
         values['super_chat_scale_strength'] = settings.get('super_chat_scale_strength', 35)
         values['video_danmaku_scale_strength'] = settings.get('video_danmaku_scale_strength', 35)
+        values['super_chat_scale_curve'] = settings.get('super_chat_scale_curve')
+        values['video_danmaku_scale_curve'] = settings.get('video_danmaku_scale_curve')
         if values != self.settings:
             if self._quick_animated() and self.timer.isActive():
                 self._tick()
             redraw = any(values.get(key) != self.settings.get(key)
-                         for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale", "video_danmaku_scale_strength",
+                         for key in ("danmaku_font", "video_danmaku_size", "video_danmaku_scale", "video_danmaku_scale_strength", "video_danmaku_scale_curve",
                                      "video_danmaku_outline_width"))
             self.settings = values
             color_changed = False
@@ -723,7 +726,8 @@ class VideoDanmaku(QWidget):
         size = int(self.settings.get("video_danmaku_size") or 28)
         if self.settings.get("video_danmaku_scale", True):
             from .viewport_scale import viewport_scale
-            size = round(size * viewport_scale(self.height(), self.settings.get('video_danmaku_scale_strength', 35)))
+            size = round(size * viewport_scale(self.height(), self.settings.get('video_danmaku_scale_strength', 35),
+                                              self.settings.get('video_danmaku_scale_curve')))
         return max(10, min(144, size))
 
     def lane_height(self) -> int:
