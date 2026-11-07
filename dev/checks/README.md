@@ -114,7 +114,7 @@
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
 | [selfcheck_localization](../selfcheck_localization.py) | 单项执行前核对 |
-| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke`；包含开播提醒满墙后的目标选择、替换、取消、空格优先与去重 |
+| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke`；包含开播提醒满墙后的目标选择、替换、取消、空格优先与去重；共享主窗口夹具使用空临时插件目录，不扫描本机安装清单 |
 | [selfcheck_notification_center](../selfcheck_notification_center.py) | `smoke`、`offline` |
 | [selfcheck_offline_badges](../selfcheck_offline_badges.py) | 单项执行前核对 |
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
