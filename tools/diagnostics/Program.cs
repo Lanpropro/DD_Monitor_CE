@@ -70,44 +70,6 @@ namespace DDMonitorDiagnostics
         }
     }
 
-    internal sealed class DiagnosticComboBox : ComboBox
-    {
-        internal DiagnosticComboBox()
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList;
-            FlatStyle = FlatStyle.Flat;
-            DrawMode = DrawMode.OwnerDrawFixed;
-        }
-        protected override void OnDrawItem(DrawItemEventArgs e)
-        {
-            bool selected = DroppedDown && (e.State & DrawItemState.Selected) != 0;
-            using (var brush = new SolidBrush(selected ? DiagnosticTheme.Accent : DiagnosticTheme.Surface))
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            if (e.Index >= 0)
-                TextRenderer.DrawText(e.Graphics, Items[e.Index].ToString(), e.Font, e.Bounds,
-                    DiagnosticTheme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        }
-        void DrawFace(Graphics graphics)
-        {
-            using (var brush = new SolidBrush(DiagnosticTheme.Surface)) graphics.FillRectangle(brush, ClientRectangle);
-            var color = Enabled ? DiagnosticTheme.Text : DiagnosticTheme.Muted;
-            TextRenderer.DrawText(graphics, Text, Font, new Rectangle(0, 0, Math.Max(1, Width - 24), Height),
-                color, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var pen = new Pen(color, 1.5f))
-                graphics.DrawLines(pen, new[] { new Point(Width - 17, Height / 2 - 2),
-                    new Point(Width - 13, Height / 2 + 2), new Point(Width - 9, Height / 2 - 2) });
-        }
-        protected override void WndProc(ref Message message)
-        {
-            base.WndProc(ref message);
-            if (message.Msg == 0xF)
-                using (var graphics = Graphics.FromHwnd(Handle)) DrawFace(graphics);
-            else if ((message.Msg == 0x317 || message.Msg == 0x318) && message.WParam != IntPtr.Zero)
-                using (var graphics = Graphics.FromHdc(message.WParam)) DrawFace(graphics);
-        }
-    }
-
     internal sealed class DiagnosticButton : Button
     {
         bool hovered;
@@ -452,16 +414,6 @@ namespace DDMonitorDiagnostics
         OnDemandClient liveClient;
         object liveEvidence;
         string liveDirectory;
-        readonly ComboBox captureMode = new DiagnosticComboBox { Dock = DockStyle.Fill };
-        readonly Button startCapture = new DiagnosticButton { Text = "启动软件并采集", Dock = DockStyle.Fill, Enabled = false };
-        readonly Label captureHint = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-        readonly LinkLabel captureOptions = new LinkLabel { Text = "高级采集…", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
-        static readonly string[] CapturePurposes = {
-            "记录列表坐标、折叠与拖放，排查卡片错位。", "记录界面操作与耗时，排查卡顿。",
-            "记录开播通知的关闭过程，排查关闭后残留。", "记录滚动弹幕位置与运动，排查回退。",
-            "记录拖放事件与清理状态，排查拖放失效。", "记录斗鱼取流、播放与等待状态。",
-            "通过本地中继记录斗鱼播放过程；会改变取流路径。",
-            "记录主题切换过程与耗时。", "记录全屏切换过程与耗时。" };
         readonly TableLayoutPanel inputs;
         string zipPath;
 
@@ -532,56 +484,7 @@ namespace DDMonitorDiagnostics
             liveFolders.Click += (s, e) => CaptureLive("folders");
             liveDrag.Click += (s, e) => CaptureLive("drag");
             cancelLive.Click += (s, e) => { if (liveClient != null) liveClient.Dispose(); };
-            var captureSection = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            captureSection.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-            captureSection.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
-            var captureHeader = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-            captureHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            captureHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
-            captureHeader.Controls.Add(new Label { Text = "生成时自动收集已有日志", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-            captureHeader.Controls.Add(captureOptions, 1, 0);
-            captureSection.Controls.Add(captureHeader, 0, 0);
-            var capturePanel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Visible = false, Margin = Padding.Empty };
-            capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            capturePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 156));
-            capturePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-            capturePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            captureMode.Items.Add("仅打包已有日志（无需专项）");
-            captureMode.Items.AddRange(Collector.CaptureLabels);
-            captureMode.ItemHeight = Font.Height;
-            captureMode.SelectedIndex = 0;
-            var captureFrame = new DiagnosticInput { Dock = DockStyle.Fill, Padding = new Padding(8, 3, 8, 3), Margin = new Padding(0, 3, 8, 3) };
-            captureFrame.Controls.Add(captureMode);
-            startCapture.Margin = new Padding(0, 3, 0, 3);
-            captureHint.Margin = new Padding(0, 3, 0, 3);
-            capturePanel.Controls.Add(captureFrame, 0, 0);
-            capturePanel.Controls.Add(startCapture, 1, 0);
-            capturePanel.Controls.Add(captureHint, 0, 1);
-            capturePanel.SetColumnSpan(captureHint, 2);
-            captureSection.Controls.Add(capturePanel, 0, 1);
-            bool captureExpanded = false;
-            captureOptions.LinkClicked += (s, e) => {
-                captureExpanded = !captureExpanded;
-                capturePanel.Visible = captureExpanded;
-                captureOptions.Text = captureExpanded ? "收起高级采集" : "高级采集…";
-                captureSection.RowStyles[1].Height = captureExpanded ? 90 : 0;
-                inputs.RowStyles[7].Height = captureExpanded ? 136 : 46;
-                layout.RowStyles[1].Height = captureExpanded ? 546 : 456;
-            };
-            captureMode.SelectedIndexChanged += (s, e) => UpdateCaptureHint();
-            UpdateCaptureHint();
-            AddRow(7, "日志收集", captureSection, null);
-            startCapture.Click += (s, e) => {
-                if (captureMode.SelectedIndex <= 0) return;
-                try
-                {
-                    var command = new Collector(directory.Text).CaptureCommand(Collector.CaptureModes[captureMode.SelectedIndex - 1]);
-                    using (var process = Process.Start(command)) { }
-                    captureHint.Text = "已请求启动：" + captureMode.SelectedItem + "。\r\n复现时按 Ctrl+Alt+F8 标记；退出客户端后，回这里生成诊断包。";
-                    status.Text = "已请求启动专项。出现问题时按 Ctrl+Alt+F8 标记现场；复现后正常退出客户端，再生成诊断包。";
-                }
-                catch (Exception error) { MessageBox.Show(this, error.Message, "专项未启动", MessageBoxButtons.OK, MessageBoxIcon.Information); }
-            };
+            AddRow(7, "日志收集", new Label { Text = "生成时自动收集已有日志，无需重启或提前开启诊断", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, null);
             addImage.Click += (s, e) => AddImages();
             attachments.PreviewRequested += path => {
                 try { using (var dialog = new ImagePreview(path)) dialog.ShowDialog(this); }
@@ -590,7 +493,7 @@ namespace DDMonitorDiagnostics
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,
-                Text = "如何使用\r\n问题仍在：点击“抓取文件夹现场”；禁止拖动则点“记录一次拖放”后回软件尝试一次。无需提前监测、无需重启；采集完成再生成诊断包。旧版只能抓外部窗口快照，内部证据缺失会提示。\r\n问题已经发生：填写描述，可直接点击“生成诊断包”收集已有日志，不必启动专项。\r\n需要重新复现：专项会补充问题发生过程的记录，便于定位；先退出客户端，选择对应问题，再点“启动软件并采集”。仅选择不会启动，也不会切换正在运行的采集。\r\n\r\n复现时按 Ctrl+Alt+F8 标记现场，退出客户端后再生成诊断包。专项是可选步骤，不会修复问题；普通专项有额外记录开销，斗鱼深度模式使用本地中继。旧版0.7 / 0.7.1可直接打包已有日志，专项需支持新入口的主程序。\r\n\r\n收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动图片；白名单内已有专项日志也会收集，与下拉选择无关。近期FFmpeg日志最多5份、专项最多24份，每份末尾2MB。\r\n\r\n生成诊断包不会启动或关闭主软件，不联网，不修改个人配置。不读取账号文件、聊天记录、录制视频或内存转储，不自动截图。图片去除元数据但不遮挡画面；请检查后手动发送。"
+                Text = "如何使用\r\n问题仍在：保持界面，点击“抓取文件夹现场”；禁止拖动则点“记录一次拖放”后回软件尝试一次，最多等待60秒，可随时取消。无需提前监测、无需重启；采集完成再生成诊断包。旧版只能抓外部窗口快照，内部证据缺失会提示。\r\n问题已消失或软件已关闭：填写发生时间和描述，直接点击“生成诊断包”收集已有日志；无需重新复现。\r\n\r\n收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动图片；白名单内已有专项日志也会收集。近期FFmpeg日志最多5份、专项最多24份，每份末尾2MB。\r\n\r\n工具不会启动或关闭主软件，不持续监测，不联网，不修改个人配置。不读取账号文件、聊天记录、录制视频或内存转储，不自动截图。图片去除元数据但不遮挡画面；请检查后手动发送。"
             };
             var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
             layout.Controls.Add(contentArea, 0, 2);
@@ -618,8 +521,7 @@ namespace DDMonitorDiagnostics
             DiagnosticTheme.Apply(this);
             content.BackColor = DiagnosticTheme.Background;
             foreach (Control child in contentArea.Controls) child.BackColor = DiagnosticTheme.Background;
-            content.ForeColor = imageHint.ForeColor = captureHint.ForeColor = DiagnosticTheme.Muted;
-            captureOptions.LinkColor = captureOptions.ActiveLinkColor = DiagnosticTheme.Accent;
+            content.ForeColor = imageHint.ForeColor = DiagnosticTheme.Muted;
             detect.Click += (s, e) => Detect(initial, true);
             Shown += (s, e) => Detect(initial, false);
         }
@@ -688,14 +590,6 @@ namespace DDMonitorDiagnostics
             liveWorker.RunWorkerAsync();
         }
 
-        void UpdateCaptureHint()
-        {
-            bool selected = captureMode.SelectedIndex > 0;
-            startCapture.Enabled = selected;
-            captureHint.Text = selected
-                ? CapturePurposes[captureMode.SelectedIndex - 1] + "\r\n仅选择不会开始或切换采集；先退出客户端，再点右侧按钮。"
-                : "可直接点“生成诊断包”收集已有日志，无需启动专项。\r\n需要重新复现并补充过程记录时，再选择对应问题。";
-        }
 
         void Detect(string initial, bool requested)
         {
