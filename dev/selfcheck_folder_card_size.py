@@ -77,7 +77,7 @@ def main():
                 viewport = sidebar.scroll.viewport()
                 visible = QRect(box.mapFrom(viewport, QPoint()), viewport.size())
                 running = [(item, animation) for item, animation in box._animations.items()
-                           if animation.state().name == 'Running']
+                           if animation.state().name in ('Running', 'Paused')]
                 assert running, 'Visible rows should retain their transition'
                 assert len(running) < 40, 'Offscreen rows must not all animate'
                 for item, animation in running:
@@ -87,7 +87,7 @@ def main():
                         'Only rows visible at either end should animate'
                 QTest.qWait(30)  # Reverse before the previous transition finishes.
             QTest.qWait(320)
-            assert not any(a.state().name == 'Running' for a in box._animations.values())
+            assert not any(a.state().name in ('Running', 'Paused') for a in box._animations.values())
             geometry = {item: item.geometry() for item in sidebar.visible_items()}
             box.relayout(animate=False)
             assert all(item.geometry() == rect for item, rect in geometry.items())
@@ -97,9 +97,9 @@ def main():
     QTest.qWait(30)
     sidebar.toggle_folder(smart, animate=True)
     assert sidebar._smart_cards
-    assert sum(a.state().name == 'Running' for a in box._animations.values()) < 40
+    assert sum(a.state().name in ('Running', 'Paused') for a in box._animations.values()) < 40
     sidebar.toggle_folder(smart, animate=True)
-    assert all(not item.isHidden() for item, a in box._animations.items() if a.state().name == 'Running')
+    assert all(not item.isHidden() for item, a in box._animations.items() if a.state().name in ('Running', 'Paused'))
     QTest.qWait(320)
     sidebar.close()
     print('PASS: folder expansion and collapse keep card size stable across vertical scrolling threshold')
