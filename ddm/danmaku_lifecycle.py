@@ -16,10 +16,14 @@ class DanmakuLifecycle:
         if host._closing or not getattr(host, "plugins", None):
             return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
         wall = host.wall
+        panes = wall.pane_danmaku
+        if wall.has_danmaku and wall.fullscreen_tile is None:
+            widgets = panes.arrange(panes.rectangles, wall._preset_widgets())
+            wall._sync_pane_borders(widgets, panes.dividers)
         wall.sync_sc_placement()
         targets = {}
         if wall.has_danmaku:
-            for panel in wall.pane_danmaku.panels.values():
+            for panel in wall.pane_danmaku.rendered():
                 tile = wall.pane_danmaku.target(panel)
                 targets[panel] = tile.room if tile is not None else {}
         wanted = {str(tile.room['room_id']) for tile in wall.tiles

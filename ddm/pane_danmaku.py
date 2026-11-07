@@ -1,4 +1,5 @@
 """Per-layout chat panes; bindings retain Tile identity when videos exchange places."""
+from PySide6.QtCore import QRect
 from PySide6.QtWidgets import QMenu
 
 from . import layouts
@@ -27,6 +28,9 @@ class PaneDanmaku:
         self.settings = {}
         self.extra = []
         self.panels = {}
+        self.groups = {}
+        self.rectangles = {}
+        self.dividers = []
         self._saved = saved if isinstance(saved, dict) else {}
         for identifier, value in self._saved.items():
             if identifier not in layouts.BY_ID:
@@ -92,6 +96,77 @@ class PaneDanmaku:
     def all_panels(self):
         return [self.wall.danmaku, *self.extra]
 
+    def rendered(self):
+        if not self.groups:
+            return list(self.panels.values())
+        return [self.panels[cell] for cell in self.groups if cell in self.panels]
+
+    def cells_for(self, cell):
+        return next((cells for cells in self.groups.values() if cell in cells), (cell,))
+
+    def reset_preset(self, identifier):
+        changed = identifier in self.settings
+        self.settings.pop(identifier, None)
+        if identifier == self.wall.layout_id:
+            default = layouts.danmaku_cell(identifier)
+            changed |= self.wall._danmaku_cell != default
+            self.wall._danmaku_cell = default
+            self.prepare()
+        return changed
+
+    def arrange(self, rectangles, widgets):
+        """Join full shared edges only: a joined rectangle never covers a video cell."""
+        self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
+        previous = set(self.rendered())
+        areas = []
+        for cell, panel in self.panels.items():
+            if cell not in rectangles:
+                continue
+            tile = self.target(panel)
+            room = str(tile.room.get('room_id') or '') if tile is not None else ''
+            areas.append(([cell], QRect(rectangles[cell]), room))
+        gap = self.wall.grid.spacing()
+        changed = True
+        while changed:
+            changed = False
+            for first, (cells, rect, room) in enumerate(areas):
+                if not room:
+                    continue
+                for second in range(first + 1, len(areas)):
+                    others, other, source = areas[second]
+                    horizontal = (rect.top() == other.top() and rect.bottom() == other.bottom() and
+                        (rect.right() + gap + 1 == other.left() or other.right() + gap + 1 == rect.left()))
+                    vertical = (rect.left() == other.left() and rect.right() == other.right() and
+                        (rect.bottom() + gap + 1 == other.top() or other.bottom() + gap + 1 == rect.top()))
+                    if source == room and (horizontal or vertical):
+                        areas[first] = (cells + others, rect.united(other), room)
+                        areas.pop(second)
+                        changed = True
+                        break
+                if changed:
+                    break
+        self.groups = {}
+        visible = dict(widgets)
+        for cell, rect in rectangles.items():
+            if cell in self.panels:
+                self.panels[cell].setGeometry(rect)
+        for cells, rect, room in areas:
+            # Keep an existing message document when an adjacent pane is added.
+            keeping = [cell for cell in cells if self.panels[cell] in previous and
+                       getattr(self.panels[cell], '_linked_room_id', '') == room]
+            leader = max(keeping or cells, key=lambda cell: (rectangles[cell].bottom(), rectangles[cell].right()))
+            self.groups[leader] = tuple(sorted(cells))
+            self.panels[leader].setGeometry(rect)
+            for cell in cells:
+                if cell != leader:
+                    visible.pop(cell, None)
+        active = set(visible.values())
+        for panel in self.all_panels():
+            panel.setVisible(panel in active)
+        self.wall._sync_danmaku_controls()
+        self.wall.sync_sc_placement()
+        return visible
+
     def prepare(self):
         from .widgets import DanmakuPanel
         cells = sorted(self.bindings())
@@ -100,7 +175,11 @@ class PaneDanmaku:
             panel.hide()
             self.extra.append(panel)
             self.wall.danmakuPanelCreated.emit(panel)
-        self.panels = dict(zip(cells, self.all_panels()))
+        retained = {cell: panel for cell, panel in self.panels.items() if cell in cells}
+        if not self.custom:
+            retained = {cell: self.wall.danmaku for cell in cells}
+        available = iter(panel for panel in self.all_panels() if panel not in retained.values())
+        self.panels = {cell: retained[cell] if cell in retained else next(available) for cell in cells}
         for panel in self.all_panels():
             if not panel.property('paneMenuInstalled'):
                 from .pane_source_picker import SourcePicker
@@ -109,6 +188,10 @@ class PaneDanmaku:
                 panel.header.setContextMenuPolicy(Qt.CustomContextMenu)
                 panel.header.customContextMenuRequested.connect(
                     lambda point, p=panel: self.menu(p, point))
+                panel.body.setContextMenuPolicy(Qt.CustomContextMenu)
+                panel.body.customContextMenuRequested.connect(lambda point, p=panel:
+                    self.open_menu(next(cell for cell, item in self.panels.items() if item is p),
+                                   p.body.viewport().mapToGlobal(point)))
                 panel.roomDropped.connect(lambda rid, p=panel: self.room_dropped(p, rid))
                 panel.setProperty('paneMenuInstalled', True)
             cell = next((cell for cell, item in self.panels.items() if item is panel), None)
@@ -137,8 +220,8 @@ class PaneDanmaku:
         if layout_changed:
             wall.relayout(force=True)
         else:
-            wall._sync_danmaku_controls()
-            wall.sync_sc_placement()
+            widgets = self.arrange(self.rectangles, wall._preset_widgets())
+            wall._sync_pane_borders(widgets, self.dividers)
 
     def swap_sources(self, first, second):
         for bindings in self.settings.values():
@@ -169,10 +252,7 @@ class PaneDanmaku:
         cell = next((cell for cell, item in self.panels.items() if item is panel), None)
         if source is None or cell is None or self.cell_for_tile(source) in self.bindings():
             return
-        bindings = dict(self.bindings())
-        bindings[cell] = source
-        self.apply(bindings)
-        self.wall.paneConfigurationChanged.emit()
+        self.request(cell, source)
 
     def menu(self, panel, point):
         cell = next((cell for cell, item in self.panels.items() if item is panel), None)
@@ -184,30 +264,24 @@ class PaneDanmaku:
         menu = QMenu(self.wall)
         if cell not in range(len(self.wall._cells())):
             return menu
-        bindings = self.bindings()
-        heading = menu.addAction(f'第 {cell + 1} 格 · ' + ('弹幕栏' if cell in bindings else '直播画面'))
-        heading.setEnabled(False)
-        if cell in bindings:
+        if cell in self.bindings():
             menu.addAction('恢复直播画面', lambda: self.request(cell, video=True))
-            menu.addAction('更换弹幕来源', lambda: self.panels[cell].source_picker.set_expanded(True))
-            automatic = menu.addAction('自动跟随主画面', lambda: self.request(cell, None))
-            automatic.setCheckable(True)
-            automatic.setChecked(bindings[cell] is None)
-        else:
-            menu.addAction('切换为弹幕', lambda: self.wall.paneEditRequested.emit(cell))
         return menu
 
     def request(self, cell, source=None, *, video=False):
         bindings = dict(self.bindings())
+        cells = self.cells_for(cell) if cell in bindings else (cell,)
         if video:
-            bindings.pop(cell, None)
+            for index in cells:
+                bindings.pop(index, None)
         else:
-            replaced = self.cell_tiles().get(cell)
-            # A source replaced by a chat pane becomes unlinked, never silently retargeted.
-            for index, target in list(bindings.items()):
-                if replaced is not None and target is replaced:
-                    bindings[index] = -1
-            bindings[cell] = source
+            for index in cells:
+                replaced = self.cell_tiles().get(index)
+                # A source replaced by a chat pane becomes unlinked, never silently retargeted.
+                for other, target in list(bindings.items()):
+                    if replaced is not None and target is replaced:
+                        bindings[other] = -1
+                bindings[index] = source
         self.wall.paneApplyRequested.emit(bindings)
 
     def open_menu(self, cell, point):

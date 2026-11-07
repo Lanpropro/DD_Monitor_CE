@@ -349,7 +349,16 @@ class ControlsTests(unittest.TestCase):
         wall.pane_danmaku.apply({2: first, 3: first})
         self.assertIs(panels[2]._linked_controls, first._plugin_controls)
         self.assertIs(panels[3]._linked_controls, first._plugin_controls)
-        self.assertTrue(panels[3].composer_bar.isHidden())
+        merged, = wall.pane_danmaku.rendered()
+        self.assertIs(first._plugin_controls.widget.parentWidget(), merged.composer_bar)
+        self.assertTrue(merged.composer_bar.isVisible())
+        self.assertEqual(first_edit.text(), 'first draft')
+        # Disconnected panes use the bottom-right region, independent of creation order.
+        wall.pane_danmaku.apply({1: first, 2: first})
+        self.assertEqual(len(wall.pane_danmaku.rendered()), 2)
+        self.assertIs(first._plugin_controls.widget.parentWidget(), wall.pane_danmaku.panels[2].composer_bar)
+        self.assertTrue(wall.pane_danmaku.panels[1].composer_bar.isHidden())
+        self.assertEqual(first_edit.text(), 'first draft')
 
     def test_every_assignment_is_delivered_as_a_copy(self):
         self.register()

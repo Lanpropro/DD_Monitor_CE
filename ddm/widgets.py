@@ -7714,7 +7714,7 @@ class WallGrid(QWidget):
         return next((tile for tile in self.tiles if tile.room.get('room_id')), None)
 
     def sync_sc_placement(self):
-        targets = {self.pane_danmaku.target(panel) for panel in self.pane_danmaku.panels.values()} if (
+        targets = {self.pane_danmaku.target(panel) for panel in self.pane_danmaku.rendered()} if (
             self.has_danmaku and self.fullscreen_tile is None) else set()
         for tile in self.tiles:
             tile.video_danmaku.set_sc_independent(self.has_danmaku)
@@ -7900,16 +7900,21 @@ class WallGrid(QWidget):
         self._relayout_preset(apply_visibility=True)
 
     def _sync_danmaku_controls(self) -> None:
-        desired, used = {}, set()
-        for panel in self.pane_danmaku.all_panels():
+        desired = dict.fromkeys(self.pane_danmaku.all_panels())
+        shared = {}
+        panels = sorted(self.pane_danmaku.rendered(),
+                        key=lambda panel: (panel.geometry().bottom(), panel.geometry().right()), reverse=True)
+        for panel in panels:
             tile = self.pane_danmaku.target(panel) if self.has_danmaku and self.fullscreen_tile is None else None
             target = getattr(tile, '_plugin_controls', None)
-            panel._linked_controls = target if target is not None and not target._disposed else None
-            if target is not None and (target._disposed or target in used):
-                target = None
-            desired[panel] = target
-            if target is not None:
-                used.add(target)
+            room = str(tile.room.get('room_id') or '') if tile is not None else ''
+            if target is not None and not target._disposed and room not in shared:
+                desired[panel] = target
+                shared[room] = target
+        for panel in self.pane_danmaku.all_panels():
+            tile = self.pane_danmaku.target(panel)
+            room = str(tile.room.get('room_id') or '') if tile is not None else ''
+            panel._linked_controls = shared.get(room)
         # Detach all old owners first: two panels may exchange their input widgets.
         for panel, target in desired.items():
             previous = panel._tile_controls
@@ -7996,6 +8001,8 @@ class WallGrid(QWidget):
             self._layout_ratios[self.layout_id], self._preset_defaults)
         for cell, rect in leaves.items():
             widgets[cell].setGeometry(rect)
+        self.pane_danmaku.dividers = dividers
+        widgets = self.pane_danmaku.arrange(leaves, widgets)
         self._resize_on_show = False
         if apply_visibility:
             active = set(widgets.values())
@@ -8338,6 +8345,7 @@ class WallGrid(QWidget):
         rectangles, self._divider_rects = self._corner_rectangles(weights, area)
         for cell, rect in rectangles.items():
             widgets[cell].setGeometry(rect)
+        widgets = self.pane_danmaku.arrange(rectangles, widgets)
         self._resize_on_show = False
         if apply_visibility:
             for panel in self.pane_danmaku.all_panels():
@@ -8357,6 +8365,7 @@ class WallGrid(QWidget):
         # Use the rendered coordinates (corner rounding differs from the generic allocator).
         dividers = [(node, index, self._divider_rects[(node.key, index)], rect, sizes)
                     for node, index, _handle, rect, sizes in dividers]
+        self.pane_danmaku.dividers = dividers
         self._sync_pane_borders(widgets, dividers)
 
     def visible_tiles(self) -> list[Tile]:
