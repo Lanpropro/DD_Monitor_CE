@@ -1289,7 +1289,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def window(self, rooms, *, offscreen=False):
         window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
-                            layout_id='2x2', state={'plugins_enabled': []})
+                            layout_id='2x2', state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         window.resize(1000, 700)
         if offscreen:
             window.move(-10000, -10000)
@@ -1302,6 +1302,14 @@ class MainNoticesTests(unittest.TestCase):
         window.close()
         window.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_fixture_closes_without_interactive_prompt_when_tray_is_available(self):
+        window = self.window([])
+        with patch.object(window._tray, 'available', return_value=True), \
+                patch('ddm.system_tray.CloseWindowDialog') as prompt:
+            window.close()
+        prompt.assert_not_called()
+        self.assertTrue(window._closing)
 
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
