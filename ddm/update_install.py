@@ -11,7 +11,7 @@ import time
 import zipfile
 
 from .data_paths import INSTALL_MARKER
-from .update_version import revision
+from .update_version import installed_revision, revision, update_key
 
 MANIFEST = '.ddm-program-files.json'
 RESULT = '.ddm-update-result.json'
@@ -129,6 +129,39 @@ def wait_parent(pid, timeout=120):
         raise TimeoutError('主程序仍在退出，更新未执行')
 
 
+def retry_file_operation(operation, timeout=5):
+    """Only retry Windows access/sharing errors, with a fixed deadline."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return operation()
+        except OSError as error:
+            if getattr(error, 'winerror', None) not in (5, 32, 33) or time.monotonic() >= deadline:
+                raise
+            time.sleep(.2)
+
+
+def check_replaceable(path):
+    """Open an existing target without changing it; directory probes are insufficient."""
+    if os.name != 'nt':
+        return
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                  ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+    kernel.CreateFileW.restype = ctypes.c_void_p
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    # GENERIC_WRITE | DELETE, share read/write/delete, OPEN_EXISTING. Never truncate.
+    handle = kernel.CreateFileW(str(path), 0x40010000, 7, None, 3, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:
+        code = ctypes.get_last_error()
+        if code in (2, 3):
+            return
+        error = ctypes.WinError(code)
+        error.filename = str(path)
+        raise error
+    kernel.CloseHandle(handle)
+
+
 def apply_plan(plan_path):
     """调用者已等待主进程退出；只更新记录中的程序文件，保留其他文件。"""
     plan = json.loads(Path(plan_path).read_text(encoding='utf-8'))
@@ -151,6 +184,10 @@ def apply_plan(plan_path):
         for name in previous:
             destination(root, name)
     obsolete = set(previous + [old_exe]) - set(files)
+    # This also protects old plans whose parent did not wait for its settings worker.
+    for name in files + sorted(obsolete) + [MANIFEST]:
+        target = destination(root, name) if name != MANIFEST else manifest
+        retry_file_operation(lambda: check_replaceable(target))
     backup = stage / 'backup'
     backup.mkdir(exist_ok=True)
     replaced, saved = [], set()
@@ -165,7 +202,7 @@ def apply_plan(plan_path):
                 saved.add(name)
             if name in obsolete:
                 if target.exists():
-                    target.unlink()
+                    retry_file_operation(target.unlink)
                     replaced.append(name)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -174,7 +211,7 @@ def apply_plan(plan_path):
             temporary = Path(temporary_name)
             try:
                 shutil.copy2(destination(stage, name), temporary)
-                os.replace(temporary, target)
+                retry_file_operation(lambda: os.replace(temporary, target))
                 replaced.append(name)
             finally:
                 temporary.unlink(missing_ok=True)
@@ -183,14 +220,14 @@ def apply_plan(plan_path):
         temporary = Path(temporary_name)
         try:
             temporary.write_text(json.dumps(files, ensure_ascii=False), encoding='utf-8')
-            os.replace(temporary, manifest)
+            retry_file_operation(lambda: os.replace(temporary, manifest))
         finally:
             temporary.unlink(missing_ok=True)
     except BaseException:
         for name in reversed(replaced):
             target = destination(root, name)
             if name in saved:
-                shutil.copy2(destination(backup, name), target)
+                retry_file_operation(lambda: shutil.copy2(destination(backup, name), target))
             else:
                 target.unlink(missing_ok=True)
         if manifest_before is None:
@@ -205,26 +242,56 @@ def run_helper(plan_path):
     plan = json.loads(Path(plan_path).read_text(encoding='utf-8'))
     root = Path(plan['root']).resolve()
     entry = str(destination(root, plan['old_exe']))
+    started_at = time.time()
+    phase = 'wait-parent'
     try:
         wait_parent(int(plan['parent_pid']))
+        phase = 'replace-program-files'
         if plan.get('elevate'):
             from .windows_elevation import run_elevated
             run_elevated(sys.executable, ['--apply-update-elevated', str(plan_path)], plan['stage'])
             elevated = json.loads((Path(plan['stage']) / 'elevated-result.json').read_text(encoding='utf-8'))
             if not elevated['ok']:
-                raise OSError(elevated['message'])
+                error = OSError(elevated['message'])
+                error.winerror = elevated.get('winerror')
+                raise error
             entry = str(destination(root, plan['new_exe']))
         else:
             entry = apply_plan(plan_path)
         result = {'ok': True, 'message': '软件更新完成', 'stage': plan['stage'],
                   'root': str(root), 'helper_pid': os.getpid()}
     except Exception as error:
-        result = {'ok': False, 'message': f'软件更新失败，已尝试恢复原程序：{error}', 'stage': plan['stage'],
+        hint = '请完全退出软件（包括托盘和设置进程），并检查目标文件的只读属性和访问权限。'
+        result = {'ok': False, 'message': f'软件更新未完成：{error}\n{hint}', 'stage': plan['stage'],
+                  'phase': phase, 'winerror': getattr(error, 'winerror', None),
                   'root': str(root), 'helper_pid': os.getpid()}
+    result.update(started_at=started_at, completed_at=time.time())
+    try:
+        build = json.loads((Path(plan['stage']) / 'ddm-build.json').read_text(encoding='utf-8-sig'))
+        result.update(target_version=build['version'], target_revision=revision(build.get('revision', 0)))
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     (Path(plan.get('result_root', root)) / RESULT).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
     if Path(entry).is_file():
         subprocess.Popen([entry], cwd=root)
     return 0 if result['ok'] else 1
+
+
+def result_message(install_root, result_root, current_version):
+    """Keep failure evidence on disk, but do not show a superseded install failure."""
+    try:
+        result = json.loads((Path(result_root) / RESULT).read_text(encoding='utf-8'))
+        if result.get('ok') is False:
+            # Legacy failures have no target identity and cannot describe this new build.
+            if 'target_version' not in result:
+                return ''
+            current = update_key(current_version, installed_revision(install_root, current_version))
+            target = update_key(result['target_version'], result.get('target_revision', 0))
+            if current >= target:
+                return ''
+        return result['message']
+    except (OSError, ValueError, KeyError, TypeError):
+        return ''
 
 
 def run_elevated_helper(plan_path):
@@ -234,7 +301,7 @@ def run_elevated_helper(plan_path):
         apply_plan(plan_path)
         result = {'ok': True, 'message': ''}
     except Exception as error:
-        result = {'ok': False, 'message': str(error)}
+        result = {'ok': False, 'message': str(error), 'winerror': getattr(error, 'winerror', None)}
     (stage / 'elevated-result.json').write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
     return 0 if result['ok'] else 1
 

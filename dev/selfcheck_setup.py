@@ -185,12 +185,13 @@ class SetupTests(unittest.TestCase):
                        'recursesubdirs', 'Source: "*', 'restartreplace'):
             self.assertNotIn(unsafe, source)
         entries = source.split('[Files]', 1)[1].split('[Icons]', 1)[0].strip().splitlines()
-        self.assertEqual(len(entries), len(self.files) + 5)
-        self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries[1:]))
+        self.assertEqual(len(entries), len(self.files) + 6)
+        self.assertTrue(all('Flags: ignoreversion' in entry for entry in entries[2:]))
         self.assertIn('Flags: dontcopy', entries[0])
-        self.assertIn('solidbreak', entries[2])
+        self.assertIn('Flags: dontcopy', entries[1])
+        self.assertIn('solidbreak', entries[3])
         self.assertIn('DDMonitorInstallerHelper.exe', entries[0])
-        self.assertIn('DDMonitorUninstall.exe', entries[1])
+        self.assertIn('DDMonitorUninstall.exe', entries[2])
 
     def test_two_install_modes_keep_user_data_separate(self):
         source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
@@ -251,6 +252,22 @@ class SetupTests(unittest.TestCase):
         prepare = source.split('function PrepareToInstall', 1)[1].split('function InitializeUninstall', 1)[0]
         self.assertIn('Result := InstallDirectoryError', prepare)
         self.assertLess(prepare.index('Result := InstallDirectoryError'), prepare.index('FindFirst('))
+
+    def test_existing_targets_are_checked_without_modification_before_install(self):
+        script = write_script(self.payload, self.root / 'build', self.root / 'out')
+        paths = (script.parent / 'program-files.txt').read_text(encoding='utf-8-sig').splitlines()
+        self.assertTrue(set(self.files).issubset(paths))
+        self.assertIn('DDMonitorUninstall.exe', paths)
+        self.assertNotIn('program-files.txt', payload_files(self.payload))
+        source = script.read_text(encoding='utf-8-sig')
+        check = source.split('function ProgramFilesError:', 1)[1].split('function NextButtonClick', 1)[0]
+        self.assertIn('OpenProgramFile(Name, $40010000, 7, 0, 3, $80, 0)', check)
+        self.assertIn('CloseProgramFile(Handle)', check)
+        self.assertIn('(Attr and 1) <> 0', check)
+        self.assertNotIn('DeleteFile', check)
+        self.assertNotIn('TerminateProcess', source)
+        prepare = source.split('function PrepareToInstall', 1)[1]
+        self.assertIn("if Result = '' then Result := ProgramFilesError", prepare)
 
 
 if __name__ == '__main__':
