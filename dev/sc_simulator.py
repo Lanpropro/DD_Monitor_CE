@@ -125,7 +125,8 @@ class ScSimulator(QMainWindow):
         self.sc_scale.valueChanged.connect(lambda value: self.change_sc_settings({'super_chat_scale': value}))
         form.addRow('SC 大小', self.sc_scale)
         reset_position = QPushButton('恢复 SC 位置')
-        reset_position.clicked.connect(lambda: self.change_sc_settings({'super_chat_position': None}))
+        reset_position.clicked.connect(lambda: self.change_sc_settings(
+            {'super_chat_position': None, 'super_chat_panel_position': None}))
         form.addRow(reset_position)
         self.sc_enabled = QCheckBox('显示醒目留言（SC）')
         self.sc_enabled.setChecked(True)

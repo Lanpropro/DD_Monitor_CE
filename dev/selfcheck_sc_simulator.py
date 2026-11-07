@@ -225,7 +225,8 @@ class SimulatorTests(unittest.TestCase):
                     renderer.presentation.collapse() if collapsed else renderer.presentation.expand()
                     for scale in (75, 100, 150, 200):
                         for position in (None, [0, 0], [.4, .6], [1, 1]):
-                            window.change_sc_settings({'super_chat_scale': scale, 'super_chat_position': position})
+                            window.change_sc_settings({'super_chat_scale': scale,
+                                'super_chat_panel_position' if mode == 1 else 'super_chat_position': position})
                             APP.processEvents()
                             context = MainWindow._sc_preview_context(source)
                             preview.set_preview_context(context)
@@ -270,7 +271,7 @@ class SimulatorTests(unittest.TestCase):
             text_height = sc_message_document(event, 340 * scale, scale).size().height()
             self.assertGreaterEqual(height, 56 * scale + 2 * SC_BODY_PADDING * scale + text_height)
 
-    def test_layout_previews_share_position_scale_and_opacity(self):
+    def test_layout_previews_keep_independent_positions_and_shared_scale_opacity(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
         self.addCleanup(page.close)
@@ -292,7 +293,8 @@ class SimulatorTests(unittest.TestCase):
         QTest.mousePress(preview, Qt.LeftButton, pos=start)
         QTest.mouseMove(preview, start + QPoint(-15, 30))
         QTest.mouseRelease(preview, Qt.LeftButton, pos=start + QPoint(-15, 30))
-        self.assertNotEqual(before['super_chat_position'], preview.position)
+        self.assertNotEqual(before['super_chat_panel_position'], preview.position)
+        self.assertEqual(before['super_chat_position'], preview.values()['super_chat_position'])
         changed = preview.values()
         page.super_chat_preview_layout.button(0).click()
         self.assertEqual(preview.layout_mode, 'video')
@@ -644,6 +646,60 @@ class SimulatorTests(unittest.TestCase):
             self.assertEqual(page.values()['super_chat_scale'], 100)
         finally:
             page.close()
+
+    def test_video_and_panel_positions_are_independent_and_roundtrip(self):
+        from ddm.dialogs import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'super_chat_position': [0, .1]})
+        self.addCleanup(page.deleteLater)
+        preview = page.super_chat_placement
+        self.assertEqual(preview.values()['super_chat_position'], [0, .1])
+        self.assertIsNone(preview.values()['super_chat_panel_position'])
+        preview.set_layout_mode(1)
+        self.assertIsNone(preview.position)
+        preview.position = [1, .3]
+        preview.set_layout_mode(0)
+        self.assertEqual(preview.position, [0, .1])
+        preview.position = [.2, .6]
+        saved = page.values()
+        self.assertEqual(saved['super_chat_panel_position'], [1, .3])
+        restored = DanmakuSettingsPage(saved)
+        self.addCleanup(restored.deleteLater)
+        self.assertEqual(restored.values(), saved)
+        preview.set_layout_mode(1)
+        QTest.mouseDClick(preview, Qt.LeftButton, pos=preview.card_rect().center().toPoint())
+        self.assertIsNone(preview.values()['super_chat_panel_position'])
+        self.assertEqual(preview.values()['super_chat_position'], [.2, .6])
+        preview.position = [.8, .7]
+        page.reset()
+        self.assertIsNone(page.values()['super_chat_position'])
+        self.assertIsNone(page.values()['super_chat_panel_position'])
+
+    def test_panel_position_does_not_follow_video_position(self):
+        window = self.window
+        window.change_sc_settings({'super_chat_position': [0, .1]})
+        self.assertIsNone(window.wall.danmaku.super_chats._position)
+        window.change_sc_settings({'super_chat_position': [0, .1],
+                                   'super_chat_panel_position': [1, .2]})
+        self.click(window.add_button)
+        APP.processEvents()
+        panel = window.wall.danmaku
+        self.assertEqual(panel.super_chats._position, [1, .2])
+        viewport = panel.body.viewport()
+        origin = panel.body.mapTo(panel, viewport.pos())
+        self.assertEqual(viewport.width() - (panel.super_chats.x() - origin.x())
+                         - panel.super_chats.width(), 8)
+        window.change_sc_settings({'super_chat_position': [.4, .8]})
+        self.assertEqual(panel.super_chats._position, [1, .2])
+        self.assertEqual(window.tile.video_danmaku.settings['super_chat_position'], [.4, .8])
+        window.change_sc_settings({'super_chat_panel_position': [0, .5]})
+        self.assertEqual(window.tile.video_danmaku.settings['super_chat_position'], [.4, .8])
+        self.assertEqual(panel.super_chats._position, [0, .5])
+        window.wall.set_fullscreen_tile(window.tile)
+        APP.processEvents()
+        self.assertEqual(window.tile.video_danmaku.settings['super_chat_position'], [.4, .8])
+        window.wall.set_fullscreen_tile(None)
+        APP.processEvents()
+        self.assertEqual(panel.super_chats._position, [0, .5])
 
     def test_collapse_timer_survives_refresh_and_click_reopens(self):
         window = self.window
