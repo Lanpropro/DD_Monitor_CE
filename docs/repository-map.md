@@ -750,3 +750,7 @@ B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili
 录制职责：`recording_process.py` 为 Windows 后台进程/Job Object；`recording_output.py` 为 FFmpeg 参数与容器/路径；`recording_session.py` 为每路会话数据与分段簿记；`recording_replay.py` 为租约、回放保留和导出。RecordingManager 保留编码器/取流/子进程轮询与关闭协调；会话、租约、导出和定时器仍只有一份。
 
 插件职责：`plugin_types.py` 为公开协议/平台数据/上下文；`plugin_manifest.py` 为目录身份和元数据验证；`plugin_packages.py` 为安装、移除和目录清单。PluginManager 继续管理装载、事件分发与注册，凭据、控件、工作区和通知仍复用既有独立模块。旧插件 API 导出和单例注册表不变。
+
+皮肤编辑职责：`skin_controls.py` 为共享素材控件/文件名显示；`skin_part_settings.py` 为分区外观编辑与预览；`skin_settings.py` 保留全局背景/遮罩控件和旧导出。分区对话框按需构造全局控件，避免互相提前导入，皮肤素材/预览/应用继续复用原有独立模块。
+
+弹幕呈现职责：`danmaku_format.py` 为富文本/勋章格式；`danmaku_document.py` 为文档、表情和有界历史；`danmaku_scrolling.py` 为跟随及滚动位置；面板保留 Qt 控件和事件。`video_danmaku_raster.py` 为异步光栅资源，`video_danmaku_surface.py` 为原生/Quick 表面接线；VideoDanmaku 继续负责弹幕准入、轨道与时钟，SC 画笔归 video_super_chat，旧静态入口保留。
