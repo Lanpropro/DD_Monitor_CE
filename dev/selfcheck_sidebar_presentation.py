@@ -270,4 +270,12 @@ class SidebarPresentationTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    native = '--native' in sys.argv
+    if native:
+        sys.argv.remove('--native')
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(SidebarPresentationTests, __file__,
+            ('--native',) if native else ()))
+    else:
+        unittest.main(verbosity=2)
