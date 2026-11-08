@@ -406,16 +406,24 @@ begin
   end;
 end;
 
+function SavedDataLocation: String;
+var
+  ProgramDir, Identity: String;
+begin
+  ProgramDir := RemoveBackslashUnlessRoot(ExpandFileName(ExpandConstant('{{app}}')));
+  Identity := Copy(Lowercase(GetSHA256OfString(UTF8Encode(Lowercase(ProgramDir)))), 1, 16);
+  Result := ExpandConstant('{{localappdata}}\\DDMonitorCE\\locations\\') + Identity + '.json';
+end;
+
 function ResolvePersonalDataDir: Boolean;
 var
-  ProgramDir, Identity, Location: String;
+  ProgramDir, Location: String;
   Raw: AnsiString;
 begin
   Result := False;
   PersonalDataDir := '';
   ProgramDir := RemoveBackslashUnlessRoot(ExpandFileName(ExpandConstant('{{app}}')));
-  Identity := Copy(Lowercase(GetSHA256OfString(UTF8Encode(Lowercase(ProgramDir)))), 1, 16);
-  Location := ExpandConstant('{{localappdata}}\\DDMonitorCE\\locations\\') + Identity + '.json';
+  Location := SavedDataLocation;
   if not FileExists(Location) then begin
     PersonalDataDir := ProgramDir;
   end else begin
@@ -601,6 +609,29 @@ begin
       mbError, MB_OK, IDOK);
 end;
 
+function RetainedDataOnly: Boolean;
+var
+  Names: TArrayOfString;
+  Index: Integer;
+  Name: String;
+begin
+  Result := False;
+  // A prior launch records this exact installation path, even after uninstall.
+  if not FileExists(SavedDataLocation) then Exit;
+  if not ResolvePersonalDataDir then Exit;
+  if not LoadStringsFromFile(ExpandConstant('{{tmp}}\\program-files.txt'), Names) then Exit;
+  if GetArrayLength(Names) mod 2 <> 0 then Exit;
+  Index := 0;
+  while Index < GetArrayLength(Names) do begin
+    Name := AddBackslash(WizardDirValue) + Names[Index];
+    if FileExists(Name) or DirExists(Name) then Exit;
+    Index := Index + 2;
+  end;
+  if FileExists(ExpandConstant('{{app}}\\.ddm-uninstall\\unins000.dat')) or
+    FileExists(ExpandConstant('{{app}}\\.ddm-uninstall\\unins000.exe')) then Exit;
+  Result := True;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Found: TFindRec;
@@ -626,7 +657,7 @@ begin
     (CompareText(RemoveBackslashUnlessRoot(OldDir),
       RemoveBackslashUnlessRoot(ExpandConstant('{{app}}'))) = 0) and
     FileExists(ExpandConstant('{{app}}\\.ddm-uninstall\\unins000.dat'));
-  if HasFiles and not OwnInstall then
+  if HasFiles and not OwnInstall and not RetainedDataOnly then
     Result := '此文件夹已有其他内容。请选择新的空文件夹；已安装用户可使用软件内更新。';
   if Result = '' then Result := ProgramFilesError;
 end;
