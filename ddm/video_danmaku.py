@@ -19,7 +19,9 @@ from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, pai
 from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats, SC_BODY_PADDING
 
 
-from .video_super_chat import (SuperChatOverlay)
+from .video_super_chat import SuperChatOverlay, _paint_super_chat
+from .video_danmaku_raster import VideoDanmakuRaster
+from .video_danmaku_surface import VideoDanmakuSurface
 
 
 class _TimerResolution:
@@ -72,6 +74,8 @@ class VideoDanmaku(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.surface_control = VideoDanmakuSurface(self)
+        self.raster_control = VideoDanmakuRaster(self)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
@@ -282,25 +286,7 @@ class VideoDanmaku(QWidget):
             self._sync_visible()
 
     def _sync_visible(self) -> None:
-        visible = self.enabled and self.active
-        self.super_chat_overlay._refresh()
-        if not visible:
-            # Erase the native backing while still visible. Hiding first leaves
-            # its last rendered comments cached until the next asynchronous paint.
-            self._set_hover(None)
-            self._stop_timer()
-            self.comments.clear()
-            self._pending_comments.clear()
-            if self._quick_layer is not None and self._quick_group is not None:
-                self._quick_layer.clear_group(self._quick_group)
-            self._last_tick = 0.0
-            if self.isVisible():
-                self.repaint()
-            else:
-                self.update()
-        self.setVisible(visible)
-        if visible and self.comments and not self.paused:
-            self._start_timer()
+        return self.surface_control.sync_visible()
 
     def font_pixels(self) -> int:
         size = int(self.settings.get("video_danmaku_size") or 28)
@@ -440,148 +426,31 @@ class VideoDanmaku(QWidget):
             self.update()
 
     def _ensure_emoticon(self, url: str) -> None:
-        if url in self._images or url in self._emoticon_loaders or len(self._emoticon_loaders) >= 16:
-            return
-        # The app owns downloads so removing a tile cannot destroy a running thread.
-        app = QApplication.instance()
-        loader = AvatarLoader({url: url}, app, subdir="emoticons")
-        self._emoticon_loaders[url] = loader
-        loader.loaded.connect(self._on_emoticon_loaded)
-        loader.finished.connect(lambda: self._emoticon_loaders.pop(url, None))
-        loader.finished.connect(loader.deleteLater)
-        app.aboutToQuit.connect(loader.wait)
-        loader.start()
+        return self.raster_control.ensure_emoticon(url)
 
     def _on_emoticon_loaded(self, url: str, pixmap) -> None:
-        if pixmap.isNull():
-            return
-        if len(self._images) >= 128 and url not in self._images:
-            self._images.pop(next(iter(self._images)))
-        self._images[url] = pixmap.toImage()
-        if any(url == image_url for comment in self.comments for _, image_url in comment.runs):
-            self._queue_comment_raster()
+        return self.raster_control.on_emoticon_loaded(url, pixmap)
 
     def _comment_renderer(self):
-        return CommentRaster(self._font(), self.outline_width(),
-            self.devicePixelRatioF() * self.TEXT_SAMPLE_SCALE,
-            max(128, self.width() * 2), self._images)
+        return self.raster_control.comment_renderer()
 
     def _render_content(self, text, color, runs, self_sent=False) -> QPixmap:
-        if not any(url in self._images for _, url in runs if url):
-            return self._render_text(text, color, self_sent)
-        return QPixmap.fromImage(self._comment_renderer()._render_content(text, color, runs, self_sent))
+        return self.raster_control.render_content(text, color, runs, self_sent)
 
     def _render_text(self, text, color, self_sent=False) -> QPixmap:
-        return QPixmap.fromImage(self._comment_renderer()._render_text(text, color, self_sent))
+        return self.raster_control.render_text(text, color, self_sent)
 
     def _queue_comment_raster(self):
-        if self._comment_raster_job is not None:
-            return  # The active batch will request the latest geometry when it returns.
-        renderer = self._comment_renderer()
-        cached, rows = [], []
-        for comment in self.comments:
-            key = renderer.key(comment.text, comment.color, comment.runs, comment.self_sent)
-            if key == comment.raster_key:
-                continue
-            if key in comment.rasters:
-                cached.append((id(comment), key, comment.rasters[key]))
-            else:
-                rows.append((id(comment), key, comment.text, QColor(comment.color),
-                             tuple(comment.runs), comment.self_sent))
-        for identifier, (text, color, runs, self_sent, _event) in self._pending_comments.items():
-            rows.append((identifier, None, text, QColor(color), tuple(runs), self_sent))
-        self._apply_comment_rasters(cached)
-        if rows:
-            job = self._comment_raster_job = CommentRasterJob(renderer, rows)
-            job.signals.finished.connect(self._finish_comment_raster, Qt.QueuedConnection)
-            QThreadPool.globalInstance().start(job)
+        return self.raster_control.queue_comment_raster()
 
     def _finish_comment_raster(self, images):
-        job = self._comment_raster_job
-        self._comment_raster_job = None
-        if images is None:
-            for identifier, *_ in job.rows:
-                self._pending_comments.pop(identifier, None)
-            return
-        self._apply_comment_rasters(images)
-        self._queue_comment_raster()
+        return self.raster_control.finish_comment_raster(images)
 
     def _apply_comment_rasters(self, images):
-        if not images:
-            return
-        renderer = self._comment_renderer()
-        images = {identifier: (key, image) for identifier, key, image in images}
-        if self._quick_animated() and self.timer.isActive():
-            self._tick()
-        for comment in self.comments:
-            result = images.get(id(comment))
-            if result is None or result[0] == comment.raster_key:
-                continue
-            key, image = result
-            if key != renderer.key(comment.text, comment.color, comment.runs, comment.self_sent):
-                continue  # Ignore an old size, changed settings or newly loaded emoticons.
-            distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
-            progress = (self.width() - comment.x) / max(1, distance)
-            comment.image = QPixmap.fromImage(image)
-            comment.raster_key = key
-            if len(comment.rasters) == 2 and key not in comment.rasters:
-                comment.rasters.pop(next(iter(comment.rasters)))
-            comment.rasters[key] = image
-            width = comment.image.width() / comment.image.devicePixelRatioF()
-            comment.x = self.width() - progress * (self.width() + width)
-            comment.speed = (self.width() + width) / 8 * int(self.settings.get('video_danmaku_speed') or 100) / 100
-            if self._quick_layer is not None and self._quick_group is not None:
-                self._quick_layer.update(comment.render_id, image, comment.x,
-                    comment.lane * self.lane_height(), width,
-                    comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
-        self._prune_lanes()
-        # Results are admitted in arrival order, only with the current font/images.
-        # Cleared tokens are absent, so late jobs cannot revive old room messages.
-        for identifier, pending in list(self._pending_comments.items()):
-            result = images.get(identifier)
-            if result is None:
-                break
-            text, color, runs, self_sent, event = pending
-            key, image = result
-            if key != renderer.key(text, color, runs, self_sent):
-                break
-            self._pending_comments.pop(identifier)
-            self._admit_comment(image, key, text, color, runs, self_sent, event)
-        if self._quick_layer is None:
-            self.update()
+        return self.raster_control.apply_comment_rasters(images)
 
     def _resize_comments(self, *, redraw=True) -> None:
-        if redraw:
-            self._comment_resize_timer.stop()
-        if self._quick_animated() and self.timer.isActive():
-            self._tick()
-        for comment in self.comments:
-            old_distance = self._comment_width + comment.image.width() / comment.image.devicePixelRatioF()
-            progress = (self._comment_width - comment.x) / max(1, old_distance)
-            if redraw:
-                comment.image = self._render_content(comment.text, comment.color, comment.runs,
-                                                     comment.self_sent)
-                comment.raster_key = self._comment_renderer().key(
-                    comment.text, comment.color, comment.runs, comment.self_sent)
-                comment.rasters = {comment.raster_key: comment.image.toImage()}
-            distance = self.width() + comment.image.width() / comment.image.devicePixelRatioF()
-            comment.x = self.width() - progress * distance
-            comment.speed = distance / 8 * int(self.settings.get("video_danmaku_speed") or 100) / 100
-        self._comment_width = self.width()
-        self._prune_lanes()
-        if self._quick_layer is not None and self._quick_group is not None:
-            for comment in self.comments:
-                if redraw:
-                    self._quick_layer.update(
-                        comment.render_id, comment.image.toImage(), comment.x,
-                        comment.lane * self.lane_height(),
-                        comment.image.width() / comment.image.devicePixelRatioF(),
-                        comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
-                else:
-                    self._quick_layer.move(comment.render_id, comment.x,
-                        comment.lane * self.lane_height(), comment.speed)
-        else:
-            self.update()
+        return self.raster_control.resize_comments(redraw=redraw)
 
     def _prune_lanes(self) -> None:
         comments, self.comments = self.comments, []
@@ -686,89 +555,13 @@ class VideoDanmaku(QWidget):
             if y < event.rect().bottom() + 1 and y + height > event.rect().top():
                 painter.drawPixmap(QPointF(comment.x - (0 if comment.held else elapsed * comment.speed), y), comment.image)
 
-    @staticmethod
-    def _paint_super_chat(painter, rect, chat: dict, scale: float,
-                          paint_opacity: float | None = None, avatar=None, collapsed=False) -> None:
-        palette = super_chat_palette(chat.get('price'))
-        header = QColor(palette['background_color'])
-        background = QColor(palette['background_bottom_color'])
-        painter.save()
-        if paint_opacity is not None:
-            painter.setOpacity(paint_opacity)
-        header_height = 36 if collapsed else 56
-        paint_sc_background(painter, rect, background, header, header_height * scale)
-        top = rect.top() + (6 if collapsed else 10) * scale
-        avatar_size = (24 if collapsed else 36) * scale
-        avatar_rect = QRectF(rect.left() + 10 * scale, top, avatar_size, avatar_size)
-        paint_sc_avatar(painter, avatar_rect, avatar, str(chat.get('uname') or '?'))
-        left = avatar_rect.right() + 6 * scale
-        font = QFont(theme.FONT_DEFAULT)
-        font.setPixelSize(max(1, round(13 * scale)))
-        painter.setFont(font)
-        painter.setPen(QColor(SC_USER_COLOR))
-        metrics = QFontMetrics(font)
-        price = format_price(chat.get('price'))
-        price_width = metrics.horizontalAdvance(price) + 4 * scale
-        right = rect.right() - 34 * scale
-        if collapsed:
-            right -= price_width + 4 * scale
-        small = QFont(theme.FONT_DEFAULT)
-        small.setPixelSize(max(1, round(11 * scale)))
-        remaining = '剩 ' + format_remaining(remaining_seconds(chat.get('end_time')))
-        time_width = QFontMetrics(small).horizontalAdvance(remaining)
-        name_width = max(0, right - left - time_width - 6 * scale)
-        name = metrics.elidedText(str(chat.get('uname') or '匿名用户'), Qt.ElideRight, round(name_width))
-        painter.drawText(QRectF(left, top, name_width, (24 if collapsed else 18) * scale),
-                         int(Qt.AlignLeft | Qt.AlignVCenter), name)
-        painter.setFont(small)
-        painter.drawText(QRectF(left + metrics.horizontalAdvance(name) + 6 * scale,
-                               top, time_width, (24 if collapsed else 18) * scale),
-                         int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
-        painter.setPen(QColor(SC_PRICE_COLOR))
-        font.setPixelSize(max(1, round((13 if collapsed else 15) * scale)))
-        painter.setFont(font)
-        if collapsed:
-            painter.drawText(QRectF(right + 4 * scale, top, price_width, 24 * scale),
-                             int(Qt.AlignRight | Qt.AlignVCenter), price)
-            painter.restore()
-            return
-        painter.drawText(QRectF(left, top + 19 * scale, max(0, right - left), 22 * scale),
-                         int(Qt.AlignLeft | Qt.AlignVCenter), price)
-        padding = math.ceil(SC_BODY_PADDING * scale)
-        body_rect = rect.adjusted(11 * scale, round(56 * scale) + padding, -11 * scale, -padding)
-        document = sc_message_document(chat, rect.width(), scale)
-        painter.setClipRect(body_rect, Qt.IntersectClip)
-        painter.translate(body_rect.topLeft())
-        document.drawContents(painter, QRectF(0, 0, body_rect.width(), body_rect.height()))
-        painter.restore()
+    _paint_super_chat = staticmethod(_paint_super_chat)
 
     def _native_layered(self) -> bool:
-        return (self.native_video and sys.platform == "win32"
-                and QApplication.platformName() == "windows")
+        return self.surface_control.native_layered()
 
     def _apply_layered(self) -> None:
-        if not self._native_layered():
-            return
-        if self._quick_requested:
-            self._suppress_quick_raster_surface()
-            if self._quick_layer is not None and self._quick_group is not None:
-                self._quick_layer.set_group_opacity(
-                    self._quick_group, int(self.settings.get("video_danmaku_opacity") or 80))
-            return
-        import ctypes
-        from ctypes import wintypes
-
-        user32 = ctypes.windll.user32
-        user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
-        user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.LONG]
-        user32.SetLayeredWindowAttributes.argtypes = [
-            wintypes.HWND, wintypes.DWORD, wintypes.BYTE, wintypes.DWORD]
-        hwnd = int(self.winId())
-        style = user32.GetWindowLongW(hwnd, -20)
-        user32.SetWindowLongW(hwnd, -20, style | 0x00080000 | 0x00000020)
-        key = self.COLOR_KEY.red() | self.COLOR_KEY.green() << 8 | self.COLOR_KEY.blue() << 16
-        alpha = round(int(self.settings.get("video_danmaku_opacity") or 80) * 255 / 100)
-        user32.SetLayeredWindowAttributes(hwnd, key, alpha, 0x00000001 | 0x00000002)
+        return self.surface_control.apply_layered()
 
     def setMask(self, region) -> None:
         if self._quick_requested:
@@ -790,102 +583,27 @@ class VideoDanmaku(QWidget):
         super().setMask(QRegion(-1, -1, 1, 1))
 
     def attach_quick_layer(self, layer) -> None:
-        if not self._quick_requested or layer is None:
-            return
-        if self._quick_layer is layer and self._quick_group is not None:
-            self._sync_quick_geometry()
-            return
-        if self._quick_layer is not None and self._quick_group is not None:
-            self._quick_layer.remove_group(self._quick_group)
-        self._quick_layer = layer
-        tile = self.parentWidget()
-        self._quick_rounded = not bool(tile.property("fullscreen"))
-        self._quick_group = layer.create_group(
-            0, 0, self.width(), self.height(),
-            int(self.settings.get("video_danmaku_opacity") or 80),
-            rounded=self._quick_rounded)
-        self._sync_quick_geometry()
-        for comment in self.comments:
-            comment.render_id = layer.add(
-                self._quick_group, comment.image.toImage(), comment.x,
-                comment.lane * self.lane_height(),
-                comment.image.width() / comment.image.devicePixelRatioF(),
-                comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
-        self._set_quick_active()
+        return self.surface_control.attach_quick_layer(layer)
 
     def schedule_quick_geometry(self) -> None:
         # QWidget move/resize events run before its native child windows settle.
         # Coalesce updates after that move, rather than submitting Quick geometry inside it.
-        if self._quick_layer is not None and self._quick_group is not None:
-            point = self._quick_origin()
-            self._quick_layer.begin_group_move(
-                self._quick_group, point.x(), point.y(), self.width(), self.height())
-            self._quick_geometry_timer.start(0)
+        return self.surface_control.schedule_quick_geometry()
 
     def _sync_quick_geometry(self) -> None:
-        if self._quick_layer is None or self._quick_group is None:
-            return
-        point = self._quick_origin()
-        self._quick_layer.set_group_geometry(
-            self._quick_group, point.x(), point.y(), self.width(), self.height())
+        return self.surface_control.sync_quick_geometry()
 
     def _quick_origin(self):
-        parent = self._quick_layer.parent
-        if self.window() is parent.window():
-            return self.mapTo(parent, QPoint())
-        return parent.mapFromGlobal(self.mapToGlobal(QPoint()))
+        return self.surface_control.quick_origin()
 
     def set_quick_rounded(self, rounded: bool) -> None:
-        rounded = bool(rounded)
-        if self._quick_rounded == rounded:
-            return
-        self._quick_rounded = rounded
-        self._quick_mask_signature = None
-        if self._quick_layer is not None and self._quick_group is not None:
-            self._quick_layer.set_group_rounded(self._quick_group, rounded)
+        return self.surface_control.set_quick_rounded(rounded)
 
     def update_quick_mask(self, widgets) -> None:
-        if self._quick_layer is None or self._quick_group is None:
-            return
-        holes = QRegion()
-        for widget in widgets:
-            if widget.isVisible():
-                origin = self.mapFromGlobal(widget.mapToGlobal(QPoint()))
-                region = widget.mask()
-                if region.isEmpty():
-                    region = QRegion(widget.rect())
-                holes |= region.translated(origin).intersected(QRegion(self.rect()))
-        if self.super_chat_overlay.isVisible():
-            for rect in self.super_chat_overlay.card_rects():
-                holes |= QRegion(rect.toAlignedRect()).intersected(
-                    QRegion(self.rect()))
-        video_mask = self._quick_video_mask if self._quick_requested else self.mask()
-        signature = (self.width(), self.height(), self.devicePixelRatioF(),
-                     self._quick_rounded,
-                     holes, video_mask)
-        if signature == self._quick_mask_signature:
-            return
-        self._quick_mask_signature = signature
-
-        scale = self.devicePixelRatioF()
-        image = QImage(math.ceil(self.width() * scale), math.ceil(self.height() * scale),
-                       QImage.Format_ARGB32_Premultiplied)
-        image.setDevicePixelRatio(scale)
-        image.fill(Qt.transparent)
-        painter = QPainter(image)
-        region = video_mask
-        if region.isEmpty():
-            region = QRegion(self.rect())
-        painter.setClipRegion(region.subtracted(holes))
-        painter.fillRect(self.rect(), Qt.white)
-        painter.end()
-        self._quick_layer.set_group_mask(self._quick_group, image)
+        return self.surface_control.update_quick_mask(widgets)
 
     def _set_quick_active(self) -> None:
-        if self._quick_layer is not None and self._quick_group is not None:
-            self._quick_layer.set_group_active(
-                self._quick_group,
-                bool(self.comments) and not self.paused and self.isVisible())
+        return self.surface_control.set_quick_active()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

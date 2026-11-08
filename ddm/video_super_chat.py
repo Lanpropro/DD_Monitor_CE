@@ -7,6 +7,12 @@ from . import motion
 from .badge_surface import BadgeSurface
 from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, sc_placement_rects
 from .super_chat_model import SC_USER_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats
+import math
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics
+from . import theme
+from .super_chat_presentation import paint_sc_avatar, paint_sc_background, sc_message_document
+from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, remaining_seconds, SC_BODY_PADDING
 
 
 class SuperChatOverlay(BadgeSurface):
@@ -429,3 +435,59 @@ class SuperChatOverlay(BadgeSurface):
     def hideEvent(self, event):
         self._gesture = None
         super().hideEvent(event)
+
+
+def _paint_super_chat(painter, rect, chat: dict, scale: float,
+                      paint_opacity: float | None = None, avatar=None, collapsed=False) -> None:
+    palette = super_chat_palette(chat.get('price'))
+    header = QColor(palette['background_color'])
+    background = QColor(palette['background_bottom_color'])
+    painter.save()
+    if paint_opacity is not None:
+        painter.setOpacity(paint_opacity)
+    header_height = 36 if collapsed else 56
+    paint_sc_background(painter, rect, background, header, header_height * scale)
+    top = rect.top() + (6 if collapsed else 10) * scale
+    avatar_size = (24 if collapsed else 36) * scale
+    avatar_rect = QRectF(rect.left() + 10 * scale, top, avatar_size, avatar_size)
+    paint_sc_avatar(painter, avatar_rect, avatar, str(chat.get('uname') or '?'))
+    left = avatar_rect.right() + 6 * scale
+    font = QFont(theme.FONT_DEFAULT)
+    font.setPixelSize(max(1, round(13 * scale)))
+    painter.setFont(font)
+    painter.setPen(QColor(SC_USER_COLOR))
+    metrics = QFontMetrics(font)
+    price = format_price(chat.get('price'))
+    price_width = metrics.horizontalAdvance(price) + 4 * scale
+    right = rect.right() - 34 * scale
+    if collapsed:
+        right -= price_width + 4 * scale
+    small = QFont(theme.FONT_DEFAULT)
+    small.setPixelSize(max(1, round(11 * scale)))
+    remaining = '剩 ' + format_remaining(remaining_seconds(chat.get('end_time')))
+    time_width = QFontMetrics(small).horizontalAdvance(remaining)
+    name_width = max(0, right - left - time_width - 6 * scale)
+    name = metrics.elidedText(str(chat.get('uname') or '匿名用户'), Qt.ElideRight, round(name_width))
+    painter.drawText(QRectF(left, top, name_width, (24 if collapsed else 18) * scale),
+                     int(Qt.AlignLeft | Qt.AlignVCenter), name)
+    painter.setFont(small)
+    painter.drawText(QRectF(left + metrics.horizontalAdvance(name) + 6 * scale,
+                           top, time_width, (24 if collapsed else 18) * scale),
+                     int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
+    painter.setPen(QColor(SC_PRICE_COLOR))
+    font.setPixelSize(max(1, round((13 if collapsed else 15) * scale)))
+    painter.setFont(font)
+    if collapsed:
+        painter.drawText(QRectF(right + 4 * scale, top, price_width, 24 * scale),
+                         int(Qt.AlignRight | Qt.AlignVCenter), price)
+        painter.restore()
+        return
+    painter.drawText(QRectF(left, top + 19 * scale, max(0, right - left), 22 * scale),
+                     int(Qt.AlignLeft | Qt.AlignVCenter), price)
+    padding = math.ceil(SC_BODY_PADDING * scale)
+    body_rect = rect.adjusted(11 * scale, round(56 * scale) + padding, -11 * scale, -padding)
+    document = sc_message_document(chat, rect.width(), scale)
+    painter.setClipRect(body_rect, Qt.IntersectClip)
+    painter.translate(body_rect.topLeft())
+    document.drawContents(painter, QRectF(0, 0, body_rect.width(), body_rect.height()))
+    painter.restore()

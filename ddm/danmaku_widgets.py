@@ -22,16 +22,7 @@ from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, pai
 from .widget_support import DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
 
 
-def _brightness(color: str) -> int:
-    """这个颜色够不够亮（用来决定徽章上写黑字还是白字）。"""
-    text = str(color).lstrip("#")
-    if len(text) != 6:
-        return 0
-    try:
-        red, green, blue = (int(text[index:index + 2], 16) for index in (0, 2, 4))
-    except ValueError:
-        return 0
-    return (red * 299 + green * 587 + blue * 114) // 1000
+from .danmaku_format import (_brightness, _medal_chip, _escape)
 
 
 def _is_running(thread) -> bool:
@@ -40,34 +31,6 @@ def _is_running(thread) -> bool:
         return thread.isRunning()
     except RuntimeError:
         return False
-
-
-def _medal_chip(name: str, level: str, color: str, font_size: int) -> QPixmap:
-    """粉丝牌底：圆角小色块 + 名字和等级。
-
-    QTextDocument 的富文本不支持圆角，所以直接把牌子画成图片贴进弹幕行里。
-    """
-    font = QFont(theme.FONT_DEFAULT)
-    font.setPixelSize(max(8, round(font_size * 0.82)))
-    font.setBold(True)
-    text = f"{name}{level}"
-    metrics = QFontMetrics(font)
-    padding = max(4, round(font_size * 0.42))
-    height = max(12, round(font_size * 1.45))
-    width = metrics.horizontalAdvance(text) + padding * 2
-    pixmap = QPixmap(width, height)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing, True)
-    radius = max(3.0, height * 0.28)
-    path = QPainterPath()
-    path.addPath(continuous_path(QRectF(0, 0, width, height), radius))
-    painter.fillPath(path, QColor(color))
-    painter.setPen(QColor("#14161a" if _brightness(color) > 150 else "#ffffff"))
-    painter.setFont(font)
-    painter.drawText(QRectF(0, 0, width, height), int(Qt.AlignCenter), text)
-    painter.end()
-    return pixmap
 
 
 class DanmakuTextBrowser(QTextBrowser):
@@ -196,6 +159,8 @@ class DanmakuBottomButton(QPushButton):
 
 
 from .super_chat_widgets import (SuperChatAvatarView, SuperChatMessage, SuperChatCard, SuperChatStack)
+from .danmaku_document import DanmakuDocument
+from .danmaku_scrolling import DanmakuScrolling
 
 
 class DanmakuConnectionIcon(QLabel):
@@ -247,6 +212,8 @@ class DanmakuPanel(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.scroll_control = DanmakuScrolling(self)
+        self.document_control = DanmakuDocument(self)
         self.setObjectName("DanmakuPanel")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAcceptDrops(True)
@@ -480,39 +447,11 @@ class DanmakuPanel(QFrame):
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
         """直接给文本的简写（预览、自检用）。"""
-        self.add_event({"kind": "danmaku", "uname": uname, "text": text, "color": color})
+        return self.document_control.add_message(uname, text, color)
 
     def add_event(self, event: dict) -> None:
         """一条消息：带粉丝牌、表情（表情图下好之后会补上）。"""
-        entry = {
-            "uname": event.get("uname") or "",
-            "text": event.get("text") or "",
-            "color": event.get("color") or self.KIND_COLORS.get(
-                event.get("kind") or "danmaku", theme.ACCENT),
-            "medal": event.get("medal") or {},
-            "emoticon": event.get("emoticon") or "",
-            "dm_type": event.get("dm_type", 0),
-            "emoticon_unique": event.get("emoticon_unique") or "",
-            "emoticons": event.get("emoticons") or {},
-            "self_sent": bool(event.get("self_sent")),
-        }
-        self._received += 1
-        self._refresh_count()
-        for _, url in content_runs(entry):
-            if url:
-                self._ensure_emoticon(url)
-        self._blocks.append(entry)
-        removed = max(0, len(self._blocks) - self.max_blocks)
-        scroll_state = self._scroll_state(removed)
-        if removed:
-            self._blocks = self._blocks[-self.max_blocks:]
-        block = self._block_html(entry)
-        if self._has_content:
-            self.body.append(block)
-        else:
-            self.body.setHtml(block)              # 第一条：先把占位文字换掉
-            self._has_content = True
-        self._restore_scroll_state(scroll_state)
+        return self.document_control.add_event(event)
 
     def set_super_chats(self, events: list[dict]) -> None:
         self.super_chats.set_events(events, self._super_chat_limit())
@@ -546,86 +485,36 @@ class DanmakuPanel(QFrame):
         self.super_chats.raise_()
 
     def _scroll_state(self, removed_blocks: int = 0) -> tuple[bool, int, int]:
-        scroll_bar = self.body.verticalScrollBar()
-        value = scroll_bar.value()
-        if removed_blocks and not self._follow_tail:
-            document = self.body.document()
-            remaining = document.findBlockByNumber(removed_blocks)
-            if remaining.isValid():
-                layout = document.documentLayout()
-                removed_height = (layout.blockBoundingRect(remaining).top()
-                                  - layout.blockBoundingRect(document.firstBlock()).top())
-                # 字体行高可能有小数，逐条取整会让阅读位置不断漂移。
-                offset = removed_height + self._scroll_trim_remainder
-                pixels = round(offset)
-                self._scroll_trim_remainder = offset - pixels
-                value = max(0, value - pixels)
-        return self._follow_tail, value, self._scroll_revision
+        return self.scroll_control.scroll_state(removed_blocks)
 
     def _restore_scroll_state(self, state: tuple[bool, int, int]) -> None:
         """内容更新不能打断用户阅读；仍在末尾时才继续跟随。"""
-        follow_tail, value, revision = state
-        self._follow_tail = follow_tail
-        self._scroll_restore_id += 1
-        restore_id = self._scroll_restore_id
-
-        def restore() -> None:
-            if (not isValid(self) or revision != self._scroll_revision
-                    or restore_id != self._scroll_restore_id):
-                return
-            scroll_bar = self.body.verticalScrollBar()
-            if self._follow_tail:
-                scroll_bar.setValue(scroll_bar.maximum())
-            else:
-                scroll_bar.setValue(min(value, scroll_bar.maximum()))
-            self._update_bottom_button()
-
-        restore()
-        # QTextDocument 可能到下一轮事件循环才完成重新排版，再校正一次。
-        QTimer.singleShot(0, restore)
+        return self.scroll_control.restore_scroll_state(state)
 
     def jump_to_bottom(self) -> None:
-        self._scroll_revision += 1
-        self._scroll_trim_remainder = 0.0
-        self._follow_tail = True
-        self._scroll_to_bottom()
-        self._update_bottom_button()
+        return self.scroll_control.jump_to_bottom()
 
     def _update_bottom_button(self) -> None:
-        self.bottom_button.setVisible(not self._follow_tail and self._has_content)
-        self._position_bottom_button()
+        return self.scroll_control.update_bottom_button()
 
     def _scroll_to_bottom(self) -> None:
-        if not self._follow_tail:
-            return
-        scroll_bar = self.body.verticalScrollBar()
-        scroll_bar.setValue(scroll_bar.maximum())
+        return self.scroll_control.scroll_to_bottom()
 
     def _at_scroll_tail(self) -> bool:
-        scroll_bar = self.body.verticalScrollBar()
-        return scroll_bar.value() >= scroll_bar.maximum() - 1
+        return self.scroll_control.at_scroll_tail()
 
     def _on_user_scroll(self) -> None:
         """用户滚轮/键盘查看旧内容时暂停自动跟随；回到底部后恢复。"""
-        self._scroll_revision += 1
-        self._scroll_trim_remainder = 0.0
-        self._follow_tail = self._at_scroll_tail()
-        self._update_bottom_button()
+        return self.scroll_control.on_user_scroll()
 
     def _on_scroll_pressed(self) -> None:
-        self._scroll_revision += 1
-        self._scroll_trim_remainder = 0.0
-        self._scroll_dragging = True
+        return self.scroll_control.on_scroll_pressed()
 
     def _on_scroll_released(self) -> None:
-        self._scroll_dragging = False
-        self._follow_tail = self._at_scroll_tail()
-        self._update_bottom_button()
+        return self.scroll_control.on_scroll_released()
 
     def _on_scroll_value_changed(self, _value: int) -> None:
-        if self._scroll_dragging:
-            self._follow_tail = self._at_scroll_tail()
-            self._update_bottom_button()
+        return self.scroll_control.on_scroll_value_changed(_value)
 
     # ---- 渲染 ----
     def refresh_theme(self) -> None:
@@ -638,118 +527,47 @@ class DanmakuPanel(QFrame):
 
     def apply_style(self, font_family: str = "", font_size: int = BASE_FONT_SIZE) -> None:
         """设置里的字体和字号（字号也能在底部滑块上实时拖）。"""
-        self._font_family = font_family or theme.danmaku_font_family()
-        self._base_size = max(self.MIN_FONT_SIZE,
-                              min(self.MAX_FONT_SIZE, int(font_size or self.BASE_FONT_SIZE)))
-        font = QFont(self._font_family)
-        font.setPixelSize(self._base_size)
-        self.body.setFont(font)          # 具体字号在 HTML 里，这里给个底
-        self.font_slider.blockSignals(True)
-        self.font_slider.setValue(self._base_size)
-        self.font_slider.blockSignals(False)
-        self.font_value.setText(str(self._base_size))
-        if self._blocks:
-            self._render_all()
+        return self.document_control.apply_style(font_family, font_size)
 
     def _font_size(self) -> int:
-        return self._base_size
+        return self.document_control.font_size()
 
     def set_max_blocks(self, count: int) -> None:
         """最多留多少条弹幕：超了就从最早的那条开始丢。"""
-        try:
-            value = int(count)
-        except (TypeError, ValueError):
-            value = self.MAX_BLOCKS
-        self.max_blocks = max(self.MIN_BLOCKS, value)
-        scroll_state = self._scroll_state(max(0, len(self._blocks) - self.max_blocks))
-        if len(self._blocks) > self.max_blocks:
-            self._blocks = self._blocks[-self.max_blocks:]
-        self.body.document().setMaximumBlockCount(self.max_blocks)
-        self._restore_scroll_state(scroll_state)
+        return self.document_control.set_max_blocks(count)
 
     def _on_font_slider(self, value: int) -> None:
         """面板上拖字号：立刻重排，并通知外面存进配置。"""
-        self._base_size = int(value)
-        self.font_value.setText(str(self._base_size))
-        if self._blocks:
-            self._render_all()
-        self.fontSizeChanged.emit(self._base_size)
+        return self.document_control.on_font_slider(value)
 
     def _block_html(self, entry: dict) -> str:
-        size = self._font_size()
-        color = "#202630" if theme.is_light() else "#e6e9ee"
-        name = (f'<span style="color:{entry["color"]}">{_escape(entry["uname"])}</span>')
-        mark = (f'<span style="color:{theme.PINK};font-weight:700">▍</span> '
-                if entry.get("self_sent") else "")
-        return (f'<div style="font-size:{size}px;line-height:150%;margin:0 0 4px 0">'
-                f'{mark}{self._medal_html(entry["medal"])}{name}'
-                f'<span style="color:{color}">：{self._body_html(entry)}</span></div>')
+        return self.document_control.block_html(entry)
 
     def _body_html(self, entry: dict) -> str:
-        height = max(self.EMOTICON_HEIGHT // 2, round(self._font_size() * 1.7))
-        return content_html(content_runs(entry), self._images, height)
+        return self.document_control.body_html(entry)
 
     def _medal_html(self, medal: dict) -> str:
         """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""
-        name = str(medal.get("name") or "")
-        if not name:
-            return ""
-        level = str(medal.get("level") or "")
-        color = str(medal.get("color") or "")
-        if not color:
-            return f'<span style="color:#c792ea">[{_escape(name)}{_escape(level)}]</span>&#160;'
-        size = self._font_size()
-        key = f"medal:{name}|{level}|{color}|{size}"
-        if key not in self._images:
-            self._images[key] = _medal_chip(name, level, color, size)
-        chip = self._images[key]
-        self._register_image(key, chip)          # 不注册的话新到的弹幕会画成白块
-        return (f'<img src="{key}" width="{chip.width()}" height="{chip.height()}">&#160;')
+        return self.document_control.medal_html(medal)
 
     def _register_image(self, key: str, image) -> None:
         """把图片挂到文本文档上，这样富文本里的 <img> 才画得出来。"""
-        self.body.document().addResource(QTextDocument.ImageResource, QUrl(key), image)
+        return self.document_control.register_image(key, image)
 
     def _render_all(self) -> None:
         """整体重排（表情图下好、或者字体变化时用）。"""
-        scroll_state = self._scroll_state()
-        html = "".join(self._block_html(entry) for entry in self._blocks)
-        self.body.setHtml(html or "")
-        for url, image in self._images.items():       # 图片按 url 注册成文档资源
-            self._register_image(url, image)
-        self._has_content = bool(self._blocks)
-        self._restore_scroll_state(scroll_state)
+        return self.document_control.render_all()
 
     # ---- 表情 ----
     def _ensure_emoticon(self, url: str) -> None:
-        if url in self._images or url in self._loading_emoticons:
-            return
-        self._loading_emoticons.add(url)
-        loader = AvatarLoader({url: url}, self, subdir="emoticons")
-        loader.loaded.connect(self._on_emoticon_loaded)
-        loader.finished.connect(lambda: self._loading_emoticons.discard(url))
-        loader.finished.connect(loader.deleteLater)
-        self._emoticon_loaders = [item for item in self._emoticon_loaders
-                                  if _is_running(item)]
-        self._emoticon_loaders.append(loader)
-        loader.start()
+        return self.document_control.ensure_emoticon(url, loader_type=AvatarLoader, thread_running=_is_running)
 
     def _on_emoticon_loaded(self, url: str, pixmap) -> None:
-        self._loading_emoticons.discard(url)
-        image = pixmap.toImage()
-        if image.isNull():
-            return
-        self._images[url] = image
-        self._render_all()          # 之前显示成文字的那些，现在换成图
+        return self.document_control.on_emoticon_loaded(url, pixmap)
 
     def clear(self) -> None:
-        self.set_placeholder("等待主画面的直播间…")
+        return self.document_control.clear()
 
     def set_sample(self, messages: list[tuple[str, str, str]]) -> None:
         """预览用：塞几条示例弹幕，看看排版效果。"""
-        for uname, text, color in messages:
-            self.add_message(uname, text, color)
-
-
-def _escape(text: str) -> str:
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        return self.document_control.set_sample(messages)

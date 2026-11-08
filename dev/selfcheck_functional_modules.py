@@ -201,6 +201,66 @@ class FunctionalModulesTests(unittest.TestCase):
             finally:
                 archive.unlink(missing_ok=True)
 
+    def test_skin_shared_controls_and_part_dialog_keep_legacy_identity(self):
+        from ddm import skin_settings, skin_controls, skin_part_settings
+        self.assertIs(skin_settings.SkinAssetDropArea, skin_controls.SkinAssetDropArea)
+        self.assertIs(skin_settings.PartSettings, skin_part_settings.PartSettings)
+        self.child("import sys; import ddm.skin_part_settings; "
+            "assert not {'ddm.skin_settings','ddm.app','ddm.widgets'}.intersection(sys.modules)")
+
+    def test_chat_document_and_surface_helpers_keep_single_widget_state(self):
+        from ddm.danmaku_widgets import DanmakuPanel
+        from ddm.video_danmaku import VideoDanmaku
+        from ddm.video_super_chat import _paint_super_chat
+        panel, video = DanmakuPanel(), VideoDanmaku()
+        self.widgets += [panel, video]
+        for owner, fields in ((panel, ('document_control', 'scroll_control')),
+                (video, ('raster_control', 'surface_control'))):
+            for name in fields:
+                self.assertEqual(vars(getattr(owner, name)), {'host': owner})
+        self.assertIs(VideoDanmaku._paint_super_chat, _paint_super_chat)
+        self.assertIs(video.timer.parent(), video)
+
+    def test_skin_part_editor_builds_with_the_original_global_background_controls(self):
+        from PySide6.QtCore import QTimer
+        from ddm.app import MainWindow
+        from ddm.plugins import PluginManager
+        from ddm.skin_part_settings import PartSettings
+        from ddm.skin_settings import SkinSettings
+        with patch.object(QTimer, 'singleShot', lambda *args: None), patch.object(PluginManager, 'load'):
+            window = MainWindow([], [], state={'plugins_enabled': []})
+            self.widgets.append(window)
+            editor = PartSettings(window, window, embedded=True)
+            self.widgets.append(editor)
+            self.assertIsInstance(editor.background_controls, SkinSettings)
+            self.assertIs(editor.parentWidget(), window)
+
+    def test_chat_document_uses_original_emoticon_loader_and_queued_result(self):
+        from PySide6.QtCore import QObject, Signal
+        from PySide6.QtGui import QPixmap
+        from ddm import danmaku_widgets
+        class Loader(QObject):
+            loaded = Signal(str, QPixmap)
+            finished = Signal()
+            def __init__(self, items, parent, **kwargs):
+                super().__init__(parent)
+            def start(self):
+                pass
+            def isRunning(self):
+                return True
+        panel = danmaku_widgets.DanmakuPanel()
+        self.widgets.append(panel)
+        with patch.object(danmaku_widgets, 'AvatarLoader', Loader):
+            panel._ensure_emoticon('fixture:first')
+            panel._ensure_emoticon('fixture:second')
+        self.assertEqual(len(panel._emoticon_loaders), 2)
+        loader = panel._emoticon_loaders[-1]
+        self.assertIs(loader.parent(), panel)
+        pixmap = QPixmap(8, 8)
+        pixmap.fill()
+        loader.loaded.emit('fixture:second', pixmap)
+        self.assertIn('fixture:second', panel._images)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
