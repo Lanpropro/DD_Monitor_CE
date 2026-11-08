@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.app import MainWindow
 from ddm.stream_playback import StreamPlayback
+from ddm.codec_control import CodecControl
 
 
 class Tile:
@@ -26,6 +27,7 @@ host = SimpleNamespace(players={t: object() for t in tiles}, _resolvers={}, _ret
                        _pending_capture={tiles[4]: object()}, recorder=SimpleNamespace(sessions={tiles[3]: object()}),
                        _closing=False, start_tile=Mock(), _stop_tile=Mock())
 host.stream_playback = StreamPlayback(host)
+host.codec_control = CodecControl(host)
 host._match_sync_holds = lambda tile: MainWindow._match_sync_holds(host, tile)
 MainWindow.set_match_sync_playback(host, True)
 assert host._stop_tile.call_count == 3
@@ -47,7 +49,9 @@ assert host.start_tile.call_count == 2
 # Its new player must be muted before play(), not on a later suppression tick.
 host._closing = False
 host.settings = {}
-host.media_options = lambda: ()
+host.media_options = lambda tile=None: ()
+host.plugins = SimpleNamespace(platform_for=lambda room_id: None)
+host._is_bili_tile = lambda tile: MainWindow._is_bili_tile(host, tile)
 host._emit_stream_resolved = Mock()
 host._sync_replay_scope = Mock()
 host.recorder.on_resolved = Mock()
