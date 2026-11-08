@@ -177,6 +177,30 @@ class FunctionalModulesTests(unittest.TestCase):
         manager.shutdown()
         manager.deleteLater()
 
+    def test_plugin_contract_and_package_boundaries_keep_one_runtime_owner(self):
+        from ddm import plugins, plugin_types, plugin_manifest
+        for name in ('Plugin', 'PluginContext', 'RoomInfo', 'StreamSource', 'Platform'):
+            self.assertIs(getattr(plugins, name), getattr(plugin_types, name))
+        self.assertIs(plugins.RENAMED_PLUGINS, plugin_manifest.RENAMED_PLUGINS)
+        with tempfile.TemporaryDirectory(prefix='ddm-functional-plugins-') as directory:
+            manager = plugins.PluginManager(plugins_dir=directory)
+            self.assertEqual(vars(manager.package_control), {'host': manager})
+            self.assertEqual(manager.catalog(), [])
+            import json
+            import zipfile
+            archive = Path(directory).parent / (Path(directory).name + '.zip')
+            try:
+                with zipfile.ZipFile(archive, 'w') as package:
+                    package.writestr('fixture_plugin/plugin.py', 'raise AssertionError("Install must not execute code")')
+                    package.writestr('fixture_plugin/plugin.json', json.dumps({'id': 'fixture_plugin',
+                        'name': 'Fixture', 'version': '1.0', 'description': 'Fixture package'}))
+                self.assertEqual(manager.install_zip(str(archive)), 'fixture_plugin')
+                self.assertEqual([item['id'] for item in manager.catalog()], ['fixture_plugin'])
+                manager.remove_plugin('fixture_plugin')
+                self.assertEqual(manager.catalog(), [])
+            finally:
+                archive.unlink(missing_ok=True)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
