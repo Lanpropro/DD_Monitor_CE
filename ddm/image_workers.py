@@ -1,5 +1,4 @@
 """Qt image workers; image API owns canonical cache paths, generation tokens and loaders."""
-import requests
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QPixmap
 from . import image_cache

@@ -5,7 +5,6 @@ import time
 import uuid
 from concurrent.futures import Future
 from pathlib import Path
-from .recording_output import SEGMENT_SECONDS, segment_extension_for, segment_args
 
 
 class _Session:
