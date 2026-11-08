@@ -162,6 +162,8 @@ def check_recording_source_isolation():
     owner = SimpleNamespace(_closing=False, recorder=manager,
         plugins=SimpleNamespace(platform_for=lambda _rid: None), wall=SimpleNamespace(tiles=[tile]),
         _codec_settings=lambda _tile: {'bili_codec': 'avc'}, _resolvers_running=set())
+    from ddm.capture_control import CaptureControl
+    owner.capture_control = CaptureControl(owner)
     manager.source_resolver = lambda session: MainWindow._refresh_recording_source(owner, session)
     session = _Session(tile, DEFAULT_SETTINGS, True, Path.cwd(), 'avc')
     manager.sessions[tile] = session
