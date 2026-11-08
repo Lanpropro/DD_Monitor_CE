@@ -154,6 +154,15 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertEqual(seen, [{'uname': 'current-api'}])
         worker.deleteLater()
 
+    def test_wall_controllers_keep_original_timer_and_session_owners(self):
+        from ddm.wall_widgets import WallGrid
+        wall = WallGrid([])
+        self.widgets.append(wall)
+        for name in ('layout_control', 'presentation_control'):
+            self.assertEqual(vars(getattr(wall, name)), {'host': wall})
+        self.assertIs(wall._resize_timer.parent(), wall)
+        self.assertIs(wall._border_drag_timer.parent(), wall._border_interaction)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
