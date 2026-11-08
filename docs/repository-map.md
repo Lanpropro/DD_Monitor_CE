@@ -376,6 +376,7 @@
 - `dev/selfcheck_resize_widgets.py`
 - `dev/selfcheck_resolve_retry.py`
 - `dev/selfcheck_room_presets.py`
+- `dev/selfcheck_room_preset_control.py`
 - `dev/selfcheck_pane_danmaku.py`
 - `dev/selfcheck_room_status.py`
 - `dev/selfcheck_room_status_controller.py`
@@ -690,3 +691,5 @@
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。
 
 画面墙边框组件与拖动会话由 `ddm/wall_border.py` 维护：`WallBorderInteraction` 以画面墙为QObject父对象，统一持有悬停、拖动、待处理位置与32ms合并定时器；预览仍是画面墙的直接Qt子控件，格子边框仍归原格子。WallGrid保留布局/比例/格子状态与旧方法及只读诊断别名，不重复保存活动拖动状态。
+
+直播间组合的快照、保存、重命名、删除和恢复由 `ddm/room_preset_control.py` 的 `RoomPresetController` 协调；校验/比较留在 `room_presets.py`，卡片/管理交互留在 `room_presets_ui.py`。主窗口保留旧方法委托，仍是配置集合、活动组合、恢复事务标志、退役格子及播放器/录制服务的唯一状态所有者，控制器不另存副本。

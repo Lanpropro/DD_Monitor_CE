@@ -52,6 +52,7 @@ from .playback_recovery import PlaybackRecovery
 from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
+from .room_preset_control import RoomPresetController
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
@@ -117,6 +118,7 @@ class MainWindow(QMainWindow):
         self.layout_id = layout_id
         self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
         self.room_placement = RoomPlacement(self)
+        self.room_preset_control = RoomPresetController(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
@@ -1463,206 +1465,19 @@ class MainWindow(QMainWindow):
         self._refresh_meta()
 
     def room_preset_snapshot(self):
-        wall = self.wall
-        identifier = wall.layout_id
-        if identifier == "corner":
-            ratios = wall.corner_ratios()
-        else:
-            ratios = deepcopy(wall._layout_ratios.get(identifier, {}))
-            # Defaults such as portrait 16:9 depend on the viewport; freeze their current proportions.
-            for (key, _index), (_node, _area, sizes) in wall._preset_dividers.items():
-                ratios.setdefault(key, [size / sum(sizes) for size in sizes])
-        custom = wall.pane_danmaku.custom
-        dm = None if custom else (layouts.danmaku_cell(identifier) if
-            layouts.is_portrait_layout(identifier) else wall._danmaku_cell)
-        pane_layout = dict(id=identifier, ratios=ratios, danmaku_cell=dm)
-        if custom:
-            cells = wall.pane_danmaku.cell_tiles()
-            pane_layout["panels"] = [dict(cell=cell, source=None if tile is None else
-                next((index for index, item in cells.items() if item is tile), -1))
-                for cell, tile in sorted(wall.pane_danmaku.bindings().items())]
-        order = [cell for cell in range(layouts.capacity(identifier)) if cell != dm]
-        saved_layout = (self._room_preset_fullscreen_layout if self._fullscreen_tile is not None else None)
-        return room_presets.validate({"layout": deepcopy(saved_layout) if saved_layout else pane_layout,
-            "slots": [dict(cell=cell, room_id=str(tile.room.get("room_id") or ""),
-                           label=str(tile.room.get("uname") or tile.room.get("room_id") or "空位"),
-                           volume=int(tile.volume), audio_channel=int(tile.audio_channel),
-                           muted=self._fullscreen_audio_saved.get(tile, bool(tile.muted)))
-                      for cell, tile in zip(order, wall.tiles)]})
+        return self.room_preset_control.snapshot()
 
     def save_room_preset(self, name, preset_id=None):
-        from uuid import uuid4
-        name = str(name).strip()
-        if not name:
-            raise ValueError("请输入组合名称")
-        if self.room_presets["version"] != 1:
-            raise ValueError("组合数据版本暂不支持")
-        items = self.room_presets["items"]
-        if any(item.get("name") == name and item.get("id") != preset_id for item in items):
-            raise ValueError("已有同名组合")
-        snapshot = self.room_preset_snapshot()
-        record = dict(snapshot, id=preset_id or uuid4().hex, name=name)
-        if preset_id:
-            index = next((i for i, item in enumerate(items) if item.get("id") == preset_id), None)
-            if index is None:
-                raise ValueError("该组合已不存在")
-            items[index] = record
-        else:
-            items.append(record)
-        self._active_room_preset_id = record["id"]
-        self._save_timer.start()
-        return record["id"]
+        return self.room_preset_control.save(name, preset_id)
 
     def rename_room_preset(self, preset_id, name):
-        name = str(name).strip()
-        if not name:
-            raise ValueError("请输入组合名称")
-        if any(item.get("name") == name and item.get("id") != preset_id
-               for item in self.room_presets["items"]):
-            raise ValueError("已有同名组合")
-        for item in self.room_presets["items"]:
-            if item.get("id") == preset_id:
-                item["name"] = name
-                self._save_timer.start()
-                return
-        raise ValueError("该组合已不存在")
+        return self.room_preset_control.rename(preset_id, name)
 
     def delete_room_preset(self, preset_id):
-        self.room_presets["items"] = [item for item in self.room_presets["items"]
-                                     if item.get("id") != preset_id]
-        if self._active_room_preset_id == preset_id:
-            self._active_room_preset_id = ""
-        self._save_timer.start()
+        return self.room_preset_control.delete(preset_id)
 
     def apply_room_preset(self, preset_id):
-        self.picture_in_picture.restore()
-        if self._closing:
-            return False
-        if self.room_presets["version"] != 1:
-            raise ValueError("组合数据版本暂不支持")
-        record = next((item for item in self.room_presets["items"] if item.get("id") == preset_id), None)
-        snapshot = room_presets.validate(record)
-        if room_presets.same(snapshot, self.room_preset_snapshot()):
-            if self._active_room_preset_id != preset_id:
-                self._active_room_preset_id = preset_id
-                self._save_timer.start()
-            return True
-        self._cancel_interactive_resize()
-        slots = snapshot["slots"]
-        available = list(self.wall.tiles)
-        assigned = []
-        # Reserve matching live players before taking spare/empty tiles for new rooms.
-        for slot in slots:
-            tile = next((tile for tile in available if slot["room_id"] and
-                         str(tile.room.get("room_id") or "") == slot["room_id"]), None)
-            assigned.append(tile)
-            if tile is not None:
-                available.remove(tile)
-        for index, tile in enumerate(assigned):
-            if tile is None:
-                spare = next((item for item in available if item not in self.recorder.sessions), None)
-                if spare is not None:
-                    available.remove(spare)
-                    assigned[index] = spare
-        keeping = {tile for tile, slot in zip(assigned, slots) if tile is not None
-                   and str(tile.room.get("room_id") or "") == slot["room_id"]}
-        affected = [tile for tile, session in self.recorder.sessions.items()
-                    if tile not in keeping and session.recording and not session.stopping]
-        affected += [tile for tile, recording in self._pending_capture.items()
-                     if tile not in keeping and recording and tile not in affected]
-        if affected:
-            names = "、".join(str(tile.room.get("uname") or tile.room.get("room_id")) for tile in affected)
-            if QMessageBox.question(self, "恢复直播间组合", f"将结束以下直播间的录制后恢复组合：\n{names}\n是否继续？",
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
-                return False
-        if self._fullscreen_tile is not None:
-            self._exit_fullscreen()
-        self.hover_preview.cancel()
-        self.wall._cancel_border_drag()
-        self._pending_layout = ""
-        self._applying_room_preset = True
-        try:
-            for tile in list(self.wall.tiles):
-                if tile not in keeping:
-                    self._clear_tile_room(tile)
-            for index, tile in enumerate(assigned):
-                if tile is None:
-                    assigned[index] = self.wall._make_tile({})
-            for tile in list(self.wall.tiles):
-                if tile not in assigned:
-                    if tile in self.recorder.sessions:
-                        # ffmpeg may still be finishing; its completion signal needs a live tile.
-                        tile.hide()
-                        self._preset_retired_tiles.add(tile)
-                    else:
-                        self.wall._drop_tile(tile)
-            self.wall.tiles = assigned
-            identifier = snapshot["layout"]["id"]
-            portrait = layouts.is_portrait_layout(identifier)
-            previous_orientation, previous_layout = self.orientation, self.wall.layout_id
-            self.wall.pane_danmaku.settings.pop(identifier, None)
-            if "panels" in snapshot["layout"]:
-                by_cell = {slot["cell"]: tile for slot, tile in zip(slots, assigned)}
-                self.wall.pane_danmaku.settings[identifier] = {item["cell"]:
-                    None if item["source"] is None else by_cell.get(item["source"], -1)
-                    for item in snapshot["layout"]["panels"]}
-            self.wall.set_layout(identifier, relayout=False)
-            self.wall._danmaku_cell = snapshot["layout"]["danmaku_cell"]
-            if identifier == "corner":
-                self.wall.restore_corner_ratios(snapshot["layout"]["ratios"])
-            else:
-                self.wall._layout_ratios[identifier] = deepcopy(snapshot["layout"]["ratios"])
-            if portrait != (self.orientation == "portrait"):
-                self._reshape_window(portrait)
-                if previous_orientation:
-                    self._layout_by_orientation[previous_orientation] = previous_layout
-            self.orientation = "portrait" if portrait else "landscape"
-            self.sidebar.set_collapsed(False, animate=False)
-            self._build_arrangement(self.orientation)
-            self.state.setdefault("ui", {})[f"layout_{self.orientation}"] = identifier
-            self._layout_by_orientation[self.orientation] = identifier
-            starting = []
-            for tile, slot in zip(assigned, slots):
-                rid = slot["room_id"]
-                if tile not in keeping:
-                    known = next((room for room in self.sidebar.rooms()
-                                  if str(room.get("room_id")) == rid), None)
-                    if known is None:
-                        _, placeholders = config_module.build_rooms({"wall": [slot]})
-                        known = placeholders[0]
-                        if rid:
-                            known["uname"] = slot["label"] or f"房间 {rid}"
-                    tile.set_room(self._prepare_room(dict(known)))
-                    if rid:
-                        starting.append(tile)
-                # These setters normally emit individual player updates; apply the whole sound state first.
-                blocked = tile.blockSignals(True)
-                try:
-                    tile.set_volume(slot["volume"])
-                    tile.set_audio_channel(slot["audio_channel"])
-                    tile.set_muted(slot["muted"])
-                finally:
-                    tile.blockSignals(blocked)
-                player = self.players.get(tile)
-                if player is not None:
-                    player.set_volume(tile.volume)
-                    player.set_audio_channel(tile.audio_channel)
-                    player.set_muted(tile.muted)
-            self.wall.relayout(force=True)
-            self.sidebar.set_layout_name(identifier)
-            for tile in starting:
-                if tile.isVisible() and (tile.room.get("live") or (":" in str(tile.room.get("room_id")) and
-                        self.plugins.platform_for(str(tile.room["room_id"])) is None)):
-                    self.start_tile(tile)
-                else:
-                    tile.set_status("未开播" if tile.room.get("live_known", True) else "等待刷新直播状态")
-            self._active_room_preset_id = preset_id
-            self._refresh_meta()
-            self._save_timer.start()
-        finally:
-            self._applying_room_preset = False
-        self.refresh_status(force=True)
-        return True
+        return self.room_preset_control.apply(preset_id)
 
     def _reshape_window(self, portrait: bool) -> None:
         """把主窗口改成竖屏/横屏的形状（宽高对调，并夹在当前屏幕里）。
