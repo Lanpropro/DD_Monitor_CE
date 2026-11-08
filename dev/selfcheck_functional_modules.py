@@ -309,6 +309,43 @@ class FunctionalModulesTests(unittest.TestCase):
                 self.assertEqual(seen, [[room]])
             worker.deleteLater()
 
+    def test_room_collection_navigation_and_sampling_have_independent_boundaries(self):
+        from types import SimpleNamespace
+        from ddm.room_placement import RoomPlacement
+        from ddm.room_catalog import RoomCatalog
+        from ddm.room_navigation import RoomNavigation
+        host = SimpleNamespace(plugins=SimpleNamespace(platforms={}))
+        placement = RoomPlacement(host)
+        self.assertIsInstance(placement.catalog, RoomCatalog)
+        self.assertIsInstance(placement.navigation, RoomNavigation)
+        self.assertEqual(vars(placement.catalog), {'host': host})
+        self.assertEqual(vars(placement.navigation), {'host': host})
+        self.assertEqual(placement.room_browser_url({'room_id': '123'}), 'https://live.bilibili.com/123')
+        for module in ('room_catalog', 'room_navigation', 'watch_history_sampling'):
+            self.child('import sys; import ddm.'+module+'; '
+                "assert not {'PySide6','ddm.app','ddm.widgets'}.intersection(sys.modules)")
+
+    def test_room_configuration_roundtrip_is_pure_and_uses_current_defaults(self):
+        from copy import deepcopy
+        from ddm import config, room_configuration
+        self.child("import sys; import ddm.room_configuration; "
+            "assert not {'PySide6','ddm.config'}.intersection(sys.modules)")
+        self.assertIs(config.build_rooms, room_configuration.build_rooms)
+        state = {'rooms': ['douyin:fixture', '123'], 'pinned': ['douyin:fixture'],
+            'wall': [{'room_id': 'douyin:fixture', 'volume': 17}],
+            'platform_rooms': {'douyin:fixture': {'uname': 'Fixture', 'playback_mode': 'stream'}}}
+        original = deepcopy(state)
+        hidden = config.sync_platform_rooms(state, set())
+        self.assertEqual(state, original)
+        self.assertEqual(hidden['rooms'], ['123'])
+        restored = config.sync_platform_rooms(hidden, {'douyin'})
+        self.assertEqual(restored['rooms'], state['rooms'])
+        sidebar, wall = config.build_rooms(restored)
+        self.assertEqual(sidebar[0]['uname'], 'Fixture')
+        self.assertEqual(wall[0]['volume'], 17)
+        with patch.object(config, 'DEFAULT_VOLUME', 29):
+            self.assertEqual(config.build_rooms({'wall': [{}]})[1][0]['volume'], 29)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:

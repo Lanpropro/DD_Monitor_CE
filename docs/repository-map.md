@@ -758,3 +758,5 @@ B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili
 其他边界：`image_workers.py` 为图片缓存/下载工作线程，路径和缓存代次仍由 images API 持有；`account_workers.py` 为关注账号解析线程；`live_danmaku_protocol.py` 为三站只读弹幕编解码，连接/重连仍由 LiveDanmakuClient 负责；`add_room_dialog.py` 为添加房间，`room_dialogs.py` 为关注导入，文件夹动作归 `room_folder_controls.py`；`skin_assets.py` 为素材验证/导入，`skin_background.py` 为背景表面，SkinController 仍在 skins；`settings_worker.py` 为独立设置进程界面，SettingsProcess 保留宿主 QProcess 传输和公共协议入口。
 
 登录边界：`bili_login_worker.py`、`oauth_worker.py`、`platform_follow_worker.py` 分别持有扫码、OAuth、平台关注协议工作线程；原 login/oauth_login/platform_login 保留具体登录界面及旧工厂。`platform_profiles.py` 统一持有浏览器 profile 注册表与退出清理，原模块只是同一字典的兼容引用。
+
+房间细分：`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。

@@ -1,13 +1,14 @@
 """Room placement and tile swaps; the host owns playback, recording and UI services."""
 import sys
-import time
-import webbrowser
-from urllib.parse import urlsplit
+from .room_catalog import RoomCatalog
+from .room_navigation import RoomNavigation
 
 
 class RoomPlacement:
     def __init__(self, host):
         self.host = host
+        self.navigation = RoomNavigation(self.host)
+        self.catalog = RoomCatalog(self.host)
         self.replacement = None
 
     def place_live_notice_rooms(self, rooms):
@@ -160,117 +161,20 @@ class RoomPlacement:
         return True
 
     def room_browser_url(self, room: dict) -> str:
-        host = self.host
-        room_id = str(room.get("room_id") or "")
-        if room_id.isascii() and room_id.isdecimal():
-            return f"https://live.bilibili.com/{room_id}"
-        kind, separator, raw_id = room_id.partition(":")
-        platform = host.plugins.platforms.get(kind) if separator and raw_id else None
-        if platform is None:
-            return ""
-        try:
-            url = platform.room_url(room_id)
-            parts = urlsplit(url)
-            return url if parts.scheme in ("http", "https") and parts.netloc else ""
-        except Exception:  # noqa: BLE001
-            return ""
+        return self.navigation.room_browser_url(room)
 
     def open_room_browser(self, url: str) -> None:
-        from PySide6.QtWidgets import QMessageBox
-        host = self.host
-        try:
-            opened = webbrowser.open(url)
-        except OSError:
-            opened = False
-        if not opened:
-            QMessageBox.warning(host, "观看直播", "无法打开默认浏览器，请检查系统浏览器设置。")
+        return self.navigation.open_room_browser(url)
 
     def normalize_room_input(self, text: str) -> str | None:
-        from PySide6.QtWidgets import QDialog
-        host = self.host
-        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
-        text = extract_room_input(text)
-        platform = host.plugins.platform_for(text)
-        if platform is not None:
-            profile = getattr(platform, "profile_sec_uid", None)
-            sec_uid = profile(text) if callable(profile) else ""
-            if sec_uid:
-                from .profile_room import ProfileRoomDialog
-                dialog = ProfileRoomDialog(platform, sec_uid, host)
-                result = dialog.exec()
-                room_id = dialog.room_id
-                dialog.deleteLater()
-                if result != QDialog.Accepted:
-                    raise ValueError("主页读取已取消，可重新粘贴主页链接重试")
-                return room_id
-            return platform.normalize(text)
-        if room_id := bili_room_id(text):
-            return room_id
-        if is_bili_short_url(text):
-            return text  # Expand the short link in InfoResolver's background thread.
-        # 未装载的平台输入不能被旧的数字提取误当作 B 站房间。
-        if ":" in text and urlsplit(text).hostname != "live.bilibili.com":
-            raise ValueError("未识别平台，请启用对应的平台插件并重启")
-        return None                    # B 站仍使用原有房间号解析
+        return self.navigation.normalize_room_input(text)
 
     def sync_platform_rooms(self) -> None:
-        from . import config as config_module
-        host = self.host
-        host.hover_preview.cancel()
-        active = {kind for kind, owner in host.plugins._platform_owner.items()
-                  if owner not in host.plugins._removed and
-                  (host.plugins.enabled is None or owner in host.plugins.enabled)}
-        saved = config_module.sync_platform_rooms(host.current_state(), active)
-        host.state["suspended_platform_rooms"] = saved["suspended_platform_rooms"]
-        rooms, wall = config_module.build_rooms(saved)
-        followed = {room["room_id"] for room in rooms}
-        for room in host.sidebar.rooms():
-            if room["room_id"] not in followed:
-                host.sidebar.remove_room(room)
-        for room in rooms:
-            if not any(item["room_id"] == room["room_id"] for item in host.sidebar.rooms()):
-                host.sidebar.add_room(room)
-        for key in ("import_order", "custom_order"):
-            getattr(host.sidebar, "set_" + key)(saved[key])
-        host.sidebar.apply_pins(saved["pinned"])
-        host.sidebar.set_folders(saved.get("follow_folders") or [])
-        for index, room in enumerate(wall):
-            if index >= len(host.wall.tiles):
-                host.wall.add_room(room)
-                continue
-            tile = host.wall.tiles[index]
-            if str(tile.room.get("room_id") or "") == str(room.get("room_id") or ""):
-                continue
-            if tile is host._fullscreen_tile:
-                host._exit_fullscreen()
-            host.recorder.stop(tile)
-            host._pending_capture.pop(tile, None)
-            host._stop_tile(tile)
-            tile.set_volume(room["volume"])
-            tile.set_audio_channel(room["audio_channel"])
-            tile.set_muted(room["muted"])
-            tile.set_room(room)
-        host._refresh_meta()
+        return self.catalog.sync_platform_rooms()
 
     def tick_watch_history(self):
-        host = self.host
-        now = time.monotonic()
-        elapsed = now - host._watch_history_last_tick
-        host._watch_history_last_tick = now
-        history = host.sidebar.watch_history
-        if host._closing or not history.enabled:
-            return
-        present = {str(tile.room.get("room_id")) for tile in host.wall.tiles
-                   if tile.room.get("room_id")}
-        active = set()
-        if host.isVisible() and not host.isMinimized():
-            for tile in host.wall.visible_tiles():
-                player = host.players.get(tile)
-                if (tile.isVisible() and not tile.paused and player is not None
-                        and player.state == "playing" and not player.paused):
-                    active.add(str(tile.room.get("room_id")))
-        if history.sample(present, active, elapsed):
-            host._save_timer.start()
+        from .watch_history_sampling import tick_watch_history
+        return tick_watch_history(self.host)
 
     def prepare_room(self, room: dict) -> dict:
         """给新建格子补初始声音；已有格子的静音和音量由 Tile 保留。"""
@@ -287,13 +191,7 @@ class RoomPlacement:
         return room
 
     def room_dict(self, room_id: str) -> dict | None:
-        from . import bili
-        host = self.host
-        room_id = str(room_id)
-        for room in host.sidebar.rooms():
-            if str(room.get("room_id")) == room_id:
-                return room
-        return bili.room_info(room_id) if room_id.isdigit() else None
+        return self.catalog.room_dict(room_id)
 
     def clear_tile_room(self, tile: "Tile") -> None:
         host = self.host
@@ -315,92 +213,16 @@ class RoomPlacement:
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
     def open_add_room(self, *, dialog_type) -> None:
-        host = self.host
-        AddRoomDialog = dialog_type
-        dialog = AddRoomDialog(host, room_id_resolver=host._normalize_room_input,
-                               folders=host.sidebar.folder_state(),
-                               folder_creator=host.sidebar.create_folder)
-        hints = [hint for p in host.plugins.platforms.values()
-                 if (hint := getattr(p, "room_input_hint", ""))]
-        if hints:
-            dialog.hint.setText("支持 B 站房间号；" + "；".join(hints))
-        if dialog.exec() != AddRoomDialog.Accepted:
-            return
-        host._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
+        return self.catalog.open_add_room(dialog_type=dialog_type)
 
     def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type) -> None:
-        from PySide6.QtWidgets import QMessageBox
-        host = self.host
-        InfoResolver = resolver_type
-        from .room_input import is_bili_short_url
-        short_link = is_bili_short_url(room_id)
-        if any(str(room.get("room_id")) == room_id for room in host.sidebar.rooms()):
-            print(f"房间 {room_id} 已在关注列表里")
-            return
-        platform = host.plugins.platform_for(room_id)
-        if ":" in room_id and not short_link:
-            if platform is None:
-                QMessageBox.warning(host, "添加直播间", "请启用对应的平台插件并重启")
-                return
-            resolver = InfoResolver(room_id, host, platform=platform)
-            resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id)
-                                      if not host._closing else None)
-            resolver.failed.connect(lambda _rid, r=resolver: host._on_platform_room_failed(
-                r, platform, room_id, folder_id=folder_id))
-            resolver.finished.connect(lambda r=resolver: host._platform_info_running.discard(r))
-            resolver.finished.connect(resolver.deleteLater)
-            host._platform_info_running.add(resolver)
-            resolver.start()
-            return
-        print(f"正在查询房间 {room_id} ...")
-        resolver = InfoResolver(room_id, host)
-        resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id))
-        if short_link:
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                host, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
-                if not host._closing else None)
-        else:
-            resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
-        resolver.finished.connect(lambda r=resolver: host._platform_info_running.discard(r))
-        resolver.finished.connect(resolver.deleteLater)
-        host._platform_info_running.add(resolver)
-        resolver.start()
+        return self.catalog.add_room_id(room_id, folder_id=folder_id, resolver_type=resolver_type)
 
     def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
-        from PySide6.QtWidgets import QDialog, QMessageBox
-        host = self.host
-        if host._closing:
-            return
-        if (getattr(resolver, "browser_verification", False) is True
-                and platform.kind == "douyin" and getattr(platform, "room_browser_init_script", "")):
-            from .profile_room import ProfileRoomDialog
-            dialog = ProfileRoomDialog(platform, "", host, room_id=room_id)
-            result = dialog.exec()
-            canonical = dialog.room_id
-            dialog.deleteLater()
-            if result == QDialog.Accepted and canonical and not host._closing:
-                host._add_room_id(canonical, folder_id=folder_id)
-            return
-        QMessageBox.warning(host, "添加直播间", "平台房间获取失败\n\n" + (
-            getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
+        return self.catalog.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id)
 
     def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles) -> None:
-        host = self.host
-        MAX_TILES = max_tiles
-        if host._closing:
-            return
-        if host.sidebar.add_room(room):
-            if folder_id:
-                host.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
-            host.load_avatars_for([room])       # 新加的房间立刻显示头像
-            from .online_ui import show_result
-            show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
-        status = "直播中" if room.get("live") else "未开播"
-        print(f"已添加 {room.get('uname')}（{status}）")
-        if len(host.wall.tiles) < MAX_TILES:
-            host.add_to_wall(room)
-        host._refresh_meta()
-        host._save_timer.start()
+        return self.catalog.on_room_added(room, folder_id=folder_id, max_tiles=max_tiles)
 
     def add_to_wall(self, room: dict, *, empty_only=False, max_tiles) -> None:
         from . import plugins as plugin_api
@@ -437,26 +259,7 @@ class RoomPlacement:
         host._refresh_meta()
 
     def remove_room(self, room: dict) -> None:
-        from . import plugins as plugin_api
-        host = self.host
-        if host.hover_preview._room_id() == str(room.get("room_id")):
-            host.hover_preview.cancel()
-        tile = host._tile_of(str(room.get("room_id")))
-        if tile is not None:
-            host.plugins.emit(plugin_api.EVENT_TILE_REMOVED, tile=tile,
-                              room=dict(tile.room or {}))
-            host._pending_capture.pop(tile, None)
-            host.recorder.stop(tile)
-            host._stop_tile(tile)
-            host.wall.remove_room(tile.room)
-            if tile not in host.recorder.sessions:
-                host._restore_capture_quality(tile)
-        host.sidebar.remove_room(room)
-        host._refresh_meta()
-        print(f"已移除 {room.get('uname')}")
+        return self.catalog.remove_room(room)
 
     def remove_rooms(self, rooms: list) -> None:
-        host = self.host
-        for room in rooms:
-            host.remove_room(room)
-        print(f"多选删除完成，共 {len(rooms)} 个")
+        return self.catalog.remove_rooms(rooms)
