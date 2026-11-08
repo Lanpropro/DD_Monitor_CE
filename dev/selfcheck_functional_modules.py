@@ -74,6 +74,30 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertEqual(sidebar.rooms(), [])
         self.assertFalse(isValid(item))
 
+    def test_tile_domains_keep_shared_state_signals_and_widget_ownership(self):
+        from ddm.tile_widgets import Tile
+        tile = Tile({'room_id': 'fixture:1', 'uname': 'Fixture'})
+        self.widgets.append(tile)
+        for name in ('state_control', 'controls_control', 'presentation_control', 'menu_control'):
+            self.assertEqual(vars(getattr(tile, name)), {'host': tile})
+        changes = []
+        tile.volumeChanged.connect(lambda room, value: changes.append(value))
+        tile.set_volume(27)
+        self.assertEqual((tile.volume, tile.room['volume'], tile.volume_slider.value()), (27, 27, 27))
+        self.assertEqual(changes, [27])
+        self.assertIs(tile.video.parentWidget(), tile)
+        self.assertIs(tile._control_hover_timer.parent(), tile)
+        tile.set_room({'room_id': 'fixture:2', 'uname': 'Other'})
+        self.assertEqual(tile.volume, 27)
+        menu = tile.build_menu()
+        self.assertIs(menu.parentWidget(), tile)
+        menu.deleteLater()
+
+    def test_tile_domains_import_without_widget_aggregate(self):
+        for name in ('tile_state', 'tile_controls', 'tile_presentation', 'tile_context_menu'):
+            self.child('import sys; import ddm.'+name+'; '
+                "assert not {'ddm.app','ddm.widgets','ddm.tile_widgets'}.intersection(sys.modules)")
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
