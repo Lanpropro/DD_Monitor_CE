@@ -754,3 +754,5 @@ B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili
 皮肤编辑职责：`skin_controls.py` 为共享素材控件/文件名显示；`skin_part_settings.py` 为分区外观编辑与预览；`skin_settings.py` 保留全局背景/遮罩控件和旧导出。分区对话框按需构造全局控件，避免互相提前导入，皮肤素材/预览/应用继续复用原有独立模块。
 
 弹幕呈现职责：`danmaku_format.py` 为富文本/勋章格式；`danmaku_document.py` 为文档、表情和有界历史；`danmaku_scrolling.py` 为跟随及滚动位置；面板保留 Qt 控件和事件。`video_danmaku_raster.py` 为异步光栅资源，`video_danmaku_surface.py` 为原生/Quick 表面接线；VideoDanmaku 继续负责弹幕准入、轨道与时钟，SC 画笔归 video_super_chat，旧静态入口保留。
+
+其他边界：`image_workers.py` 为图片缓存/下载工作线程，路径和缓存代次仍由 images API 持有；`account_workers.py` 为关注账号解析线程；`live_danmaku_protocol.py` 为三站只读弹幕编解码，连接/重连仍由 LiveDanmakuClient 负责；`add_room_dialog.py` 为添加房间，`room_dialogs.py` 为关注导入，文件夹动作归 `room_folder_controls.py`；`skin_assets.py` 为素材验证/导入，`skin_background.py` 为背景表面，SkinController 仍在 skins；`settings_worker.py` 为独立设置进程界面，SettingsProcess 保留宿主 QProcess 传输和公共协议入口。
