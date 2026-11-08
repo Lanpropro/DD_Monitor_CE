@@ -163,6 +163,20 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertIs(wall._resize_timer.parent(), wall)
         self.assertIs(wall._border_drag_timer.parent(), wall._border_interaction)
 
+    def test_recording_session_and_replay_share_original_manager_state(self):
+        from ddm.recording import RecordingManager, RecordingSession
+        from ddm.recording_session import _Session
+        self.assertIs(RecordingSession, _Session)
+        manager = RecordingManager({})
+        self.assertEqual(vars(manager.replay_control), {'host': manager})
+        self.assertIs(manager.timer.parent(), manager)
+        token = manager.pin_parts([Path('fixture-segment')])
+        self.assertIn(Path('fixture-segment'), manager._protected_parts())
+        manager.release_parts(token)
+        self.assertFalse(manager._protected_parts())
+        manager.shutdown()
+        manager.deleteLater()
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:

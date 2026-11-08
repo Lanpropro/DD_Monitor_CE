@@ -746,3 +746,5 @@ SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过
 B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili_workers.py` 持有六种 Qt 取流/查询工作线程。工作线程在调用时读取原 API 模块，未复制凭据或函数引用，旧类导出与测试替换入口保持。
 
 画面墙职责：`wall_geometry.py` 自动列数计算；`wall_layout.py` 格子几何、预设/角点比例、边框比例应用与缩放收敛；`wall_presentation.py` 全屏/小窗/侧栏动画期间的原生呈现。WallGrid 保留容器、格子与弹幕分区接线、Qt 事件，所有比例/定时器状态仍归 WallGrid，拖边会话继续归 WallBorderInteraction。
+
+录制职责：`recording_process.py` 为 Windows 后台进程/Job Object；`recording_output.py` 为 FFmpeg 参数与容器/路径；`recording_session.py` 为每路会话数据与分段簿记；`recording_replay.py` 为租约、回放保留和导出。RecordingManager 保留编码器/取流/子进程轮询与关闭协调；会话、租约、导出和定时器仍只有一份。
