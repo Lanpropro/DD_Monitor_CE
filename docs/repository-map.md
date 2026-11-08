@@ -94,6 +94,7 @@
 - `dev/check_setup_install.py`
 - `dev/check_setup_permissions.py`
 - `dev/check_setup_data_cleanup.py`
+- `dev/check_setup_reinstall.py`
 - `dev/selfcheck_setup.py`
 - `dev/selfcheck_data_paths.py`
 - `dev/build_setup.py`
@@ -227,6 +228,7 @@
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
 - `dev/selfcheck_ui_polish.py`
+- `dev/selfcheck_settings_navigation.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
 - `dev/selfcheck_settings_occlusion.py`

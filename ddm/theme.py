@@ -608,11 +608,15 @@ QSlider::handle:horizontal:hover {{
 }}
 
 /* ---------- 设置窗口（左侧选类别，右侧改内容） ---------- */
+#SettingsNavigation {{
+    background: {SIDEBAR};
+    border-right: 1px solid {BORDER};
+}}
+#SettingsNavigationTitle {{font-size: 22px; font-weight: 700; padding: 8px;}}
 #SettingsNav {{
     background: {SIDEBAR};
     border: none;
-    border-right: 1px solid {BORDER};
-    padding: 12px 8px;
+    padding: 0;
     outline: none;
 }}
 #SettingsNav::item {{

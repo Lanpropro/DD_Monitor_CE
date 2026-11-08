@@ -106,6 +106,7 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | `offline` |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
+| [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组分类、拼音搜索、两秒指针停留、图标栏、键盘与弹窗保护、中断及销毁；隔离窗口和鼠标位置输入，不读取账号 |
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
 | [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
@@ -195,7 +196,7 @@
 | [selfcheck_resize_preview_cleanup](../selfcheck_resize_preview_cleanup.py) | 单项执行前核对 |
 | [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native`；无mpv输出时保留Qt遮罩且不构建原生裁剪区，播放器子窗口创建/替换、尺寸/DPI/遮罩更新与重试生命周期 |
 | [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
-| [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键直接转换、顶部头像展开选择／收起／滚动／动效中断／缓存更新、多个弹幕栏、独立关联与共享连接、换位／换台／清空、录制保护、重启及组合恢复、横竖屏所有格位；默认每个完整窗口用例独立Qt进程，保留全部断言；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
+| [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键直接转换、顶部头像展开选择／收起／滚动／动效中断／缓存更新、多个弹幕栏、独立关联与共享连接、换位／换台／清空、空主画面启动及关闭后的来源复位、录制保护、重启及组合恢复、横竖屏所有格位；默认每个完整窗口用例独立Qt进程，保留全部断言；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
 | [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
 | [selfcheck_room_preset_control](../selfcheck_room_preset_control.py) | `smoke` / `offline`；独立协调器导入、宿主状态唯一来源、组合管理、全屏快照、重复恢复、录制取消、异常收尾及播放器声音恢复；隔离替身、无媒体/账号 |
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
@@ -240,6 +241,7 @@
 | --- | --- |
 | [selfcheck_setup](../selfcheck_setup.py) | `offline`；安装输入白名单、初始清单及卸载脚本边界，不运行安装器 |
 | [check_setup_install](../check_setup_install.py) | 单项 Windows 后台隔离安装、修复、更新与卸载；需明确传入包路径，已有安装时拒绝执行 |
+| [check_setup_reinstall](../check_setup_reinstall.py) | 单项 Windows 实际微型安装器；独立 AppId、临时目录和合成数据，验证保留数据卸载后原目录重装，以及普通非空目录、损坏位置记录、程序文件冲突拒绝与数据保留 |
 | [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录／单文件权限、EXE／DLL 占用、只读文件拦截和解除限制后修复安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
 | [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、封面640及头像256长边/JPEG与PNG压缩、下载后头像快照、小图不放大、裁切元数据/透明度保留、无URL旧图本地转存和重复读取不再压缩、跨进程清理及头像迟到转存保护、饼图选择及后台清理；不联网、不读真实账号 |
@@ -255,7 +257,7 @@
 | [selfcheck_plugin_cache](../selfcheck_plugin_cache.py) | 单项执行前核对 |
 | [selfcheck_plugin_drop_restart](../selfcheck_plugin_drop_restart.py) | 单项执行前核对 |
 | [selfcheck_plugin_rename](../selfcheck_plugin_rename.py) | 单项执行前核对 |
-| [selfcheck_plugin_settings](../selfcheck_plugin_settings.py) | 单项执行前核对 |
+| [selfcheck_plugin_settings](../selfcheck_plugin_settings.py) | 离屏单项；临时插件目录、商店请求替身；覆盖可见设置窗口安装成功提示、保存重启状态、禁用与删除，不读取真实账号或执行安装中的插件 |
 | [selfcheck_plugin_update_notes](../selfcheck_plugin_update_notes.py) | 单项执行前核对 |
 | [selfcheck_plugin_windows_lock](../selfcheck_plugin_windows_lock.py) | 单项执行前核对 |
 | [selfcheck_plugin_controls](../selfcheck_plugin_controls.py) | `offline`；插件控件分配、换位与回收；等分格子跨 599/600 宽度边界时统一音量条样式，手动不等宽独立判断，全屏／布局切换恢复及各格音量保留 |

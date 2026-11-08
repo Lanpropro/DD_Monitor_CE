@@ -1167,7 +1167,10 @@ class ResultNotice(UpdateNotice):
 
 
 def _notifications_hidden(parent):
-    return bool(getattr(parent, 'settings', {}).get('notice_hide_fullscreen', False)
+    settings = getattr(parent, 'settings', {})
+    if callable(settings):
+        settings = settings()
+    return bool(settings.get('notice_hide_fullscreen', False)
                 and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen()))
 
 

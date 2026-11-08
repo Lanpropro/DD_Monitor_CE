@@ -331,7 +331,8 @@ class SurfaceFilter(QObject):
                 _paint(painter, rect, self.values(widget, 'indicator'), widget.palette())
                 painter.end()
             view = widget.parentWidget()
-            if isinstance(view, QAbstractItemView) and widget is view.viewport():
+            if (isinstance(view, QAbstractItemView) and widget is view.viewport()
+                    and not view.property('customItemSurface')):
                 hovered = view.indexAt(widget.mapFromGlobal(QCursor.pos()))
                 indexes = view.selectionModel().selectedIndexes()
                 if hovered.isValid() and hovered not in indexes:

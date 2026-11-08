@@ -1524,19 +1524,14 @@ class SettingsDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        self.nav = QListWidget()
-        self.nav.setObjectName("SettingsNav")
-        self.nav.setFixedWidth(180)
-        self.nav.setFocusPolicy(Qt.NoFocus)
-        from .online_ui import UpdateNavDelegate, AppUpdatePage
-        self.nav.setItemDelegate(UpdateNavDelegate(self.nav))
-        for key, label in self.PAGES:
-            item = QListWidgetItem(label)
-            item.setData(Qt.UserRole, key)
-            self.nav.addItem(item)
-        root.addWidget(self.nav)
+        from .settings_navigation import SettingsNavigation, SettingsPointerNavigation
+        from .online_ui import AppUpdatePage
+        self.navigation = SettingsNavigation(self.PAGES, self)
+        self.nav = self.navigation.nav
+        root.addWidget(self.navigation)
 
-        right = QVBoxLayout()
+        self.content = QWidget(self)
+        right = QVBoxLayout(self.content)
         right.setContentsMargins(20, 18, 20, 16)
         right.setSpacing(14)
         self.stack = SettingsStack()
@@ -1581,7 +1576,8 @@ class SettingsDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(self.confirm_button)
         right.addLayout(buttons)
-        root.addLayout(right, 1)
+        root.addWidget(self.content, 1)
+        self.pointer_navigation = SettingsPointerNavigation(self, self.navigation, self.content)
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
