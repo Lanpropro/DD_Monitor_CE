@@ -738,3 +738,5 @@ Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命�
 主窗口协调：`app_accounts.py` 账号与关注导入；`app_shortcuts.py` 快捷键绑定；`fullscreen_control.py` 全屏业务；`app_notices.py` 用户通知。播放状态、房间管理、录制源刷新、弹幕消息和设置应用分别归并至原有 StreamPlayback、RoomPlacement、CaptureControl、DanmakuLifecycle、SettingsControl。MainWindow 保留组装、Qt 事件、状态快照与关闭收尾；旧方法继续薄委托，异步任务/Qt 父对象/共享映射仍归窗口。
 
 SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过期和排序；`super_chat_api.py` 为 B 站快照协议/工作线程；`super_chat_presentation.py` 为布局、预览、头像和绘制；`super_chat_widgets.py` 为弹幕面板卡片，`video_super_chat.py` 为画面 SC 浮层。`super_chat.py` 保留旧导出，滚动画面弹幕继续由 VideoDanmaku 负责。
+
+小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
