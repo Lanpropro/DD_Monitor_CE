@@ -64,7 +64,11 @@ class SidebarPresentationTests(unittest.TestCase):
         self.assertIsInstance(self.sidebar.account_control, SidebarAccountControl)
         self.assertIsInstance(self.sidebar.presentation_control, SidebarPresentation)
         self.assertEqual(vars(self.sidebar.account_control), {'host': self.sidebar})
-        self.assertEqual(vars(self.sidebar.presentation_control), {'host': self.sidebar})
+        presenter = self.sidebar.presentation_control
+        self.assertEqual(set(vars(presenter)), {'host', 'orientation', 'collapse', 'layout_picker'})
+        self.assertIs(presenter.host, self.sidebar)
+        for name in ('orientation', 'collapse', 'layout_picker'):
+            self.assertEqual(vars(getattr(presenter, name)), {'host': self.sidebar})
 
     def test_account_values_selection_visibility_and_clear_keep_same_row(self):
         row = self.sidebar.account_row

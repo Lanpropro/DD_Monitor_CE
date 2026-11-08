@@ -367,6 +367,23 @@ class FunctionalModulesTests(unittest.TestCase):
         self.child("import sys; import ddm.super_chat_preview; "
             "assert not {'ddm.super_chat_presentation','ddm.super_chat_avatar','ddm.super_chat_animation'}.intersection(sys.modules)")
 
+    def test_sidebar_orientation_collapse_and_picker_share_original_controls(self):
+        from ddm.sidebar_widgets import Sidebar
+        sidebar = Sidebar([], auto_compact=False)
+        self.widgets.append(sidebar)
+        presenter = sidebar.presentation_control
+        for name in ('orientation', 'collapse', 'layout_picker'):
+            self.assertEqual(vars(getattr(presenter, name)), {'host': sidebar})
+        original = sidebar.account_row
+        sidebar.set_side('top')
+        self.assertIs(sidebar.account_row, original)
+        sidebar.set_side('left')
+        self.assertIs(sidebar.account_row, original)
+        sidebar.set_collapsed(True, animate=False)
+        self.assertTrue(sidebar.collapsed)
+        sidebar.set_collapsed(False, animate=False)
+        self.assertFalse(sidebar.collapsed)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
