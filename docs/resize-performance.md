@@ -99,3 +99,5 @@ python dev/selfcheck_resize_widgets.py
 根入口 `run.cmd --diagnose-window-resize` 开启 `dev/diagnose_window_resize.py`：每次真实移动/缩放记录进入、尺寸、退出及 DPI 消息，布局、底栏、遮罩、弹幕和同步重绘的包含子调用耗时与扣除已监测子调用后的耗时。调用记录每次最多 12000 条，拖动期间缓存在内存，松手后追加到本机 `logs/window-resize.jsonl`，不记录直播间、弹幕内容或凭据。普通入口不安装此记录器。
 
 11 月 8 日对 PID 21244 的外部只读采集已确认普通窗口右下角连续缩放时，视频 HWND 的几何曾比外框晚约 0.41～0.46 秒更新，且采到了 `_flush_resize -> _relayout_corner -> Tile._layout_areas`。该采样不能分辨 Qt/Win32 内部耗时，也未覆盖最大化拖出，后续性能调整以专项真实运行记录为依据。
+
+本批验证：隔离分支及根目录的 `selfcheck_window_move_restore` 均通过 6 项，仓库检查 7/7；根目录完整 smoke 首轮 39/40，弹幕面板用例在替身 QThread 构造时访问冲突，该用例在修改前/后单独运行均通过，修改后的完整弹幕面板专项复跑通过。根目录 native 为 17/19；`selfcheck_drag_wheel` 第 133 行 widgetAt 为 None、`selfcheck_window_resize` 的 hidden pending direction 断言失败，均在本批修改前的 `3ead2c7` 独立基线复现，未归因为本批修改，也未将整套检查记为通过。启动最大化、全屏进出、Quick 弹幕和圆角裁剪等已通过；真实最大化拖出、缩放跟手程度、文字残影和跨 DPI 视觉验收仍待新入口实测。持续缩放的性能修改尚未实施，不能把本批状态修正视为已解决普通窗口缩放卡顿。
