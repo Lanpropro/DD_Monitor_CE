@@ -382,12 +382,17 @@ class QuickDanmakuLayer(QObject):
         if self._surface_dirty:
             self._surface_reset.start(100)
             return
+        settings = getattr(self.parent.window(), '_settings_process', None)
+        if (settings is not None and settings.visible and not settings.closing
+                and not settings.window_hwnd):
+            self.window.hide()  # Do not map above a settings window awaiting its HWND.
+            return
         if not self._update_occlusion():
             self.window.hide()
             return
         if not self.window.isVisible():
             self.window.show()
-            self.window.raise_()
+            self.raise_()
 
     def _update_occlusion(self):
         # Owned native windows can be raised above sibling dialogs and notices.
@@ -442,6 +447,13 @@ class QuickDanmakuLayer(QObject):
 
     def raise_(self):
         if self.window.isVisible():
+            settings = getattr(self.parent.window(), '_settings_process', None)
+            if settings is not None and settings.visible and not settings.closing:
+                if not settings.window_hwnd:
+                    self.window.hide()
+                    return
+                if settings.stack_overlay_below(self.window):
+                    return
             self.window.raise_()
 
     def create_group(self, x, y, width, height, opacity=80, rounded=True):

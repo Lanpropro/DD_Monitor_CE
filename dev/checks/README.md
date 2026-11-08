@@ -119,7 +119,7 @@
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_control](../selfcheck_settings_control.py) | `smoke` / `offline`；设置协调导入、旧对话框工厂、普通/独立入口、真实Qt信号、宿主页/更新页复用、保存取消异常清理、状态与应用顺序、SC预览；隔离替身、无窗口/进程/账号/网络 |
 | [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--native-zorder` 检查屏幕外独立设置窗口归属、遮挡及重开，不移动光标或激活窗口；`--embedded-native` 检查屏幕外跨页 HWND/DPI；`--footer-native` 检查首次进入插件、切页返回和同进程关闭重开时原生内容完整位于分配区域、取消／保存不被覆盖；`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
-| [selfcheck_settings_occlusion](../selfcheck_settings_occlusion.py) | `native`；隔离设置进程与 Quick 弹幕窗口，检查打开、移动、缩放、隐藏、最小化、重开及退出后的裁剪恢复；屏幕外窗口，不移动光标或激活窗口 |
+| [selfcheck_settings_occlusion](../selfcheck_settings_occlusion.py) | `native`；真实独立设置 HWND 与顶层 Quick 窗口，检查句柄交付前的显示屏障、反复抬升后的原生前后顺序、原生区域裁剪、表面重建／呈现窗口切换，以及打开、移动、缩放、隐藏、最小化、重开、取消／退出／异常结束后的恢复；屏幕外窗口，不移动光标或激活窗口 |
 | [selfcheck_single_instance](../selfcheck_single_instance.py) | `offline` / `smoke`；隔离锁目录和真实子进程，检查重复／并发启动、启动中唤回、异常退出恢复、重启释放，以及第二实例在加载配置前退出 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | `offline`；仅本机 HTTP，清单/分片转发、连接复用、非阻塞停止与资源回收，无账号或外网 |
