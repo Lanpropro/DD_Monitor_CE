@@ -231,6 +231,8 @@ class MyPlugin(api.Plugin):
 
 平台实现 `rooms_status` 供后台刷新，返回以带平台前缀的房间号为键的字典，
 字段与 `RoomInfo.as_dict()` 一致。网络失败不能返回伪造的下播状态。
+平台可通过 `RoomInfo.extra['display_room_id']` 及状态字典提供显示用房间号（字符串），
+供关注栏与画中画选择器搜索；该字段随平台房间资料保存，不能替换播放与弹幕使用的 `room_id`。
 抖音平台若能取得主播个人资料头图，可通过 `RoomInfo.extra['banner_url']` 或状态字典的
 `banner_url` 提供图片地址；紧凑卡片和主播相关通知优先使用它，缺失或下载失败时裁切直播封面。
 虎牙、斗鱼等传统直播平台始终使用封面；平台标识沿用现有 Logo。
