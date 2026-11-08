@@ -6,8 +6,6 @@ import time
 
 from . import config as config_module
 from .update_version import update_identity
-from PySide6.QtCore import QPoint
-from . import theme
 
 
 class SettingsControl:
@@ -219,6 +217,8 @@ class SettingsControl:
         return True
 
     def set_appearance(self, mode: str) -> None:
+        from PySide6.QtCore import QPoint
+        from . import theme
         host = self.host
         host.settings["appearance_mode"] = theme.normalize_mode(mode)
         from .theme_transition import ThemeTransition
