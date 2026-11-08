@@ -732,3 +732,5 @@
 关注栏账号展示/菜单协调由 `ddm/sidebar_account_control.py` 的 `SidebarAccountControl` 维护，登录/退出仍向宿主既有信号派发；原菜单/账号行工厂由Sidebar传入，延迟登录保留Sidebar的Qt上下文。横竖布局、借用控件、账号形状和收起/展开由 `ddm/sidebar_presentation.py` 的 `SidebarPresentation` 维护，Sidebar仍唯一持有所有控件/布局/状态。控件身份、父子迁移、滚动约束及收起异常收尾沿用原行为，Qt虚方法和旧入口留在Sidebar。
 
 Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命中/拖动展示由 `ddm/sidebar_interaction.py` 维护；布局选择器协调复用SidebarPresentation。Sidebar保留组装、Qt事件和旧委托，卡片/预览计时器/拖放会话仍由原Qt宿主持有。
+
+播放格职责：`tile_widgets.py` 保留 Qt 宿主、组装与事件；`tile_state.py` 维护媒体状态/画质/音频展示，`tile_controls.py` 协调控制条交互，`tile_presentation.py` 排列浮层与原生遮罩，`tile_context_menu.py` 构建运行时菜单。状态、信号、定时器与子控件仍只由 Tile 持有。
