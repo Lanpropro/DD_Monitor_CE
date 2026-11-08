@@ -7,7 +7,7 @@ from PySide6.QtGui import (
     QActionGroup, QCursor, QKeySequence, QPainter, QPen, QPixmap, QRegion, QShortcut
 )
 from PySide6.QtWidgets import (
-    QApplication, QBoxLayout, QDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QApplication, QBoxLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMenu, QPushButton, QSizePolicy, QVBoxLayout, QWidget, QWidgetAction
 )
 
@@ -17,7 +17,6 @@ from .avatar_widgets import RoomStrip
 from .dock_feedback import icon_color
 from .folder_icons import create_folder_dialog
 from .playback_controls import RefreshButton, SidebarToggleButton
-from .search import matches_text
 from .sidebar_item import NavItem
 from .sidebar_list import CarouselScroll, RoomListBox
 from .sidebar_folders import FollowFolderButton, SmartFolderCard, SmartFolderDialog
@@ -29,7 +28,8 @@ from .widget_support import (
     BRAND_ASSETS_DIR, NAV_ITEM_GAP, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, _repolish
 )
 from .workspace_controls import WorkspaceControls
-from uuid import uuid4
+from .sidebar_filter import SidebarFilter
+from .sidebar_folder_control import SidebarFolderControl
 
 
 class AppearanceButton(QPushButton):
@@ -107,6 +107,8 @@ class Sidebar(QFrame):
                  auto_compact: bool = True, compact_threshold: int = 18,
                  compact_background: bool = True):
         super().__init__(parent)
+        self.folder_control = SidebarFolderControl(self)
+        self.filter_control = SidebarFilter(self)
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self._items: list[NavItem] = []
@@ -621,69 +623,31 @@ class Sidebar(QFrame):
     # ---- 搜索过滤 ----
     def apply_filter(self, text: str) -> None:
         """搜索框一有动静就过滤；批量删除的勾选状态不受影响。"""
-        wanted = (text or "").strip().lower()
-        if wanted == self.filter_text:
-            return
-        self.clear_sort_selection()
-        self.filter_text = wanted
-        self.refresh_filter()
+        return self.filter_control.apply_filter(text)
 
     def refresh_filter(self) -> None:
         """按当前搜索词重算谁该露出来（状态刷新、增删、换排序之后都要走一遍）。"""
-        self._apply_filter_marks()
-        self.list_box.relayout(animate=False)
-        self.refresh_strip()
-        self._sync_count()
+        return self.filter_control.refresh_filter()
 
     def _apply_filter_marks(self) -> None:
         """只更新「谁被过滤掉了」，不动位置 —— 由调用方决定什么时候重排。"""
-        words = self.filter_text.split()
-        self._folder_assignments = follow_folders.assign_folders(
-            self.rooms(), self.folders, self._folder_pending)
-        for item in self._items:
-            folder = self.get_folder(self.folder_for(str(item.room.get("room_id"))))
-            folded = folder and folder["collapsed"] and (
-                not words or folder["id"] in self._folders_folded_by_drag)
-            item.set_filtered_out(bool(folded) or not self.matches(item, words))
-            if folded:
-                self._sort_selected_ids.discard(str(item.room.get("room_id")))
-                item.set_sort_selected(False)
-                item.check.setChecked(False)
+        return self.filter_control.apply_filter_marks()
 
     def matches(self, item: NavItem, words: list[str], folder_id=None) -> bool:
         """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
-        if self.live_only and not item.room.get('live'):
-            return False
-        if not words:
-            return True
-        room = item.room
-        haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "display_room_id")).lower()
-        folder_id = folder_id or self.folder_for(str(room.get("room_id")))
-        haystack += " " + next((folder["name"].lower() for folder in self.folders
-                                if folder["id"] == folder_id), "")
-        return all(matches_text(haystack, word) for word in words)
+        return self.filter_control.matches(item, words, folder_id)
 
     def visible_items(self) -> list:
         """当前露在外面的条目（过滤掉的不算）。"""
-        items = [item for item in self._items if not item.filtered_out]
-        return [item for folder in self.folders for item in items
-                if self.folder_for(str(item.room.get("room_id"))) == folder["id"]]
+        return self.filter_control.visible_items()
 
     def empty_hint_text(self) -> str:
         """列表一条都露不出来时说的话（列表区就摆它一个）。"""
-        if self.filter_text:
-            return f"没有匹配「{self.filter_text}」的直播间"
-        if self.live_only:
-            return '当前没有正在直播的关注'
-        return "还没有关注任何直播间"
+        return self.filter_control.empty_hint_text()
 
     # ---- 关注文件夹 ----
     def _folder_create_menu(self) -> QMenu:
-        menu = motion.AnimatedMenu(self)
-        menu.addAction("新建文件夹…").triggered.connect(lambda: self.prompt_folder())
-        menu.addAction("新建智能文件夹…").triggered.connect(lambda: self.prompt_smart_folder())
-        return menu
+        return self.folder_control.folder_create_menu()
 
     def contextMenuEvent(self, event) -> None:
         child = self.childAt(event.pos())
@@ -694,295 +658,72 @@ class Sidebar(QFrame):
             super().contextMenuEvent(event)
 
     def folder_state(self) -> list[dict]:
-        return follow_folders.folder_state(self.folders)
+        return self.folder_control.folder_state()
 
     def get_folder(self, folder_id: str):
-        return next((folder for folder in self.folders if folder["id"] == folder_id), None)
+        return self.folder_control.get_folder(folder_id)
 
     def default_folder(self):
-        return follow_folders.default_folder(self.folders)
+        return self.folder_control.default_folder()
 
     def set_default_folder(self, folder_id, *, notify=True):
-        target = self.get_folder(folder_id)
-        if target is None or target["type"] != "normal":
-            return
-        previous = self.default_folder()
-        assigned = {rid for folder in self.folders if folder["type"] != "smart"
-                    for rid in folder["rooms"]}
-        previous["rooms"].extend(str(room["room_id"]) for room in self.rooms()
-                                 if str(room["room_id"]) not in assigned)
-        previous["type"] = "normal"
-        target["type"] = "unclassified"
-        self._refresh_folders(notify=notify)
+        return self.folder_control.set_default_folder(folder_id, notify=notify)
 
     def folder_for(self, room_id: str) -> str:
-        return self._folder_assignments.get(room_id) or next(
-            (folder["id"] for folder in self.folders if room_id in folder["rooms"]), "")
+        return self.folder_control.folder_for(room_id)
 
     def set_folders(self, folders: list) -> None:
-        self.folders = follow_folders.normalize_folders(folders, self.sort_mode)
-        self._refresh_folders(notify=False)
+        return self.folder_control.set_folders(folders)
 
     def create_folder(self, name: str, *, rule=None, sort="custom", icon=None) -> str:
-        name = name.strip()
-        if not name or any(folder["name"] == name for folder in self.folders):
-            return ""
-        folder_id = uuid4().hex
-        folder = {"id": folder_id, "name": name, "type": "smart" if rule is not None else "normal",
-                  "collapsed": False, "rooms": [], "sort": sort}
-        if rule is not None:
-            folder["rule"] = rule
-        if icon is not None:
-            folder['icon'] = icon
-        index = self.folders.index(self.default_folder())
-        if rule is not None:
-            folder["rule"] = dict(rule, sources=rule.get("sources", [self.default_folder()["id"]]))
-        self.folders.insert(index, follow_folders.normalize_folders([folder])[0])
-        self._refresh_folders()
-        return folder_id
+        return self.folder_control.create_folder(name, rule=rule, sort=sort, icon=icon)
 
     def rename_folder(self, folder_id, name):
-        folder = self.get_folder(folder_id)
-        name = name.strip()
-        if not name or any(item['name'] == name and item['id'] != folder_id for item in self.folders):
-            return
-        if name != folder['name']:
-            folder['name'] = name
-            self._refresh_folders()
+        return self.folder_control.rename_folder(folder_id, name)
 
     def prompt_folder(self, room_ids=None, *, folder_id="") -> None:
-        folder = next((item for item in self.folders if item["id"] == folder_id), None)
-        if folder is None:
-            folder_id, _name = create_folder_dialog(self, self.create_folder,
-                                                    (item['name'] for item in self.folders))
-            if folder_id and room_ids:
-                self.move_to_folder(room_ids, folder_id)
-            return
-        name, accepted = QInputDialog.getText(
-            self, "重命名文件夹", "文件夹名称：", text=folder["name"])
-        if not accepted or not name.strip():
-            return
-        name = name.strip()
-        if any(item["name"] == name and item["id"] != folder_id for item in self.folders):
-            return
-        folder["name"] = name
-        self._refresh_folders()
+        return self.folder_control.prompt_folder(room_ids, folder_id=folder_id,
+            create_dialog=create_folder_dialog)
 
     def delete_folder(self, folder_id: str) -> None:
-        if folder_id == self.default_folder()["id"]:
-            replacement = next((folder for folder in self.folders if folder["type"] == "normal"), None)
-            if replacement is None:
-                return
-            self.set_default_folder(replacement["id"], notify=False)
-        self.folders = [folder for folder in self.folders if folder["id"] != folder_id]
-        self._refresh_folders()
+        return self.folder_control.delete_folder(folder_id)
 
     def toggle_folder(self, folder_id: str, *, animate=False) -> None:
-        for folder in self.folders:
-            if folder["id"] == folder_id:
-                self._folders_folded_by_drag.discard(folder_id)
-                folder["collapsed"] = not folder["collapsed"]
-                self._refresh_folders(animate=animate and motion.enabled())
-                return
+        return self.folder_control.toggle_folder(folder_id, animate=animate)
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
-        target = self.get_folder(folder_id or self.default_folder()["id"])
-        if target is None or target["type"] == "smart":
-            return
-        known = {str(item.room.get("room_id")) for item in self._items}
-        moving = list(dict.fromkeys(key for key in room_ids if key in known))
-        for folder in self.folders:
-            folder["rooms"] = [key for key in folder["rooms"] if key not in moving]
-        if target["type"] == "normal":
-            target["rooms"].extend(moving)
-            self._folder_pending.difference_update(moving)
-        else:
-            self._folder_pending.update(moving)
-        self._refresh_folders()
+        return self.folder_control.move_to_folder(room_ids, folder_id)
 
     def move_folder(self, folder_id: str, direction: int) -> None:
-        folder = self.get_folder(folder_id)
-        if folder is None:
-            return
-        index = self.folders.index(folder)
-        target = index + direction
-        if 0 <= target < len(self.folders):
-            self.folders[index], self.folders[target] = self.folders[target], self.folders[index]
-            self._refresh_folders()
+        return self.folder_control.move_folder(folder_id, direction)
 
     def start_folder_drag(self) -> None:
         """拖动标题时临时收起全部文件夹，结束后恢复原来的展开状态。"""
-        self._folder_drag_previous = {folder["id"]: folder["collapsed"] for folder in self.folders}
-        self._folders_folded_by_drag.update(folder["id"] for folder in self.folders)
-        for folder in self.folders:
-            folder["collapsed"] = True
-        self._refresh_folders(notify=False)
+        return self.folder_control.start_folder_drag()
 
     def end_folder_drag(self) -> None:
-        self.list_box.set_scroll_dir(0)
-        self.list_box.folder_drop_indicator.hide()
-        for folder in self.folders:
-            if folder["id"] in self._folder_drag_previous:
-                folder["collapsed"] = self._folder_drag_previous[folder["id"]]
-        self._folder_drag_previous.clear()
-        self._folders_folded_by_drag.clear()
-        self._refresh_folders()
+        return self.folder_control.end_folder_drag()
 
     def _folder_drop_target(self, folder_id: str, global_pos):
-        box = self.list_box
-        local = box.mapFromGlobal(global_pos)
-        if self.get_folder(folder_id) is None or not box.rect().contains(local):
-            return None
-        remaining = [folder for folder in self.folders if folder["id"] != folder_id]
-        headers = [(index, self._folder_buttons[folder["id"]]) for index, folder in enumerate(remaining)
-                   if not self._folder_buttons[folder["id"]].isHidden()]
-        along = local.x() if box.horizontal else local.y()
-        for index, header in headers:
-            start = header.x() if box.horizontal else header.y()
-            length = header.width() if box.horizontal else header.height()
-            if along < start + length / 2:
-                return index, max(0, start - NAV_ITEM_GAP)
-        if headers:
-            index, header = headers[-1]
-            end = header.geometry().right() if box.horizontal else header.geometry().bottom()
-            return index + 1, end + 1
-        return None
+        return self.folder_control.folder_drop_target(folder_id, global_pos)
 
     def hover_folder_drag(self, folder_id: str, global_pos) -> None:
-        self.list_box.auto_scroll(global_pos)
-        target = self._folder_drop_target(folder_id, global_pos)
-        indicator = self.list_box.folder_drop_indicator
-        if target is None:
-            indicator.hide()
-            return
-        _, along = target
-        if self.list_box.horizontal:
-            indicator.setGeometry(along, 0, 2, self.list_box.item_size()[1])
-        else:
-            indicator.setGeometry(0, along, self.list_box.width(), 2)
-        indicator.show()
-        indicator.raise_()
+        return self.folder_control.hover_folder_drag(folder_id, global_pos)
 
     def finish_folder_drag(self, folder_id: str, global_pos) -> None:
-        self.list_box.set_scroll_dir(0)
-        self.list_box.folder_drop_indicator.hide()
-        target = self._folder_drop_target(folder_id, global_pos)
-        if target is None:
-            return
-        index, _ = target
-        folder = self.get_folder(folder_id)
-        if self.folders.index(folder) != index:
-            self.folders.remove(folder)
-            self.folders.insert(index, folder)
-            self._refresh_folders(notify=not bool(self._folder_drag_previous))
+        return self.folder_control.finish_folder_drag(folder_id, global_pos)
 
     def prompt_smart_folder(self, folder_id="") -> None:
-        folder = self.get_folder(folder_id)
-        dialog = SmartFolderDialog(self, folder)
-        if dialog.exec() != QDialog.Accepted:
-            return
-        data = dialog.values()
-        if any(item["name"] == data["name"] and item["id"] != folder_id for item in self.folders):
-            return
-        if folder:
-            folder.update(data)
-            self._refresh_folders()
-        else:
-            self.create_folder(**data)
+        return self.folder_control.prompt_smart_folder(folder_id, dialog_type=SmartFolderDialog)
 
     def _refresh_folders(self, notify: bool = True, *, animate=False) -> None:
-        self._sync_watch_history_mode()
-        revealing = {item for item in self._items if item.filtered_out} if animate else ()
-        ids = {folder["id"] for folder in self.folders}
-        self._folders_folded_by_drag.intersection_update(ids)
-        for folder_id in list(self._folder_buttons):
-            if folder_id not in ids:
-                button = self._folder_buttons.pop(folder_id)
-                button.hide()
-                button.deleteLater()
-        self.clear_sort_selection()
-        self.resort(animate=animate, duration=280 if animate else 150, revealing=revealing,
-                    viewport_only=animate)
-        for item in self._items:
-            if item.filtered_out:
-                item.check.setChecked(False)
-        self._update_batch_label()
-        self._sync_sort_selection()
-        if notify:
-            self.foldersChanged.emit()
+        return self.folder_control.refresh_folders(notify, animate=animate)
 
     def folder_entries(self, preview_items: list | None = None,
                        dragging_ids: set[str] | None = None) -> list:
         """分组显示，不改变关注、置顶或自定义顺序的保存方式。"""
-        entries = []
-        visible = self.visible_items() if preview_items is None else [
-            item for item in preview_items if not item.filtered_out]
-        active_copies = set()
-        for folder in self.folders:
-            button = self._folder_buttons.get(folder["id"])
-            if button is None:
-                button = FollowFolderButton(self, folder["id"])
-                self._folder_buttons[folder["id"]] = button
-            members = [item for item in visible
-                       if self.folder_for(str(item.room.get("room_id"))) == folder["id"]]
-            count = sum(fid == folder["id"] for fid in self._folder_assignments.values())
-            copies = folder["type"] == "smart" and folder["rule"].get("display") == "copy"
-            if copies:
-                matched = follow_folders.smart_members(self.rooms(), self.folders, folder, self._folder_pending)
-                count = len(matched)
-                members = [item for item in self._items if str(item.room["room_id"]) in matched
-                           and self.matches(item, self.filter_text.split(), folder["id"])]
-                order = self.import_order if folder["sort"] == "imported" else self.custom_order
-                positions = {rid: i for i, rid in enumerate(order)}
-                pin_positions = {rid: i for i, rid in enumerate(self.pinned)}
-                def copy_key(item):
-                    index = positions.get(str(item.room["room_id"]), len(positions))
-                    if folder["sort"] == "frequent":
-                        rid = str(item.room["room_id"])
-                        return ((False, pin_positions.get(rid, index), 0, 0) if item.is_pinned else
-                                (True, not bool(item.room.get("live")),
-                                 -self._frequent_scores.get(rid, 0), index))
-                    value = (str(item.room.get("uname") or "").casefold() if folder["sort"] == "name"
-                             else bool(item.room.get("live")) != (folder["sort"] == "live")
-                             if folder["sort"] in ("live", "offline") else index)
-                    return (not item.is_pinned, value, index)
-                members.sort(key=copy_key)
-                folded = folder["collapsed"] and (not self.filter_text or folder["id"] in self._folders_folded_by_drag)
-                displayed = []
-                if not folded:
-                    for item in members:
-                        key = (folder["id"], str(item.room["room_id"]))
-                        active_copies.add(key)
-                        if key not in self._smart_cards:
-                            self._smart_cards[key] = SmartFolderCard(item, self.list_box)
-                        displayed.append(self._smart_cards[key])
-                members = displayed
-            arrow = "▸" if folder["collapsed"] and (
-                not self.filter_text or folder["id"] in self._folders_folded_by_drag) else "▾"
-            title = f"{arrow} {folder['name']} · {count}"
-            button.setToolTip(title + ("\n智能文件夹：拖动标题排序；右键编辑规则和排序" if folder["type"] == "smart"
-                                      else "\n点击展开/收起；拖动标题排序；拖入卡片归类；右键管理"))
-            width, height = self.list_box.item_size()
-            label_width = height if self.side == "top" else width
-            button.setToolButtonStyle(Qt.ToolButtonIconOnly if self.collapsed and self.side == "left"
-                                      else Qt.ToolButtonTextBesideIcon)
-            button.setText(button.fontMetrics().elidedText(title, Qt.ElideRight, max(12, label_width - 44)))
-            search_match = bool(members) if copies else any(
-                self.folder_for(str(item.room.get("room_id"))) == folder["id"]
-                and self.matches(item, self.filter_text.split()) for item in self._items)
-            button.setVisible(not self.filter_text or search_match)
-            if not button.isHidden():
-                entries.append(button)
-                entries.extend(None if dragging_ids and str(item.room.get("room_id")) in dragging_ids
-                               else item for item in members)
-        originals = set(self._items)
-        for key, card in list(self._smart_cards.items()):
-            if key not in active_copies:
-                card.hide()
-            if card.original not in originals or not self.get_folder(key[0]):
-                self._smart_cards.pop(key)
-                card.deleteLater()
-        return entries
+        return self.folder_control.folder_entries(preview_items, dragging_ids,
+            header_type=FollowFolderButton, card_type=SmartFolderCard)
 
     def _focus_room_list(self) -> None:
         """回车：把焦点从搜索框让给列表，接着就能直接点选 / 拖动。"""

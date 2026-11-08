@@ -437,6 +437,7 @@
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
 - `dev/selfcheck_widget_modules.py`
+- `dev/selfcheck_sidebar_folder_control.py`
 - `dev/selfcheck_dialog_modules.py`
 - `dev/selfcheck_wall_border.py`
 - `dev/selfcheck_workspace_controls.py`
@@ -719,3 +720,5 @@
 播放请求与应用由 `ddm/stream_playback.py` 的 `StreamPlayback` 维护逐格启动、画质策略、取流回调、播放器接线及失败分支。窗口唯一持有播放器、解析器代次集合、录制/重试和Qt子对象；旧入口委托并传入原解析器/播放器工厂，保留既有替换契约。回调仍经窗口入口动态路由，不反向导入主窗口，不新增定时器或复制状态。
 
 单格编码/解码设置协调由 `ddm/codec_control.py` 的 `CodecControl` 维护继承值、重取流决策、编码保留回写、实际状态和对话框接线。窗口唯一持有codec_overrides所属格子、原解析器/播放器及对话框映射，旧工厂由主窗口传入，Qt父对象和迟到结果检查保持；设置页控件、协议和解码实现不迁移。
+
+关注文件夹协调由 `ddm/sidebar_folder_control.py` 的 `SidebarFolderControl` 维护创建/归类/默认/智能副本、标题拖动和分组条目；筛选由 `ddm/sidebar_filter.py` 的 `SidebarFilter` 维护搜索、折叠/开播过滤及可见条目。Sidebar唯一持有文件夹、归属、卡片/标题缓存、选择和拖动状态，旧方法继续委托；对话框/标题/副本的旧工厂由Sidebar传入，Qt父对象及动画参数不变，不新增计时器或复制状态。`follow_folders`继续维护纯数据规则，`sidebar_folders`继续维护控件本体。
