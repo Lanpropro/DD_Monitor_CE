@@ -156,8 +156,8 @@ class SettingsProcess(QObject):
                                        ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
         # hWndInsertAfter places Quick behind settings without activation,
         # movement, resizing, or changing either window's owner.
-        user32.SetWindowPos(int(window.winId()), self.window_hwnd, 0, 0, 0, 0, 0x13)
-        return True
+        return bool(user32.SetWindowPos(int(window.winId()), self.window_hwnd,
+                                       0, 0, 0, 0, 0x13))
 
     def _read(self):
         self.buffer += bytes(self.process.readAllStandardOutput())
