@@ -440,6 +440,7 @@
 - `dev/selfcheck_widget_modules.py`
 - `dev/selfcheck_sidebar_folder_control.py`
 - `dev/selfcheck_sidebar_order.py`
+- `dev/selfcheck_sidebar_presentation.py`
 - `dev/selfcheck_dialog_modules.py`
 - `dev/selfcheck_wall_border.py`
 - `dev/selfcheck_workspace_controls.py`
@@ -726,3 +727,5 @@
 关注文件夹协调由 `ddm/sidebar_folder_control.py` 的 `SidebarFolderControl` 维护创建/归类/默认/智能副本、标题拖动和分组条目；筛选由 `ddm/sidebar_filter.py` 的 `SidebarFilter` 维护搜索、折叠/开播过滤及可见条目。Sidebar唯一持有文件夹、归属、卡片/标题缓存、选择和拖动状态，旧方法继续委托；对话框/标题/副本的旧工厂由Sidebar传入，Qt父对象及动画参数不变，不新增计时器或复制状态。`follow_folders`继续维护纯数据规则，`sidebar_folders`继续维护控件本体。
 
 关注栏多选由 `ddm/sidebar_selection.py` 的 `SidebarSelection` 维护批量选择、Ctrl/Shift选择、拖动分组与删除信号；顺序由 `ddm/sidebar_sort.py` 的 `SidebarSort` 维护过滤落点换算、组内换位、置顶、文件夹排序及常看缓存协调。Sidebar唯一持有选择/锚点、卡片顺序、配置和WatchHistory，旧Qt入口保留薄委托；排序菜单的QActionGroup仍归菜单，实际卡片/定时器归属不变。计分模型仍在watch_history，拖放会话仍在sidebar_drag。
+
+关注栏账号展示/菜单协调由 `ddm/sidebar_account_control.py` 的 `SidebarAccountControl` 维护，登录/退出仍向宿主既有信号派发；原菜单/账号行工厂由Sidebar传入，延迟登录保留Sidebar的Qt上下文。横竖布局、借用控件、账号形状和收起/展开由 `ddm/sidebar_presentation.py` 的 `SidebarPresentation` 维护，Sidebar仍唯一持有所有控件/布局/状态。控件身份、父子迁移、滚动约束及收起异常收尾沿用原行为，Qt虚方法和旧入口留在Sidebar。

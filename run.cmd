@@ -45,6 +45,7 @@ if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
 if /i "%~1"=="--check-sidebar-folders" goto sidebarFoldersCheck
 if /i "%~1"=="--check-sidebar-order" goto sidebarOrderCheck
+if /i "%~1"=="--check-sidebar-presentation" goto sidebarPresentationCheck
 if /i "%~1"=="--check-update-install" goto updateInstallCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
@@ -199,6 +200,17 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
 exit /b %errorlevel%
 
+
+:sidebarPresentationCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_presentation
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sort_manager
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_order
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_modules
+exit /b %errorlevel%
 
 :sidebarOrderCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"

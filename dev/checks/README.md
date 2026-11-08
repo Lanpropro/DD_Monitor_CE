@@ -43,6 +43,7 @@
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
 | [selfcheck_wall_border](../selfcheck_wall_border.py) | `smoke` / `offline`；单一拖动状态、预览与提交、取消/换布局/隐藏清理、父对象销毁和旧入口兼容；合成格子、无媒体/账号/外网 |
 | [selfcheck_dialog_modules](../selfcheck_dialog_modules.py) | `smoke` / `offline`；独立设置页/房间对话框模块、旧导出及共享快捷键身份、Qt类加载顺序、编解码/插件页旧工厂；离屏，无账号/媒体/网络/工作进程 |
+| [selfcheck_sidebar_presentation](../selfcheck_sidebar_presentation.py) | `smoke` / `offline`；账号菜单工厂/平台绑定/延迟与销毁、动作路由、横竖父对象往返、滚动/密度、收起提交/异常收尾及Qt销毁；隐藏真实控件、假账号，无浏览器/媒体/外网/系统鼠标 |
 | [selfcheck_sidebar_order](../selfcheck_sidebar_order.py) | `smoke` / `offline`；多选/过滤/批量删除、整组移动/置顶/文件夹边界、常看缓存、菜单Qt归属及刷新顺序；隐藏合成控件、临时数据，无账号/媒体/外网 |
 | [selfcheck_sidebar_folder_control](../selfcheck_sidebar_folder_control.py) | `smoke` / `offline`；文件夹/筛选状态唯一归属、默认切换/移动/搜索、旧工厂、智能副本、标题拖动与Qt销毁；隐藏真实控件、临时数据，无账号/网络/播放器 |
 | [selfcheck_widget_modules](../selfcheck_widget_modules.py) | `smoke` / `offline`；独立职责模块导入、主窗口不依赖兼容入口、旧类与常量身份、完整Qt子类加载顺序；文件夹独立导入、共享卡片数据/操作、预览计时器隐藏及销毁清理；隐藏合成控件，无账号或媒体 |
