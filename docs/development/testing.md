@@ -319,3 +319,5 @@ CI 的 smoke 每项上限为180秒，覆盖完整窗口用例各自启动Qt进�
 设置页职责拆分由 `selfcheck_dialog_modules` 检查独立依赖、旧导出与共享快捷键身份、原Qt类加载顺序以及编解码/插件页旧工厂。根 `run.cmd --check-dialog-modules` 同时运行原常规设置和响应式布局回归；人工从根run.cmd检查各页值/重置、打开/关闭、窄宽窗口布局及保存/取消，结构调整不作为性能提升证据。
 
 文件夹组件拆分沿用 `run.cmd --check-widget-boundaries`：`selfcheck_widget_modules` 增加文件夹模块独立导入、旧别名身份、原卡片数据/操作共享及隐藏/销毁时的预览定时器清理。文件夹模型、来源、排序与图标交互另用原区域专项的临时数据回归；不移动系统鼠标。
+
+卡片职责细拆后，`selfcheck_widget_modules` 同时验证 `sidebar_cards`/`widgets` 旧对象与各职责模块身份相同，侧栏/预览内部不重新依赖兼容聚合入口；原Qt类加载顺序仍检查。`selfcheck_preview_scroll` 的播放器替身改指向 `sidebar_thumbnail.TilePlayer`，启动状态专项的样式替身改指向 `sidebar_item._repolish`，以继续观察实际维护模块，不过滤或弱化行为断言。

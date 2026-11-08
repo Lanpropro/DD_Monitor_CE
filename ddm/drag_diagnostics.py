@@ -273,7 +273,7 @@ class Recorder:
         self.ensure_filter = ensure_filter
         from ddm import motion
         from ddm.preview import HoverPreview
-        from ddm.sidebar_cards import NavItem
+        from ddm.sidebar_item import NavItem
         from ddm.sidebar_widgets import Sidebar
         from ddm.sidebar_drag import SidebarDrag
         from ddm import sidebar_drag as drag_module

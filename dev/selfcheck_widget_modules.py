@@ -18,7 +18,7 @@ class WidgetModulesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_presentation_imports_do_not_load_player_aggregate_or_window(self):
-        for module in ('account_widgets', 'danmaku_widgets', 'layout_picker', 'wall_border', 'sidebar_folders'):
+        for module in ('account_widgets', 'danmaku_widgets', 'layout_picker', 'wall_border', 'sidebar_folders', 'live_alert'):
             with self.subTest(module=module):
                 self.child(f'''
 import importlib, sys
@@ -30,7 +30,8 @@ assert not any(name in sys.modules for name in (
 
     def test_legacy_classes_and_shared_values_keep_identity(self):
         from ddm import (account_widgets, danmaku_widgets, layout_picker,
-                         sidebar_cards, sidebar_folders, sidebar_widgets, tile_widgets, wall_widgets,
+                         sidebar_cards, sidebar_folders, sidebar_item, sidebar_list, sidebar_thumbnail,
+                         sidebar_widgets, live_alert, tile_widgets, wall_widgets,
                          widget_support, widgets)
         modules = (
             (account_widgets, ('AccountPopupMenu', 'AccountRow')),
@@ -44,6 +45,10 @@ assert not any(name in sys.modules for name in (
             (layout_picker, ('LayoutPicker',)),
             (sidebar_widgets, ('AppearanceButton', 'Sidebar')),
             (sidebar_folders, ('SmartFolderDialog', 'SmartFolderCard', 'FollowFolderButton')),
+            (live_alert, ('LiveAlert',)),
+            (sidebar_thumbnail, ('NavThumb',)),
+            (sidebar_item, ('NavSelectionCheck', 'NavItem')),
+            (sidebar_list, ('RoomListBox', 'CarouselScroll')),
             (tile_widgets, ('Tile',)),
             (wall_widgets, ('best_columns', 'WallPaneBorder', 'WallResizePreview', 'WallGrid')),
             (widget_support, ('QUALITY_CHOICES', 'QUALITY_NAMES', 'TILE_BAR_HEIGHT',
@@ -101,7 +106,10 @@ assert not any(name in sys.modules for name in (
     def test_owned_domains_do_not_import_the_compatibility_entry_or_window(self):
         for module, forbidden in (
                 ('sidebar_cards', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
-                ('sidebar_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
+                ('sidebar_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets', 'ddm.sidebar_cards')),
+                ('sidebar_thumbnail', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_cards')),
+                ('sidebar_item', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_cards')),
+                ('sidebar_list', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_cards')),
                 ('tile_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
                 ('wall_widgets', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_widgets'))):
             with self.subTest(module=module):
