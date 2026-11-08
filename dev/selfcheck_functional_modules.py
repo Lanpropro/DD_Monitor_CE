@@ -384,6 +384,15 @@ class FunctionalModulesTests(unittest.TestCase):
         sidebar.set_collapsed(False, animate=False)
         self.assertFalse(sidebar.collapsed)
 
+    def test_responsiveness_probe_folder_and_theme_captures_keep_public_hooks(self):
+        from ddm import responsiveness, responsiveness_probe, folder_motion_capture, theme_capture
+        self.assertIs(responsiveness.Probe, responsiveness_probe.Probe)
+        self.assertIs(responsiveness.FolderMotionCapture, folder_motion_capture.FolderMotionCapture)
+        self.assertIs(responsiveness.install_theme_capture, theme_capture.install_theme_capture)
+        for module in ('responsiveness_probe', 'folder_motion_capture', 'theme_capture'):
+            self.child('import sys; import ddm.'+module+'; '
+                "assert not {'PySide6','ddm.app','ddm.responsiveness'}.intersection(sys.modules)")
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
