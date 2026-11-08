@@ -100,7 +100,7 @@ run.cmd --check-image-cache
 
 | 职责 | 维护模块 | 保留的状态/生命周期 |
 | --- | --- | --- |
-| 弹幕文本、阅读位置、表情、SC卡片 | `ddm/danmaku_widgets.py` | 面板持有消息、图片加载器和Qt子控件；连接/快照仍由宿主协调 |
+| 弹幕面板、文档、阅读位置、SC卡片 | `danmaku_widgets` / `danmaku_document` / `danmaku_scrolling` / `super_chat_widgets` | 面板持有消息、图片加载器和Qt子控件；连接/快照仍由宿主协调 |
 | 账号行及账号菜单绘制 | `ddm/account_widgets.py` | 不接管登录、账号存储或刷新线程 |
 | 关注卡片、文件夹控件、列表排版 | `sidebar_item` / `sidebar_thumbnail` / `sidebar_folders` / `sidebar_list` | 原卡片/列表对象、预览播放器和动画归属不变 |
 | 关注栏协调、筛选和导航接线 | `ddm/sidebar_widgets.py` | 原Sidebar状态及对卡片/拖动会话的引用不复制 |
@@ -109,7 +109,7 @@ run.cmd --check-image-cache
 | 布局选择器 | `ddm/layout_picker.py` | 仅选择界面和信号 |
 | 共有几何常量、图像/样式辅助 | `ddm/widget_support.py` | 不持有窗口、播放器或业务状态 |
 
-项目内部直接导入上述模块，`ddm.widgets` 供旧调用方兼容使用，按原顺序导出同一类对象。独立模块不反向导入兼容入口。Sidebar在打开选择器时导入LayoutPicker，Tile在计算画面墙音量控件宽度时导入WallGrid；不新增通用宿主接口或重复控制器。结构拆分不代表性能提升。
+项目内部直接导入上述模块，`ddm.widgets` 供旧调用方兼容使用，按原顺序导出同一类对象。职责模块在导入时不反向依赖兼容入口。原有工厂或函数有实际替换调用方时，由宿主传入；需要保留公开模块替换契约的整类实现，在动作发生时局部读取旧入口，避免模块初始化循环。Sidebar在打开选择器时导入LayoutPicker，Tile在计算画面墙音量控件宽度时导入WallGrid；不新增通用宿主接口或重复控制器。结构拆分不代表性能提升。
 
 ```mermaid
 flowchart LR
@@ -131,8 +131,42 @@ flowchart LR
 
 设置页面按职责维护于 `ddm/settings_*.py`：常规/编解码/托盘、通知、快捷键、弹幕、录制、插件、外观；共享的响应式布局仍由 `settings_layout` 负责。`ddm/dialogs.py` 保留 `SettingsDialog` 及旧导出，类身份、Qt父对象、页面懒加载和工厂替换入口不变。`settings_general.GeneralSettingsPage._edit_codecs` 在动作发生时读取旧编解码工厂，是保留既有替换契约的局部兼容桥；独立模块导入不依赖聚合入口。
 
-`ddm/room_dialogs.py` 提供 `AddRoomDialog`、`FollowImportDialog` 及两者共用的文件夹菜单动作；不加载设置页面或播放器。`dialogs.py` 留存设置窗口协调和兼容导出，独立房间对话框的Qt父子关系、搜索/勾选/目标文件夹及异步回填规则保持。
+`ddm/add_room_dialog.py` 提供 `AddRoomDialog`，`ddm/room_dialogs.py` 维护 `FollowImportDialog` 并保留旧导出，`room_folder_controls.py` 维护共用文件夹动作；不加载设置页面或播放器。`dialogs.py` 留存设置窗口协调和兼容导出，独立房间对话框的Qt父子关系、搜索/勾选/目标文件夹及异步回填规则保持。
 
 `sidebar_folders` 维护 `SmartFolderDialog`、`SmartFolderCard`、`FollowFolderButton`，类体保持不变；智能文件夹仅复用原卡片的房间数据、操作和绘制，不新增关注或播放器状态。悬停预览定时器归显示副本，隐藏时停止，父对象销毁后随Qt子对象释放。旧 `sidebar_cards` / `widgets` 的类身份保持。
 
 `sidebar_cards.py` 现只保留兼容导出；`LiveAlert`、`NavThumb`、卡片本体/多选勾选框、列表/轮播容器分别由 `live_alert`、`sidebar_thumbnail`、`sidebar_item`、`sidebar_list` 维护。六个类体AST不变，原生预览播放器、动画/定时器、状态和Qt父子关系仍归原对象；侧栏、悬停预览与拖动诊断直接依赖职责模块。旧测试对私有播放器工厂/样式函数的替身指向新维护模块，未改断言。
+
+
+## 全量功能职责边界
+
+本轮复核覆盖主窗口、关注栏、播放格、画面墙、弹幕/SC、小窗、录制、插件、在线更新、登录、图片、皮肤及独立设置进程。具体入口见[仓库职责地图](../repository-map.md)。可独立变化的展示、协调、协议、数据与工作线程已分开维护；兼容宿主仍负责组装、Qt 事件和旧方法委托。
+
+### 状态及兼容约束
+
+- 主窗口唯一持有播放器/解析器映射、任务代次、设置、录制与关停状态；Sidebar、Tile、WallGrid 继续持有原 Qt 子控件和定时器。领域协调器只引用宿主，不复制这些可变数据。
+- `WallBorderInteraction` 继续独占一次拖边会话及其定时器。浮动小窗继续借用原播放格，退出时沿原路径归还，不创建第二套播放器。
+- B 站和图片工作线程在运行时读取原 API 模块，保持凭据、路径、缓存代次及已有替换点的唯一来源。浏览器 profile、在线退役任务集、插件注册表保持同一对象。
+- `widgets`、`sidebar_cards`、`dialogs`、`online_ui`、`super_chat` 等旧导出保持原类身份；Qt 回调签名、父对象、类定义顺序、懒加载、关闭顺序和时序参数保持。源方法/完整类的迁移做过 AST 等价核对，工厂绑定及明确的兼容查找单独校验。
+- 结构拆分不等于性能改进；本轮回归仅验证行为和维护边界。
+
+### 继续保留的较长模块
+
+| 模块 | 保留依据 |
+| --- | --- |
+| `app.py`、`sidebar_widgets.py`、`tile_widgets.py`、`wall_widgets.py` | Qt 宿主、控件组装、事件/状态快照/关停以及显式兼容委托；具体业务已转至职责模块 |
+| `theme.py` | 主题资源、令牌与 QSS；长样式文本仍属于统一外观职责 |
+| `sidebar_presentation.py`、`tile_presentation.py`、`wall_layout.py` | 分别负责同一宿主的显示布局或几何算法；宿主状态没有复制到控制器 |
+| `bili.py` | B 站 HTTP 协议及统一凭据；Qt 工作线程已独立，避免为端点拆分而复制凭据/请求缓存 |
+| `stream_playback.py`、`recording.py`、`player.py` | 播放协调、录制协调和单个 mpv 后端生命周期；数据/参数/协议/回放等已分别下沉 |
+| `video_danmaku.py`、`video_danmaku_quick.py` | 分别为弹幕准入/轨道时钟和 Quick 合成层；光栅任务、表面接线及 SC 画笔已独立 |
+| `pip_window.py`、`account_dialog.py`、`skin_part_settings.py`、`notification_center.py` | 各自完整的具体窗口或界面功能；不为行数继续切碎同一控件行为 |
+| `super_chat_presentation.py`、`sidebar_item.py`、`sidebar_thumbnail.py` | 对应 SC 呈现、关注卡片和缩略图绘制；数据及外部协议不在这些视图内 |
+| `responsiveness.py`、`drag_diagnostics.py` | 各自专项采集与输出；诊断代码没有并回产品界面 |
+| `online_tasks.py`、`cache_settings.py`、`skin_background.py` | 本地 Qt 异步适配与其生命周期紧密相连；实际外部协议/缓存操作/素材校验在独立模块，短适配任务不另建通用框架 |
+
+### 验证及人工验收
+
+`run.cmd --check-functional-modules` 覆盖职责模块独立导入、旧对象身份、唯一宿主/集合、Qt 父子关系、原工厂、迟到结果交付、取消以及本地插件 ZIP 安装/删除。每个 Qt 用例使用独立进程和临时数据，不读取真实账号或发送弹幕；这些检查已纳入 smoke/offline。
+
+从根 `run.cmd` 人工检查：关注栏筛选/文件夹/多选拖放；播放格画质、音量、弹幕与全屏；边框/角点拖动松开与取消、换布局；小窗选择和归还；设置保存/取消与皮肤预览；本机录制/回放结束后的清理。预期行为与拆分前一致。原生高 DPI、真实播放及账号平台可用性须与自动回归分别记录。历史脚本的旧断言、插件/发布产物前置依赖和原生后端限制不计为通过，也不为结构拆分删断言。
