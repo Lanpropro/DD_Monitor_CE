@@ -68,6 +68,7 @@ class SettingsProcess(QObject):
         self.ready = self.visible = self.closing = False
         self.pending = None
         self.worker_pid = None
+        self.window_hwnd = 0
         self.occlusion = QRect()
         self.start_timer = QTimer(self)
         self.start_timer.setSingleShot(True)
@@ -124,8 +125,8 @@ class SettingsProcess(QObject):
     def _send(self, message):
         self.process.write((json.dumps(message) + '\n').encode('utf-8'))
 
-    def _set_occlusion(self, rect):
-        if rect != self.occlusion:
+    def _set_occlusion(self, rect, *, force=False):
+        if force or rect != self.occlusion:
             self.occlusion = rect
             self.occlusionChanged.emit()
 
@@ -135,6 +136,28 @@ class SettingsProcess(QObject):
             self._send(self.pending)
             self.pending = None
             self.visible = True
+            self.window_hwnd = 0
+            self._set_occlusion(QRect(), force=True)
+
+    def stack_overlay_below(self, window):
+        """Keep an owned Quick window behind the visible cross-process dialog."""
+        from PySide6.QtWidgets import QApplication
+        if (not self.visible or self.closing or not self.window_hwnd
+                or sys.platform != 'win32' or QApplication.platformName() != 'windows'):
+            return False
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+        user32.IsIconic.argtypes = (wintypes.HWND,)
+        if not user32.IsWindowVisible(self.window_hwnd) or user32.IsIconic(self.window_hwnd):
+            return False
+        user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                       ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+        # hWndInsertAfter places Quick behind settings without activation,
+        # movement, resizing, or changing either window's owner.
+        user32.SetWindowPos(int(window.winId()), self.window_hwnd, 0, 0, 0, 0, 0x13)
+        return True
 
     def _read(self):
         self.buffer += bytes(self.process.readAllStandardOutput())
@@ -151,12 +174,16 @@ class SettingsProcess(QObject):
                 self.ready = True
                 if not self.closing:
                     self._open_pending()
+            elif kind == 'window' and self.visible and not self.closing:
+                self.window_hwnd = int(message['hwnd'])
+                self._set_occlusion(self.occlusion, force=True)
             elif kind == 'occlusion' and not self.closing:
                 self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False
-                self._set_occlusion(QRect())
+                self.window_hwnd = 0
+                self._set_occlusion(QRect(), force=True)
                 if not self.closing:
                     if message.get('host_saved'):
                         self.hostRequest.emit(message)
@@ -187,14 +214,16 @@ class SettingsProcess(QObject):
         self.pending = None
         self.buffer = b''
         self.worker_pid = None
-        self._set_occlusion(QRect())
+        self.window_hwnd = 0
+        self._set_occlusion(QRect(), force=True)
         self.closed.emit()
         if was_open and not self.closing:
             self.failed.emit(self.process.errorString())
 
     def stop(self):
         self.closing = True
-        self._set_occlusion(QRect())
+        self.window_hwnd = 0
+        self._set_occlusion(QRect(), force=True)
         self.start_timer.stop()
         self.pending = None
         if self.process.state() != QProcess.NotRunning:
@@ -433,6 +462,7 @@ def run_worker():
                 dialog = RemoteDialog(message)
                 self.dialog = dialog
                 dialog.finished.connect(self.finished)
+                send({'kind': 'window', 'hwnd': int(dialog.winId())})
                 _activate_dialog(dialog)
 
         def finished(self, accepted):
