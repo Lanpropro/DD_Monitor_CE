@@ -132,3 +132,5 @@ flowchart LR
 设置页面按职责维护于 `ddm/settings_*.py`：常规/编解码/托盘、通知、快捷键、弹幕、录制、插件、外观；共享的响应式布局仍由 `settings_layout` 负责。`ddm/dialogs.py` 保留 `SettingsDialog` 及旧导出，类身份、Qt父对象、页面懒加载和工厂替换入口不变。`settings_general.GeneralSettingsPage._edit_codecs` 在动作发生时读取旧编解码工厂，是保留既有替换契约的局部兼容桥；独立模块导入不依赖聚合入口。
 
 `ddm/room_dialogs.py` 提供 `AddRoomDialog`、`FollowImportDialog` 及两者共用的文件夹菜单动作；不加载设置页面或播放器。`dialogs.py` 留存设置窗口协调和兼容导出，独立房间对话框的Qt父子关系、搜索/勾选/目标文件夹及异步回填规则保持。
+
+`sidebar_folders` 维护 `SmartFolderDialog`、`SmartFolderCard`、`FollowFolderButton`，类体保持不变；智能文件夹仅复用原卡片的房间数据、操作和绘制，不新增关注或播放器状态。悬停预览定时器归显示副本，隐藏时停止，父对象销毁后随Qt子对象释放。旧 `sidebar_cards` / `widgets` 的类身份保持。

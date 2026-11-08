@@ -710,3 +710,5 @@
 设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
 
 添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。
+
+关注文件夹编辑器、智能文件夹显示副本和标题按钮由 `ddm/sidebar_folders.py` 维护；`sidebar_cards` 和 `widgets` 保留同类兼容导出，侧栏内部直接使用职责模块。显示副本沿用原卡片及同一room对象，预览定时器仍是副本的Qt子对象，模型/关注集合仍归侧栏。
