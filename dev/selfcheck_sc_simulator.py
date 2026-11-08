@@ -305,6 +305,8 @@ class SimulatorTests(unittest.TestCase):
         window.message.setPlainText('短正文')
         self.click(window.add_button)
         source = SimpleNamespace(wall=window.wall, _fullscreen_tile=None)
+        from ddm.settings_control import SettingsControl
+        source.settings_control = SettingsControl(source)
         for window_size in ((1000, 700), (1600, 900)):
             window.resize(*window_size)
             for mode in (0, 1):

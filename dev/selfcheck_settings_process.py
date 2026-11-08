@@ -526,11 +526,13 @@ def check_close_during_edit(app):
 
 def check_host_adapter():
     from ddm.app import MainWindow
+    from ddm.settings_control import SettingsControl
     applied = []
     host = SimpleNamespace(shortcuts={'keep': 'K'}, plugins=SimpleNamespace(
         enabled={'fixture'}, _platform_owner={}, _removed=set()),
         _apply_settings_dialog=lambda dialog, before: applied.append(
             (dialog.settings(), dialog.shortcuts(), dialog.enabled_plugins())))
+    host.settings_control = SettingsControl(host)
     MainWindow._remote_settings_saved(host, {'settings': {'default_volume': 17}, 'shortcuts': {'edit': 'E'}})
     assert applied == [({'default_volume': 17}, {'keep': 'K', 'edit': 'E'}, {'fixture'})]
     MainWindow._remote_settings_saved(host, {'settings': {}, 'shortcuts': {}})
