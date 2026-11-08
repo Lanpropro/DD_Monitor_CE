@@ -42,6 +42,7 @@ if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
 if /i "%~1"=="--check-settings-control" goto settingsControlCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
+if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
 if /i "%~1"=="--check-update-install" goto updateInstallCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
@@ -195,6 +196,19 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
 exit /b %errorlevel%
 
+
+:streamPlaybackCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_stream_playback
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_codec_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_codec
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_recovery
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_startup_windows
+exit /b %errorlevel%
 
 :dialogModulesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"

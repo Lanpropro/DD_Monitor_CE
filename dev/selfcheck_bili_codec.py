@@ -4,6 +4,7 @@
 """
 import os
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -943,4 +944,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from ddm import config, plugins
+    with tempfile.TemporaryDirectory(prefix='ddm-codec-check-') as directory, \
+            patch.object(config, 'DATA_ROOT', directory), \
+            patch.object(config, 'CONFIG_PATH', str(Path(directory) / 'config.json')), \
+            patch.object(plugins, 'DEFAULT_PLUGINS_DIR', str(Path(directory) / 'plugins')):
+        main()
