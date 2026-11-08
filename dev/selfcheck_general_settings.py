@@ -282,7 +282,7 @@ def main():
     anchor = page._checks['sidebar_platform_logos']
     assert grid.indexOf(anchor) >= 0, 'Keep the released plugin insertion anchor'
     labels.append(anchor.text())
-    assert set(labels) == set([
+    assert sorted(labels) == sorted([
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "音量均衡（减小直播间音量差异）",
         "全屏时自动收起底部控制条",

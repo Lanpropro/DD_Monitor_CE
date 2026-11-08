@@ -93,7 +93,7 @@ def check_parts(app):
         stack.enter_context(patch.object(config, 'REPO', directory))
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars'):
+                       'load_cached_covers', 'load_cached_avatars', '_check_startup_update'):
             stack.enter_context(patch.object(module.MainWindow, method))
         image = QImage(32, 32, QImage.Format_RGB32)
         image.fill(QColor('#ff8800'))
@@ -125,7 +125,7 @@ def check_parts(app):
             else:
                 raise AssertionError(invalid)
         window = module.MainWindow([{'room_id': '1001', 'uname': 'fixture', 'live': False}],
-            [], layout_id='1x1', state={'plugins_enabled': []})
+            [], layout_id='1x1', state={'plugins_enabled': [], 'settings': {'auto_update': False}})
         window.resize(1200, 800)
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.move(-10000, -10000)

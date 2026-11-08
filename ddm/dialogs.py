@@ -591,9 +591,9 @@ class NotificationSettingsPage(QWidget):
         for existing in cards:
             groups.removeWidget(existing)
         self.sections = SettingsColumns()
+        self.sections.add_section('background', card, wide=True)
         self.sections.add_section('live', cards[0])
         self.sections.add_section('persistence', cards[1])
-        self.sections.add_section('background', card, wide=True)
         groups.addWidget(self.sections)
         groups.addStretch(1)
 
