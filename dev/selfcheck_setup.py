@@ -179,7 +179,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn('function InitializeUninstall', source)
         self.assertIn('GetFileAttributesW@kernel32.dll', source)
         self.assertIn('if not SafePath(ExpandConstant(\'{app}\\_internal\')) then Exit;', source)
-        self.assertIn('if HasFiles and not OwnInstall then', source)
+        self.assertIn('if HasFiles and not OwnInstall and not RetainedDataOnly then', source)
         self.assertIn('Check: CanCreateShortcut', source)
         for unsafe in ('[UninstallDelete]', '[InstallDelete]', 'DelTree(', 'uninsneveruninstall',
                        'recursesubdirs', 'Source: "*', 'restartreplace'):
@@ -200,6 +200,16 @@ class SetupTests(unittest.TestCase):
         self.assertIn('RegQueryStringValue(HKA,', source)
         self.assertIn('.ddm-install.json', source)
         self.assertNotIn('.ddm-install.json', json.loads((self.root / 'build' / MANIFEST).read_text(encoding='utf-8')))
+
+    def test_retained_data_reinstall_requires_saved_location_and_no_program_collisions(self):
+        source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
+        retained = source.split('function RetainedDataOnly:', 1)[1].split('function PrepareToInstall', 1)[0]
+        self.assertIn('if not FileExists(SavedDataLocation) then Exit', retained)
+        self.assertIn('if not ResolvePersonalDataDir then Exit', retained)
+        self.assertIn('if FileExists(Name) or DirExists(Name) then Exit', retained)
+        self.assertIn('program-files.txt', retained)
+        self.assertNotIn('DeleteFile', retained)
+        self.assertNotIn('SaveStringToFile', retained)
 
     def test_directory_page_is_always_visible_including_repeat_installs(self):
         source = write_script(self.payload, self.root / 'build', self.root / 'out').read_text(encoding='utf-8-sig')
