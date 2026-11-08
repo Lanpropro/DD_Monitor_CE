@@ -122,6 +122,15 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertIs(danmaku_widgets.SuperChatCard, super_chat_widgets.SuperChatCard)
         self.assertIs(video_danmaku.SuperChatOverlay, video_super_chat.SuperChatOverlay)
 
+    def test_pip_geometry_and_views_import_without_playback_controller(self):
+        for name in ('pip_geometry', 'pip_preview', 'pip_picker', 'pip_window'):
+            self.child('import sys; import ddm.'+name+'; '
+                "assert not {'ddm.app','ddm.widgets','ddm.picture_in_picture','ddm.player'}.intersection(sys.modules)")
+        from ddm import picture_in_picture as legacy, pip_preview, pip_picker, pip_window
+        for module, name in ((pip_preview, 'CompositionPreview'),
+                (pip_picker, 'PictureInPictureDialog'), (pip_window, 'PictureInPictureWindow')):
+            self.assertIs(getattr(legacy, name), getattr(module, name))
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
