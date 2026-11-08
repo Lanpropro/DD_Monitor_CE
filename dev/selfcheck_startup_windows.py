@@ -118,7 +118,7 @@ class StartupWindowsTests(unittest.TestCase):
         sidebar = Sidebar([dict(room_id='1', uname='Fixture', title='Title', live=False)])
         item = sidebar.items()[0]
         try:
-            with patch('ddm.sidebar_cards._repolish') as polish, \
+            with patch('ddm.sidebar_item._repolish') as polish, \
                     patch.object(item.thumb, '_layout_overlay') as layout:
                 item.set_live(False)
                 item.set_title('Title')

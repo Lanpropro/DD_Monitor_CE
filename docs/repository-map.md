@@ -40,7 +40,7 @@
 
 省略标签与工具条图标按钮分别在 `ddm/ui/labels.py`、`ddm/ui/toolbar.py` 维护，`ddm.ui` 按需导入；`widgets` 在原定义位置兼容导出同一类，保留原 Qt 子类加载顺序，`_repolish` 从共享辅助模块兼容导出。基础控件不依赖画面墙、播放器或主窗口，Qt 父子归属与信号行为沿用原实现。
 
-`ddm/widgets.py` 仅保留兼容导出，项目内部直接导入职责模块。弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片/文件夹/列表在 `ddm/sidebar_cards.py`，侧栏协调在 `ddm/sidebar_widgets.py`，单格播放UI在 `ddm/tile_widgets.py`，画面墙与分区几何在 `ddm/wall_widgets.py`，布局选择在 `ddm/layout_picker.py`；共有常量和绘制辅助在 `ddm/widget_support.py`。旧类、常量和辅助函数仍是同一对象。布局选择与格子到画面墙的类型判断按需导入，避免模块导入循环；Qt父子关系、信号和播放器/连接/账号的状态所有权沿用原实现。
+`ddm/widgets.py` 仅保留兼容导出，项目内部直接导入职责模块。弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片/文件夹/列表在 `ddm/sidebar_item.py`、`sidebar_thumbnail.py`、`sidebar_folders.py`、`sidebar_list.py`，开播动画在 `live_alert.py`，`sidebar_cards.py` 仅作兼容导出，侧栏协调在 `ddm/sidebar_widgets.py`，单格播放UI在 `ddm/tile_widgets.py`，画面墙与分区几何在 `ddm/wall_widgets.py`，布局选择在 `ddm/layout_picker.py`；共有常量和绘制辅助在 `ddm/widget_support.py`。旧类、常量和辅助函数仍是同一对象。布局选择与格子到画面墙的类型判断按需导入，避免模块导入循环；Qt父子关系、信号和播放器/连接/账号的状态所有权沿用原实现。
 
 侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
 
@@ -435,6 +435,7 @@
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
 - `dev/selfcheck_widget_modules.py`
+- `dev/selfcheck_dialog_modules.py`
 - `dev/selfcheck_wall_border.py`
 - `dev/selfcheck_workspace_controls.py`
 - `dev/selfcheck_continuous_corners.py`
@@ -706,3 +707,9 @@
 设置协调由 `ddm/settings_control.py` 的 `SettingsControl` 维护普通/独立设置入口、预览上下文、页面连接与保存应用流程；`settings_process`/`settings_host` 继续维护进程通信和嵌入宿主页。主窗口唯一持有配置、进程、宿主页、更新页及退出状态，旧方法保留薄委托；三个涉及对话框类型的方法由主窗口传入原 `SettingsDialog` 工厂，保留既有替换入口，协调器不反向导入主窗口。
 
 窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
+
+设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
+
+添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。
+
+关注文件夹编辑器、智能文件夹显示副本和标题按钮由 `ddm/sidebar_folders.py` 维护；`sidebar_cards` 和 `widgets` 保留同类兼容导出，侧栏内部直接使用职责模块。显示副本沿用原卡片及同一room对象，预览定时器仍是副本的Qt子对象，模型/关注集合仍归侧栏。

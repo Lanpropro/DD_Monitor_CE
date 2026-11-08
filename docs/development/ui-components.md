@@ -93,7 +93,7 @@ run.cmd --check-image-cache
 
 组件专项验证轻量导入、原对象身份、旧导入兼容、按钮信号/禁用/归属、标题/说明样式与旧设置入口、实际页面采用共用控件及主题切换；使用离屏 Qt、临时数据，不读取用户账号、不联网。播放按钮专项另检查音量滚轮上下限、声道提示、暂停/方向/弹幕开关、刷新动画显隐与销毁、多缩放绘制；这些回归不代表实际直播性能验收。
 
-弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片与列表在 `ddm/sidebar_cards.py`，布局选择器在 `ddm/layout_picker.py`。这些业务组件保留 `ddm.widgets` 原导入，状态与信号不迁移到新的通用控制器。`widget_support` 仅维护共用常量与绘制辅助；连接、账号和播放器仍归原宿主。
+弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片与列表在 `ddm/sidebar_item.py`、`sidebar_thumbnail.py`、`sidebar_list.py`，文件夹控件在 `sidebar_folders.py`，开播动效在 `live_alert.py`，`sidebar_cards.py` 仅作兼容导出，布局选择器在 `ddm/layout_picker.py`。这些业务组件保留 `ddm.widgets` 原导入，状态与信号不迁移到新的通用控制器。`widget_support` 仅维护共用常量与绘制辅助；连接、账号和播放器仍归原宿主。
 
 
 ## 业务控件的维护边界
@@ -102,7 +102,7 @@ run.cmd --check-image-cache
 | --- | --- | --- |
 | 弹幕文本、阅读位置、表情、SC卡片 | `ddm/danmaku_widgets.py` | 面板持有消息、图片加载器和Qt子控件；连接/快照仍由宿主协调 |
 | 账号行及账号菜单绘制 | `ddm/account_widgets.py` | 不接管登录、账号存储或刷新线程 |
-| 关注卡片、文件夹控件、列表排版 | `ddm/sidebar_cards.py` | 原卡片/列表对象、预览播放器和动画归属不变 |
+| 关注卡片、文件夹控件、列表排版 | `sidebar_item` / `sidebar_thumbnail` / `sidebar_folders` / `sidebar_list` | 原卡片/列表对象、预览播放器和动画归属不变 |
 | 关注栏协调、筛选和导航接线 | `ddm/sidebar_widgets.py` | 原Sidebar状态及对卡片/拖动会话的引用不复制 |
 | 单格视频、浮层和播放控件 | `ddm/tile_widgets.py` | 格子和播放器引用保留；启动解析、恢复和退出仍由原宿主负责 |
 | 画面墙、分区、换格和尺寸预览 | `ddm/wall_widgets.py` | 原Tile对象身份和Qt父子关系不变 |
@@ -114,7 +114,7 @@ run.cmd --check-image-cache
 ```mermaid
 flowchart LR
   App[MainWindow] --> Sidebar[sidebar_widgets]
-  Sidebar --> Cards[sidebar_cards]
+  Sidebar --> Cards[sidebar_item / sidebar_list / sidebar_folders]
   Sidebar --> Account[account_widgets]
   Sidebar -. 打开时 .-> Picker[layout_picker]
   App --> Wall[wall_widgets]
@@ -128,3 +128,11 @@ flowchart LR
 `ddm/wall_border.py` 维护 `WallPaneBorder`、`WallResizePreview` 和 `WallBorderInteraction`。交互对象管理一次悬停/拖动的状态、待处理指针位置、合并定时器和预览引用；画面墙管理布局模型及最终比例，原有 `_begin/_move/_finish/_cancel_border_drag` 入口继续委托到交互对象。旧 `ddm.widgets` 和 `ddm.wall_widgets` 的边框类导入身份不变。
 
 拖动预览不调整视频格几何；松开才应用最终比例并发保存信号。换布局、隐藏、关闭与删除时保留原清理路径。预览的Qt父对象仍为画面墙，边框仍为格子；合并定时器改归交互对象，随整个画面墙销毁。布局算法、32ms间隔、预览绘制与交互行为均沿用原实现，不作为性能优化。
+
+设置页面按职责维护于 `ddm/settings_*.py`：常规/编解码/托盘、通知、快捷键、弹幕、录制、插件、外观；共享的响应式布局仍由 `settings_layout` 负责。`ddm/dialogs.py` 保留 `SettingsDialog` 及旧导出，类身份、Qt父对象、页面懒加载和工厂替换入口不变。`settings_general.GeneralSettingsPage._edit_codecs` 在动作发生时读取旧编解码工厂，是保留既有替换契约的局部兼容桥；独立模块导入不依赖聚合入口。
+
+`ddm/room_dialogs.py` 提供 `AddRoomDialog`、`FollowImportDialog` 及两者共用的文件夹菜单动作；不加载设置页面或播放器。`dialogs.py` 留存设置窗口协调和兼容导出，独立房间对话框的Qt父子关系、搜索/勾选/目标文件夹及异步回填规则保持。
+
+`sidebar_folders` 维护 `SmartFolderDialog`、`SmartFolderCard`、`FollowFolderButton`，类体保持不变；智能文件夹仅复用原卡片的房间数据、操作和绘制，不新增关注或播放器状态。悬停预览定时器归显示副本，隐藏时停止，父对象销毁后随Qt子对象释放。旧 `sidebar_cards` / `widgets` 的类身份保持。
+
+`sidebar_cards.py` 现只保留兼容导出；`LiveAlert`、`NavThumb`、卡片本体/多选勾选框、列表/轮播容器分别由 `live_alert`、`sidebar_thumbnail`、`sidebar_item`、`sidebar_list` 维护。六个类体AST不变，原生预览播放器、动画/定时器、状态和Qt父子关系仍归原对象；侧栏、悬停预览与拖动诊断直接依赖职责模块。旧测试对私有播放器工厂/样式函数的替身指向新维护模块，未改断言。

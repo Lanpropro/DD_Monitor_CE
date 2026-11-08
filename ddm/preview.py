@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QFrame
 from .bili import StreamResolver
 from .player import TilePlayer
 from .widget_support import CAROUSEL_WIDTH
-from .sidebar_cards import NavThumb
+from .sidebar_thumbnail import NavThumb
 
 PREVIEW_QUALITY = 80        # 流畅：缩略图那么大，看得清就够了
 

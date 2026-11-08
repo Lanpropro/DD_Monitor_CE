@@ -18,9 +18,9 @@ from .dock_feedback import icon_color
 from .folder_icons import create_folder_dialog
 from .playback_controls import RefreshButton, SidebarToggleButton
 from .search import matches_text
-from .sidebar_cards import (
-    CarouselScroll, FollowFolderButton, NavItem, RoomListBox, SmartFolderCard, SmartFolderDialog
-)
+from .sidebar_item import NavItem
+from .sidebar_list import CarouselScroll, RoomListBox
+from .sidebar_folders import FollowFolderButton, SmartFolderCard, SmartFolderDialog
 from .sidebar_drag import SidebarDrag
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
 from .ui.toolbar import BarIconButton

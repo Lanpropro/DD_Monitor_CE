@@ -18,7 +18,7 @@ class WidgetModulesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_presentation_imports_do_not_load_player_aggregate_or_window(self):
-        for module in ('account_widgets', 'danmaku_widgets', 'layout_picker', 'wall_border'):
+        for module in ('account_widgets', 'danmaku_widgets', 'layout_picker', 'wall_border', 'sidebar_folders', 'live_alert'):
             with self.subTest(module=module):
                 self.child(f'''
 import importlib, sys
@@ -30,7 +30,8 @@ assert not any(name in sys.modules for name in (
 
     def test_legacy_classes_and_shared_values_keep_identity(self):
         from ddm import (account_widgets, danmaku_widgets, layout_picker,
-                         sidebar_cards, sidebar_widgets, tile_widgets, wall_widgets,
+                         sidebar_cards, sidebar_folders, sidebar_item, sidebar_list, sidebar_thumbnail,
+                         sidebar_widgets, live_alert, tile_widgets, wall_widgets,
                          widget_support, widgets)
         modules = (
             (account_widgets, ('AccountPopupMenu', 'AccountRow')),
@@ -43,6 +44,11 @@ assert not any(name in sys.modules for name in (
                              'RoomListBox', 'CarouselScroll')),
             (layout_picker, ('LayoutPicker',)),
             (sidebar_widgets, ('AppearanceButton', 'Sidebar')),
+            (sidebar_folders, ('SmartFolderDialog', 'SmartFolderCard', 'FollowFolderButton')),
+            (live_alert, ('LiveAlert',)),
+            (sidebar_thumbnail, ('NavThumb',)),
+            (sidebar_item, ('NavSelectionCheck', 'NavItem')),
+            (sidebar_list, ('RoomListBox', 'CarouselScroll')),
             (tile_widgets, ('Tile',)),
             (wall_widgets, ('best_columns', 'WallPaneBorder', 'WallResizePreview', 'WallGrid')),
             (widget_support, ('QUALITY_CHOICES', 'QUALITY_NAMES', 'TILE_BAR_HEIGHT',
@@ -54,10 +60,56 @@ assert not any(name in sys.modules for name in (
                 with self.subTest(module=module.__name__, name=name):
                     self.assertIs(getattr(widgets, name), getattr(module, name))
 
+    def test_smart_folder_card_shares_original_state_and_releases_its_timer(self):
+        from PySide6.QtCore import QCoreApplication, QEvent, QPointF, Qt, Signal
+        from PySide6.QtGui import QEnterEvent, QHideEvent, QMouseEvent
+        from PySide6.QtWidgets import QApplication, QCheckBox, QWidget
+        from shiboken6 import isValid
+        from ddm.sidebar_folders import SmartFolderCard
+        class Original(QWidget):
+            hovered = Signal(dict)
+            unhovered = Signal(dict)
+            clicked = Signal(dict)
+            checkedChanged = Signal()
+        app = QApplication.instance() or QApplication([])
+        parent = QWidget()
+        original = Original(parent)
+        original.room = {'room_id': 'fixture'}
+        original.select_mode, original.check = False, QCheckBox(original)
+        signals = []
+        original.clicked.connect(lambda _: signals.append('clicked'))
+        original.checkedChanged.connect(lambda: signals.append('checked'))
+        original.unhovered.connect(lambda _: signals.append('unhovered'))
+        card = SmartFolderCard(original, parent)
+        timer = card._preview_timer
+        try:
+            self.assertIs(card.room, original.room)
+            self.assertIs(card.original, original)
+            self.assertIs(timer.parent(), card)
+            QApplication.sendEvent(card, QEnterEvent(QPointF(), QPointF(), QPointF()))
+            self.assertTrue(timer.isActive())
+            QApplication.sendEvent(card, QHideEvent())
+            self.assertFalse(timer.isActive())
+            release = QMouseEvent(QEvent.MouseButtonRelease, QPointF(1, 1), QPointF(1, 1),
+                                  Qt.LeftButton, Qt.NoButton, Qt.NoModifier)
+            card.mouseReleaseEvent(release)
+            original.select_mode = True
+            card.mouseReleaseEvent(release)
+            self.assertTrue(original.check.isChecked())
+            self.assertEqual(signals, ['unhovered', 'clicked', 'checked'])
+        finally:
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertFalse(isValid(card))
+        self.assertFalse(isValid(timer))
+
     def test_owned_domains_do_not_import_the_compatibility_entry_or_window(self):
         for module, forbidden in (
                 ('sidebar_cards', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
-                ('sidebar_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
+                ('sidebar_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets', 'ddm.sidebar_cards')),
+                ('sidebar_thumbnail', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_cards')),
+                ('sidebar_item', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_cards')),
+                ('sidebar_list', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_cards')),
                 ('tile_widgets', ('ddm.widgets', 'ddm.app', 'ddm.wall_widgets')),
                 ('wall_widgets', ('ddm.widgets', 'ddm.app', 'ddm.sidebar_widgets'))):
             with self.subTest(module=module):
