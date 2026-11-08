@@ -73,7 +73,8 @@ class PaneDanmaku:
 
     def automatic_target(self):
         if not self.custom:
-            return self.wall.danmaku_target_tile()
+            tile = self.wall.danmaku_target_tile()
+            return tile if tile is not None and tile.room.get('room_id') else None
         tiles = self.cell_tiles()
         visible = {cell: tile for cell, tile in tiles.items() if cell not in self.bindings()}
         main = self.wall.main_index()

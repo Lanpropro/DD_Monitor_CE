@@ -49,6 +49,37 @@ class PaneDanmakuTests(unittest.TestCase):
         window.settings["close_behavior"] = "exit"
         return window
 
+    def test_default_pane_starts_with_empty_main_and_occupied_secondary(self):
+        room = dict(room_id='1002', uname='Secondary fixture', live=False)
+        state = {'plugins_enabled': [], 'settings': {'close_behavior': 'exit'},
+                 'ui': {'layout_landscape': 'dm_main2'}}
+        window = MainWindow([dict(room)], [{}, dict(room)], layout_id='dm_main2', state=state)
+        self.addCleanup(self.close_window, window)
+        panes = window.wall.pane_danmaku
+        self.assertTrue(window.wall.has_danmaku)
+        self.assertIsNone(panes.target(window.wall.danmaku))
+        picker = window.wall.danmaku.source_picker
+        self.assertEqual(picker.anchor.identity[0], '')
+        self.assertIn(window.wall.tiles[1], picker.buttons)
+        self.assertFalse(picker.anchor.isChecked())
+        picker.choose(window.wall.tiles[1])
+        self.assertIs(panes.target(window.wall.danmaku), window.wall.tiles[1])
+        self.assertEqual(picker.anchor.identity[0], '1002')
+
+    def test_default_pane_clears_source_when_main_video_is_closed(self):
+        window = self.wall_window()
+        window.wall.set_layout('dm_main2')
+        window._refresh_meta()
+        panel = window.wall.danmaku
+        main = window.wall.tiles[window.wall.main_index()]
+        self.assertIs(window.wall.pane_danmaku.target(panel), main)
+        window._on_close_tile(dict(main.room))
+        self.assertIsNone(window.wall.pane_danmaku.target(panel))
+        self.assertEqual(panel._linked_room_id, '')
+        self.assertEqual(panel.source_picker.anchor.identity[0], '')
+        self.assertFalse(panel.source_picker.anchor.isChecked())
+        self.assertTrue(panel.source_picker.buttons)
+
     def test_wall_menu_converts_restores_and_preserves_room_and_sound(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
