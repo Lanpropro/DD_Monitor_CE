@@ -169,8 +169,6 @@ class GeneralSettingsPage(QWidget):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
         self._checks: dict[str, QCheckBox] = {}
-        from .audio_normalization import normalize_curve
-        self._normalization_curve = normalize_curve(settings.get('volume_normalization_curve'))
         self._hidden_values = {
             "auto_quality": bool(settings.get("auto_quality", True)),
             "sidebar_card_mode": bool(settings.get("sidebar_card_mode", True)),
@@ -211,16 +209,7 @@ class GeneralSettingsPage(QWidget):
             box.setChecked(bool(settings.get(key, key != "volume_normalization")))
             if key == "volume_normalization":
                 box.setToolTip("自动调整偏轻或偏响的声音；保存后应用于所有播放格子，仍可独立调节音量。")
-            if key == 'volume_normalization':
-                grid.addWidget(box, row, 0)
-                self.normalization_button = QPushButton('响应曲线…')
-                self.normalization_button.setObjectName('IconButton')
-                self.normalization_button.setEnabled(box.isChecked())
-                self.normalization_button.clicked.connect(self._edit_normalization)
-                box.toggled.connect(self.normalization_button.setEnabled)
-                grid.addWidget(self.normalization_button, row, 1)
-            else:
-                grid.addWidget(box, row, 0, 1, 2)
+            grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
             if key == "sidebar_platform_logos":
                 # Retain the saved master value and insertion anchor for plugin controls.
@@ -274,9 +263,16 @@ class GeneralSettingsPage(QWidget):
         volume_box.addWidget(self.volume_label)
         volume_box.addStretch(1)
         grid.addLayout(volume_box, row, 1)
+        row += 1
+        from .audio_normalization_ui import AudioNormalizationEditor
+        self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
+        self.normalization_editor.setEnabled(self._checks['volume_normalization'].isChecked())
+        self._checks['volume_normalization'].toggled.connect(self.normalization_editor.setEnabled)
+        grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 2, 3, 4, 10, 11), False),
+            ('playback', '播放与声音', (1, 2, 4, 10, 11), False),
             ('following', '关注与预览', (0, 5, 6, 7, 8), False),
+            ('normalization', '音量均衡', (3, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         layout.addLayout(grid)
         layout.addStretch(1)
@@ -296,19 +292,10 @@ class GeneralSettingsPage(QWidget):
             self._update_codec_summary()
         dialog.deleteLater()
 
-    def _edit_normalization(self):
-        from .audio_normalization_ui import AudioNormalizationDialog
-        dialog = AudioNormalizationDialog(self._normalization_curve, self)
-        try:
-            if dialog.exec() == QDialog.Accepted:
-                self._normalization_curve = dialog.values()
-        finally:
-            dialog.deleteLater()
-
     def reset(self) -> None:
         from . import config as config_module
         from .audio_normalization import normalize_curve
-        self._normalization_curve = normalize_curve()
+        self.normalization_editor.set_curve(normalize_curve())
 
         for key in self._hidden_values:
             self._hidden_values[key] = config_module.DEFAULT_SETTINGS[key]
@@ -326,7 +313,7 @@ class GeneralSettingsPage(QWidget):
             **self._hidden_values,
             "poll_minutes": int(self.poll_spin.value()),
             "default_volume": int(self.volume_slider.value()),
-            "volume_normalization_curve": dict(self._normalization_curve),
+            "volume_normalization_curve": self.normalization_editor.values(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             **self._codec_values,
         }

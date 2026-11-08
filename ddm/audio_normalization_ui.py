@@ -3,11 +3,10 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QDoubleSpinBox, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QBoxLayout, QDoubleSpinBox, QGridLayout, QHBoxLayout,
                                QLabel, QListWidget, QPushButton, QVBoxLayout, QWidget)
 
 from .audio_normalization import FIELDS, LIMITS, PRESETS, normalize_curve, preset_curve, response_preview
-from .motion import AnimatedDialog
 
 
 REFERENCES = {
@@ -119,13 +118,12 @@ class ResponseGraph(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class AudioNormalizationDialog(AnimatedDialog):
+class AudioNormalizationEditor(QWidget):
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('音量均衡 · 响应曲线')
-        self.resize(850, 540)
         self.curve = normalize_curve(settings)
         outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
         heading = QLabel('调整压低、保持和恢复速度')
         heading.setObjectName('PageTitle')
@@ -133,10 +131,12 @@ class AudioNormalizationDialog(AnimatedDialog):
         hint = QLabel('示意：声音短时变响后，增益压低并逐渐恢复。下图使用与播放相同的响应计算，不是实时音频。')
         hint.setWordWrap(True)
         outer.addWidget(hint)
-        body = QHBoxLayout()
-        outer.addLayout(body, 1)
-        editor = QVBoxLayout()
-        body.addLayout(editor, 1)
+        self.body = QBoxLayout(QBoxLayout.TopToBottom)
+        outer.addLayout(self.body, 1)
+        self.main_panel = QWidget()
+        editor = QVBoxLayout(self.main_panel)
+        editor.setContentsMargins(0, 0, 0, 0)
+        self.body.addWidget(self.main_panel, 1)
         self.graph = ResponseGraph()
         self.graph.changed.connect(self.set_curve)
         editor.addWidget(self.graph, 1)
@@ -165,24 +165,24 @@ class AudioNormalizationDialog(AnimatedDialog):
             self.controls[key] = spin
             field.addWidget(spin)
             controls.addLayout(field, row, column)
-        side = QVBoxLayout()
-        body.addLayout(side)
+        self.reference_panel = QWidget()
+        side = QVBoxLayout(self.reference_panel)
+        side.setContentsMargins(0, 0, 0, 0)
+        self.body.addWidget(self.reference_panel)
         side.addWidget(QLabel('参考预设'))
         self.presets = QListWidget()
         self.presets.setAccessibleName('音量均衡参考预设')
-        self.presets.setFixedWidth(210)
+        self.presets.setMaximumHeight(160)
         self._preset_names = [*PRESETS, 'custom']
         self.presets.addItems([value[0] for value in PRESETS.values()] + ['自定义'])
         self.presets.currentRowChanged.connect(self._select_preset)
         side.addWidget(self.presets)
         self.description = QLabel()
         self.description.setWordWrap(True)
-        self.description.setFixedWidth(210)
         self.description.setOpenExternalLinks(True)
         side.addWidget(self.description)
         note = QLabel('这些是本软件的参考预设，非平台官方算法。直播无法预先测完整节目，参数仍可自由调整。')
         note.setWordWrap(True)
-        note.setFixedWidth(210)
         side.addWidget(note)
         side.addStretch()
         buttons = QHBoxLayout()
@@ -192,15 +192,18 @@ class AudioNormalizationDialog(AnimatedDialog):
         reset.clicked.connect(self._reset)
         buttons.addWidget(reset)
         buttons.addStretch()
-        cancel = QPushButton('取消')
-        cancel.setObjectName('IconButton')
-        cancel.clicked.connect(self.reject)
-        buttons.addWidget(cancel)
-        save = QPushButton('使用此曲线')
-        save.setObjectName('PrimaryButton')
-        save.clicked.connect(self.accept)
-        buttons.addWidget(save)
         self.set_curve(self.curve)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        stacked = self.width() < 650
+        self.body.setDirection(QBoxLayout.TopToBottom if stacked else QBoxLayout.LeftToRight)
+        self.reference_panel.setMinimumWidth(0 if stacked else 210)
+        self.reference_panel.setMaximumWidth(16777215 if stacked else 210)
+        self.main_panel.setMinimumHeight(self.main_panel.layout().minimumSize().height())
+        self.layout().activate()
+        self.setMinimumHeight(max(self.layout().minimumSize().height(),
+                                  self.layout().totalHeightForWidth(self.width())))
 
     def _reset(self):
         self.set_curve(preset_curve())

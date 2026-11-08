@@ -191,6 +191,7 @@
 - `dev/selfcheck_notice_close.py`
 - `dev/selfcheck_danmaku_motion_diagnostics.py`
 - `dev/diagnose_wall_replacement.py`
+- `dev/diagnose_window_resize.py`
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`

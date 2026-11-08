@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["DDM_NO_SAVE"] = "1"
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -241,10 +241,19 @@ def orientations(window, work, baseline, native):
             check(observed == [direction] * 6, f"hysteresis oscillation: {observed}, sizes={effective}")
             check(work.calls["_apply_orientation"] == 0, "hysteresis reapplied orientation")
     for size, expected in (((800, 1100), "portrait"), ((1420, 850), "landscape")):
-        window.resize(*size)
-        QApplication.processEvents()
-        if not baseline:
-            check(window.orientation != expected, "programmatic orientation was not deferred")
+        if baseline:
+            window.resize(*size)
+            QApplication.processEvents()
+        else:
+            # Native geometry/paint work can exceed the 150ms idle interval.
+            # Check synchronous deferral separately from delivering its timeout.
+            with QSignalBlocker(window._resize_idle_timer), patch.object(
+                    window._resize_idle_timer, 'start', wraps=window._resize_idle_timer.start) as scheduled:
+                window.resize(*size)
+                QApplication.processEvents()
+                check(window.orientation != expected, "programmatic orientation was not deferred")
+                check(scheduled.called, "programmatic orientation did not schedule idle settling")
+            window._resize_idle_timer.start()
         settle(300)
         check(window.orientation == expected, "idle orientation did not settle")
     window.resize(1420, 850)
@@ -316,13 +325,17 @@ def cancellation(window, work, baseline, native):
         wait_orientation(window, "landscape")
         if dragging:
             interactive(window, True, False, native)
-        window.resize(800, 1100)
-        QApplication.processEvents()
-        if action == "fullscreen":
-            window._on_fullscreen(window.wall.tiles[0])
-        else:
-            getattr(window, action)()
-        QApplication.processEvents()
+        # Exercise cancellation while work is pending, even when native layout
+        # takes longer than the idle delay. The timeout is unblocked afterwards
+        # so late callbacks remain observable by the assertions below.
+        with QSignalBlocker(window._resize_idle_timer):
+            window.resize(800, 1100)
+            QApplication.processEvents()
+            if action == "fullscreen":
+                window._on_fullscreen(window.wall.tiles[0])
+            else:
+                getattr(window, action)()
+            QApplication.processEvents()
         work.reset()
         settle(300)
         result[f"{action}_{'drag' if dragging else 'idle'}"] = work.snapshot()

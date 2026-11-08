@@ -9,7 +9,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QScrollArea
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 
@@ -96,6 +96,26 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(page.volume_slider.value(), config.DEFAULT_SETTINGS['default_volume'])
         self.assertEqual(page.poll_spin.value(), config.DEFAULT_SETTINGS['poll_minutes'])
         self.assertIsNotNone(grid.itemAt(grid.indexOf(anchor)))
+
+    def test_audio_curve_is_inline_full_width_and_preserves_edits_when_stacked(self):
+        page = self.page(0)
+        page._checks['volume_normalization'].setChecked(True)
+        editor = page.normalization_editor
+        card = page.sections.section('normalization')
+        self.assertIs(editor.parentWidget(), card)
+        self.assertIs(page._checks['volume_normalization'].parentWidget(), card)
+        editor.controls['hold'].setValue(4.5)
+        for width, direction in ((1200, QBoxLayout.LeftToRight), (760, QBoxLayout.TopToBottom)):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertEqual(editor.body.direction(), direction)
+            self.assertGreater(card.y(), page.sections.section('playback').geometry().bottom())
+            self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
+            self.assertLessEqual(editor.geometry().right(), card.width())
+            graph_bottom = editor.graph.mapTo(editor, editor.graph.rect().bottomLeft()).y()
+            for control in editor.controls.values():
+                self.assertGreater(control.mapTo(editor, control.rect().topLeft()).y(), graph_bottom)
+            self.assertEqual(page.values()['volume_normalization_curve']['hold'], 4.5)
 
     def test_sc_curve_and_preview_share_a_row_with_display_controls_below(self):
         page = self.page(2)

@@ -114,7 +114,7 @@ def child(action):
             self.general_page._checks['preview_on_hover'].setChecked(False)
             self.general_page._checks['volume_normalization'].setChecked(True)
             from ddm.audio_normalization import preset_curve
-            self.general_page._normalization_curve = preset_curve('netflix')
+            self.general_page.normalization_editor.set_curve(preset_curve('netflix'))
             if action.startswith('tray-'):
                 self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
                 page = self._loaded_pages[self.PAGE_INDEX['tray']]
