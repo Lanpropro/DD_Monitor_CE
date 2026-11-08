@@ -38,6 +38,7 @@ if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
+if /i "%~1"=="--check-settings-control" goto settingsControlCheck
 if /i "%~1"=="--check-update-install" goto updateInstallCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
@@ -177,6 +178,13 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
 exit /b %errorlevel%
 
+
+:settingsControlCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
+exit /b %errorlevel%
 
 :appUpdatesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
