@@ -42,7 +42,7 @@ from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
 from .dialogs import SettingsDialog
-from .room_dialogs import AddRoomDialog
+from .add_room_dialog import AddRoomDialog
 from .settings_general import CodecSettingsDialog
 from .shortcut_actions import SHORTCUT_ACTIONS
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,

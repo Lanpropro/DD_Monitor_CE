@@ -261,6 +261,22 @@ class FunctionalModulesTests(unittest.TestCase):
         loader.loaded.emit('fixture:second', pixmap)
         self.assertIn('fixture:second', panel._images)
 
+    def test_worker_and_protocol_imports_are_independent_and_keep_legacy_aliases(self):
+        self.child("import sys; import ddm.live_danmaku_protocol; "
+            "assert not {'aiohttp','PySide6','ddm.live_danmaku'}.intersection(sys.modules)")
+        self.child("import sys; import ddm.image_workers; assert 'ddm.images' not in sys.modules")
+        self.child("import sys; import ddm.settings_worker; "
+            "assert not {'ddm.settings_process','ddm.dialogs','ddm.app'}.intersection(sys.modules)")
+        from ddm import images, image_workers, account_dialog, account_workers
+        from ddm import live_danmaku, live_danmaku_protocol, settings_process, settings_worker
+        for name in ('CachedCoverLoader', 'CachedAvatarLoader', 'AvatarLoader'):
+            self.assertIs(getattr(images, name), getattr(image_workers, name))
+        self.assertIs(account_dialog.FollowAccountResolver, account_workers.FollowAccountResolver)
+        self.assertIs(settings_process.run_worker, settings_worker.run_worker)
+        self.assertIs(live_danmaku.douyu_packet, live_danmaku_protocol.douyu_packet)
+        self.assertEqual(live_danmaku.douyu_messages(bytearray(live_danmaku.douyu_packet('type@=chatmsg/txt@=fixture/'))),
+            [{'type': 'chatmsg', 'txt': 'fixture'}])
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
