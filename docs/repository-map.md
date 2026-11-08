@@ -191,6 +191,7 @@
 - `dev/selfcheck_notice_close.py`
 - `dev/selfcheck_danmaku_motion_diagnostics.py`
 - `dev/diagnose_wall_replacement.py`
+- `dev/diagnose_window_resize.py`：通过根 `run.cmd --diagnose-window-resize` 记录真实窗口拖动的消息顺序及布局、原生裁剪、重绘耗时；松手后写入本机日志。
 - `dev/selfcheck_room_placement.py`
 - `dev/selfcheck_room_placement_native.py`
 - `dev/selfcheck_drag_wheel.py`

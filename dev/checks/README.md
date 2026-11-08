@@ -208,7 +208,7 @@
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
-| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；原生标题栏消息委托、无鼠标接管/替代窗口、同屏移动不隐藏且不重排、等尺寸最大化原生还原及双击；功能回归不代替真实鼠标与视觉验收 |
+| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；原生标题栏消息委托、无鼠标接管/替代窗口、同屏移动不隐藏且不重排、等尺寸最大化原生还原及双击、还原与交互进入两种消息顺序、缩放专项记录；功能回归不代替真实鼠标与视觉验收 |
 | [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；方向切换排布合并与异常恢复；`--screens --players 3` 使用双屏、123张合成关注和三路本地视频，检查3/6/16格原生跨屏/DPI、连续播放、几何、HWND/播放器保持及无替代窗口；不代表实际拖动帧率 |
 
 ## 弹幕与表情

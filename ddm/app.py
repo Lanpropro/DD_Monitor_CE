@@ -638,7 +638,10 @@ class MainWindow(QMainWindow):
                             and self._fullscreen_tile is None):
                         self.wall.set_interactive_resize(True)
                         self._resize_dirty = True
-                        self._resize_idle_timer.start()
+                        # A restore can arrive after WM_ENTERSIZEMOVE. Only
+                        # WM_EXITSIZEMOVE may settle an active native gesture.
+                        if not self._interactive_resize:
+                            self._resize_idle_timer.start()
         return super().nativeEvent(event_type, message)
 
     def _begin_interactive_resize(self) -> None:
