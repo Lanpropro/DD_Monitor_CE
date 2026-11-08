@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget
 )
 from . import theme
-from .super_chat import SuperChatPlacementPreview
+from .super_chat_presentation import SuperChatPlacementPreview
 from .ui import ScaleCurveControl, page_header as _page_head, step_button as _step_button
 from .settings_layout import section_grid
 

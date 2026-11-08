@@ -3,12 +3,12 @@ import sys
 
 from PySide6.QtCore import QTimer
 
-from .super_chat import SuperChatStore
+from .super_chat_model import SuperChatStore
 from PySide6.QtCore import QTimer
 from . import bili
 from . import config as config_module
 from . import plugins as plugin_api
-from .super_chat import SuperChatStore
+from .super_chat_model import SuperChatStore
 
 
 class DanmakuLifecycle:

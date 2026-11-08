@@ -109,6 +109,19 @@ class FunctionalModulesTests(unittest.TestCase):
             controller = getattr(importlib.import_module('ddm.'+module), name)(host)
             self.assertEqual(vars(controller), {'host': host})
 
+    def test_super_chat_model_is_independent_and_legacy_exports_keep_identity(self):
+        self.child("import sys; import ddm.super_chat_model; "
+            "assert not {'PySide6','requests','ddm.app','ddm.widgets'}.intersection(sys.modules)")
+        from ddm import super_chat, super_chat_model, super_chat_presentation, super_chat_api
+        from ddm import danmaku_widgets, super_chat_widgets, video_danmaku, video_super_chat
+        for module, names in ((super_chat_model, ('SuperChatStore', 'normalize')),
+                (super_chat_presentation, ('SuperChatPresentation', 'SuperChatAvatar')),
+                (super_chat_api, ('SuperChatSnapshot', 'snapshot_events'))):
+            for name in names:
+                self.assertIs(getattr(super_chat, name), getattr(module, name))
+        self.assertIs(danmaku_widgets.SuperChatCard, super_chat_widgets.SuperChatCard)
+        self.assertIs(video_danmaku.SuperChatOverlay, video_super_chat.SuperChatOverlay)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:

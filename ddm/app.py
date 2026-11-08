@@ -36,7 +36,8 @@ from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
 from .danmaku import DanmakuClient
-from .super_chat import SuperChatSnapshot, SuperChatStore
+from .super_chat_api import SuperChatSnapshot
+from .super_chat_model import SuperChatStore
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
