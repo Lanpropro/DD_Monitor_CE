@@ -117,6 +117,7 @@
 - `dev/selfcheck_appearance_design.py`
 - `dev/selfcheck_appearance_playback.py`
 - `dev/selfcheck_audio_audit.py`
+- `dev/selfcheck_audio_normalization.py`
 - `dev/selfcheck_audio_cycle_shortcut.py`
 - `dev/selfcheck_audio_hotplug.py`
 - `dev/selfcheck_audio_owner.py`

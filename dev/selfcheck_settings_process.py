@@ -113,6 +113,8 @@ def child(action):
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
             self.general_page._checks['volume_normalization'].setChecked(True)
+            from ddm.audio_normalization import preset_curve
+            self.general_page._normalization_curve = preset_curve('netflix')
             if action.startswith('tray-'):
                 self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
                 page = self._loaded_pages[self.PAGE_INDEX['tray']]
@@ -245,6 +247,7 @@ def check_worker(app, action):
                     assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
                     assert saves[0]['settings'].get('super_chat_position_sync', True) is True
                 assert saves[0]['settings']['volume_normalization'] is True
+                assert saves[0]['settings']['volume_normalization_curve']['preset'] == 'netflix'
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
                     assert saves[0]['settings']['tray_pause_playback'] is False

@@ -30,13 +30,13 @@ try:
     player.sync_audio(0, False, 4)
     assert core.mute is False and core.volume == 0 and player.audio_channel == 4
     player.set_volume_normalization(True)
-    assert 'dynaudnorm' in core.af and 'pan=' in core.af
+    assert 'ddm_meter' in core.af and 'pan=' in core.af
     player.set_audio_channel(3)
-    assert 'dynaudnorm' in core.af and 'c1=0*c1' in core.af
+    assert 'ddm_meter' in core.af and 'c1=0*c1' in core.af
     player.reapply_audio_channel()
-    assert core.af.count('dynaudnorm') == 1
+    assert core.af.count('ddm_meter') == 1
     player.set_volume_normalization(False)
-    assert 'dynaudnorm' not in core.af and 'pan=' in core.af
+    assert 'ddm_meter' not in core.af and 'pan=' in core.af
     player.release()
     calls = list(core.mock_calls)
     player.sync_audio(100, False, 0)
