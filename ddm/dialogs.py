@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from .update_version import update_identity
 from .motion import SettingsStack
+from .ui import page_header as _page_head, step_button as _step_button
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
