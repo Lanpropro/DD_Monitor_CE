@@ -31,7 +31,8 @@ from ddm import layouts, theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 LANDSCAPE = (1400, 800)
-PORTRAIT = (500, 1000)
+# 高度留出余量，让最小宽度夹紧后的窗口也能跨过方向滞回区。
+PORTRAIT = (500, 1400)
 ROOM = {"room_id": "selfcheck-9101", "uname": "自检主播", "title": "标题",
         "live": False, "muted": True, "volume": 40, "quality": 250}
 

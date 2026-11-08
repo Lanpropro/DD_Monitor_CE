@@ -54,6 +54,7 @@ from .room_placement import RoomPlacement
 from .room_preset_control import RoomPresetController
 from .app_updates import AppUpdates
 from .settings_control import SettingsControl
+from .window_layout import WindowLayout
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         self.room_preset_control = RoomPresetController(self)
         self.app_updates = AppUpdates(self)
         self.settings_control = SettingsControl(self)
+        self.window_layout = WindowLayout(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
@@ -571,25 +573,7 @@ class MainWindow(QMainWindow):
         横屏：侧栏在左（固定宽）+ 右侧画面墙。
         竖屏：侧栏变成顶部横栏（撑满宽）+ 下面画面墙。
         """
-        layout = self._root_layout
-        # 只改变同一个根布局的排列方向。侧栏和画面墙始终挂在 root 下，
-        # 播放器 正在使用的原生视频 HWND 就不会因换父窗口而被 Qt 销毁。
-        layout.setDirection(
-            QBoxLayout.TopToBottom if orientation == "portrait"
-            else QBoxLayout.LeftToRight
-        )
-        if layout.indexOf(self.sidebar) < 0:
-            layout.addWidget(self.sidebar)
-        if layout.indexOf(self._content) < 0:
-            layout.addWidget(self._content, 1)
-        layout.setStretch(layout.indexOf(self.sidebar), 0)
-        layout.setStretch(layout.indexOf(self._content), 1)
-        if orientation == "landscape":
-            self.sidebar.setMaximumHeight(16_777_215)
-        self.sidebar.set_side("top" if orientation == "portrait" else "left")
-        # 换完排布再同步一次可见性：收起/展开只影响「露哪些控件」，
-        # 而 set_collapsed 在换排布之前就设过了，不补这一下头像排不会露出来。
-        self.sidebar._sync_top_mode()      # noqa: SLF001
+        return self.window_layout.build_arrangement(orientation)
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -597,18 +581,7 @@ class MainWindow(QMainWindow):
         return width <= height * PORTRAIT_MAX_RATIO
 
     def _saved_layout(self, orientation: str) -> str:
-        ui = self.state.get("ui") or {}
-        saved = str(ui.get(f"layout_{orientation}") or "")
-        if not saved:
-            # 配置里还没有这一项 = 第一次启动（或从很老的配置升上来）：
-            # 用第一次启动的默认布局，别退成兜底的九分
-            return (layouts.FIRST_LAYOUT if orientation == "landscape"
-                    else layouts.PORTRAIT_AUTO)
-        # 老配置里的 "auto"（以及任何已经删掉的布局 id）折算成兜底布局：
-        # 「自动」已经按用户要求从菜单里去掉了
-        if saved not in layouts.BY_ID:
-            return layouts.DEFAULT_LAYOUT
-        return saved
+        return self.window_layout.saved_layout(orientation)
 
     @staticmethod
     def _layout_fits(layout_id: str, portrait: bool) -> bool:
@@ -624,83 +597,7 @@ class MainWindow(QMainWindow):
 
     def _apply_orientation(self, orientation: str | None = None) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
-        if self._applying_room_preset or (getattr(self, 'picture_in_picture', None)
-                                         and self.picture_in_picture.active):
-            return
-        # Side/header reparenting activates ancestor layouts synchronously.
-        # Commit their final arrangement once; DPI and painting remain enabled.
-        layout_enabled = self._root_layout.isEnabled()
-        self._root_layout.setEnabled(False)
-        try:
-            orientation = orientation or ("portrait" if self.is_portrait() else "landscape")
-            # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
-            # 否则 first 永远是 False，第一次也会走「对映」那条路。
-            first = not self.orientation
-            changed = orientation != self.orientation
-            if changed:
-                self.hover_preview.cancel()
-                self._build_arrangement(orientation)
-            # 切走之前正在用的那套，记在**原来那个方向**名下：用户转个方向逛一圈再转回来，
-            # 原来那边的布局得原样还在，不能靠「按容量折算」猜回来。
-            if self.orientation and changed:
-                self._layout_by_orientation[self.orientation] = self.wall.layout_id
-            self.orientation = orientation
-            portrait = orientation == "portrait"
-
-            # 竖屏不再强制「收起」：顶部横栏本来就只占一条，横屏的收起语义（60px 窄条）
-            # 混进来会在拖回横屏时留下一堆隐藏控件。竖屏保持展开（头像排 + 按钮行）。
-            self.sidebar.set_collapsed(False, animate=False)
-
-            saved = self._saved_layout(orientation)
-            # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
-            pending = getattr(self, "_pending_layout", "")
-            if pending and self._layout_fits(pending, portrait):
-                layout_id = pending
-                self._pending_layout = ""
-            elif first:
-                # 启动：配置里存过哪套就用哪套（第一次启动就是 FIRST_LAYOUT /
-                # PORTRAIT_AUTO）；只有存的那套跟当前方向不匹配（老配置、
-                # 或者上次是在另一个方向下用的）才按「对映」折算一套出来。
-                layout_id = saved if self._layout_fits(saved, portrait) else (
-                    layouts.counterpart(self.wall.layout_id, portrait)
-                    or (layouts.PORTRAIT_AUTO if portrait else layouts.FIRST_LAYOUT))
-            else:
-                # 回自己待过的方向：先把「切走之前在用的那套」摆回来。横屏的
-                # 「主画面 + 5 小环绕」和「六分」都是 6 路，只按容量折算的话，从竖屏
-                # 切回来会被换成六分 —— 用户报的「布局被改了」就是这个。
-                remembered = self._layout_by_orientation.get(orientation, "")
-                if remembered and self._layout_fits(remembered, portrait):
-                    layout_id = remembered
-                else:
-                    # 本次会话第一次进这个方向：跟着当前这套找最相似的那套
-                    # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
-                    # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
-                    # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
-                    mapped = layouts.counterpart(self.wall.layout_id, portrait)
-                    if mapped:
-                        layout_id = mapped
-                    elif self._layout_fits(saved, portrait):
-                        layout_id = saved
-                    else:
-                        layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
-            if layout_id != self.wall.layout_id:
-                if not first:
-                    self._clear_expanded_slots(layout_id)
-                self.wall.set_layout(layout_id, relayout=False)
-                self.sidebar.set_layout_name(layout_id)
-            # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
-            if self._settling_resize:
-                self.wall.set_interactive_resize(True)
-        finally:
-            self._root_layout.setEnabled(layout_enabled)
-            if layout_enabled:
-                self._root_layout.invalidate()
-        self._root_layout.activate()
-        self._content.layout().activate()
-        self.wall.relayout(force=True)
-        self._sync_tile_playback()
-        print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
-              file=sys.stderr, flush=True)
+        return self.window_layout.apply_orientation(orientation)
 
     def resizeEvent(self, event) -> None:
         if (getattr(self, "_interactive_resize", False)
@@ -1136,93 +1033,14 @@ class MainWindow(QMainWindow):
         self._platform_info_running.clear()
 
     def _clear_expanded_slots(self, layout_id: str) -> None:
-        current = self.wall._capacity() or len(self.wall.tiles)
-        target = (layouts.capacity(layout_id)
-                  - int(layouts.danmaku_cell(layout_id) is not None and
-                        layout_id not in self.wall.pane_danmaku.settings)) or len(self.wall.tiles)
-        if target <= current:
-            return
-        # 扩大布局只补空位，先前隐藏的房间不能自动回到画面墙。
-        for tile in self.wall.tiles[current:]:
-            if tile.room.get("room_id"):
-                self._clear_tile_room(tile)
+        return self.window_layout.clear_expanded_slots(layout_id)
 
     def _prioritize_live_tiles(self, layout_id: str) -> None:
         """缩小布局时，用后面的开播格子填前面的未开播位置。"""
-        capacity = layouts.capacity(layout_id) - int(layouts.danmaku_cell(layout_id) is not None and
-                        layout_id not in self.wall.pane_danmaku.settings)
-        tiles = self.wall.tiles
-        if (capacity <= 0 or capacity >= len(tiles)
-                or capacity >= (self.wall._capacity() or len(tiles))):
-            return
-        live = lambda tile: bool(tile.room.get("room_id") and tile.room.get("live"))
-        vacant = [index for index in range(capacity) if not live(tiles[index])]
-        waiting = [index for index in range(capacity, len(tiles)) if live(tiles[index])]
-        for visible_index, hidden_index in zip(vacant, waiting):
-            visible, hidden = tiles[visible_index], tiles[hidden_index]
-            tiles[visible_index], tiles[hidden_index] = hidden, visible
-            # 音量、静音和声道属于位置；画面随格子移动，声音设置留在原位置。
-            visible.volume, hidden.volume = hidden.volume, visible.volume
-            visible.muted, hidden.muted = hidden.muted, visible.muted
-            visible.audio_channel, hidden.audio_channel = hidden.audio_channel, visible.audio_channel
-            for tile in (visible, hidden):
-                tile.room["volume"] = tile.volume
-                tile.room["muted"] = tile.muted
-                tile.room["audio_channel"] = tile.audio_channel
-                tile.sync_audio_ui()
-                player = self.players.get(tile)
-                if player is not None:
-                    player.set_volume(int(tile.volume))
-                    player.set_muted(tile.muted)
-                    player.set_audio_channel(int(tile.audio_channel))
-                    player.reapply_audio_channel()
+        return self.window_layout.prioritize_live_tiles(layout_id)
 
     def _on_layout_changed(self, layout_id: str) -> None:
-        self.picture_in_picture.restore()
-        self._cancel_interactive_resize()
-        panes_reset = self.wall.pane_danmaku.reset_preset(layout_id)
-        want_portrait = layouts.is_portrait_layout(layout_id)
-        reshape = (want_portrait != (self.orientation == "portrait")
-                   or want_portrait != (self._resize_orientation() == "portrait"))
-        if layout_id == self.wall.layout_id and not reshape:
-            self.wall.reset_layout_ratios()
-            if panes_reset:
-                self.wall.relayout(force=True)
-                self.apply_quality_policy()
-                self._sync_tile_playback(start_visible=True)
-                self._refresh_meta()
-                self._save_timer.start()
-            return
-        self._prioritize_live_tiles(layout_id)
-        self._clear_expanded_slots(layout_id)
-        # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
-        # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
-        # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
-        if reshape:
-            print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
-                  f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
-                  file=sys.stderr, flush=True)
-            # 转窗口会同步触发 _apply_orientation，而那里会把「切走前的记忆」摆回来，
-            # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
-            self._pending_layout = layout_id
-            previous_orientation, previous_layout = self.orientation, self.wall.layout_id
-            # resize 时必须按目标预设计算最小尺寸，避免旧的密集网格挡住转方向。
-            self.wall.set_layout(layout_id, relayout=False)
-            self._reshape_window(want_portrait)
-            self._resize_idle_timer.stop()
-            self._resize_dirty = False
-            self._apply_orientation("portrait" if want_portrait else "landscape")
-            if previous_orientation:
-                self._layout_by_orientation[previous_orientation] = previous_layout
-        self.wall.set_layout(layout_id)
-        self.wall.relayout(force=True)
-        self.sidebar.set_layout_name(self.wall.layout_id)
-        # 记在**当前方向**名下：横屏选的布局不该被竖屏覆盖，反之亦然
-        key = f"layout_{self.orientation or 'landscape'}"
-        self.state.setdefault("ui", {})[key] = layout_id
-        self.apply_quality_policy()
-        self._sync_tile_playback(start_visible=True)
-        self._refresh_meta()
+        return self.window_layout.on_layout_changed(layout_id)
 
     def room_preset_snapshot(self):
         return self.room_preset_control.snapshot()
@@ -1246,42 +1064,7 @@ class MainWindow(QMainWindow):
         塞在横屏窗口里，预览就是一张拉伸的横屏。所以选另一个方向的布局时顺手把
         窗口也摆成那个方向；最大化状态下先还原，否则改不动尺寸。
         """
-        if self.isMaximized():
-            self.showNormal()
-        screen = self.screen() or QApplication.primaryScreen()
-        area = screen.availableGeometry() if screen is not None else None
-        width, height = max(self.width(), 480), max(self.height(), 360)
-        if portrait:
-            new_height = max(height, width)                 # 高的那一维当高度
-            if area is not None:
-                new_height = min(new_height, area.height())  # 先夹进屏幕
-            new_width = max(360, int(new_height * 9 / 16))   # 再按 9:16 算宽度
-            if area is not None:
-                new_width = min(new_width, area.width())
-        else:
-            new_width = max(width, height)                  # 宽的那一维当宽度
-            if area is not None:
-                new_width = min(new_width, area.width())
-            new_height = max(360, int(new_width * 9 / 16))
-            if area is not None:
-                new_height = min(new_height, area.height())
-        # 别让窗口跑到屏幕外：贴进可用区域
-        left, top = self.x(), self.y()
-        if area is not None:
-            left = min(max(left, area.left()), max(area.left(), area.right() - new_width))
-            top = min(max(top, area.top()), max(area.top(), area.bottom() - new_height))
-            self.move(left, top)
-        # 拖动布局有自己的最小尺寸；转方向前先解除旧预设的约束，
-        # 否则横屏最小宽度会挡住变窄，resizeEvent 无法进入竖屏排布。
-        self.wall.setMinimumSize(0, 0)
-        self._build_arrangement("portrait" if portrait else "landscape")
-        self._content.layout().invalidate()
-        self._content.layout().activate()
-        self._root_layout.invalidate()
-        self._root_layout.activate()
-        self.resize(new_width, new_height)
-        print(f"[窗口] 改成 {'竖屏' if portrait else '横屏'} {new_width}x{new_height}",
-              file=sys.stderr, flush=True)
+        return self.window_layout.reshape_window(portrait)
 
     def _on_pin_changed(self, pinned: list) -> None:
         self.state["pinned"] = list(pinned)
