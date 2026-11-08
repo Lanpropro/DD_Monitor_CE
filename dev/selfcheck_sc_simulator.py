@@ -151,8 +151,10 @@ class SimulatorTests(unittest.TestCase):
         self.addCleanup(owner.close)
         event = dict(kind='super_chat', id='scale', uname='Scale', price=30, message='Short')
         for manual in (75, 100, 150):
+            # Direct proportion is one selectable curve, rather than the default.
             owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale=manual,
-                                      super_chat_scale_with_video=True))
+                                      super_chat_scale_with_video=True,
+                                      super_chat_scale_curve=[[0, .1], [.1, .1], [1, 1], [2, 2]]))
             owner.super_chat_overlay.chats = [event]
             sizes = []
             for width, height in ((1280, 720), (640, 360), (320, 180)):
@@ -170,13 +172,25 @@ class SimulatorTests(unittest.TestCase):
         owner.super_chat_overlay.card_rects()
         self.assertEqual(owner.super_chat_overlay._paint_scale, 1)
 
-    def test_small_video_danmaku_shrinks_gently_and_preserves_large_sizes(self):
+    def test_default_sc_curve_keeps_small_cards_larger_than_linear(self):
+        from ddm.video_danmaku import VideoDanmaku
+        owner = VideoDanmaku()
+        self.addCleanup(owner.close)
+        owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale_with_video=True))
+        owner.super_chat_overlay.chats = [dict(kind='super_chat', id='default-scale',
+                                              uname='Scale', price=30, message='Short')]
+        for height, expected in ((720, 1), (360, .7845840978967508), (180, .6155722066724582)):
+            owner.resize(1280, height)
+            owner.super_chat_overlay.card_rects()
+            self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, expected)
+
+    def test_default_video_danmaku_curve_preserves_small_pane_readability(self):
         from ddm.video_danmaku import VideoDanmaku
         owner = VideoDanmaku()
         self.addCleanup(owner.close)
         owner.apply_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_size=28,
                                   video_danmaku_outline_width=2))
-        for height, expected in ((180, 14), (360, 20), (540, 24), (720, 28), (1080, 42), (1440, 56)):
+        for height, expected in ((180, 17), (360, 22), (540, 25), (720, 28), (1080, 32), (1440, 36)):
             owner.resize(1280, height)
             self.assertEqual(owner.font_pixels(), expected, height)
             self.assertAlmostEqual(owner.outline_width(), 2 * expected / 28)
@@ -192,7 +206,8 @@ class SimulatorTests(unittest.TestCase):
 
     def test_sc_auto_scale_setting_updates_preview_roundtrips_and_resets(self):
         from ddm.dialogs import DanmakuSettingsPage
-        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS))
+        points = [[0, .3], [.5, .8], [1, 1], [2, 1.5]]
+        page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS, super_chat_scale_curve=points))
         self.addCleanup(page.close)
         preview = page.super_chat_placement
         self.assertFalse(page.super_chat_scale_with_video.isChecked())
@@ -202,7 +217,7 @@ class SimulatorTests(unittest.TestCase):
                                               'cards': [{'message': '', 'collapsed': False}]}})
         stage = preview.stage_rect()
         factor = stage.width() / 640
-        self.assertAlmostEqual(preview.card_rect().width() / factor, 170)
+        self.assertAlmostEqual(preview.card_rect().width() / factor, 272)
         preview.set_layout_mode(1)
         before = preview.card_rect()
         page.super_chat_scale_with_video.click()
@@ -210,6 +225,7 @@ class SimulatorTests(unittest.TestCase):
         restored = DanmakuSettingsPage(dict(page.values(), super_chat_scale_with_video=True))
         self.addCleanup(restored.close)
         self.assertTrue(restored.super_chat_scale_with_video.isChecked())
+        self.assertEqual(restored.values()['super_chat_scale_curve'], points)
         restored.reset()
         self.assertFalse(restored.values()['super_chat_scale_with_video'])
 
@@ -221,7 +237,8 @@ class SimulatorTests(unittest.TestCase):
             APP.processEvents()
         self.assertTrue(window.tile.video_danmaku.settings['super_chat_scale_with_video'])
         self.assertTrue(window.tile.video_danmaku.settings['video_danmaku_scale'])
-        window.change_sc_settings({'super_chat_position': [.4, .6]})
+        window.change_sc_settings({'super_chat_position': [.4, .6],
+                                   'super_chat_scale_curve': [[0, .6], [1, 1], [2, 1.3]]})
         owner = window.tile.video_danmaku
         sc = owner.super_chat_overlay
         for size in ((1200, 760), (900, 600), (1600, 1000)):
@@ -229,11 +246,13 @@ class SimulatorTests(unittest.TestCase):
             APP.processEvents()
             rects = sc.card_rects()
             self.assertTrue(rects)
-            self.assertAlmostEqual(sc._paint_scale, owner.height() / 720)
+            ratio = owner.height() / 720
+            expected = .6 + .4 * ratio if ratio <= 1 else 1 + .3 * (ratio - 1)
+            self.assertAlmostEqual(sc._paint_scale, expected)
             self.assertTrue(sc.isVisible())
             self.assertEqual(owner.settings['super_chat_position'], [.4, .6])
         window.sc_scale.setValue(150)
-        self.assertAlmostEqual(sc._paint_scale, 1.5 * owner.height() / 720)
+        self.assertAlmostEqual(sc._paint_scale, 1.5 * expected)
         self.assertTrue(window.sc_scale_with_video.isChecked())
 
     def test_restored_danmaku_toggle_does_not_mask_an_unfinished_tile(self):

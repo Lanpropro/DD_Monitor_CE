@@ -13,7 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 from ddm import motion, theme
 from ddm.config import DEFAULT_SETTINGS
 from ddm.dialogs import NotificationSettingsPage, SettingsDialog
@@ -67,7 +67,8 @@ class NotificationTests(unittest.TestCase):
         self.assertFalse(dialog._loaded_pages)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['tray'])
         self.assertEqual(dialog.stack.currentIndex(), SettingsDialog.PAGE_INDEX['tray'])
-        self.assertIn('托盘', dialog.stack.currentWidget().layout().itemAt(0).layout().itemAt(0).widget().text())
+        self.assertIn('托盘行为', [label.text() for label in
+                              dialog.stack.currentWidget().scroll.widget().findChildren(QLabel)])
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
         self.assertIs(dialog.stack.currentWidget(), dialog.notification_page)
         dialog.notification_page._checks['live_alert'].setChecked(False)
