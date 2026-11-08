@@ -740,3 +740,5 @@ Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命�
 SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过期和排序；`super_chat_api.py` 为 B 站快照协议/工作线程；`super_chat_presentation.py` 为布局、预览、头像和绘制；`super_chat_widgets.py` 为弹幕面板卡片，`video_super_chat.py` 为画面 SC 浮层。`super_chat.py` 保留旧导出，滚动画面弹幕继续由 VideoDanmaku 负责。
 
 小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
+
+在线界面职责：`online_tasks.py` 工作线程与页面关闭后的退役清理；`plugin_store_ui.py` 插件商店与详情；`app_update_ui.py` 软件更新页；`update_notice.py` 更新提示与标记；`result_notice.py` 用户结果通知；`update_offers.py` 版本提示数据。`online_ui.py` 保留旧导出和已有任务/通知替换入口，退役集合只保留一份。

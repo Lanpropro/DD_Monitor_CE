@@ -131,6 +131,16 @@ class FunctionalModulesTests(unittest.TestCase):
                 (pip_picker, 'PictureInPictureDialog'), (pip_window, 'PictureInPictureWindow')):
             self.assertIs(getattr(legacy, name), getattr(module, name))
 
+    def test_online_pages_and_notifications_keep_legacy_class_identity(self):
+        from ddm import online_ui, online_tasks, update_notice, result_notice, plugin_store_ui, app_update_ui
+        for module, names in ((online_tasks, ('OnlineTask', 'OnlinePage', '_retired_online_tasks')),
+                (update_notice, ('UpdateNotice', 'UpdateDot')),
+                (result_notice, ('ResultNotice', 'show_result')),
+                (plugin_store_ui, ('PluginStorePage',)), (app_update_ui, ('AppUpdatePage',))):
+            for name in names:
+                self.assertIs(getattr(online_ui, name), getattr(module, name))
+        self.assertIs(result_notice.ResultNotice.__bases__[0], update_notice.UpdateNotice)
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
