@@ -46,6 +46,7 @@
 | [selfcheck_sidebar_presentation](../selfcheck_sidebar_presentation.py) | `smoke` / `offline`；账号菜单工厂/平台绑定/延迟与销毁、动作路由、横竖父对象往返、滚动/密度、收起提交/异常收尾及Qt销毁；隐藏真实控件、假账号，无浏览器/媒体/外网/系统鼠标 |
 | [selfcheck_sidebar_order](../selfcheck_sidebar_order.py) | `smoke` / `offline`；多选/过滤/批量删除、整组移动/置顶/文件夹边界、常看缓存、菜单Qt归属及刷新顺序；隐藏合成控件、临时数据，无账号/媒体/外网 |
 | [selfcheck_sidebar_folder_control](../selfcheck_sidebar_folder_control.py) | `smoke` / `offline`；文件夹/筛选状态唯一归属、默认切换/移动/搜索、旧工厂、智能副本、标题拖动与Qt销毁；隐藏真实控件、临时数据，无账号/网络/播放器 |
+| [selfcheck_functional_modules](../selfcheck_functional_modules.py) | `smoke` / `offline`；职责模块的独立依赖、唯一宿主、工厂及Qt生命周期，逐用例进程、临时数据，无真实媒体/账号 |
 | [selfcheck_widget_modules](../selfcheck_widget_modules.py) | `smoke` / `offline`；独立职责模块导入、主窗口不依赖兼容入口、旧类与常量身份、完整Qt子类加载顺序；文件夹独立导入、共享卡片数据/操作、预览计时器隐藏及销毁清理；隐藏合成控件，无账号或媒体 |
 | [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网；面板删除后跳过排队滚动恢复，避免访问已删除文本控件 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |

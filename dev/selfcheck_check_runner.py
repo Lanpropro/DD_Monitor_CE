@@ -111,7 +111,7 @@ if __name__ == '__main__':
             'selfcheck_picture_in_picture', 'selfcheck_pip_picker',
             'selfcheck_room_status_controller', 'selfcheck_room_images',
             'selfcheck_playback_badges', 'selfcheck_ui_polish', 'selfcheck_settings_navigation', 'selfcheck_settings_layout', 'selfcheck_playback_controls',
-            'selfcheck_widget_modules', 'selfcheck_sidebar_folder_control', 'selfcheck_sidebar_order', 'selfcheck_sidebar_presentation', 'selfcheck_dialog_modules', 'selfcheck_wall_border', 'selfcheck_responsiveness',
+            'selfcheck_widget_modules', 'selfcheck_functional_modules', 'selfcheck_sidebar_folder_control', 'selfcheck_sidebar_order', 'selfcheck_sidebar_presentation', 'selfcheck_dialog_modules', 'selfcheck_wall_border', 'selfcheck_responsiveness',
             'selfcheck_startup_scroll_diagnostics',
             'selfcheck_hotfix_updates', 'selfcheck_app_updates',
             'selfcheck_player_lifetime', 'selfcheck_playback_recovery', 'selfcheck_stream_playback', 'selfcheck_codec_control',

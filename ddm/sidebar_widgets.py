@@ -34,6 +34,8 @@ from .sidebar_selection import SidebarSelection
 from .sidebar_sort import SidebarSort
 from .sidebar_account_control import SidebarAccountControl
 from .sidebar_presentation import SidebarPresentation
+from .sidebar_items import SidebarItems
+from .sidebar_interaction import SidebarInteraction
 
 
 class AppearanceButton(QPushButton):
@@ -111,6 +113,8 @@ class Sidebar(QFrame):
                  auto_compact: bool = True, compact_threshold: int = 18,
                  compact_background: bool = True):
         super().__init__(parent)
+        self.items_control = SidebarItems(self)
+        self.interaction_control = SidebarInteraction(self)
         self.folder_control = SidebarFolderControl(self)
         self.filter_control = SidebarFilter(self)
         self.selection_control = SidebarSelection(self)
@@ -394,72 +398,18 @@ class Sidebar(QFrame):
 
     # ---- 账号 ----
     def _sync_appearance_row(self):
-        self.workspace_controls.sync_layout()
-        self._sync_selection_controls()
-        self.appearance_button.setVisible(not self.collapsed)
-        if self.side == "left":
-            self.status_row.setVisible(not self.collapsed)
-            for widget in (self.count_label, self.batch_button, self.notification_button, self.refresh_button):
-                widget.setVisible(not self.collapsed)
-            self.status_row.layout().setAlignment(self.appearance_button,
-                Qt.AlignHCenter if self.collapsed else Qt.AlignRight)
-        self.navigation.sync()
+        return self.presentation_control.sync_appearance_row()
 
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
-        self._layout_id = layout_id
-        layout = layouts.BY_ID.get(layout_id) or layouts.BY_ID[layouts.DEFAULT_LAYOUT]
-        self.layout_button.setText("布局预设")
-        self.layout_button.setToolTip(f"当前布局：{layout['name']}　（点击切换）")
+        return self.presentation_control.set_layout_name(layout_id)
 
     def open_layout_picker(self) -> None:
         # 只列当前方向能用的布局：横屏不列竖屏预设（套上去画面会变形）
-        from .layout_picker import LayoutPicker
-        picker = LayoutPicker(self._layout_id, self, portrait=self.side == "top",
-                              presets_host=getattr(self, "room_presets_host", None))
-        picker.chosen.connect(self._on_layout_chosen)
-        picker.resetRequested.connect(self.layoutResetRequested.emit)
-        # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
-        source = self.account_row if self.collapsed else self.layout_button
-        anchor = source.mapToGlobal(source.rect().topLeft())
-        picker.adjustSize()
-        screen = (QApplication.screenAt(anchor)
-                  or QApplication.screenAt(QCursor.pos())
-                  or QApplication.primaryScreen())
-        # screenAt 偶尔全落空（窗口还在屏幕外、或显示器刚改过配置），
-        # 这时千万别把窗口摆到屏幕外去：退回主屏可用区域，至少还能看见。
-        available = screen.availableGeometry() if screen is not None else QRect()
-        if not available.isValid():
-            primary = QApplication.primaryScreen()
-            if primary is not None:
-                available = primary.availableGeometry()
-        x = anchor.x()
-        if self.collapsed:
-            x = anchor.x() + source.width() + 6
-        y = anchor.y() - picker.height() - 6
-        if available.isValid():
-            x = max(available.left() + 6,
-                    min(x, available.right() - picker.width() - 6))
-            if y < available.top() + 6:
-                y = anchor.y() + source.height() + 6
-            min_y = available.top() + 6
-            max_y = available.bottom() - picker.height() - 6
-            if max_y < min_y:
-                y = min_y
-            else:
-                y = max(min_y, min(y, max_y))
-        else:
-            # 连主屏都问不到时，至少把它压进屏幕左上角能看见的范围，
-            # 别让 x 也跟着锚点跑到屏幕外去
-            x = max(6, min(x, max(6, 1200 - picker.width() - 6)))
-            y = max(6, y)
-        picker.move(x, y)
-        picker.show()
-        self._picker = picker
+        return self.presentation_control.open_layout_picker()
 
     def _on_layout_chosen(self, layout_id: str) -> None:
-        self.set_layout_name(layout_id)
-        self.layoutChosen.emit(layout_id)
+        return self.presentation_control.on_layout_chosen(layout_id)
 
     def set_account(self, uname: str, pixmap=None, *, platform="bilibili", uid="") -> None:
         return self.account_control.set_account(uname, pixmap, platform=platform, uid=uid)
@@ -470,9 +420,7 @@ class Sidebar(QFrame):
 
     def set_room_face(self, room_id: str, pixmap) -> None:
         """某个主播的头像下载好了：头排那一张也换掉（横屏走列表，竖屏走头排）。"""
-        strip = getattr(self, "_head_strip", None)
-        if strip is not None:
-            strip.set_room_face(room_id, pixmap)
+        return self.items_control.set_room_face(room_id, pixmap)
 
     def account_menu(self) -> QMenu:
         """账号菜单：退出登录；放不进横栏的入口也在这里。
@@ -489,10 +437,7 @@ class Sidebar(QFrame):
     # ---- 竖屏横栏 ----
     def _on_strip_room(self, room_id: str) -> None:
         """点横栏里的头像 = 点列表里那一条（行为和横屏一致）。"""
-        item = next((entry for entry in self._items
-                     if str(entry.room.get("room_id")) == str(room_id)), None)
-        if item is not None:
-            self.roomSelected.emit(item.room)
+        return self.items_control.on_strip_room(room_id)
 
     # ---- 搜索过滤 ----
     def apply_filter(self, text: str) -> None:
@@ -601,38 +546,19 @@ class Sidebar(QFrame):
 
     def _focus_room_list(self) -> None:
         """回车：把焦点从搜索框让给列表，接着就能直接点选 / 拖动。"""
-        self.scroll.setFocus()
+        return self.presentation_control.focus_room_list()
 
     def refresh_strip(self) -> None:
         """把当前关注列表（连已经下载好的头像）同步到顶部横栏。"""
-        strip = getattr(self, "_head_strip", None)
-        if strip is None:
-            return
-        rooms = []
-        faces = {}
-        for item in self.visible_items():          # 过滤时头像排也跟着缩
-            room = dict(item.room)
-            rooms.append(room)
-            pixmap = item.thumb.face_pixmap()
-            if pixmap is not None:
-                faces[str(room.get("room_id") or "")] = pixmap
-        strip.set_rooms(rooms, faces, self._wall_room_ids)
+        return self.items_control.refresh_strip()
 
     def focus_search(self) -> None:
         """Ctrl+F：展开关注栏并把输入焦点交给搜索框。"""
-        if self.collapsed:
-            self.set_collapsed(False, animate=False)
-        self.search.setFocus(Qt.ShortcutFocusReason)
-        self.search.selectAll()
+        return self.presentation_control.focus_search()
 
     def set_wall_rooms(self, room_ids) -> None:
         """同步画面墙占用状态，供卡片和竖屏头像条显示蓝色标记。"""
-        ids = {str(room_id) for room_id in room_ids if str(room_id)}
-        if ids == self._wall_room_ids:
-            return
-        self._wall_room_ids = ids
-        self._refresh_wall_marks()
-        self.refresh_strip()
+        return self.items_control.set_wall_rooms(room_ids)
 
     def _refresh_wall_marks(self) -> None:
         """按当前的画面墙占用，重设每张卡片的蓝框。
@@ -642,8 +568,7 @@ class Sidebar(QFrame):
         两条路径一交叉，卡片就可能留着一个过期的蓝框（用户报的「刚加进关注栏就被
         标成已在画面墙」）。所以列表动过之后统一重设一遍，状态只有一个来源。
         """
-        for item in self._items:
-            item.set_on_wall(str(item.room.get("room_id") or "") in self._wall_room_ids)
+        return self.items_control.refresh_wall_marks()
 
     # ---- 收起 / 展开 ----
     def set_side(self, side: str) -> None:
@@ -799,59 +724,18 @@ class Sidebar(QFrame):
         return self.presentation_control.finish_collapse(target)
 
     def _refresh_visible_covers(self) -> None:
-        if self._collapse_animating:
-            return
-        for item in self._items:
-            if item.thumb._cover_dirty and not item.thumb.visibleRegion().isEmpty():
-                item.thumb.refresh_cover()
+        return self.items_control.refresh_visible_covers()
 
     def _set_pointer_hover(self, item) -> None:
-        previous = self._pointer_hover_item
-        self._pointer_hover_item = item
-        if previous is not None and previous is not item:
-            try:
-                previous._hover_leave_timer.stop()
-                if previous.property("hovered"):
-                    previous._set_hovered(False)
-                    previous.unhovered.emit(previous.room)
-            except RuntimeError:  # The previous row may have been removed.
-                pass
-        if item is not None:
-            item._hover_leave_timer.stop()
-            if not item.property("hovered"):
-                item._set_hovered(True)
-                item.hovered.emit(item.room)
+        return self.interaction_control.set_pointer_hover(item)
 
     def _sync_pointer_hover(self) -> None:
         # Native child windows can omit Enter as well as Leave. Hit-test once
         # for the whole visible list, including rows without a live preview.
-        item = None
-        viewport = self.scroll.viewport()
-        if (self.isVisible() and viewport.isVisible()
-                and not QApplication.activePopupWidget() and not QApplication.activeModalWidget()):
-            pointer = QCursor.pos()
-            if viewport.rect().contains(viewport.mapFromGlobal(pointer)):
-                child = self.list_box.childAt(self.list_box.mapFromGlobal(pointer))
-                while child is not None and child is not self.list_box:
-                    if isinstance(child, NavItem):
-                        item = child
-                        break
-                    child = child.parentWidget()
-        self._set_pointer_hover(item)
+        return self.interaction_control.sync_pointer_hover()
 
     def _prepare_drag_snapshot(self) -> None:
-        if self._drag_snapshot_ready or not self.isVisible():
-            return
-        if self.drag_session.active or QApplication.mouseButtons() != Qt.NoButton:
-            self._drag_snapshot_timer.start(100)
-            return
-        # Qt render() flushes pending move/resize events across the whole window,
-        # including hidden cards. Do this once after show, outside the first drag.
-        # Paint only one pixel without children; keep no stale card snapshot.
-        pixel = QPixmap(1, 1)
-        pixel.fill(Qt.transparent)
-        self.render(pixel, QPoint(), QRegion(QRect(0, 0, 1, 1)), QWidget.RenderFlag(0))
-        self._drag_snapshot_ready = True
+        return self.interaction_control.prepare_drag_snapshot()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -867,35 +751,19 @@ class Sidebar(QFrame):
 
     def set_card_mode(self, enabled: bool) -> None:
         """切换关注列表样式；侧栏收起时只记录选择，展开后再呈现。"""
-        enabled = bool(enabled)
-        if enabled == self.card_mode:
-            return
-        self.card_mode = enabled
-        for item in self._items:
-            item.thumb.stop()
-            item.set_card_mode(enabled)
-            item.set_portrait_strip(self.side == "top" and not enabled)
-        self.list_box.relayout(animate=False)
-        if self.side == "top" and self._bar_in_use:
-            self._sync_top_mode()
+        return self.items_control.set_card_mode(enabled)
 
     def set_compact_policy(self, card_mode: bool, auto_compact: bool,
                            compact_threshold: int) -> None:
         """保存用户偏好，并按当前关注数量决定实际使用哪种列表。"""
-        self.preferred_card_mode = bool(card_mode)
-        self.auto_compact = bool(auto_compact)
-        self.compact_threshold = max(2, int(compact_threshold))
-        self.set_card_mode(self._effective_card_mode())
+        return self.items_control.set_compact_policy(card_mode, auto_compact, compact_threshold)
 
     def set_compact_background(self, enabled: bool) -> None:
-        self.compact_background = bool(enabled)
-        for item in self._items:
-            item.thumb.set_compact_background(enabled)
+        return self.items_control.set_compact_background(enabled)
 
     def _effective_card_mode(self) -> bool:
         """横竖屏共用关注数量阈值，竖屏改为紧凑横向列表。"""
-        return self.preferred_card_mode and not (
-            self.auto_compact and len(self._items) >= self.compact_threshold)
+        return self.items_control.effective_card_mode()
 
     # ---- 批量选择 ----
     def set_select_mode(self, enabled: bool) -> None:
@@ -929,141 +797,41 @@ class Sidebar(QFrame):
 
     # ---- 列表维护 ----
     def select_room(self, room: dict) -> None:
-        room_id = str(room.get("room_id") or "")
-        for item in self._items:
-            item.set_selected(bool(room_id) and str(item.room.get("room_id") or "") == room_id)
+        return self.items_control.select_room(room)
 
     def _append_item(self, room: dict) -> NavItem:
-        item = NavItem(room, len(self._items), parent=self.list_box)
-        room_id = str(room.get("room_id"))
-        if room_id and room_id not in self.import_order:
-            self.import_order.append(room_id)     # 「导入顺序」排序用
-        if room_id and room_id not in self.custom_order:
-            self.custom_order.append(room_id)     # 新加的房间先排在自定义顺序最后
-        item.drop_host = self                 # 列表内部拖动排序
-        item.clicked.connect(self.roomSelected.emit)
-        item.addRequested.connect(self.addToWallRequested.emit)
-        item.removeRequested.connect(self.removeRequested.emit)
-        item.openBrowserRequested.connect(self.openBrowserRequested.emit)
-        item.checkedChanged.connect(self._update_batch_label)
-        item.pinToggled.connect(self.toggle_pin)
-        item.hovered.connect(self.previewHovered.emit)
-        item.unhovered.connect(self.previewUnhovered.emit)
-        item.set_card_mode(self.card_mode)
-        item.thumb.set_compact_background(self.compact_background)
-        item.set_portrait_strip(self.side == "top" and not self.card_mode)
-        item.set_on_wall(room_id in self._wall_room_ids)
-        item.set_select_mode(self.select_mode)
-        self._items.append(item)
-        item_height = NAV_ITEM_HEIGHT if self.card_mode else NAV_LIST_ITEM_HEIGHT
-        item.resize(self.list_box.width(), item_height)
-        item.show()
-        return item
+        return self.items_control.append_item(room, item_type=NavItem)
 
     def add_room(self, room: dict) -> bool:
-        return bool(self.add_rooms([room]))
+        return self.items_control.add_room(room)
 
     def add_rooms(self, rooms: list[dict]) -> list[dict]:
-        known = {str(item.room.get("room_id")) for item in self._items}
-        added = []
-        for room in rooms:
-            room_id = str(room.get("room_id"))
-            if room_id in known:
-                continue
-            known.add(room_id)
-            self._folder_pending.add(room_id)
-            self._append_item(room)
-            added.append(room)
-        if not added:
-            return []
-        self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
-                                self.compact_threshold)
-        # 新控件初始坐标是 (0, 0)，必须立即排版，否则会压在第一项上，
-        # 直到用户拖动列表才恢复。
-        self.resort(animate=False)
-        self._sync_count()
-        self._refresh_wall_marks()      # 新卡片的蓝框按当前墙面重设一次
-        self.refresh_strip()
-        if self.isVisible() and motion.enabled():
-            self._entering_room_ids.update(str(room["room_id"]) for room in added)
-            self._card_entry_timer.start(0)
-        return added
+        return self.items_control.add_rooms(rooms)
 
     def _reveal_added_rooms(self) -> None:
         """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
-        entering = {item for item in self._items
-                    if str(item.room.get("room_id")) in self._entering_room_ids}
-        self._entering_room_ids.clear()
-        if entering and self.isVisible() and motion.enabled():
-            self.list_box.relayout(animate=True, duration=220, revealing=entering)
+        return self.items_control.reveal_added_rooms()
 
     def remove_room(self, room: dict) -> None:
-        item = next((entry for entry in self._items
-                     if str(entry.room.get("room_id")) == str(room.get("room_id"))), None)
-        if item is None:
-            return
-        item.hide()
-        item.drop_live_alert()
-        item.thumb.stop()               # 缩略图里可能正在放预览
-        item.thumb.release_player()
-        item.setParent(None)
-        item.deleteLater()
-        self._items.remove(item)
-        room_id = str(room.get("room_id"))
-        self._folder_pending.discard(room_id)
-        for folder in self.folders:
-            if room_id in folder["rooms"]:
-                folder["rooms"].remove(room_id)
-        self._sort_selected_ids.discard(room_id)
-        if self._sort_anchor == room_id:
-            self._sort_anchor = None
-        if room_id in self.import_order:
-            self.import_order.remove(room_id)
-        if room_id in self.custom_order:
-            self.custom_order.remove(room_id)
-        self.set_compact_policy(self.preferred_card_mode, self.auto_compact,
-                                self.compact_threshold)
-        self.refresh_filter()
-        self._sync_count()
-        self._refresh_wall_marks()      # 删完也重设一次，蓝框状态别留旧账
-        self.refresh_strip()
+        return self.items_control.remove_room(room)
 
     def rooms(self) -> list[dict]:
-        return [item.room for item in self._items]
+        return self.items_control.rooms()
 
     def items(self) -> list[NavItem]:
-        return list(self._items)
+        return self.items_control.items()
 
     def drop_index_at(self, global_pos) -> int:
         """全局坐标 -> 列表里的落点下标（给 NavItem 转发拖动用）。"""
-        local = self.list_box.mapFromGlobal(global_pos)
-        return self.list_box.index_at(local.x() if self.list_box.horizontal
-                                      else local.y())
+        return self.interaction_control.drop_index_at(global_pos)
 
     def hover_drag(self, room_id: str, global_pos) -> None:
         """拖动过程中：贴近边缘自动滚，并在落点让出一格。"""
-        # 自动滚吃**全局坐标**（它内部按视口算边界）；落点下标要的是**内容坐标**
-        # —— 以前把两者混成同一个变量，往下滚就永远触发不了。
-        self.list_box.auto_scroll(global_pos)
-        local = self.list_box.mapFromGlobal(global_pos)
-        along = local.x() if self.list_box.horizontal else local.y()
-        self.show_drop_indicator(room_id, self.list_box.index_at(along))
+        return self.interaction_control.hover_drag(room_id, global_pos)
 
     def finish_drag(self, room_id: str, global_pos) -> None:
         """松手时结算：鼠标还在列表里就按落点排序，否则只把卡片放回去。"""
-        self.list_box.set_scroll_dir(0)
-        local = self.list_box.mapFromGlobal(global_pos)
-        inside = (0 <= local.x() <= self.list_box.width()
-                  and 0 <= local.y() <= self.list_box.height())
-        if inside:
-            for folder_id, button in self._folder_buttons.items():
-                if not button.isHidden() and button.geometry().contains(local):
-                    self.move_to_folder(self.dragged_room_ids(room_id), folder_id)
-                    return
-            along = local.x() if self.list_box.horizontal else local.y()
-            self.reorder_items(self.dragged_room_ids(room_id),
-                               self._full_drop_index(self.list_box.index_at(along)))
-        self.list_box.relayout(animate=True)
+        return self.interaction_control.finish_drag(room_id, global_pos)
 
     # ---- 拖动排序 ----
     def _full_drop_index(self, visible_index: int) -> int:
@@ -1076,20 +844,11 @@ class Sidebar(QFrame):
 
     def show_drop_indicator(self, room_id: str | None, drop_index: int) -> None:
         """拖动中：选中卡片藏起来，其余卡片让出整组空位。"""
-        if not room_id:
-            self.list_box.relayout(animate=True)
-            return
-        moving = set(self.dragged_room_ids(room_id))
-        items = self._reordered_items(list(moving), self._full_drop_index(drop_index))
-        preview = self.folder_entries(items, moving) if self.folders else [
-            None if str(item.room.get("room_id")) in moving else item
-            for item in items if not item.filtered_out]
-        self.list_box.relayout(animate=True, preview_order=preview, dragging_ids=moving)
+        return self.interaction_control.show_drop_indicator(room_id, drop_index)
 
     def end_drag(self) -> None:
         """拖动结束（放下或者取消）：所有卡片恢复显示并归位。"""
-        self.list_box.set_scroll_dir(0)
-        self.list_box.relayout(animate=True)
+        return self.interaction_control.end_drag()
 
     def reorder_item(self, room_id: str, drop_index: int) -> bool:
         return self.sort_control.reorder_item(room_id, drop_index)
@@ -1146,45 +905,17 @@ class Sidebar(QFrame):
         该在的位置；动效放到下一个事件循环里播，那时卡片已经就位，水滴和气泡
         才会落在卡片身上，而不是留在它挪走之前的那一行。
         """
-        pending = [item for item in items if item is not None]
-        if not pending:
-            return
-        QTimer.singleShot(0, lambda: self._play_live_alerts_now(pending))
+        return self.items_control.play_live_alerts(items)
 
     @staticmethod
     def _play_live_alerts_now(items: list) -> None:
-        for item in items:
-            if item.parentWidget() is None:      # 已经不在列表里了
-                continue
-            item.play_live_alert()
-            print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
+        return SidebarItems.play_live_alerts_now(items)
 
     def toggle_pin(self, room: dict) -> None:
         return self.sort_control.toggle_pin(room)
 
     def _sync_count(self) -> None:
-        platforms = {str(item.room.get("room_id", "")).split(":", 1)[0]
-                     if ":" in str(item.room.get("room_id", "")) else "bilibili"
-                     for item in self._items}
-        for item in self._items:
-            show = len(platforms) > 1 and getattr(self, "show_platform_logos", True)
-            changed = item.platform_badge.property("showPlatform") != show
-            if changed:
-                item.platform_badge.setProperty("showPlatform", show)
-            item.platform_badge.setVisible(show and not item.thumb.video.isVisible())
-            if changed:
-                item.thumb._layout_overlay()
-        shown = len(self.visible_items())
-        if self.filter_text:
-            # 搜索时把「露出来几路 / 一共几路」都写上，免得以为关注丢了
-            self.count_label.setText(f"关注中 · {shown} / {len(self._items)}")
-        else:
-            self.count_label.setText(f"关注中 · {len(self._items)}")
-        if hasattr(self, 'navigation'):
-            self.navigation.sync_count()
+        return self.items_control.sync_count()
 
     def set_refreshing(self, busy: bool) -> None:
-        self.refresh_button.setEnabled(True)
-        self.refresh_button.set_refreshing(busy)
-        self.refresh_button.setToolTip(
-            "正在刷新关注列表…再次点击可排队刷新" if busy else "立刻刷新关注列表：直播状态、标题、在线人数、头像")
+        return self.items_control.set_refreshing(busy)
