@@ -8,6 +8,7 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.app import MainWindow
+from ddm.stream_playback import StreamPlayback
 
 
 class Tile:
@@ -24,6 +25,7 @@ tiles = [Tile(str(i), i == 1) for i in range(5)]
 host = SimpleNamespace(players={t: object() for t in tiles}, _resolvers={}, _retry_timers={},
                        _pending_capture={tiles[4]: object()}, recorder=SimpleNamespace(sessions={tiles[3]: object()}),
                        _closing=False, start_tile=Mock(), _stop_tile=Mock())
+host.stream_playback = StreamPlayback(host)
 host._match_sync_holds = lambda tile: MainWindow._match_sync_holds(host, tile)
 MainWindow.set_match_sync_playback(host, True)
 assert host._stop_tile.call_count == 3

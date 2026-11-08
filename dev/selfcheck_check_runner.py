@@ -114,7 +114,7 @@ if __name__ == '__main__':
             'selfcheck_widget_modules', 'selfcheck_dialog_modules', 'selfcheck_wall_border', 'selfcheck_responsiveness',
             'selfcheck_startup_scroll_diagnostics',
             'selfcheck_hotfix_updates', 'selfcheck_app_updates',
-            'selfcheck_player_lifetime', 'selfcheck_playback_recovery',
+            'selfcheck_player_lifetime', 'selfcheck_playback_recovery', 'selfcheck_stream_playback',
             'selfcheck_main_notices', 'selfcheck_widget_lifetime',
             'selfcheck_notification_center', 'selfcheck_layout_16',
             'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort',
