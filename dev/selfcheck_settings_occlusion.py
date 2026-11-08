@@ -1,4 +1,4 @@
-"""Cross-process settings clipping; isolated data and screen-off native windows."""
+"""Native settings occlusion and clipping fallback; isolated screen-off windows."""
 import json
 import ctypes
 from ctypes import wintypes
@@ -97,16 +97,21 @@ def main():
                 return True
         return False
 
-    def native_clip_excludes_settings(layer, client):
-        overlay, settings = wintypes.RECT(), wintypes.RECT()
+    def native_mask_covers_settings(layer, client, expected=True):
+        overlay = wintypes.RECT()
         assert user32.GetWindowRect(int(layer.window.winId()), ctypes.byref(overlay))
-        assert user32.GetWindowRect(client.window_hwnd, ctypes.byref(settings))
+        # The mask is submitted in logical window coordinates; GetWindowRgn
+        # reports physical client coordinates, including for screen-off windows.
+        point = layer.window.mapFromGlobal(client.occlusion.center())
+        scale = layer.window.devicePixelRatio()
+        x, y = round(point.x() * scale), round(point.y() * scale)
+        assert 0 <= x < overlay.right - overlay.left
+        assert 0 <= y < overlay.bottom - overlay.top
         region = gdi32.CreateRectRgn(0, 0, 0, 0)
         try:
             assert user32.GetWindowRgn(int(layer.window.winId()), region)
-            assert not gdi32.PtInRegion(region,
-                (settings.left + settings.right) // 2 - overlay.left,
-                (settings.top + settings.bottom) // 2 - overlay.top)
+            actual = bool(gdi32.PtInRegion(region, x, y))
+            assert actual == expected, (actual, expected, x, y, scale)
         finally:
             gdi32.DeleteObject(region)
     with tempfile.TemporaryDirectory() as temporary, \
@@ -181,8 +186,22 @@ def main():
                             assert not user32.GetWindowLongW(client.window_hwnd, -20) & 8
                             centre = client.occlusion.center() - origin
                             assert window.wall.rect().contains(centre)
-                            assert not layer.window.mask().contains(centre), stage
-                            native_clip_excludes_settings(layer, client)
+                            assert layer.window.mask().contains(centre), \
+                                'Native ordering must avoid a delayed settings-shaped hole'
+                            native_mask_covers_settings(layer, client)
+                            with patch.object(user32, 'SetWindowPos', return_value=0):
+                                assert not client.stack_overlay_below(layer.window)
+                                assert layer._update_occlusion()
+                                assert not layer.window.mask().contains(centre), \
+                                    'Failed native ordering must retain the clipping fallback'
+                                native_mask_covers_settings(layer, client, False)
+                            layer.show()
+                            # A delayed cross-process rectangle must not leave a hole
+                            # where settings was before its latest native move.
+                            with patch.object(client, 'occlusion', client.occlusion.translated(70, 40)):
+                                layer.show()
+                                assert layer.window.mask().contains(centre)
+                                assert above(client.window_hwnd, int(layer.window.winId()))
                             if previous is not None:
                                 assert client.occlusion != previous, stage
                             previous = QRect(client.occlusion) if stage in ('shown', 'moved') else None
@@ -193,14 +212,15 @@ def main():
                     layer._restore_surface()
                     app.processEvents()
                     assert above(client.window_hwnd, int(layer.window.winId()))
-                    native_clip_excludes_settings(layer, client)
-                    # Fullscreen uses a different canvas origin; retain the same hole/order.
+                    native_mask_covers_settings(layer, client)
+                    # Fullscreen uses a different canvas origin; retain native ordering.
                     tile = window.wall.tiles[0]
                     tile.setGeometry(20, 30, 1400, 1000)
                     layer.set_presentation_window(tile)
                     layer.show()
+                    wait(app, lambda: not layer.window._move_regions)
                     centre = client.occlusion.center() - tile.mapToGlobal(QPoint())
-                    assert not layer.window.mask().contains(centre)
+                    assert layer.window.mask().contains(centre)
                     assert above(client.window_hwnd, int(layer.window.winId()))
                     layer.set_presentation_window(None)
                     if ending == 'cancel':
@@ -221,7 +241,7 @@ def main():
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
             window.close()
             app.processEvents()
-    print('PASS: cross-process settings mask follows show/move/resize/hide/minimize, fullscreen, reopen and termination')
+    print('PASS: native settings occlusion avoids delayed holes; clipping fallback, fullscreen, reopen and termination preserved')
     return 0
 
 

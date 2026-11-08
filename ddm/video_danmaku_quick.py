@@ -412,7 +412,11 @@ class QuickDanmakuLayer(QObject):
             geometry = widget.frameGeometry()
             region -= QRegion(QRect(geometry.topLeft() - origin, geometry.size()))
         settings = getattr(owner, '_settings_process', None)
-        if settings is not None and not settings.occlusion.isEmpty():
+        # Native stacking reveals comments in sync with settings movement.
+        # Keep rectangle clipping only when that ordering cannot be established:
+        # cross-process rectangles can trail the actual window by several frames.
+        if (settings is not None and not settings.occlusion.isEmpty()
+                and not settings.stack_overlay_below(self.window)):
             region -= QRegion(settings.occlusion.translated(-origin))
         self.window.setMask(region)
         return not region.isEmpty()
