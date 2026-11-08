@@ -20,6 +20,9 @@ from .skin_preview import SkinPreview
 
 from .super_chat_model import (DEFAULT_DURATION, SC_PRICE_TIERS, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, SC_BODY_PADDING, super_chat_palette, _text, _number, _hosted_asset_url, normalize, SuperChatStore, order_super_chats, format_price, remaining_seconds, format_remaining)
 
-from .super_chat_presentation import (sc_message_document, sc_card_height, sc_card_geometry, sc_placement_rects, sc_stack_rects, SuperChatPresentation, SuperChatPlacementPreview, SuperChatAvatar, paint_sc_avatar, paint_sc_background, readable_text_color)
+from .super_chat_layout import sc_message_document, sc_card_height, sc_card_geometry, sc_placement_rects, sc_stack_rects, paint_sc_background, readable_text_color
+from .super_chat_animation import SuperChatPresentation
+from .super_chat_preview import SuperChatPlacementPreview
+from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 
 from .super_chat_api import (SUPER_CHAT_API, snapshot_events, SuperChatSnapshot)

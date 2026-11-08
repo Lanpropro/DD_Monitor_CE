@@ -346,6 +346,27 @@ class FunctionalModulesTests(unittest.TestCase):
         with patch.object(config, 'DEFAULT_VOLUME', 29):
             self.assertEqual(config.build_rooms({'wall': [{}]})[1][0]['volume'], 29)
 
+    def test_super_chat_preview_resources_and_deadlines_have_separate_owners(self):
+        from ddm import super_chat_presentation as legacy, super_chat_layout as layout
+        from ddm.super_chat_animation import SuperChatPresentation
+        from ddm.super_chat_avatar import SuperChatAvatar
+        from ddm.super_chat_preview import SuperChatPlacementPreview
+        from PySide6.QtWidgets import QWidget
+        owner = QWidget()
+        self.widgets.append(owner)
+        presentation = SuperChatPresentation(owner)
+        avatar = SuperChatAvatar(owner)
+        self.assertIs(presentation.parent(), owner)
+        self.assertIs(presentation.timer.parent(), presentation)
+        self.assertIs(presentation.entrance.parent(), presentation)
+        self.assertIs(avatar.parent(), owner)
+        self.assertIs(legacy.SuperChatPresentation, SuperChatPresentation)
+        self.assertIs(legacy.SuperChatAvatar, SuperChatAvatar)
+        self.assertIs(legacy.SuperChatPlacementPreview, SuperChatPlacementPreview)
+        self.assertIs(legacy.sc_placement_rects, layout.sc_placement_rects)
+        self.child("import sys; import ddm.super_chat_preview; "
+            "assert not {'ddm.super_chat_presentation','ddm.super_chat_avatar','ddm.super_chat_animation'}.intersection(sys.modules)")
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:

@@ -760,3 +760,5 @@ B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili
 登录边界：`bili_login_worker.py`、`oauth_worker.py`、`platform_follow_worker.py` 分别持有扫码、OAuth、平台关注协议工作线程；原 login/oauth_login/platform_login 保留具体登录界面及旧工厂。`platform_profiles.py` 统一持有浏览器 profile 注册表与退出清理，原模块只是同一字典的兼容引用。
 
 房间细分：`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。
+
+SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_chat_animation.py` 为运行时展开/折叠期限，`super_chat_avatar.py` 为头像资源与绘制，`super_chat_preview.py` 为设置预览与位置编辑。原 super_chat_presentation 保留兼容导出，项目内部按实际职责导入，QObject/定时器父对象不变。
