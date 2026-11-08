@@ -4,7 +4,7 @@ import sys
 
 from PySide6.QtCore import QPoint, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import (
-    QActionGroup, QCursor, QKeySequence, QPainter, QPen, QPixmap, QRegion, QShortcut
+    QCursor, QKeySequence, QPainter, QPen, QPixmap, QRegion, QShortcut
 )
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
@@ -23,13 +23,15 @@ from .sidebar_folders import FollowFolderButton, SmartFolderCard, SmartFolderDia
 from .sidebar_drag import SidebarDrag
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
 from .ui.toolbar import BarIconButton
-from .watch_history import SORT_TIP, WatchHistory
+from .watch_history import WatchHistory
 from .widget_support import (
     BRAND_ASSETS_DIR, NAV_ITEM_GAP, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, _repolish
 )
 from .workspace_controls import WorkspaceControls
 from .sidebar_filter import SidebarFilter
 from .sidebar_folder_control import SidebarFolderControl
+from .sidebar_selection import SidebarSelection
+from .sidebar_sort import SidebarSort
 
 
 class AppearanceButton(QPushButton):
@@ -109,6 +111,8 @@ class Sidebar(QFrame):
         super().__init__(parent)
         self.folder_control = SidebarFolderControl(self)
         self.filter_control = SidebarFilter(self)
+        self.selection_control = SidebarSelection(self)
+        self.sort_control = SidebarSort(self)
         self.setObjectName("Sidebar")
         self.setFixedWidth(theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self._items: list[NavItem] = []
@@ -1150,11 +1154,7 @@ class Sidebar(QFrame):
         return not self.select_mode
 
     def _sync_selection_controls(self):
-        self.account_row.setVisible(self._account_row_should_show())
-        self.tool_row.setVisible(self.side == 'top' and not self.select_mode and not self.collapsed)
-        self.normal_bar.hide()
-        if self.select_mode and self.side == 'top':
-            self._bar_right.hide()
+        return self.selection_control.sync_selection_controls()
 
     def _sync_account_row_shape(self) -> None:
         """账号条的形状跟着「横屏/竖屏 + 收起/展开」走。
@@ -1503,89 +1503,33 @@ class Sidebar(QFrame):
 
     # ---- 批量选择 ----
     def set_select_mode(self, enabled: bool) -> None:
-        self.select_mode = enabled
-        if enabled:
-            self.clear_sort_selection()
-        self.batch_button.setChecked(enabled)
-        if enabled and self.filter_text:
-            # 进多选就把搜索清掉：藏起来的条目也还在「已选」里，批量删太危险
-            self.search.clear()
-        # 竖屏时 batch_bar 被借到横栏第一行里（见 _adopt_bar_row），
-        # 露不露由 _sync_top_mode 统一决定，这里只管横屏那一列。
-        if self.side != "top":
-            self.batch_bar.setVisible(enabled and not self.collapsed)
-            self.normal_bar.setVisible(not enabled and not self.collapsed)
-        else:
-            self._sync_top_mode()
-        for item in self._items:
-            item.set_select_mode(enabled and not self.collapsed)
-        self._sync_selection_controls()
-        self._update_batch_label()
+        return self.selection_control.set_select_mode(enabled)
 
     def _update_batch_label(self) -> None:
-        count = sum(1 for item in self._items if item.is_checked())
-        self.batch_label.setText(f"已选 {count} 个")
-        self._sync_sort_selection()
+        return self.selection_control.update_batch_label()
 
     def _emit_delete(self) -> None:
-        chosen = [item.room for item in self._items if item.is_checked()]
-        if chosen:
-            self.deleteRequested.emit(chosen)
-        self.set_select_mode(False)
+        return self.selection_control.emit_delete()
 
     def selected_sort_ids(self) -> list[str]:
-        if self.select_mode:
-            return [str(item.room.get("room_id")) for item in self._items
-                    if item.is_checked() and not item.filtered_out]
-        return [str(item.room.get("room_id")) for item in self._items
-                if str(item.room.get("room_id")) in self._sort_selected_ids]
+        return self.selection_control.selected_sort_ids()
 
     def _sync_sort_selection(self) -> None:
-        selected = set() if self.select_mode else set(self.selected_sort_ids())
-        for item in self._items:
-            item.set_sort_selected(str(item.room.get("room_id")) in selected)
+        return self.selection_control.sync_sort_selection()
 
     def clear_sort_selection(self) -> None:
-        if self._sort_selected_ids:
-            self._sort_selected_ids.clear()
-            self._sync_sort_selection()
-        self._sort_anchor = None
+        return self.selection_control.clear_sort_selection()
 
     def select_sort_item(self, room_id: str, modifiers) -> None:
         """Ctrl 增减选择，Shift 选一段；普通点击回到单卡片操作。"""
-        room_id = str(room_id)
-        if modifiers & Qt.ShiftModifier:
-            visible = [str(item.room.get("room_id")) for item in self.visible_items()]
-            if self._sort_anchor in visible and room_id in visible:
-                start, end = sorted((visible.index(self._sort_anchor), visible.index(room_id)))
-                chosen = set(visible[start:end + 1])
-            else:
-                chosen = {room_id}
-            self._sort_selected_ids = (self._sort_selected_ids | chosen
-                                       if modifiers & Qt.ControlModifier else chosen)
-        elif modifiers & Qt.ControlModifier:
-            if room_id in self._sort_selected_ids:
-                self._sort_selected_ids.remove(room_id)
-            else:
-                self._sort_selected_ids.add(room_id)
-            self._sort_anchor = room_id
-        else:
-            self._sort_selected_ids.clear()
-            self._sort_anchor = room_id
-        self._sync_sort_selection()
+        return self.selection_control.select_sort_item(room_id, modifiers)
 
     def dragged_room_ids(self, room_id: str) -> list[str]:
         """从选中卡片拖动时带上整组；拖动未选中的卡片则只移动它。"""
-        room_id = str(room_id)
-        if room_id in self.selected_sort_ids():
-            return self.selected_sort_ids()
-        if not self.select_mode:
-            self.clear_sort_selection()
-        return [room_id]
+        return self.selection_control.dragged_room_ids(room_id)
 
     def move_sort_selection(self, room_id: str, to_front: bool) -> bool:
-        return self.reorder_items(self.dragged_room_ids(room_id),
-                                  0 if to_front else len(self._items))
+        return self.selection_control.move_sort_selection(room_id, to_front)
 
     # ---- 列表维护 ----
     def select_room(self, room: dict) -> None:
@@ -1728,31 +1672,11 @@ class Sidebar(QFrame):
     # ---- 拖动排序 ----
     def _full_drop_index(self, visible_index: int) -> int:
         """搜索过滤时把屏幕上的落点换算为完整列表下标。"""
-        visible = self.visible_items()
-        if not visible:
-            return len(self._items)
-        if visible_index >= len(visible):
-            return self._items.index(visible[-1]) + 1
-        return self._items.index(visible[max(0, visible_index)])
+        return self.sort_control.full_drop_index(visible_index)
 
     def _reordered_items(self, room_ids: list[str], drop_index: int) -> list[NavItem]:
         """将选中项作为一组移动；置顶和普通项分别留在自己的区域。"""
-        moving = set(room_ids)
-        result = []
-        groups = [[item for item in self._items if item.is_pinned == pinned
-                   and self.folder_for(str(item.room.get("room_id"))) == folder["id"]]
-                  for folder in self.folders for pinned in (True, False)]
-        for group in groups:
-            start = self._items.index(group[0]) if group else 0
-            target = max(0, min(drop_index - start, len(group)))
-            before = sum(str(item.room.get("room_id")) not in moving
-                         for item in group[:target])
-            remaining = [item for item in group
-                         if str(item.room.get("room_id")) not in moving]
-            selected = [item for item in group
-                        if str(item.room.get("room_id")) in moving]
-            result.extend(remaining[:before] + selected + remaining[before:])
-        return result
+        return self.sort_control.reordered_items(room_ids, drop_index)
 
     def show_drop_indicator(self, room_id: str | None, drop_index: int) -> None:
         """拖动中：选中卡片藏起来，其余卡片让出整组空位。"""
@@ -1772,157 +1696,52 @@ class Sidebar(QFrame):
         self.list_box.relayout(animate=True)
 
     def reorder_item(self, room_id: str, drop_index: int) -> bool:
-        return self.reorder_items([str(room_id)], drop_index)
+        return self.sort_control.reorder_item(room_id, drop_index)
 
     def reorder_items(self, room_ids: list[str], drop_index: int) -> bool:
         """按当前顺序整体移动卡片，并立即保存自定义顺序。"""
-        known = {str(item.room.get("room_id")) for item in self._items}
-        if not known.intersection(room_ids):
-            return False
-        items = self._reordered_items(room_ids, drop_index)
-        if [str(entry.room.get("room_id")) for entry in items] == \
-                [str(entry.room.get("room_id")) for entry in self._items]:
-            return False
-        pinned_before = list(self.pinned)
-        self._items = items
-        self.pinned = [str(entry.room.get("room_id")) for entry in items if entry.is_pinned]
-        changed_folders = {self.folder_for(rid) for rid in room_ids}
-        for folder in self.folders:
-            if folder["id"] in changed_folders:
-                self._remember_folder_order(folder["id"])
-                folder["sort"] = "custom"
-        self.sort_mode = self.default_folder()["sort"]
-        self._sync_watch_history_mode()
-        self.list_box.relayout(animate=True)
-        self.refresh_strip()
-        if self.pinned != pinned_before:
-            self.pinChanged.emit(list(self.pinned))
-        self.orderChanged.emit()
-        return True
+        return self.sort_control.reorder_items(room_ids, drop_index)
 
     # ---- 置顶 ----
     def apply_pins(self, pinned: list) -> None:
         """置顶的先显示在前面（顺序按置顶列表）。"""
-        self.pinned = [str(item) for item in pinned]
-        for item in self._items:
-            item.set_pinned(str(item.room.get("room_id")) in self.pinned)
-        self.resort(animate=False)
+        return self.sort_control.apply_pins(pinned)
 
     # ---- 排序 ----
     def _sync_watch_history_mode(self, *, refresh=False):
-        current = {folder["id"] for folder in self.folders if folder["sort"] == "frequent"}
-        self.watch_history.set_enabled(bool(current))
-        if refresh or current - self._frequent_folders:
-            self._frequent_scores = self.watch_history.scores()
-        self._frequent_folders = current
+        return self.sort_control.sync_watch_history_mode(refresh=refresh)
 
     def refresh_frequent_order(self):
-        self._frequent_scores = self.watch_history.scores()
-        self.resort(animate=False)
+        return self.sort_control.refresh_frequent_order()
 
     def add_folder_sort_menu(self, menu, folder) -> None:
-        menu.setToolTipsVisible(True)
-        group = QActionGroup(menu)
-        group.setExclusive(True)
-        for mode, label in self.SORT_MODES:
-            action = menu.addAction(label)
-            action.setCheckable(True)
-            action.setChecked(mode == folder["sort"])
-            if mode == "frequent":
-                action.setToolTip(SORT_TIP)
-            action.triggered.connect(lambda _checked=False, value=mode, fid=folder["id"]:
-                                     self.set_folder_sort(fid, value))
-            group.addAction(action)
-        menu.addSeparator()
-        menu.addAction("固定当前显示顺序").triggered.connect(
-            lambda: self.freeze_current_order(folder["id"]))
+        return self.sort_control.add_folder_sort_menu(menu, folder)
 
     def freeze_current_order(self, folder_id="") -> None:
         """把当前看到的顺序保存为自定义顺序。"""
-        folder_id = folder_id or self.default_folder()["id"]
-        self._remember_folder_order(folder_id)
-        self.set_folder_sort(folder_id, "custom")
+        return self.sort_control.freeze_current_order(folder_id)
 
     def _remember_folder_order(self, folder_id: str) -> None:
-        current = [str(item.room.get("room_id")) for item in self._items
-                   if self.folder_for(str(item.room.get("room_id"))) == folder_id]
-        ordered = iter(current)
-        self.custom_order = [next(ordered) if rid in current else rid for rid in self.custom_order]
+        return self.sort_control.remember_folder_order(folder_id)
 
     def set_folder_sort(self, folder_id: str, mode: str, notify=True) -> None:
-        folder = self.get_folder(folder_id)
-        if folder is None:
-            return
-        folder["sort"] = mode if mode in dict(self.SORT_MODES) else "custom"
-        self._sync_watch_history_mode(refresh=mode == "frequent")
-        self.resort(animate=False)
-        if notify:
-            self.foldersChanged.emit()
+        return self.sort_control.set_folder_sort(folder_id, mode, notify)
 
     def set_sort_mode(self, mode: str, notify: bool = True) -> None:
         """切排序方式：自定义 / 开播优先 / 导入顺序。"""
-        if mode not in dict(self.SORT_MODES):
-            mode = "custom"
-        self.sort_mode = mode
-        self.set_folder_sort(self.default_folder()["id"], mode, notify=False)
-        if notify:
-            self.sortChanged.emit(mode)
+        return self.sort_control.set_sort_mode(mode, notify)
 
     def set_import_order(self, order: list | None) -> None:
         """导入顺序（配置里存的）；没存过就按当前列表顺序算。"""
-        known = [str(item) for item in (order or [])]
-        for item in self._items:
-            room_id = str(item.room.get("room_id"))
-            if room_id not in known:
-                known.append(room_id)
-        self.import_order = known
-        self.resort(animate=False)
+        return self.sort_control.set_import_order(order)
 
     def set_custom_order(self, order: list | None) -> None:
         """自定义顺序（配置里存的）；没存过的房间按当前列表顺序补在后面。"""
-        known = list(dict.fromkeys(str(entry) for entry in (order or [])))
-        for item in self._items:
-            room_id = str(item.room.get("room_id"))
-            if room_id not in known:
-                known.append(room_id)
-        present = {str(item.room.get("room_id")) for item in self._items}
-        self.custom_order = [room_id for room_id in known if room_id in present]
-        self.resort(animate=False)
+        return self.sort_control.set_custom_order(order)
 
     def resort(self, animate: bool = False, *, duration=150, revealing=(), viewport_only=False) -> None:
         """每个文件夹独立排序，置顶只作用于所在文件夹。"""
-        self.sort_mode = self.default_folder()["sort"]
-        self._folder_assignments = follow_folders.assign_folders(
-            self.rooms(), self.folders, self._folder_pending)
-        pinned_ids = list(self.pinned)
-        ordered = []
-        for folder in self.folders:
-            members = [item for item in self._items
-                       if self.folder_for(str(item.room.get("room_id"))) == folder["id"]]
-            pinned = [item for rid in pinned_ids for item in members if str(item.room.get("room_id")) == rid]
-            rest = [item for item in members if str(item.room.get("room_id")) not in pinned_ids]
-            order = self.import_order if folder["sort"] == "imported" else self.custom_order
-            position = {rid: index for index, rid in enumerate(order)}
-            def key(item):
-                index = position.get(str(item.room.get("room_id")), len(position))
-                if folder["sort"] == "frequent":
-                    return (not bool(item.room.get("live")),
-                            -self._frequent_scores.get(str(item.room.get("room_id")), 0), index)
-                if folder["sort"] in ("live", "offline"):
-                    return (bool(item.room.get("live")) != (folder["sort"] == "live"), index)
-                if folder["sort"] == "name":
-                    return (str(item.room.get("uname") or "").casefold(), index)
-                return index
-            rest.sort(key=key)
-            ordered.extend(pinned + rest)
-        self._items = ordered
-        # 先按搜索词重算谁该藏起来，再摆位置 —— 顺序反了会留下「藏起来的还占位」
-        self._apply_filter_marks()
-        self.list_box.relayout(animate=animate, duration=duration, revealing=revealing,
-                              viewport_only=viewport_only)
-        self._sync_count()             # 过滤时这里写成「露出来几路 / 一共几路」
-        # 顺手把顶部横栏那一排头像也刷新：竖屏下它就是关注列表
-        self.refresh_strip()
+        return self.sort_control.resort(animate, duration=duration, revealing=revealing, viewport_only=viewport_only)
 
     def play_live_alerts(self, items: list) -> None:
         """重排之后再播开播动效。
@@ -1945,13 +1764,7 @@ class Sidebar(QFrame):
             print(f"[开播提醒] {item.room.get('uname')}", file=sys.stderr, flush=True)
 
     def toggle_pin(self, room: dict) -> None:
-        room_id = str(room.get("room_id"))
-        if room_id in self.pinned:
-            self.pinned.remove(room_id)
-        else:
-            self.pinned.append(room_id)
-        self.apply_pins(self.pinned)
-        self.pinChanged.emit(list(self.pinned))
+        return self.sort_control.toggle_pin(room)
 
     def _sync_count(self) -> None:
         platforms = {str(item.room.get("room_id", "")).split(":", 1)[0]
