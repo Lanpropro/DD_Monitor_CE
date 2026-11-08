@@ -222,7 +222,8 @@ def run_worker():
     from PySide6.QtGui import QIcon, QWindow
     from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QVBoxLayout, QWidget
     from . import config, theme
-    from .dialogs import SettingsDialog, SHORTCUT_ACTIONS
+    from .dialogs import SettingsDialog
+    from .shortcut_actions import SHORTCUT_ACTIONS
 
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)

@@ -40,9 +40,10 @@ from .super_chat import SuperChatSnapshot, SuperChatStore
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
-from .dialogs import (
-    SHORTCUT_ACTIONS, AddRoomDialog, CodecSettingsDialog, SettingsDialog,
-)
+from .dialogs import SettingsDialog
+from .room_dialogs import AddRoomDialog
+from .settings_general import CodecSettingsDialog
+from .shortcut_actions import SHORTCUT_ACTIONS
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
 from . import player as player_module

@@ -19,6 +19,7 @@ MODULES = {
     'settings_recording': ('RecordingSettingsPage',),
     'settings_plugins': ('PluginRemovePrompt', 'PluginSettingsPage'),
     'settings_appearance': ('AppearanceSettingsPage',),
+    'room_dialogs': ('AddRoomDialog', 'FollowImportDialog'),
 }
 
 
@@ -47,7 +48,7 @@ class DialogModulesTests(unittest.TestCase):
         self.assertIs(dialogs.QMessageBox, importlib.import_module('ddm.settings_plugins').QMessageBox)
 
     def test_legacy_import_preserves_qt_subclass_definition_order(self):
-        expected = [name for names in MODULES.values() for name in names]
+        expected = [name for module, names in MODULES.items() if module != 'room_dialogs' for name in names]
         expected += ['SettingsDialog', 'AddRoomDialog', 'FollowImportDialog']
         self.child(f'''
 import builtins
@@ -64,6 +65,12 @@ finally:
     builtins.__build_class__ = original
 assert seen == expected, seen
 ''')
+
+    def test_room_helpers_and_account_import_share_the_owned_dialogs(self):
+        from ddm import dialogs, room_dialogs
+        self.assertIs(dialogs._add_folder_option, room_dialogs._add_folder_option)
+        self.assertIs(dialogs._create_folder_for_dialog, room_dialogs._create_folder_for_dialog)
+        self.child("import sys; import ddm.account_dialog; assert 'ddm.dialogs' not in sys.modules")
 
     def test_codec_action_keeps_old_factory_replacement_and_saved_values(self):
         from PySide6.QtCore import QCoreApplication, QEvent
