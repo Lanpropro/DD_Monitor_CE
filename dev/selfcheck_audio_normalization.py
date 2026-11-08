@@ -14,11 +14,11 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog, QWidget
+from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 
 from ddm.audio_normalization import GainResponse, PRESETS, normalize_curve, preset_curve, response_preview
-from ddm.audio_normalization_ui import AudioNormalizationDialog
-from ddm.dialogs import GeneralSettingsPage
+from ddm.audio_normalization_ui import AudioNormalizationEditor
+from ddm.dialogs import GeneralSettingsPage, SettingsDialog
 from ddm.player import TilePlayer
 
 
@@ -79,7 +79,8 @@ class EditorTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_presets_manual_edits_drag_and_reset(self):
-        dialog = AudioNormalizationDialog()
+        dialog = AudioNormalizationEditor()
+        dialog.resize(850, 540)
         self.addCleanup(dialog.deleteLater)
         dialog.show()
         self.app.processEvents()
@@ -101,27 +102,42 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(dialog.values(), preset_curve())
         dialog.close()
 
-    def test_page_cancel_accept_persistence_and_reset(self):
-        page = GeneralSettingsPage({'volume_normalization': True})
+    def test_inline_page_edits_persistence_disable_and_reset(self):
+        settings = {'volume_normalization': True, 'volume_normalization_curve': preset_curve()}
+        page = GeneralSettingsPage(settings)
         self.addCleanup(page.deleteLater)
-        original = page.values()['volume_normalization_curve']
-        def execute(dialog):
-            dialog.set_curve(preset_curve('netflix'))
-            return QDialog.Rejected
-        with patch.object(AudioNormalizationDialog, 'exec', execute):
-            page._edit_normalization()
-        self.assertEqual(page.values()['volume_normalization_curve'], original)
-        with patch.object(AudioNormalizationDialog, 'exec', lambda dialog: (
-                dialog.set_curve(preset_curve('spotify')), QDialog.Accepted)[1]):
-            page._edit_normalization()
+        editor = page.normalization_editor
+        self.assertFalse(editor.isWindow())
+        self.assertIs(editor.parentWidget(), page.sections.section('normalization'))
+        self.assertFalse(any('响应曲线' in button.text() for button in page.findChildren(QPushButton)))
+        editor.presets.setCurrentRow(list(PRESETS).index('spotify'))
+        self.assertEqual(page.values()['volume_normalization_curve'], preset_curve('spotify'))
+        self.assertEqual(settings['volume_normalization_curve'], preset_curve())
         saved = json.loads(json.dumps(page.values()))
         restored = GeneralSettingsPage(saved)
         self.addCleanup(restored.deleteLater)
         self.assertEqual(restored.values()['volume_normalization_curve'], preset_curve('spotify'))
         page._checks['volume_normalization'].setChecked(False)
-        self.assertFalse(page.normalization_button.isEnabled())
+        self.assertFalse(editor.isEnabled())
+        self.assertEqual(page.values()['volume_normalization_curve'], preset_curve('spotify'))
         page.reset()
         self.assertEqual(page.values()['volume_normalization_curve'], preset_curve())
+
+    def test_parent_settings_cancel_keeps_original_curve_and_save_includes_inline_edits(self):
+        settings = {'volume_normalization': True, 'volume_normalization_curve': preset_curve()}
+        original = json.loads(json.dumps(settings))
+        dialog = SettingsDialog(settings, {}, preview=True)
+        self.addCleanup(dialog.deleteLater)
+        editor = dialog.general_page.normalization_editor
+        editor.controls['hold'].setValue(4.5)
+        self.assertEqual(dialog.settings()['volume_normalization_curve']['hold'], 4.5)
+        dialog.reject()
+        self.assertEqual(settings, original)
+        restored = SettingsDialog(settings, {}, preview=True)
+        self.addCleanup(restored.deleteLater)
+        self.assertEqual(restored.general_page.normalization_editor.values(), preset_curve())
+        restored.general_page.normalization_editor.presets.setCurrentRow(list(PRESETS).index('netflix'))
+        self.assertEqual(restored.settings()['volume_normalization_curve'], preset_curve('netflix'))
 
     def test_player_commands_pause_channel_changes_and_release(self):
         widget = QWidget()
