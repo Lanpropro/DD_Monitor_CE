@@ -734,3 +734,5 @@
 Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命中/拖动展示由 `ddm/sidebar_interaction.py` 维护；布局选择器协调复用SidebarPresentation。Sidebar保留组装、Qt事件和旧委托，卡片/预览计时器/拖放会话仍由原Qt宿主持有。
 
 播放格职责：`tile_widgets.py` 保留 Qt 宿主、组装与事件；`tile_state.py` 维护媒体状态/画质/音频展示，`tile_controls.py` 协调控制条交互，`tile_presentation.py` 排列浮层与原生遮罩，`tile_context_menu.py` 构建运行时菜单。状态、信号、定时器与子控件仍只由 Tile 持有。
+
+主窗口协调：`app_accounts.py` 账号与关注导入；`app_shortcuts.py` 快捷键绑定；`fullscreen_control.py` 全屏业务；`app_notices.py` 用户通知。播放状态、房间管理、录制源刷新、弹幕消息和设置应用分别归并至原有 StreamPlayback、RoomPlacement、CaptureControl、DanmakuLifecycle、SettingsControl。MainWindow 保留组装、Qt 事件、状态快照与关闭收尾；旧方法继续薄委托，异步任务/Qt 父对象/共享映射仍归窗口。

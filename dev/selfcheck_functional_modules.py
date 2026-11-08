@@ -98,6 +98,17 @@ class FunctionalModulesTests(unittest.TestCase):
             self.child('import sys; import ddm.'+name+'; '
                 "assert not {'ddm.app','ddm.widgets','ddm.tile_widgets'}.intersection(sys.modules)")
 
+    def test_window_domains_import_independently_and_keep_one_host(self):
+        from types import SimpleNamespace
+        import importlib
+        host = SimpleNamespace()
+        for module, name in (('app_accounts', 'AppAccounts'), ('app_shortcuts', 'AppShortcuts'),
+                ('fullscreen_control', 'FullscreenControl'), ('app_notices', 'AppNotices')):
+            self.child('import sys; import ddm.'+module+'; '
+                "assert not {'ddm.app','ddm.widgets'}.intersection(sys.modules)")
+            controller = getattr(importlib.import_module('ddm.'+module), name)(host)
+            self.assertEqual(vars(controller), {'host': host})
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
