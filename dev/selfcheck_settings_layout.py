@@ -51,6 +51,9 @@ class SettingsLayoutTests(unittest.TestCase):
                 self.assertLess(left.geometry().right(), right.x())
                 self.assertGreaterEqual(left.width(), 400)
                 self.assertGreaterEqual(right.width(), 400)
+                if index == 4:
+                    heading = page.sections.section('live').layout().itemAt(0).widget()
+                    self.assertLess(heading.height(), heading.fontMetrics().height() * 2)
 
     def test_narrow_pages_stack_without_horizontal_scroll_and_keep_edits(self):
         for index in (0, 2, 3, 4, 5):

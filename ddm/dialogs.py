@@ -590,6 +590,7 @@ class NotificationSettingsPage(QWidget):
         cards = [groups.itemAt(index).widget() for index in range(groups.count())]
         for existing in cards:
             groups.removeWidget(existing)
+            existing.layout().addStretch(1)
         self.sections = SettingsColumns()
         self.sections.add_section('background', card, wide=True)
         self.sections.add_section('live', cards[0])
@@ -934,6 +935,7 @@ class RecordingSettingsPage(QWidget):
         directory_row = QHBoxLayout()
         directory_row.addWidget(self.directory, 1)
         self.browse = QPushButton("浏览…")
+        self.browse.setObjectName('IconButton')
         self.browse.clicked.connect(self._browse)
         directory_row.addWidget(self.browse)
         grid.addLayout(directory_row, 0, 1)
