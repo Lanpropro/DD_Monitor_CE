@@ -136,6 +136,24 @@ class MoveRestoreTests(unittest.TestCase):
                 self.send(0x0232)
                 assert_settled(window)
 
+    def test_first_native_size_arms_wall_before_qt_resizes_children(self):
+        window = self.window
+        self.send(0x0231)
+        self.assertFalse(window.wall._interactive_resize, 'Pure movement must not activate wall resize')
+        message = wintypes.MSG()
+        message.hWnd = int(window.winId())
+        message.message, message.wParam = 0x0005, 0
+        with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+            window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+        self.assertTrue(window.wall._interactive_resize)
+        with patch.object(window.wall, '_relayout_corner', wraps=window.wall._relayout_corner) as layout:
+            window.resize(window.width() + 30, window.height() + 15)
+            layout.assert_not_called()
+            self.assertTrue(window.wall._resize_timer.isActive())
+            self.send(0x0232)
+            layout.assert_called_once()
+        assert_settled(window)
+
     def test_resize_trace_records_native_order_and_nested_layout_work(self):
         from dev.diagnose_window_resize import WindowResizeTrace
         with tempfile.TemporaryDirectory() as directory:
@@ -163,6 +181,18 @@ class MoveRestoreTests(unittest.TestCase):
         self.assertTrue(any(x['method'] == 'WallGrid._flush_resize' for x in row['calls']))
         self.assertTrue(any(x['method'] == 'Tile._layout_areas' for x in row['calls']))
         self.assertTrue(all(x['elapsedMs'] >= x['selfMs'] >= 0 for x in row['calls']))
+
+    def test_same_size_native_message_still_clears_wall_mode_on_exit(self):
+        window = self.window
+        self.send(0x0231)
+        message = wintypes.MSG()
+        message.hWnd = int(window.winId())
+        message.message, message.wParam = 0x0005, 0
+        with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+            window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+        self.assertTrue(window.wall._interactive_resize)
+        self.send(0x0232)
+        assert_settled(window)
 
 
 if __name__ == '__main__':

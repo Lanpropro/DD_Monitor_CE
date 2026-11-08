@@ -202,7 +202,7 @@
 | [selfcheck_preset_state](../selfcheck_preset_state.py) | 单项执行前核对 |
 | [selfcheck_resize_preview_cleanup](../selfcheck_resize_preview_cleanup.py) | 单项执行前核对 |
 | [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native`；无mpv输出时保留Qt遮罩且不构建原生裁剪区，播放器子窗口创建/替换、尺寸/DPI/遮罩更新与重试生命周期 |
-| [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
+| [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native`；最新尺寸合并、最终提交、原生身份、遮罩与封面、拖动中合并重绘和松手后的完整浮层抬升／原生文字重绘 |
 | [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键直接转换、顶部头像展开选择／收起／滚动／动效中断／缓存更新、多个弹幕栏、独立关联与共享连接、换位／换台／清空、空主画面启动及关闭后的来源复位、录制保护、重启及组合恢复、横竖屏所有格位；默认每个完整窗口用例独立Qt进程，保留全部断言；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
 | [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
 | [selfcheck_room_preset_control](../selfcheck_room_preset_control.py) | `smoke` / `offline`；独立协调器导入、宿主状态唯一来源、组合管理、全屏快照、重复恢复、录制取消、异常收尾及播放器声音恢复；隔离替身、无媒体/账号 |

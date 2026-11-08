@@ -632,6 +632,13 @@ class MainWindow(QMainWindow):
             elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
                 previous = self._native_size_state
                 self._native_size_state = int(msg.wParam)
+                # Qt can resize child layouts before MainWindow.resizeEvent.
+                # Arm the coalesced wall path before returning this native size.
+                if (msg.wParam in (0, 2) and self._interactive_resize
+                        and hasattr(self, "wall") and not self._closing
+                        and not self._startup_layout_pending and self._fullscreen_tile is None):
+                    self.wall.set_interactive_resize(True)
+                    self._resize_dirty = True
                 if msg.wParam == 2 or msg.wParam == 0 and previous == 2:
                     if (hasattr(self, "wall") and not self._closing
                             and not self._settling_resize and not self._startup_layout_pending

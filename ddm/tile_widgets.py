@@ -82,6 +82,8 @@ class Tile(QFrame):
         self._cover_source = room.get("cover")
         self._status_text = ""
         self._interactive_resize = False
+        self._resize_raise_pending = False
+        self._move_repaint_pending = False
         self._video_mask_key = None
         self._controls_mask_key = None
         self._cover_key = None
@@ -1095,8 +1097,15 @@ class Tile(QFrame):
         if active == self._interactive_resize:
             return
         self._interactive_resize = active
-        if not active and self.isVisible():
-            self._layout_cover()
+        if not active:
+            if self.isVisible():
+                self._layout_cover()
+                if self._resize_raise_pending:
+                    self.raise_overlays()
+                if self._move_repaint_pending:
+                    self._move_repaint_timer.start(0)
+            self._resize_raise_pending = False
+            self._move_repaint_pending = False
 
     def _layout_cover(self) -> None:
         self.cover.setGeometry(self.video.rect())
@@ -1148,13 +1157,17 @@ class Tile(QFrame):
         self._move_repaint_timer.stop()
         if not self.isVisible():
             return
+        # Keep normal Qt paints during native resizing; flushing each native
+        # child separately stalls the next size message. Force a final repaint
+        # on release so the existing moved-text repair remains in effect.
+        self._move_repaint_pending = self._interactive_resize
         for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
                        self.controls, self.spinner, self.pause_overlay, self.bottom):
             if widget.isVisible():
-                widget.repaint()
+                widget.update() if self._interactive_resize else widget.repaint()
         for widget in self.bottom.findChildren(QWidget):
             if widget.isVisible() and widget.testAttribute(Qt.WA_NativeWindow):
-                widget.repaint()
+                widget.update() if self._interactive_resize else widget.repaint()
         self.update()
 
     def _layout_areas(self) -> None:
@@ -1234,7 +1247,13 @@ class Tile(QFrame):
         self.video_danmaku.setGeometry(self.video.geometry())
         self._layout_bottom_controls()
         self._layout_cover()
-        self.raise_overlays()
+        if self._interactive_resize:
+            # Resizing existing HWNDs preserves their stacking order. Keep the
+            # Quick clip current, then restore the complete order on release.
+            self._update_quick_danmaku_mask()
+            self._resize_raise_pending = True
+        else:
+            self.raise_overlays()
 
     def _layout_time_badge(self) -> None:
         video_right = self.video.geometry().right() + 1
