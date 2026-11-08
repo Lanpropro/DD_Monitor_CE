@@ -5,13 +5,16 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QPushButton
 from . import motion
 from .badge_surface import BadgeSurface
-from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, sc_placement_rects
+from .super_chat_avatar import SuperChatAvatar
+from .super_chat_animation import SuperChatPresentation
+from .super_chat_layout import sc_placement_rects
 from .super_chat_model import SC_USER_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats
 import math
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from . import theme
-from .super_chat_presentation import paint_sc_avatar, paint_sc_background, sc_message_document
+from .super_chat_avatar import paint_sc_avatar
+from .super_chat_layout import paint_sc_background, sc_message_document
 from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, remaining_seconds, SC_BODY_PADDING
 
 

@@ -15,7 +15,9 @@ from .danmaku_content import content_runs
 from .danmaku_raster import CommentRaster, CommentRasterJob
 from .images import AvatarLoader
 from .badge_surface import BadgeSurface
-from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, paint_sc_avatar, paint_sc_background, sc_placement_rects, sc_message_document
+from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
+from .super_chat_animation import SuperChatPresentation
+from .super_chat_layout import paint_sc_background, sc_placement_rects, sc_message_document
 from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats, SC_BODY_PADDING
 
 

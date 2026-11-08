@@ -18,7 +18,9 @@ from .images import AvatarLoader
 from .playback_controls import _icon_color
 from .sidebar_drag import ROOM_MIME
 from .super_chat_model import SC_BODY_PADDING, SC_CONTENT_COLOR, SC_PRICE_COLOR, SC_USER_COLOR, format_price, format_remaining, order_super_chats, remaining_seconds, super_chat_palette
-from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, paint_sc_avatar, paint_sc_background, sc_card_height, sc_placement_rects, sc_stack_rects
+from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
+from .super_chat_animation import SuperChatPresentation
+from .super_chat_layout import paint_sc_background, sc_card_height, sc_placement_rects, sc_stack_rects
 from .widget_support import DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
 
 
