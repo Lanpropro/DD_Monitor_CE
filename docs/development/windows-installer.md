@@ -45,7 +45,7 @@
 ## 安装与卸载的边界
 
 - 安装输入只能是经过验证的 Windows EXE 便携目录，拒绝账号、配置、插件、录制、未知文件和目录链接。
-- 首次安装拒绝接管非空目录，避免覆盖其他软件或个人文件；已经由同一安装器登记的目录可以修复安装。
+- 首次安装拒绝接管非空目录，避免覆盖其他软件或个人文件；已经由同一安装器登记的目录可以修复安装。保留数据卸载后，若当前用户仍有该安装路径的数据位置记录、数据位置有效，且待写入的程序文件没有同名冲突，则允许在原目录重新安装；原有个人数据、录制及其他文件保留。损坏的位置记录、普通非空目录和同名程序文件冲突仍拒绝安装。
 - 每个程序文件单独登记到 Inno Setup 的卸载日志，不使用通配符删除、整目录递归删除或自定义清盘逻辑。
 - 卸载删除登记的程序文件、安装器元数据、它创建的快捷方式及卸载登记。默认保留个人数据；用户主动勾选时清理已知账号、配置和登记的插件文件。录制及未登记文件保留，非空目录不会被整目录删除。
 - 已有的同名快捷方式不会被安装器接管。程序目录或已登记的程序子目录被改成链接时，安装和卸载都会停止，避免影响其他位置。
@@ -63,6 +63,7 @@ python dev/selfcheck_setup.py
 python dev/run_checks.py --script selfcheck_data_paths
 python dev/check_setup_permissions.py --iscc "<Inno Setup 的 ISCC.exe>"
 python dev/check_setup_data_cleanup.py --iscc "<Inno Setup 的 ISCC.exe>"
+python dev/check_setup_reinstall.py --iscc "<Inno Setup 的 ISCC.exe>"
 python dev/check_setup_install.py --setup "<产物目录>\DDMonitorSetup.exe" --payload "<已验证的便携目录>" --update-zip "<同版本 EXE ZIP>"
 ```
 
