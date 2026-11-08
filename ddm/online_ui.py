@@ -33,5 +33,3 @@ from .app_update_ui import (AppUpdatePage)
 
 
 from .result_notice import (ResultNotice, show_result)
-
-
