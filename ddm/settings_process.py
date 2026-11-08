@@ -183,7 +183,7 @@ class SettingsProcess(QObject):
                 started = _save_trace('host.result.received')
                 self.visible = False
                 self.window_hwnd = 0
-                self._set_occlusion(QRect(), force=True)
+                self._set_occlusion(QRect(), force=not self.closing)
                 if not self.closing:
                     if message.get('host_saved'):
                         self.hostRequest.emit(message)
@@ -209,13 +209,14 @@ class SettingsProcess(QObject):
     def _finished(self, *_args):
         self.start_timer.stop()
         self.kill_timer.stop()
+        was_visible = self.visible
         was_open = self.visible or self.pending is not None
         self.ready = self.visible = False
         self.pending = None
         self.buffer = b''
         self.worker_pid = None
         self.window_hwnd = 0
-        self._set_occlusion(QRect(), force=True)
+        self._set_occlusion(QRect(), force=was_visible and not self.closing)
         self.closed.emit()
         if was_open and not self.closing:
             self.failed.emit(self.process.errorString())
@@ -223,7 +224,7 @@ class SettingsProcess(QObject):
     def stop(self):
         self.closing = True
         self.window_hwnd = 0
-        self._set_occlusion(QRect(), force=True)
+        self._set_occlusion(QRect(), force=self.visible)
         self.start_timer.stop()
         self.pending = None
         if self.process.state() != QProcess.NotRunning:

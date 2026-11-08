@@ -140,6 +140,18 @@ def main():
         try:
             with patch.object(settings_process, 'worker_command', return_value=command), \
                     patch.object(settings_process, '_allow_foreground'):
+                # Exiting an unused prewarmed process must not touch a layer
+                # whose QWidget parent may already be undergoing destruction.
+                warm_client = settings_process.SettingsProcess()
+                warm_changes = []
+                warm_client.occlusionChanged.connect(lambda: warm_changes.append(True))
+                try:
+                    warm_client.warm()
+                    wait(app, lambda: warm_client.ready)
+                    assert warm_client.finish()
+                    assert not warm_changes, 'Unused worker shutdown must not invalidate overlays'
+                finally:
+                    warm_client.finish()
                 for ending in ('cancel', 'crash', 'stop'):
                     messages.clear()
                     awaiting_window.clear()
