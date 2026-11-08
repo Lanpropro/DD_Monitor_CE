@@ -31,7 +31,6 @@ from . import overlay
 from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
-from .update_version import update_identity
 from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
@@ -54,6 +53,7 @@ from .recording import RecordingManager
 from .room_placement import RoomPlacement
 from .room_preset_control import RoomPresetController
 from .app_updates import AppUpdates
+from .settings_control import SettingsControl
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
         self.room_placement = RoomPlacement(self)
         self.room_preset_control = RoomPresetController(self)
         self.app_updates = AppUpdates(self)
+        self.settings_control = SettingsControl(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
@@ -843,10 +844,7 @@ class MainWindow(QMainWindow):
         self._save_timer.start()
 
     def _open_sidebar_settings(self):
-        if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
-            return self.open_settings()
-        self._get_settings_process().open(self.settings, self.shortcuts, self._sc_preview_context())
-        return False
+        return self.settings_control.open_sidebar_settings()
 
     def _sidebar_card_mode_changed(self, enabled):
         self.settings['sidebar_card_mode'] = enabled
@@ -854,188 +852,32 @@ class MainWindow(QMainWindow):
         self._save_timer.start()
 
     def _sc_preview_context(self):
-        def surface(widget, events, presentation):
-            cards = [{'message': event.get('message') or event.get('text') or '',
-                      'collapsed': presentation.is_collapsed(event)} for event in events]
-            return {'size': [max(1, widget.width()), max(1, widget.height())],
-                    'cards': cards or [{'message': '', 'collapsed': False}]}
-
-        panel = self.wall.danmaku
-        context = {'panel': surface(panel.body.viewport(), panel.super_chats._events,
-                                    panel.super_chats.presentation)}
-        viewport = panel.body.viewport()
-        origin = viewport.mapTo(panel, QPoint())
-        context['panel'].update(outer_size=[max(1, panel.width()), max(1, panel.height())],
-                                viewport_rect=[origin.x(), origin.y(), viewport.width(), viewport.height()])
-        tile = self._fullscreen_tile or self.wall.danmaku_target_tile()
-        if tile is not None:
-            video = tile.video_danmaku
-            context['video'] = surface(video, video.super_chat_overlay.chats,
-                                       video.super_chat_overlay.presentation)
-        return context
+        return self.settings_control.sc_preview_context()
 
     def _get_settings_process(self):
-        if getattr(self, "_settings_process", None) is None:
-            from .settings_process import SettingsProcess
-            self._settings_process = SettingsProcess(self)
-            self._settings_process.saved.connect(self._remote_settings_saved)
-            self._settings_process.hostRequest.connect(self._settings_host_request)
-            self._settings_process.closed.connect(self._close_settings_host)
-            self._settings_process.occlusionChanged.connect(
-                lambda: self.wall._quick_danmaku_layer.show()
-                if self.wall._quick_danmaku_layer is not None else None)
-            self._settings_process.failed.connect(lambda message: self._show_notice(
-                "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
-        return self._settings_process
+        return self.settings_control.get_settings_process()
 
     def _remote_settings_saved(self, changes):
-        if getattr(self, '_closing', False) or not any(changes.values()):
-            return
-        from types import SimpleNamespace
-        dialog = SimpleNamespace(
-            settings=lambda: changes.get("settings", {}),
-            shortcuts=lambda: {**self.shortcuts, **changes.get("shortcuts", {})},
-            enabled_plugins=lambda: self.plugins.enabled,
-            _loaded_pages={}, restart_requested=False)
-        before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
-                  dict(self.plugins._platform_owner), set(self.plugins._removed))
-        self._apply_settings_dialog(dialog, before)
+        return self.settings_control.remote_settings_saved(changes)
 
     def _settings_host_request(self, message):
-        if getattr(self, '_closing', False):
-            return
-        session = getattr(self, '_settings_host', None)
-        if session is None:
-            if message['kind'] not in ('host-page', 'host-general'):
-                return
-            from .settings_host import SettingsHost
-            session = self._settings_host = SettingsHost(self, self._settings_process, message)
-        session.handle(message)
+        return self.settings_control.settings_host_request(message)
 
     def _close_settings_host(self):
-        session = getattr(self, '_settings_host', None)
-        if session is not None:
-            self._settings_host = None
-            session.close()
+        return self.settings_control.close_settings_host()
 
     def _get_update_page(self, settings):
-        if getattr(self, '_app_update_page', None) is None:
-            from .online_ui import AppUpdatePage
-            self._app_update_page = AppUpdatePage(settings, self)
-            self._app_update_page.releaseChecked.connect(self._set_app_update)
-        page = self._app_update_page
-        page.auto.setChecked(bool(settings.get('auto_update', False)))
-        return page
+        return self.settings_control.get_update_page(settings)
 
     def _create_settings_dialog(self, settings=None, shortcuts=None):
-        seen = dict(self.settings.get('seen_update_entry_versions') or {})
-        if self._available_update:
-            seen['app'] = update_identity(self._available_update)
-        seen.update({offer['id']: offer['version'] for offer in self._plugin_update_offers})
-        if seen != (self.settings.get('seen_update_entry_versions') or {}):
-            self.settings['seen_update_entry_versions'] = seen
-            self._mark_updates()
-            config_module.save(self.current_state())
-        dialog = SettingsDialog(self.settings if settings is None else settings,
-                                self.shortcuts if shortcuts is None else shortcuts, self,
-                                plugin_manager=self.plugins, update_page_factory=self._get_update_page)
-        def page_created(index, widget):
-            key = dialog.PAGES[index][0]
-            if key == 'danmaku':
-                widget.super_chat_placement.set_preview_context(self._sc_preview_context())
-            elif key == 'plugins':
-                widget.store_page.offersChanged.connect(self._set_plugin_updates)
-                if self._plugin_catalog_offers:
-                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
-            elif key == 'updates':
-                if (self._available_update and not (widget.jobs or widget.plan_path)
-                        and (not widget._checked or not widget.offer
-                             or update_identity(widget.offer) != update_identity(self._available_update))):
-                    widget._release_ready(self._available_update)
-                    widget._busy(False)
-        dialog.pageCreated.connect(page_created)
-        dialog.updatesViewed.connect(self._remember_updates)
-        dialog.appearanceChanged.connect(self.set_appearance)
-        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
-                                                for offer in self._plugin_update_offers))
-        dialog._mark_update_page('updates', bool(self._available_update and
-                                                dialog.seen_versions.get('app') != update_identity(self._available_update)))
-        return dialog
+        return self.settings_control.create_settings_dialog(settings, shortcuts, dialog_class=SettingsDialog)
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
-        started = time.perf_counter()
-        plugins_before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
-                          dict(self.plugins._platform_owner), set(self.plugins._removed))
-        dialog = self._create_settings_dialog()
-        try:
-            print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            for index, (key, _label) in enumerate(dialog.PAGES):
-                if key == page:
-                    dialog.nav.setCurrentRow(index)
-                    break
-            if page == "plugins":
-                dialog.plugin_page.tabs.setCurrentIndex(1)
-            if dialog.exec() != SettingsDialog.Accepted:
-                return False
-            return self._apply_settings_dialog(dialog, plugins_before)
-        finally:
-            dialog.deleteLater()
+        return self.settings_control.open_settings(page, dialog_class=SettingsDialog)
 
     def _apply_settings_dialog(self, dialog, plugins_before):
-        saved_at = time.perf_counter()
-        appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
-                             if key.startswith('skin_') or key == 'appearance_mode'}
-        codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
-        self.settings.update(dialog.settings())
-        from .notification_center import NoticeRow
-        from .online_ui import ResultNotice
-        for notice in [*self.findChildren(NoticeRow), *self.findChildren(ResultNotice)]:
-            notice.update()
-        for codec_dialog in self._codec_dialogs.values():
-            codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
-        if not self.settings.get("auto_update", False):
-            self._startup_update_timer.stop()
-            if self._update_notice is not None:
-                self._update_notice.dismiss()
-        self._sync_fullscreen_audio()
-        self.shortcuts = dialog.shortcuts()
-        self._refresh_shortcuts()
-        enabled_plugins = dialog.enabled_plugins()
-        self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
-        plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
-        appearance_after = {key: value for key, value in self.settings.items()
-                            if key.startswith('skin_') or key == 'appearance_mode'}
-        if appearance_after != appearance_before or plugins_changed:
-            self.refresh_skin()
-        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        if plugins_changed:
-            self._sync_platform_rooms()
-        self.state["settings"] = dict(self.settings)
-        self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
-        self._poll_timer.setInterval(self.poll_interval_ms())
-        for player in self.players.values():
-            player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-            player.set_volume_normalization(bool(self.settings.get("volume_normalization", False)))
-        for tile in self.wall.tiles:
-            if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
-                self._restart_codec_tile(tile)
-        config_module.save(self.current_state())
-        # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
-        self._sync_recording_switch()
-        self._sync_replay_scope()
-        self.apply_danmaku_settings()
-        self.apply_preview_settings()
-        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        update_page = dialog._loaded_pages.get(SettingsDialog.PAGE_INDEX['updates'])
-        if getattr(update_page, "install_requested", False):
-            self._update_plan = dialog.update_page.plan_path
-            self.close()
-        elif getattr(dialog, "restart_requested", False):
-            self._restart_requested = True
-            self.close()
-        return True
+        return self.settings_control.apply_settings_dialog(dialog, plugins_before, dialog_class=SettingsDialog)
 
     def refresh_skin(self):
         self.skin_controller.refresh()
