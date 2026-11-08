@@ -438,6 +438,7 @@
 - `dev/selfcheck_watchdog.py`
 - `dev/selfcheck_widget_lifetime.py`
 - `dev/selfcheck_widget_modules.py`
+- `dev/selfcheck_functional_modules.py`
 - `dev/selfcheck_sidebar_folder_control.py`
 - `dev/selfcheck_sidebar_order.py`
 - `dev/selfcheck_sidebar_presentation.py`
@@ -729,3 +730,5 @@
 关注栏多选由 `ddm/sidebar_selection.py` 的 `SidebarSelection` 维护批量选择、Ctrl/Shift选择、拖动分组与删除信号；顺序由 `ddm/sidebar_sort.py` 的 `SidebarSort` 维护过滤落点换算、组内换位、置顶、文件夹排序及常看缓存协调。Sidebar唯一持有选择/锚点、卡片顺序、配置和WatchHistory，旧Qt入口保留薄委托；排序菜单的QActionGroup仍归菜单，实际卡片/定时器归属不变。计分模型仍在watch_history，拖放会话仍在sidebar_drag。
 
 关注栏账号展示/菜单协调由 `ddm/sidebar_account_control.py` 的 `SidebarAccountControl` 维护，登录/退出仍向宿主既有信号派发；原菜单/账号行工厂由Sidebar传入，延迟登录保留Sidebar的Qt上下文。横竖布局、借用控件、账号形状和收起/展开由 `ddm/sidebar_presentation.py` 的 `SidebarPresentation` 维护，Sidebar仍唯一持有所有控件/布局/状态。控件身份、父子迁移、滚动约束及收起异常收尾沿用原行为，Qt虚方法和旧入口留在Sidebar。
+
+Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命中/拖动展示由 `ddm/sidebar_interaction.py` 维护；布局选择器协调复用SidebarPresentation。Sidebar保留组装、Qt事件和旧委托，卡片/预览计时器/拖放会话仍由原Qt宿主持有。
