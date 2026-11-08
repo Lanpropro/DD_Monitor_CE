@@ -14,7 +14,7 @@ from PySide6.QtCore import QThread, Signal
 
 from . import bili
 from . import config as config_module
-from .super_chat import normalize as normalize_super_chat
+from .super_chat_model import normalize as normalize_super_chat
 
 # blivedm 在原仓库根目录，独立版也放在项目根目录
 if config_module.REPO not in sys.path:

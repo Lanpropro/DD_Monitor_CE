@@ -61,12 +61,8 @@ from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
-from .super_chat import (
-    SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette,
-    SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, remaining_seconds, paint_sc_avatar,
-    paint_sc_background, order_super_chats, sc_stack_rects, sc_card_height, sc_placement_rects,
-    SC_BODY_PADDING
-)
+from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, paint_sc_avatar, paint_sc_background, sc_stack_rects, sc_card_height, sc_placement_rects
+from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats, SC_BODY_PADDING
 
 from .widget_support import (
     BRAND_ASSETS_DIR, CAROUSEL_WIDTH, DANMAKU_MIME, NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_GAP,
