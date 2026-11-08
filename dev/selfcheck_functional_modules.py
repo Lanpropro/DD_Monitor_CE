@@ -277,6 +277,38 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertEqual(live_danmaku.douyu_messages(bytearray(live_danmaku.douyu_packet('type@=chatmsg/txt@=fixture/'))),
             [{'type': 'chatmsg', 'txt': 'fixture'}])
 
+    def test_login_workers_import_without_dialogs_and_profiles_share_one_registry(self):
+        for worker, view in (('bili_login_worker', 'login'), ('oauth_worker', 'oauth_login'),
+                ('platform_follow_worker', 'platform_login')):
+            self.child('import sys; import ddm.'+worker+'; assert "ddm.'+view+'" not in sys.modules')
+        from ddm import login, bili_login_worker, oauth_login, oauth_worker
+        from ddm import platform_login, platform_follow_worker, platform_profiles
+        self.assertIs(login.QRLogin, bili_login_worker.QRLogin)
+        self.assertIs(oauth_login.OAuthLoader, oauth_worker.OAuthLoader)
+        self.assertIs(platform_login.PlatformFollowLoader, platform_follow_worker.PlatformFollowLoader)
+        self.assertIs(platform_login._profiles, platform_profiles._profiles)
+
+    def test_login_workers_publish_fixture_identity_and_obey_cancellation(self):
+        from types import SimpleNamespace
+        from ddm import oauth_login
+        from ddm.oauth_worker import OAuthLoader
+        from ddm.platform_follow_worker import PlatformFollowLoader
+        room = {'room_id': 'fixture:room'}
+        platform = SimpleNamespace(kind='fixture', account_info=lambda *_: {'uid': 'fixture'},
+            follow_rooms=lambda *_: [room])
+        oauth = OAuthLoader(platform, {}, {})
+        follows = PlatformFollowLoader(platform, {})
+        for worker in (oauth, follows):
+            seen = []
+            worker.loaded.connect(seen.append)
+            with patch.object(oauth_login, 'authorize', return_value={'access_token': 'fixture-token'}):
+                worker.run()
+                self.assertEqual(seen, [[room]])
+                worker.cancel()
+                worker.run()
+                self.assertEqual(seen, [[room]])
+            worker.deleteLater()
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
