@@ -18,6 +18,9 @@ def main():
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
     assert notes.startswith('# DD监控室CE v0.7.2 更新说明')
+    hotfix2 = notes.split('## 0.7.2 热修复（修订 2）', 1)[1].split('## 0.7.2 热修复（修订 1）', 1)[0]
+    for feature in ('room_id', '安装插件', '内部修订号为 2', '仅增加以上两处修复'):
+        assert feature in hotfix2, feature
     for feature in ('0.7.2 热修复（修订 1）', '独立设置进程退出', '覆盖前检查', '失败记录', 'Qt 退出阶段', '保留内容相同'):
         assert feature in notes, feature
     for feature in ('0.7.1 Hotfix', '字体回退日志', 'RGB、HEX', '已有日志打包'):
