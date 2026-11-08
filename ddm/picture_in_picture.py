@@ -382,7 +382,8 @@ class PictureInPictureDialog(QDialog):
             visible = []
             for button in buttons:
                 room = self.rooms[button.choice]
-                text = ' '.join((str(room.get('uname') or ''), str(room['room_id']), button.folder_names))
+                text = ' '.join((str(room.get('uname') or ''), str(room['room_id']),
+                                 str(room.get('display_room_id') or ''), button.folder_names))
                 matches = all(matches_text(text, word) for word in words)
                 button.setVisible(matches)
                 visible.append(matches)

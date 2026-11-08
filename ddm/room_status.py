@@ -154,7 +154,7 @@ class RoomStatus:
                 item.set_title(info["title"])
             if info.get("uname"):
                 item.set_uname(info["uname"])
-            for key in ('uid', 'banner_url'):
+            for key in ('uid', 'banner_url', 'display_room_id'):
                 if key in info:
                     item.room[key] = info[key]
             cover = info.get("cover_url") or ""
