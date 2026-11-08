@@ -224,6 +224,7 @@
 - `dev/selfcheck_general_settings.py`
 - `dev/selfcheck_ui_polish.py`
 - `dev/selfcheck_settings_navigation.py`
+- `dev/selfcheck_settings_layout.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
 - `dev/selfcheck_settings_occlusion.py`

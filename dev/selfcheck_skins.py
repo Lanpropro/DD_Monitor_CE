@@ -198,8 +198,21 @@ def check_parts(app):
             embedded = appearance.parts_editor
             assert embedded.isVisible() and embedded.embedded and not embedded.isWindow()
             assert embedded.apply_button.isHidden() and embedded.close_button.isHidden()
-            assert embedded.preview.mapTo(embedded, QPoint()).y() < embedded.selection_title.mapTo(embedded, QPoint()).y()
-            assert embedded.introduction.text() == '点击上方预览图中可修改部分 在下方自定义修改'
+            for width, columns in ((1200, 2), (760, 1)):
+                dialog.resize(width, 800)
+                for _ in range(8):
+                    app.processEvents()
+                assert embedded.sections.columns == columns
+                preview_card = embedded.sections.section('preview')
+                controls_card = embedded.sections.section('controls')
+                if columns == 2:
+                    assert preview_card.y() == controls_card.y()
+                    assert preview_card.geometry().right() < controls_card.x()
+                else:
+                    assert preview_card.geometry().bottom() < controls_card.y()
+                assert appearance.scroll.horizontalScrollBar().maximum() == 0
+                assert embedded.background_controls.isVisible()
+            assert embedded.introduction.text() == '点击预览图中的可修改区域，在选项中自定义样式'
             forbidden = ('背景皮肤', '颜色模式', '当前：', '立即生效并保存', '主界面入口：', '切换不重连直播')
             assert not any(label.isVisible() and not embedded.isAncestorOf(label) and
                            any(text in label.text() for text in forbidden)

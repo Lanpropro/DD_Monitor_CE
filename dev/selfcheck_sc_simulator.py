@@ -287,7 +287,10 @@ class SimulatorTests(unittest.TestCase):
         self.assertGreaterEqual(page.super_chat_collapse_unit.x(),
                                 page.super_chat_collapse_delay.x() + page.super_chat_collapse_delay.width())
         self.assertLess(page.super_chat_opacity.width(), preview.width())
-        self.assertLess(preview.video_rect().left(), preview.width() * .2)
+        self.assertTrue(preview.rect().contains(preview.video_rect().toAlignedRect()))
+        video_size = preview.preview_context['video']['size']
+        self.assertAlmostEqual(preview.video_rect().width() / preview.video_rect().height(),
+                               video_size[0] / video_size[1])
         for index in (0, 1):
             button = page.super_chat_preview_layout.button(index)
             self.assertEqual(button.objectName(), 'AppearanceChoice')

@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
+from .settings_layout import SettingsColumns, SettingsSection
 from .skins import AssetImport
 from .folder_icons import IconDropArea
 
@@ -238,8 +239,8 @@ class PartSettings(QDialog):
             outer.setContentsMargins(0, 0, 0, 0)
             outer.setSpacing(6)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        preview_panel = None if embedded else QWidget(self)
-        preview_column = outer if embedded else QVBoxLayout(preview_panel)
+        preview_panel = QWidget(self)
+        preview_column = QVBoxLayout(preview_panel)
         preview_column.setContentsMargins(0, 0, 0, 0)
         self.scenes = QTabBar()
         self.scenes.setDrawBase(False)
@@ -277,13 +278,20 @@ class PartSettings(QDialog):
         self.page_title.setObjectName('SettingsTitle')
         right.addWidget(self.page_title)
         self.page_title.setVisible(not embedded)
-        self.introduction = QLabel('点击上方预览图中可修改部分 在下方自定义修改' if embedded else
+        self.introduction = QLabel('点击预览图中的可修改区域，在选项中自定义样式' if embedded else
                                   '点击左侧预览图中可修改部分 在下方自定义修改')
         self.introduction.setObjectName('SettingsHint')
         self.introduction.setWordWrap(True)
         right.addWidget(self.introduction)
         if embedded:
-            outer.addWidget(right_panel)
+            self.sections = SettingsColumns(self)
+            preview_card = SettingsSection('界面预览')
+            preview_card.grid.addWidget(preview_panel, 0, 0, 1, 2)
+            controls_card = SettingsSection('分区样式')
+            controls_card.grid.addWidget(right_panel, 0, 0, 1, 2)
+            self.sections.add_section('preview', preview_card)
+            self.sections.add_section('controls', controls_card)
+            outer.addWidget(self.sections)
         else:
             outer.addLayout(right, 2)
         content = QWidget()
@@ -378,7 +386,7 @@ class PartSettings(QDialog):
         close = QPushButton('关闭')
         close.setObjectName('IconButton')
         close.clicked.connect(self.accept)
-        defaults = QHBoxLayout()
+        defaults = QVBoxLayout() if embedded else QHBoxLayout()
         defaults.addWidget(self.reset_button)
         defaults.addWidget(self.builtin_button)
         layout.addLayout(defaults)

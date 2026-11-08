@@ -648,6 +648,16 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#SettingsSection {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px;
+}}
+#SettingsSectionTitle {{
+    color: {TEXT1};
+    font-size: {FONT_CONTROL}px;
+    font-weight: 600;
+}}
 #TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
     background: {CONTENT};
