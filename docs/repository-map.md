@@ -242,6 +242,7 @@
 - `dev/selfcheck_launch_scripts.py`
 - `dev/selfcheck_layout_16.py`
 - `dev/selfcheck_layout_growth_empty.py`
+- `dev/selfcheck_window_layout.py`
 - `dev/selfcheck_layout_live_priority.py`
 - `dev/selfcheck_layout_none.py`
 - `dev/selfcheck_layout_playback.py`
@@ -701,3 +702,5 @@
 更新协调由 `ddm/app_updates.py` 的 `AppUpdates` 管理：启动软件/插件检查、结果回填、已读筛选、红点及通知；在线协议、任务和页面仍在 `online`/`online_ui`。主窗口唯一持有任务、检查标志、候选版本、启动定时器和通知，任务Qt父对象及连接的旧回调不变，关闭时仍由主窗口中断和等待。旧方法保留薄委托，控制器仅引用宿主。
 
 设置协调由 `ddm/settings_control.py` 的 `SettingsControl` 维护普通/独立设置入口、预览上下文、页面连接与保存应用流程；`settings_process`/`settings_host` 继续维护进程通信和嵌入宿主页。主窗口唯一持有配置、进程、宿主页、更新页及退出状态，旧方法保留薄委托；三个涉及对话框类型的方法由主窗口传入原 `SettingsDialog` 工厂，保留既有替换入口，协调器不反向导入主窗口。
+
+窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
