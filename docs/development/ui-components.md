@@ -147,7 +147,7 @@ flowchart LR
 - 主窗口唯一持有播放器/解析器映射、任务代次、设置、录制与关停状态；Sidebar、Tile、WallGrid 继续持有原 Qt 子控件和定时器。领域协调器只引用宿主，不复制这些可变数据。
 - `WallBorderInteraction` 继续独占一次拖边会话及其定时器。浮动小窗继续借用原播放格，退出时沿原路径归还，不创建第二套播放器。
 - B 站和图片工作线程在运行时读取原 API 模块，保持凭据、路径、缓存代次及已有替换点的唯一来源。浏览器 profile、在线退役任务集、插件注册表保持同一对象。
-- `widgets`、`sidebar_cards`、`dialogs`、`online_ui`、`super_chat` 等旧导出保持原类身份；Qt 回调签名、父对象、类定义顺序、懒加载、关闭顺序和时序参数保持。源方法/完整类的迁移做过 AST 等价核对，工厂绑定及明确的兼容查找单独校验。
+- `widgets`、`sidebar_cards`、`dialogs`、`online_ui`、`super_chat` 等旧导出保持原类身份；Qt 回调签名、父对象、旧导出身份、继承关系、懒加载、关闭顺序和时序参数保持。源方法/完整类的迁移做过 AST 等价核对，工厂绑定及明确的兼容查找单独校验。
 - 结构拆分不等于性能改进；本轮回归仅验证行为和维护边界。
 
 ### 继续保留的较长模块
@@ -156,13 +156,13 @@ flowchart LR
 | --- | --- |
 | `app.py`、`sidebar_widgets.py`、`tile_widgets.py`、`wall_widgets.py` | Qt 宿主、控件组装、事件/状态快照/关停以及显式兼容委托；具体业务已转至职责模块 |
 | `theme.py` | 主题资源、令牌与 QSS；长样式文本仍属于统一外观职责 |
-| `sidebar_presentation.py`、`tile_presentation.py`、`wall_layout.py` | 分别负责同一宿主的显示布局或几何算法；宿主状态没有复制到控制器 |
+| `sidebar_orientation.py`、`tile_presentation.py`、`wall_layout.py` | 分别负责横竖布局借用、播放格显示几何、画面墙几何；宿主状态没有复制到控制器，SidebarPresentation 已降为兼容协调入口 |
 | `bili.py` | B 站 HTTP 协议及统一凭据；Qt 工作线程已独立，避免为端点拆分而复制凭据/请求缓存 |
 | `stream_playback.py`、`recording.py`、`player.py` | 播放协调、录制协调和单个 mpv 后端生命周期；数据/参数/协议/回放等已分别下沉 |
 | `video_danmaku.py`、`video_danmaku_quick.py` | 分别为弹幕准入/轨道时钟和 Quick 合成层；光栅任务、表面接线及 SC 画笔已独立 |
 | `pip_window.py`、`account_dialog.py`、`skin_part_settings.py`、`notification_center.py` | 各自完整的具体窗口或界面功能；不为行数继续切碎同一控件行为 |
-| `super_chat_presentation.py`、`sidebar_item.py`、`sidebar_thumbnail.py` | 对应 SC 呈现、关注卡片和缩略图绘制；数据及外部协议不在这些视图内 |
-| `responsiveness.py`、`drag_diagnostics.py` | 各自专项采集与输出；诊断代码没有并回产品界面 |
+| `super_chat_preview.py`、`sidebar_item.py`、`sidebar_thumbnail.py` | 对应 SC 设置预览、关注卡片和缩略图绘制；SC 运行时折叠、头像资源与布局已另有模块，SuperChatPresentation 旧模块仅兼容导出 |
+| `drag_diagnostics.py`、`folder_motion_capture.py` | 各自专项采集与输出；通用 Probe、主题采集已独立，responsiveness 只保留安装协调与旧导出 |
 | `online_tasks.py`、`cache_settings.py`、`skin_background.py` | 本地 Qt 异步适配与其生命周期紧密相连；实际外部协议/缓存操作/素材校验在独立模块，短适配任务不另建通用框架 |
 
 ### 验证及人工验收
@@ -170,3 +170,19 @@ flowchart LR
 `run.cmd --check-functional-modules` 覆盖职责模块独立导入、旧对象身份、唯一宿主/集合、Qt 父子关系、原工厂、迟到结果交付、取消以及本地插件 ZIP 安装/删除。每个 Qt 用例使用独立进程和临时数据，不读取真实账号或发送弹幕；这些检查已纳入 smoke/offline。
 
 从根 `run.cmd` 人工检查：关注栏筛选/文件夹/多选拖放；播放格画质、音量、弹幕与全屏；边框/角点拖动松开与取消、换布局；小窗选择和归还；设置保存/取消与皮肤预览；本机录制/回放结束后的清理。预期行为与拆分前一致。原生高 DPI、真实播放及账号平台可用性须与自动回归分别记录。历史脚本的旧断言、插件/发布产物前置依赖和原生后端限制不计为通过，也不为结构拆分删断言。
+
+
+### 六处后续细分
+
+第一轮清单完成不表示所有领域都已达到合适粒度。后续复核明确的六处已继续按以下边界拆分：
+
+| 原模块 | 具体维护位置 | 原入口/状态 |
+| --- | --- | --- |
+| RoomPlacement | `room_catalog`、`room_navigation`、`watch_history_sampling` | 格子放置/互换仍在 RoomPlacement，旧目录/导航方法薄委托；三者使用原窗口与 WatchHistory |
+| config | `room_configuration` | 配置路径、读写和设置定义留 config；房间整理/平台挂起恢复/启动占位数据独立，读取当前配置默认值而非复制 |
+| super_chat_presentation | `super_chat_layout`、`super_chat_animation`、`super_chat_avatar`、`super_chat_preview` | 旧类和函数兼容导出；预览独立于运行时期限与头像资源，Qt 父对象和定时参数沿用原实现 |
+| sidebar_presentation | `sidebar_orientation`、`sidebar_collapse`、`sidebar_layout_picker` | 账号形状复用 SidebarAccountControl，焦点复用 SidebarInteraction；原 Sidebar 控件/动画/计时器/状态仍唯一持有 |
+| responsiveness | `responsiveness_probe`、`folder_motion_capture`、`theme_capture` | 通用探针、文件夹动画、主题动画分离；旧 Probe/工厂替换点、输出/隐私/采样参数保持 |
+| online | `release_repository`、`app_release_api`、`plugin_catalog_api`、`verified_download` | 官方仓库 HTTP/元数据校验、本体版本、插件缓存、文件下载分离；online 保留公开替换入口，缓存仍由调用者传入 |
+
+新增边界用例验证配置往返及输入不变、当前默认值、独立导入、原导出身份、原工厂替换和唯一 Qt/宿主归属。旧结构检查更新为断言明确的领域组件集合，每个组件仍只能引用原宿主；未移除业务断言。本轮没有改动业务算法、采样/折叠/重试参数，也不作为性能提升。

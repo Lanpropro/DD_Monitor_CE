@@ -393,6 +393,20 @@ class FunctionalModulesTests(unittest.TestCase):
             self.child('import sys; import ddm.'+module+'; '
                 "assert not {'PySide6','ddm.app','ddm.responsiveness'}.intersection(sys.modules)")
 
+    def test_online_release_catalog_and_download_boundaries_keep_public_overrides(self):
+        from ddm import online, release_repository, plugin_catalog_api, app_release_api, verified_download
+        for module, names in ((release_repository, ('session', 'latest_manifest', 'asset_info')),
+                (plugin_catalog_api, ('plugin_catalog', 'cached_plugin_catalog')),
+                (app_release_api, ('app_release', 'release_notes')), (verified_download, ('download',))):
+            for name in names:
+                self.assertIs(getattr(online, name), getattr(module, name))
+        self.assertIs(online.KNOWN_PLUGINS, plugin_catalog_api.KNOWN_PLUGINS)
+        for module in ('release_repository', 'plugin_catalog_api', 'app_release_api', 'verified_download'):
+            self.child('import sys; import ddm.'+module+'; '
+                "assert not {'PySide6','ddm.online','ddm.app'}.intersection(sys.modules)")
+        with patch.object(online, 'latest_manifest', return_value=None), patch.object(online, 'releases', return_value=[]):
+            self.assertIsNone(app_release_api.app_release(object(), '1.0'))
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
