@@ -313,6 +313,7 @@
 - `dev/selfcheck_single_instance.py`
 - `dev/selfcheck_playback_recovery.py`
 - `dev/selfcheck_stream_playback.py`
+- `dev/selfcheck_codec_control.py`
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
@@ -716,3 +717,5 @@
 关注文件夹编辑器、智能文件夹显示副本和标题按钮由 `ddm/sidebar_folders.py` 维护；`sidebar_cards` 和 `widgets` 保留同类兼容导出，侧栏内部直接使用职责模块。显示副本沿用原卡片及同一room对象，预览定时器仍是副本的Qt子对象，模型/关注集合仍归侧栏。
 
 播放请求与应用由 `ddm/stream_playback.py` 的 `StreamPlayback` 维护逐格启动、画质策略、取流回调、播放器接线及失败分支。窗口唯一持有播放器、解析器代次集合、录制/重试和Qt子对象；旧入口委托并传入原解析器/播放器工厂，保留既有替换契约。回调仍经窗口入口动态路由，不反向导入主窗口，不新增定时器或复制状态。
+
+单格编码/解码设置协调由 `ddm/codec_control.py` 的 `CodecControl` 维护继承值、重取流决策、编码保留回写、实际状态和对话框接线。窗口唯一持有codec_overrides所属格子、原解析器/播放器及对话框映射，旧工厂由主窗口传入，Qt父对象和迟到结果检查保持；设置页控件、协议和解码实现不迁移。

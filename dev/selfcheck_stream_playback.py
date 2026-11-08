@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 from ddm import app as app_module
 from ddm.auto_quality import AUTO_QUALITY
+from ddm.codec_control import CodecControl
 from ddm.stream_playback import StreamPlayback
 
 
@@ -96,6 +97,7 @@ class Host(QObject):
             setattr(self, name, Mock())
         self._match_sync_holds = Mock(return_value=False)
         self.stream_playback = StreamPlayback(self)
+        self.codec_control = CodecControl(self)
 
     def _tile_of_player(self, player):
         return next((tile for tile, current in self.players.items() if current is player), None)

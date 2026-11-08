@@ -201,6 +201,8 @@ exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_stream_playback
 if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_codec_control
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_codec
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_recovery

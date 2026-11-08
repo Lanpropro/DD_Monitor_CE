@@ -46,10 +46,10 @@ from .settings_general import CodecSettingsDialog
 from .shortcut_actions import SHORTCUT_ACTIONS
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
-from . import player as player_module
 from .player import TilePlayer
 from .playback_recovery import PlaybackRecovery
 from .stream_playback import StreamPlayback
+from .codec_control import CodecControl
 from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         self.settings_control = SettingsControl(self)
         self.window_layout = WindowLayout(self)
         self.stream_playback = StreamPlayback(self)
+        self.codec_control = CodecControl(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
@@ -1130,13 +1131,7 @@ class MainWindow(QMainWindow):
         return self.stream_playback.auto_quality(player, quality)
 
     def _on_decoder_fallback(self, player, mode: str) -> None:
-        tile = self._tile_of_player(player)
-        if tile is None:
-            return
-        label = config_module.DECODE_LABELS.get(mode, mode)
-        tile.set_status(f"解码异常，正在尝试{label}…")
-        print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
-              file=sys.stderr, flush=True)
+        return self.codec_control.decoder_fallback(player, mode)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
@@ -1144,108 +1139,33 @@ class MainWindow(QMainWindow):
 
     def media_options(self, tile=None) -> tuple[str, ...]:
         """按设置给每一路画面墙媒体选择 播放器 解码方式。"""
-        return player_module.decode_media_options(self._codec_settings(tile)["decode_mode"])
+        return self.codec_control.media_options(tile)
 
     def _codec_settings(self, tile=None) -> dict:
-        return config_module.codec_settings(self.settings,
-            getattr(tile, "codec_overrides", None))
+        return self.codec_control.codec_settings(tile)
 
     def _is_bili_tile(self, tile) -> bool:
-        room_id = str(tile.room.get("room_id") or "")
-        return room_id.isdigit() and self.plugins.platform_for(room_id) is None
+        return self.codec_control.is_bili_tile(tile)
 
     def _restart_codec_tile(self, tile) -> None:
-        tile.codec_reconnect_pending = True
-        resolver = self._resolvers.pop(tile, None)
-        if resolver is not None:
-            resolver.cancel()
-        if (not tile.room.get("room_id") or not tile.room.get("live")
-                or tile.paused or tile.isHidden()):
-            return
-        self.start_tile(tile)
+        return self.codec_control.restart_codec_tile(tile)
 
     def _tile_codecs_changed(self, tile, before: dict) -> bool:
-        after = self._codec_settings(tile)
-        return (before.get("decode_mode") != after["decode_mode"]
-                or before.get("bili_codec") != after["bili_codec"])
+        return self.codec_control.tile_codecs_changed(tile, before)
 
     def _set_tile_codecs(self, tile, values: dict) -> None:
-        if self._closing or tile not in self.wall.tiles:
-            return
-        before = self._codec_settings(tile)
-        tile.codec_overrides = config_module.codec_overrides(values)
-        if self._tile_codecs_changed(tile, before):
-            self._restart_codec_tile(tile)
-        self._save_timer.start()
+        return self.codec_control.set_tile_codecs(tile, values)
 
     def _keep_tile_codec(self, tile, requested: str, retained: str, *, unavailable: bool,
                          quality_note: str = "") -> None:
-        names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
-        reason = "直播源未提供" if unavailable else "未能验证直播源格式"
-        detail = quality_note or f"{reason} {names[requested]}"
-        tile.codec_probe_note = f"{detail}，未切换；继续使用 {names[retained]}。"
-        tile.codec_overrides["bili_codec"] = retained
-        dialog = self._codec_dialogs.get(tile)
-        if dialog is not None:
-            dialog.controls.set_values(tile.codec_overrides)
-        self._save_timer.start()
-        player = self.players.get(tile)
-        if (player is not None and player._decode_key is not None
-                and player._decode_key[1] != self._codec_settings(tile)["decode_mode"]):
-            try:
-                player.play(player.stream_url, player.stream_profile, player.stream_headers,
-                            options=self.media_options(tile))
-            except (RuntimeError, OSError):
-                tile.codec_probe_note += " 新的本机解码方式未能应用。"
+        return self.codec_control.keep_tile_codec(tile, requested, retained,
+            unavailable=unavailable, quality_note=quality_note)
 
     def _codec_status(self, tile) -> str:
-        if self._closing or tile not in self.wall.tiles:
-            return "该窗口已关闭。"
-        requested = self._codec_settings(tile)
-        names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
-        if tile in self._resolvers and not getattr(self._resolvers[tile], "strict_codec", False):
-            return "正在连接，等待新流；当前选择将在连接成功后生效。"
-        player = self.players.get(tile)
-        if player is None or not tile.room.get("room_id"):
-            return (getattr(tile, "codec_probe_note", "")
-                    or "当前没有播放中的流；设置将在下次播放时生效。")
-        if getattr(tile, "codec_reconnect_pending", False):
-            return "新设置已保存，将在恢复播放或下次连接时生效。"
-        codec = names.get(player.actual_codec, "未知（平台未提供编码信息）")
-        if (self._is_bili_tile(tile) and player.stream_codec
-                and player.stream_codec != requested["bili_codec"]):
-            codec += f"（首选 {names[requested['bili_codec']]}，当前未切换）"
-        mode = player.decode_mode
-        labels = {value: label for label, value in player_module.DECODE_MODES}
-        actual = player.actual_decoder
-        decoder = "软件解码（CPU）" if actual == "no" else actual
-        decoder = f"{labels.get(mode, mode)}；实际：{decoder}"
-        if mode != requested["decode_mode"] or actual == "no" and mode != "none":
-            decoder += "（故障回退）"
-        note = getattr(tile, "codec_probe_note", "")
-        params = player._prop("video-params") or {}
-        resolution = (f"\n实际分辨率：{params['w']}×{params['h']}"
-                      if isinstance(params, dict) and params.get("w") and params.get("h") else "")
-        return f"实际直播源：{codec}\n当前解码方式：{decoder}" + resolution + (f"\n{note}" if note else "") + (
-            "\n已暂停；新设置将在恢复播放时生效。" if tile.paused else "")
+        return self.codec_control.codec_status(tile)
 
     def _open_tile_codecs(self, tile) -> None:
-        if self._closing or tile not in self.wall.tiles:
-            return
-        existing = self._codec_dialogs.get(tile)
-        if existing is not None:
-            existing.show()
-            existing.raise_()
-            existing.activateWindow()
-            return
-        dialog = CodecSettingsDialog(tile.codec_overrides, self,
-            defaults=config_module.codec_settings(self.settings),
-            bili_enabled=self._is_bili_tile(tile), status=lambda: self._codec_status(tile))
-        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        dialog.controls.changed.connect(lambda values: self._set_tile_codecs(tile, values))
-        dialog.finished.connect(lambda _result: self._codec_dialogs.pop(tile, None))
-        self._codec_dialogs[tile] = dialog
-        dialog.show()
+        return self.codec_control.open_tile_codecs(tile, dialog_type=CodecSettingsDialog)
 
     def _stream_info_snapshot(self, tile):
         if self._closing or tile not in self.wall.tiles or not tile.room.get('room_id'):
