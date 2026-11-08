@@ -369,6 +369,7 @@
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_hotfix_updates.py`
+- `dev/selfcheck_app_updates.py`
 - `dev/selfcheck_remove_follow_position.py`
 - `dev/selfcheck_replay_scope.py`
 - `dev/selfcheck_repository_files.py`
@@ -695,3 +696,5 @@
 画面墙边框组件与拖动会话由 `ddm/wall_border.py` 维护：`WallBorderInteraction` 以画面墙为QObject父对象，统一持有悬停、拖动、待处理位置与32ms合并定时器；预览仍是画面墙的直接Qt子控件，格子边框仍归原格子。WallGrid保留布局/比例/格子状态与旧方法及只读诊断别名，不重复保存活动拖动状态。
 
 直播间组合的快照、保存、重命名、删除和恢复由 `ddm/room_preset_control.py` 的 `RoomPresetController` 协调；校验/比较留在 `room_presets.py`，卡片/管理交互留在 `room_presets_ui.py`。主窗口保留旧方法委托，仍是配置集合、活动组合、恢复事务标志、退役格子及播放器/录制服务的唯一状态所有者，控制器不另存副本。
+
+更新协调由 `ddm/app_updates.py` 的 `AppUpdates` 管理：启动软件/插件检查、结果回填、已读筛选、红点及通知；在线协议、任务和页面仍在 `online`/`online_ui`。主窗口唯一持有任务、检查标志、候选版本、启动定时器和通知，任务Qt父对象及连接的旧回调不变，关闭时仍由主窗口中断和等待。旧方法保留薄委托，控制器仅引用宿主。

@@ -251,6 +251,7 @@
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |
 | [selfcheck_download_retry](../selfcheck_download_retry.py) | 单项执行前核对 |
 | [selfcheck_fixed_exe_entry](../selfcheck_fixed_exe_entry.py) | 单项执行前核对 |
+| [selfcheck_app_updates](../selfcheck_app_updates.py) | `smoke` / `offline`；启动检查去重、宿主任务归属与Qt sender、旧任务/替换任务清理、已读/红点/通知动作及关闭迟到回调；合成响应、无窗口/账号/网络 |
 | [selfcheck_online](../selfcheck_online.py) | 合成响应；发布正文刷新、清单回退、下载校验及插件升级事务 |
 | [selfcheck_online_ui](../selfcheck_online_ui.py) | 离屏合成数据；64 项商店与 16 项已安装紧凑列表、固定搜索／状态筛选／排序／详情与目录变化、深浅主题及长文本；刷新／页签／保存区边界、列表末尾留白、未保存选择与隐藏条目重建清理；下载期间筛选与滚动、详情更新及待重启、关闭/重开普通及独立设置、后台完成/退出收尾、当前版本正文及更新保存衔接 |
 | [selfcheck_parallel_plugin_downloads](../selfcheck_parallel_plugin_downloads.py) | 单项执行前核对 |

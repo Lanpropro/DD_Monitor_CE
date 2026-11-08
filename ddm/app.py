@@ -31,7 +31,7 @@ from . import overlay
 from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
-from .update_version import installed_revision, release_label, update_identity
+from .update_version import update_identity
 from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
@@ -53,6 +53,7 @@ from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
 from .room_preset_control import RoomPresetController
+from .app_updates import AppUpdates
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
@@ -119,6 +120,7 @@ class MainWindow(QMainWindow):
         self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
         self.room_placement = RoomPlacement(self)
         self.room_preset_control = RoomPresetController(self)
+        self.app_updates = AppUpdates(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
@@ -439,131 +441,46 @@ class MainWindow(QMainWindow):
             self._startup_update_timer.start()
 
     def _check_startup_update(self) -> None:
-        self._check_startup_plugins()
-        if self._closing or self._startup_update_checked or not self.settings.get("auto_update", False):
-            return
-        from . import online
-        from .online_ui import OnlineTask
-        self._startup_update_checked = True
-        def check(cancelled, progress):
-            with online.session() as client:
-                return online.app_release(client, version_module.VERSION,
-                    installed_revision(config_module.REPO, version_module.VERSION))
-        task = OnlineTask(check, None, self)
-        self._startup_update_task = task
-        task.succeeded.connect(self._startup_update_ready)
-        task.failed.connect(self._startup_update_failed)
-        task.finished.connect(self._startup_update_finished)
-        task.start()
+        return self.app_updates.check_startup_update()
 
     def _startup_update_ready(self, payload) -> None:
-        offer = payload[1]
-        if self._closing or not self.settings.get("auto_update", False) or not offer:
-            return
-        self._set_app_update(offer)
-        self._show_update_notice()
+        return self.app_updates.startup_update_ready(payload)
 
     def _set_app_update(self, offer):
-        self._available_update = offer
-        self._mark_updates()
+        return self.app_updates.set_app_update(offer)
 
     def _set_plugin_updates(self, offers):
-        from .online_ui import plugin_update_offers
-        self._plugin_catalog_offers = list(offers)
-        self._plugin_update_offers = plugin_update_offers(self.plugins, offers)
-        self._mark_updates()
+        return self.app_updates.set_plugin_updates(offers)
 
     def _mark_updates(self):
-        from .online_ui import set_update_dot
-        seen = self.settings.get('seen_update_entry_versions') or {}
-        offer = self._unread_app_update()
-        active = bool((offer and seen.get('app') != update_identity(offer)) or any(
-            seen.get(entry['id']) != entry['version'] for entry in self._unread_plugin_updates()))
-        set_update_dot(self.sidebar.settings_button, active)
-        self.sidebar.settings_button.setToolTip('有新版本，打开设置查看' if active else '打开设置')
+        return self.app_updates.mark_updates()
 
     def _unread_app_update(self):
-        seen = self.settings.get('seen_update_versions') or {}
-        return self._available_update if (self._available_update
-            and seen.get('app') != update_identity(self._available_update)) else None
+        return self.app_updates.unread_app_update()
 
     def _unread_plugin_updates(self):
-        seen = self.settings.get('seen_update_versions') or {}
-        return [offer for offer in self._plugin_update_offers
-                if seen.get(offer['id']) != offer['version']]
+        return self.app_updates.unread_plugin_updates()
 
     def _remember_updates(self, versions):
-        self.settings['seen_update_versions'] = dict(versions)
-        self._mark_updates()
-        config_module.save(self.current_state())
+        return self.app_updates.remember_updates(versions)
 
     def _check_startup_plugins(self):
-        if self._closing or self._startup_plugin_checked:
-            return
-        self._startup_plugin_checked = True
-        if not self.plugins.catalog():
-            return
-        from pathlib import Path
-        from . import online
-        from .online_ui import OnlineTask
-        path = Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json'
-        def check(cancelled, progress):
-            with online.session() as client:
-                return online.cached_plugin_catalog(client, version_module.VERSION, path)
-        task = OnlineTask(check, None, self)
-        self._startup_plugin_task = task
-        task.succeeded.connect(self._startup_plugins_ready)
-        task.failed.connect(self._startup_update_failed)
-        task.finished.connect(self._startup_plugins_finished)
-        task.start()
+        return self.app_updates.check_startup_plugins()
 
     def _startup_plugins_ready(self, payload):
-        if self._closing:
-            return
-        self._set_plugin_updates(payload[1])
-        if self._unread_plugin_updates():
-            self._show_update_notice()
+        return self.app_updates.startup_plugins_ready(payload)
 
     def _startup_plugins_finished(self):
-        task = self.sender()
-        if task is self._startup_plugin_task:
-            self._startup_plugin_task = None
-        task.deleteLater()
+        return self.app_updates.startup_plugins_finished()
 
     def _show_update_notice(self):
-        from .online_ui import UpdateNotice
-        app_offer = self._unread_app_update()
-        plugin_offers = self._unread_plugin_updates()
-        if not app_offer and not plugin_offers:
-            return
-        if self._update_notice is None:
-            self._update_notice = UpdateNotice(self)
-            self._update_notice.activated.connect(lambda: self.open_settings(
-                "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer(app_offer or {'version': ''},
-            persistent=self.settings.get('notice_persist_updates', True))
-        parts = []
-        if app_offer:
-            parts.append('软件有新版 v' + release_label(app_offer))
-        if plugin_offers:
-            parts.append(f'{len(plugin_offers)} 个插件可更新')
-        self._update_notice.title.setText(' · '.join(parts))
-        center = self.sidebar.notification_button.center
-        entry = center.add(' · '.join(parts), kind='update',
-            callback=lambda: self.open_settings('updates' if self._unread_app_update() else 'plugins'),
-            action='查看更新', key=('update', update_identity(app_offer) if app_offer else '',
-                tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
-        self._update_notice.track_history((center, entry))
+        return self.app_updates.show_update_notice()
 
     def _startup_update_failed(self, payload) -> None:
-        if not self._closing:
-            print(f"[更新检查] {payload[1]}", file=sys.stderr, flush=True)
+        return self.app_updates.startup_update_failed(payload)
 
     def _startup_update_finished(self) -> None:
-        task = self.sender()
-        if task is self._startup_update_task:
-            self._startup_update_task = None
-        task.deleteLater()
+        return self.app_updates.startup_update_finished()
 
     def _room_browser_url(self, room: dict) -> str:
         room_id = str(room.get("room_id") or "")

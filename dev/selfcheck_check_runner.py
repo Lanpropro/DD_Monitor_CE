@@ -113,7 +113,7 @@ if __name__ == '__main__':
             'selfcheck_playback_badges', 'selfcheck_ui_polish', 'selfcheck_settings_navigation', 'selfcheck_playback_controls',
             'selfcheck_widget_modules', 'selfcheck_wall_border', 'selfcheck_responsiveness',
             'selfcheck_startup_scroll_diagnostics',
-            'selfcheck_hotfix_updates',
+            'selfcheck_hotfix_updates', 'selfcheck_app_updates',
             'selfcheck_player_lifetime', 'selfcheck_playback_recovery',
             'selfcheck_main_notices', 'selfcheck_widget_lifetime',
             'selfcheck_notification_center', 'selfcheck_layout_16',
