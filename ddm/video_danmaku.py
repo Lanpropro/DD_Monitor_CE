@@ -19,6 +19,9 @@ from .super_chat_presentation import SuperChatAvatar, SuperChatPresentation, pai
 from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats, SC_BODY_PADDING
 
 
+from .video_super_chat import (SuperChatOverlay)
+
+
 class _TimerResolution:
     """Keep the Windows multimedia timer request paired with active scrolling."""
 
@@ -931,5 +934,3 @@ class VideoDanmaku(QWidget):
         self.super_chat_overlay.sync(self)
         self.schedule_quick_geometry()
         super().moveEvent(event)
-
-from .video_super_chat import (SuperChatOverlay)

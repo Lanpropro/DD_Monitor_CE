@@ -195,6 +195,9 @@ class DanmakuBottomButton(QPushButton):
         painter.drawLine(QPointF(x - 5, y + 7), QPointF(x + 5, y + 7))
 
 
+from .super_chat_widgets import (SuperChatAvatarView, SuperChatMessage, SuperChatCard, SuperChatStack)
+
+
 class DanmakuConnectionIcon(QLabel):
     """Keep the status text for accessibility while painting a Wi-Fi symbol."""
 
@@ -750,5 +753,3 @@ class DanmakuPanel(QFrame):
 
 def _escape(text: str) -> str:
     return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-
-from .super_chat_widgets import (SuperChatAvatarView, SuperChatMessage, SuperChatCard, SuperChatStack)
