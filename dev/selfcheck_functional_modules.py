@@ -141,6 +141,19 @@ class FunctionalModulesTests(unittest.TestCase):
                 self.assertIs(getattr(online_ui, name), getattr(module, name))
         self.assertIs(result_notice.ResultNotice.__bases__[0], update_notice.UpdateNotice)
 
+    def test_bili_workers_import_without_api_and_read_current_api_functions(self):
+        self.child("import sys; import ddm.bili_workers; assert 'ddm.bili' not in sys.modules")
+        from ddm import bili, bili_workers
+        for name in ('StreamResolver', 'InfoResolver', 'FollowLoader', 'StatusPoller', 'AccountLoader', 'StatsPoller'):
+            self.assertIs(getattr(bili, name), getattr(bili_workers, name))
+        worker = bili_workers.AccountLoader()
+        seen = []
+        worker.loaded.connect(seen.append)
+        with patch.object(bili, 'my_account', return_value={'uname': 'current-api'}):
+            worker.run()
+        self.assertEqual(seen, [{'uname': 'current-api'}])
+        worker.deleteLater()
+
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
