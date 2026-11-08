@@ -46,6 +46,9 @@ class DialogModulesTests(unittest.TestCase):
         self.assertIs(settings_shortcuts.SHORTCUT_ACTIONS, shortcut_actions.SHORTCUT_ACTIONS)
         self.assertIs(dialogs.QFileDialog, importlib.import_module('ddm.settings_plugins').QFileDialog)
         self.assertIs(dialogs.QMessageBox, importlib.import_module('ddm.settings_plugins').QMessageBox)
+        components = importlib.import_module('ddm.ui')
+        self.assertIs(dialogs._page_head, components.page_header)
+        self.assertIs(dialogs._step_button, components.step_button)
 
     def test_legacy_import_preserves_qt_subclass_definition_order(self):
         expected = [name for module, names in MODULES.items() if module != 'room_dialogs' for name in names]
