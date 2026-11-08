@@ -6,6 +6,7 @@ from PySide6.QtCore import QTimer
 from . import bili
 from . import plugins as plugin_api
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
+from .tile_widgets import Tile
 
 
 class StreamPlayback:
@@ -346,3 +347,291 @@ class StreamPlayback:
             host._on_picture_frozen(tile)
         elif tile.room.get("room_id") and tile.room.get("live") and not tile.paused:
             host._schedule_retry(tile)
+
+    def check_audio_output_device(self) -> None:
+        host = self.host
+        if host._closing:
+            return
+        device_id = bytes(host._audio_devices.defaultAudioOutput().id())
+        if device_id == host._default_audio_output_id:
+            return
+        try:
+            for player in host.players.values():
+                player.refresh_audio_device()
+        except Exception as exc:  # noqa: BLE001 - device notifications must not stop Qt
+            print(f"[音频输出] 刷新设备失败：{exc}", file=sys.stderr, flush=True)
+            return
+        host._default_audio_output_id = device_id
+
+    def on_player_state(self, tile, state: str) -> None:
+        host = self.host
+        if tile is None:
+            return                        # 播放器已经不在任何格子上（刚被停掉）
+        if not tile.room.get("room_id"):
+            return
+        if state == "playing":
+            host.playback_recovery.cancel_retry(tile)
+            tile.set_video_active(True)
+            tile.set_buffering(False)
+            tile.set_status("")
+            tile.start_elapsed_timer()
+            host.playback_recovery.reset_retry_after_playing(tile)
+            player = host.players.get(tile)
+            if player is not None:
+                # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
+                player.reapply_audio_channel()
+            host.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
+                              room=dict(tile.room or {}))
+        elif state == "connecting":
+            tile.set_video_active(False)
+            tile.set_status("连接中…")
+        elif state == "buffering":
+            tile.set_buffering(True)         # 卡顿时也显示缓冲动画
+        elif state == "frozen":
+            player = host.players.get(tile)
+            if str(tile.room.get("room_id", "")).startswith("douyu:") and player is not None:
+                host.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
+                    source_url=player.stream_url, reason="STALL")
+            host._on_picture_frozen(tile)
+        elif state == "error":
+            host._clear_freeze_recovery(tile)
+            tile.set_video_active(False)
+            tile.stop_elapsed_timer()
+            player = host.players.get(tile)
+            if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")) and player is not None:
+                host.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
+                    source_url=player.stream_url, reason=player.source_failure or "STALL")
+            host.refresh_status()           # 断流可能来自下播，立即向接口确认
+            host._schedule_retry(tile)
+        else:
+            tile.set_video_active(False)
+            tile.stop_elapsed_timer()
+        tile.raise_overlays()
+
+    def stop_tile(self, tile) -> None:
+        host = self.host
+        dialog = host._codec_dialogs.get(tile)
+        if dialog is not None:
+            dialog.close()
+        host._replay_suppressed.pop(tile, None)
+        host.playback_recovery.clear_tile(tile)
+        host._stream_attempts.pop(tile, None)
+        player = host.players.pop(tile, None)
+        if player is not None:
+            player.release()
+        resolver = host._resolvers.pop(tile, None)
+        if resolver is not None:
+            # 只作废、不强杀：terminate() 会带走线程本地存储和锁，主线程可能
+            # 整个卡死（窗口不动也不退出，用户看到的就是「直接崩了」）
+            resolver.cancel()
+        host.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
+                          room=dict(tile.room or {}))
+
+    def match_sync_holds(self, tile):
+        host = self.host
+        if not getattr(host, "_match_sync_active", False):
+            return False
+        return tile not in host.recorder.sessions and tile not in host._pending_capture
+
+    def set_match_sync_playback(self, active):
+        """Release hidden watching sessions, preserving independent recordings."""
+        host = self.host
+        if bool(active) == getattr(host, "_match_sync_active", False):
+            return
+        host._match_sync_active = bool(active)
+        if active:
+            host._match_sync_saved = {}
+            host._match_sync_resume_pause = {}
+            for tile in set(host.players) | set(host._resolvers) | set(host._retry_timers):
+                if host._match_sync_holds(tile):
+                    host._match_sync_saved[tile] = (str(tile.room.get("room_id") or ""), tile.paused)
+                    host._stop_tile(tile)
+        else:
+            saved, host._match_sync_saved = getattr(host, "_match_sync_saved", {}), {}
+            if host._closing:
+                return
+            for tile, (room_id, paused) in saved.items():
+                if (tile.isVisible() and room_id == str(tile.room.get("room_id") or "")
+                        and tile.room.get("live")):
+                    if paused:
+                        host._match_sync_resume_pause[tile] = room_id
+                    host.start_tile(tile)
+
+    def sync_tile_playback(self, *, start_visible: bool = False) -> None:
+        """只让**看得见**的格子播放。
+
+        布局从 9 格换成 6 格时，多出来的格子以前只是 ``setVisible(False)``：播放器
+        一步没停，还在解码、**还在出声**（用户报「没显示出来的格子也在响」）。这里
+        把当前布局放不下的停掉；已选择的可见房间按需起播，新增位置保持空白。
+        """
+        host = self.host
+        if getattr(host, "_tray", None) is not None and host._tray.playback_suspended:
+            return
+        if not getattr(host, "plugins", None):
+            start_visible = False       # 构造期间插件还没装好，不能在这里起流
+        for tile in host.wall.tiles:
+            if getattr(host, "_match_sync_active", False):
+                continue
+            player = host.players.get(tile)
+            if tile.isVisible():
+                if start_visible and player is None and tile.room.get("live"):
+                    host.start_tile(tile)
+            else:
+                host._pending_capture.pop(tile, None)
+                host.recorder.stop(tile)
+                if tile not in host.recorder.sessions:
+                    host._restore_capture_quality(tile)
+                if (player is None and tile not in host._resolvers
+                        and tile not in host._retry_timers
+                        and tile not in host._freeze_retry_timers):
+                    continue
+                print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
+                      file=sys.stderr, flush=True)
+                host._stop_tile(tile)
+
+    def offline_tile(self, tile) -> None:
+        """这一路下播：停掉播放（画面变黑），格子继续留给它，等重新开播自动接上。"""
+        host = self.host
+        host.playback_recovery.cancel_retry(tile, reset_attempts=True)
+        host._pending_capture.pop(tile, None)
+        host.recorder.stop(tile)
+        host._stop_tile(tile)
+        tile.set_offline()
+        if tile not in host.recorder.sessions:
+            host._restore_capture_quality(tile)
+        print(f"[下播] {tile.room.get('uname')} 画面已清空，格子保留",
+              file=sys.stderr, flush=True)
+
+    def tile_of(self, room_id: str):
+        host = self.host
+        return next((tile for tile in host.wall.tiles
+                     if str(tile.room.get("room_id") or "") == str(room_id)), None)
+
+    def sender_tile(self):
+        """发信号的那个格子；不是格子发的（定时器之类）返回 None。
+
+        定位操作对象**别用 room_id 反查**：同一个直播间占了两个格子时（配置里
+        存重了、或同一张卡片被拖上两次），反查只命中列表里第一个 —— 于是「静音
+        这一格」把另一格的播放器静音了，这一格反倒还在出声，而标志是画在自己
+        身上的、照样亮着。用户报的「开这格静音，旁边那格声音不对」就是这个。
+        这些信号都是直接连接的，sender() 可靠；反查只留作兜底。
+        """
+        host = self.host
+        sender = host.sender()
+        return sender if isinstance(sender, Tile) else None
+
+    def tile_of_player(self, player):
+        """播放器现在挂在哪个格子上（格子换位置之后连接不用重接，靠这个现查）。"""
+        host = self.host
+        for tile, candidate in host.players.items():
+            if candidate is player:
+                return tile
+        return None
+
+    def on_tile_clicked(self, room: dict) -> None:
+        # 信号带过来的字典是副本，用房间号比较（不能比较对象身份）
+        host = self.host
+        room_id = str(room.get("room_id") or "")
+        host.sidebar.watch_history.select(room_id)
+        for tile in host.wall.tiles:
+            tile.set_focused(bool(room_id) and str(tile.room.get("room_id") or "") == room_id)
+        host.sidebar.select_room(room)
+
+    def on_volume_changed(self, room: dict, value: int) -> None:
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        player = host.players.get(tile) if tile is not None else None
+        if player is not None:
+            player.set_volume(value)
+        host._save_timer.start()       # 滑块停下 700ms 后保存每个格子的音量
+
+    def on_audio_changed(self, room: dict, value: int) -> None:
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        player = host.players.get(tile) if tile is not None else None
+        if player is not None:
+            player.set_audio_channel(value)
+            # 播放中的这一路要等音频输出模块起来后再补一次，否则会被初始化冲掉
+            player.reapply_audio_channel()
+        host._save_timer.start()       # 声道属于格子，和音量一起记住
+
+    def on_quality_changed(self, room: dict, quality: int) -> None:
+        # 注意：Qt 信号传过来的 dict 是副本，必须写回格子自己的字典
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        if tile is None:
+            return
+        if tile in host._capture_quality and quality != 10000:
+            blocked = tile.blockSignals(True)
+            try:
+                tile.set_quality(10000)
+            finally:
+                tile.blockSignals(blocked)
+            return
+        tile.quality = quality
+        tile.room["quality"] = quality
+        host._save_timer.start()
+        if tile.room.get("live"):
+            player = host.players.get(tile)
+            if (player is not None and player.stream_profile in OVERSEAS_PLATFORMS
+                    and player._media is not None and player.state in ("playing", "buffering")
+                    and any(int(item["qn"]) == player.actual_quality
+                            for item in tile.quality_options)
+                    and quality in (AUTO_QUALITY, player.actual_quality)):
+                # 自动是画质策略；沿用正在播放的档位，避免点击时停掉原生解码器。
+                # 锁定当前档也只需关掉策略。其他手选档位仍走正常换流流程。
+                previous = host._resolvers.pop(tile, None)
+                if previous is not None:
+                    previous.cancel()
+                player.configure_auto_quality(str(tile.room["room_id"]),
+                    tile.quality_options if quality == AUTO_QUALITY else [])
+                tile.set_actual_quality(player.actual_quality)
+                return
+            host.start_tile(tile)
+
+    def on_mute_changed(self, room: dict, muted: bool) -> None:
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        player = host.players.get(tile) if tile is not None else None
+        if player is not None:
+            player.set_muted(muted)
+        host._save_timer.start()       # 静音也是格子状态，和音量一起记住
+
+    def audit_audio(self) -> None:
+        """保持每格的独立音量、静音和声道。"""
+        host = self.host
+        for tile in host.wall.tiles:
+            player = host.players.get(tile)
+            if player is not None and tile.room.get("room_id"):
+                player.sync_audio(int(tile.volume), bool(tile.muted), int(tile.audio_channel))
+
+    def on_reload(self, room: dict) -> None:
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        if tile is not None:
+            host._clear_freeze_recovery(tile)
+            if host._is_bili_tile(tile) and tile.codec_probe_note:
+                tile.codec_probe_note = ""
+            host.start_tile(tile)
+
+    def on_pause_toggled(self, room: dict) -> None:
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        if tile is None:
+            return
+        paused = not tile.paused
+        tile.set_paused(paused)
+        resolver = host._resolvers.get(tile)
+        if paused and resolver is not None:
+            host._resolvers.pop(tile, None)
+            resolver.cancel()
+            tile.codec_reconnect_pending = True
+            tile.codec_probe_note = "探测已暂停；恢复播放时重新探测，当前流保持暂停。"
+        if not paused and getattr(tile, "codec_reconnect_pending", False):
+            host.start_tile(tile)
+            return
+        player = host.players.get(tile)
+        if player is not None:
+            player.set_paused(paused)
+        print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
+              file=sys.stderr, flush=True)

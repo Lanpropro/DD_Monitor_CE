@@ -4,6 +4,11 @@ import sys
 from PySide6.QtWidgets import QApplication, QBoxLayout
 
 from . import layouts
+from PySide6.QtWidgets import (
+    QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+    QPlainTextEdit, QStackedWidget, QTextEdit,
+    QVBoxLayout, QWidget,
+)
 
 
 class WindowLayout:
@@ -269,3 +274,73 @@ class WindowLayout:
         host.resize(new_width, new_height)
         print(f"[窗口] 改成 {'竖屏' if portrait else '横屏'} {new_width}x{new_height}",
               file=sys.stderr, flush=True)
+
+    def begin_interactive_resize(self) -> None:
+        host = self.host
+        if (not hasattr(host, "wall") or host._closing
+                or host._fullscreen_tile is not None or host._interactive_resize):
+            return
+        host._resize_idle_timer.stop()
+        host._interactive_resize = True
+
+    def finish_interactive_resize(self) -> None:
+        host = self.host
+        if not hasattr(host, "wall") or host._settling_resize:
+            return
+        host._resize_idle_timer.stop()
+        host._interactive_resize = False
+        if host._closing or host._fullscreen_tile is not None or not host._resize_dirty:
+            return
+        host._settling_resize = True
+        try:
+            orientation = host._resize_orientation()
+            if orientation != host.orientation:
+                host._apply_orientation(orientation)
+            host._root_layout.activate()
+            host._content.layout().activate()
+            host.wall.finish_resize()
+        finally:
+            host.wall.set_interactive_resize(False)
+            host._resize_dirty = False
+            host._settling_resize = False
+            host._resize_idle_timer.stop()
+
+    def resize_orientation(self, *, enter_ratio, exit_ratio) -> str:
+        host = self.host
+        PORTRAIT_ENTER_RATIO = enter_ratio
+        PORTRAIT_EXIT_RATIO = exit_ratio
+        ratio = host.width() / max(1, host.height())
+        if ratio <= PORTRAIT_ENTER_RATIO:
+            return "portrait"
+        if ratio >= PORTRAIT_EXIT_RATIO:
+            return "landscape"
+        return host.orientation
+
+    def cancel_interactive_resize(self) -> None:
+        host = self.host
+        timer = getattr(host, "_resize_idle_timer", None)
+        if timer is not None:
+            timer.stop()
+        host._interactive_resize = False
+        host._resize_dirty = False
+        if hasattr(host, "wall"):
+            host.wall.set_interactive_resize(False)
+
+    def show_initial_maximized(self) -> None:
+        # Windows can expose a maximized HWND before Qt receives its final
+        # resize event. Size the hidden tree first, including the native caption.
+        host = self.host
+        bounds = host.screen().availableGeometry()
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            import ctypes
+            scale = host.screen().devicePixelRatio()
+            caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
+        else:
+            host.winId()
+            margins = host.windowHandle().frameMargins()
+            caption = max(0, margins.top() - margins.bottom())
+        host.setGeometry(bounds.adjusted(0, caption, 0, 0))
+        host.layout().activate()
+        host._resize_dirty = True
+        host._finish_interactive_resize()
+        host.showMaximized()

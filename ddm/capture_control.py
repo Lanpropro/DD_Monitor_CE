@@ -1,5 +1,6 @@
 """Recording/replay policy and tile state; the host owns sessions and shutdown."""
 import time
+from . import bili
 
 
 class CaptureControl:
@@ -234,3 +235,38 @@ class CaptureControl:
             tile.set_recording_elapsed(
                 f"{hours:d}:{minutes:02d}:{secs:02d}" if hours
                 else f"{minutes:02d}:{secs:02d}")
+
+    def refresh_recording_source(self, session, *, resolver_type) -> None:
+        host = self.host
+        StreamResolver = resolver_type
+        tile = session.tile
+        platform = host.plugins.platform_for(session.room_id)
+        if host._closing or tile not in host.wall.tiles or (':' in session.room_id and platform is None):
+            host.recorder.source_failed(session, '直播间已关闭或平台不可用')
+            return
+        resolver = StreamResolver(session.room_id, int(tile.actual_quality or tile.quality or 250),
+                                  host, platform=platform,
+                                  codec=session.video_codec or host._codec_settings(tile)['bili_codec'])
+        session.resolver = resolver
+
+        def current():
+            return (not host._closing and host.recorder.sessions.get(tile) is session
+                    and not session.stopping and session.resolver is resolver
+                    and tile in host.wall.tiles
+                    and str(tile.room.get('room_id') or '') == session.room_id)
+
+        def resolved(_rid, url, _quality, profile, _options):
+            if current():
+                codec = resolver.source_codec if platform is not None else bili.codec_from_profile(profile)
+                host.recorder.source_resolved(session, url, dict(resolver.headers), codec)
+
+        def failed(_rid, reason):
+            if current():
+                host.recorder.source_failed(session, reason)
+
+        resolver.resolved.connect(resolved)
+        resolver.failed.connect(failed)
+        resolver.finished.connect(lambda: host._resolvers_running.discard(resolver))
+        resolver.finished.connect(resolver.deleteLater)
+        host._resolvers_running.add(resolver)
+        resolver.start()

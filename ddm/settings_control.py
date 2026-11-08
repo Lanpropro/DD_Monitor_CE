@@ -6,6 +6,8 @@ import time
 
 from . import config as config_module
 from .update_version import update_identity
+from PySide6.QtCore import QPoint
+from . import theme
 
 
 class SettingsControl:
@@ -215,3 +217,59 @@ class SettingsControl:
             host._restart_requested = True
             host.close()
         return True
+
+    def set_appearance(self, mode: str) -> None:
+        host = self.host
+        host.settings["appearance_mode"] = theme.normalize_mode(mode)
+        from .theme_transition import ThemeTransition
+        if not hasattr(host, '_theme_transition'):
+            host._theme_transition = ThemeTransition(host)
+        source = host.sender()
+        page = getattr(source, 'appearance_page', None)
+        button = page.buttons[host.settings["appearance_mode"]] if page is not None else host.sidebar.appearance_button
+        host._theme_transition.change(host.settings["appearance_mode"], button.mapToGlobal(QPoint()))
+        host._save_timer.start()
+
+    def sidebar_card_mode_changed(self, enabled):
+        host = self.host
+        host.settings['sidebar_card_mode'] = enabled
+        host.settings['sidebar_auto_compact'] = False
+        host._save_timer.start()
+
+    def set_skin(self, values):
+        host = self.host
+        active = host.plugins.active_skin()
+        if active is not None and active['version'] == 1:
+            host.refresh_skin()
+            return
+        host.settings.update(values)
+        host.refresh_skin()
+        config_module.save(host.current_state())
+
+    def set_skin_parts(self, values):
+        host = self.host
+        from .skin_parts import validate_parts
+        from pathlib import Path
+        validate_parts(values, Path(config_module.data_root()) / 'utils' / 'skins')
+        host.settings['skin_parts'] = deepcopy(values)
+        host.refresh_skin()
+        config_module.save(host.current_state())
+
+    def apply_preview_settings(self) -> None:
+        """关注列表样式与悬停预览开关。"""
+        host = self.host
+        before = host.sidebar.card_mode
+        host.sidebar.show_platform_logos = bool(host.settings.get("sidebar_platform_logos", True))
+        host.sidebar._sync_count()
+        host.sidebar.set_compact_background(
+            bool(host.settings.get("sidebar_compact_background", True)))
+        host.sidebar.set_compact_policy(
+            bool(host.settings.get("sidebar_card_mode", True)),
+            bool(host.settings.get("sidebar_auto_compact", True)),
+            int(host.settings.get("sidebar_compact_threshold", 18)),
+        )
+        if host.sidebar.card_mode != before:
+            host.hover_preview.stop()
+        host.hover_preview.enabled = bool(host.settings.get("preview_on_hover", True))
+        if not host.hover_preview.enabled:
+            host.hover_preview.stop()

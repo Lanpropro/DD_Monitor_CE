@@ -135,3 +135,33 @@ class CodecControl:
         dialog.finished.connect(lambda _result: host._codec_dialogs.pop(tile, None))
         host._codec_dialogs[tile] = dialog
         dialog.show()
+
+    def stream_info_snapshot(self, tile):
+        host = self.host
+        if host._closing or tile not in host.wall.tiles or not tile.room.get('room_id'):
+            return None
+        player = host.players.get(tile)
+        info = player.stream_info() if player is not None else {'state': 'idle'}
+        info['room'] = f"{tile.room.get('uname') or '直播间'} · {tile.room['room_id']}"
+        return info
+
+    def open_tile_stream_info(self, tile):
+        host = self.host
+        if host._stream_info_snapshot(tile) is None:
+            return
+        existing = host._stream_info_dialogs.get(tile)
+        if existing is not None:
+            existing.set_presentation_owner(tile.window())
+            existing.refresh()
+            existing.show()
+            existing.raise_()
+            existing.activateWindow()
+            return
+        from .stream_info import StreamInfoDialog
+        dialog = StreamInfoDialog(lambda: host._stream_info_snapshot(tile), host)
+        dialog.finished.connect(lambda _result: host._stream_info_dialogs.pop(tile, None))
+        host._stream_info_dialogs[tile] = dialog
+        dialog.set_presentation_owner(tile.window())
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
