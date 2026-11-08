@@ -23,6 +23,7 @@ from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .ui import ElidedLabel, ScaleCurveControl, page_header as _page_head, step_button as _step_button
+from .settings_layout import SettingsColumns, SettingsSection, section_grid
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
 
@@ -281,7 +282,8 @@ class GeneralSettingsPage(QWidget):
         volume_box.setSpacing(10)
         self.volume_slider = QSlider(Qt.Horizontal)
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setFixedWidth(240)
+        self.volume_slider.setMinimumWidth(100)
+        self.volume_slider.setMaximumWidth(240)
         self.volume_slider.setValue(int(settings.get("default_volume", DEFAULT_VOLUME)))
         self.volume_label = QLabel(str(self.volume_slider.value()))
         self.volume_label.setObjectName("NavSub")
@@ -292,6 +294,10 @@ class GeneralSettingsPage(QWidget):
         volume_box.addWidget(self.volume_label)
         volume_box.addStretch(1)
         grid.addLayout(volume_box, row, 1)
+        self.sections = section_grid(grid, (
+            ('playback', '播放与声音', (1, 2, 3, 4, 10, 11), False),
+            ('following', '关注与预览', (0, 5, 6, 7, 8), False),
+        ), anchor=self._checks['sidebar_platform_logos'])
         layout.addLayout(grid)
         layout.addStretch(1)
 
@@ -351,6 +357,8 @@ class TraySettingsPage(QWidget):
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(14)
         layout.addLayout(_page_head("托盘行为", "设置关闭窗口的方式及隐藏到系统托盘后的行为"))
+        behavior = SettingsSection('关闭与托盘')
+        layout.addWidget(behavior)
         row = QHBoxLayout()
         row.setSpacing(12)
         row.addWidget(QLabel("关闭窗口时"))
@@ -363,18 +371,19 @@ class TraySettingsPage(QWidget):
         self.close_behavior_combo.setMinimumWidth(180)
         row.addWidget(self.close_behavior_combo)
         row.addStretch(1)
-        layout.addLayout(row)
+        behavior.grid.addLayout(row, 0, 0, 1, 2)
         self.pause_playback = QCheckBox("进入托盘后暂停播放")
         self.pause_playback.setChecked(bool(settings.get("tray_pause_playback", True)))
-        layout.addWidget(self.pause_playback)
+        behavior.grid.addWidget(self.pause_playback, 1, 0, 1, 2)
         hint = QLabel("暂停时停止观看取流；恢复主窗口后重新连接直播。原本手动暂停的格子保持暂停，录制继续运行。\n普通最小化或切换到其他软件不受影响。")
         hint.setObjectName("SettingsHint")
         hint.setWordWrap(True)
-        layout.addWidget(hint)
-        layout.addLayout(_page_head('画面右键菜单', '在左侧菜单缩略图上拖动排序，右侧勾选功能；插件扩展作为一组显示。'))
+        behavior.grid.addWidget(hint, 2, 0, 1, 2)
+        menu = SettingsSection('画面右键菜单')
+        layout.addWidget(menu)
         from .tile_menu import TileMenuEditor
         self.tile_menu = TileMenuEditor(settings.get('tile_context_menu'))
-        layout.addWidget(self.tile_menu)
+        menu.grid.addWidget(self.tile_menu, 0, 0, 1, 2)
         layout.addStretch(1)
 
     def values(self):
@@ -578,7 +587,14 @@ class NotificationSettingsPage(QWidget):
         hint.setObjectName('SettingsHint')
         hint.setWordWrap(True)
         blur_layout.addWidget(hint)
-        groups.insertWidget(0, card)
+        cards = [groups.itemAt(index).widget() for index in range(groups.count())]
+        for existing in cards:
+            groups.removeWidget(existing)
+        self.sections = SettingsColumns()
+        self.sections.add_section('background', card, wide=True)
+        self.sections.add_section('live', cards[0])
+        self.sections.add_section('persistence', cards[1])
+        groups.addWidget(self.sections)
         groups.addStretch(1)
 
     def _update_banner_blur(self, value):
@@ -604,7 +620,16 @@ class ShortcutSettingsPage(QWidget):
         self.setObjectName("SettingsPage")
         self._edits: dict[str, QKeySequenceEdit] = {}
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        self.scroll.setWidget(content)
+        outer.addWidget(self.scroll)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
         layout.addLayout(_page_head("快捷键", "点输入框后直接按下想要的按键组合（Esc 需要单独按一次）"))
@@ -621,6 +646,10 @@ class ShortcutSettingsPage(QWidget):
             edit.setFixedWidth(160)
             grid.addWidget(edit, row, 1, Qt.AlignLeft)
             self._edits[key] = edit
+        self.sections = section_grid(grid, (
+            ('view', '画面与导航', (0, 1, 2, 3), False),
+            ('interaction', '播放与互动', (4, 5, 6, 7, 8), False),
+        ))
         layout.addLayout(grid)
         layout.addStretch(1)
 
@@ -745,6 +774,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_scale_with_video.setToolTip('以 720 像素高的画面为基准，卡片、文字和头像一起缩放；曲线可调整，弹幕栏保持手动大小')
         self.super_chat_scale_with_video.setChecked(bool(settings.get('super_chat_scale_with_video', False)))
         self.super_chat_placement = SuperChatPlacementPreview()
+        self.super_chat_placement.setFixedHeight(220)
         self.super_chat_placement.apply_settings(settings)
         self.super_chat_opacity.valueChanged.connect(self.super_chat_placement.set_opacity)
         self.super_chat_placement.changed.connect(self._sc_placement_changed)
@@ -800,7 +830,8 @@ class DanmakuSettingsPage(QWidget):
         keep_tip.setObjectName("SettingsHint")
         layout.addWidget(keep_tip)
 
-        layout.addWidget(QLabel("屏蔽词（每行一个）"))
+        block_title = QLabel("屏蔽词（每行一个）")
+        layout.addWidget(block_title)
         self.block_edit = QPlainTextEdit()
         self.block_edit.setObjectName("BlockWords")
         self.block_edit.setPlaceholderText("例如：\n文静\n自研文静")
@@ -810,6 +841,19 @@ class DanmakuSettingsPage(QWidget):
         self.block_edit.setPlainText("\n".join(settings.get("danmaku_block_words") or []))
         self.block_edit.setFixedHeight(110)
         layout.addWidget(self.block_edit)
+        self.sections = section_grid(grid, (
+            ('sc_curve', 'SC 缩放曲线', (7, 12), False),
+            ('sc_placement', '位置与大小', (6, 8, 9, 10, 11), False),
+            ('sc_display', '醒目留言显示与折叠', (3, 4, 5), True),
+            ('danmaku_curve', '画面弹幕缩放', (13, 14), False),
+            ('font_filter', '字体与屏蔽', (0, 1, 2), False),
+        ), full_width_rows=(12, 14))
+        font_grid = self.sections.section('font_filter').grid
+        for row, widget in enumerate((tip, keep_tip, block_title, self.block_edit), start=3):
+            layout.removeWidget(widget)
+            if isinstance(widget, QLabel):
+                widget.setWordWrap(True)
+            font_grid.addWidget(widget, row, 0, 1, 2)
         layout.addStretch(1)
 
     def _sc_placement_changed(self, values):
@@ -983,6 +1027,11 @@ class RecordingSettingsPage(QWidget):
         self._load(settings)
         self.bitrate.valueChanged.connect(self._enable_transcode)
         self.fps.currentIndexChanged.connect(self._enable_transcode)
+        self.sections = section_grid(grid, (
+            ('storage', '保存位置与空间', (0, 12), True),
+            ('recording', '录制与编码', (1, 2, 3, 4, 5, 6, 7, 13), False),
+            ('replay', '即时回放缓存', (8, 9, 10, 11), False),
+        ))
         layout.addStretch(1)
 
     def _browse(self) -> None:
@@ -1518,7 +1567,9 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
-        self.resize(720, 650)
+        available = self.screen().availableGeometry()
+        self.setMinimumSize(760, 520)
+        self.resize(min(1200, available.width() - 48), min(800, available.height() - 72))
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1556,7 +1607,12 @@ class SettingsDialog(QDialog):
             # update/download workers or reading an installation result.
             self._page_factories[7] = QWidget
             self._page_factories[8] = QWidget
-        self.stack.addWidget(self.general_page)
+        self.general_scroll = QScrollArea()
+        self.general_scroll.setFrameShape(QFrame.NoFrame)
+        self.general_scroll.setWidgetResizable(True)
+        self.general_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.general_scroll.setWidget(self.general_page)
+        self.stack.addWidget(self.general_scroll)
         for _index in range(len(self.PAGES) - 1):
             self.stack.addWidget(QWidget())
         right.addWidget(self.stack, 1)
@@ -1718,7 +1774,7 @@ class SettingsDialog(QDialog):
                 self._mark_app_update(self.update_page.offer)
 
     def _reset_current(self) -> None:
-        page = self.stack.currentWidget()
+        page = self.general_page if self.stack.currentIndex() == 0 else self.stack.currentWidget()
         if hasattr(page, "reset"):
             page.reset()
 

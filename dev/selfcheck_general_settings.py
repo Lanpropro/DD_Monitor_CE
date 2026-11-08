@@ -285,18 +285,21 @@ def main():
                                 "freeze_watch": False, "default_volume": 21})
     grid = page.layout().itemAt(1).layout()
     labels = []
-    for index in range(grid.count()):
-        item = grid.itemAt(index)
-        widget = item.widget()
-        if isinstance(widget, (QLabel, QCheckBox)):
-            labels.append((grid.getItemPosition(index)[0], widget.text()))
-    assert [text for _, text in sorted(labels)] == [
+    for _key, section, _wide in page.sections.entries:
+        for index in range(section.grid.count()):
+            widget = section.grid.itemAt(index).widget()
+            if isinstance(widget, (QLabel, QCheckBox)):
+                labels.append(widget.text())
+    anchor = page._checks['sidebar_platform_logos']
+    assert grid.indexOf(anchor) >= 0, 'Keep the released plugin insertion anchor'
+    labels.append(anchor.text())
+    assert sorted(labels) == sorted([
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "音量均衡（减小直播间音量差异）",
         "全屏时自动收起底部控制条",
         "自动切换紧凑列表", "自动切换数量", "紧凑关注卡片显示背景图（Banner／封面）",
         "关注栏直播预览", "显示关注栏平台 Logo",
-        "编解码设置", "新建格子的初始音量"]
+        "编解码设置", "新建格子的初始音量"])
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False
