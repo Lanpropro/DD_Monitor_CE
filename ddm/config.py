@@ -63,6 +63,7 @@ DEFAULT_SETTINGS = {
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
     "volume_normalization": False,  # 播放时减小不同直播间与片段的音量差异。
+    "volume_normalization_curve": None,  # 缺省使用平缓时间响应；编辑后保存独立参数。
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量

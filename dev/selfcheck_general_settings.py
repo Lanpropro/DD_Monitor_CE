@@ -50,18 +50,23 @@ def check_volume_normalization(app):
             player.player = Mock()
             player.set_audio_channel(3)
             play.reset_mock()
-            window._remote_settings_saved({'settings': {'volume_normalization': True}})
+            from ddm.audio_normalization import preset_curve
+            curve = preset_curve('spotify')
+            window._remote_settings_saved({'settings': {'volume_normalization': True,
+                                                        'volume_normalization_curve': curve}})
             assert player.volume_normalization is True
-            assert 'dynaudnorm' in player.player.af and 'pan=' in player.player.af
+            assert player.normalization_curve == curve
+            assert 'ddm_meter' in player.player.af and 'pan=' in player.player.af
             assert window.current_state()['settings']['volume_normalization'] is True
             play.assert_not_called()
             window._remote_settings_saved({'settings': {'volume_normalization': False}})
-            assert 'dynaudnorm' not in player.player.af and 'pan=' in player.player.af
+            assert 'ddm_meter' not in player.player.af and 'pan=' in player.player.af
             # A newly created player also inherits the saved switch before playback.
             window._stop_tile(tile)
             window.settings['volume_normalization'] = True
             window._play_on(tile, 'http://127.0.0.1:9/test', 250, 'app')
             assert window.players[tile].volume_normalization is True
+            assert window.players[tile].normalization_curve == curve
     finally:
         window.close()
         app.processEvents()
@@ -300,7 +305,9 @@ def main():
     assert not page.compact_threshold_spin.isEnabled()
     page.reset()
     assert page.compact_threshold_spin.isEnabled()
-    assert all(page.values()[key] == config.DEFAULT_SETTINGS[key] for key in page.values())
+    from ddm.audio_normalization import normalize_curve
+    expected = dict(config.DEFAULT_SETTINGS, volume_normalization_curve=normalize_curve())
+    assert all(page.values()[key] == expected[key] for key in page.values())
     app_module.StatusPoller = app_module.StatsPoller = SilentPoller
     with patch("ddm.app.QTimer.singleShot"):
         window = app_module.MainWindow([], [], state={"plugins_enabled": [],
