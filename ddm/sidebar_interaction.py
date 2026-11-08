@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QMenu, QPushButton, QVBoxLayout, QWidget
 )
 from .sidebar_item import NavItem
+from PySide6.QtCore import Qt
 
 
 class SidebarInteraction:
@@ -117,3 +118,16 @@ class SidebarInteraction:
         host = self.host
         host.list_box.set_scroll_dir(0)
         host.list_box.relayout(animate=True)
+
+    def focus_room_list(self) -> None:
+        """回车：把焦点从搜索框让给列表，接着就能直接点选 / 拖动。"""
+        host = self.host
+        host.scroll.setFocus()
+
+    def focus_search(self) -> None:
+        """Ctrl+F：展开关注栏并把输入焦点交给搜索框。"""
+        host = self.host
+        if host.collapsed:
+            host.set_collapsed(False, animate=False)
+        host.search.setFocus(Qt.ShortcutFocusReason)
+        host.search.selectAll()

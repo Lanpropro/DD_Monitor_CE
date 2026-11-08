@@ -3,6 +3,9 @@ from PySide6.QtCore import QPoint, QRect, QTimer, Qt
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QPushButton, QWidget, QWidgetAction
 
 from . import theme
+from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+from .avatar_widgets import RoomStrip
+from . import follow_folders, layouts, motion, theme, version as version_module
 
 
 class SidebarAccountControl:
@@ -167,3 +170,55 @@ class SidebarAccountControl:
             host.importFollowsClicked.emit()
         elif label == "+ 添加直播间":
             host.addRoomClicked.emit()
+
+    def account_row_should_show(self) -> bool:
+        """账号按钮什么时候露出来。
+
+        用户 2026-09-18：**没登录也要露**（显示「登录」，点了弹扫码登录）；
+        登录后横屏在侧栏底部、竖屏在横栏右侧那一块 / 收起态头像排旁边。
+        """
+        host = self.host
+        return not host.select_mode
+
+    def sync_account_row_shape(self) -> None:
+        """账号条的形状跟着「横屏/竖屏 + 收起/展开」走。
+
+        竖屏收起时横栏只有 36px 高，账号头像要按头排头像的尺寸（34）挤进去；
+        竖屏展开时它在右侧那一块里，高度就用横屏那套（34），多出来的高度留给
+        两条空白；其它情况沿用原来的样子。
+        """
+        host = self.host
+        if host.side == "top" and not host.collapsed:
+            host.account_row.set_compact(False)
+            # 高度用横屏那套（34），宽度跟着这一块走（三个按钮左右一样长）
+            host.account_row.setFixedHeight(theme.CONTROL_HEIGHT)
+            host.account_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        elif host.side == "top":
+            host.account_row.set_compact(True, avatar=RoomStrip.AVATAR, margin=1)
+        else:
+            host.account_row.set_compact(host.collapsed)
+
+    def sync_account_row_width(self) -> None:
+        """横栏里的账号条宽度。
+
+        展开时放得下昵称（否则会被挤成「A…」）；收起时它就是一个和头排头像
+        一样大的小圆点 —— 不这么算的话它会一直沿用昵称的宽度，变成一条长胶囊。
+        横屏时它本来就撑满侧栏，不需要这个限制。
+        """
+        host = self.host
+        row = host.account_row
+        if host.side != "top":
+            row.setMinimumWidth(0)
+            row.setMaximumWidth(16_777_215)
+            return
+        row.setMaximumWidth(16_777_215)
+        if host.collapsed:
+            row.setMinimumWidth(row.avatar.width() + 2)
+            return
+        box = row._layout
+        margins = box.contentsMargins()
+        # +8：留一点余量，正好卡着算出来的宽度会让昵称尾字差几个像素被省略
+        need = (margins.left() + margins.right() + box.spacing() * 2
+                + row.avatar.width() + max(row.name.sizeHint().width(), row.account_id.sizeHint().width())
+                + row.arrow.sizeHint().width() + 8)
+        row.setMinimumWidth(min(host.ACCOUNT_PILL_MAX, need))
