@@ -950,6 +950,7 @@ class MainWindow(QMainWindow):
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
                                        (("uname", "title", "platform", "playback_mode") +
+                                        (("display_room_id",) if room.get("display_room_id") else ()) +
                                         (("anchor_uid", "sec_uid", "follow_account_ref", "resolved_room_id", "face")
                                          if room.get("platform") == "douyin" else ()))}
                 for room in self.sidebar.rooms() if ":" in str(room.get("room_id") or "")
