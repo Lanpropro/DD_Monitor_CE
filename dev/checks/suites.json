@@ -18,6 +18,7 @@
     "scripts": [
       "selfcheck_general_settings",
       "selfcheck_settings_control",
+      "selfcheck_audio_normalization",
       "selfcheck_startup_windows",
       "selfcheck_single_instance",
       "selfcheck_drag_lifecycle",
@@ -91,6 +92,7 @@
       "selfcheck_danmaku_room_switches",
       "selfcheck_general_settings",
       "selfcheck_settings_control",
+      "selfcheck_audio_normalization",
       "selfcheck_bili_codec",
       "selfcheck_tile_bottom_order",
       "selfcheck_sort_manager",

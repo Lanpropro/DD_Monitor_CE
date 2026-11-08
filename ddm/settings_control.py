@@ -195,7 +195,7 @@ class SettingsControl:
         host._poll_timer.setInterval(host.poll_interval_ms())
         for player in host.players.values():
             player.freeze_watch = bool(host.settings.get("freeze_watch", True))
-            player.set_volume_normalization(bool(host.settings.get("volume_normalization", False)))
+            player.set_volume_normalization(bool(host.settings.get("volume_normalization", False)), host.settings.get('volume_normalization_curve'))
         for tile in host.wall.tiles:
             if host._tile_codecs_changed(tile, codecs_before.get(tile, {})):
                 host._restart_codec_tile(tile)

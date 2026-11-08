@@ -242,7 +242,8 @@ class SettingsControlTests(unittest.TestCase):
     def test_apply_preserves_state_save_and_runtime_application_order(self):
         host = self.host
         dialog = host._create_settings_dialog()
-        dialog.settings.return_value = {'freeze_watch': False, 'volume_normalization': True}
+        dialog.settings.return_value = {'freeze_watch': False, 'volume_normalization': True,
+                                        'volume_normalization_curve': {'preset': 'spotify'}}
         dialog.shortcuts.return_value = {'focus': 'G'}
         player = Mock()
         host.players['fixture'] = player
@@ -255,7 +256,7 @@ class SettingsControlTests(unittest.TestCase):
         self.assertEqual(order, ['save', '_sync_recording_switch', '_sync_replay_scope',
                                  'apply_danmaku_settings', 'apply_preview_settings'])
         self.assertFalse(player.freeze_watch)
-        player.set_volume_normalization.assert_called_once_with(True)
+        player.set_volume_normalization.assert_called_once_with(True, {'preset': 'spotify'})
         self.assertEqual(host.state['ui']['shortcuts'], {'focus': 'G'})
         host.refresh_skin.assert_not_called()
         host._sync_platform_rooms.assert_not_called()
