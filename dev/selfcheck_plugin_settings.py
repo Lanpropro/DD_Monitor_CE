@@ -23,7 +23,8 @@ def write_plugin(root, folder, source):
 
 def main():
     app = QApplication.instance() or QApplication(sys.argv)
-    with tempfile.TemporaryDirectory(prefix="ddm_plugin_settings_") as root:
+    with tempfile.TemporaryDirectory(prefix="ddm_plugin_settings_") as root, \
+            patch('ddm.online_ui.PluginStorePage.refresh_catalog'):
         write_plugin(root, "active", "from ddm.plugins import Plugin\n"
                      "class Example(Plugin):\n"
                      "    name = '示例插件'\n"
@@ -73,9 +74,15 @@ def main():
             package.writestr("new_plugin/plugin.py", "from ddm.plugins import Plugin\n"
                              f"open({sentinel!r}, 'w').write('loaded')\n"
                              "plugin = Plugin()\n")
+        dialog.move(-10000, -10000)
+        dialog.show()
+        app.processEvents()
+        # Invoke directly so notification exceptions fail this check, not a Qt slot.
         with patch("ddm.dialogs.QFileDialog.getOpenFileName", return_value=(archive, "")), \
                 patch("ddm.dialogs.QMessageBox.information"):
-            dialog.plugin_page.install_button.click()
+            dialog.plugin_page._install()
+        assert dialog._result_notice.isVisible(), "安装成功后应显示重启提示"
+        dialog._result_notice.dismiss(animate=False)
         assert not os.path.exists(sentinel), "导入 ZIP 时不应执行插件代码"
         assert dialog.confirm_button.text() == "保存并重启"
         assert dialog.plugin_page.checks["new_plugin"].isChecked()
