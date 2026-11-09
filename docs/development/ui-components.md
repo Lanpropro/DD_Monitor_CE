@@ -19,8 +19,14 @@
 | `ElidedLabel`、`BarIconButton` | 省略文字、工具条按钮 | `ddm/ui/labels.py`、`ddm/ui/toolbar.py` |
 | `continuous_path` | 矩形表面的连续圆角路径；保留圆形、胶囊及明确的直角 | `ddm/corner_geometry.py` |
 | `ScaleCurveControl` | SC / 弹幕可拖动控制点的缩放曲线与比例示例 | `ddm/ui/scale_curve.py`；计算规则见 `ddm/viewport_scale.py` |
+| `ToggleSwitch` | 设置行右侧的开关，保留 Qt 点击、空格键、焦点及禁用语义 | `ddm/ui/selection.py`；`NotificationSwitch` 保留兼容子类 |
+| `SegmentedControl` | 单选分段组，共用底板与选中块，支持方向键切换及禁用项 | `ddm/ui/selection.py`；`value()` / `setValue()` / `valueChanged` |
 
 原有组件通过统一入口导出同一个类/函数对象，仍在原模块维护，不复制实现。原导入路径继续有效。播放器相关组件保留原有宿主、信号、原生窗口和生命周期要求，不是脱离业务上下文的通用播放框架。
+
+选择控件的绘制集中在 `ddm/ui/selection.py`，尺寸由 `theme` 的开关令牌及 `CONTROL_HEIGHT` / `SEGMENT_*` 管理，颜色随深浅主题更新。`ToggleSwitch` 继承 `QCheckBox`，轨道和滑块由自身绘制；`SegmentedControl` 拥有一组互斥 `QAbstractButton`，Qt 选中状态是唯一值来源，`setValue` 不移动键盘焦点。两者标记 `customControlSurface`，通用圆角过滤器跳过这些控件的表面，避免额外复选指示器覆盖开关圆角；普通控件仍走原绘制路径。组件随 Qt 父控件销毁，不持有业务设置或创建定时器。常规与通知页共用开关，全局编解码的源格式接入分段组，原 `source_buttons` / `source_group` 仅为实际控件的兼容引用。
+
+本批仅完善这两种共用控件；其他按钮、输入框、滑块和设置分组仍沿用原组件。人工从根 `run.cmd` 检查常规与通知页开关左右端圆角、深浅色、鼠标／空格操作及禁用状态；展开编解码后检查源格式的公共底板、选中块、Tab／方向键与保存取消。100%／150%／200% 离屏回归和控件预览仅作为功能与绘制回归，实际系统缩放及真实界面仍待人工验收。
 
 `ddm.ui` 按需加载头像、动效和播放控件；导入基础按钮/标签或上述播放控制按钮不会装载 `widgets`、播放器、主窗口或网页登录模块。播放按钮和音量弹窗集中在 `ddm/playback_controls.py`；`widgets` 保留原类及绘制辅助函数的兼容导出，刷新动画仍归按钮所有，音量弹窗仍归调用方持有。`ElidedLabel`、`BarIconButton` 由 `ddm/ui/labels.py`、`ddm/ui/toolbar.py` 维护，公共入口和旧 `widgets` 导出保持同一对象；导入它们也不会装载播放器或主窗口。使用明确的导入名称，避免 `from ddm.ui import *` 将全部组件一起载入。
 
@@ -55,7 +61,7 @@ SC 和画面弹幕使用控制点曲线：横轴为画面高度 0–1440 px，�
 
 常规页原 grid 和隐藏平台标识 anchor 保留，兼容已发布插件的插入、保存、取消和重置。不得以复制控件或另建状态副本实现布局切换。
 
-常规页顶部仍为“播放与声音／关注与预览”双列，设置行左侧显示名称、右侧复用 `NotificationSwitch` 开关或数值控件；初始音量紧随初始静音。两卡采用 `QSizePolicy.Maximum`，`SettingsColumns` 对该策略的卡片按内容高度顶部对齐，其他页面保持原有排列。编解码按钮在左卡内展开 `ddm/settings_codec_editor.py` 的 `InlineCodecEditor`：直播源格式为三项分段选择，本机解码为五项带说明的单选列表，无第二层设置窗口。草稿只由编辑器中的选中控件持有，常规页读取其值统一保存、取消和重置；单窗编解码弹窗仍使用原 `CodecSettingsPanel`。展开时刷新卡片布局项，避免 Qt 缓存收起高度造成内容裁切。收起、切页及缩放不丢失编辑值，新建设置窗口默认收起。
+常规页顶部仍为“播放与声音／关注与预览”双列，设置行左侧显示名称、右侧复用共用 `ToggleSwitch` 开关或数值控件；初始音量紧随初始静音。两卡采用 `QSizePolicy.Maximum`，`SettingsColumns` 对该策略的卡片按内容高度顶部对齐，其他页面保持原有排列。编解码按钮在左卡内展开 `ddm/settings_codec_editor.py` 的 `InlineCodecEditor`：直播源格式为三项分段选择，本机解码为五项带说明的单选列表，无第二层设置窗口。草稿只由编辑器中的选中控件持有，常规页读取其值统一保存、取消和重置；单窗编解码弹窗仍使用原 `CodecSettingsPanel`。展开时刷新卡片布局项，避免 Qt 缓存收起高度造成内容裁切。收起、切页及缩放不丢失编辑值，新建设置窗口默认收起。
 
 本批人工验收：从根 `run.cmd` 打开设置，检查顶部两列名称和右侧控件；点击编解码摘要，应原地展开且右卡不随之增高。选择 HEVC 和 CPU 解码，收起／展开、切页及缩窄窗口后值应保留；取消后重开恢复原设置，保存后重开保留选择，恢复本页默认应同步摘要与单选状态。检查平台插件插入项仍可见、可保存。离屏截图和自动回归不代替本项人工验收。
 

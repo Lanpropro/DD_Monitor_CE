@@ -1,41 +1,16 @@
 """Settings notifications; owned page implementations with legacy exports in dialogs."""
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget
+    QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget
 )
 from . import theme
-from .ui import page_header as _page_head
+from .ui import ToggleSwitch, page_header as _page_head
 from .settings_layout import SettingsColumns
 
 
-class NotificationSwitch(QCheckBox):
-    """Keep native checkbox keyboard/accessibility behavior with a compact track."""
-
-    def __init__(self, label, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(44, 26)
-        self.setAccessibleName(label)
-        self.setFocusPolicy(Qt.StrongFocus)
-
-    def hitButton(self, position):
-        return self.rect().contains(position)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        if not self.isEnabled():
-            painter.setOpacity(0.45)
-        if self.hasFocus():
-            painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1.5))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(QRectF(0.75, 0.75, 42.5, 24.5), 12, 12)
-        painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER_STRONG), 1))
-        painter.setBrush(theme.qcolor(theme.ACCENT if self.isChecked() else theme.CONTENT_HOVER))
-        painter.drawRoundedRect(QRectF(3, 4, 38, 18), 9, 9)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor('#ffffff') if self.isChecked() else theme.qcolor(theme.TEXT2))
-        painter.drawEllipse(QRectF(25 if self.isChecked() else 6, 7, 12, 12))
+class NotificationSwitch(ToggleSwitch):
+    """Compatibility name for the shared settings switch."""
 
 
 class NoticeBlurPreview(QWidget):

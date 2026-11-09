@@ -209,8 +209,8 @@ class GeneralSettingsPage(QWidget):
                 box = QCheckBox(label)
                 grid.addWidget(box, row, 0, 1, 2)
             else:
-                from .settings_notifications import NotificationSwitch
-                box = NotificationSwitch(label)
+                from .ui import ToggleSwitch
+                box = ToggleSwitch(label)
                 title = QLabel(label)
                 title.setWordWrap(True)
                 title.setBuddy(box)

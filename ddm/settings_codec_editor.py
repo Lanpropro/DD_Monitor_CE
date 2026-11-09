@@ -1,9 +1,10 @@
 """Inline global codec choices; the owning settings page saves the draft."""
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QLabel, QPushButton, QRadioButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QButtonGroup, QLabel, QRadioButton, QVBoxLayout, QWidget
 
 from .config import DECODE_HINTS, DECODE_MODES, codec_settings
 from .bili import BILI_CODECS
+from .ui import SegmentedControl
 
 
 class InlineCodecEditor(QWidget):
@@ -15,21 +16,15 @@ class InlineCodecEditor(QWidget):
         box.setContentsMargins(0, 6, 0, 6)
         box.setSpacing(10)
         box.addWidget(QLabel('直播源格式'))
-        choices = QHBoxLayout()
-        choices.setSpacing(6)
-        self.source_group = QButtonGroup(self)
-        self.source_buttons = {}
+        self.source_control = SegmentedControl((('avc', 'H.264'), ('hevc', 'HEVC'), ('av1', 'AV1')), parent=self)
+        self.source_control.setAccessibleName('直播源格式')
+        self.source_group = self.source_control.group
+        self.source_buttons = self.source_control.buttons
         for value, label, _code in BILI_CODECS:
-            button = QPushButton({'avc': 'H.264', 'hevc': 'HEVC', 'av1': 'AV1'}[value])
-            button.setObjectName('AppearanceChoice')
-            button.setCheckable(True)
-            button.setAutoDefault(False)
-            button.setMinimumHeight(32)
+            button = self.source_buttons[value]
             button.setAccessibleName(label)
-            self.source_group.addButton(button)
-            self.source_buttons[value] = button
-            choices.addWidget(button, 1)
-        box.addLayout(choices)
+            button.setToolTip(label)
+        box.addWidget(self.source_control)
         self.source_hint = QLabel()
         self.source_hint.setObjectName('SettingsHint')
         self.source_hint.setWordWrap(True)
@@ -66,7 +61,7 @@ class InlineCodecEditor(QWidget):
         self.changed.emit()
 
     def set_values(self, values):
-        self.source_buttons[values['bili_codec']].setChecked(True)
+        self.source_control.setValue(values['bili_codec'])
         self.decode_buttons[values['decode_mode']].setChecked(True)
         self._update_hint()
 
