@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import tempfile
 import unittest
 
@@ -49,8 +50,14 @@ class NativeDiagnosticsTests(unittest.TestCase):
         report = json.loads(next(folder.glob('*.json')).read_text())
         self.assertTrue(report['dump_saved'], report)
         dump = next(folder.glob('*.dmp'))
-        with dump.open('rb') as stream:
-            self.assertEqual(stream.read(4), b'MDMP')
+        data = dump.read_bytes()
+        self.assertEqual(data[:4], b'MDMP')
+        count, directory = struct.unpack_from('<II', data, 8)
+        streams = [struct.unpack_from('<III', data, directory + index * 12) for index in range(count)]
+        exception = next(rva for kind, _size, rva in streams if kind == 6)
+        tid, _align, exception_code = struct.unpack_from('<III', data, exception)
+        self.assertEqual(tid, report['tid'])
+        self.assertEqual(exception_code, 0xc0000005)
         self.assertEqual(list(folder.glob('*.part')), [])
 
     def test_normal_exit_not_recorded_or_changed(self):
