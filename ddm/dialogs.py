@@ -1483,6 +1483,7 @@ class PluginSettingsPage(QWidget):
 
 class AppearanceSettingsPage(QWidget):
     modeChanged = Signal(str)
+    materialChanged = Signal(dict)
 
     def __init__(self, settings, parent=None, skin_controller=None):
         super().__init__(parent)
@@ -1515,6 +1516,10 @@ class AppearanceSettingsPage(QWidget):
             button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
             row.addWidget(button)
         layout.addLayout(row)
+        from .settings_material_editor import SettingsMaterialEditor
+        self.material_editor = SettingsMaterialEditor(settings, content)
+        self.material_editor.changed.connect(lambda: self.materialChanged.emit(self.material_editor.values()))
+        layout.addWidget(self.material_editor)
         from .skin_settings import PartSettings, SkinSettings
         self.parts_editor = None
         if skin_controller is not None:
@@ -1538,9 +1543,10 @@ class AppearanceSettingsPage(QWidget):
         self.modeChanged.emit(mode)
 
     def values(self):
-        return {"appearance_mode": self._mode, **self.skin_settings.values()}
+        return {"appearance_mode": self._mode, **self.material_editor.values(), **self.skin_settings.values()}
 
     def reset(self):
+        self.material_editor.reset()
         self._choose("dark")
 
 
@@ -1562,6 +1568,7 @@ class SettingsDialog(SettingsWindow):
                  update_page_factory=None):
         super().__init__(parent)
         self.setProperty('skinPart', 'settings')
+        self.set_material(settings)
         self._created_at = time.perf_counter()
         self._paint_logged = False
         from .config import DEFAULT_SETTINGS
@@ -1697,6 +1704,7 @@ class SettingsDialog(SettingsWindow):
             placeholder.deleteLater()
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
+                page.materialChanged.connect(self.set_material)
             elif index == 7 and not self._preview_only:
                 from .online_ui import UpdateDot
                 from PySide6.QtWidgets import QTabBar

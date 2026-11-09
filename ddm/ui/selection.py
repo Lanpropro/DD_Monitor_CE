@@ -86,7 +86,8 @@ class _SegmentButton(QAbstractButton):
         if self.isChecked() or self.underMouse() or self.isDown():
             painter.setPen(Qt.NoPen)
             if self.isChecked():
-                for offset, alpha in ((2, 12), (1, 26)):
+                from ..settings_material import shadows_enabled
+                for offset, alpha in (((2, 12), (1, 26)) if shadows_enabled(self) else ()):
                     painter.setBrush(QColor(0, 0, 0, alpha))
                     painter.drawRoundedRect(rect.translated(0, offset), rect.height() / 2, rect.height() / 2)
                 color = theme.qcolor(theme.mix(theme.CONTENT, theme.ACCENT, .20))
@@ -103,7 +104,7 @@ class _SegmentButton(QAbstractButton):
                 edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
                 edge.setColorAt(0, QColor(255, 255, 255, 28))
                 edge.setColorAt(.5, QColor(255, 255, 255, 0))
-                edge.setColorAt(1, QColor(0, 0, 0, 20))
+                edge.setColorAt(1, QColor(0, 0, 0, 20 if shadows_enabled(self) else 0))
                 painter.setPen(QPen(edge, 1))
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)

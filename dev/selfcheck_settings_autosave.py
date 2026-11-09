@@ -153,6 +153,16 @@ class AutoSaveTests(unittest.TestCase):
                     self.assertFalse(getattr(getattr(window, '_theme_transition', None), 'overlays', []),
                                      'Settings changes must repaint in place without a window-covering wave')
                     self.assertTrue(dialog.isVisible())
+                material = dialog.appearance_page.material_editor
+                material.controls['settings_glass_opacity'].setValue(55)
+                material.controls['settings_glass_blur'].setValue(8)
+                material.controls['settings_no_shadows'].setChecked(True)
+                material.controls['settings_glass_enabled'].setChecked(False)
+                dialog.auto_save.flush()
+                self.assertEqual(window.settings['settings_glass_opacity'], 55)
+                self.assertEqual(window.settings['settings_glass_blur'], 8)
+                self.assertTrue(window.settings['settings_no_shadows'])
+                self.assertFalse(window.settings['settings_glass_enabled'])
                 dialog.nav.setCurrentRow(0)
                 dialog.general_page.volume_slider.setValue(17)
                 dialog.auto_save.flush()
@@ -176,6 +186,9 @@ class AutoSaveTests(unittest.TestCase):
                 self.assertEqual(config.load()['settings']['default_volume'], 17)
                 reopened = window._create_settings_dialog()
                 self.assertEqual(reopened.general_page.volume_slider.value(), 17)
+                self.assertEqual(reopened.property('settings_glass_opacity'), 55)
+                self.assertTrue(reopened.property('settings_no_shadows'))
+                self.assertFalse(reopened.property('settings_glass_enabled'))
                 reopened.deleteLater()
             finally:
                 dialog.auto_save.active = False

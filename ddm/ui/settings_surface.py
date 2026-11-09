@@ -11,16 +11,18 @@ from ..corner_geometry import continuous_path
 
 
 @lru_cache(maxsize=4)
-def _frosted_image(path, modified, size):
+def _frosted_image(path, modified, size, blur=24):
     source = QPixmap(path)
     if source.isNull():
+        return source
+    if not blur:
         return source
     # Follow notification artwork: cache the blur of the image, not a widget grab.
     source = source.scaled(960, 960, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     scene = QGraphicsScene()
     item = QGraphicsPixmapItem(source)
     effect = QGraphicsBlurEffect()
-    effect.setBlurRadius(24)
+    effect.setBlurRadius(blur)
     item.setGraphicsEffect(effect)
     scene.addItem(item)
     result = QPixmap(source.size())
@@ -80,6 +82,9 @@ class SettingsSurface(QFrame):
         painter.setClipPath(path)
         glass_shell = bool(self.window().property('settingsGlassWindow') or
                            self.window().property('settingsGlassContent'))
+        from ..settings_material import properties, shadows_enabled
+        material = properties(self.window())
+        glass_enabled = glass_shell and material['settings_glass_enabled']
         backdrop = None if glass_shell else self._backdrop()
         if backdrop is not None:
             owner, image = backdrop
@@ -88,8 +93,8 @@ class SettingsSurface(QFrame):
                                image, QRectF(image.rect()))
         fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
         top, bottom = theme.qcolor(theme.CONTENT), theme.qcolor(theme.CONTENT)
-        top.setAlpha((104 if theme.is_light() else 66) if glass_shell else (218 if theme.is_light() else 210))
-        bottom.setAlpha((82 if theme.is_light() else 48) if glass_shell else (200 if theme.is_light() else 188))
+        top.setAlpha((104 if theme.is_light() else 66) if glass_enabled else (255 if glass_shell else 218 if theme.is_light() else 210))
+        bottom.setAlpha((82 if theme.is_light() else 48) if glass_enabled else (255 if glass_shell else 200 if theme.is_light() else 188))
         fill.setColorAt(0, top)
         fill.setColorAt(1, bottom)
         painter.fillPath(path, fill)
@@ -100,7 +105,7 @@ class SettingsSurface(QFrame):
         painter.setClipping(False)
         edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
         edge.setColorAt(0, QColor(255, 255, 255, 150 if theme.is_light() else 30))
-        edge.setColorAt(1, QColor(0, 0, 0, 24))
+        edge.setColorAt(1, QColor(0, 0, 0, 24 if shadows_enabled(self) else 0))
         painter.setPen(QPen(edge, 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)

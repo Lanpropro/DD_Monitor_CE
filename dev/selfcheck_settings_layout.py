@@ -175,7 +175,7 @@ class SettingsLayoutTests(unittest.TestCase):
         from ctypes import wintypes
         extend = ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea
         extend.argtypes = (wintypes.HWND, ctypes.c_void_p)
-        self.dialog._backdrop_hwnd = None
+        self.dialog._backdrop_key = None
         hwnd = int(self.dialog.winId())
         geometry = self.dialog.geometry()
         try:
@@ -276,11 +276,65 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
 
 
+    def test_material_controls_preview_reset_and_shadow_rendering(self):
+        from ddm.settings_material import DEFAULTS, normalize
+        self.assertEqual(normalize(dict(settings_glass_enabled='bad', settings_glass_blur=99,
+                                        settings_glass_opacity=-10, settings_no_shadows=None)),
+                         {**DEFAULTS, 'settings_glass_blur': 40, 'settings_glass_opacity': 0})
+        editor = self.page(1).material_editor
+        editor.controls['settings_glass_opacity'].setValue(55)
+        editor.controls['settings_glass_blur'].setValue(8)
+        editor.controls['settings_glass_enabled'].setChecked(False)
+        self.assertFalse(editor.controls['settings_glass_blur'].isEnabled())
+        self.assertEqual(self.dialog.property('settings_glass_opacity'), 55)
+        self.assertFalse(self.dialog.property('settings_glass_enabled'))
+        self.assertEqual(self.dialog.windowOpacity(), 1.0)
+        self.dialog.reset_button.click()
+        self.assertEqual(editor.values(), DEFAULTS)
+        self.page(0).codec_button.click()
+        button = self.dialog.general_page.codec_editor.source_buttons['avc']
+        before = button.grab().toImage()
+        self.dialog.set_material(dict(settings_no_shadows=True))
+        after = button.grab().toImage()
+        self.assertNotEqual(before, after, 'The shadow preference must change actual selection pixels')
+
+    def test_material_blur_strength_changes_cached_background_pixels(self):
+        import tempfile
+        from PySide6.QtGui import QColor, QPainter, QPixmap
+        from ddm.ui.settings_surface import _frosted_image
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'background.png'
+            image = QPixmap(960, 640)
+            image.fill(QColor('black'))
+            painter = QPainter(image)
+            painter.fillRect(0, 0, 480, 640, QColor('white'))
+            painter.end()
+            image.save(str(path))
+            stat = path.stat()
+            sharp = _frosted_image(str(path), stat.st_mtime_ns, stat.st_size, 0).toImage()
+            blurred = _frosted_image(str(path), stat.st_mtime_ns, stat.st_size, 32).toImage()
+            self.assertLess(blurred.pixelColor(475, 320).red(), sharp.pixelColor(475, 320).red())
+
+    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
+                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
+    def test_material_switch_disables_the_native_effect_without_recreating_the_window(self):
+        from ddm.window_fullscreen import _dwm_get
+        hwnd = int(self.dialog.winId())
+        editor = self.page(1).material_editor
+        for enabled, backdrop in ((False, 1), (True, 3)):
+            editor.controls['settings_glass_enabled'].setChecked(enabled)
+            settle()
+            self.assertEqual(_dwm_get(hwnd, 38), backdrop)
+            self.assertEqual(self.dialog._native_glass, enabled)
+            self.assertTrue(self.dialog.isVisible())
+            self.assertEqual(int(self.dialog.winId()), hwnd)
+
     def test_native_material_has_no_second_inner_corner_and_stays_dark(self):
         from PySide6.QtGui import QColor, QImage, QPainter
         from ddm.settings_window import SettingsWindow
         shell = SettingsWindow()
         shell.resize(240, 180)
+        shell.set_material(dict(settings_glass_opacity=88))
         try:
             with patch('ddm.settings_window.apply_backdrop', return_value=True), \
                     patch('ddm.skin_parts.values_for', return_value={}):
