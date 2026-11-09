@@ -27,7 +27,22 @@ def require_local_network(event, arguments, denied):
     raise RuntimeError('Offline check attempted external network access')
 
 
+def install_native_stack():
+    """Opt-in CI helper; return the DLL to keep its exception handler loaded."""
+    path = os.environ.get('DDM_CHECK_NATIVE_STACK_DLL')
+    if sys.platform != 'win32' or not path:
+        return None
+    import ctypes
+    helper = ctypes.CDLL(path)
+    helper.install.argtypes = []
+    helper.install.restype = ctypes.c_int
+    if not helper.install():
+        raise RuntimeError('Could not install check-process native stack capture')
+    return helper
+
+
 def main():
+    native_stack = install_native_stack()
     path = Path(sys.argv.pop(1)).resolve()
     sys.argv[0] = str(path)
     sys.path[:0] = [str(path.parent), str(Path(__file__).resolve().parents[2])]
