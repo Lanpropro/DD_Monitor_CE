@@ -27,10 +27,10 @@ def start(directory):
     _logger = logger
 
 
-def event(stage, identity, kind):
+def event(stage, identity, kind, parent=""):
     if _logger is not None:
         _logger.info(json.dumps({'stage': stage, 'object': identity, 'kind': kind,
-            'pid': os.getpid(), 'thread': threading.get_native_id(), 'at_ns': time.time_ns(),
+            'parent': parent, 'pid': os.getpid(), 'thread': threading.get_native_id(), 'at_ns': time.time_ns(),
             'mono_ns': time.perf_counter_ns()}, separators=(',', ':')))
 
 
@@ -41,16 +41,19 @@ def construction(function):
             return function(self, *args, **kwargs)
         identity = f'{os.getpid()}:{next(_ids)}'
         kind = type(self).__name__
-        event('construct.request', identity, kind)
+        parent = kwargs.get('parent', args[1] if len(args) > 1 else None)
+        parent_id = getattr(parent, '_diagnostic_identity', '')
+        self._diagnostic_identity = identity
+        self._diagnostic_parent = parent_id
+        event('construct.request', identity, kind, parent_id)
         try:
             result = function(self, *args, **kwargs)
         except BaseException:
-            event('construct.failed', identity, kind)
+            event('construct.failed', identity, kind, parent_id)
             raise
-        self._diagnostic_identity = identity
         # Only immutable strings are closed over. Never touch self after destroyed.
-        self.destroyed.connect(lambda *_: event('destroyed', identity, kind))
-        event('construct.ready', identity, kind)
+        self.destroyed.connect(lambda: event('destroyed', identity, kind, parent_id))
+        event('construct.ready', identity, kind, parent_id)
         return result
     return wrapped
 
@@ -60,16 +63,17 @@ def running(function):
     def wrapped(self, *args, **kwargs):
         identity = getattr(self, '_diagnostic_identity', '')
         kind = type(self).__name__
-        event('run.begin', identity, kind)
+        event('run.begin', identity, kind, getattr(self, '_diagnostic_parent', ''))
         try:
             return function(self, *args, **kwargs)
         finally:
-            event('run.end', identity, kind)
+            event('run.end', identity, kind, getattr(self, '_diagnostic_parent', ''))
     return wrapped
 
 
 def delete_requested(obj):
-    event('deleteLater.request', getattr(obj, '_diagnostic_identity', ''), type(obj).__name__)
+    event('deleteLater.request', getattr(obj, '_diagnostic_identity', ''), type(obj).__name__,
+          getattr(obj, '_diagnostic_parent', ''))
 
 
 def close():

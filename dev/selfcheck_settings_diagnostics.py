@@ -156,6 +156,28 @@ class DiagnosticSettingsTests(unittest.TestCase):
             finally:
                 client.finish()
 
+    def test_lifecycle_links_parent_during_its_own_constructor(self):
+        qt_lifecycle.start(self.root)
+        self.addCleanup(qt_lifecycle.close)
+
+        class Child(QObject):
+            @qt_lifecycle.construction
+            def __init__(self, parent=None):
+                super().__init__(parent)
+
+        class Parent(QObject):
+            @qt_lifecycle.construction
+            def __init__(self):
+                super().__init__()
+                self.child = Child(parent=self)
+
+        parent = Parent()
+        rows = [json.loads(line) for line in next(self.root.glob('qt-lifecycle-*.jsonl')).read_text().splitlines()]
+        self.assertEqual(rows[1]['parent'], rows[0]['object'])
+        self.assertEqual([row['stage'] for row in rows], ['construct.request', 'construct.request', 'construct.ready', 'construct.ready'])
+        parent.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_lifecycle_records_failed_constructor_run_and_destruction_without_retention(self):
         qt_lifecycle.start(self.root)
         self.addCleanup(qt_lifecycle.close)
@@ -187,7 +209,7 @@ class DiagnosticSettingsTests(unittest.TestCase):
         self.assertEqual([row['stage'] for row in rows], ['construct.request', 'construct.failed',
             'construct.request', 'construct.ready', 'run.begin', 'run.end', 'deleteLater.request', 'destroyed'])
         self.assertEqual(len({row['object'] for row in rows[2:]}), 1)
-        self.assertTrue(all(set(row) == {'stage', 'object', 'kind', 'pid', 'thread', 'at_ns', 'mono_ns'} for row in rows))
+        self.assertTrue(all(set(row) == {'stage', 'object', 'kind', 'parent', 'pid', 'thread', 'at_ns', 'mono_ns'} for row in rows))
 
 
 def diagnostic_worker():

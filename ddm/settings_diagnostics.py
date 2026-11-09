@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import zipfile
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QStandardPaths, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar,
@@ -82,7 +82,7 @@ class DiagnosticsPage(QWidget):
         self.drag.clicked.connect(lambda: self._capture('drag'))
         self.cancel.clicked.connect(self.export.stop)
         target = QHBoxLayout()
-        self.destination = QLineEdit(str(Path.home() / 'Desktop'))
+        self.destination = QLineEdit(QStandardPaths.writableLocation(QStandardPaths.DesktopLocation) or str(Path.home()))
         self.browse = QPushButton('选择保存位置')
         target.addWidget(self.destination, 1)
         target.addWidget(self.browse)

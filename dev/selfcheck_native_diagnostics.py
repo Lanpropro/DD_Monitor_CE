@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import struct
+import shutil
 import tempfile
 import unittest
 
@@ -27,10 +28,10 @@ class NativeDiagnosticsTests(unittest.TestCase):
             f'/Fe"{cls.folder / "fixture.exe"}" /Fo"{cls.folder / "fixture.obj"}"\n', encoding='utf-8')
         subprocess.run(['cmd', '/c', str(build)], check=True, timeout=60)
 
-    def invoke(self, mode):
+    def invoke(self, mode, executable="fixture.exe"):
         folder = self.folder / mode
         folder.mkdir()
-        result = subprocess.run([str(self.folder / 'fixture.exe'), str(self.folder / 'DDMonitorNativeCapture.dll'),
+        result = subprocess.run([str(self.folder / executable), str(self.folder / 'DDMonitorNativeCapture.dll'),
             str(self.folder / 'DDMonitorCrashWatcher.exe'), str(folder), mode], timeout=20)
         return result.returncode, folder
 
@@ -59,6 +60,13 @@ class NativeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(tid, report['tid'])
         self.assertEqual(exception_code, 0xc0000005)
         self.assertEqual(list(folder.glob('*.part')), [])
+
+    def test_unicode_module_names_are_valid_utf8(self):
+        shutil.copyfile(self.folder / 'fixture.exe', self.folder / '诊断测试.exe')
+        code, folder = self.invoke('0-unicode', '诊断测试.exe')
+        self.assertEqual(code & 0xffffffff, 0xc0000005)
+        report = json.loads(next(folder.glob('*.json')).read_text(encoding='utf-8'))
+        self.assertTrue(any('诊断测试' in row.get('module', '') for row in report['frames']), report)
 
     def test_normal_exit_not_recorded_or_changed(self):
         code, folder = self.invoke('normal')

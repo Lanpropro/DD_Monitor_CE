@@ -68,11 +68,13 @@ extern "C" __declspec(dllexport) BOOL DdmInstall(const wchar_t* helper, const wc
 }
 #else
 static void frame(FILE* output, HANDLE process, ULONG64 address, bool comma) {
-    IMAGEHLP_MODULE64 module = {sizeof(module)};
-    if (SymGetModuleInfo64(process, address, &module)) {
+    IMAGEHLP_MODULEW64 module = {sizeof(module)};
+    if (SymGetModuleInfoW64(process, address, &module)) {
+        char name[256] = {};
+        WideCharToMultiByte(CP_UTF8, 0, module.ModuleName, -1, name, sizeof(name), nullptr, nullptr);
         // ModuleName is the basename, never a user's full filesystem path.
         fprintf(output, "%s{\"module\":\"%s\",\"offset\":\"0x%llx\"}",
-                comma ? "," : "", module.ModuleName, address - module.BaseOfImage);
+                comma ? "," : "", name, address - module.BaseOfImage);
     } else {
         fprintf(output, "%s{\"address\":\"0x%llx\"}", comma ? "," : "", address);
     }
