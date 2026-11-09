@@ -176,13 +176,35 @@ class CardDropTests(unittest.TestCase):
         self.assertFalse(overlay.grab().isNull())
         overlay.progress = 1
         self.assertLess(overlay.card_rect().width(), overlay.source.width())
-        self.assertGreater(overlay.card_rect().center().y(), overlay.target.center().y())
+        self.assertGreater(overlay.card_rect().center().y(), overlay.source.center().y())
         with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 2):
             overlay.advance()
         self.assertTrue(overlay.finished)
         self.assertFalse(overlay.timer.isActive())
         self.assertTrue(overlay.snapshot.isNull())
         self.assertIsNone(self.tile._card_drop_overlay)
+
+    def test_sinking_stays_at_the_release_hotspot_in_every_corner(self):
+        for ratio in (1, 2):
+            snapshot = QPixmap(240 * ratio, 80 * ratio)
+            snapshot.setDevicePixelRatio(ratio)
+            snapshot.fill(QColor('#467f9a'))
+            card_drop.remember_card(self.mime, snapshot, self.hotspot)
+            for point in (QPoint(8, 8), QPoint(510, 8), QPoint(8, 290), QPoint(510, 290)):
+                self.position = self.tile.video.mapToGlobal(point)
+                overlay = self.overlay()
+                self.assertEqual(overlay.origin.toPoint() + overlay.pos(), self.position)
+                source = overlay.source
+                anchor_x = (overlay.origin.x() - source.x()) / source.width()
+                anchor_y = (overlay.origin.y() - source.y()) / source.height()
+                for progress in (0, .25, .5, 1):
+                    overlay.progress = progress
+                    rect = overlay.card_rect()
+                    self.assertAlmostEqual(rect.x() + rect.width() * anchor_x, overlay.origin.x())
+                    descent = rect.y() + rect.height() * anchor_y - overlay.origin.y()
+                    self.assertGreaterEqual(descent, -1e-6)
+                    self.assertLessEqual(descent, 18 + 1e-6)
+                overlay.finish()
 
     def test_loading_indicator_is_unchanged_and_feedback_has_a_fixed_deadline(self):
         self.tile._connecting = True

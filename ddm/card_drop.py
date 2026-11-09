@@ -20,11 +20,11 @@ def remember_card(mime, pixmap, hotspot):
     mime.setProperty(HOTSPOT_PROPERTY, QPoint(hotspot))
 
 
-def sink_destination(source, target):
+def sink_destination(source, target, origin):
     scale = min(.94, target.width() * .82 / source.width(), target.height() * .75 / source.height())
-    destination = QRectF(0, 0, source.width() * scale, source.height() * scale)
-    destination.moveCenter(target.center() + QPointF(0, min(18, target.height() * .07)))
-    return destination
+    return QRectF(origin.x() + (source.x() - origin.x()) * scale,
+                  origin.y() + (source.y() - origin.y()) * scale + min(18, target.height() * .07),
+                  source.width() * scale, source.height() * scale)
 
 
 def play_card_drop(tile, mime, position, room_id):
@@ -70,10 +70,11 @@ class CardDropOverlay(QWidget):
         self.finished = False
         source = QRect(position - hotspot, pixmap.deviceIndependentSize().toSize())
         target = QRect(tile.video.mapToGlobal(QPoint()), tile.video.size())
-        bounds = source.united(sink_destination(QRectF(source), QRectF(target)).toAlignedRect())
+        bounds = source.united(sink_destination(QRectF(source), QRectF(target), QPointF(position)).toAlignedRect())
         self.setGeometry(bounds)
         self.source = QRectF(source.translated(-bounds.topLeft()))
         self.target = QRectF(target.translated(-bounds.topLeft()))
+        self.origin = QPointF(position - bounds.topLeft())
         self.watched = (tile, tile.video, tile.window())
         for widget in self.watched:
             widget.installEventFilter(self)
@@ -103,7 +104,7 @@ class CardDropOverlay(QWidget):
     def card_rect(self):
         p = motion.THEME_WAVE_EASING.valueForProgress(self.progress)
         source, target = self.source, self.target
-        destination = sink_destination(source, target)
+        destination = sink_destination(source, target, self.origin)
         return QRectF(source.x() + (destination.x() - source.x()) * p,
                       source.y() + (destination.y() - source.y()) * p,
                       source.width() + (destination.width() - source.width()) * p,
