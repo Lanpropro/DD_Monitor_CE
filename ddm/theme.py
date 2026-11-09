@@ -619,6 +619,8 @@ QSlider::handle:horizontal:hover {{
 QDialog[settingsGlassWindow="true"] {{background: transparent; border: none;}}
 QDialog[settingsGlassWindow="true"] #SettingsNavigation,
 QDialog[settingsGlassWindow="true"] #SettingsNav {{background: transparent;}}
+#SettingsTextButton {{background: transparent; border: none; color: {TEXT3}; padding: 4px 6px;}}
+#SettingsTextButton:hover {{color: {TEXT1}; background: {CONTENT_HOVER};}}
 #SettingsBreadcrumb {{font-size: 16px; font-weight: 600; background: transparent;}}
 QDialog[settingsGlassWindow="true"] #Search {{border-radius: 17px;}}
 

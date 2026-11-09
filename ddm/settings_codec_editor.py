@@ -40,7 +40,7 @@ class InlineCodecEditor(QWidget):
         self.decode_hint.setObjectName('SettingsHint')
         self.decode_hint.setWordWrap(True)
         box.addWidget(self.decode_hint, 3, 0, 1, 2)
-        note = QLabel('作为所有窗口的默认值，保存后生效。\n'
+        note = QLabel('作为所有窗口的默认值，修改后自动保存并应用。\n'
                       'B站未提供所选格式或原画、或探测失败时，保留当前格式。其他平台 AV1 依次尝试 HEVC、H.264；'
                       'HEVC 不可用时回退 H.264。解码异常时回退 CPU。')
         note.setObjectName('SettingsHint')

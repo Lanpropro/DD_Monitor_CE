@@ -1299,7 +1299,7 @@ class PluginSettingsPage(QWidget):
             self._installed_cards[plugin_id].setVisible(matches)
             status = entry['status']
             if enabled != self._initial_enabled.get(plugin_id, entry['enabled']):
-                status += ' · 已选择' + ('启用' if enabled else '禁用') + '，保存后生效'
+                status += ' · 已选择' + ('启用' if enabled else '禁用') + '，重启后生效'
             self.card_details[plugin_id][1].setText(status)
             self.card_details[plugin_id][1].setToolTip(status)
             if matches:
@@ -1469,7 +1469,7 @@ class PluginSettingsPage(QWidget):
         self._files_changed = True
         self.changed.emit()
         from .online_ui import show_result
-        show_result(self.window(), "插件已安装，保存并重启后生效")
+        show_result(self.window(), "插件已安装，重启后生效")
 
     def needs_restart(self):
         return self._files_changed or {
@@ -1628,21 +1628,25 @@ class SettingsDialog(SettingsWindow):
             self.stack.addWidget(QWidget())
         right.addWidget(self.stack, 1)
 
-        buttons = QHBoxLayout()
+        from .settings_autosave import SettingsAutoSave
+        self._auto_save_enabled = False
+        self.auto_save = SettingsAutoSave(self)
+        self.auto_save.statusChanged.connect(self._auto_save_status)
         self.reset_button = QPushButton("恢复默认")
-        self.reset_button.setObjectName("IconButton")
+        self.reset_button.setObjectName("SettingsTextButton")
         self.reset_button.clicked.connect(self._reset_current)
-        buttons.addWidget(self.reset_button)
-        buttons.addStretch(1)
-        cancel = QPushButton("取消")
-        cancel.setObjectName("IconButton")
-        cancel.clicked.connect(self.reject)
-        self.confirm_button = QPushButton("保存")
+        self.save_status = QLabel('')
+        self.save_status.setObjectName('SettingsHint')
+        self.retry_button = QPushButton('重试')
+        self.retry_button.setObjectName('SettingsTextButton')
+        self.retry_button.clicked.connect(self._retry_auto_save)
+        self.retry_button.hide()
+        self.confirm_button = QPushButton("重启以应用")
         self.confirm_button.setObjectName("PrimaryButton")
         self.confirm_button.clicked.connect(self._save)
-        buttons.addWidget(cancel)
-        buttons.addWidget(self.confirm_button)
-        right.addLayout(buttons)
+        self.confirm_button.hide()
+        for index, widget in enumerate((self.reset_button, self.save_status, self.retry_button, self.confirm_button), 1):
+            self.window_header.row.insertWidget(index, widget)
         root.addWidget(self.content, 1)
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
@@ -1655,6 +1659,19 @@ class SettingsDialog(SettingsWindow):
     def _update_window_heading(self, index):
         title = self.PAGES[index][1] if 0 <= index < len(self.PAGES) else ''
         self.window_header.breadcrumb.setText('设置  ›  ' + title)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.isVisible() and self._auto_save_enabled:
+            self.auto_save.start()
+
+    def _retry_auto_save(self):
+        self.auto_save.flush()
+
+    def _auto_save_status(self, state, error):
+        self.save_status.setText({'saving': '正在保存…', 'saved': '已保存', 'error': '保存失败'}[state])
+        self.save_status.setToolTip(error)
+        self.retry_button.setVisible(state == 'error')
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -1731,14 +1748,20 @@ class SettingsDialog(SettingsWindow):
         self.plugin_page.store_page.update_dots()
 
     def _update_save_button(self, *_args) -> None:
+        if self._preview_only:
+            self.confirm_button.hide()
+            return
         plugin, update = self._loaded_pages.get(7), self._loaded_pages.get(8)
         data = getattr(update, 'data_page', None)
         restart = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
-        self.confirm_button.setText("保存并重启" if restart else "保存")
+        self.confirm_button.setText("迁移并重启" if getattr(data, 'target', None) is not None else "重启以应用")
+        self.confirm_button.setVisible(restart and self.nav.currentRow() in (7, 8))
         self.confirm_button.setEnabled(not (plugin is not None and plugin.store_page.jobs)
                                       and not (update is not None and update.jobs))
 
     def _save(self) -> None:
+        if self.auto_save.defer(self._save):
+            return
         appearance = self._loaded_pages.get(1)
         if appearance is not None and appearance.parts_editor is not None:
             if not appearance.parts_editor.save_changes():
@@ -1755,6 +1778,11 @@ class SettingsDialog(SettingsWindow):
         self.accept()
 
     def done(self, result):
+        if self.auto_save.request_close(result):
+            self._finish_done(result)
+
+    def _finish_done(self, result):
+        self.auto_save.stop()
         if self._preview_only:
             return super().done(result)
         self.stack.finish_transition()
@@ -1787,11 +1815,13 @@ class SettingsDialog(SettingsWindow):
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
             elif index == 8 and not self._preview_only:
                 self._mark_app_update(self.update_page.offer)
+            self._update_save_button()
 
     def _reset_current(self) -> None:
         page = self.general_page if self.stack.currentIndex() == 0 else self.stack.currentWidget()
         if hasattr(page, "reset"):
             page.reset()
+            self.auto_save.flush()
 
     def settings(self) -> dict:
         values = dict(self._initial_settings)

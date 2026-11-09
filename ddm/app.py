@@ -957,6 +957,8 @@ class MainWindow(QMainWindow):
             from .settings_process import SettingsProcess
             self._settings_process = SettingsProcess(self)
             self._settings_process.saved.connect(self._remote_settings_saved)
+            from .settings_autosave_apply import handle_request
+            self._settings_process.autoSaveRequested.connect(lambda message: handle_request(self, message))
             self._settings_process.hostRequest.connect(self._settings_host_request)
             self._settings_process.closed.connect(self._close_settings_host)
             self._settings_process.occlusionChanged.connect(
@@ -1038,6 +1040,8 @@ class MainWindow(QMainWindow):
                                                 for offer in self._plugin_update_offers))
         dialog._mark_update_page('updates', bool(self._available_update and
                                                 dialog.seen_versions.get('app') != update_identity(self._available_update)))
+        from .settings_autosave_apply import bind_dialog
+        bind_dialog(self, dialog)
         return dialog
 
     def open_settings(self, page: str = "general") -> bool:

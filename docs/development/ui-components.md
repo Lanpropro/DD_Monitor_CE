@@ -118,8 +118,12 @@ run.cmd --check-image-cache
 
 设置分组、通知和插件卡片共用 `SettingsSurface`，使用连续圆角、半透明渐变和细边缘高光。静态图片来自最近的设置内容区或设置窗口分区，以原背景所有者的坐标对齐；自定义不透明底色阻断外层背景。模糊结果按路径、修改时间及大小缓存（最多4张），不抓取窗口、不在卡片/子控件上添加图形效果，不引入定时器。无背景图时保留纯色上的材质层次；预览读取现有预览草稿，不改全局美化状态。设置窗口显式标记 settings 分区，派生的独立进程窗口沿用同一背景归属。
 
-设置整窗由 `ddm/settings_window.py` 管理无边框 QDialog、统一圆角玻璃底板、可拖动顶部栏、常显搜索及圆形关闭按钮；`SettingsDialog` 保留设置协调职责和旧入口。顶部关闭、Esc 和取消均走 reject，不保存草稿；边缘调用 Qt 系统缩放，顶部空白调用系统移动。`ddm/settings_backdrop.py` 隔离 Windows DWM 调用：Windows 11 build 22621 起使用 Desktop Acrylic，其他环境保留主题底板，设置背景图使用既有静态模糊缓存。依据 https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type 。
+设置整窗由 `ddm/settings_window.py` 管理无边框 QDialog、统一圆角玻璃底板、可拖动顶部栏、常显搜索及圆形关闭按钮；`SettingsDialog` 保留设置协调职责和旧入口。顶部关闭和 Esc 均走 reject，自动保存协调器确认最后修改后才完成关闭；边缘调用 Qt 系统缩放，顶部空白调用系统移动。`ddm/settings_backdrop.py` 隔离 Windows DWM 调用：Windows 11 build 22621 起使用 Desktop Acrylic，其他环境保留主题底板，设置背景图使用既有静态模糊缓存。依据 https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type 。
 
 玻璃整窗内的 SettingsSurface 仅绘制更轻的半透明卡片，不重复采样背景；导航默认透出统一底板。独立进程的宿主页仍由主进程持有：分层内容窗口不自行约束最小尺寸；工作进程先激活分配布局，再传递视口尺寸；主进程显示后应答 host-shown，由工作进程按视口坐标对齐原生子窗口，不改激活或层叠顺序。首次插件页、切页和重开均验证 HWND/DPI/底部边界与透明背景上的文字绘制。
 
 编解码收展使用 SettingsColumns.refresh_section，只替换发生尺寸变化的 Qt 布局项，保留其余卡片的布局项与控件身份，避免先强制子布局再重建全部分组。无新增动画或设置状态副本。
+
+设置自动保存由 `ddm/settings_autosave.py` 持有单个定时器和一个在途增量，确认基线只在回执成功后前进；250 ms 合并普通输入，滑块拖动期间不发送，松手和输入完成刷新。惰性页只在创建时接管自身初值，不把打开页面当作修改；窗口关闭等待最后一次本地及宿主保存；关闭完成前停止定时器并移除事件过滤器，复用的更新页面移回主窗口后不再向已关闭设置发送保存。底部操作栏移除，恢复默认、保存状态和失败重试位于页标题旁；原 confirm_button 仅作为显式重启／迁移操作，不用于普通保存。
+
+`ddm/settings_autosave_apply.py` 复用主窗口原有应用入口，不关闭窗口、不隐式准备迁移或重启。独立窗口发送 auto-save 增量，由主进程应用后回复 auto-saved；宿主页面另行确认 host-flush 完成才解绑原生窗口。运行时与外部状态以主窗口为准，发送端只提交实际变化字段；旧平台插件贡献的复选框发送整组有效值，并沿用 accepted 保存通知（发信号，不调用 accept 关闭）。配置保存可选择 raise_errors=True 反馈写入失败，默认调用保留原异常处理。失败字段即便改回原值也会重送，避免把运行时或失败写入当成已保存。更新安装、数据迁移和插件重启仍走明确动作入口；预览和未绑定协调器的独立控件不写配置。
