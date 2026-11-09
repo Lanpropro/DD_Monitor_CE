@@ -9,6 +9,7 @@ from .ui import page_header as _page_head
 
 class AppearanceSettingsPage(QWidget):
     modeChanged = Signal(str)
+    materialChanged = Signal(dict)
 
     def __init__(self, settings, parent=None, skin_controller=None):
         super().__init__(parent)
@@ -41,6 +42,10 @@ class AppearanceSettingsPage(QWidget):
             button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
             row.addWidget(button)
         layout.addLayout(row)
+        from .settings_material_editor import SettingsMaterialEditor
+        self.material_editor = SettingsMaterialEditor(settings, content)
+        self.material_editor.changed.connect(lambda: self.materialChanged.emit(self.material_editor.values()))
+        layout.addWidget(self.material_editor)
         from .skin_settings import PartSettings, SkinSettings
         self.parts_editor = None
         if skin_controller is not None:
@@ -64,7 +69,8 @@ class AppearanceSettingsPage(QWidget):
         self.modeChanged.emit(mode)
 
     def values(self):
-        return {"appearance_mode": self._mode, **self.skin_settings.values()}
+        return {"appearance_mode": self._mode, **self.material_editor.values(), **self.skin_settings.values()}
 
     def reset(self):
+        self.material_editor.reset()
         self._choose("dark")

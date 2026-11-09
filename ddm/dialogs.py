@@ -42,6 +42,7 @@ class SettingsDialog(SettingsWindow):
                  update_page_factory=None):
         super().__init__(parent)
         self.setProperty('skinPart', 'settings')
+        self.set_material(settings)
         self._created_at = time.perf_counter()
         self._paint_logged = False
         from .config import DEFAULT_SETTINGS
@@ -179,6 +180,7 @@ class SettingsDialog(SettingsWindow):
             placeholder.deleteLater()
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
+                page.materialChanged.connect(self.set_material)
             elif index == 7 and not self._preview_only:
                 from .online_ui import UpdateDot
                 from PySide6.QtWidgets import QTabBar

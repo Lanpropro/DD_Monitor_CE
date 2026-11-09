@@ -65,6 +65,8 @@ class SelectControl(QComboBox):
         return QSize(min(180, self.sizeHint().width()), theme.CONTROL_HEIGHT)
 
     def showPopup(self):
+        from ..settings_material import shadows_enabled
+        self.view().window().setWindowFlag(Qt.NoDropShadowWindowHint, not shadows_enabled(self))
         super().showPopup()
         self.update()
 

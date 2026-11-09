@@ -100,6 +100,7 @@ def child(action):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
                 self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
+                                     (1, 0, 1, 7, 1) if action == 'embed-appearance' else
                                      (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
@@ -147,7 +148,7 @@ def child(action):
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
                 extra = {}
-                if action == 'embed-footer':
+                if action in ('embed-footer', 'embed-appearance'):
                     import ctypes
                     from ctypes import wintypes
                     from PySide6.QtCore import QPoint
@@ -679,6 +680,12 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 extension = ContributedChecks(window)
                 app.installEventFilter(extension)
                 stack.callback(app.removeEventFilter, extension)
+        if action == 'embed-appearance':
+            from PySide6.QtCore import Qt
+            window.setAttribute(Qt.WA_ShowWithoutActivating)
+            window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            window.setGeometry(-14000, -12000, 1100, 800)
+            window.show()
         client = window._get_settings_process()
         initial_volume = window.settings['default_volume']
         messages = []
@@ -713,7 +720,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert message['embedded']
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
-                    if action == 'embed-footer':
+                    if action in ('embed-footer', 'embed-appearance'):
                         from ctypes import wintypes
                         rect = wintypes.RECT()
                         assert user32.GetWindowRect(handle, ctypes.byref(rect))
@@ -757,12 +764,12 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
                 assert window.settings['default_volume'] == 17
-                assert window.settings['auto_update'] is (action != 'embed-footer')
+                assert window.settings['auto_update'] is (action not in ('embed-footer', 'embed-appearance'))
                 assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
                 if action == 'embed-footer':
                     process_pid = client.process.processId()
@@ -1014,6 +1021,11 @@ def main():
         check_theme_sync(app)
         return 0
     check_nonblocking_online_close(app)
+    if sys.argv[1:] == ['--appearance-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-appearance')
+        print('PASS: appearance entry and reentry keep the host inside the worker viewport')
+        return 0
     if sys.argv[1:] == ['--footer-native']:
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-footer')

@@ -57,6 +57,9 @@ def run_worker():
             self.occlusion_timer = QTimer(self)
             self.occlusion_timer.setSingleShot(True)
             self.occlusion_timer.timeout.connect(self.publish_occlusion)
+            self.host_align_timer = QTimer(self)
+            self.host_align_timer.setSingleShot(True)
+            self.host_align_timer.timeout.connect(self.align_host)
             self.pageCreated.connect(lambda index, page: page.super_chat_placement.set_preview_context(
                 snapshot.get('sc_preview_context', {})) if index == 2 else None)
             self.owner_window = None
@@ -80,6 +83,16 @@ def run_worker():
                     and hasattr(self, 'occlusion_timer')):
                 self.occlusion_timer.start(0)
             return result
+
+        def eventFilter(self, watched, event):
+            if watched is self.host_container and event.type() in (QEvent.Show, QEvent.Move, QEvent.Resize):
+                self.host_align_timer.start(0)
+            return super().eventFilter(watched, event)
+
+        def align_host(self):
+            if self.host_container is not None and self.foreign is not None and self.host_surface_ready:
+                from .settings_backdrop import align_embedded_content
+                align_embedded_content(self.host_container, self.foreign)
 
         def _auto_save_status(self, state, error):
             self._host_save_error = False
@@ -165,6 +178,7 @@ def run_worker():
                     raise RuntimeError('The platform cannot embed the host settings page')
                 self.host_container = QWidget.createWindowContainer(self.foreign, self.stack)
                 self.host_container.setFocusPolicy(Qt.StrongFocus)
+                self.host_container.installEventFilter(self)
                 self.stack.addWidget(self.host_container)
                 attached = True
             if self.nav.currentRow() in host_api.HOST_PAGES:
@@ -172,6 +186,7 @@ def run_worker():
                 self.stack.layout().activate()
             if attached:
                 send({'kind': 'host-attached', 'size': [self.host_container.width(), self.host_container.height()]})
+            self.host_align_timer.start(0)
 
         def _reset_current(self):
             if self.nav.currentRow() in host_api.HOST_PAGES:
@@ -238,9 +253,9 @@ def run_worker():
             elif kind == 'host-ready' and self.dialog is not None:
                 self.dialog.embed_host(message['hwnd'])
             elif kind == 'host-shown' and self.dialog is not None:
-                from .settings_backdrop import align_embedded_content
-                align_embedded_content(self.dialog.host_container, self.dialog.foreign)
                 self.dialog.host_surface_ready = True
+                self.dialog.align_host()
+                self.dialog.host_align_timer.start(0)
             elif kind == 'host-flushed' and self.dialog is not None:
                 self.dialog.host_flush_done = True
                 self.dialog.done(self.dialog.pending_close_result)
@@ -251,6 +266,7 @@ def run_worker():
                 SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])
             elif kind == 'host-state' and self.dialog is not None:
                 self.dialog.host_values = message['values']
+                self.dialog.set_material({**self.dialog._initial_settings, **message['values']})
                 self.dialog.auto_save.adopt('settings', message['values'])
                 self.dialog.host_action_visible = message.get('action_visible', False)
                 self.dialog.host_action_text = message['save_text']

@@ -36,7 +36,10 @@ def initialize_paths():
 DEFAULT_VOLUME = 40
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
+from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
+
 DEFAULT_SETTINGS = {
+    **MATERIAL_DEFAULTS,
     "tile_context_menu": None,
     "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。

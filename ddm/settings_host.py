@@ -20,6 +20,8 @@ class SettingsHost(QObject):
             {**window.settings, **{key: value for key, value in message['settings'].items()
                                    if key in DEFAULT_SETTINGS}}, message['shortcuts'])
         self.stack = self.dialog.stack
+        from .settings_material import apply_properties
+        apply_properties(self.stack, self.dialog.settings())
         self.embedded = False
         self.pending_apply = None
         # Existing plugins contribute controls on SettingsDialog's Show event.
@@ -47,7 +49,14 @@ class SettingsHost(QObject):
     def _auto_status(self, state, error):
         self.client._send({'kind': 'auto-status', 'state': state, 'error': error})
 
+    def _material_changed(self, values):
+        from .settings_material import apply_properties
+        apply_properties(self.stack, values)
+        self.sync()
+
     def _page_created(self, index, page):
+        if index == 1:
+            page.materialChanged.connect(self._material_changed)
         if index == 8:
             page.saveRequested.disconnect(self.dialog._save)
             page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
