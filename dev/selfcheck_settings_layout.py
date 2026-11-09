@@ -116,7 +116,7 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(following.height(), before_height)
         self.assertEqual(following.y(), page.sections.section('playback').y())
         page.codec_editor.source_buttons['hevc'].click()
-        page.codec_editor.decode_buttons['none'].click()
+        page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
         self.assertIn('HEVC', page.codec_button.text())
         self.assertIn('CPU', page.codec_button.text())
         for width in (760, 1200):
@@ -126,9 +126,11 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
             self.assertEqual(self.dialog.settings()['bili_codec'], 'hevc')
             self.assertEqual(self.dialog.settings()['decode_mode'], 'none')
-            for button in page.codec_editor.decode_buttons.values():
-                self.assertTrue(button.isVisible())
-                self.assertLessEqual(button.geometry().right(), page.codec_editor.width())
+            select = page.codec_editor.decode_control
+            self.assertTrue(select.isVisible())
+            self.assertEqual(select.count(), len(config.DECODE_MODES))
+            self.assertLessEqual(select.geometry().right(), page.codec_editor.width())
+            self.assertEqual(page.codec_editor.decode_hint.text(), config.DECODE_HINTS['none'])
         page.codec_button.click()
         self.assertTrue(page.codec_editor.isHidden())
         settle()
@@ -144,7 +146,7 @@ class SettingsLayoutTests(unittest.TestCase):
         restored = None
         try:
             draft.general_page.codec_editor.source_buttons['av1'].click()
-            draft.general_page.codec_editor.decode_buttons['dxva2'].click()
+            draft.general_page.codec_editor.decode_control.setCurrentIndex(draft.general_page.codec_editor.decode_control.findData('dxva2'))
             saved = draft.settings()
             draft.reject()
             self.assertEqual(original, config.DEFAULT_SETTINGS)

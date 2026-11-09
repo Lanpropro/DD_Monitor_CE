@@ -1,6 +1,6 @@
 """Shared painted selection controls; Qt owns input, focus and checked state."""
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QAbstractButton, QButtonGroup, QCheckBox, QHBoxLayout, QSizePolicy, QWidget
 
 from .. import theme
@@ -82,12 +82,31 @@ class _SegmentButton(QAbstractButton):
         painter.setRenderHint(QPainter.Antialiasing)
         if not self.isEnabled():
             painter.setOpacity(0.45)
-        rect = QRectF(self.rect()).adjusted(.75, .75, -.75, -.75)
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -2)
         if self.isChecked() or self.underMouse() or self.isDown():
             painter.setPen(Qt.NoPen)
-            color = theme.qcolor(theme.ACCENT_SOFT if self.isChecked() else theme.CONTENT_HOVER)
-            painter.setBrush(color.darker(115) if self.isDown() else color)
+            if self.isChecked():
+                for offset, alpha in ((2, 12), (1, 26)):
+                    painter.setBrush(QColor(0, 0, 0, alpha))
+                    painter.drawRoundedRect(rect.translated(0, offset), rect.height() / 2, rect.height() / 2)
+                color = theme.qcolor(theme.mix(theme.CONTENT, theme.ACCENT, .20))
+                if self.isDown():
+                    color = color.darker(110)
+                fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+                fill.setColorAt(0, color.lighter(108))
+                fill.setColorAt(1, color.darker(108))
+                painter.setBrush(fill)
+            else:
+                painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+            if self.isChecked():
+                edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+                edge.setColorAt(0, QColor(255, 255, 255, 28))
+                edge.setColorAt(.5, QColor(255, 255, 255, 0))
+                edge.setColorAt(1, QColor(0, 0, 0, 20))
+                painter.setPen(QPen(edge, 1))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
         if self.hasFocus():
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1.5))
             painter.setBrush(Qt.NoBrush)
@@ -135,6 +154,12 @@ class SegmentedControl(QWidget):
         if not self.isEnabled():
             painter.setOpacity(0.45)
         rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
-        painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
-        painter.setBrush(theme.qcolor(theme.BG))
+        fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        fill.setColorAt(0, theme.qcolor(theme.BG).darker(112))
+        fill.setColorAt(1, theme.qcolor(theme.BG))
+        edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        edge.setColorAt(0, QColor(0, 0, 0, 45))
+        edge.setColorAt(1, theme.qcolor(theme.BORDER))
+        painter.setPen(QPen(edge, 1))
+        painter.setBrush(fill)
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)

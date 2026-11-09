@@ -138,7 +138,7 @@ def check_codecs(app):
         page._edit_codecs()
         assert not page.codec_editor.isHidden()
         page.codec_editor.source_buttons['hevc'].click()
-        page.codec_editor.decode_buttons['d3d11va'].click()
+        page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('d3d11va'))
         page._edit_codecs()
         mocked.assert_not_called()
     assert page.codec_editor.isHidden()
