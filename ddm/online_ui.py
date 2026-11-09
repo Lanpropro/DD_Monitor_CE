@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QFrame, QHBoxL
 
 from .corner_geometry import continuous_path
 from . import config, motion, online, plugin_updates, theme, update_install, version
-from .ui import ActionButton, AnimatedDialog, ElidedLabel, page_header
+from .ui import SettingsSurface, ActionButton, AnimatedDialog, ElidedLabel, page_header
 from .update_version import installed_revision, release_label
 
 
@@ -422,7 +422,7 @@ class PluginStorePage(OnlinePage):
         pending = plugin_updates.pending_versions(self.manager) if self.manager else {}
         self._update_ids = {offer['id'] for offer in plugin_update_offers(self.manager, offers)}
         for offer in offers:
-            card = QFrame()
+            card = SettingsSurface()
             card.setObjectName('PluginCard')
             body = QHBoxLayout(card)
             body.setContentsMargins(14, 10, 14, 10)

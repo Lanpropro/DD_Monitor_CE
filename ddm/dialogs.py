@@ -22,7 +22,7 @@ from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
-from .ui import ElidedLabel, ScaleCurveControl, page_header as _page_head, step_button as _step_button
+from .ui import SettingsSurface, ElidedLabel, ScaleCurveControl, page_header as _page_head, step_button as _step_button
 from .settings_layout import SettingsColumns, SettingsSection, section_grid
 from .ui import ToggleSwitch
 from .bili import BILI_CODECS
@@ -518,7 +518,7 @@ class NotificationSettingsPage(QWidget):
         )
         for index, (key, label) in enumerate(self.ITEMS):
             if index in (0, 2):
-                card = QFrame()
+                card = SettingsSurface()
                 card.setObjectName('NotificationSettingsGroup')
                 rows = QVBoxLayout(card)
                 rows.setContentsMargins(14, 12, 14, 10)
@@ -565,7 +565,7 @@ class NotificationSettingsPage(QWidget):
             self._states[key] = state
             row.addWidget(box)
             rows.addLayout(row)
-        card = QFrame()
+        card = SettingsSurface()
         card.setObjectName('NotificationSettingsGroup')
         blur_layout = QVBoxLayout(card)
         blur_layout.setContentsMargins(14, 12, 14, 12)
@@ -1341,7 +1341,7 @@ class PluginSettingsPage(QWidget):
             self.store_page.install_offer(offer)
 
     def _add_card(self, entry):
-        card = QFrame()
+        card = SettingsSurface()
         card.setObjectName("PluginCard")
         self._installed_entries[entry['id']] = dict(entry)
         self._installed_cards[entry['id']] = card
@@ -1560,6 +1560,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
                  update_page_factory=None):
         super().__init__(parent)
+        self.setProperty('skinPart', 'settings')
         self._created_at = time.perf_counter()
         self._paint_logged = False
         from .config import DEFAULT_SETTINGS

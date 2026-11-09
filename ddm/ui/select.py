@@ -1,5 +1,5 @@
 """Shared compact selector using Qt's model, popup placement and input handling."""
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QComboBox, QFrame, QListView, QSizePolicy, QStyle, QStyledItemDelegate
 
@@ -35,7 +35,7 @@ class SelectControl(QComboBox):
         super().__init__(parent)
         self.setProperty('customControlSurface', True)
         self.setFixedHeight(theme.CONTROL_HEIGHT)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumContentsLength(8)
         self.setMaxVisibleItems(8)
@@ -55,6 +55,14 @@ class SelectControl(QComboBox):
                            f'border-radius: {theme.RADIUS_LG}px; padding: 4px;}}')
         self.currentTextChanged.connect(self.setToolTip)
         theme.signals().changed.connect(self.update)
+
+    def sizeHint(self):
+        width = max((self.fontMetrics().horizontalAdvance(self.itemText(index))
+                     for index in range(self.count())), default=80)
+        return QSize(width + 46, theme.CONTROL_HEIGHT)
+
+    def minimumSizeHint(self):
+        return QSize(min(180, self.sizeHint().width()), theme.CONTROL_HEIGHT)
 
     def showPopup(self):
         super().showPopup()
