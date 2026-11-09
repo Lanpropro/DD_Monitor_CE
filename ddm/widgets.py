@@ -6107,8 +6107,13 @@ class Tile(QFrame):
                 self.danmakuDropped.emit()
         elif event.mimeData().hasFormat(TILE_MIME):
             source = bytes(event.mimeData().data(TILE_MIME)).decode("utf-8", "ignore")
+            changed = str(self.room.get('room_id')) != source
+            position = self.mapToGlobal(event.position().toPoint())
             event.acceptProposedAction()
             self.tileDropped.emit(source)
+            if changed:
+                from .card_drop import play_card_drop
+                play_card_drop(self, event.mimeData(), position, source)
 
     def mousePressEvent(self, event) -> None:
         self._press_pos = event.pos() if event.button() == Qt.LeftButton else None
@@ -6128,11 +6133,20 @@ class Tile(QFrame):
             import ctypes
             if not ctypes.windll.user32.GetAsyncKeyState(1) & 0x8000:
                 return  # A queued move can retain Qt's left-button flag after physical release.
-        drag = QDrag(self)
         mime = QMimeData()
         mime.setData(TILE_MIME, room_id.encode("utf-8"))
         mime.setText(room_id)
+        from .tile_drag import tile_drag_visual
+        session, snapshot, hotspot = tile_drag_visual(self, event.position().toPoint())
+        if session is not None:
+            session.start(self, mime, snapshot, hotspot, event.globalPosition().toPoint())
+            return
+        from .card_drop import remember_card
+        remember_card(mime, snapshot, hotspot)
+        drag = QDrag(self)
         drag.setMimeData(mime)
+        drag.setPixmap(snapshot)
+        drag.setHotSpot(hotspot)
         drag.exec(Qt.MoveAction)
 
     def raise_overlays(self) -> None:

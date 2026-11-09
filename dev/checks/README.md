@@ -107,7 +107,7 @@
 | [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组分类、拼音搜索、两秒指针停留、图标栏、键盘与弹窗保护、中断及销毁；隔离窗口和鼠标位置输入，不读取账号 |
 | [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、控件值和重置、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
-| [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；立即派发播放、首次缓冲沉降与首帧揭示、失败／中断后恢复、再次缓冲、换格、连续拖入、销毁、系统关闭动画及中性圆角来源图标；单独经 bootstrap 传 `--native`，用本地视频核对播放推进与 libmpv/HWND 保持，不读取账号、不移动系统鼠标 |
+| [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；原缓冲标识保持、短前奏限时与首帧立即清理、透明小窗口、墙内可见卡片抓取／取消／换格、元数据备用卡片、连续拖入、销毁、系统关闭动画及中性圆角来源图标；bootstrap 加 `--native` 用本地视频核对抓取期间进度、libmpv/HWND 保持；不读取账号、不移动系统鼠标 |
 | [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--native-zorder` 检查屏幕外独立设置窗口归属、遮挡及重开，不移动光标或激活窗口；`--embedded-native` 检查屏幕外跨页 HWND/DPI；`--footer-native` 检查首次进入插件、切页返回和同进程关闭重开时原生内容完整位于分配区域、取消／保存不被覆盖；`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |

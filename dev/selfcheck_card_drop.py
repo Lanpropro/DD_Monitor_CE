@@ -6,7 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
@@ -15,13 +16,14 @@ if '--native' in sys.argv:
     os.environ['QT_QPA_PLATFORM'] = 'windows'
 
 from PySide6.QtCore import QCoreApplication, QEvent, QMimeData, QPoint, Qt, Signal
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtGui import QColor, QMouseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QFrame, QWidget
 from shiboken6 import delete, isValid
 from ddm import card_drop, motion
 from ddm.pane_source_picker import SourceAvatar
 from ddm.playback_badges import LoadingIndicator
-from ddm.sidebar_drag import ROOM_MIME
+from ddm.sidebar_drag import ROOM_MIME, TILE_MIME
+from ddm.tile_drag import tile_drag_visual
 from ddm.video_surface import VideoSurface
 from ddm.widgets import Sidebar, Tile
 
@@ -30,9 +32,11 @@ APP = QApplication.instance() or QApplication([])
 
 class DropTile(QFrame):
     roomDropped = Signal(str)
+    tileDropped = Signal(str)
     dragEnterEvent = Tile.dragEnterEvent
     dragLeaveEvent = Tile.dragLeaveEvent
     dropEvent = Tile.dropEvent
+    mouseMoveEvent = Tile.mouseMoveEvent
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -180,47 +184,106 @@ class CardDropTests(unittest.TestCase):
         self.assertTrue(overlay.snapshot.isNull())
         self.assertIsNone(self.tile._card_drop_overlay)
 
-    def test_initial_loading_is_covered_until_the_first_playing_frame(self):
+    def test_loading_indicator_is_unchanged_and_feedback_has_a_fixed_deadline(self):
         self.tile._connecting = True
         self.tile.spinner.start()
         overlay = self.overlay()
-        self.assertTrue(overlay.waiting)
-        self.assertFalse(self.tile.spinner.isVisible())
+        self.assertTrue(self.tile.spinner.isVisible())
         self.tile.spinner.start()
-        self.assertFalse(self.tile.spinner.isVisible(), 'Repeated buffering must not show a second loader')
+        self.assertTrue(self.tile.spinner.isVisible())
         with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 5):
-            overlay.advance()
-        self.assertFalse(overlay.finished, 'The old 280ms deadline must not uncover an unready player')
-        self.assertTrue(overlay.waiting)
-        self.assertEqual(overlay.fade, 0)
-        self.assertLess(overlay.progress, 1)
-        self.tile._player_active, self.tile._connecting = True, False
-        with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 5):
-            overlay.advance()
-        self.assertFalse(overlay.waiting)
-        self.assertFalse(overlay.finished)
-        with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 5.3):
             overlay.advance()
         self.assertTrue(overlay.finished)
+        self.assertTrue(self.tile.spinner.isVisible(), 'Drop feedback must never stop or restart the original indicator')
+
+    def test_playing_frame_closes_feedback_immediately_and_has_no_backdrop(self):
         self.tile._connecting = True
         self.tile.spinner.start()
-        self.assertTrue(self.tile.spinner.isVisible(), 'Later rebuffering retains the original indicator')
+        overlay = self.overlay()
+        image = overlay.grab().toImage()
+        self.assertEqual(image.pixelColor(image.width() - 3, image.height() - 3).alpha(), 0)
+        self.assertLess(overlay.width() * overlay.height(), self.tile.video.width() * self.tile.video.height())
+        self.tile._player_active, self.tile._connecting = True, False
+        self.tile.spinner.stop()  # The original playback callback owns this state.
+        overlay.advance()
+        self.assertTrue(overlay.finished)
+        self.assertFalse(overlay.isVisible())
+        self.assertTrue(overlay.snapshot.isNull())
+        self.assertFalse(self.tile.spinner.isVisible())
 
     def test_loading_failure_room_change_and_cancel_restore_normal_presentation(self):
         self.tile._connecting = True
+        self.tile.spinner.start()
         overlay = self.overlay()
         self.tile._connecting = False
+        self.tile.spinner.stop()
         overlay.advance()
         self.assertTrue(overlay.finished)
         self.assertFalse(self.tile.spinner.isVisible())
         self.tile._connecting = True
+        self.tile.spinner.start()
         overlay = self.overlay()
         overlay.finish()
-        self.assertTrue(self.tile.spinner.isVisible(), 'Resize/cancel must restore the loader for a pending stream')
+        self.assertTrue(self.tile.spinner.isVisible())
         overlay = self.overlay()
         self.tile.room = {'room_id': 'another'}
         overlay.advance()
         self.assertTrue(overlay.finished)
+
+    def test_wall_pickup_uses_a_visible_card_and_keeps_the_source_surface(self):
+        import ctypes
+        self.window.sidebar = self.sidebar
+        self.tile._press_pos = QPoint(1, 1)
+        point = QPoint(70, 60)
+        event = QMouseEvent(QEvent.MouseMove, point, self.tile.mapToGlobal(point),
+                            Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        handle = int(self.tile.video.winId())
+        session = self.sidebar.drag_session
+        with patch.object(ctypes, 'windll', SimpleNamespace(user32=SimpleNamespace(
+                GetAsyncKeyState=Mock(return_value=0x8000))), create=True):
+            self.tile.mouseMoveEvent(event)
+        self.assertTrue(session.active)
+        self.assertIs(session.source, self.tile)
+        self.assertTrue(session.ghost.isVisible())
+        self.assertFalse(session.ghost.pixmap().isNull())
+        self.assertEqual(session.actions, Qt.MoveAction)
+        self.assertEqual(bytes(session.mime.data(TILE_MIME)), b'1001')
+        self.assertEqual(int(self.tile.video.winId()), handle)
+        with patch.object(self.sidebar, 'end_drag') as sidebar_end:
+            session.cancel()
+        sidebar_end.assert_not_called()
+        self.assertIsNone(session.ghost)
+        self.assertIsNone(self.tile._press_pos)
+
+    def test_wall_drop_keeps_move_semantics_and_routes_feedback_to_incoming_tile(self):
+        self.window.sidebar = self.sidebar
+        self.tile.room = {'room_id': 'previous'}
+        incoming = DropTile(self.window)
+        incoming.setGeometry(280, 360, 520, 200)
+        incoming.room = {'room_id': '1001'}
+        incoming.show()
+        APP.processEvents()
+        before = self.tile.geometry()
+        def swap(_room_id):
+            self.tile.setGeometry(incoming.geometry())
+            incoming.setGeometry(before)
+        self.tile.tileDropped.connect(swap)
+        mime = QMimeData()
+        mime.setData(TILE_MIME, b'1001')
+        session, snapshot, hotspot = tile_drag_visual(incoming, QPoint(70, 60))
+        session.start(incoming, mime, snapshot, hotspot, self.position)
+        with patch('ddm.sidebar_drag.widget_at', return_value=self.tile):
+            self.assertTrue(session.finish())
+        self.assertEqual(incoming.geometry(), before)
+        self.assertTrue(incoming._card_drop_overlay.timer.isActive())
+        self.assertIsNone(session.ghost)
+
+    def test_wall_card_falls_back_to_room_metadata_without_reading_video_pixels(self):
+        with patch.object(self.tile.video, 'grab', side_effect=AssertionError('Do not capture native video')):
+            session, snapshot, hotspot = tile_drag_visual(self.tile, QPoint(70, 60))
+        self.assertIsNone(session)
+        self.assertFalse(snapshot.isNull())
+        self.assertTrue(snapshot.rect().contains(hotspot))
 
     def test_new_drop_resize_hide_and_target_destruction_clean_up(self):
         first = self.overlay()
@@ -265,6 +328,10 @@ class CardDropTests(unittest.TestCase):
                 def state_changed(state):
                     self.tile._player_active = state == 'playing'
                     self.tile._connecting = state in ('connecting', 'buffering')
+                    if self.tile._connecting:
+                        self.tile.spinner.start()
+                    else:
+                        self.tile.spinner.stop()
                 player.stateChanged.connect(state_changed)
                 def play(room_id):
                     self.tile.room = {'room_id': room_id}
@@ -277,6 +344,8 @@ class CardDropTests(unittest.TestCase):
                     self.assertTrue(session.finish())
                 overlay = self.tile._card_drop_overlay
                 self.assertTrue(overlay.timer.isActive())
+                overlay_handle = int(overlay.winId())
+                spinner_handle = int(self.tile.spinner.winId())
                 self.assertIsNotNone(player.player)
                 core = player.player
                 ready(APP, player)
@@ -289,6 +358,27 @@ class CardDropTests(unittest.TestCase):
                 self.assertEqual(int(self.tile.video.winId()), handle)
                 self.assertTrue(overlay.finished)
                 self.assertIsNone(self.tile._card_drop_overlay)
+                self.assertFalse(self.tile.spinner.isVisible())
+                import ctypes
+                from ctypes import wintypes
+                visible = ctypes.windll.user32.IsWindowVisible
+                visible.argtypes = (wintypes.HWND,)
+                visible.restype = wintypes.BOOL
+                self.assertFalse(visible(overlay_handle), 'No native transition window may remain above playback')
+                self.assertFalse(visible(spinner_handle), 'The original native loader must hide after playing')
+                self.window.sidebar = self.sidebar
+                mime = QMimeData()
+                mime.setData(TILE_MIME, b'1001')
+                session, snapshot, hotspot = tile_drag_visual(self.tile, QPoint(70, 60))
+                session.start(self.tile, mime, snapshot, hotspot, self.position)
+                self.assertTrue(session.ghost.isVisible())
+                before = player._prop('time-pos')
+                pump(APP, .12)
+                self.assertGreater(player._prop('time-pos'), before)
+                session.cancel()
+                self.assertIsNone(session.ghost)
+                self.assertIs(player.player, core)
+                self.assertEqual(int(self.tile.video.winId()), handle)
             finally:
                 player.release()
 
