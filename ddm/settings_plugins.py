@@ -184,7 +184,7 @@ class PluginSettingsPage(QWidget):
             self._installed_cards[plugin_id].setVisible(matches)
             status = entry['status']
             if enabled != self._initial_enabled.get(plugin_id, entry['enabled']):
-                status += ' · 已选择' + ('启用' if enabled else '禁用') + '，保存后生效'
+                status += ' · 已选择' + ('启用' if enabled else '禁用') + '，重启后生效'
             self.card_details[plugin_id][1].setText(status)
             self.card_details[plugin_id][1].setToolTip(status)
             if matches:
@@ -354,7 +354,7 @@ class PluginSettingsPage(QWidget):
         self._files_changed = True
         self.changed.emit()
         from .online_ui import show_result
-        show_result(self.window(), "插件已安装，保存并重启后生效")
+        show_result(self.window(), "插件已安装，重启后生效")
 
     def needs_restart(self):
         return self._files_changed or {

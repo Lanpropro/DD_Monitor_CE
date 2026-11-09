@@ -219,7 +219,7 @@ def load() -> dict:
     return {}
 
 
-def save(state: dict) -> None:
+def save(state: dict, *, raise_errors=False) -> None:
     if os.environ.get("DDM_NO_SAVE"):   # 自检/预览脚本用这个开关，避免动到真实配置
         return
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
@@ -230,3 +230,5 @@ def save(state: dict) -> None:
             handle.write(json.dumps(state, ensure_ascii=False, indent=2))
     except Exception as error:  # noqa: BLE001
         print(f"配置写入失败: {error}")
+        if raise_errors:
+            raise

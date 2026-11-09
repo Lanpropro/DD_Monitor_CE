@@ -17,6 +17,14 @@ from ddm import app as app_module
 from ddm.settings_control import SettingsControl
 
 
+class AutoSave(QObject):
+    requested = Signal(dict)
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.acknowledge = Mock()
+
+
 class Dialog(QObject):
     Accepted, Rejected = 1, 0
     PAGES = (('general', ''), ('plugins', ''), ('updates', ''), ('danmaku', ''))
@@ -35,10 +43,13 @@ class Dialog(QObject):
         self.shortcuts = Mock(return_value=shortcuts)
         self.enabled_plugins = Mock(return_value={'alpha'})
         self.restart_requested = False
+        self.auto_save = AutoSave(self)
+        self.general_page = SimpleNamespace(findChildren=lambda _type: [])
 
 
 class Process(QObject):
     saved = Signal(dict)
+    autoSaveRequested = Signal(dict)
     hostRequest = Signal(dict)
     closed = Signal()
     occlusionChanged = Signal()
@@ -47,6 +58,7 @@ class Process(QObject):
     def __init__(self, parent):
         super().__init__(parent)
         self.open = Mock()
+        self._send = Mock()
 
 
 class UpdatePage(QObject):
@@ -138,6 +150,27 @@ class SettingsControlTests(unittest.TestCase):
         process.closed.emit()
         self.assertIsNone(host._settings_host)
         session.close.assert_called_once_with()
+
+    def test_autosave_signals_apply_and_acknowledge_without_closing(self):
+        host = self.host
+        dialog = host._create_settings_dialog()
+        with patch.object(host, '_apply_settings_dialog') as apply:
+            dialog.auto_save.requested.emit({'settings': {'default_volume': 17}})
+            adapter = apply.call_args.args[0]
+            self.assertEqual(adapter.settings(), {'default_volume': 17})
+            self.assertTrue(adapter.auto_saving)
+            self.assertFalse(adapter.restart_requested)
+            dialog.auto_save.acknowledge.assert_called_once_with()
+            apply.side_effect = PermissionError('fixture write failure')
+            dialog.auto_save.requested.emit({'settings': {'default_volume': 19}})
+            dialog.auto_save.acknowledge.assert_called_with('fixture write failure')
+        with patch('ddm.settings_process.SettingsProcess', Process):
+            process = host._get_settings_process()
+        with patch.object(host, '_apply_settings_dialog') as apply:
+            process.autoSaveRequested.emit({'changes': {'settings': {'default_volume': 21}}})
+            self.assertEqual(apply.call_args.args[0].settings(), {'default_volume': 21})
+            process._send.assert_called_once_with({'kind': 'auto-saved', 'error': ''})
+        host.close.assert_not_called()
 
     def test_remote_save_merges_current_shortcuts_and_ignores_empty_or_closing(self):
         host = self.host

@@ -17,7 +17,7 @@ class SettingsCloseButton(QAbstractButton):
         self.setFixedSize(34, 34)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAccessibleName('关闭设置')
-        self.setToolTip('关闭设置（不保存）')
+        self.setToolTip('关闭设置（修改自动保存）')
         self.setCursor(Qt.PointingHandCursor)
         self.setProperty('customControlSurface', True)
 

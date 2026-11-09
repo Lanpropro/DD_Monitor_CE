@@ -51,6 +51,7 @@ def worker_command():
 
 class SettingsProcess(QObject):
     saved = Signal(dict)
+    autoSaveRequested = Signal(dict)
     hostRequest = Signal(dict)
     closed = Signal()
     failed = Signal(str)
@@ -185,6 +186,8 @@ class SettingsProcess(QObject):
                 self._set_occlusion(self.occlusion, force=True)
             elif kind == 'occlusion' and not self.closing:
                 self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
+            elif kind == 'auto-save' and not self.closing:
+                self.autoSaveRequested.emit(message)
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False
@@ -197,7 +200,7 @@ class SettingsProcess(QObject):
                         self.saved.emit(message['changes'])
                 self.closed.emit()
                 _save_trace('host.result.applied', started)
-            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden') and not self.closing:
+            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden', 'host-retry', 'host-flush') and not self.closing:
                 started = _save_trace('host.save.received') if kind == 'host-save' else None
                 self.hostRequest.emit(message)
                 if started is not None:

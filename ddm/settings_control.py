@@ -48,6 +48,8 @@ class SettingsControl:
             from .settings_process import SettingsProcess
             host._settings_process = SettingsProcess(host)
             host._settings_process.saved.connect(host._remote_settings_saved)
+            from .settings_autosave_apply import handle_request
+            host._settings_process.autoSaveRequested.connect(lambda message: handle_request(host, message))
             host._settings_process.hostRequest.connect(host._settings_host_request)
             host._settings_process.closed.connect(host._close_settings_host)
             host._settings_process.occlusionChanged.connect(
@@ -135,6 +137,8 @@ class SettingsControl:
                                                 for offer in host._plugin_update_offers))
         dialog._mark_update_page('updates', bool(host._available_update and
                                                 dialog.seen_versions.get('app') != update_identity(host._available_update)))
+        from .settings_autosave_apply import bind_dialog
+        bind_dialog(host, dialog)
         return dialog
 
     def open_settings(self, page: str = "general", *, dialog_class) -> bool:
@@ -201,7 +205,10 @@ class SettingsControl:
         for tile in host.wall.tiles:
             if host._tile_codecs_changed(tile, codecs_before.get(tile, {})):
                 host._restart_codec_tile(tile)
-        config_module.save(host.current_state())
+        if getattr(dialog, 'auto_saving', False) is True:
+            config_module.save(host.current_state(), raise_errors=True)
+        else:
+            config_module.save(host.current_state())
         # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
         host._sync_recording_switch()
         host._sync_replay_scope()

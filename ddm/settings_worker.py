@@ -38,8 +38,13 @@ def run_worker():
         def __init__(self, snapshot):
             from .native_diagnostics import set_dump_enabled
             set_dump_enabled(snapshot["settings"].get("native_crash_dump", False))
+            self._host_save_error = False
+            self.host_action_visible = False
+            self.host_action_text = ''
             self.host_requested = False
             self.host_saved = False
+            self.host_flush_done = False
+            self.pending_close_result = None
             self.host_values = {}
             self.host_container = None
             self.host_surface_ready = False
@@ -47,6 +52,8 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            self._auto_save_enabled = True
+            self.auto_save.requested.connect(lambda changes: send({'kind': 'auto-save', 'changes': changes}))
             self.occlusion_timer = QTimer(self)
             self.occlusion_timer.setSingleShot(True)
             self.occlusion_timer.timeout.connect(self.publish_occlusion)
@@ -73,6 +80,16 @@ def run_worker():
                     and hasattr(self, 'occlusion_timer')):
                 self.occlusion_timer.start(0)
             return result
+
+        def _auto_save_status(self, state, error):
+            self._host_save_error = False
+            super()._auto_save_status(state, error)
+
+        def _retry_auto_save(self):
+            if self._host_save_error:
+                send({'kind': 'host-retry'})
+            else:
+                self.auto_save.flush()
 
         def publish_occlusion(self):
             # The host cannot find this cross-process dialog in topLevelWidgets.
@@ -104,6 +121,7 @@ def run_worker():
                 check.setChecked(control['checked'])
                 grid.addWidget(check, row, 0, 1, 2)
                 self.plugin_checks[control['name']] = check
+            self.auto_save.adopt('plugin_controls', {name: check.isChecked() for name, check in self.plugin_checks.items()})
             if any(name.endswith('_show_platform_logo') for name in self.plugin_checks):
                 grid.removeWidget(anchor)
                 anchor.hide()
@@ -132,6 +150,8 @@ def run_worker():
                 self.stack.setCurrentIndex(index)
             else:
                 self.stack.setCurrentWidget(self.host_container)
+            self.confirm_button.setText(self.host_action_text)
+            self.confirm_button.setVisible(self.host_action_visible)
             self.reset_button.setVisible(index == 1)
             self.reset_button.setText('恢复本页默认')
             send({'kind': 'host-page', 'index': index,
@@ -160,6 +180,8 @@ def run_worker():
                 super()._reset_current()
 
         def _save(self):
+            if self.auto_save.defer(self._save):
+                return
             self._save_clicked_at = host_api._save_trace('worker.click')
             if self.host_requested or self.plugin_checks:
                 self.confirm_button.setEnabled(False)
@@ -172,6 +194,12 @@ def run_worker():
                 super()._save()
 
         def done(self, result):
+            if not self.auto_save.request_close(result):
+                return
+            if self.host_requested and not self.host_saved and not self.host_flush_done:
+                self.pending_close_result = int(result)
+                send({'kind': 'host-flush'})
+                return
             started = getattr(self, '_save_clicked_at', None)
             detached = time.perf_counter_ns()
             if self.foreign is not None:
@@ -203,6 +231,8 @@ def run_worker():
             kind = message.get('kind')
             if kind == 'quit':
                 if self.dialog is not None:
+                    self.dialog.auto_save.active = False
+                    self.dialog.host_flush_done = True
                     self.dialog.reject()
                 app.quit()
             elif kind == 'host-ready' and self.dialog is not None:
@@ -211,8 +241,20 @@ def run_worker():
                 from .settings_backdrop import align_embedded_content
                 align_embedded_content(self.dialog.host_container, self.dialog.foreign)
                 self.dialog.host_surface_ready = True
+            elif kind == 'host-flushed' and self.dialog is not None:
+                self.dialog.host_flush_done = True
+                self.dialog.done(self.dialog.pending_close_result)
+            elif kind == 'auto-saved' and self.dialog is not None:
+                self.dialog.auto_save.acknowledge(message.get('error', ''))
+            elif kind == 'auto-status' and self.dialog is not None:
+                self.dialog._host_save_error = message['state'] == 'error'
+                SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])
             elif kind == 'host-state' and self.dialog is not None:
                 self.dialog.host_values = message['values']
+                self.dialog.auto_save.adopt('settings', message['values'])
+                self.dialog.host_action_visible = message.get('action_visible', False)
+                self.dialog.host_action_text = message['save_text']
+                self.dialog.confirm_button.setVisible(self.dialog.host_action_visible and self.dialog.nav.currentRow() in host_api.HOST_PAGES)
                 self.dialog.confirm_button.setEnabled(message['save_enabled'])
                 self.dialog.confirm_button.setText(message['save_text'])
                 for key, active in message['marks'].items():

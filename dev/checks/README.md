@@ -116,6 +116,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | `offline` |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
+| [selfcheck_settings_autosave](../selfcheck_settings_autosave.py) | `offline` / `smoke`；默认和临时数据，自动保存合并／滑块松手／回执与待保存关闭／失败重试及撤回旧值／插件有效组、真实主窗口应用且不重启、独立进程回执及显式迁移隔离；不读取真实账号、不联网 |
 | [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组／拼音搜索、按钮收展、鼠标停留不自动变化、图标栏切页及编辑保持、键盘触发、过渡中断、隐藏重开与销毁；隔离窗口和鼠标位置输入，不读取账号 |
 | [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、常规页编解码原地收展／高度更新／相邻布局项和上方控件稳定／独立卡高／保存取消和重置、无边框顶部搜索／关闭取消语义、Windows 原生系统材质和标题栏样式、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |

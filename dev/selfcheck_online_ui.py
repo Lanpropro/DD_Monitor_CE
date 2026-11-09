@@ -192,14 +192,15 @@ def check_plugin_page_boundaries(app, root):
         assert bounds(page).contains(bounds(page.refresh)), 'Refresh must stay inside the store toolbar, clear of the tab edge'
         assert not bounds(page.search).intersects(bounds(page.refresh)), 'Search and refresh must not overlap'
         assert bounds(page.search).top() > bounds(dialog.plugin_page.tabs.tabBar()).bottom()
-        assert bounds(page.scroll).bottom() + 8 < bounds(dialog.confirm_button).top(), 'List must leave room for the save footer'
+        assert bounds(page.scroll).bottom() <= dialog.height() - 8, 'List must remain inside the settings shell'
+        assert dialog.height() - bounds(page.scroll).bottom() < 45, 'List should use the removed footer space'
         page.scroll.verticalScrollBar().setValue(page.scroll.verticalScrollBar().maximum())
         app.processEvents()
         assert bounds(page.cards.itemAt(page.cards.count()-1).widget()).bottom() <= bounds(page.scroll.viewport()).bottom() - 8
         dialog.close()
         dialog.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    print('PASS: plugin toolbar, list end and save footer have separate bounds')
+    print('PASS: plugin toolbar and list fit the shell without a save footer')
 
 
 def check_installed_browser(app, root):
@@ -240,9 +241,9 @@ def check_installed_browser(app, root):
             browser.filter.setCurrentIndex(2)
             assert browser.count.text() == '9 / 16 个插件'
             assert page.checks['installed_00'] is check and not check.isChecked()
-            assert '保存后生效' in page.card_details['installed_00'][1].text()
+            assert '重启后生效' in page.card_details['installed_00'][1].text()
             check.setChecked(True)
-            assert not page.needs_restart() and dialog.confirm_button.text() == '保存'
+            assert not page.needs_restart() and dialog.confirm_button.isHidden()
             browser.filter.setCurrentIndex(3)
             assert browser.count.text() == '3 / 16 个插件'
             browser.filter.setCurrentIndex(0)
@@ -287,7 +288,7 @@ def check_installed_browser(app, root):
                 assert browser.search.mapTo(dialog, QPoint()).y() == search_y
                 last = page.cards.itemAt(page.cards.count()-1).widget()
                 assert last.mapTo(page.installed_scroll.viewport(), QPoint()).y() + last.height() <= page.installed_scroll.viewport().height() - 8
-                assert page.installed_scroll.mapTo(dialog, QPoint()).y() + page.installed_scroll.height() + 8 < dialog.confirm_button.mapTo(dialog, QPoint()).y()
+                assert page.installed_scroll.mapTo(dialog, QPoint()).y() + page.installed_scroll.height() <= dialog.height() - 8
             browser.search.setText('没有匹配的插件')
             with patch.object(manager, 'remove_plugin', create=True), patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
                 page._remove('installed_15', page._installed_cards['installed_15'])
@@ -510,7 +511,7 @@ def main():
             settle(app, page)
             assert manager.enabled == {'global_live'} and saves == [ui_thread]
             assert dialog.plugin_page.checks['global_live'].isChecked()
-            assert dialog.confirm_button.text() == '保存并重启'
+            assert dialog.confirm_button.text() == '重启以应用'
             assert page.buttons['global_live'].text() == '已安装'
             assert not manager.plugins
             # 同 ID 更新暂存，原插件文件和禁用选择保留。

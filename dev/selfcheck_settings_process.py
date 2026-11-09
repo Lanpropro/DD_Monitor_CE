@@ -154,9 +154,9 @@ def child(action):
                     origin = wintypes.POINT()
                     ctypes.windll.user32.ClientToScreen(ctypes.c_void_p(int(self.winId())), ctypes.byref(origin))
                     scale = self.devicePixelRatioF()
-                    buttons = [self.confirm_button, next(button for button in self.findChildren(QPushButton) if button.text() == '取消')]
-                    extra['footer_top'] = min(origin.y + round(button.mapTo(self, QPoint()).y() * scale) for button in buttons)
-                    extra['footer_visible'] = all(button.isVisible() and self.rect().contains(button.geometry()) for button in buttons)
+                    extra['header_bottom'] = origin.y + round((self.window_header.y() + self.window_header.height()) * scale)
+                    extra['client_bottom'] = origin.y + round(self.height() * scale)
+                    extra['scale'] = scale
                     start = self.host_container.mapTo(self, QPoint())
                     extra['container_geometry'] = list(self.host_container.geometry().getRect())
                     extra['stack_geometry'] = list(self.stack.geometry().getRect())
@@ -218,9 +218,11 @@ def check_worker(app, action):
     timer.timeout.connect(lambda: ticks.append(time.perf_counter()))
     timer.start()
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
-    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else None)
+    client.autoSaveRequested.connect(lambda message: saves.append(message['changes']))
+    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else client._send({'kind': 'host-flushed'}) if message['kind'] == 'host-flush' else None)
     client.failed.connect(failures.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
     with patch.object(settings_process, 'worker_command', return_value=command), \
@@ -241,24 +243,27 @@ def check_worker(app, action):
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
             clean = action.startswith(('clean-', 'revert-'))
-            assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
+            assert bool(saves) == (not clean)
             if saves:
-                assert saves[0]['settings']['default_volume'] == 17
+                combined = {}
+                for saved in saves:
+                    combined.update(saved.get('settings', {}))
+                assert combined['default_volume'] == 17
                 if action == 'preview-save':
-                    assert saves[0]['settings']['super_chat_position'] == [0.0, .6]
-                    assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
-                    assert saves[0]['settings']['super_chat_position_sync'] is False
+                    assert combined['super_chat_position'] == [0.0, .6]
+                    assert combined['super_chat_panel_position'] == [1.0, .2]
+                    assert combined['super_chat_position_sync'] is False
                 if action == 'preview-sync-save':
-                    assert saves[0]['settings']['super_chat_position'] == [1.0, .2]
-                    assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
-                    assert saves[0]['settings'].get('super_chat_position_sync', True) is True
-                assert saves[0]['settings']['volume_normalization'] is True
-                assert saves[0]['settings']['volume_normalization_curve']['preset'] == 'netflix'
+                    assert combined['super_chat_position'] == [1.0, .2]
+                    assert combined['super_chat_panel_position'] == [1.0, .2]
+                    assert combined.get('super_chat_position_sync', True) is True
+                assert combined['volume_normalization'] is True
+                assert combined['volume_normalization_curve']['preset'] == 'netflix'
                 if action == 'tray-save':
-                    assert saves[0]['settings']['close_behavior'] == 'tray'
-                    assert saves[0]['settings']['tray_pause_playback'] is False
-                assert 'appearance_mode' not in saves[0]['settings']
-                assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
+                    assert combined['close_behavior'] == 'tray'
+                    assert combined['tray_pause_playback'] is False
+                assert 'appearance_mode' not in combined
+                assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
             assert pages == ([{'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]] if clean else [])
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
@@ -282,6 +287,7 @@ def check_theme_sync(app):
     from ddm import theme
     messages = []
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     client.received.connect(messages.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'theme'])
     with patch.object(settings_process, 'worker_command', return_value=command), \
@@ -452,6 +458,7 @@ def check_native_focus(app):
 
 def check_failure(app):
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     failures = []
     client.failed.connect(failures.append)
     with patch.object(settings_process, 'worker_command', return_value=(str(ROOT / 'missing-worker.exe'), [])):
@@ -470,6 +477,7 @@ def check_failure(app):
     wait(app, lambda: client.process.state() == QProcess.NotRunning)
     # No synchronous waits even when a worker never completes its handshake.
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     failures = []
     client.failed.connect(failures.append)
     command = (getattr(sys, '_base_executable', sys.executable), ['-c', 'import time; time.sleep(5)'])
@@ -487,6 +495,7 @@ def check_windowed_worker(app):
     if sys.platform != 'win32' or not executable.exists():
         return
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     command = (str(executable), [str(ROOT / 'main.py'), '--settings-worker'])
     with patch.object(settings_process, 'worker_command', return_value=command):
         try:
@@ -499,6 +508,7 @@ def check_windowed_worker(app):
 
 def check_finish_without_event_loop(app):
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     command = (getattr(sys, '_base_executable', sys.executable), ['-c', 'import time; time.sleep(30)'])
     with patch.object(settings_process, 'worker_command', return_value=command):
         try:
@@ -517,6 +527,7 @@ def check_finish_without_event_loop(app):
 
 def check_close_during_edit(app):
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     messages, saves = [], []
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
@@ -702,11 +713,11 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         from ctypes import wintypes
                         rect = wintypes.RECT()
                         assert user32.GetWindowRect(handle, ctypes.byref(rect))
-                        assert message['footer_visible'], message
                         x, y, width, height = message['content_rect']
                         assert all(abs(actual - expected) <= 2 for actual, expected in zip(
                             (rect.left, rect.top, rect.right, rect.bottom), (x, y, x + width, y + height))), ('Host must fit the content area', (rect.left, rect.top, rect.right, rect.bottom), message)
-                        assert rect.bottom <= message['footer_top'], ('Embedded page covers save/cancel', (rect.left, rect.top, rect.right, rect.bottom), message)
+                        assert rect.top >= message['header_bottom'], message
+                        assert 0 <= message['client_bottom'] - rect.bottom <= 40 * message['scale'], ('Content must use the former footer space', message)
                     image = session.stack.grab().toImage()
                     actual = image.pixelColor(1, 1)
                     assert actual.alpha() == 0, (message['index'], actual.name(), actual.alpha())
@@ -736,9 +747,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert window.settings['default_volume'] == 17 and not errors
                 return
             if action.startswith('logos-'):
-                assert plugin_saves == ({'domestic_live': False, 'global_live': True} if action == 'logos-save' else {})
-                assert window.settings['sidebar_platform_logos'] is (action == 'logos-save')
-                assert window.settings['default_volume'] == (17 if action == 'logos-save' else initial_volume)
+                assert plugin_saves == {'domestic_live': False, 'global_live': True}
+                assert window.settings['sidebar_platform_logos'] is True
+                assert window.settings['default_volume'] == 17
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
@@ -746,8 +757,8 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
-                assert window.settings['default_volume'] == (17 if action == 'embed-save' else initial_volume)
-                assert window.settings['auto_update'] is (action == 'embed-save')
+                assert window.settings['default_volume'] == 17
+                assert window.settings['auto_update'] is (action != 'embed-footer')
                 assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
                 if action == 'embed-footer':
                     process_pid = client.process.processId()
@@ -1002,7 +1013,7 @@ def main():
     if sys.argv[1:] == ['--footer-native']:
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-footer')
-        print('PASS: first plugin entry, page switching and reopen keep the native content above save/cancel')
+        print('PASS: first plugin entry, page switching and reopen keep native content inside the header and client bounds')
         return 0
     if sys.argv[1:] == ['--native-zorder']:
         assert app.platformName() == 'windows'
@@ -1016,7 +1027,7 @@ def main():
         check_host_application(app, 'embed-save')
         check_host_application(app, 'embed-cancel')
         check_host_application(app, 'embed-install')
-        print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, save/cancel and cleanup')
+        print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, autosave/close and cleanup')
         return 0
     if sys.argv[1:] == ['--installed-logo-controls']:
         check_host_application(app, 'logos-save', installed_controls=True)

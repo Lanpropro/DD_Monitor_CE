@@ -36,11 +36,16 @@ class SettingsHost(QObject):
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
         self.dialog.pageCreated.connect(self._page_created)
+        self.dialog.auto_save.statusChanged.connect(self._auto_status)
+        self.dialog.auto_save.start()
         self.last_state = None
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.sync)
         self.timer.start()
+
+    def _auto_status(self, state, error):
+        self.client._send({'kind': 'auto-status', 'state': state, 'error': error})
 
     def _page_created(self, index, page):
         if index == 8:
@@ -79,6 +84,11 @@ class SettingsHost(QObject):
             self.client._send({'kind': 'host-shown'})
         elif kind == 'host-hidden':
             self.dialog.nav.setCurrentRow(-1)
+        elif kind == 'host-flush':
+            if not self.dialog.auto_save.defer(self._flushed):
+                self._flushed()
+        elif kind == 'host-retry':
+            self.dialog.auto_save.flush()
         elif kind == 'host-save':
             self.save(message['changes'])
         elif kind == 'result' and self.pending_apply is not None:
@@ -87,6 +97,9 @@ class SettingsHost(QObject):
             window = self.window
             window._close_settings_host()
             window._apply_settings_dialog(adapter, before)
+
+    def _flushed(self):
+        self.client._send({'kind': 'host-flushed'})
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
@@ -99,6 +112,7 @@ class SettingsHost(QObject):
     def sync(self):
         state = {'kind': 'host-state', 'values': self.values(),
                  'save_enabled': self.dialog.confirm_button.isEnabled(),
+                 'action_visible': not self.dialog.confirm_button.isHidden(),
                  'save_text': self.dialog.confirm_button.text(),
                  'marks': {key: bool(self.dialog.nav.item(index).data(Qt.UserRole + 1))
                            for index, (key, _label) in enumerate(self.dialog.PAGES)}}
@@ -144,6 +158,7 @@ class SettingsHost(QObject):
 
     def close(self):
         self.timer.stop()
+        self.dialog.auto_save.stop()
         self.stack.close()
         self.stack.setParent(self.dialog)
         self.dialog.reject()
