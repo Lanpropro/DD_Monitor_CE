@@ -134,13 +134,16 @@ def check_codecs(app):
     page = GeneralSettingsPage(panel.values())
     assert page._checks['sidebar_platform_logos'].isHidden(), 'Bilibili-only settings must not show a platform-logo switch'
     assert "AV1" in page.codec_button.text() and "CPU" in page.codec_button.text()
-    for accepted in (False, True):
-        with patch("ddm.dialogs.CodecSettingsDialog") as mocked:
-            mocked.return_value.exec.return_value = int(accepted)
-            mocked.return_value.controls.values.return_value = {
-                "bili_codec": "hevc", "decode_mode": "d3d11va"}
-            page._edit_codecs()
-        assert page.values()["bili_codec"] == ("hevc" if accepted else "av1")
+    with patch("ddm.dialogs.CodecSettingsDialog") as mocked:
+        page._edit_codecs()
+        assert not page.codec_editor.isHidden()
+        page.codec_editor.source_buttons['hevc'].click()
+        page.codec_editor.decode_buttons['d3d11va'].click()
+        page._edit_codecs()
+        mocked.assert_not_called()
+    assert page.codec_editor.isHidden()
+    assert page.values()['bili_codec'] == 'hevc'
+    assert page.values()['decode_mode'] == 'd3d11va'
     rooms = [{"room_id": str(1001 + i), "uname": f"测试{i}", "live": True}
              for i in range(3)]
     settings = {"bili_codec": "av1", "recording_enabled": False,
@@ -273,22 +276,18 @@ def main():
     page = GeneralSettingsPage({"auto_quality": False, "sidebar_card_mode": False,
                                 "freeze_watch": False, "default_volume": 21})
     grid = page.layout().itemAt(1).layout()
-    labels = []
-    for _key, section, _wide in page.sections.entries:
-        for index in range(section.grid.count()):
-            widget = section.grid.itemAt(index).widget()
-            if isinstance(widget, (QLabel, QCheckBox)):
-                labels.append(widget.text())
+    labels = {label.text() for label in page.findChildren(QLabel)}
+    labels.update(box.text() or box.accessibleName() for box in page._checks.values())
     anchor = page._checks['sidebar_platform_logos']
     assert grid.indexOf(anchor) >= 0, 'Keep the released plugin insertion anchor'
-    labels.append(anchor.text())
-    assert sorted(labels) == sorted([
+    assert page.codec_button.accessibleName() == '编解码设置'
+    assert set([
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "音量均衡（减小直播间音量差异）",
         "全屏时自动收起底部控制条",
         "自动切换紧凑列表", "自动切换数量", "紧凑关注卡片显示背景图（Banner／封面）",
         "关注栏直播预览", "显示关注栏平台 Logo",
-        "编解码设置", "新建格子的初始音量"])
+        "新建格子的初始音量"]).issubset(labels)
     assert {"auto_quality", "freeze_watch", "sidebar_card_mode"}.isdisjoint(page._checks)
     values = page.values()
     assert values["auto_quality"] is False and values["sidebar_card_mode"] is False

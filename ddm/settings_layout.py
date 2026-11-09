@@ -59,7 +59,8 @@ class SettingsColumns(QWidget):
         for _key, widget, wide in self.entries:
             if wide and column:
                 row, column = row + 1, 0
-            self.grid.addWidget(widget, row, column, 1, self.columns if wide else 1)
+            alignment = Qt.AlignTop if widget.sizePolicy().verticalPolicy() == QSizePolicy.Maximum else Qt.Alignment()
+            self.grid.addWidget(widget, row, column, 1, self.columns if wide else 1, alignment)
             column += self.columns if wide else 1
             if column == self.columns:
                 row, column = row + 1, 0
