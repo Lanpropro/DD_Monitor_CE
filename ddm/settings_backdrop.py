@@ -16,15 +16,20 @@ def apply_backdrop(widget, light):
         return False
     from .window_fullscreen import _dwm_set
     hwnd = int(widget.winId())
+    _dwm_set(hwnd, 20, int(not light))
+    if getattr(widget, '_backdrop_hwnd', None) == hwnd:
+        return True
     function = ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea
     function.argtypes = (wintypes.HWND, ctypes.POINTER(_Margins))
     margins = _Margins(-1, -1, -1, -1)
-    _dwm_set(hwnd, 20, int(not light))
     _dwm_set(hwnd, 33, 2)  # DWMWCP_ROUND.
     _dwm_set(hwnd, 34, 0xFFFFFFFE)  # COLOR_NONE: no second native frame outline.
     extended = function(hwnd, ctypes.byref(margins)) == 0
     # DWMSBT_TRANSIENTWINDOW: Desktop Acrylic across the whole window.
-    return _dwm_set(hwnd, 38, 3) == 0 and extended
+    enabled = _dwm_set(hwnd, 38, 3) == 0 and extended
+    if enabled:
+        widget._backdrop_hwnd = hwnd
+    return enabled
 
 
 def align_embedded_content(container, foreign):

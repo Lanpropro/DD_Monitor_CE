@@ -911,13 +911,18 @@ class MainWindow(QMainWindow):
 
     def set_appearance(self, mode: str) -> None:
         self.settings["appearance_mode"] = theme.normalize_mode(mode)
-        from .theme_transition import ThemeTransition
-        if not hasattr(self, '_theme_transition'):
-            self._theme_transition = ThemeTransition(self)
         source = self.sender()
         page = getattr(source, 'appearance_page', None)
-        button = page.buttons[self.settings["appearance_mode"]] if page is not None else self.sidebar.appearance_button
-        self._theme_transition.change(self.settings["appearance_mode"], button.mapToGlobal(QPoint()))
+        if page is not None:
+            if hasattr(self, '_theme_transition'):
+                self._theme_transition.finish()
+            theme.apply(self.settings["appearance_mode"])
+        else:
+            from .theme_transition import ThemeTransition
+            if not hasattr(self, '_theme_transition'):
+                self._theme_transition = ThemeTransition(self)
+            button = self.sidebar.appearance_button
+            self._theme_transition.change(self.settings["appearance_mode"], button.mapToGlobal(QPoint()))
         self._save_timer.start()
 
     def _open_sidebar_settings(self):

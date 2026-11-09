@@ -37,6 +37,7 @@ def child(action):
                 def report(mode):
                     print(settings_process.PREFIX + json.dumps({'kind': 'theme-state',
                         'mode': mode, 'light': theme.is_light(),
+                        'visible': self.isVisible(), 'hwnd': int(self.winId()),
                         'volume': self.general_page.volume_slider.value()}), flush=True)
                 if not getattr(self, '_theme_report_connected', False):
                     self._theme_report_connected = True
@@ -169,7 +170,7 @@ def child(action):
             QTimer.singleShot(200, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
-    if action.startswith('embed-') or action == 'zorder':
+    if action.startswith('embed-') or action in ('zorder', 'theme'):
         def background_activate(dialog):
             from PySide6.QtCore import Qt
             dialog.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -296,12 +297,15 @@ def check_theme_sync(app):
             wait(app, lambda: any(m['kind'] == 'theme-state' for m in messages))
             row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
             assert row['mode'] == 'light' and row['light'] and row['volume'] == 17, row
+            hwnd = row['hwnd']
+            assert row['visible'], row
             messages.clear()
             for mode in ('dark', 'light'):
                 theme.apply(mode)
                 wait(app, lambda: any(m['kind'] == 'theme-state' and m['mode'] == mode for m in messages))
                 row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
                 assert row['light'] == (mode == 'light') and row['volume'] == 17, row
+                assert row['visible'] and row['hwnd'] == hwnd, row
                 messages.clear()
             client._send({'kind': 'host-cancel'})
             wait(app, lambda: not client.visible)
