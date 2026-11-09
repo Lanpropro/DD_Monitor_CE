@@ -2927,7 +2927,11 @@ class MainWindow(QMainWindow):
             print(f"{room.get('uname')} 已经在画面墙上")
             return
         candidates = self.wall.visible_tiles() if empty_only else self.wall.tiles
-        empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
+        panes = self.wall.pane_danmaku
+        chat_cells = panes.bindings()
+        chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
+        empty = next((tile for tile in candidates
+                      if tile not in chat_tiles and not tile.room.get("room_id")), None)
         if empty is not None:                      # 优先填空位
             self.recorder.stop(empty)
             self._stop_tile(empty)

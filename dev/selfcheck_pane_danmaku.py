@@ -49,6 +49,49 @@ class PaneDanmakuTests(unittest.TestCase):
         window.settings["close_behavior"] = "exit"
         return window
 
+    def test_added_rooms_skip_chat_backing_slots_in_corner_layout(self):
+        window = self.wall_window()
+        wall = window.wall
+        wall.set_layout('corner')
+        wall.tiles[1].set_room(None)
+        wall.tiles[2].set_room(None)
+        window.configure_wall_panes({1: None, 2: None})
+        tiles = list(wall.tiles)
+        self.assertTrue(tiles[1].isHidden() and tiles[2].isHidden())
+        with patch.object(window, 'start_tile') as start:
+            for index in (4, 5):
+                room = dict(room_id=str(1001 + index), uname=f'New {index}', live=False)
+                if index == 4:
+                    window._on_room_added(room)
+                else:
+                    window.add_to_wall(room)
+                self.assertIs(window._tile_of(room['room_id']), tiles[index])
+                self.assertTrue(tiles[index].isVisible())
+                start.assert_called_with(tiles[index])
+        self.assertEqual(wall.tiles, tiles)
+        self.assertEqual(set(wall.pane_danmaku.bindings()), {1, 2})
+        self.assertFalse(tiles[1].room.get('room_id'))
+        self.assertFalse(tiles[2].room.get('room_id'))
+        # Dropping on a chat pane still links its source rather than playing there.
+        panel = wall.pane_danmaku.panels[1]
+        wall.pane_danmaku.room_dropped(panel, '1005')
+        self.assertIs(wall.pane_danmaku.target(panel), tiles[4])
+        self.assertFalse(tiles[1].room.get('room_id'))
+
+    def test_hidden_video_overflow_remains_eligible_for_automatic_placement(self):
+        window = self.wall_window()
+        window.wall.set_layout('corner')
+        overflow = window.wall.tiles[4]
+        overflow.set_room(dict(room_id='9000', uname='Retained overflow', live=False))
+        window.wall.set_layout('2x2')
+        self.assertTrue(overflow.isHidden())
+        overflow.set_room(None)
+        room = dict(room_id='1005', uname='Overflow', live=False)
+        with patch.object(window, 'start_tile') as start:
+            window.add_to_wall(room)
+        self.assertIs(window._tile_of('1005'), overflow)
+        start.assert_called_once_with(overflow)
+
     def test_default_pane_starts_with_empty_main_and_occupied_secondary(self):
         room = dict(room_id='1002', uname='Secondary fixture', live=False)
         state = {'plugins_enabled': [], 'settings': {'close_behavior': 'exit'},
