@@ -59,6 +59,7 @@ namespace DDMonitorDiagnostics
                                     using (row)
                                     {
                                         string command = Convert.ToString(row["CommandLine"]).Replace('/', '\\');
+                                        if (command.IndexOf("--settings-worker", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                                         if (new[] { "main.py", @"dev\diagnose_drag_windows.py" }.Any(entry =>
                                             command.IndexOf(Path.Combine(root, entry), StringComparison.OrdinalIgnoreCase) >= 0))
                                             targets.Add(new LiveTarget { Pid = process.Id, Started = process.StartTime.ToString("HH:mm:ss") });

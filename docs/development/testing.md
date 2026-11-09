@@ -364,3 +364,5 @@ CI 的 smoke 每项上限为180秒，覆盖完整窗口用例各自启动Qt进�
 新展示专项复用 `checks.widget_cases.run_widget_cases`，每个完整用例使用新的QApplication进程；保留全部断言、失败和超时结果，并启用faulthandler。原单进程批量运行在source/root均曾于第8个用例前后原生退出，单项诊断未复现，旧失败保留；进程隔离不代表已解释Qt根因。Windows隐藏原生检查传入 `--native` 串行执行用例。
 
 功能职责拆分统一回归入口：`run.cmd --check-functional-modules`。它已列入 smoke/offline，覆盖旧导出身份、模块独立依赖、宿主状态与 Qt 生命周期、API/工厂替换点及取消交付；完整边界与保留模块依据见[共用界面组件](ui-components.md#全量功能职责边界)。
+
+诊断中心：根 `run.cmd --check-diagnostics` 覆盖独立Collector、按需采集和设置页实际导出；原生组件另运行 `python dev/selfcheck_native_diagnostics.py`（需Windows/MSVC x64）。这些是隔离功能回归，不作为issue #222真实复现或根因结论。人工验收用根 `run.cmd` 打开“设置 → 诊断与反馈”，检查填写、附件、导出/摘要、关闭重开及独立EXE；默认不记录/导出转储，两个开关分别验收。

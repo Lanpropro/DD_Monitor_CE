@@ -167,6 +167,8 @@ class SettingsControl:
                              if key.startswith('skin_') or key == 'appearance_mode'}
         codecs_before = {tile: host._codec_settings(tile) for tile in host.wall.tiles}
         host.settings.update(dialog.settings())
+        from .native_diagnostics import set_dump_enabled
+        set_dump_enabled(host.settings.get("native_crash_dump", False))
         from .notification_center import NoticeRow
         from .online_ui import ResultNotice
         for notice in [*host.findChildren(NoticeRow), *host.findChildren(ResultNotice)]:

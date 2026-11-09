@@ -36,6 +36,8 @@ def run_worker():
 
     class RemoteDialog(SettingsDialog):
         def __init__(self, snapshot):
+            from .native_diagnostics import set_dump_enabled
+            set_dump_enabled(snapshot["settings"].get("native_crash_dump", False))
             self.host_requested = False
             self.host_saved = False
             self.host_values = {}

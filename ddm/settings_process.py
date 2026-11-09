@@ -94,6 +94,12 @@ class SettingsProcess(QObject):
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert('DDM_NO_SAVE', '1')
         environment.insert('PYTHONUTF8', '1')
+        from . import config, diagnostics
+        environment.insert('DDM_DIAGNOSTIC_APP_ROOT', str(config.REPO))
+        environment.insert('DDM_DIAGNOSTIC_HOST_PID', str(os.getpid()))
+        session = diagnostics.get_session()
+        if session is not None:
+            environment.insert('DDM_DIAGNOSTIC_LOG_DIR', str(session.directory))
         self.process.setProcessEnvironment(environment)
         self.process.setProgram(program)
         self.process.setArguments(args)

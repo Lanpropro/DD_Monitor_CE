@@ -443,3 +443,11 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 
 | [selfcheck_huya_live_eof](../selfcheck_huya_live_eof.py) | 离线验证虎牙实时流结束后的缓存播放与自动恢复 |
 | [selfcheck_douyu_recovery](../selfcheck_douyu_recovery.py) | `offline`；验证失败反馈、EOF恢复、正常进度／暂停等静帧排除、2与8检查阈值差异及稳定后重置退避；不代表真实播放稳定性 |
+
+
+### 诊断中心专项
+
+| 检查 | 范围 |
+| --- | --- |
+| [selfcheck_settings_diagnostics](../selfcheck_settings_diagnostics.py) | 离屏单项；临时安装、实际C#后端导出、设置默认值、关闭清理、生命周期；不读取账号，不复现真实故障 |
+| [selfcheck_native_diagnostics](../selfcheck_native_diagnostics.py) | Windows单项；需要MSVC x64，受控原生子进程异常/退出码、模块偏移栈、显式转储有效性；不代表复现issue222 |

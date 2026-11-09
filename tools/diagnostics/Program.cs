@@ -10,9 +10,9 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("DDMonitorDiagnostics")]
-[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.3.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.3")]
+[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.4")]
 
 namespace DDMonitorDiagnostics
 {
@@ -21,7 +21,7 @@ namespace DDMonitorDiagnostics
         [STAThread]
         static void Main(string[] args)
         {
-            if (NativeDependencies.TryRun(args)) return;
+            if (CommandLine.TryRun(args) || NativeDependencies.TryRun(args)) return;
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new DiagnosticForm(args.Length > 0 ? args[0] : AppDomain.CurrentDomain.BaseDirectory));
@@ -402,6 +402,7 @@ namespace DDMonitorDiagnostics
         readonly Button summary = new DiagnosticButton { Text = "查看诊断摘要", AutoSize = true, Enabled = false };
         readonly Button detect = new DiagnosticButton { Text = "自动查找", AutoSize = true };
         readonly CheckBox exitAfterSuccess = new CheckBox { Text = "生成成功后自动退出", AutoSize = true, Dock = DockStyle.Fill };
+        readonly CheckBox includeDumps = new CheckBox { Text = "包含已有内存转储（无法脱敏，请检查后发送）", AutoSize = true, Dock = DockStyle.Fill };
         readonly AttachmentGallery attachments = new AttachmentGallery();
         readonly RadioButton repeatable = new RadioButton { Text = "稳定复现", AutoSize = true };
         readonly RadioButton intermittent = new RadioButton { Text = "概率触发", AutoSize = true };
@@ -422,27 +423,32 @@ namespace DDMonitorDiagnostics
             Text = "DD监控室CE · 诊断工具 " + Collector.ToolVersion;
             Font = new Font("Microsoft YaHei UI", 10);
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(820, 850);
-            MinimumSize = new Size(760, 820);
+            ClientSize = new Size(820, 760);
+            MinimumSize = new Size(700, 580);
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 8, Padding = new Padding(24) };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 456));
+            // Keep progress and actions visible; the form scrolls on small/high-DPI screens.
+            var shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(20) };
+            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 206));
+            Controls.Add(shell);
+            var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            shell.Controls.Add(scroller, 0, 0);
+            var layout = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 3, Height = 790, Padding = new Padding(4) };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 510));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-            Controls.Add(layout);
+            scroller.Controls.Add(layout);
+            var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(4, 12, 4, 0) };
+            foreach (int height in new[] { 12, 48, 34, 34, 52 }) footer.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+            shell.Controls.Add(footer, 0, 1);
             var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-            header.Controls.Add(new Label { Text = "诊断快照", Font = new Font(Font.FontFamily, 22, FontStyle.Bold), Dock = DockStyle.Fill, AutoSize = true });
+            header.Controls.Add(new Label { Text = "诊断与反馈", Font = new Font(Font.FontFamily, 22, FontStyle.Bold), Dock = DockStyle.Fill, AutoSize = true });
             header.Controls.Add(detect);
             layout.Controls.Add(header, 0, 0);
-            inputs = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 8 };
+            inputs = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 9 };
             inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
             inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
@@ -454,6 +460,7 @@ namespace DDMonitorDiagnostics
             inputs.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
             inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+            inputs.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.Controls.Add(inputs, 0, 1);
             AddRow(0, "软件目录", directory, () => Browse(directory, "选择 DD监控室CE 所在文件夹"));
             AddRow(1, "保存到", destination, () => Browse(destination, "选择诊断包保存位置"));
@@ -485,6 +492,7 @@ namespace DDMonitorDiagnostics
             liveDrag.Click += (s, e) => CaptureLive("drag");
             cancelLive.Click += (s, e) => { if (liveClient != null) liveClient.Dispose(); };
             AddRow(7, "日志收集", new Label { Text = "生成时自动收集已有日志，无需重启或提前开启诊断", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, null);
+            AddRow(8, "增强证据", includeDumps, null);
             addImage.Click += (s, e) => AddImages();
             attachments.PreviewRequested += path => {
                 try { using (var dialog = new ImagePreview(path)) dialog.ShowDialog(this); }
@@ -493,19 +501,19 @@ namespace DDMonitorDiagnostics
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,
-                Text = "如何使用\r\n问题仍在：保持界面，点击“抓取文件夹现场”；禁止拖动则点“记录一次拖放”后回软件尝试一次，最多等待60秒，可随时取消。无需提前监测、无需重启；采集完成再生成诊断包。旧版只能抓外部窗口快照，内部证据缺失会提示。\r\n问题已消失或软件已关闭：填写发生时间和描述，直接点击“生成诊断包”收集已有日志；无需重新复现。\r\n\r\n收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动图片；白名单内已有专项日志也会收集。近期FFmpeg日志最多5份、专项最多24份，每份末尾2MB。\r\n\r\n工具不会启动或关闭主软件，不持续监测，不联网，不修改个人配置。不读取账号文件、聊天记录、录制视频或内存转储，不自动截图。图片去除元数据但不遮挡画面；请检查后手动发送。"
+                Text = "如何使用\r\n问题仍在：保持界面，点击“抓取文件夹现场”；禁止拖动则点“记录一次拖放”后回软件尝试一次，最多等待60秒，可随时取消。无需提前监测、无需重启；采集完成再生成诊断包。旧版只能抓外部窗口快照，内部证据缺失会提示。\r\n问题已消失或软件已关闭：填写发生时间和描述，直接点击“生成诊断包”收集已有日志；无需重新复现。\r\n\r\n收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动图片；白名单内已有专项日志也会收集。近期FFmpeg日志最多5份、专项最多24份，每份末尾2MB。\r\n\r\n工具不会启动或关闭主软件，不持续监测，不联网，不修改个人配置。不读取账号文件、聊天记录或录制视频，不自动截图。默认不导出内存转储；单独勾选后最多包含3份、每份256MB，二进制内存无法脱敏。图片去除元数据但不遮挡画面；请检查后手动发送。"
             };
             var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
             layout.Controls.Add(contentArea, 0, 2);
-            layout.Controls.Add(progress, 0, 3);
-            layout.Controls.Add(status, 0, 4);
-            layout.Controls.Add(new Label { Text = "请描述操作步骤、实际表现和预期结果，非常感谢你的使用与反馈Ciallo～(∠・ω< )⌒★", AutoSize = true, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText }, 0, 5);
+            footer.Controls.Add(progress, 0, 0);
+            footer.Controls.Add(status, 0, 1);
+            footer.Controls.Add(new Label { Text = "请描述操作步骤、实际表现和预期结果。检查诊断包后，手动发送给维护者。", AutoSize = true, Dock = DockStyle.Fill, ForeColor = SystemColors.GrayText }, 0, 2);
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
             buttons.Controls.Add(generate);
             buttons.Controls.Add(folder);
             buttons.Controls.Add(summary);
-            layout.Controls.Add(exitAfterSuccess, 0, 6);
-            layout.Controls.Add(buttons, 0, 7);
+            footer.Controls.Add(exitAfterSuccess, 0, 3);
+            footer.Controls.Add(buttons, 0, 4);
             directory.Text = AppDiscovery.HasApp(initial) ? Path.GetFullPath(initial) : "";
             destination.Text = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             happened.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " 左右";
@@ -683,6 +691,7 @@ namespace DDMonitorDiagnostics
             string problem = description.Text, time = happened.Text;
             string reproduction = repeatable.Checked ? repeatable.Text : intermittent.Checked ? intermittent.Text : unknown.Text;
             var images = attachments.Paths;
+            bool exportDumps = includeDumps.Checked;
             var evidence = liveDirectory == Path.GetFullPath(directory.Text) ? liveEvidence : null;
             zipPath = null;
             inputs.Enabled = generate.Enabled = folder.Enabled = summary.Enabled = detect.Enabled = false;
@@ -690,7 +699,7 @@ namespace DDMonitorDiagnostics
             // A fresh worker handler per collection avoids retaining previous form inputs.
             DoWorkEventHandler run = null;
             run = (s, e) => {
-                try { e.Result = collector.Collect(output, problem, time, (p, text) => worker.ReportProgress(p, text), reproduction, images, evidence); }
+                try { e.Result = collector.Collect(output, problem, time, (p, text) => worker.ReportProgress(p, text), reproduction, images, evidence, exportDumps); }
                 finally { worker.DoWork -= run; }
             };
             worker.DoWork += run;

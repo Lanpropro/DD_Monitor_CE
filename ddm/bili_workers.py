@@ -4,6 +4,7 @@ import sys
 import time
 import requests
 from PySide6.QtCore import QThread, Signal
+from . import qt_lifecycle
 
 
 class StreamResolver(QThread):
@@ -259,11 +260,13 @@ class StatusPoller(QThread):
     failed = Signal(str)
     status_ready = Signal()
 
+    @qt_lifecycle.construction
     def __init__(self, room_ids: list[str], parent=None, *, platforms=None):
         super().__init__(parent)
         self.room_ids = list(room_ids)
         self.platforms = platforms or {}
 
+    @qt_lifecycle.running
     def run(self) -> None:
         from . import bili as api
         bili_ids = [rid for rid in self.room_ids if str(rid).isdigit()]
@@ -315,10 +318,12 @@ class StatsPoller(QThread):
 
     updated = Signal(dict)
 
+    @qt_lifecycle.construction
     def __init__(self, room_ids: list[str], parent=None):
         super().__init__(parent)
         self.room_ids = [str(item) for item in room_ids]
 
+    @qt_lifecycle.running
     def run(self) -> None:
         from . import bili as api
         result = {}

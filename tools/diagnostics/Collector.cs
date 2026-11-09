@@ -194,7 +194,7 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.3";
+        internal const string ToolVersion = "1.4";
         static readonly string[] TraceNames = { "diagnostic-session", "on-demand", "folder-motion", "responsiveness", "notice-close", "danmaku-motion", "drag-windows", "douyu-playback", "douyu-responsiveness", "theme-switch", "fullscreen" };
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
@@ -326,6 +326,9 @@ namespace DDMonitorDiagnostics
             var names = AppExecutables().Select(Path.GetFileName).Concat(new[] {
                 "ddm-build.json", "ddm-program-inventory.json", "ddm/version.py", "main.py", "ffmpeg.exe",
                 "libmpv-2.dll", "_internal/libmpv-2.dll", "_internal/python313.dll", "_internal/python312.dll",
+                "_internal/PySide6/pyside6.abi3.dll", "_internal/shiboken6/shiboken6.abi3.dll",
+                "_internal/PySide6/Qt/bin/Qt6Core.dll", "_internal/PySide6/Qt/bin/Qt6Gui.dll", "_internal/PySide6/Qt/bin/Qt6Quick.dll",
+                "_internal/native-diagnostics/DDMonitorNativeCapture.dll", "_internal/native-diagnostics/DDMonitorCrashWatcher.exe",
                 "_internal/PySide6/Qt6Core.dll", "_internal/PySide6/Qt6Gui.dll", "_internal/PySide6/Qt6Quick.dll",
                 "_internal/PySide6/plugins/platforms/qwindows.dll" });
             foreach (var name in names)
@@ -479,7 +482,8 @@ namespace DDMonitorDiagnostics
         }
 
         internal string Collect(string destination, string problem, string happened, Action<int, string> progress,
-            string reproducibility = "尚未确认", string[] attachments = null, object liveEvidence = null)
+            string reproducibility = "尚未确认", string[] attachments = null, object liveEvidence = null,
+            bool includeNativeDumps = false, Action<string> staging = null)
         {
             if (!new[] { "稳定复现", "概率触发", "尚未确认" }.Contains(reproducibility)) throw new ArgumentException("请选择有效的复现情况。");
             attachments = attachments ?? new string[0];
@@ -532,7 +536,9 @@ namespace DDMonitorDiagnostics
             section("recording-diagnostics.json", () => RecordingLogs(entries));
             section("platform-diagnostics.json", () => PlatformDiagnostics(entries));
             section("crash-events.json", CrashEvents);
-            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期主程序日志、5份录制FFmpeg日志和24份未决专项JSONL，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制视频、缓存或内存转储；仅读取配置指定录制目录.ddm-parts内的近期FFmpeg日志；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
+            var dumps = new List<string>();
+            section("native-crashes.json", () => NativeCrashes(entries, logs, includeNativeDumps, dumps));
+            add("collection.json", new { schema = 1, warnings, limits = "最多5份近期主程序日志、5份录制FFmpeg日志和24份未决专项JSONL，每份末尾2MB；7天内最多30条匹配安装路径的崩溃事件。", privacy = "不读取账号文件、插件私有配置、聊天记录、录制视频、缓存；内存转储仅在用户单独勾选时包含，无法脱敏；仅读取配置指定录制目录.ddm-parts内的近期FFmpeg日志；图片仅包含手动选择的附件，移除元数据但不遮挡画面内容；不联网、不启动或关闭软件。" });
             entries["诊断摘要.txt"] = "DD监控室CE 诊断快照 v" + ToolVersion + "\r\n生成时间：" + DateTimeOffset.Now.ToString("o") +
                 "\r\n\r\n问题：" + redact.Text(problem) + "\r\n发生时间：" + redact.Text(happened) +
                 "\r\n复现情况：" + reproducibility + "\r\n图片附件：" + images.Count + " 张（转为PNG，移除元数据；画面内容未自动脱敏）。" +
@@ -541,11 +547,13 @@ namespace DDMonitorDiagnostics
                 "\r\n\r\nplatform-diagnostics.json：平台响应、查询、取流和播放器错误的已有日志摘要，无需手工筛选；缺少记录不代表正常，不自动判定根因。" +
                 "\r\nrecording-diagnostics.json、recording/：近期录制FFmpeg日志及HTTP拒绝、地址到期时间摘要，签名地址已脱敏，不包含录制视频。" +
                 "\r\n\r\nsoftware.json：软件版本、关键文件SHA256和清单缺失项（存在性不等于完整性验证）。\r\nnative-dependencies.json：隔离子进程中的 libmpv 加载、Win32错误码、直接依赖与函数入口检查。\r\nsystem.json：Windows、CPU、内存、显卡驱动。\r\nconfig/：脱敏配置；plugins.json：插件版本。\r\nlogs/：近期日志；crash-events.json：相关Windows崩溃事件。\r\n" +
-                "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不能还原崩溃前内存。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
+                "未找到崩溃事件不表示软件未崩溃；这是现有线索快照，不一定能还原崩溃前内存；native-crashes.json 列出新增原生栈、生命周期和可选转储。\r\n请检查诊断包后手动发送给维护者，工具不会自动上传。\r\n\r\n收集提示：\r\n" + (warnings.Count == 0 ? "无。" : string.Join("\r\n", warnings.Select(redact.Text)));
             progress(85, "写入诊断 ZIP…");
             var output = Path.Combine(Path.GetFullPath(destination), "DDMonitorCE-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 6) + ".zip");
             // CreateNew prevents overwriting any existing user file. No raw staging files.
-            using (var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write))
+            string partial = output + ".part";
+            if (staging != null) staging(partial);
+            using (var stream = new FileStream(partial, FileMode.CreateNew, FileAccess.Write))
             {
                 try
                 {
@@ -555,12 +563,46 @@ namespace DDMonitorDiagnostics
                             using (var writer = new StreamWriter(zip.CreateEntry(entry.Key, CompressionLevel.Optimal).Open(), new UTF8Encoding(false))) writer.Write(entry.Value);
                         foreach (var image in images)
                             using (var target = zip.CreateEntry(image.Key, CompressionLevel.Optimal).Open()) target.Write(image.Value, 0, image.Value.Length);
+                        foreach (var dump in dumps)
+                            using (var source = new FileStream(dump, FileMode.Open, FileAccess.Read, FileShare.Read))
+                            using (var target = zip.CreateEntry("native/" + Path.GetFileName(dump), CompressionLevel.Optimal).Open()) source.CopyTo(target);
                     }
                 }
-                catch { stream.Close(); File.Delete(output); throw; }
+                catch { stream.Close(); File.Delete(partial); throw; }
             }
+            File.Move(partial, output);
             progress(100, "诊断包已生成，请检查后手动发送。");
             return output;
+        }
+
+        object NativeCrashes(Dictionary<string, string> entries, string logs, bool includeDumps, List<string> dumps)
+        {
+            var files = new List<string>();
+            if (logs != null && Directory.Exists(logs) && SafeWithin(dataRoot, logs))
+            {
+                foreach (var path in Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p),
+                    @"^(native-crash-\d+-[0-9a-f]+\.json|qt-lifecycle-\d+\.jsonl(?:\.[12])?|settings-crash-\d+\.log)$", RegexOptions.IgnoreCase))
+                    .OrderByDescending(File.GetLastWriteTimeUtc).Take(24))
+                {
+                    if (!SafeWithin(dataRoot, path)) continue;
+                    var relative = "logs/" + Path.GetFileName(path);
+                    AddLog(entries, relative);
+                    if (entries.ContainsKey(relative)) files.Add(relative);
+                }
+                if (includeDumps)
+                    foreach (var path in Directory.GetFiles(logs, "native-crash-*.dmp").Where(p =>
+                        Regex.IsMatch(Path.GetFileName(p), @"^native-crash-\d+-[0-9a-f]+\.dmp$", RegexOptions.IgnoreCase))
+                        .OrderByDescending(File.GetLastWriteTimeUtc).Take(3))
+                    {
+                        if (!SafeWithin(dataRoot, path)) continue;
+                        if (new FileInfo(path).Length > 256L * 1024 * 1024) { warnings.Add("跳过超过256MB的内存转储。"); continue; }
+                        dumps.Add(path);
+                    }
+            }
+            return new { status = files.Count == 0 ? "not_recorded" : "observed", files,
+                dump_export_requested = includeDumps, dumps = dumps.Select(Path.GetFileName).ToArray(),
+                privacy = "文本证据经过脱敏；二进制转储无法脱敏，可能含账号、地址或聊天等进程内存，请确认后手动发送。",
+                limitation = "只收集已有证据；没有记录不代表未崩溃。进程强制结束、系统断电及部分损坏可能无法记录。" };
         }
 
         object RecordingLogs(Dictionary<string, string> entries)

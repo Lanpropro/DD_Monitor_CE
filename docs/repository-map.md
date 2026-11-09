@@ -668,6 +668,13 @@
 - `mobile/test/model_test.dart`
 - `mobile/test/watch_session_test.dart`
 
+- `dev/native_diagnostics_fixture.cpp`
+- `dev/build_native_diagnostics.cmd`
+- `dev/selfcheck_native_diagnostics.py`
+- `dev/selfcheck_settings_diagnostics.py`
+- `tools/diagnostics/CommandLine.cs`
+- `tools/native_diagnostics/capture.cpp`
+
 ## 仅本机存在的其他资料
 
 此处只列目录和文件入口，不展开真实配置、账号、缓存、录制内容或临时依赖。
@@ -772,3 +779,14 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 响应采集细分：`responsiveness_probe.py` 为通用心跳、调用计时、进程计数和有界堆栈；`folder_motion_capture.py` 为文件夹动画证据；`theme_capture.py` 为主题及其动画证据。responsiveness 保留通用安装协调与旧导出，旧监测替换点在调用时解析；原 Probe/采样线程、上限、输出字段和隐私规则不变。
 
 在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 为插件目录、兼容性和持久缓存；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，目录字典只有一份，缓存状态仍由调用者传入。
+
+### 诊断中心与崩溃证据
+
+- `ddm/settings_diagnostics.py`：设置内诊断表单、采集状态及手动导出反馈。
+- `ddm/diagnostic_export.py`：QProcess 导出/现场采集协调、临时请求与取消清理；复用独立工具后端。
+- `ddm/native_diagnostics.py`：Qt导入前安装原生采集、组件状态与转储开关。
+- `ddm/qt_lifecycle.py`：关键对象生命周期的有界记录，不持有QObject。
+- `tools/native_diagnostics/capture.cpp`：原生未处理异常通知DLL和独立栈/可选转储进程；`dev/build_native_diagnostics.cmd` 构建。
+- `tools/diagnostics/CommandLine.cs`：固定JSON请求的无界面入口；WinForms和设置页共用 `Collector.cs`。
+- `dev/native_diagnostics_fixture.cpp`、`dev/selfcheck_native_diagnostics.py`：隔离受控崩溃、正常退出、栈与转储回归。
+- `dev/selfcheck_settings_diagnostics.py`：临时安装目录中的设置页、实际导出、取消及生命周期回归。

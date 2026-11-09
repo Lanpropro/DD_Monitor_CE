@@ -46,7 +46,8 @@ class SettingsNavigationTests(unittest.TestCase):
 
     def test_grouped_search_keeps_page_indices_and_laziness(self):
         nav = self.dialog.nav
-        self.assertEqual(nav.count(), 9)
+        self.assertEqual(nav.count(), 10)
+        self.assertEqual(nav.item(9).data(Qt.UserRole), "diagnostics")
         self.assertFalse(self.dialog._loaded_pages)
         self.assertEqual([nav.item(i).data(Qt.UserRole) for i in range(nav.count())],
                          [key for key, _label in self.dialog.PAGES])

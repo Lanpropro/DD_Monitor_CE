@@ -2,6 +2,7 @@
 import sys
 
 from . import plugins as plugin_api
+from .qt_lifecycle import delete_requested
 
 
 class RoomStatus:
@@ -33,6 +34,7 @@ class RoomStatus:
         # finished 可能在下一轮启动后才送达，只清理发出信号的线程。
         if host._stats_poller is poller:
             host._stats_poller = None
+        delete_requested(poller)
         poller.deleteLater()
 
     def apply_stats(self, stats: dict) -> None:
@@ -74,6 +76,7 @@ class RoomStatus:
 
     def status_finished(self, poller) -> None:
         host = self.host
+        delete_requested(poller)
         poller.deleteLater()
         if host._poller is not poller:
             return

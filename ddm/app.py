@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 
 from . import bili
 from . import config as config_module
-from . import diagnostics
+from . import diagnostics, qt_lifecycle
 from . import layouts
 from . import room_presets
 from . import overlay
@@ -111,6 +111,7 @@ EMPTY_HINT = ("还没有直播间\n\n"
 
 
 class MainWindow(QMainWindow):
+    @qt_lifecycle.construction
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "", state: dict | None = None):
         super().__init__()
@@ -205,6 +206,8 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        from .native_diagnostics import set_dump_enabled
+        set_dump_enabled(self.settings.get("native_crash_dump", False))
         if "video_danmaku_outline" in saved_settings:
             self.settings["video_danmaku_outline_width"] = (
                 saved_settings.get("video_danmaku_outline_width", 2)

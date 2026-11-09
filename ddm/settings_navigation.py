@@ -13,7 +13,7 @@ from .search import matches_text
 from .sidebar_navigation import NavigationButton, PATHS
 
 
-GROUPS = ((0, 2, '基础偏好'), (2, 6, '观看与互动'), (6, 9, '系统与扩展'))
+GROUPS = ((0, 2, '基础偏好'), (2, 6, '观看与互动'), (6, 10, '系统与扩展'))
 ICONS = {
     'general': PATHS['settings'],
     'appearance': '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
@@ -23,6 +23,7 @@ ICONS = {
     'shortcuts': '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1M11 9h1M16 9h1M6 12h1M11 12h1M16 12h1M7 16h10"/>',
     'tray': '<path d="M3 13v7h18v-7M12 3v11M8 10l4 4 4-4"/>',
     'plugins': '<path d="M4 4h6V2a2 2 0 0 1 4 0v2h6v6h2a2 2 0 0 1 0 4h-2v6h-6v-2a2 2 0 0 0-4 0v2H4v-6H2a2 2 0 0 1 0-4h2Z"/>',
+    'diagnostics': '<path d="M9 3h6v4h5v14H4V7h5ZM9 7h6M8 12h8M8 16h5"/>',
     'updates': '<path d="M5 8a8 8 0 0 1 14-2l2 2M21 3v5h-5M19 16a8 8 0 0 1-14 2l-2-2M3 21v-5h5"/>',
 }
 
