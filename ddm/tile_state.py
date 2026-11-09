@@ -70,6 +70,8 @@ class TileState:
         host.volume_button.set_state(host.muted, host.volume, host.audio_channel)
         host.set_status("" if host.room.get("live") else "未开播")
         host.stop_elapsed_timer()
+        if host.room.get("live"):
+            host.start_elapsed_timer()
         host._layout_cover()
 
     def toggle_video_danmaku(self, enabled: bool) -> None:
@@ -449,8 +451,8 @@ class TileState:
     def start_elapsed_timer(self) -> None:
         host = self.host
         if host.room.get("live_start_ts"):
-            host._refresh_elapsed()
             host._elapsed_timer.start()
+            host._refresh_elapsed()
 
     def stop_elapsed_timer(self) -> None:
         host = self.host

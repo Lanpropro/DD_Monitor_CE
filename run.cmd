@@ -26,6 +26,7 @@ if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-ui-polish" goto uiPolishCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
+if /i "%~1"=="--check-live-elapsed" goto liveElapsedCheck
 if /i "%~1"=="--check-functional-modules" goto functionalModulesCheck
 if /i "%~1"=="--check-widget-boundaries" goto widgetBoundariesCheck
 if /i "%~1"=="--check-room-presets" goto roomPresetsCheck
@@ -65,9 +66,19 @@ if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
 if /i "%~1"=="--diagnose-danmaku-motion" set "DDM_DANMAKU_MOTION_CAPTURE=1"
 if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
 if /i "%~1"=="--diagnose-window-resize" set "DDM_WINDOW_RESIZE_CAPTURE=1"
+if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
+
+:liveElapsedCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_live_elapsed
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_status_controller
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_status
+exit /b %errorlevel%
 
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"

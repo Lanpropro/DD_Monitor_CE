@@ -226,7 +226,10 @@ class Recorder:
             record['tiles'] = [dict(index=i, hwnd=hex(int(tile.internalWinId())),
                                     videoHwnd=hex(int(tile.video.internalWinId())),
                                     visible=tile.isVisible(), acceptsDrops=tile.acceptDrops(),
-                                    hasRoom=bool(tile.room.get('room_id')), playing=tile in window.players)
+                                    hasRoom=bool(tile.room.get('room_id')), playing=tile in window.players,
+                                    liveStartAvailable=bool(tile.room.get('live_start_ts')),
+                                    elapsedTimerActive=tile._elapsed_timer.isActive(),
+                                    videoActive=tile._player_active)
                                for i, tile in enumerate(getattr(wall, 'tiles', []))]
             record['snapshotMs'] = round((time.perf_counter() - started) * 1000, 3)
             self.write(record)
@@ -361,7 +364,10 @@ class Recorder:
                                               pythonStack=traceback.format_stack(limit=16))
                 return wrapped
             setattr(TilePlayer, name, trace_player(original, name))
-        for name in ('showEvent', '_on_layout_changed', '_stop_tile', '_clear_tile_room'):
+        lifecycle = ('showEvent', '_on_layout_changed', '_stop_tile', '_clear_tile_room')
+        if os.environ.get('DDM_LIVE_ELAPSED_CAPTURE') == '1':
+            lifecycle += ('_on_status_updated', '_on_player_state')
+        for name in lifecycle:
             original = getattr(MainWindow, name)
             def make_wrapper(method, label):
                 @functools.wraps(method)
