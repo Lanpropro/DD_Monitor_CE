@@ -4,10 +4,11 @@ from ctypes import wintypes
 import sys
 
 from PySide6.QtCore import QEvent, QRectF, QTimer, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QRegion
+from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import theme
+from .corner_geometry import continuous_path
 
 
 class BitmapInfo(ctypes.Structure):
@@ -29,10 +30,8 @@ class BadgeSurface(QWidget):
     def badge_path(self):
         if not theme.is_light():
             return self._mask_path
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(.5, .5, self.width()-1, self.height()-1),
-            (self.height()-1)/2, (self.height()-1)/2)
-        return path
+        return continuous_path(QRectF(.5, .5, self.width()-1, self.height()-1),
+                               (self.height()-1)/2)
 
     def _render_badge(self, painter):
         self.paint_badge(painter)
@@ -44,18 +43,16 @@ class BadgeSurface(QWidget):
     def refresh_theme(self):
         if not hasattr(self, "_mask_path"):
             return
-        if theme.is_light():
-            self.clearMask()
-        else:
-            self._clear_layered()
-            self.setMask(QRegion(self._mask_path.toFillPolygon().toPolygon()))
+        # Integer window regions clip away the antialiased edge. Both themes
+        # use the same per-pixel alpha upload above native video windows.
+        self.clearMask()
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         self._render_badge(painter)
         painter.end()
-        if (theme.is_light() and sys.platform == "win32"
+        if (sys.platform == "win32"
                 and QApplication.platformName() == "windows"
                 and self.testAttribute(Qt.WA_NativeWindow) and self.isVisible()):
             self._schedule_layered_paint()
@@ -66,18 +63,6 @@ class BadgeSurface(QWidget):
             if hasattr(self, "_mask_path"):
                 QTimer.singleShot(0, self, self.refresh_theme)
         return result
-
-    def _clear_layered(self):
-        self._layered_paint_pending = False
-        self._last_alpha_state = None
-        hwnd = getattr(self, "_layered_hwnd", None)
-        if hwnd and sys.platform == "win32":
-            user32 = ctypes.windll.user32
-            user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
-            user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
-            style = user32.GetWindowLongW(hwnd, -20)
-            user32.SetWindowLongW(hwnd, -20, style & ~0x00080000)
-            self._layered_hwnd = None
 
     def _layered_render_key(self):
         return None

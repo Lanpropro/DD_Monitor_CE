@@ -71,7 +71,7 @@ def check_drag_preview(app):
         pointer, buttons = [QPoint()], [Qt.NoButton]
         with patch('ddm.preview.StreamResolver', wraps=Resolver) as resolve, \
                 patch('ddm.preview.TilePlayer', side_effect=create_player), \
-                patch('ddm.widgets.TilePlayer', side_effect=create_player), \
+                patch('ddm.sidebar_thumbnail.TilePlayer', side_effect=create_player), \
                 patch.object(QCursor, 'pos', side_effect=lambda: pointer[0]), \
                 patch.object(QApplication, 'mouseButtons', side_effect=lambda: buttons[0]):
             host.show()

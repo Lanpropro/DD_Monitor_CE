@@ -68,6 +68,7 @@ class SettingsProcess(QObject):
         self.ready = self.visible = self.closing = False
         self.pending = None
         self.worker_pid = None
+        self.window_hwnd = 0
         self.occlusion = QRect()
         self.start_timer = QTimer(self)
         self.start_timer.setSingleShot(True)
@@ -124,8 +125,8 @@ class SettingsProcess(QObject):
     def _send(self, message):
         self.process.write((json.dumps(message) + '\n').encode('utf-8'))
 
-    def _set_occlusion(self, rect):
-        if rect != self.occlusion:
+    def _set_occlusion(self, rect, *, force=False):
+        if force or rect != self.occlusion:
             self.occlusion = rect
             self.occlusionChanged.emit()
 
@@ -135,6 +136,28 @@ class SettingsProcess(QObject):
             self._send(self.pending)
             self.pending = None
             self.visible = True
+            self.window_hwnd = 0
+            self._set_occlusion(QRect(), force=True)
+
+    def stack_overlay_below(self, window):
+        """Keep an owned Quick window behind the visible cross-process dialog."""
+        from PySide6.QtWidgets import QApplication
+        if (not self.visible or self.closing or not self.window_hwnd
+                or sys.platform != 'win32' or QApplication.platformName() != 'windows'):
+            return False
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+        user32.IsIconic.argtypes = (wintypes.HWND,)
+        if not user32.IsWindowVisible(self.window_hwnd) or user32.IsIconic(self.window_hwnd):
+            return False
+        user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                       ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+        # hWndInsertAfter places Quick behind settings without activation,
+        # movement, resizing, or changing either window's owner.
+        return bool(user32.SetWindowPos(int(window.winId()), self.window_hwnd,
+                                       0, 0, 0, 0, 0x13))
 
     def _read(self):
         self.buffer += bytes(self.process.readAllStandardOutput())
@@ -151,12 +174,16 @@ class SettingsProcess(QObject):
                 self.ready = True
                 if not self.closing:
                     self._open_pending()
+            elif kind == 'window' and self.visible and not self.closing:
+                self.window_hwnd = int(message['hwnd'])
+                self._set_occlusion(self.occlusion, force=True)
             elif kind == 'occlusion' and not self.closing:
                 self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False
-                self._set_occlusion(QRect())
+                self.window_hwnd = 0
+                self._set_occlusion(QRect(), force=not self.closing)
                 if not self.closing:
                     if message.get('host_saved'):
                         self.hostRequest.emit(message)
@@ -182,19 +209,22 @@ class SettingsProcess(QObject):
     def _finished(self, *_args):
         self.start_timer.stop()
         self.kill_timer.stop()
+        was_visible = self.visible
         was_open = self.visible or self.pending is not None
         self.ready = self.visible = False
         self.pending = None
         self.buffer = b''
         self.worker_pid = None
-        self._set_occlusion(QRect())
+        self.window_hwnd = 0
+        self._set_occlusion(QRect(), force=was_visible and not self.closing)
         self.closed.emit()
         if was_open and not self.closing:
             self.failed.emit(self.process.errorString())
 
     def stop(self):
         self.closing = True
-        self._set_occlusion(QRect())
+        self.window_hwnd = 0
+        self._set_occlusion(QRect(), force=self.visible)
         self.start_timer.stop()
         self.pending = None
         if self.process.state() != QProcess.NotRunning:
@@ -212,260 +242,4 @@ class SettingsProcess(QObject):
         return self.process.state() == QProcess.NotRunning or self.process.waitForFinished(timeout)
 
 
-def run_worker():
-    # The worker receives a settings snapshot; it must not read/write the
-    # portable installation's account, configuration or installed plugins.
-    os.environ['DDM_NO_SAVE'] = '1'
-    import tempfile
-    import threading
-    from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtGui import QIcon, QWindow
-    from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QVBoxLayout, QWidget
-    from . import config, theme
-    from .dialogs import SettingsDialog, SHORTCUT_ACTIONS
-
-    app = QApplication([])
-    app.setQuitOnLastWindowClosed(False)
-    from .localization import install_chinese_translations
-    install_chinese_translations(app)
-    for icon_path in (Path(config.REPO) / 'assets/favicon.ico', Path(config.REPO) / 'favicon.ico'):
-        if icon_path.is_file():
-            app.setWindowIcon(QIcon(str(icon_path)))
-            break
-
-    def send(message):
-        print(PREFIX + json.dumps(message), flush=True)
-
-    class RemoteDialog(SettingsDialog):
-        def __init__(self, snapshot):
-            self.host_requested = False
-            self.host_saved = False
-            self.host_values = {}
-            self.host_container = None
-            self.foreign = None
-            self.plugin_checks = {}
-            self.painted = False
-            super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
-            self.occlusion_timer = QTimer(self)
-            self.occlusion_timer.setSingleShot(True)
-            self.occlusion_timer.timeout.connect(self.publish_occlusion)
-            self.pageCreated.connect(lambda index, page: page.super_chat_placement.set_preview_context(
-                snapshot.get('sc_preview_context', {})) if index == 2 else None)
-            self.owner_window = None
-            if snapshot.get('owner_hwnd') and app.platformName() == 'windows':
-                # A separate process has no QWidget parent. Native ownership
-                # keeps settings above the host when its video overlays raise.
-                self.owner_window = QWindow.fromWinId(snapshot['owner_hwnd'])
-                self.winId()
-                self.windowHandle().setTransientParent(self.owner_window)
-            # Compare against the values shown by the controls, not raw input.
-            # settings() adds metadata such as an empty seen_update_versions map.
-            self.initial_settings = deepcopy(self.settings())
-            self.initial_shortcuts = {
-                **{key: default for key, _label, default in SHORTCUT_ACTIONS},
-                **self.shortcuts()}
-
-        def event(self, event):
-            result = super().event(event)
-            if (event.type() in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize,
-                                 QEvent.WindowStateChange)
-                    and hasattr(self, 'occlusion_timer')):
-                self.occlusion_timer.start(0)
-            return result
-
-        def publish_occlusion(self):
-            # The host cannot find this cross-process dialog in topLevelWidgets.
-            rect = list(self.frameGeometry().getRect()) if self.isVisible() and not self.isMinimized() else []
-            send({'kind': 'occlusion', 'rect': rect})
-
-        def changes(self):
-            return {'settings': {key: value for key, value in self.settings().items()
-                                 if value != self.initial_settings.get(key)},
-                    'shortcuts': {key: value for key, value in self.shortcuts().items()
-                                  if value != self.initial_shortcuts.get(key)},
-                    'plugin_controls': {name: check.isChecked() for name, check in self.plugin_checks.items()}}
-
-        def set_plugin_controls(self, controls):
-            if self.plugin_checks:
-                return
-            page = self.general_page
-            grid = page.layout().itemAt(1).layout()
-            anchor = page._checks['sidebar_platform_logos']
-            row = grid.getItemPosition(grid.indexOf(anchor))[0] + 1
-            for control in reversed(controls):
-                for index in range(grid.count() - 1, -1, -1):
-                    old_row, column, rows, columns = grid.getItemPosition(index)
-                    if old_row >= row:
-                        item = grid.takeAt(index)
-                        grid.addItem(item, old_row + 1, column, rows, columns)
-                check = QCheckBox(control['label'], page)
-                check.setObjectName(control['name'])
-                check.setChecked(control['checked'])
-                grid.addWidget(check, row, 0, 1, 2)
-                self.plugin_checks[control['name']] = check
-            if any(name.endswith('_show_platform_logo') for name in self.plugin_checks):
-                grid.removeWidget(anchor)
-                anchor.hide()
-                anchor.setChecked(True)  # Per-plugin switches now decide which platforms are visible.
-
-        def settings(self):
-            return {**super().settings(), **self.host_values}
-
-        def _on_page_changed(self, index):
-            if index not in HOST_PAGES:
-                super()._on_page_changed(index)
-                if self.host_container is not None:
-                    self.stack.finish_transition()  # Native child windows cannot use opacity effects.
-                if self.host_requested:
-                    send({'kind': 'host-hidden'})
-                return
-            self.host_requested = True
-            self.stack.finish_transition()
-            if self.host_container is None:
-                placeholder = self.stack.widget(index)
-                if placeholder.layout() is None:
-                    layout = QVBoxLayout(placeholder)
-                    label = QLabel('正在加载设置…')
-                    label.setAlignment(Qt.AlignCenter)
-                    layout.addWidget(label)
-                self.stack.setCurrentIndex(index)
-            else:
-                self.stack.setCurrentWidget(self.host_container)
-            self.reset_button.setVisible(index == 1)
-            self.reset_button.setText('恢复本页默认')
-            send({'kind': 'host-page', 'index': index,
-                  'settings': self.settings(), 'shortcuts': self.shortcuts()})
-
-        def embed_host(self, hwnd):
-            if self.host_container is None:
-                self.foreign = QWindow.fromWinId(hwnd)
-                if self.foreign is None:
-                    raise RuntimeError('The platform cannot embed the host settings page')
-                self.host_container = QWidget.createWindowContainer(self.foreign, self.stack)
-                self.host_container.setFocusPolicy(Qt.StrongFocus)
-                self.stack.addWidget(self.host_container)
-                send({'kind': 'host-attached'})
-            if self.nav.currentRow() in HOST_PAGES:
-                self.stack.setCurrentWidget(self.host_container)
-
-        def _reset_current(self):
-            if self.nav.currentRow() in HOST_PAGES:
-                send({'kind': 'host-reset'})
-            else:
-                super()._reset_current()
-
-        def _save(self):
-            self._save_clicked_at = _save_trace('worker.click')
-            if self.host_requested or self.plugin_checks:
-                self.confirm_button.setEnabled(False)
-                started = time.perf_counter_ns()
-                changes = self.changes()
-                _save_trace('worker.changes.collected', started)
-                send({'kind': 'host-save', 'changes': changes})
-                _save_trace('worker.host-save.sent', self._save_clicked_at)
-            else:
-                super()._save()
-
-        def done(self, result):
-            started = getattr(self, '_save_clicked_at', None)
-            detached = time.perf_counter_ns()
-            if self.foreign is not None:
-                self.foreign.hide()
-                self.foreign.setParent(None)
-                self.foreign = None
-            if started is not None:
-                _save_trace('worker.detach.finished', detached)
-            super().done(result)
-            if started is not None:
-                _save_trace('worker.done', started)
-
-        def paintEvent(self, event):
-            super().paintEvent(event)
-            if not self.painted:
-                self.painted = True
-                send({'kind': 'painted', 'pid': os.getpid()})
-                send({'kind': 'host-general', 'settings': self.settings(), 'shortcuts': self.shortcuts()})
-
-    class Worker(QObject):
-        request = Signal(dict)
-
-        def __init__(self):
-            super().__init__()
-            self.dialog = None
-            self.request.connect(self.handle)
-
-        def handle(self, message):
-            kind = message.get('kind')
-            if kind == 'quit':
-                if self.dialog is not None:
-                    self.dialog.reject()
-                app.quit()
-            elif kind == 'host-ready' and self.dialog is not None:
-                self.dialog.embed_host(message['hwnd'])
-            elif kind == 'host-state' and self.dialog is not None:
-                self.dialog.host_values = message['values']
-                self.dialog.confirm_button.setEnabled(message['save_enabled'])
-                self.dialog.confirm_button.setText(message['save_text'])
-                for key, active in message['marks'].items():
-                    self.dialog._mark_update_page(key, active)
-            elif kind == 'host-general-controls' and self.dialog is not None:
-                self.dialog.set_plugin_controls(message['controls'])
-            elif kind == 'host-theme' and self.dialog is not None:
-                theme.apply(message['mode'])
-            elif kind == 'host-save-blocked' and self.dialog is not None:
-                _save_trace('worker.save.blocked', getattr(self.dialog, '_save_clicked_at', None))
-                self.dialog._save_clicked_at = None
-                self.dialog.confirm_button.setEnabled(True)
-                self.dialog.nav.setCurrentRow(message['index'])
-            elif kind == 'host-saved' and self.dialog is not None:
-                _save_trace('worker.host-saved.received')
-                self.dialog.host_saved = True
-                self.dialog.reject()  # Unembed before acknowledging that the host may apply/restart.
-            elif kind == 'host-request-save' and self.dialog is not None:
-                self.dialog._save()
-            elif kind == 'host-cancel' and self.dialog is not None:
-                self.dialog.reject()
-            elif kind == 'focus' and self.dialog is not None:
-                _activate_dialog(self.dialog)
-            elif kind == 'open' and self.dialog is None:
-                mode = theme.normalize_mode(message['settings'].get('appearance_mode'))
-                theme.apply(mode)
-                dialog = RemoteDialog(message)
-                self.dialog = dialog
-                dialog.finished.connect(self.finished)
-                _activate_dialog(dialog)
-
-        def finished(self, accepted):
-            dialog, self.dialog = self.dialog, None
-            started = getattr(dialog, '_save_clicked_at', None)
-            if started is not None:
-                _save_trace('worker.finished', started)
-            send({'kind': 'result', 'accepted': accepted == SettingsDialog.Accepted,
-                  'changes': dialog.changes() if accepted == SettingsDialog.Accepted else {},
-                  'host_saved': dialog.host_saved})
-            if started is not None:
-                _save_trace('worker.result.sent', started)
-            dialog.deleteLater()
-
-    with tempfile.TemporaryDirectory(prefix='ddm_settings_') as temporary:
-        config.REPO = temporary
-        config.CONFIG_PATH = str(Path(temporary) / 'config.json')
-        theme.apply('dark')
-        warm = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True)
-        warm.ensurePolished()
-        warm.deleteLater()
-        worker = Worker()
-
-        def read_requests():
-            for line in sys.stdin:
-                message = json.loads(line)
-                worker.request.emit(message)
-                if message.get('kind') == 'quit':
-                    return
-            worker.request.emit({'kind': 'quit'})
-
-        threading.Thread(target=read_requests, name='settings-input', daemon=True).start()
-        QTimer.singleShot(0, lambda: send({'kind': 'ready', 'pid': os.getpid()}))
-        result = app.exec()
-    app.shutdown()
-    return result
+from .settings_worker import run_worker

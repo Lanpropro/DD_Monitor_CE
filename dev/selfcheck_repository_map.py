@@ -104,7 +104,7 @@ class RepositoryMapTests(unittest.TestCase):
     def test_current_notes_source_and_portable_layouts(self):
         # Exercise the real UI method with label doubles; no QApplication,
         # plugin loading, network or real config is needed for file resolution.
-        tree = ast.parse((ROOT / "ddm/online_ui.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "ddm/app_update_ui.py").read_text(encoding="utf-8"))
         page = next(node for node in tree.body
                     if isinstance(node, ast.ClassDef) and node.name == "AppUpdatePage")
         method = next(node for node in page.body
@@ -113,7 +113,7 @@ class RepositoryMapTests(unittest.TestCase):
             root = Path(directory)
             scope = {"Path": Path, "config": SimpleNamespace(REPO=directory),
                      "version": SimpleNamespace(VERSION="test")}
-            exec(compile(ast.Module(body=[method], type_ignores=[]), "online_ui.py", "exec"), scope)
+            exec(compile(ast.Module(body=[method], type_ignores=[]), "app_update_ui.py", "exec"), scope)
             ui = SimpleNamespace(notes_title=Mock(), notes=Mock())
             show = scope["show_current_notes"]
             show(ui)

@@ -90,8 +90,18 @@ jobs:
           if ((Get-FileHash -LiteralPath libmpv-2.dll -Algorithm SHA256).Hash.ToLower() -ne $source.dll_sha256) {
             throw 'libmpv DLL checksum mismatch'
           }
+      - name: Build check-process native stack capture
+        # The optional helper records native module offsets without suppressing
+        # exceptions, changing GC, retrying cases or altering application startup.
+        shell: cmd
+        run: |
+          call dev\checks\build_native_crash.cmd
+          if errorlevel 1 exit /b 1
+          echo DDM_CHECK_NATIVE_STACK_DLL=%CD%\work\check-native-crash.dll>>"%GITHUB_ENV%"
+      - name: Check native stack capture preserves failures
+        run: python dev/selfcheck_check_runner.py CheckRunnerTests.test_native_stack_capture_preserves_exception_and_exit_code
       - name: Run isolated functional smoke
-        run: python dev/run_checks.py --suite smoke --timeout 120
+        run: python dev/run_checks.py --suite smoke --timeout 180
       - name: Check native badge redraw memory
         run: python dev/run_checks.py --script selfcheck_badge_memory
       - name: Check native sidebar drag hit testing
@@ -131,6 +141,16 @@ jobs:
       # Synthetic native children, no media, accounts, activation or mouse input.
       - name: Check native video clipping lifecycle
         run: python dev/run_checks.py --script selfcheck_resize_surface
+      - name: Check native wall border ownership
+        env:
+          DDM_NO_SAVE: '1'
+          DDM_CHECK_MODE: offline
+          QT_QPA_PLATFORM: windows
+        run: |
+          python dev/checks/bootstrap.py dev/selfcheck_wall_border.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:QT_SCALE_FACTOR = '1.5'
+          python dev/checks/bootstrap.py dev/selfcheck_wall_border.py
       - name: Show smoke logs
         if: always()
         shell: pwsh

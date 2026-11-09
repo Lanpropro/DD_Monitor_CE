@@ -11,6 +11,7 @@ from typing import ClassVar
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 
 from .audio_output import audio_filters, linear_volume
+from .audio_normalization import LiveVolumeNormalizer, normalize_curve
 from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
@@ -70,6 +71,8 @@ class TilePlayer(QObject):
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
         self.volume_normalization = False
+        self.normalization_curve = normalize_curve()
+        self._normalizer = LiveVolumeNormalizer(self)
         self.paused = False
         self.state = "idle"
         self.url = ""
@@ -259,6 +262,7 @@ class TilePlayer(QObject):
             self._set("pause", self.paused)
 
     def _stop_media(self):
+        self._normalizer.timer.stop()
         if self.player is not None:
             self.player.command("stop")
         if self._hls_proxy is not None:
@@ -283,6 +287,7 @@ class TilePlayer(QObject):
         self._set_state("idle")
 
     def _destroy_core(self):
+        self._normalizer.timer.stop()
         if self.player is not None:
             # terminate() destroys the native output; avoid reconfiguring it first.
             self.player.command("stop")
@@ -311,14 +316,17 @@ class TilePlayer(QObject):
         self.audio_channel = int(channel)
         self._apply_audio_filters()
 
-    def set_volume_normalization(self, enabled: bool) -> None:
+    def set_volume_normalization(self, enabled: bool, curve=None) -> None:
         enabled = bool(enabled) and not self.silent
-        if self.volume_normalization != enabled:
+        curve = normalize_curve(curve)
+        if self.volume_normalization != enabled or self.normalization_curve != curve:
             self.volume_normalization = enabled
+            self.normalization_curve = curve
             self._apply_audio_filters()
 
     def _apply_audio_filters(self) -> None:
         self._set("af", ",".join(audio_filters(self.audio_channel, self.volume_normalization)))
+        self._normalizer.reset()
 
     def reapply_audio_channel(self) -> None:
         self.set_audio_channel(self.audio_channel)

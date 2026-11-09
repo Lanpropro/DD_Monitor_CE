@@ -215,6 +215,7 @@ if (-not $SourceOnly) {
         --hidden-import ddm.live_danmaku `
         --hidden-import ddm.global_danmaku `
         --hidden-import ddm.ui.color_dialog `
+        --hidden-import ddm.widgets `
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
         $freezeExit = $LASTEXITCODE

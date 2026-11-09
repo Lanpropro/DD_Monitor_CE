@@ -18,6 +18,9 @@ else:
     path = ROOT / 'logs' / 'drag-windows.jsonl'
     recorder = Recorder(path)
     recorder.install()
+    if os.environ.get('DDM_WINDOW_RESIZE_CAPTURE') == '1':
+        from dev.diagnose_window_resize import WindowResizeTrace
+        resize_trace = WindowResizeTrace(ROOT / 'logs' / 'window-resize.jsonl').install()
     if os.environ.get('DDM_NOTICE_CLOSE_CAPTURE') == '1':
         from dev.diagnose_notice_close import NoticeCloseTrace
         notice_close_trace = NoticeCloseTrace(ROOT / 'logs' / 'notice-close.jsonl')

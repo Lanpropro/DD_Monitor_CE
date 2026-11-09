@@ -556,5 +556,8 @@ def restore_state(path):
 if __name__ == '__main__':
     if '--restore-state' in sys.argv:
         restore_state(sys.argv[sys.argv.index('--restore-state') + 1])
+    elif len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(PaneDanmakuTests, __file__, ('--native',) if NATIVE else ()))
     else:
         unittest.main(verbosity=2)

@@ -15,6 +15,8 @@ players = {1: Mock(), 2: Mock()}
 window = cast(MainWindow, SimpleNamespace(_closing=False, players=players,
     _audio_devices=SimpleNamespace(defaultAudioOutput=lambda: SimpleNamespace(id=lambda: device[0])),
     _default_audio_output_id=b"old"))
+from ddm.stream_playback import StreamPlayback
+window.stream_playback = StreamPlayback(window)
 MainWindow._check_audio_output_device(window)
 assert all(not player.refresh_audio_device.called for player in players.values())
 device[0] = b"new"

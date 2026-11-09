@@ -9,6 +9,11 @@
 
 ## 当前回归与历史诊断
 
+Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编译 `native_crash.cpp`；
+`bootstrap.py` 仅在设置 `DDM_CHECK_NATIVE_STACK_DLL` 时加载。CI 的功能检查启用它，
+将访问冲突的模块、偏移和可解析符号写入原有 stderr 日志，不吞异常、不重试、不改 GC 或断言。
+`selfcheck_check_runner` 用独立子进程验证原始异常及退出码仍然保留；它不是 Qt 故障复现或修复。
+
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_development_hang](../selfcheck_development_hang.py) | `offline`；本机开发入口的外部看门狗、只采调用栈、目标进程退出后结束；不作为真实卡死定位证据 |
@@ -41,7 +46,14 @@
 | [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | 单项执行前核对 |
 | [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | `offline` |
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
-| [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网 |
+| [selfcheck_wall_border](../selfcheck_wall_border.py) | `smoke` / `offline`；单一拖动状态、预览与提交、取消/换布局/隐藏清理、父对象销毁和旧入口兼容；合成格子、无媒体/账号/外网 |
+| [selfcheck_dialog_modules](../selfcheck_dialog_modules.py) | `smoke` / `offline`；独立设置页/房间对话框模块、旧导出及共享快捷键身份、Qt类加载顺序、编解码/插件页旧工厂；离屏，无账号/媒体/网络/工作进程 |
+| [selfcheck_sidebar_presentation](../selfcheck_sidebar_presentation.py) | `smoke` / `offline`；账号菜单工厂/平台绑定/延迟与销毁、动作路由、横竖父对象往返、滚动/密度、收起提交/异常收尾及Qt销毁；隐藏真实控件、假账号，无浏览器/媒体/外网/系统鼠标 |
+| [selfcheck_sidebar_order](../selfcheck_sidebar_order.py) | `smoke` / `offline`；多选/过滤/批量删除、整组移动/置顶/文件夹边界、常看缓存、菜单Qt归属及刷新顺序；隐藏合成控件、临时数据，无账号/媒体/外网 |
+| [selfcheck_sidebar_folder_control](../selfcheck_sidebar_folder_control.py) | `smoke` / `offline`；文件夹/筛选状态唯一归属、默认切换/移动/搜索、旧工厂、智能副本、标题拖动与Qt销毁；隐藏真实控件、临时数据，无账号/网络/播放器 |
+| [selfcheck_functional_modules](../selfcheck_functional_modules.py) | `smoke` / `offline`；职责模块的独立依赖、唯一宿主、工厂及Qt生命周期，逐用例进程、临时数据，无真实媒体/账号 |
+| [selfcheck_widget_modules](../selfcheck_widget_modules.py) | `smoke` / `offline`；独立职责模块导入、主窗口不依赖兼容入口、旧类与常量身份、完整Qt子类加载顺序；文件夹独立导入、共享卡片数据/操作、预览计时器隐藏及销毁清理；隐藏合成控件，无账号或媒体 |
+| [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网；面板删除后跳过排队滚动恢复，避免访问已删除文本控件 |
 | [selfcheck_smooth_edges](../selfcheck_smooth_edges.py) | `native` |
 | [selfcheck_theme_latency](../selfcheck_theme_latency.py) | `offline` |
 | [selfcheck_theme_native_reveal](../selfcheck_theme_native_reveal.py) | Windows屏幕外单项；默认检查原生裁剪和软件回退，`--render-thread` 检查圆形shader、视频透明孔、GUI暂停时继续渲染、反向切换及移动取消；不移动鼠标或激活窗口，不作为真实直播性能证据 |
@@ -74,7 +86,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_picture_in_picture](../selfcheck_picture_in_picture.py) | `smoke` / `offline`；临时房间、1～16路布局边界、六路单主布局与横竖比例、主画面选择／预览／取消／保存、整窗实时合成／Windows原生拖动接管及Esc取消／源视频窗口保持静止、悬浮控件暂停同步／松手最终位置、拖动换位与缓冲缩放、缩放置顶、原音量／静音继承、分路面板与监控室同步、头像单行紧凑布局／后加载头像更新、深浅主题透明度／圆角、共用喇叭与滚轮行为对照／快捷键及退出恢复；Windows原生单项 `--native` 另验证仅关闭与返回监控室的最小化／托盘状态、本地横竖 MP4 的核心／HWND／进度、DWM 实时合成缩放及弹幕、醒目留言归属；`--live-resize` 可见连续帧取证，`--audio-preview` 输出隔离音量面板截图 |
-| [selfcheck_pip_picker](../selfcheck_pip_picker.py) | `smoke` / `offline`；独立进程覆盖入墙优先、文件夹分块及智能归属／副本、上下重复入口鼠标／键盘勾选同步与单份组合、墙外选择与清理、80候选头像网格、中文／全拼／首字母／多词及文件夹搜索与关注栏对照、搜索重排与选择保持、预览拖动／取消；复用隔离主窗口 fixture，不与其他主窗口测试共用进程 |
+| [selfcheck_pip_picker](../selfcheck_pip_picker.py) | `smoke` / `offline`；独立进程覆盖入墙优先、文件夹分块及智能归属／副本、上下重复入口鼠标／键盘勾选同步与单份组合、墙外选择与清理、80候选头像网格、中文／全拼／首字母／多词及文件夹搜索与关注栏对照、靓号搜索及刷新/保存恢复、搜索重排与选择保持、预览拖动／取消；复用隔离主窗口 fixture，不与其他主窗口测试共用进程 |
 
 
 | 脚本 | 执行分类 |
@@ -91,7 +103,7 @@
 | [selfcheck_delete](../selfcheck_delete.py) | 单项执行前核对 |
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | `native`；合成视频与 60 次应用内拖放，报告 UI 心跳与抓起耗时；`--physical` 需交互桌面 |
-| [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke`；首次快照准备在显示后完成、拖动中不补做；按视觉帧合并拖影、静止不重复移动、落点合并及拖放/取消恢复 |
+| [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke`；首次快照准备在显示后完成、拖动中不补做；按视觉帧合并拖影、静止不重复移动、落点合并及拖放/取消恢复；另覆盖关注栏独立位移时钟、Qt共享时钟停走注入、连续反向收展和隐藏／删除清理 |
 | [selfcheck_sidebar_hit_test](../selfcheck_sidebar_hit_test.py) | `offline` / `smoke`；命中后端回退、透明遮挡、外部窗口、子控件与混合DPI坐标；CI另在Windows原生后端验证可见拖影下命中，不移动系统鼠标或激活测试窗口 |
 | [selfcheck_drag_diagnostics](../selfcheck_drag_diagnostics.py) | `native`；合成拖放、COM 变化、阶段耗时、左键状态与模拟主线程停顿，不执行真实 OLE 拖动；根 `run.cmd --check-sidebar-drag` 另以离屏/隔离后端验证每次拖动的有界耗时汇总 |
 | [selfcheck_room_placement](../selfcheck_room_placement.py) | `offline` / `smoke`；纯 Python 替身检查房间分配、换格、音频位置归属和启动去重，不导入 UI 或播放器 |
@@ -104,17 +116,22 @@
 | [selfcheck_folder_drag](../selfcheck_folder_drag.py) | `offline` |
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
+| [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组分类、拼音搜索、两秒指针停留、图标栏、键盘与弹窗保护、中断及销毁；隔离窗口和鼠标位置输入，不读取账号 |
+| [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、控件值和重置、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
+| [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
+| [selfcheck_audio_normalization](../selfcheck_audio_normalization.py) | `offline`、`smoke`；压低／保持／恢复时间、静音保持、参数边界、内嵌预设／拖动／设置页保存取消／重置、播放器暂停与退出生命周期；不读取账号、不联网 |
 | [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
+| [selfcheck_settings_control](../selfcheck_settings_control.py) | `smoke` / `offline`；设置协调导入、旧对话框工厂、普通/独立入口、真实Qt信号、宿主页/更新页复用、保存取消异常清理、状态与应用顺序、SC预览；隔离替身、无窗口/进程/账号/网络 |
 | [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--native-zorder` 检查屏幕外独立设置窗口归属、遮挡及重开，不移动光标或激活窗口；`--embedded-native` 检查屏幕外跨页 HWND/DPI；`--footer-native` 检查首次进入插件、切页返回和同进程关闭重开时原生内容完整位于分配区域、取消／保存不被覆盖；`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
-| [selfcheck_settings_occlusion](../selfcheck_settings_occlusion.py) | `native`；隔离设置进程与 Quick 弹幕窗口，检查打开、移动、缩放、隐藏、最小化、重开及退出后的裁剪恢复；屏幕外窗口，不移动光标或激活窗口 |
+| [selfcheck_settings_occlusion](../selfcheck_settings_occlusion.py) | `native`；真实独立设置 HWND 与顶层 Quick 窗口，检查句柄交付前的显示屏障、反复抬升后的原生前后顺序、滞后设置矩形不留裁剪空洞、排序失败的原生裁剪回退、表面重建／呈现窗口切换，以及打开、移动、缩放、隐藏、最小化、重开、取消／退出／异常结束后的恢复；屏幕外窗口，不移动光标或激活窗口 |
 | [selfcheck_single_instance](../selfcheck_single_instance.py) | `offline` / `smoke`；隔离锁目录和真实子进程，检查重复／并发启动、启动中唤回、异常退出恢复、重启释放，以及第二实例在加载配置前退出 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
 | [selfcheck_hls_proxy](../selfcheck_hls_proxy.py) | `offline`；仅本机 HTTP，清单/分片转发、连接复用、非阻塞停止与资源回收，无账号或外网 |
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
 | [selfcheck_localization](../selfcheck_localization.py) | 单项执行前核对 |
-| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke`；包含开播提醒满墙后的目标选择、替换、取消、空格优先与去重 |
+| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke`；包含开播提醒满墙后的目标选择、替换、取消、空格优先与去重；共享主窗口夹具使用空临时插件目录，不扫描本机安装清单；每个完整窗口用例独立Qt进程 |
 | [selfcheck_notification_center](../selfcheck_notification_center.py) | `smoke`、`offline` |
 | [selfcheck_offline_badges](../selfcheck_offline_badges.py) | 单项执行前核对 |
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
@@ -175,6 +192,7 @@
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 离屏纯画质／取流逻辑；隔离原生呈现，窗口生命周期另见下项 |
 | [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | `native`，包含于根 `run.cmd --check-fullscreen-layers`；固定屏幕外且不接受焦点，验证进入先绘制重建底栏再显示全屏 HWND、退出先画好恢复的底栏再撤下全屏、共享弹幕及浮动 SC 转移、留言保留、零画面墙重排、原位置恢复、快捷键与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
 | [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
+| [selfcheck_window_layout](../selfcheck_window_layout.py) | `smoke` / `offline`；方向记忆/显式选择、布局扩缩与音频位置、异常恢复根布局、窗口限位、Qt父对象及原生子窗口身份；隐藏合成控件，无媒体/账户/桌面输入 |
 | [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
 | [selfcheck_layout_none](../selfcheck_layout_none.py) | 单项执行前核对 |
@@ -191,13 +209,14 @@
 | [selfcheck_preset_state](../selfcheck_preset_state.py) | 单项执行前核对 |
 | [selfcheck_resize_preview_cleanup](../selfcheck_resize_preview_cleanup.py) | 单项执行前核对 |
 | [selfcheck_resize_surface](../selfcheck_resize_surface.py) | `native`；无mpv输出时保留Qt遮罩且不构建原生裁剪区，播放器子窗口创建/替换、尺寸/DPI/遮罩更新与重试生命周期 |
-| [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
-| [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键直接转换、顶部头像展开选择／收起／滚动／动效中断／缓存更新、多个弹幕栏、独立关联与共享连接、换位／换台／清空、空主画面启动及关闭后的来源复位、录制保护、重启及组合恢复、横竖屏所有格位；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
+| [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native`；最新尺寸合并、最终提交、原生身份、遮罩与封面、拖动中合并重绘和松手后的完整浮层抬升／原生文字重绘 |
+| [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键直接转换、顶部头像展开选择／收起／滚动／动效中断／缓存更新、多个弹幕栏、独立关联与共享连接、换位／换台／清空、空主画面启动及关闭后的来源复位、录制保护、重启及组合恢复、横竖屏所有格位；默认每个完整窗口用例独立Qt进程，保留全部断言；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
 | [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
+| [selfcheck_room_preset_control](../selfcheck_room_preset_control.py) | `smoke` / `offline`；独立协调器导入、宿主状态唯一来源、组合管理、全屏快照、重复恢复、录制取消、异常收尾及播放器声音恢复；隔离替身、无媒体/账号 |
 | [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
-| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；原生标题栏消息委托、无鼠标接管/替代窗口、同屏移动不隐藏且不重排、等尺寸最大化原生还原及双击；功能回归不代替真实鼠标与视觉验收 |
+| [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；原生标题栏消息委托、无鼠标接管/替代窗口、同屏移动不隐藏且不重排、等尺寸最大化原生还原及双击、还原与交互进入两种消息顺序、缩放专项记录；功能回归不代替真实鼠标与视觉验收 |
 | [selfcheck_display_transition](../selfcheck_display_transition.py) | `native`；方向切换排布合并与异常恢复；`--screens --players 3` 使用双屏、123张合成关注和三路本地视频，检查3/6/16格原生跨屏/DPI、连续播放、几何、HWND/播放器保持及无替代窗口；不代表实际拖动帧率 |
 
 ## 弹幕与表情
@@ -240,12 +259,13 @@
 | [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录／单文件权限、EXE／DLL 占用、只读文件拦截和解除限制后修复安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
 | [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、封面640及头像256长边/JPEG与PNG压缩、下载后头像快照、小图不放大、裁切元数据/透明度保留、无URL旧图本地转存和重复读取不再压缩、跨进程清理及头像迟到转存保护、饼图选择及后台清理；不联网、不读真实账号 |
-| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、按钮信号及实际页面复用；离屏、临时数据，无账号/外网 |
+| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、按钮信号及实际页面复用；离屏、临时数据，无账号/外网 |
 | [check_setup_data_cleanup](../check_setup_data_cleanup.py) | 单项 Windows 后台检查；先构建原生入口，再传入 ISCC；使用独立登记和合成文件验证软件目录／独立数据目录的默认保留、勾选清理、中文路径、链接保护及额外文件保留 |
 | [check_release_package](../check_release_package.py) | 单项执行前核对 |
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |
 | [selfcheck_download_retry](../selfcheck_download_retry.py) | 单项执行前核对 |
 | [selfcheck_fixed_exe_entry](../selfcheck_fixed_exe_entry.py) | 单项执行前核对 |
+| [selfcheck_app_updates](../selfcheck_app_updates.py) | `smoke` / `offline`；启动检查去重、宿主任务归属与Qt sender、旧任务/替换任务清理、已读/红点/通知动作及关闭迟到回调；合成响应、无窗口/账号/网络 |
 | [selfcheck_online](../selfcheck_online.py) | 合成响应；发布正文刷新、清单回退、下载校验及插件升级事务 |
 | [selfcheck_online_ui](../selfcheck_online_ui.py) | 离屏合成数据；64 项商店与 16 项已安装紧凑列表、固定搜索／状态筛选／排序／详情与目录变化、深浅主题及长文本；刷新／页签／保存区边界、列表末尾留白、未保存选择与隐藏条目重建清理；下载期间筛选与滚动、详情更新及待重启、关闭/重开普通及独立设置、后台完成/退出收尾、当前版本正文及更新保存衔接 |
 | [selfcheck_parallel_plugin_downloads](../selfcheck_parallel_plugin_downloads.py) | 单项执行前核对 |
@@ -276,10 +296,12 @@
 | [selfcheck_audio_cycle_shortcut](../selfcheck_audio_cycle_shortcut.py) | 单项执行前核对 |
 | [selfcheck_audio_hotplug](../selfcheck_audio_hotplug.py) | 单项执行前核对 |
 | [selfcheck_audio_owner](../selfcheck_audio_owner.py) | 单项执行前核对 |
+| [selfcheck_codec_control](../selfcheck_codec_control.py) | `offline` / `smoke`；全局继承/单格覆盖、重连延迟、原编码保留、旧对话框工厂/接线/状态及Qt销毁；不启动线程/媒体，不读账号 |
+| [selfcheck_stream_playback](../selfcheck_stream_playback.py) | `offline` / `smoke`；取流替换/迟到结果、暂停/关闭、播放器身份与动态接线、画质/登录失败及Qt父对象销毁；临时替身，不启动线程/媒体或联网 |
 | [selfcheck_playback_recovery](../selfcheck_playback_recovery.py) | `offline` / `smoke`；恢复控制器的退避、冻结、稳定播放、关闭收尾及主窗口兼容/插件事件，使用本地替身 |
 | [selfcheck_player_lifetime](../selfcheck_player_lifetime.py) | `offline` / `smoke`；构造、重绑、释放参数、音频设备刷新调度及错误反馈、各平台恢复任务去重与定时器回收。单项 Windows 原生用例检查普通格子延迟创建 GPU 输出、本地图片出帧与取消；窗口不激活、不移鼠标，静音且媒体无音轨，不读取账号或联网，不作为真实卡顿性能依据 |
 | [selfcheck_mpv_com_lifetime](../selfcheck_mpv_com_lifetime.py) | `native`；Windows 本地静音 WAV、真实 WASAPI，反复刷新音频设备、终止/释放及预览清理，检查刷新后继续播放及 COM apartment 不变；不执行 OLE 拖动，属于功能回归，不代替真实故障采集 |
-| [selfcheck_audio_routing](../selfcheck_audio_routing.py) | 合成 PCM 验证音量、路由及均衡后的响度差/静音/关闭还原；需 FFmpeg、libmpv、numpy |
+| [selfcheck_audio_routing](../selfcheck_audio_routing.py) | 合成 PCM 验证音量、路由及均衡后的响度差/静音/关闭还原；以实际 Qt 计时与限速输出验证增益控制，需 FFmpeg、libmpv、numpy；不作为真实人声听感证据 |
 | [selfcheck_auto_quality](../selfcheck_auto_quality.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_live](../selfcheck_auto_quality_live.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_switch_live](../selfcheck_auto_quality_switch_live.py) | 单项执行前核对 |

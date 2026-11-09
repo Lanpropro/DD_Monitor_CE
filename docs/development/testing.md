@@ -1,5 +1,13 @@
 # 验证指南
 
+设置与弹幕覆盖：根 `run.cmd --check-fullscreen-layers` 包含 `selfcheck_settings_occlusion`，使用真实的独立设置进程 HWND 和顶层 Quick 弹幕窗口，检查设置上报句柄前暂缓弹幕显示、原生前后顺序、滞后设置矩形不留空洞、排序失败的原生裁剪回退、表面重建和呈现窗口切换，以及取消／退出／异常结束后的清理。设置进程在显示前上报窗口句柄，`SettingsProcess` 唯一持有该句柄并在结果、退出或停止时清空；Quick 的显示与抬升统一经过设置相对排序。排序成功时由系统同步遮挡，失败时保留矩形裁剪，其他窗口及画面边界的裁剪不变。真实运行只读原生采集已观察到设置隐藏后裁剪空洞仍滞留约137ms；本批针对这一证据移除成功排序路径的异步空洞。屏幕外隔离检查不读取个人配置，不移动光标或激活窗口，也不能代替真实运行的视觉验收。人工从根 `run.cmd` 开启多路弹幕后打开设置，来回拖动、缩放、最小化及重开设置，期间切换全屏；设置内不应出现弹幕，窗口移开的区域应立即跟随露出弹幕，关闭后不再滞留空洞。本批不处理设置白屏本身，观感改善仍待人工复验。
+
+控件职责拆分：根 `run.cmd --check-widget-boundaries` 离屏检查公共控件及 Qt 生命周期，不启动客户端或读取账号。覆盖标签缩放恢复、图标模式/信号/销毁和面板删除后跳过排队滚动恢复。人工从根 `run.cmd` 检查关注卡片标题省略、工具条按钮与深浅主题；弹幕更新后切换布局或关闭窗口，应无已删除控件异常。结构拆分不作为性能改善证据。
+
+音量均衡时间响应：根 `run.cmd --check-audio-normalization` 使用隔离参数验证压低／保持／恢复曲线、内嵌可拖动编辑器与参考预设、设置页保存／取消／重置、播放器生命周期及实际 libmpv 合成 PCM 的响度差、静音、左右声道和关闭还原；PCM 部分约需一分钟，需 FFmpeg、numpy、libmpv。设置及独立设置进程另运行 `selfcheck_general_settings`、`selfcheck_settings_process`，宽窄布局运行 `selfcheck_settings_layout`。人工通过根 `run.cmd` 打开设置 → 常规，在“音量均衡”区域直接选择预设、拖动节点并保存，无需二级弹窗；缩窄窗口后检查图表、参数和预设上下排列且不重叠，取消后重开应保留原值。重启后核对保存参数；使用同一段真实直播比较开关与不同保持／恢复时间，特别检查说话停顿时背景声是否起伏。曲线图是同一响应模型的示意，合成 PCM 结果不能代替真实听感验收。
+
+音频职责：`audio_normalization.py` 拥有参数校验、参考预设、纯增益响应以及每个播放器的 Qt 采样计时器；`audio_normalization_ui.py` 拥有常规页内嵌编辑器与示意曲线，编辑器是曲线草稿的唯一状态来源；`audio_output.py` 仅组装测量／增益／采样峰值限幅和声道路由滤镜；`TilePlayer` 拥有启停与播放器生命周期。状态保存在全局设置的 `volume_normalization_curve`，缺失时使用平缓默认；编辑器修改副本，由设置页统一保存或取消。测量使用 FFmpeg EBU R128 的400毫秒瞬时响度，压低／恢复时间定义为恒定目标变化达到95%的用时，保持发生在恢复之前；暂停、缓冲和近静音不推进补偿。
+
 直播间封面缓存：后台准备图片时仅缩小到长边不超过640像素，不放大小图；不透明封面比较JPEG85与PNG编码，保存较小者，透明图保留PNG。两种编码保留归一化人脸裁切信息；既有.png路径兼容Qt按内容识别。历史封面在正常读取时本地转存，保存标记避免重复有损编码；没有URL或未开播的房间也可从快照读取，不因压缩重新下载。不增加容量淘汰或批量删图。根`run.cmd --check-image-cache`验证压缩、快照及旧图引用/失败保留/清理并发，封面裁切专项验证缩小后仍保留相同人脸区域。真实缓存样本测量与临时合成回归分开记录，不把样本降幅直接外推全库。
 
 主播头像缓存：复用JPEG85/PNG较小编码，透明图仅PNG；后台下载、URL缓存读取及启动房间快照回填时，长边限制256像素，小图不放大，保存独立标记避免重复有损重编码。界面同步读取入口保持只读，转存留在后台；没有URL的旧快照无需联网，未读取历史文件不批量处理。根`run.cmd --check-image-cache`覆盖大图、下载后快照、透明度、小图、共享引用、离线回填和清理后迟到写入；`selfcheck_room_images`验证后台交付和启动协调。人工从根`run.cmd`重启，检查关注栏展开/收起、竖屏头像条、通知和高DPI清晰度，并确认未开播主播仍有旧头像；无需先清缓存。
@@ -66,7 +74,7 @@ SC 的画面位置与弹幕栏位置分别保存，可关闭同步以独立调�
 | 套件 | 依赖与行为 | 命令 |
 | --- | --- | --- |
 | `repository` | Python 标准库和 Git；不导入 Qt，不读取账号，不联网 | `python dev/run_checks.py` |
-| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 120` |
+| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 180` |
 | `offline` | 开发依赖；离屏 Qt、替身接口或本机 HTTP/WebSocket 服务，不访问真实直播 | `python dev/run_checks.py --suite offline` |
 | `native` | Windows、开发依赖、libmpv；部分项目需 FFmpeg，会创建原生窗口 | `python dev/run_checks.py --suite native` |
 | `live` | Windows、运行库和网络；显式指定公开开播房间，只读接收 | 使用下方单项命令 |
@@ -76,6 +84,26 @@ SC 的画面位置与弹幕栏位置分别保存，可关闭同步以独立调�
 离屏进程会阻止 Python 层的外部 DNS 查询和 socket 连接，只允许回环地址；即使脚本捕获该异常，最终结果仍失败。Qt WebEngine、原生库和子进程仍需逐项审查。套件脚本不能使用 `os._exit` 绕过清理；具体纳入标准与本机归档见[工作区维护](workspace-maintenance.md)。
 
 ## 单项与真实直播
+
+Windows x64 的 CI 功能检查会先构建仅供测试使用的原生栈记录器。访问冲突时，
+Python faulthandler 栈之外还会输出 `NATIVE_ACCESS_VIOLATION`、模块偏移和可解析符号；
+这是第一时间的异常记录，异常可能被原调用方处理，是否失败仍以原始退出码和断言为准。
+记录器返回 `EXCEPTION_CONTINUE_SEARCH`，不修改运行结果、垃圾回收参数或重试测试。
+没有 PDB 时符号可能缺失，模块偏移仍可保留；该工具不表示已定位或修复 Qt 异常。
+普通软件启动和无此环境变量的检查不加载它，也不需要 C++ 工具链。
+
+本机需 Visual Studio C++ x64 工具和 Windows SDK，从仓库根执行：
+
+```powershell
+.\dev\checks\build_native_crash.cmd
+$env:DDM_CHECK_NATIVE_STACK_DLL = (Resolve-Path work/check-native-crash.dll).Path
+python dev/selfcheck_check_runner.py CheckRunnerTests.test_native_stack_capture_preserves_exception_and_exit_code
+python dev/run_checks.py --script selfcheck_pane_danmaku
+Remove-Item Env:DDM_CHECK_NATIVE_STACK_DLL
+```
+
+记录器自检仅在隔离子进程生成合成异常，验证带／不带记录器的异常处理及退出码一致；
+不启动 Qt、不操作客户端、不访问账号或直播。新增测试失败时继续保留日志，不能以重跑通过覆盖失败。
 
 ```powershell
 python dev/run_checks.py --list
@@ -298,3 +326,37 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 同时运行 `selfcheck_douyin_ui_follows`（本机HTTP与真实WebEngine页面读取）、`selfcheck_douyin_follow_cache`、`selfcheck_douyin_restart_cache`、`selfcheck_account_dialog`、`selfcheck_follow_import`，覆盖官网读取到原生页面切换、缓存重开及其他平台的共享勾选行为。根 `run.cmd` 人工验收：导入关注选择抖音，完成官网读取后，应显示软件菜单；勾选直播间及文件夹并导入，关注栏只新增选中房间，不自动播放。真实官网列表完整性与账号验证需单独人工确认。
 
 日常集成版另跑 `python dev/selfcheck_follow_stress.py` 与 `python dev/selfcheck_pinyin_search.py`。压力脚本等待批量填充结束后再勾选，保留 3000 关注、750 主播的数量断言；与 `selfcheck_follow_import` 一起核对滚动头像、搜索、勾选及分批导入。
+
+业务控件拆分使用 `run.cmd --check-widget-boundaries` 检查独立模块导入、主窗口不依赖兼容入口、旧对象身份及完整Qt子类加载顺序。`selfcheck_pane_danmaku` 与 `selfcheck_main_notices` 默认通过 `dev/checks/widget_cases.py` 将每个完整窗口用例放入独立Qt进程，离屏最多并行两个进程，原生参数保持逐项顺序；子进程失败/超时直接导致检查失败；保留全部用例和断言，单项/原生参数仍有效。人工从根 `run.cmd` 检查关注筛选/文件夹/拖动、弹幕字体/SC/来源切换、格子音量/暂停、布局/分区/全屏及小窗；本批不更改交互设计。
+
+CI 的 smoke 每项上限为180秒，覆盖完整窗口用例各自启动Qt进程的额外时间；每个子用例仍有60秒上限。旧120秒上限在较慢runner仅完成74个主窗口用例，未完成部分不能计作通过，因此增加总时限以执行全部用例，不改变断言或超时失败行为。
+
+边框交互职责拆分由 `selfcheck_wall_border` 验证会话所有权、旧入口、预览/提交、取消/布局切换/隐藏和父对象销毁；根 `run.cmd --check-widget-boundaries` 包含此检查。合成格子与离屏输入不作为真实播放或跨屏验收，人工仍从根入口核对边缘/角点拖动、Esc取消、双击重置及换布局后无残留。
+
+直播间组合协调拆分使用根 `run.cmd --check-room-presets`：先检查 `RoomPresetController` 的模块依赖、宿主状态/集合替换、管理校验、全屏快照、重复恢复、录制拒绝及异常后的事务标志，再运行原有真实 Qt 组合操作回归。两项均使用隔离数据；Qt 用例的插件目录临时替换，不扫描本机安装清单。人工从根 `run.cmd` 保存并往返恢复组合，核对格位、比例、声音、弹幕来源和全屏保存，录制替换按原确认流程验收。
+
+更新协调拆分使用根 `run.cmd --check-app-updates` 运行协调器九项及同版本热修复回归；新专项使用真实Qt信号连接旧主窗口方法，但以轻量QObject宿主、任务与通知替身代替真实窗口/线程/请求，验证sender、任务替换、父对象销毁和通知动作路由。完整smoke另覆盖原更新通知及主窗口退出。人工从根run.cmd核对设置红点、软件/插件更新入口、已读状态与关闭；不自动下载、安装或发布真实更新。
+
+设置协调拆分使用根 `run.cmd --check-settings-control` 运行11项协调器检查和原常规设置回归。新专项用QObject宿主复用主窗口旧方法与对话框/页面/进程替身，保留真实Qt信号，验证工厂兼容、保存/取消/异常释放、宿主销毁、页面复用和应用顺序，不创建设置工作进程或访问个人数据。独立设置实际进程与页面检查仍用 `selfcheck_settings_process` 的隔离数据，原生焦点/鼠标检查须另行授权。人工从根run.cmd打开设置、切页、保存/取消及关闭重开，核对普通窗口与独立窗口一致、SC预览和更新/插件入口正常。
+
+窗口布局协调拆分使用根 `run.cmd --check-window-layout`：新10项检查旧入口、布局记忆/显式选择、扩容清空隐藏位、缩容声音位置、异常恢复根布局、限位和原生子控件身份，再运行布局扩容/16格回归。新专项只有一个隐藏Qt控件所有权用例，可在Windows默认/1.5倍缩放后端检查，不显示测试窗、不激活、不移动鼠标、不播放媒体。完整native套件中的桌面输入/实际播放另行人工核对；根run.cmd下检查横竖往返、跨方向显式选布局、扩缩容及声音保持。
+
+设置页职责拆分由 `selfcheck_dialog_modules` 检查独立依赖、旧导出与共享快捷键身份、原Qt类加载顺序以及编解码/插件页旧工厂。根 `run.cmd --check-dialog-modules` 同时运行原常规设置和响应式布局回归；人工从根run.cmd检查各页值/重置、打开/关闭、窄宽窗口布局及保存/取消，结构调整不作为性能提升证据。
+
+文件夹组件拆分沿用 `run.cmd --check-widget-boundaries`：`selfcheck_widget_modules` 增加文件夹模块独立导入、旧别名身份、原卡片数据/操作共享及隐藏/销毁时的预览定时器清理。文件夹模型、来源、排序与图标交互另用原区域专项的临时数据回归；不移动系统鼠标。
+
+卡片职责细拆后，`selfcheck_widget_modules` 同时验证 `sidebar_cards`/`widgets` 旧对象与各职责模块身份相同，侧栏/预览内部不重新依赖兼容聚合入口；原Qt类加载顺序仍检查。`selfcheck_preview_scroll` 的播放器替身改指向 `sidebar_thumbnail.TilePlayer`，启动状态专项的样式替身改指向 `sidebar_item._repolish`，以继续观察实际维护模块，不过滤或弱化行为断言。
+
+播放协调拆分使用根 `run.cmd --check-stream-playback`，运行新取流/播放边界、既有编解码、恢复及启动窗口检查。替身保留Qt信号与父对象，核对请求代次/房间/画质/编码变化、暂停和关闭后的迟到结果、播放器搬格后的回调归属；不访问网络/账号或播放媒体。原生输出及真实直播仍按单独条件验证；人工从根run.cmd检查多路启动、画质切换、换台、暂停恢复、编码设置和关闭收尾。
+
+同一播放协调入口增加 `selfcheck_codec_control`，验证单格覆盖与全局继承、暂停/隐藏时延后重连、原编码保留及对话框工厂/信号/父对象。既有B站编码专项的断言不变，入口新增临时数据及空插件目录隔离，避免核对本机安装清单。
+
+关注文件夹/筛选职责拆分使用根 `run.cmd --check-sidebar-folders`，包含新模块边界/真实Qt控件、原常看排序/排序管理及拖动命中回归。新专项检查默认切换、归类/搜索/折叠/开播过滤、旧工厂、智能副本单份房间数据、标题拖动通知及Qt父子销毁；不显示/激活窗口、不操作系统鼠标、不启动播放器，不将合成计时作为性能证据。人工从根run.cmd检查文件夹新建/重命名/默认/删除、标题排序、智能移入/副本、搜索与折叠、多选和竖屏横栏。
+
+关注排序/多选职责拆分使用根 `run.cmd --check-sidebar-order`，包括新14项、原排序管理/常看、文件夹边界和文件夹内卡片拖放回归。核对Ctrl/Shift、批量模式的搜索/计数/删除、筛选落点、组内置顶和文件夹边界、菜单动作/常看缓存、通知及Qt父子销毁。均为隔离功能回归，不将合成计时用作性能证据；人工从根run.cmd检查多选拖动/取消、置顶、各文件夹排序、固定当前顺序及保存恢复。
+
+关注栏展示协调拆分使用根 `run.cmd --check-sidebar-presentation`：新15项及原排序管理/多选/模块边界，验证菜单父对象、平台退出绑定、延迟登录在Sidebar销毁后取消、横竖布局控件借还、密度/滚动约束、收起信号/异常清理及父对象销毁。登录请求只接本机信号记录，不创建浏览器或登录窗口；全部隐藏控件，不输入系统鼠标。新专项可在Windows100%/150%检查主Sidebar原生句柄与Qt对象身份；完整屏幕渲染/真实登录另行人工验收。根run.cmd检查横竖/收起/多选往返、账号菜单各入口、布局/画中画/设置路由及退出收尾。
+
+新展示专项复用 `checks.widget_cases.run_widget_cases`，每个完整用例使用新的QApplication进程；保留全部断言、失败和超时结果，并启用faulthandler。原单进程批量运行在source/root均曾于第8个用例前后原生退出，单项诊断未复现，旧失败保留；进程隔离不代表已解释Qt根因。Windows隐藏原生检查传入 `--native` 串行执行用例。
+
+功能职责拆分统一回归入口：`run.cmd --check-functional-modules`。它已列入 smoke/offline，覆盖旧导出身份、模块独立依赖、宿主状态与 Qt 生命周期、API/工厂替换点及取消交付；完整边界与保留模块依据见[共用界面组件](ui-components.md#全量功能职责边界)。

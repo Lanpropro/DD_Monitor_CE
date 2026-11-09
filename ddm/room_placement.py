@@ -1,10 +1,14 @@
 """Room placement and tile swaps; the host owns playback, recording and UI services."""
 import sys
+from .room_catalog import RoomCatalog
+from .room_navigation import RoomNavigation
 
 
 class RoomPlacement:
     def __init__(self, host):
         self.host = host
+        self.navigation = RoomNavigation(self.host)
+        self.catalog = RoomCatalog(self.host)
         self.replacement = None
 
     def place_live_notice_rooms(self, rooms):
@@ -155,3 +159,107 @@ class RoomPlacement:
         print("两个格子的画面已秒切（格子互换位置，媒体没有中断）",
               file=sys.stderr, flush=True)
         return True
+
+    def room_browser_url(self, room: dict) -> str:
+        return self.navigation.room_browser_url(room)
+
+    def open_room_browser(self, url: str) -> None:
+        return self.navigation.open_room_browser(url)
+
+    def normalize_room_input(self, text: str) -> str | None:
+        return self.navigation.normalize_room_input(text)
+
+    def sync_platform_rooms(self) -> None:
+        return self.catalog.sync_platform_rooms()
+
+    def tick_watch_history(self):
+        from .watch_history_sampling import tick_watch_history
+        return tick_watch_history(self.host)
+
+    def prepare_room(self, room: dict) -> dict:
+        """给新建格子补初始声音；已有格子的静音和音量由 Tile 保留。"""
+        from . import config as config_module
+        from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
+        host = self.host
+        if "muted" not in room:
+            room["muted"] = bool(host.settings.get("default_muted", True))
+        if "volume" not in room:
+            room["volume"] = int(host.settings.get(
+                "default_volume", config_module.DEFAULT_VOLUME))
+        room.setdefault("quality", AUTO_QUALITY
+            if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250)
+        return room
+
+    def room_dict(self, room_id: str) -> dict | None:
+        return self.catalog.room_dict(room_id)
+
+    def clear_tile_room(self, tile: "Tile") -> None:
+        host = self.host
+        host._pending_capture.pop(tile, None)
+        host.recorder.stop(tile)
+        host._stop_tile(tile)
+        tile.set_room(None)
+        if tile not in host.recorder.sessions:
+            host._restore_capture_quality(tile)
+
+    def on_close_tile(self, room: dict) -> None:
+        """关掉这一路，但留下空格子等新的直播间拖进来。"""
+        host = self.host
+        tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
+        if tile is None:
+            return
+        host._clear_tile_room(tile)
+        host._refresh_meta()
+        print(f"已关闭 {room.get('uname')}，格子已清空")
+
+    def open_add_room(self, *, dialog_type) -> None:
+        return self.catalog.open_add_room(dialog_type=dialog_type)
+
+    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type) -> None:
+        return self.catalog.add_room_id(room_id, folder_id=folder_id, resolver_type=resolver_type)
+
+    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
+        return self.catalog.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id)
+
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles) -> None:
+        return self.catalog.on_room_added(room, folder_id=folder_id, max_tiles=max_tiles)
+
+    def add_to_wall(self, room: dict, *, empty_only=False, max_tiles) -> None:
+        from . import plugins as plugin_api
+        host = self.host
+        MAX_TILES = max_tiles
+        host._prepare_room(room)
+        room_id = str(room.get("room_id"))
+        host.sidebar.watch_history.select(room_id)
+        if host._tile_of(room_id) is not None:
+            print(f"{room.get('uname')} 已经在画面墙上")
+            return
+        candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
+        empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
+        if empty is not None:                      # 优先填空位
+            host.recorder.stop(empty)
+            host._stop_tile(empty)
+            empty.set_room(room)
+            host._wire_tile(empty)
+            host.start_tile(empty)
+            host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
+                              room=dict(empty.room or {}))
+            host._refresh_meta()
+            return
+        if empty_only:
+            return
+        if len(host.wall.tiles) >= MAX_TILES:
+            print(f"画面墙已满（{MAX_TILES} 路）")
+            return
+        tile = host.wall.add_room(room)
+        host._wire_tile(tile)
+        host.start_tile(tile)
+        host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,
+                          room=dict(tile.room or {}))
+        host._refresh_meta()
+
+    def remove_room(self, room: dict) -> None:
+        return self.catalog.remove_room(room)
+
+    def remove_rooms(self, rooms: list) -> None:
+        return self.catalog.remove_rooms(rooms)

@@ -113,6 +113,8 @@ def child(action):
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
             self.general_page._checks['volume_normalization'].setChecked(True)
+            from ddm.audio_normalization import preset_curve
+            self.general_page.normalization_editor.set_curve(preset_curve('netflix'))
             if action.startswith('tray-'):
                 self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
                 page = self._loaded_pages[self.PAGE_INDEX['tray']]
@@ -245,6 +247,7 @@ def check_worker(app, action):
                     assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
                     assert saves[0]['settings'].get('super_chat_position_sync', True) is True
                 assert saves[0]['settings']['volume_normalization'] is True
+                assert saves[0]['settings']['volume_normalization_curve']['preset'] == 'netflix'
                 if action == 'tray-save':
                     assert saves[0]['settings']['close_behavior'] == 'tray'
                     assert saves[0]['settings']['tray_pause_playback'] is False
@@ -526,11 +529,13 @@ def check_close_during_edit(app):
 
 def check_host_adapter():
     from ddm.app import MainWindow
+    from ddm.settings_control import SettingsControl
     applied = []
     host = SimpleNamespace(shortcuts={'keep': 'K'}, plugins=SimpleNamespace(
         enabled={'fixture'}, _platform_owner={}, _removed=set()),
         _apply_settings_dialog=lambda dialog, before: applied.append(
             (dialog.settings(), dialog.shortcuts(), dialog.enabled_plugins())))
+    host.settings_control = SettingsControl(host)
     MainWindow._remote_settings_saved(host, {'settings': {'default_volume': 17}, 'shortcuts': {'edit': 'E'}})
     assert applied == [({'default_volume': 17}, {'keep': 'K', 'edit': 'E'}, {'fixture'})]
     MainWindow._remote_settings_saved(host, {'settings': {}, 'shortcuts': {}})
@@ -548,7 +553,9 @@ def check_host_save_validation():
     from ddm.dialogs import SettingsDialog
     from ddm.settings_host import SettingsHost
     default_dialog = SettingsDialog(config.DEFAULT_SETTINGS, {}, preview=True)
-    assert default_dialog.width() == 720 and default_dialog.height() == 650
+    available = default_dialog.screen().availableGeometry()
+    assert default_dialog.width() == max(760, min(1200, available.width() - 48))
+    assert default_dialog.height() == max(520, min(800, available.height() - 72))
     default_dialog.deleteLater()
     dialog = Mock()
     dialog.confirm_button.isEnabled.return_value = True

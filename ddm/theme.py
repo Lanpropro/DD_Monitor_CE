@@ -515,18 +515,19 @@ QCheckBox::indicator:checked {{
     background: {ACCENT};
     border: 1px solid {ACCENT};
 }}
-QSpinBox {{
+QSpinBox, QDoubleSpinBox {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 5px 8px;
     color: {TEXT1};
 }}
-QSpinBox:focus {{
+QSpinBox:focus, QDoubleSpinBox:focus {{
     border: 1px solid {ACCENT};
     background: {CONTENT_HOVER};
 }}
-QSpinBox::up-button, QSpinBox::down-button {{
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
     width: 18px;
     border: none;
     background: transparent;
@@ -608,11 +609,15 @@ QSlider::handle:horizontal:hover {{
 }}
 
 /* ---------- 设置窗口（左侧选类别，右侧改内容） ---------- */
+#SettingsNavigation {{
+    background: {SIDEBAR};
+    border-right: 1px solid {BORDER};
+}}
+#SettingsNavigationTitle {{font-size: 22px; font-weight: 700; padding: 8px;}}
 #SettingsNav {{
     background: {SIDEBAR};
     border: none;
-    border-right: 1px solid {BORDER};
-    padding: 12px 8px;
+    padding: 0;
     outline: none;
 }}
 #SettingsNav::item {{
@@ -644,6 +649,17 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+#SettingsSection {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_LG}px;
+}}
+#SettingsSectionTitle {{
+    color: {TEXT1};
+    font-size: {FONT_CONTROL}px;
+    font-weight: 600;
+}}
+#TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
     background: {CONTENT};
     border: 1px solid {BORDER};

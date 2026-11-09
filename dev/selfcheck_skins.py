@@ -93,7 +93,7 @@ def check_parts(app):
         stack.enter_context(patch.object(config, 'REPO', directory))
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars'):
+                       'load_cached_covers', 'load_cached_avatars', '_check_startup_update'):
             stack.enter_context(patch.object(module.MainWindow, method))
         image = QImage(32, 32, QImage.Format_RGB32)
         image.fill(QColor('#ff8800'))
@@ -125,7 +125,7 @@ def check_parts(app):
             else:
                 raise AssertionError(invalid)
         window = module.MainWindow([{'room_id': '1001', 'uname': 'fixture', 'live': False}],
-            [], layout_id='1x1', state={'plugins_enabled': []})
+            [], layout_id='1x1', state={'plugins_enabled': [], 'settings': {'auto_update': False}})
         window.resize(1200, 800)
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.move(-10000, -10000)
@@ -198,8 +198,21 @@ def check_parts(app):
             embedded = appearance.parts_editor
             assert embedded.isVisible() and embedded.embedded and not embedded.isWindow()
             assert embedded.apply_button.isHidden() and embedded.close_button.isHidden()
-            assert embedded.preview.mapTo(embedded, QPoint()).y() < embedded.selection_title.mapTo(embedded, QPoint()).y()
-            assert embedded.introduction.text() == '点击上方预览图中可修改部分 在下方自定义修改'
+            for width, columns in ((1200, 2), (760, 1)):
+                dialog.resize(width, 800)
+                for _ in range(8):
+                    app.processEvents()
+                assert embedded.sections.columns == columns
+                preview_card = embedded.sections.section('preview')
+                controls_card = embedded.sections.section('controls')
+                if columns == 2:
+                    assert preview_card.y() == controls_card.y()
+                    assert preview_card.geometry().right() < controls_card.x()
+                else:
+                    assert preview_card.geometry().bottom() < controls_card.y()
+                assert appearance.scroll.horizontalScrollBar().maximum() == 0
+                assert embedded.background_controls.isVisible()
+            assert embedded.introduction.text() == '点击预览图中的可修改区域，在选项中自定义样式'
             forbidden = ('背景皮肤', '颜色模式', '当前：', '立即生效并保存', '主界面入口：', '切换不重连直播')
             assert not any(label.isVisible() and not embedded.isAncestorOf(label) and
                            any(text in label.text() for text in forbidden)

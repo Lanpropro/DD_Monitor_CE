@@ -16,6 +16,43 @@ class PipPickerTests(unittest.TestCase):
     window = fixtures.MainNoticesTests.window
     close_window = fixtures.MainNoticesTests.close_window
 
+    def test_vanity_room_search_survives_status_refresh_and_state_restore(self):
+        from ddm import config
+        from ddm.widgets import Sidebar
+        window = self.window([])
+        sidebar = window.sidebar
+        room = dict(room_id='douyu:6979222', uname='测试主播', platform='douyu',
+                    playback_mode='stream', uid=6657, title='标题含6657', live=True)
+        sidebar.add_room(room)
+        sidebar.search.setText('6657')
+        self.assertEqual(sidebar.visible_items(), [])
+        with patch('ddm.bili.requests.get', side_effect=AssertionError('Search must not access the network')):
+            status = dict(live=True, uname='测试主播', title='标题含6657', viewers='', face='', display_room_id='6657')
+            window._on_status_updated({'douyu:6979222': status})
+            self.assertEqual([item.room['room_id'] for item in sidebar.visible_items()], ['douyu:6979222'])
+            for query in ('6657', '6979222', '测试 6657'):
+                sidebar.search.setText(query)
+                self.assertEqual(len(sidebar.visible_items()), 1)
+            state = window.current_state()
+            self.assertEqual(state['platform_rooms']['douyu:6979222']['display_room_id'], '6657')
+            follows, _wall = config.build_rooms(state)
+            restored = Sidebar(follows, window, auto_compact=False)
+            self.addCleanup(restored.deleteLater)
+            restored.apply_filter('6657')
+            self.assertEqual([item.room['room_id'] for item in restored.visible_items()], ['douyu:6979222'])
+            window.picture_in_picture.manage()
+            dialog = window.picture_in_picture.dialog
+            dialog.search.setText('6657')
+            self.assertFalse(dialog.checks['douyu:6979222'].isHidden())
+            dialog.reject()
+            sidebar.search.setText('6657')
+            window._on_status_updated({'douyu:6979222': dict(status, display_room_id='7788')})
+            self.assertEqual(sidebar.visible_items(), [])
+            sidebar.search.setText('7788')
+            self.assertEqual(len(sidebar.visible_items()), 1)
+            window._on_status_updated({'douyu:6979222': dict(status, display_room_id='')})
+            self.assertEqual(sidebar.visible_items(), [])
+
     def test_pip_picker_lists_wall_first_then_live_follows_without_allocating_players(self):
         from ddm.picture_in_picture import FOCUS_LAYOUT
         window = self.window([{'room_id': '1', 'uname': 'Wall', 'live': False},
