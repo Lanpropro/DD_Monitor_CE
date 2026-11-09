@@ -1,10 +1,10 @@
 """Settings general; owned page implementations with legacy exports in dialogs."""
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget
+    QAbstractSpinBox, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QVBoxLayout, QWidget
 )
-from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_LABELS, DECODE_MODES, codec_settings
+from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog
 from .ui import page_header as _page_head, step_button as _step_button
 from .settings_layout import SettingsSection, section_grid
@@ -201,15 +201,27 @@ class GeneralSettingsPage(QWidget):
         step_box.addWidget(minus)
         step_box.addWidget(self.poll_spin)
         step_box.addWidget(plus)
-        step_box.addStretch(1)
+        step_box.insertStretch(0, 1)
         grid.addLayout(step_box, row, 1)
         row += 1
         for key, label in self.ITEMS:
-            box = QCheckBox(label)
+            if key in ('volume_normalization', 'sidebar_platform_logos'):
+                box = QCheckBox(label)
+                grid.addWidget(box, row, 0, 1, 2)
+            else:
+                from .settings_notifications import NotificationSwitch
+                box = NotificationSwitch(label)
+                title = QLabel(label)
+                title.setWordWrap(True)
+                title.setBuddy(box)
+                toggle_row = QHBoxLayout()
+                toggle_row.setContentsMargins(0, 6, 0, 6)
+                toggle_row.addWidget(title, 1)
+                toggle_row.addWidget(box)
+                grid.addLayout(toggle_row, row, 0, 1, 2)
             box.setChecked(bool(settings.get(key, key != "volume_normalization")))
             if key == "volume_normalization":
                 box.setToolTip("自动调整偏轻或偏响的声音；保存后应用于所有播放格子，仍可独立调节音量。")
-            grid.addWidget(box, row, 0, 1, 2)
             self._checks[key] = box
             if key == "sidebar_platform_logos":
                 # Retain the saved master value and insertion anchor for plugin controls.
@@ -232,19 +244,24 @@ class GeneralSettingsPage(QWidget):
                 threshold_box.addWidget(self.compact_threshold_spin)
                 threshold_box.addWidget(_step_button(
                     "+", "调大", self.compact_threshold_spin.stepUp))
-                threshold_box.addStretch(1)
+                threshold_box.insertStretch(0, 1)
                 grid.addLayout(threshold_box, row, 1)
                 box.toggled.connect(self.compact_threshold_spin.setEnabled)
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
-        grid.addWidget(QLabel("编解码设置"), row, 0)
-        self._codec_values = codec_settings(settings)
+        from .settings_codec_editor import InlineCodecEditor
+        self.codec_editor = InlineCodecEditor(settings)
+        self.codec_editor.hide()
         self.codec_button = QPushButton()
         self.codec_button.setObjectName("IconButton")
         self.codec_button.setAccessibleName("编解码设置")
-        self.codec_button.clicked.connect(self._edit_codecs)
+        self.codec_button.setCheckable(True)
+        self.codec_button.setAutoDefault(False)
+        self.codec_button.toggled.connect(self._set_codecs_expanded)
+        self.codec_button.toggled.connect(self._update_codec_summary)
+        self.codec_editor.changed.connect(self._update_codec_summary)
         self._update_codec_summary()
-        grid.addWidget(self.codec_button, row, 1)
+        grid.addWidget(self.codec_button, row, 0, 1, 2)
         row += 1
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
@@ -261,8 +278,10 @@ class GeneralSettingsPage(QWidget):
         self.volume_slider.valueChanged.connect(self.volume_label.setNum)
         volume_box.addWidget(self.volume_slider)
         volume_box.addWidget(self.volume_label)
-        volume_box.addStretch(1)
+        self.volume_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         grid.addLayout(volume_box, row, 1)
+        row += 1
+        grid.addWidget(self.codec_editor, row, 0, 1, 2)
         row += 1
         from .audio_normalization_ui import AudioNormalizationEditor
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
@@ -270,27 +289,35 @@ class GeneralSettingsPage(QWidget):
         self._checks['volume_normalization'].toggled.connect(self.normalization_editor.setEnabled)
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 2, 4, 10, 11), False),
+            ('playback', '播放与声音', (1, 11, 2, 4, 10, 12), False),
             ('following', '关注与预览', (0, 5, 6, 7, 8), False),
             ('normalization', '音量均衡', (3, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
+        for key in ('playback', 'following'):
+            self.sections.section(key).setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.sections._arrange()
         layout.addLayout(grid)
         layout.addStretch(1)
 
     def _update_codec_summary(self):
+        values = self.codec_editor.values()
         codec = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}.get(
-            self._codec_values["bili_codec"], "H.264")
-        mode = DECODE_LABELS[self._codec_values["decode_mode"]]
-        self.codec_button.setText(f"{codec} · {mode}　设置…")
+            values["bili_codec"], "H.264")
+        mode = {'auto': '自动解码', 'd3d11va-copy': '兼容硬解', 'none': 'CPU 解码',
+                'd3d11va': 'D3D11VA', 'dxva2': 'DXVA2'}[values['decode_mode']]
+        action = '收起' if self.codec_button.isChecked() else '展开'
+        self.codec_button.setText(f"编解码　{codec} · {mode}　{action}")
+        self.codec_button.setToolTip('收起编解码选项' if self.codec_button.isChecked() else '展开编解码选项')
 
     def _edit_codecs(self):
-        # Retain the existing dialog factory replacement entry point.
-        from .dialogs import CodecSettingsDialog
-        dialog = CodecSettingsDialog(self.values(), self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._codec_values = dialog.controls.values()
-            self._update_codec_summary()
-        dialog.deleteLater()
+        self.codec_button.toggle()
+
+    def _set_codecs_expanded(self, expanded):
+        self.codec_editor.setVisible(expanded)
+        card = self.sections.section('playback')
+        card.layout().activate()
+        card.updateGeometry()
+        self.sections._arrange()
 
     def reset(self) -> None:
         from . import config as config_module
@@ -304,7 +331,7 @@ class GeneralSettingsPage(QWidget):
             self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
-        self._codec_values = codec_settings(config_module.DEFAULT_SETTINGS)
+        self.codec_editor.set_values(codec_settings(config_module.DEFAULT_SETTINGS))
         self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
@@ -315,7 +342,7 @@ class GeneralSettingsPage(QWidget):
             "default_volume": int(self.volume_slider.value()),
             "volume_normalization_curve": self.normalization_editor.values(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
-            **self._codec_values,
+            **self.codec_editor.values(),
         }
         for key, _label in self.ITEMS:
             result[key] = bool(self._checks[key].isChecked())

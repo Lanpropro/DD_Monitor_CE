@@ -75,20 +75,20 @@ assert seen == expected, seen
         self.assertIs(dialogs._create_folder_for_dialog, room_dialogs._create_folder_for_dialog)
         self.child("import sys; import ddm.account_dialog; assert 'ddm.dialogs' not in sys.modules")
 
-    def test_codec_action_keeps_old_factory_replacement_and_saved_values(self):
+    def test_global_codec_action_uses_inline_editor_without_a_dialog_factory(self):
         from PySide6.QtCore import QCoreApplication, QEvent
-        from PySide6.QtWidgets import QApplication, QDialog
+        from PySide6.QtWidgets import QApplication
         from ddm import dialogs
         app = QApplication.instance() or QApplication([])
         page = dialogs.GeneralSettingsPage({'bili_codec': 'avc', 'decode_mode': 'auto'})
         try:
             with patch('ddm.dialogs.CodecSettingsDialog') as factory:
-                factory.return_value.exec.return_value = QDialog.Accepted
-                factory.return_value.controls.values.return_value = {'bili_codec': 'hevc', 'decode_mode': 'none'}
                 page._edit_codecs()
+                page.codec_editor.source_buttons['hevc'].click()
+                page.codec_editor.decode_buttons['none'].click()
                 self.assertEqual(page.values()['bili_codec'], 'hevc')
                 self.assertEqual(page.values()['decode_mode'], 'none')
-                factory.return_value.deleteLater.assert_called_once_with()
+                factory.assert_not_called()
         finally:
             page.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
@@ -96,6 +97,67 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(page.volume_slider.value(), config.DEFAULT_SETTINGS['default_volume'])
         self.assertEqual(page.poll_spin.value(), config.DEFAULT_SETTINGS['poll_minutes'])
         self.assertIsNotNone(grid.itemAt(grid.indexOf(anchor)))
+
+    def test_general_codecs_expand_inline_and_keep_edits_across_widths(self):
+        page = self.page(0)
+        self.assertTrue(page.codec_editor.isHidden())
+        following = page.sections.section('following')
+        before_height = following.height()
+        playback = page.sections.section('playback')
+        collapsed_height = playback.height()
+        with patch('ddm.dialogs.CodecSettingsDialog') as factory:
+            page.codec_button.click()
+            settle()
+            factory.assert_not_called()
+        self.assertTrue(page.codec_editor.isVisible())
+        self.assertGreater(playback.height(), collapsed_height)
+        expanded_height = playback.height()
+        self.assertLessEqual(page.codec_editor.mapTo(playback, page.codec_editor.rect().bottomRight()).y(), playback.height())
+        self.assertEqual(following.height(), before_height)
+        self.assertEqual(following.y(), page.sections.section('playback').y())
+        page.codec_editor.source_buttons['hevc'].click()
+        page.codec_editor.decode_buttons['none'].click()
+        self.assertIn('HEVC', page.codec_button.text())
+        self.assertIn('CPU', page.codec_button.text())
+        for width in (760, 1200):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertTrue(page.codec_editor.isVisible())
+            self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
+            self.assertEqual(self.dialog.settings()['bili_codec'], 'hevc')
+            self.assertEqual(self.dialog.settings()['decode_mode'], 'none')
+            for button in page.codec_editor.decode_buttons.values():
+                self.assertTrue(button.isVisible())
+                self.assertLessEqual(button.geometry().right(), page.codec_editor.width())
+        page.codec_button.click()
+        self.assertTrue(page.codec_editor.isHidden())
+        settle()
+        self.assertLess(playback.height(), expanded_height)
+        self.assertEqual(page.values()['decode_mode'], 'none')
+        self.dialog._reset_current()
+        self.assertEqual(page.values()['bili_codec'], config.DEFAULT_SETTINGS['bili_codec'])
+        self.assertEqual(page.values()['decode_mode'], config.DEFAULT_SETTINGS['decode_mode'])
+
+    def test_general_codec_cancel_keeps_input_and_saved_choices_reload(self):
+        original = dict(config.DEFAULT_SETTINGS)
+        draft = SettingsDialog(original, {}, preview=True)
+        restored = None
+        try:
+            draft.general_page.codec_editor.source_buttons['av1'].click()
+            draft.general_page.codec_editor.decode_buttons['dxva2'].click()
+            saved = draft.settings()
+            draft.reject()
+            self.assertEqual(original, config.DEFAULT_SETTINGS)
+            restored = SettingsDialog(saved, {}, preview=True)
+            self.assertEqual(restored.settings()['bili_codec'], 'av1')
+            self.assertEqual(restored.settings()['decode_mode'], 'dxva2')
+            self.assertTrue(restored.general_page.codec_editor.isHidden())
+        finally:
+            for dialog in (draft, restored):
+                if dialog is not None:
+                    dialog.close()
+                    dialog.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_audio_curve_is_inline_full_width_and_preserves_edits_when_stacked(self):
         page = self.page(0)
