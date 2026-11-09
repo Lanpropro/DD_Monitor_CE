@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import subprocess
 import sys
 import tempfile
@@ -80,6 +81,27 @@ class OnDemandTests(unittest.TestCase):
         self.assertFalse((self.root / 'logs').exists())
         self.assertFalse(self.endpoint.findChildren(type(self.window.sidebar.drag_session.timer)))
         self.assertIs(QDrag.exec, original)
+
+    def test_playback_pipe_captures_live_state_and_disconnect_removes_observers(self):
+        self.window.players = {}
+        self.window.wall = SimpleNamespace(tiles=[])
+        socket = self.request('playback')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        self.assertTrue(observer.timer.isActive())
+        self.assertEqual(self.reply(self.request('folders'))['reason'], 'capture-busy')
+        observer.started -= 61
+        observer.sample()
+        reply = self.reply(socket)
+        self.assertEqual(reply['reason'], 'limit')
+        self.assertTrue(any(row['stage'] == 'playback-sample' for row in reply['records']))
+        self.assertIsNone(self.endpoint.active)
+        socket = self.request('playback')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        socket.abort()
+        self.wait(lambda: self.endpoint.active is None)
+        self.assertTrue(observer.closed)
 
     def test_folder_snapshot_preserves_wrong_geometry_without_layout_or_screenshot(self):
         item = self.window.sidebar._items[0]

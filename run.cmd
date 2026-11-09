@@ -54,6 +54,8 @@ if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
 if /i "%~1"=="--check-sc-layers" goto scLayersCheck
 if /i "%~1"=="--check-stream-info" goto streamInfoCheck
+if /i "%~1"=="--check-playback-capture" goto playbackCaptureCheck
+if /i "%~1"=="--capture-playback" goto playbackCapture
 if /i "%~1"=="--check-notice-close" goto noticeCloseCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
@@ -383,6 +385,22 @@ set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_main_notices.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_notification_center.py"
+exit /b %errorlevel%
+
+:playbackCapture
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "PLAYBACK_CAPTURE_LABEL=%~2"
+if not defined PLAYBACK_CAPTURE_LABEL set "PLAYBACK_CAPTURE_LABEL=unknown"
+"%CHECK_PY%" "%PROJ%dev\capture_playback.py" --label "%PLAYBACK_CAPTURE_LABEL%"
+exit /b %errorlevel%
+
+:playbackCaptureCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_playback_capture.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_on_demand_diagnostics.py"
 exit /b %errorlevel%
 
 :diagnosticSession
