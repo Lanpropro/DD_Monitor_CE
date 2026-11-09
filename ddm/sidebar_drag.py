@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from shiboken6 import isValid
 
 from .sidebar_hit_test import widget_at
+from .card_drop import remember_card
 
 ROOM_MIME = 'application/x-ddm-room'
 NAV_MIME = 'application/x-ddm-nav'
@@ -39,6 +40,8 @@ class SidebarDrag(QObject):
         if self.active:
             return
         self.source, self.mime = source, mime
+        if mime.hasFormat(ROOM_MIME):
+            remember_card(mime, pixmap, hotspot)
         self.position = QPoint(global_pos)
         self.hotspot = QPoint(hotspot)
         self._last_update = None

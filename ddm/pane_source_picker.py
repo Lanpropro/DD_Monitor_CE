@@ -1,9 +1,11 @@
 """Right-anchored room avatars for choosing a chat pane's video source."""
-from PySide6.QtCore import QEvent, Qt, QVariantAnimation
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QVariantAnimation
+from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QScrollArea, QWidget
 
 from . import motion, theme
 from .avatar_widgets import Avatar
+from .corner_geometry import continuous_path
 
 
 class SourceAvatar(QPushButton):
@@ -33,15 +35,31 @@ class SourceAvatar(QPushButton):
             if self.avatar is not None:
                 self.avatar.hide()
                 self.avatar.deleteLater()
-            self.avatar = Avatar(name, index, size=24, parent=self)
-            self.avatar.move(1, 1)
-            self.avatar.show()
+            self.avatar = Avatar(name, index, size=24, parent=self) if room_id else None
+            if self.avatar is not None:
+                self.avatar.move(1, 1)
+                self.avatar.show()
             self.identity, self.face_key = identity, None
-        if pixmap is not None and not pixmap.isNull() and pixmap.cacheKey() != self.face_key:
+        if self.avatar is not None and pixmap is not None and not pixmap.isNull() and pixmap.cacheKey() != self.face_key:
             self.avatar.set_pixmap_image(pixmap)
             self.face_key = pixmap.cacheKey()
         self.setToolTip(name)
         self.setAccessibleName(name)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.identity is None or self.identity[0]:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(continuous_path(QRectF(6, 5, 15, 11), 2))
+        painter.drawLine(QPointF(4, 9), QPointF(4, 19))
+        painter.drawLine(QPointF(4, 19), QPointF(16, 19))
+        painter.drawLine(QPointF(12, 9), QPointF(16, 9))
+        painter.drawLine(QPointF(14, 7), QPointF(14, 11))
 
 
 class SourcePicker(QWidget):
