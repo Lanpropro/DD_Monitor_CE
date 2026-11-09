@@ -158,6 +158,12 @@ class LogSession:
         faulthandler.enable(file=self.crash_handle, all_threads=True)
         self.logger.info("[启动] 日志已开启")
         self.closed = False
+        from . import native_diagnostics, qt_lifecycle
+        native_diagnostics.install(self.directory)
+        try:
+            qt_lifecycle.start(self.directory)
+        except OSError:
+            self.logger.exception("[对象诊断] unavailable")
 
     def close(self):
         if self.closed:
@@ -174,6 +180,8 @@ class LogSession:
         self.handler.close()
         faulthandler.disable()
         self.crash_handle.close()
+        from . import qt_lifecycle
+        qt_lifecycle.close()
         self.closed = True
 
 

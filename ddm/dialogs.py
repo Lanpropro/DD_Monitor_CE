@@ -1456,7 +1456,7 @@ class SettingsDialog(QDialog):
 
     PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
              ("recording", "录制"), ("notifications", "通知"), ("shortcuts", "快捷键"),
-             ("tray", "托盘行为"), ("plugins", "插件"), ("updates", "软件更新")]
+             ("tray", "托盘行为"), ("plugins", "插件"), ("updates", "软件更新"), ("diagnostics", "诊断与反馈")]
     PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
@@ -1503,7 +1503,9 @@ class SettingsDialog(QDialog):
         # Build the expensive controls only when their page is first requested.
         # Keep the public page properties so callers and settings validation
         # still use the same controls and value normalization.
+        from .settings_diagnostics import DiagnosticsPage
         self._page_factories = {
+            9: lambda: DiagnosticsPage(settings, self),
             1: lambda: AppearanceSettingsPage(settings, skin_controller=getattr(parent, 'skin_controller', None)),
             2: lambda: DanmakuSettingsPage(settings),
             3: lambda: RecordingSettingsPage(settings),
@@ -1687,7 +1689,7 @@ class SettingsDialog(QDialog):
     def settings(self) -> dict:
         values = dict(self._initial_settings)
         values.update(self.general_page.values())
-        for index in (1, 2, 3, 4, 6):
+        for index in (1, 2, 3, 4, 6, 9):
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
         if 8 in self._loaded_pages:
