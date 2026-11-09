@@ -1,6 +1,6 @@
 """Right-anchored room avatars for choosing a chat pane's video source."""
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QScrollArea, QWidget
 
 from . import motion, theme
@@ -15,7 +15,10 @@ class SourceAvatar(QPushButton):
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet('''QPushButton {background: transparent; border: none; padding: 0;}
-            QPushButton:checked, QPushButton:focus {border: 1px solid ACCENT; border-radius: 13px;}'''.replace('ACCENT', theme.ACCENT))
+            QPushButton:checked, QPushButton:focus {border: 1px solid ACCENT; border-radius: 13px;}
+            QPushButton[sourceEmpty="true"]:checked, QPushButton[sourceEmpty="true"]:focus {
+                border: 1px solid NEUTRAL; border-radius: 7px;}
+            '''.replace('ACCENT', theme.ACCENT).replace('NEUTRAL', theme.TEXT2))
         self.avatar = None
         self.identity = None
         self.face_key = None
@@ -35,29 +38,38 @@ class SourceAvatar(QPushButton):
             if self.avatar is not None:
                 self.avatar.hide()
                 self.avatar.deleteLater()
-            self.avatar = Avatar(name, index, size=24, parent=self) if room_id else None
-            if self.avatar is not None:
+            self.avatar = None
+            self.identity, self.face_key = identity, None
+        if room_id and pixmap is not None and not pixmap.isNull():
+            if self.avatar is None:
+                self.avatar = Avatar(name, index, size=24, parent=self)
                 self.avatar.move(1, 1)
                 self.avatar.show()
-            self.identity, self.face_key = identity, None
-        if self.avatar is not None and pixmap is not None and not pixmap.isNull() and pixmap.cacheKey() != self.face_key:
-            self.avatar.set_pixmap_image(pixmap)
-            self.face_key = pixmap.cacheKey()
+            if pixmap.cacheKey() != self.face_key:
+                self.avatar.set_pixmap_image(pixmap)
+                self.face_key = pixmap.cacheKey()
+        if self.property('sourceEmpty') != (self.avatar is None):
+            self.setProperty('sourceEmpty', self.avatar is None)
+            self.style().unpolish(self)
+            self.style().polish(self)
         self.setToolTip(name)
         self.setAccessibleName(name)
         self.update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if self.identity is None or self.identity[0]:
+        if self.identity is None or self.avatar is not None:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)
-        painter.drawPath(continuous_path(QRectF(6, 5, 15, 11), 2))
-        painter.drawLine(QPointF(4, 9), QPointF(4, 19))
-        painter.drawLine(QPointF(4, 19), QPointF(16, 19))
+        painter.drawPath(continuous_path(QRectF(6, 5, 15, 11), 3))
+        rear = QPainterPath(QPointF(4, 9))
+        rear.lineTo(4, 16)
+        rear.cubicTo(4, 18, 5, 19, 7, 19)
+        rear.lineTo(16, 19)
+        painter.drawPath(rear)
         painter.drawLine(QPointF(12, 9), QPointF(16, 9))
         painter.drawLine(QPointF(14, 7), QPointF(14, 11))
 

@@ -1,9 +1,8 @@
 """Paint a released room card into its video surface without moving the player."""
-import math
 import time
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QPainter, QPen, QPixmap
+from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QWidget
 from shiboken6 import isValid
 
@@ -11,6 +10,8 @@ from . import motion, theme
 from .corner_geometry import continuous_path
 
 DURATION_MS = 280
+LOAD_SINK_MS = 1200
+REVEAL_MS = 160
 PIXMAP_PROPERTY = '_ddm_card_pixmap'
 HOTSPOT_PROPERTY = '_ddm_card_hotspot'
 
@@ -40,6 +41,8 @@ def play_card_drop(tile, mime, position, room_id):
         return None
     overlay = CardDropOverlay(tile, pixmap, position, hotspot)
     tile._card_drop_overlay = overlay
+    if overlay.waiting:
+        tile.spinner.stop()
     overlay.show()
     overlay.raise_()
     overlay.timer.start()
@@ -56,8 +59,16 @@ class CardDropOverlay(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.tile = tile
         self.snapshot = QPixmap(pixmap)
+        cover = getattr(tile, '_cover_source', None)
+        self.cover = QPixmap(cover) if isinstance(cover, QPixmap) else QPixmap()
+        self.room_id = str(tile.room.get('room_id'))
         self.progress = 0.0
         self.started = time.monotonic()
+        self.waiting = bool(getattr(tile, '_connecting', False) and not getattr(tile, '_player_active', False))
+        self.loading_bridge = self.waiting
+        self.reveal_started = None
+        self.reveal_from = 0.0
+        self.fade = 0.0
         self.finished = False
         source = QRect(position - hotspot, pixmap.deviceIndependentSize().toSize())
         target = QRect(tile.video.mapToGlobal(QPoint()), tile.video.size())
@@ -65,8 +76,8 @@ class CardDropOverlay(QWidget):
         self.setGeometry(bounds)
         self.source = QRectF(source.translated(-bounds.topLeft()))
         self.target = QRectF(target.translated(-bounds.topLeft()))
-        self.origin = QPointF(position - bounds.topLeft())
-        self.watched = (tile, tile.video, tile.window())
+        self.spinner = tile.spinner
+        self.watched = (tile, tile.video, tile.window(), self.spinner)
         for widget in self.watched:
             widget.installEventFilter(self)
         tile.destroyed.connect(self.finish)
@@ -76,24 +87,53 @@ class CardDropOverlay(QWidget):
         self.timer.timeout.connect(self.advance)
 
     def advance(self):
-        self.progress = min(1.0, (time.monotonic() - self.started) * 1000 / DURATION_MS)
-        if self.progress >= 1.0:
+        if self.finished:
+            return
+        now = time.monotonic()
+        if str(self.tile.room.get('room_id')) != self.room_id:
             self.finish()
+            return
+        if self.waiting:
+            if getattr(self.tile, '_player_active', False):
+                self.waiting = False
+                self.reveal_started, self.reveal_from = now, self.progress
+            elif not getattr(self.tile, '_connecting', False):
+                self.finish()
+                return
+            else:
+                phase = min(1.0, (now - self.started) * 1000 / LOAD_SINK_MS)
+                progress = .82 * phase
+                if progress != self.progress:
+                    self.progress = progress
+                    self.update()
+                return
+        if self.reveal_started is not None:
+            self.fade = min(1.0, (now - self.reveal_started) * 1000 / REVEAL_MS)
+            self.progress = self.reveal_from + (1 - self.reveal_from) * self.fade
         else:
-            self.update()
+            self.progress = self.fade = min(1.0, (now - self.started) * 1000 / DURATION_MS)
+        if self.fade >= 1.0:
+            self.finish()
+            return
+        self.update()
 
     def card_rect(self):
         p = motion.THEME_WAVE_EASING.valueForProgress(self.progress)
         source, target = self.source, self.target
-        rect = QRectF(source.x() + (target.x() - source.x()) * p,
-                      source.y() + (target.y() - source.y()) * p,
-                      source.width() + (target.width() - source.width()) * p,
-                      source.height() + (target.height() - source.height()) * p)
-        depth = math.sin(math.pi * self.progress)
-        inset = min(rect.width(), rect.height()) * .035 * depth
-        rect.adjust(inset, inset, -inset, -inset)
-        rect.translate(0, min(14, target.height() * .04) * depth)
-        return rect
+        scale = min(.94, target.width() * .82 / source.width(), target.height() * .75 / source.height())
+        destination = QRectF(0, 0, source.width() * scale, source.height() * scale)
+        destination.moveCenter(target.center() + QPointF(0, min(18, target.height() * .07)))
+        return QRectF(source.x() + (destination.x() - source.x()) * p,
+                      source.y() + (destination.y() - source.y()) * p,
+                      source.width() + (destination.width() - source.width()) * p,
+                      source.height() + (destination.height() - source.height()) * p)
+
+    def _draw_image(self, painter, image, rect):
+        size = image.deviceIndependentSize()
+        scale = max(rect.width() / size.width(), rect.height() / size.height())
+        destination = QRectF(0, 0, size.width() * scale, size.height() * scale)
+        destination.moveCenter(rect.center())
+        painter.drawPixmap(destination, image, QRectF(image.rect()))
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -101,28 +141,27 @@ class CardDropOverlay(QWidget):
         painter.setCompositionMode(QPainter.CompositionMode_Source)
         painter.fillRect(self.rect(), Qt.transparent)
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        p = self.progress
+        if self.loading_bridge:
+            painter.save()
+            painter.setClipPath(continuous_path(self.target, 8))
+            painter.setOpacity(1 - self.fade)
+            painter.fillRect(self.target, theme.qcolor(theme.TILE_BG))
+            if not self.cover.isNull():
+                self._draw_image(painter, self.cover, self.target)
+            painter.restore()
         rect = self.card_rect()
         painter.save()
-        painter.setClipPath(continuous_path(rect, 12 - 4 * p))
-        painter.setOpacity(1 - motion.THEME_WAVE_EASING.valueForProgress(p))
+        painter.setClipPath(continuous_path(rect, 12))
+        painter.setOpacity((1 - self.fade) * (1 - .45 * self.progress))
         # Crop the shared snapshot instead of stretching card text and avatars.
-        size = self.snapshot.deviceIndependentSize()
-        scale = max(rect.width() / size.width(), rect.height() / size.height())
-        image = QRectF(0, 0, size.width() * scale, size.height() * scale)
-        image.moveCenter(rect.center())
-        painter.drawPixmap(image, self.snapshot, QRectF(self.snapshot.rect()))
+        self._draw_image(painter, self.snapshot, rect)
         painter.restore()
-        painter.setClipPath(continuous_path(self.target, 8))
-        color = theme.qcolor(theme.ACCENT)
-        color.setAlphaF(.22 * (1 - p))
-        painter.setPen(QPen(color, 1.5))
-        painter.setBrush(Qt.NoBrush)
-        radius = 16 + max(self.target.width(), self.target.height()) * .65 * p
-        for factor in (1.0, .72):
-            painter.drawEllipse(self.origin, radius * factor, radius * factor * .65)
 
     def eventFilter(self, watched, event):
+        if watched is self.spinner:
+            if self.waiting and event.type() == QEvent.Show:
+                self.spinner.stop()
+            return False
         if event.type() in (QEvent.Hide, QEvent.Close, QEvent.Move, QEvent.Resize,
                             QEvent.WindowDeactivate, QEvent.DeferredDelete):
             self.finish()
@@ -141,5 +180,8 @@ class CardDropOverlay(QWidget):
             if getattr(self.tile, '_card_drop_overlay', None) is self:
                 self.tile._card_drop_overlay = None
         self.snapshot = QPixmap()
+        self.cover = QPixmap()
         self.hide()
+        if isValid(self.tile) and self.tile.isVisible() and getattr(self.tile, '_connecting', False):
+            self.spinner.start()
         self.deleteLater()
