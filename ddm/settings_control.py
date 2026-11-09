@@ -230,13 +230,18 @@ class SettingsControl:
         from . import theme
         host = self.host
         host.settings["appearance_mode"] = theme.normalize_mode(mode)
-        from .theme_transition import ThemeTransition
-        if not hasattr(host, '_theme_transition'):
-            host._theme_transition = ThemeTransition(host)
         source = host.sender()
         page = getattr(source, 'appearance_page', None)
-        button = page.buttons[host.settings["appearance_mode"]] if page is not None else host.sidebar.appearance_button
-        host._theme_transition.change(host.settings["appearance_mode"], button.mapToGlobal(QPoint()))
+        if page is not None:
+            if hasattr(host, '_theme_transition'):
+                host._theme_transition.finish()
+            theme.apply(host.settings["appearance_mode"])
+        else:
+            from .theme_transition import ThemeTransition
+            if not hasattr(host, '_theme_transition'):
+                host._theme_transition = ThemeTransition(host)
+            button = host.sidebar.appearance_button
+            host._theme_transition.change(host.settings["appearance_mode"], button.mapToGlobal(QPoint()))
         host._save_timer.start()
 
     def sidebar_card_mode_changed(self, enabled):

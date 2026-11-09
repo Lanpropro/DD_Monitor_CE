@@ -140,8 +140,20 @@ class AutoSaveTests(unittest.TestCase):
                 'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
             dialog = window._create_settings_dialog()
             try:
+                window.show()
                 dialog.show()
                 APP.processEvents()
+                dialog.nav.setCurrentRow(1)
+                with patch('ddm.motion.enabled', return_value=True):
+                    window.set_appearance('light')
+                self.assertTrue(window._theme_transition.overlays, 'The main appearance entry keeps its wave')
+                for mode in ('dark', 'light', 'dark'):
+                    dialog.appearance_page.buttons[mode].click()
+                    self.assertEqual(window.settings['appearance_mode'], mode)
+                    self.assertFalse(getattr(getattr(window, '_theme_transition', None), 'overlays', []),
+                                     'Settings changes must repaint in place without a window-covering wave')
+                    self.assertTrue(dialog.isVisible())
+                dialog.nav.setCurrentRow(0)
                 dialog.general_page.volume_slider.setValue(17)
                 dialog.auto_save.flush()
                 self.assertEqual(window.settings['default_volume'], 17)

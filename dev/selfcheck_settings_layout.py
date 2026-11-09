@@ -255,6 +255,29 @@ class SettingsLayoutTests(unittest.TestCase):
         get_style.restype = ctypes.c_ssize_t
         self.assertEqual(get_style(hwnd, -16) & 0x00c00000, 0)
 
+    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
+                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
+    def test_theme_switches_reuse_the_material_on_the_same_native_window(self):
+        import ctypes
+        from ctypes import wintypes
+        extend = ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea
+        extend.argtypes = (wintypes.HWND, ctypes.c_void_p)
+        self.dialog._backdrop_hwnd = None
+        hwnd = int(self.dialog.winId())
+        geometry = self.dialog.geometry()
+        try:
+            with patch.object(ctypes.windll.dwmapi, 'DwmExtendFrameIntoClientArea', wraps=extend) as applied:
+                for mode in ('light', 'dark', 'light'):
+                    theme.apply(mode)
+                    settle()
+                    self.assertTrue(self.dialog.isVisible())
+                    self.assertTrue(self.dialog._native_glass)
+                    self.assertEqual(int(self.dialog.winId()), hwnd)
+                    self.assertEqual(self.dialog.geometry(), geometry)
+                self.assertEqual(applied.call_count, 1, 'Theme changes must not restart the native material')
+        finally:
+            theme.apply('dark')
+
     def test_audio_curve_is_inline_full_width_and_preserves_edits_when_stacked(self):
         page = self.page(0)
         page._checks['volume_normalization'].setChecked(True)
