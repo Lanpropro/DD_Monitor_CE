@@ -43,6 +43,19 @@ class SettingsColumns(QWidget):
     def section(self, key):
         return next(widget for name, widget, _wide in self.entries if name == key)
 
+    def refresh_section(self, key):
+        card = self.section(key)
+        card.layout().invalidate()
+        card.updateGeometry()
+        index = self.grid.indexOf(card)
+        position = self.grid.getItemPosition(index)
+        item = self.grid.takeAt(index)
+        # Qt caches this item's height hint across inline visibility changes.
+        # Replace only that item, keeping every neighbouring card in place.
+        self.grid.addWidget(card, *position, item.alignment())
+        self.grid.activate()
+        self.updateGeometry()
+
     def minimumSizeHint(self):
         return QSize(0, self.grid.minimumSize().height())
 

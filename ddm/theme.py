@@ -616,6 +616,13 @@ QSlider::handle:horizontal:hover {{
 }}
 
 /* ---------- 设置窗口（左侧选类别，右侧改内容） ---------- */
+
+QDialog[settingsGlassWindow="true"] {{background: transparent; border: none;}}
+QDialog[settingsGlassWindow="true"] #SettingsNavigation,
+QDialog[settingsGlassWindow="true"] #SettingsNav {{background: transparent;}}
+#SettingsBreadcrumb {{font-size: 16px; font-weight: 600; background: transparent;}}
+QDialog[settingsGlassWindow="true"] #Search {{border-radius: 17px;}}
+
 #SettingsNavigation {{
     background: {SIDEBAR};
     border-right: 1px solid {BORDER};
@@ -647,6 +654,9 @@ QSlider::handle:horizontal:hover {{
 }}
 #SettingsStack[embeddedSettings="true"] {{
     background: {BG};
+}}
+#SettingsStack[embeddedSettings="true"][settingsGlassContent="true"] {{
+    background: transparent;
 }}
 #SettingsTitle {{
     font-size: {FONT_HEADING}px;

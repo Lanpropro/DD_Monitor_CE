@@ -139,6 +139,9 @@ def child(action):
                 return
             self.nav.setCurrentRow(index)
             def observed():
+                if self.host_container is None or not self.host_surface_ready:
+                    QTimer.singleShot(25, observed)
+                    return
                 assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
@@ -155,6 +158,9 @@ def child(action):
                     extra['footer_top'] = min(origin.y + round(button.mapTo(self, QPoint()).y() * scale) for button in buttons)
                     extra['footer_visible'] = all(button.isVisible() and self.rect().contains(button.geometry()) for button in buttons)
                     start = self.host_container.mapTo(self, QPoint())
+                    extra['container_geometry'] = list(self.host_container.geometry().getRect())
+                    extra['stack_geometry'] = list(self.stack.geometry().getRect())
+                    extra['foreign_geometry'] = [self.foreign.x(), self.foreign.y(), self.foreign.width(), self.foreign.height()]
                     extra['content_rect'] = [origin.x + round(start.x() * scale), origin.y + round(start.y() * scale),
                                              round(self.host_container.width() * scale), round(self.host_container.height() * scale)]
                 print(settings_process.PREFIX + json.dumps({
@@ -666,7 +672,11 @@ def check_host_application(app, action='save', *, installed_controls=False):
         stack.enter_context(patch.object(settings_process, 'worker_command', return_value=command))
         if action.startswith('embed-'):
             errors = []
-            stack.enter_context(patch.object(sys, 'excepthook', lambda _kind, error, _tb: errors.append(error)))
+            def report_error(kind, error, trace):
+                import traceback
+                traceback.print_exception(kind, error, trace)
+                errors.append(error)
+            stack.enter_context(patch.object(sys, 'excepthook', report_error))
             from ddm.dialogs import SettingsDialog
             stack.enter_context(patch.object(SettingsDialog, 'exec', side_effect=AssertionError('Settings reopened')))
             if action == 'embed-install':
@@ -684,7 +694,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert user32.GetAncestor(handle, 2) == message['hwnd'], 'Host page is not inside worker shell'
                 assert user32.GetDpiForWindow(handle) == user32.GetDpiForWindow(ctypes.c_void_p(message['hwnd']))
                 assert session.stack.isVisible()
-                assert session.stack.width() > 400 and session.stack.height() > 300
+                assert session.stack.width() > 400 and session.stack.height() > 300, (session.stack.width(), session.stack.height(), message)
                 assert message['embedded']
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
@@ -699,7 +709,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         assert rect.bottom <= message['footer_top'], ('Embedded page covers save/cancel', (rect.left, rect.top, rect.right, rect.bottom), message)
                     image = session.stack.grab().toImage()
                     actual = image.pixelColor(1, 1)
-                    assert actual == theme.qcolor(theme.BG), (message['index'], actual.name(), theme.BG, actual.alpha())
+                    assert actual.alpha() == 0, (message['index'], actual.name(), actual.alpha())
+                    assert max(image.pixelColor(x, y).alpha() for x in range(0, min(96, image.width()), 2)
+                               for y in range(0, min(48, image.height()), 2)) > 200, 'Embedded text must still render'
                     output = ROOT / 'work/test-artifacts/host/settings-pages'
                     output.mkdir(parents=True, exist_ok=True)
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))

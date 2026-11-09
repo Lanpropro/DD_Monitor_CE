@@ -4,6 +4,7 @@ from importlib import import_module
 from .basics import ActionButton, HintLabel, TitleLabel, page_header, step_button
 
 _MODULES = {
+    'ui.disclosure': ('DisclosureButton',),
     'ui.settings_surface': ('SettingsSurface',),
     'ui.selection': ('ToggleSwitch', 'SegmentedControl'),
     'ui.select': ('SelectControl',),

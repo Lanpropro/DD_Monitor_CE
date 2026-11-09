@@ -117,14 +117,14 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_folder_icons](../selfcheck_folder_icons.py) | 单项执行前核对 |
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
 | [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组／拼音搜索、按钮收展、鼠标停留不自动变化、图标栏切页及编辑保持、键盘触发、过渡中断、隐藏重开与销毁；隔离窗口和鼠标位置输入，不读取账号 |
-| [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、常规页编解码原地收展／高度更新／独立卡高／保存取消和重置、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
+| [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、常规页编解码原地收展／高度更新／相邻布局项和上方控件稳定／独立卡高／保存取消和重置、无边框顶部搜索／关闭取消语义、Windows 原生系统材质和标题栏样式、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
 | [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；原缓冲标识保持、短前奏限时与首帧立即清理、透明小窗口、墙内可见卡片抓取／取消／换格、元数据备用卡片、连续拖入、销毁、系统关闭动画及中性圆角来源图标；bootstrap 加 `--native` 用本地视频核对抓取期间进度、libmpv/HWND 保持；不读取账号、不移动系统鼠标 |
 | [selfcheck_audio_normalization](../selfcheck_audio_normalization.py) | `offline`、`smoke`；压低／保持／恢复时间、静音保持、参数边界、内嵌预设／拖动／设置页保存取消／重置、播放器暂停与退出生命周期；不读取账号、不联网 |
 | [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_control](../selfcheck_settings_control.py) | `smoke` / `offline`；设置协调导入、旧对话框工厂、普通/独立入口、真实Qt信号、宿主页/更新页复用、保存取消异常清理、状态与应用顺序、SC预览；隔离替身、无窗口/进程/账号/网络 |
-| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--native-zorder` 检查屏幕外独立设置窗口归属、遮挡及重开，不移动光标或激活窗口；`--embedded-native` 检查屏幕外跨页 HWND/DPI；`--footer-native` 检查首次进入插件、切页返回和同进程关闭重开时原生内容完整位于分配区域、取消／保存不被覆盖；`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
+| [selfcheck_settings_process](../selfcheck_settings_process.py) | 单项执行；保存取消与主线程隔离；windows 下 `--native-zorder` 检查屏幕外独立设置窗口归属、遮挡及重开，不移动光标或激活窗口；`--embedded-native` 检查屏幕外跨页 HWND/DPI；`--footer-native` 检查首次进入插件、切页返回和同进程关闭重开时原生内容完整位于分配区域、取消／保存不被覆盖，等待实际嵌入完成、检查分层子窗口透明底板及清晰文字；`--restart-native` 检查安装/删除后的真实退出、隔离重启与无残留设置进程；`--native-focus` 会显示测试窗口并临时移动光标，须单独授权 |
 | [selfcheck_settings_occlusion](../selfcheck_settings_occlusion.py) | `native`；真实独立设置 HWND 与顶层 Quick 窗口，检查句柄交付前的显示屏障、反复抬升后的原生前后顺序、滞后设置矩形不留裁剪空洞、排序失败的原生裁剪回退、表面重建／呈现窗口切换，以及打开、移动、缩放、隐藏、最小化、重开、取消／退出／异常结束后的恢复；屏幕外窗口，不移动光标或激活窗口 |
 | [selfcheck_single_instance](../selfcheck_single_instance.py) | `offline` / `smoke`；隔离锁目录和真实子进程，检查重复／并发启动、启动中唤回、异常退出恢复、重启释放，以及第二实例在加载配置前退出 |
 | [check_settings_process_playback](../check_settings_process_playback.py) | 单项执行；需本机插件源码、双路合成媒体、libmpv、FFmpeg 和音频设备 |
@@ -260,7 +260,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录／单文件权限、EXE／DLL 占用、只读文件拦截和解除限制后修复安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
 | [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、封面640及头像256长边/JPEG与PNG压缩、下载后头像快照、小图不放大、裁切元数据/透明度保留、无URL旧图本地转存和重复读取不再压缩、跨进程清理及头像迟到转存保护、饼图选择及后台清理；不联网、不读真实账号 |
-| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、开关鼠标／空格／禁用兼容、分段互斥／方向键／信号／立体表面／主题／内容宽度、下拉提交取消／禁用／父销毁清理、卡片静态背景缓存／分区遮挡／预览草稿和子控件清晰及实际页面复用；离屏、临时数据，无账号/外网 |
+| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、开关鼠标／空格／禁用兼容、展开条焦点和按下时的圆角、分段互斥／方向键／信号／立体表面／主题／内容宽度、下拉提交取消／禁用／父销毁清理、卡片静态背景缓存／分区遮挡／预览草稿和子控件清晰及实际页面复用；离屏、临时数据，无账号/外网 |
 | [check_setup_data_cleanup](../check_setup_data_cleanup.py) | 单项 Windows 后台检查；先构建原生入口，再传入 ISCC；使用独立登记和合成文件验证软件目录／独立数据目录的默认保留、勾选清理、中文路径、链接保护及额外文件保留 |
 | [check_release_package](../check_release_package.py) | 单项执行前核对 |
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |

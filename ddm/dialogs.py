@@ -24,7 +24,10 @@ from .settings_plugins import (PluginRemovePrompt, PluginSettingsPage)
 from .settings_appearance import AppearanceSettingsPage
 
 
-class SettingsDialog(QDialog):
+from .settings_window import SettingsWindow
+
+
+class SettingsDialog(SettingsWindow):
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
     pageCreated = Signal(int, object)
@@ -57,7 +60,7 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(760, 520)
         self.resize(min(1200, available.width() - 48), min(800, available.height() - 72))
 
-        root = QHBoxLayout(self)
+        root = self.body_layout
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
@@ -65,6 +68,8 @@ class SettingsDialog(QDialog):
         from .online_ui import AppUpdatePage
         self.navigation = SettingsNavigation(self.PAGES, self)
         self.nav = self.navigation.nav
+        self.window_header.set_search(self.navigation.search)
+        self.nav.currentRowChanged.connect(self._update_window_heading)
         root.addWidget(self.navigation)
 
         self.content = QWidget(self)
@@ -122,9 +127,14 @@ class SettingsDialog(QDialog):
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
+        self.nav.setFocus(Qt.OtherFocusReason)
         if preview:
             return
         self._update_save_button()
+
+    def _update_window_heading(self, index):
+        title = self.PAGES[index][1] if 0 <= index < len(self.PAGES) else ''
+        self.window_header.breadcrumb.setText('设置  ›  ' + title)
 
     def paintEvent(self, event):
         super().paintEvent(event)

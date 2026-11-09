@@ -250,9 +250,10 @@ class GeneralSettingsPage(QWidget):
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
         from .settings_codec_editor import InlineCodecEditor
+        from .ui import DisclosureButton
         self.codec_editor = InlineCodecEditor(settings)
         self.codec_editor.hide()
-        self.codec_button = QPushButton()
+        self.codec_button = DisclosureButton()
         self.codec_button.setObjectName("IconButton")
         self.codec_button.setAccessibleName("编解码设置")
         self.codec_button.setCheckable(True)
@@ -314,10 +315,7 @@ class GeneralSettingsPage(QWidget):
 
     def _set_codecs_expanded(self, expanded):
         self.codec_editor.setVisible(expanded)
-        card = self.sections.section('playback')
-        card.layout().activate()
-        card.updateGeometry()
-        self.sections._arrange()
+        self.sections.refresh_section('playback')
 
     def reset(self) -> None:
         from . import config as config_module
