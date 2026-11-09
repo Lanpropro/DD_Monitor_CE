@@ -374,6 +374,7 @@
 - `dev/selfcheck_room_presets.py`
 - `dev/selfcheck_pane_danmaku.py`
 - `dev/selfcheck_room_status.py`
+- `dev/selfcheck_live_elapsed.py`
 - `dev/selfcheck_room_status_controller.py`
 - `dev/selfcheck_room_images.py`
 - `dev/selfcheck_search.py`

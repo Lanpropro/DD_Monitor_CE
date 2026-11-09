@@ -51,7 +51,7 @@ class CheckRunnerTests(unittest.TestCase):
             'selfcheck_single_instance', 'selfcheck_drag_lifecycle', 'selfcheck_sidebar_hit_test',
             'selfcheck_room_placement', 'selfcheck_pane_danmaku',
             'selfcheck_picture_in_picture', 'selfcheck_pip_picker',
-            'selfcheck_room_status_controller', 'selfcheck_room_images',
+            'selfcheck_room_status_controller', 'selfcheck_live_elapsed', 'selfcheck_room_images',
             'selfcheck_playback_badges', 'selfcheck_playback_controls', 'selfcheck_responsiveness',
             'selfcheck_startup_scroll_diagnostics',
             'selfcheck_hotfix_updates',

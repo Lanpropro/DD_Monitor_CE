@@ -126,8 +126,11 @@ class RoomStatus:
             tile.set_live(info["live"], info["viewers"])
             if info.get("uname") or info.get("title"):
                 tile.set_uname_title(info.get("uname", ""), info.get("title", ""))
-            if info.get("live_start_ts"):
+            if info["live"] and info.get("live_start_ts"):
                 tile.room["live_start_ts"] = info["live_start_ts"]
+                tile.start_elapsed_timer()
+            elif not info["live"] and info.get("live_known", True):
+                tile.room.pop("live_start_ts", None)
             if not info["live"] and tile.room["live_known"]:
                 if (was_live or tile in host.players or tile in host._resolvers
                         or tile in host._retry_timers or tile._status_text not in ("未开播", "已下播")):
@@ -157,6 +160,10 @@ class RoomStatus:
             for key in ('uid', 'banner_url'):
                 if key in info:
                     item.room[key] = info[key]
+            if info["live"] and info.get("live_start_ts"):
+                item.room["live_start_ts"] = info["live_start_ts"]
+            elif not info["live"] and info.get("live_known", True):
+                item.room.pop("live_start_ts", None)
             cover = info.get("cover_url") or ""
             if cover and cover != item.room.get("cover_url"):
                 item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
