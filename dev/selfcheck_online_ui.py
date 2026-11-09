@@ -569,7 +569,8 @@ def main():
         assert dialog.settings()['seen_update_versions']['app'] == update_identity(hotfix)
         update._release_ready(offer)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
-        # 已安装和商店的卡片都应使用页面底色，而不是独立的灰底。
+        # 已安装和商店卡片共用玻璃表面，区别于页面和旧的不透明灰底。
+        from ddm.ui import SettingsSurface
         for tab in (0, 1):
             dialog.plugin_page.tabs.setCurrentIndex(tab)
             app.processEvents()
@@ -578,7 +579,9 @@ def main():
             capture = dialog.grab().toImage()
             card_pixel = card.mapTo(dialog, QPoint(20, 5))
             page_pixel = dialog.plugin_page.mapTo(dialog, QPoint(2, 2))
-            assert capture.pixelColor(card_pixel) == capture.pixelColor(page_pixel), 'plugin gray card fill must be removed'
+            assert isinstance(card, SettingsSurface)
+            assert capture.pixelColor(card_pixel) != capture.pixelColor(page_pixel), 'plugin card material must be visible'
+            assert capture.pixelColor(card_pixel) != theme.qcolor(theme.CONTENT), 'plugin card must use translucent material'
         stage = root / 'stage'
         stage.mkdir()
         plan_path = stage / 'update-plan.json'

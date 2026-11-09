@@ -28,7 +28,7 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton, ElidedLabel, BarIconButton, ToggleSwitch, SegmentedControl, SelectControl)
+                    DanmakuToggleButton, ElidedLabel, BarIconButton, ToggleSwitch, SegmentedControl, SelectControl, SettingsSurface)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -341,6 +341,87 @@ for before, component, after in (
             parent.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertIsNone(QApplication.activePopupWidget())
+
+    def test_selectors_keep_content_width_in_wide_layouts(self):
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        segments = ui.SegmentedControl((('a', 'H.264'), ('b', 'HEVC'), ('c', 'AV1')))
+        select = ui.SelectControl()
+        for label, value in config.DECODE_MODES:
+            select.addItem(label, value)
+        box.addWidget(segments)
+        box.addWidget(select)
+        parent.show()
+        try:
+            widths = []
+            for width in (640, 900):
+                parent.resize(width, 150)
+                self.app.processEvents()
+                widths.append((segments.width(), select.width()))
+                self.assertLess(segments.width(), 320)
+                self.assertLess(select.width(), 340)
+                for button in segments.buttons.values():
+                    self.assertGreaterEqual(button.width(), button.sizeHint().width())
+                self.assertGreaterEqual(select.width() - 46, max(
+                    select.fontMetrics().horizontalAdvance(select.itemText(i)) for i in range(select.count())))
+            self.assertEqual(widths[0], widths[1])
+        finally:
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_settings_material_uses_cached_backdrop_and_keeps_children_sharp(self):
+        from PySide6.QtGui import QColor, QImage
+        from PySide6.QtWidgets import QLabel
+        from ddm.ui.settings_surface import _frosted_image
+        from ddm import skin_parts
+        with tempfile.TemporaryDirectory(prefix='ddm-settings-glass-') as root:
+            image = QImage(400, 240, QImage.Format_RGB32)
+            image.fill(QColor('#cc573c'))
+            for x in range(200, 400):
+                for y in range(240):
+                    image.setPixelColor(x, y, QColor('#287ecb'))
+            path = str(Path(root) / 'background.png')
+            image.save(path)
+            parent = QWidget()
+            parent.setProperty('skinPart', 'settings.content')
+            parent.resize(400, 240)
+            card = ui.SettingsSurface(parent)
+            card.setGeometry(20, 20, 360, 200)
+            label = QLabel('Clear text', card)
+            label.move(20, 70)
+            parent.show()
+            _frosted_image.cache_clear()
+            try:
+                with patch.object(skin_parts, 'values_for', return_value={'image': path}):
+                    for mode in ('dark', 'light'):
+                        theme.apply(mode)
+                        self.app.processEvents()
+                        before = _frosted_image.cache_info().misses
+                        first = card.grab().toImage()
+                        self.assertEqual(first, card.grab().toImage())
+                        self.assertEqual(_frosted_image.cache_info().misses, before)
+                        scale = first.devicePixelRatio()
+                        left = first.pixelColor(round(60 * scale), round(150 * scale))
+                        right = first.pixelColor(round(300 * scale), round(150 * scale))
+                        self.assertGreater(left.red(), right.red())
+                        self.assertGreater(right.blue(), left.blue())
+                        self.assertIsNone(card.graphicsEffect())
+                        self.assertIsNone(label.graphicsEffect())
+                    with patch.object(card, 'update') as refresh:
+                        parent.resize(440, 240)
+                        self.app.processEvents()
+                        refresh.assert_called()
+                    self.assertEqual(_frosted_image.cache_info().misses, 1)
+                    # A separate opaque content background blocks the outer wallpaper.
+                    with patch.object(skin_parts, 'values_for', return_value={'background': '#333333'}):
+                        self.assertIsNone(card._backdrop())
+                        parent._settings_material_preview = ({'settings.content': {'image': path}}, theme.is_light())
+                        self.assertIs(card._backdrop()[0], parent)
+                        del parent._settings_material_preview
+            finally:
+                parent.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                _frosted_image.cache_clear()
 
 
 if __name__ == '__main__':

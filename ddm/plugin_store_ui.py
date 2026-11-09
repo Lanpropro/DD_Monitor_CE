@@ -5,7 +5,7 @@ import time
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
 from . import config, online, plugin_updates, theme, version
-from .ui import ActionButton, AnimatedDialog, ElidedLabel, page_header
+from .ui import SettingsSurface, ActionButton, AnimatedDialog, ElidedLabel, page_header
 from .update_notice import set_update_dot
 from .update_offers import plugin_update_offers
 from .online_tasks import OnlinePage
@@ -241,7 +241,7 @@ class PluginStorePage(OnlinePage):
         pending = plugin_updates.pending_versions(self.manager) if self.manager else {}
         self._update_ids = {offer['id'] for offer in plugin_update_offers(self.manager, offers)}
         for offer in offers:
-            card = QFrame()
+            card = SettingsSurface()
             card.setObjectName('PluginCard')
             body = QHBoxLayout(card)
             body.setContentsMargins(14, 10, 14, 10)

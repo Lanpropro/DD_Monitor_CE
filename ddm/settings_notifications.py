@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget
 )
 from . import theme
-from .ui import ToggleSwitch, page_header as _page_head
+from .ui import SettingsSurface, ToggleSwitch, page_header as _page_head
 from .settings_layout import SettingsColumns
 
 
@@ -98,7 +98,7 @@ class NotificationSettingsPage(QWidget):
         )
         for index, (key, label) in enumerate(self.ITEMS):
             if index in (0, 2):
-                card = QFrame()
+                card = SettingsSurface()
                 card.setObjectName('NotificationSettingsGroup')
                 rows = QVBoxLayout(card)
                 rows.setContentsMargins(14, 12, 14, 10)
@@ -145,7 +145,7 @@ class NotificationSettingsPage(QWidget):
             self._states[key] = state
             row.addWidget(box)
             rows.addLayout(row)
-        card = QFrame()
+        card = SettingsSurface()
         card.setObjectName('NotificationSettingsGroup')
         blur_layout = QVBoxLayout(card)
         blur_layout.setContentsMargins(14, 12, 14, 12)

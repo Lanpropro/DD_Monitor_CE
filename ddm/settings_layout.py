@@ -1,9 +1,10 @@
 """Responsive settings sections; pages keep ownership of controls and values."""
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from .ui import SettingsSurface
 
 
-class SettingsSection(QFrame):
+class SettingsSection(SettingsSurface):
     def __init__(self, title, parent=None):
         super().__init__(parent)
         self.setObjectName('SettingsSection')

@@ -294,6 +294,7 @@ class SkinPreview(QWidget):
         try:
             widget = (SettingsDialog(owner.settings, owner.shortcuts, preview=True)
                       if scene == 'settings' else LayoutPicker(owner.sidebar._layout_id, presets_host=owner))
+            widget._settings_material_preview = (self.personal, self.light)
             widget.setAttribute(Qt.WA_DontShowOnScreen)
             widget.setAttribute(Qt.WA_ShowWithoutActivating)
             widget.ensurePolished()

@@ -13,6 +13,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QScrollArea
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
+from ddm.ui import SettingsSurface
 
 APP = QApplication.instance() or QApplication([])
 
@@ -25,6 +26,7 @@ def settle():
 class SettingsLayoutTests(unittest.TestCase):
     def setUp(self):
         self.dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True)
+        self.assertEqual(self.dialog.property('skinPart'), 'settings')
         self.dialog.setAttribute(Qt.WA_DontShowOnScreen)
         self.dialog.setStyleSheet(theme.qss())
         self.dialog.show()
@@ -47,6 +49,8 @@ class SettingsLayoutTests(unittest.TestCase):
             with self.subTest(page=index):
                 page = self.page(index)
                 self.assertEqual(page.sections.columns, 2)
+                for _key, card, _wide in page.sections.entries:
+                    self.assertIsInstance(card, SettingsSurface)
                 left, right = [widget for _key, widget, wide in page.sections.entries if not wide][:2]
                 self.assertEqual(left.y(), right.y())
                 self.assertLess(left.geometry().right(), right.x())
@@ -131,6 +135,8 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(select.count(), len(config.DECODE_MODES))
             self.assertLessEqual(select.geometry().right(), page.codec_editor.width())
             self.assertEqual(page.codec_editor.decode_hint.text(), config.DECODE_HINTS['none'])
+            self.assertLess(select.width(), page.codec_editor.width() * .8)
+            self.assertLess(page.codec_editor.source_control.width(), page.codec_editor.width() * .8)
         page.codec_button.click()
         self.assertTrue(page.codec_editor.isHidden())
         settle()

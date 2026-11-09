@@ -38,6 +38,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
                  update_page_factory=None):
         super().__init__(parent)
+        self.setProperty('skinPart', 'settings')
         self._created_at = time.perf_counter()
         self._paint_logged = False
         from .config import DEFAULT_SETTINGS

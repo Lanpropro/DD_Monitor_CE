@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
-from .ui import ElidedLabel, page_header as _page_head
+from .ui import SettingsSurface, ElidedLabel, page_header as _page_head
 
 
 class PluginRemovePrompt(AnimatedDialog):
@@ -224,7 +224,7 @@ class PluginSettingsPage(QWidget):
             self.store_page.install_offer(offer)
 
     def _add_card(self, entry):
-        card = QFrame()
+        card = SettingsSurface()
         card.setObjectName("PluginCard")
         self._installed_entries[entry['id']] = dict(entry)
         self._installed_cards[entry['id']] = card

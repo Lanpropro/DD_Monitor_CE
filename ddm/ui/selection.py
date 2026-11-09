@@ -123,7 +123,7 @@ class SegmentedControl(QWidget):
         super().__init__(parent)
         self.setProperty('customControlSurface', True)
         self.setFixedHeight(theme.CONTROL_HEIGHT)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         box = QHBoxLayout(self)
         box.setContentsMargins(*([theme.SEGMENT_PADDING] * 4))
         box.setSpacing(theme.SEGMENT_GAP)
@@ -137,6 +137,14 @@ class SegmentedControl(QWidget):
         self.setValue(value if value is not None else next(iter(self.buttons)))
         self.group.buttonToggled.connect(self._selection_changed)
         theme.signals().changed.connect(self.update)
+
+    def sizeHint(self):
+        width = max(button.sizeHint().width() for button in self.buttons.values()) * len(self.buttons)
+        return QSize(width + 2 * theme.SEGMENT_PADDING + (len(self.buttons) - 1) * theme.SEGMENT_GAP,
+                     theme.CONTROL_HEIGHT)
+
+    def minimumSizeHint(self):
+        return QSize(min(180, self.sizeHint().width()), theme.CONTROL_HEIGHT)
 
     def _selection_changed(self, button, checked):
         if checked:

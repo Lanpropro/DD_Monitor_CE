@@ -3,8 +3,8 @@
 配色与尺度参考 BewlyCat（暗色体系）：基色 #2a2d32 派生背景/卡片/浮层，
 主题色取 B 站蓝，强调色取 B 站粉。
 
-Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻璃质感，
-避免玻璃效果带来的 GPU 开销（本项目以低占用为优先）。
+玻璃表面使用半透明叠加与细描边；设置卡片和通知仅对静态背景图缓存模糊，
+不对文字、控件或实时画面施加模糊效果。
 """
 
 
@@ -657,8 +657,8 @@ QSlider::handle:horizontal:hover {{
     font-size: {FONT_CAPTION}px;
 }}
 #SettingsSection {{
-    background: {CONTENT};
-    border: 1px solid {BORDER};
+    background: transparent;
+    border: none;
     border-radius: {RADIUS_LG}px;
 }}
 #SettingsSectionTitle {{
@@ -668,8 +668,8 @@ QSlider::handle:horizontal:hover {{
 }}
 #TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
-    background: {CONTENT};
-    border: 1px solid {BORDER};
+    background: transparent;
+    border: none;
     border-radius: {RADIUS_MD}px;
 }}
 #NotificationSettingsHeading {{
