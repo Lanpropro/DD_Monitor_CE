@@ -235,7 +235,11 @@ class RoomPlacement:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
         candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
-        empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
+        panes = host.wall.pane_danmaku
+        chat_cells = panes.bindings()
+        chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
+        empty = next((tile for tile in candidates
+                      if tile not in chat_tiles and not tile.room.get("room_id")), None)
         if empty is not None:                      # 优先填空位
             host.recorder.stop(empty)
             host._stop_tile(empty)
