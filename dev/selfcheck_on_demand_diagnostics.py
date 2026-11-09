@@ -103,6 +103,26 @@ class OnDemandTests(unittest.TestCase):
         self.wait(lambda: self.endpoint.active is None)
         self.assertTrue(observer.closed)
 
+    def test_playback_client_reports_host_disconnect_without_waiting_for_timeout(self):
+        self.window.players = {}
+        self.window.wall = SimpleNamespace(tiles=[])
+        self.endpoint.close()
+        self.endpoint = DiagnosticEndpoint(self.window, self.root / 'logs', self.root)
+        self.addCleanup(self.endpoint.close)
+        process = subprocess.Popen([sys.executable, str(ROOT / 'dev/capture_playback.py'),
+                                    '--pid', str(os.getpid())], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            self.wait(lambda: self.endpoint.active is not None and self.endpoint.active['observer'] is not None)
+            self.endpoint.active['socket'].abort()
+            self.wait(lambda: process.poll() is not None, timeout=5)
+            stdout, stderr = process.communicate()
+            self.assertEqual(process.returncode, 1)
+            self.assertIn(b'disconnected before capture completed', stderr)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
     def test_folder_snapshot_preserves_wrong_geometry_without_layout_or_screenshot(self):
         item = self.window.sidebar._items[0]
         item.move(item.pos() + QPoint(0, 300))

@@ -141,3 +141,5 @@ Windows批处理会把未加引号的 `--diagnose-session=drag` 拆为两个参�
 分析时对照同一 slot 的 `paused-for-cache`、`demuxer-cache-duration`、`cache-speed`、`relay_bps`、`relay_requests`、丢帧、播放进度、状态和取流中的 slot。缓冲耗尽伴随下载等待与解码/呈现丢帧是不同线索；请求响应时间包含 DNS/连接/TLS/服务器等待，不能仅凭它继续细分原因。环境代理类型仅表示采样时进程环境，已有连接与规则实际出站须结合插件连接页核对。每秒采样可能遗漏短暂取流阶段；未返回属性保持缺失。mpv 进度和丢帧不能证明 DWM 实际呈现帧率。
 
 功能验证：根 `run.cmd --check-playback-capture` 覆盖观察上限、数值过滤、隐私、换流/迟到回调、到期与管道断开释放；`dev/selfcheck_hls_proxy.py` 以回环 HTTP 检查诊断开启/异常不改变转发字节。夹具通过不是 Twitch 瓶颈或性能改善证据；真实结论必须引用实际采样文件和用户复现时段。
+
+2026-11-10 首次接入真实开发进程时，采样至 12 秒的记录均无活动播放器，随后该 PID 退出，未收到结束回执；退出原因未确认，该次不能用于 Twitch 性能结论。数值片段保留在本机 `work/test-artifacts/proxy-ui-20261110/playback-incomplete-34628.json`。采样客户端现检测管道断开立即报告中断，已有日志继续保留，不再等待 75 秒才报告超时；对应子进程/真实管道断开回归已补齐，根诊断入口共 15 项通过。

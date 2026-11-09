@@ -51,6 +51,8 @@ def main():
         while time.monotonic() < deadline:
             app.processEvents()
             if not socket.canReadLine():
+                if socket.state() == QLocalSocket.UnconnectedState:
+                    raise ValueError('Running app disconnected before capture completed; partial samples remain in logs/on-demand.jsonl')
                 socket.waitForReadyRead(250)
                 continue
             message = json.loads(bytes(socket.readLine()))
