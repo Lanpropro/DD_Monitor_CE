@@ -511,6 +511,8 @@
 - `dev/README.md`
 - `dev/checks/README.md`
 - `dev/checks/bootstrap.py`
+- `dev/checks/build_native_crash.cmd`
+- `dev/checks/native_crash.cpp`
 - `dev/checks/widget_cases.py`
 - `dev/checks/suites.json`
 - `dev/run-checks.cmd`

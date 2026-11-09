@@ -9,6 +9,11 @@
 
 ## 当前回归与历史诊断
 
+Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编译 `native_crash.cpp`；
+`bootstrap.py` 仅在设置 `DDM_CHECK_NATIVE_STACK_DLL` 时加载。CI 的功能检查启用它，
+将访问冲突的模块、偏移和可解析符号写入原有 stderr 日志，不吞异常、不重试、不改 GC 或断言。
+`selfcheck_check_runner` 用独立子进程验证原始异常及退出码仍然保留；它不是 Qt 故障复现或修复。
+
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_development_hang](../selfcheck_development_hang.py) | `offline`；本机开发入口的外部看门狗、只采调用栈、目标进程退出后结束；不作为真实卡死定位证据 |

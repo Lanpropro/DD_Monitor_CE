@@ -20,6 +20,46 @@ from dev.checks.widget_cases import run_widget_cases
 
 
 class CheckRunnerTests(unittest.TestCase):
+    def test_native_stack_capture_is_opt_in_and_load_errors_are_failures(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(bootstrap.install_native_stack())
+        if sys.platform == 'win32':
+            with patch.dict(os.environ, {'DDM_CHECK_NATIVE_STACK_DLL': 'missing-native-capture.dll'}):
+                with self.assertRaises(OSError):
+                    bootstrap.install_native_stack()
+
+    @unittest.skipUnless(sys.platform == 'win32' and os.environ.get('DDM_CHECK_NATIVE_STACK_DLL'),
+                         'Requires the optional Windows x64 native capture helper')
+    def test_native_stack_capture_preserves_exception_and_exit_code(self):
+        # Raise a synthetic first-chance AV which ctypes normally reports as
+        # OSError. Both runs must keep that behavior and the intentional exit 23.
+        source = '''
+import ctypes, sys
+parameters = (ctypes.c_size_t * 2)(0, 1)
+try:
+    ctypes.windll.kernel32.RaiseException(0xC0000005, 0, 2, parameters)
+except OSError:
+    print('ORIGINAL_EXCEPTION_REACHED_CALLER', flush=True)
+    sys.exit(23)
+sys.exit(99)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'exception_case.py'
+            script.write_text(source, encoding='utf-8')
+            command = [sys.executable, '-u', str(Path(bootstrap.__file__)), str(script)]
+            env = dict(os.environ)
+            env.pop('DDM_CHECK_NATIVE_STACK_DLL')
+            baseline = subprocess.run(command, env=env, capture_output=True, timeout=30)
+            captured = subprocess.run(command, capture_output=True, timeout=30)
+        self.assertEqual(baseline.returncode, 23, baseline.stderr.decode(errors='replace'))
+        self.assertEqual(captured.returncode, baseline.returncode, captured.stderr.decode(errors='replace'))
+        self.assertEqual(captured.stdout, baseline.stdout)
+        self.assertIn(b'ORIGINAL_EXCEPTION_REACHED_CALLER', captured.stdout)
+        self.assertNotIn(b'NATIVE_ACCESS_VIOLATION', baseline.stderr)
+        self.assertIn(b'NATIVE_ACCESS_VIOLATION', captured.stderr)
+        self.assertIn(b'kernelbase.dll+', captured.stderr.lower())
+        self.assertIn(b'python312.dll+', captured.stderr.lower())
+
     def test_widget_case_processes_keep_all_cases_and_propagate_failure(self):
         class Cases(unittest.TestCase):
             def test_first(self):

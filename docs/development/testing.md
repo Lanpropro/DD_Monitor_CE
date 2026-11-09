@@ -85,6 +85,26 @@ SC 的画面位置与弹幕栏位置分别保存，可关闭同步以独立调�
 
 ## 单项与真实直播
 
+Windows x64 的 CI 功能检查会先构建仅供测试使用的原生栈记录器。访问冲突时，
+Python faulthandler 栈之外还会输出 `NATIVE_ACCESS_VIOLATION`、模块偏移和可解析符号；
+这是第一时间的异常记录，异常可能被原调用方处理，是否失败仍以原始退出码和断言为准。
+记录器返回 `EXCEPTION_CONTINUE_SEARCH`，不修改运行结果、垃圾回收参数或重试测试。
+没有 PDB 时符号可能缺失，模块偏移仍可保留；该工具不表示已定位或修复 Qt 异常。
+普通软件启动和无此环境变量的检查不加载它，也不需要 C++ 工具链。
+
+本机需 Visual Studio C++ x64 工具和 Windows SDK，从仓库根执行：
+
+```powershell
+.\dev\checks\build_native_crash.cmd
+$env:DDM_CHECK_NATIVE_STACK_DLL = (Resolve-Path work/check-native-crash.dll).Path
+python dev/selfcheck_check_runner.py CheckRunnerTests.test_native_stack_capture_preserves_exception_and_exit_code
+python dev/run_checks.py --script selfcheck_pane_danmaku
+Remove-Item Env:DDM_CHECK_NATIVE_STACK_DLL
+```
+
+记录器自检仅在隔离子进程生成合成异常，验证带／不带记录器的异常处理及退出码一致；
+不启动 Qt、不操作客户端、不访问账号或直播。新增测试失败时继续保留日志，不能以重跑通过覆盖失败。
+
 ```powershell
 python dev/run_checks.py --list
 python dev/run_checks.py --script selfcheck_preview_scroll
