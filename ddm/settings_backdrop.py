@@ -21,6 +21,7 @@ def apply_backdrop(widget, light):
     margins = _Margins(-1, -1, -1, -1)
     _dwm_set(hwnd, 20, int(not light))
     _dwm_set(hwnd, 33, 2)  # DWMWCP_ROUND.
+    _dwm_set(hwnd, 34, 0xFFFFFFFE)  # COLOR_NONE: no second native frame outline.
     extended = function(hwnd, ctypes.byref(margins)) == 0
     # DWMSBT_TRANSIENTWINDOW: Desktop Acrylic across the whole window.
     return _dwm_set(hwnd, 38, 3) == 0 and extended

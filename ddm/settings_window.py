@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import theme
@@ -121,7 +121,12 @@ class SettingsWindow(QDialog):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
-        path = continuous_path(rect, 22)
+        if self._native_glass:
+            # DWM clips the whole material; another client curve exposes its backing.
+            path = QPainterPath()
+            path.addRect(QRectF(self.rect()))
+        else:
+            path = continuous_path(rect, 22)
         painter.setClipPath(path)
         image_path = values.get('image')
         image = None
@@ -136,12 +141,13 @@ class SettingsWindow(QDialog):
         color = theme.qcolor(values.get('background', theme.BG))
         if 'background' not in values:
             color.setAlpha((146 if theme.is_light() else 156) if image is not None else
-                           (56 if theme.is_light() else 72) if self._native_glass else 248)
+                           (200 if theme.is_light() else 224) if self._native_glass else 248)
         painter.fillPath(path, color)
         sheen = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        sheen.setColorAt(0, QColor(255, 255, 255, 18))
+        sheen.setColorAt(0, QColor(255, 255, 255, 10 if theme.is_light() else 6))
         sheen.setColorAt(1, QColor(255, 255, 255, 0))
         painter.fillPath(path, sheen)
-        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawPath(path)
+        if not self._native_glass:
+            painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(path)
