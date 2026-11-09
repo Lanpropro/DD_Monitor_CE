@@ -118,7 +118,7 @@ run.cmd --check-image-cache
 
 设置分组、通知和插件卡片共用 `SettingsSurface`，使用连续圆角、半透明渐变和细边缘高光。静态图片来自最近的设置内容区或设置窗口分区，以原背景所有者的坐标对齐；自定义不透明底色阻断外层背景。模糊结果按路径、修改时间及大小缓存（最多4张），不抓取窗口、不在卡片/子控件上添加图形效果，不引入定时器。无背景图时保留纯色上的材质层次；预览读取现有预览草稿，不改全局美化状态。设置窗口显式标记 settings 分区，派生的独立进程窗口沿用同一背景归属。
 
-设置整窗由 `ddm/settings_window.py` 管理无边框 QDialog、统一圆角玻璃底板、可拖动顶部栏、常显搜索及圆形关闭按钮；`SettingsDialog` 保留设置协调职责和旧入口。顶部关闭和 Esc 均走 reject，自动保存协调器确认最后修改后才完成关闭；边缘调用 Qt 系统缩放，顶部空白调用系统移动。`ddm/settings_backdrop.py` 隔离 Windows DWM 调用：Windows 11 build 22621 起使用 Desktop Acrylic，其他环境保留主题底板，设置背景图使用既有静态模糊缓存。依据 https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type 。
+设置整窗由 `ddm/settings_window.py` 管理无边框 QDialog、统一圆角玻璃底板、可拖动顶部栏、常显搜索及圆形关闭按钮；`SettingsDialog` 保留设置协调职责和旧入口。顶部关闭和 Esc 均走 reject，自动保存协调器确认最后修改后才完成关闭；边缘调用 Qt 系统缩放，顶部空白调用系统移动。`ddm/settings_backdrop.py` 隔离 Windows DWM 调用：Windows 11 build 22621 起使用 Desktop Acrylic，其他环境保留主题底板，设置背景图使用既有静态模糊缓存。依据 https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type 。 Windows系统玻璃生效时由DWM统一裁切外轮廓，客户端不再叠画第二套22px圆角／描边，也不加硬窗口mask，以保留系统抗锯齿；无系统材质时仍由自绘连续圆角负责。默认原生暗色覆盖提高到224/255、浅色200/255，白色高光减弱，避免系统底板将主题冲成灰白；显式背景色与背景图继续按原配置绘制。
 
 玻璃整窗内的 SettingsSurface 仅绘制更轻的半透明卡片，不重复采样背景；导航默认透出统一底板。独立进程的宿主页仍由主进程持有：分层内容窗口不自行约束最小尺寸；工作进程先激活分配布局，再传递视口尺寸；主进程显示后应答 host-shown，由工作进程按视口坐标对齐原生子窗口，不改激活或层叠顺序。首次插件页、切页和重开均验证 HWND/DPI/底部边界与透明背景上的文字绘制。
 

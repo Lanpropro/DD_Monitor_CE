@@ -253,6 +253,39 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
 
 
+    def test_native_material_has_no_second_inner_corner_and_stays_dark(self):
+        from PySide6.QtGui import QColor, QImage, QPainter
+        from ddm.settings_window import SettingsWindow
+        shell = SettingsWindow()
+        shell.resize(240, 180)
+        try:
+            with patch('ddm.settings_window.apply_backdrop', return_value=True), \
+                    patch('ddm.skin_parts.values_for', return_value={}):
+                shell.show()
+                settle()
+                surface = shell.grab().toImage()
+            scale = surface.devicePixelRatio()
+            self.assertGreater(surface.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 200,
+                               'DWM owns the outer curve; the client must not expose another cutout')
+            for background in ('#ffffff', '#000000'):
+                composed = QImage(surface.size(), QImage.Format_ARGB32_Premultiplied)
+                composed.fill(QColor(background))
+                painter = QPainter(composed)
+                painter.drawImage(composed.rect(), surface)
+                painter.end()
+                color = composed.pixelColor(composed.width() // 2, composed.height() // 2)
+                self.assertLess(max(color.red(), color.green(), color.blue()), 80,
+                                'Dark glass must retain its theme tint even over a bright backdrop')
+            shell._native_glass = False
+            with patch('ddm.skin_parts.values_for', return_value={}):
+                fallback = shell.grab().toImage()
+            self.assertEqual(fallback.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 0,
+                             'The software fallback still owns its rounded transparent corners')
+        finally:
+            shell.close()
+            shell.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
     def test_native_system_material_and_caption(self):
@@ -262,6 +295,8 @@ class SettingsLayoutTests(unittest.TestCase):
         hwnd = int(self.dialog.winId())
         self.assertTrue(self.dialog._native_glass)
         self.assertEqual(_dwm_get(hwnd, 38), 3)
+        self.assertEqual(_dwm_get(hwnd, 33), 2)
+        self.assertTrue(self.dialog.mask().isEmpty(), 'Keep native antialiasing at fractional DPI')
         get_style = ctypes.windll.user32.GetWindowLongPtrW
         get_style.argtypes = (wintypes.HWND, ctypes.c_int)
         get_style.restype = ctypes.c_ssize_t
