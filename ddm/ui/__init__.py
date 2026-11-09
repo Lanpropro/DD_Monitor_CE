@@ -4,6 +4,7 @@ from importlib import import_module
 from .basics import ActionButton, HintLabel, TitleLabel, page_header, step_button
 
 _MODULES = {
+    'ui.selection': ('ToggleSwitch', 'SegmentedControl'),
     'ui.color_dialog': ('ColorDialog',),
     'ui.scale_curve': ('ScaleCurveControl',),
     'corner_geometry': ('continuous_path',),

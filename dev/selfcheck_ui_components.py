@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 from ddm import config, theme, ui
@@ -28,7 +28,7 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton)
+                    DanmakuToggleButton, ToggleSwitch, SegmentedControl)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -106,6 +106,104 @@ assert not any(name in sys.modules for name in (
                 self.assertEqual(page.image_cache.status.objectName(), 'SettingsHint')
                 self.assertEqual(page.image_cache.root, root)
             page.close()
+
+
+    def test_switch_preserves_mouse_keyboard_disabled_and_legacy_behavior(self):
+        from ddm.dialogs import NotificationSwitch
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        switch = ui.ToggleSwitch('Enable', parent)
+        old = NotificationSwitch('Legacy', parent)
+        box.addWidget(switch)
+        box.addWidget(old)
+        parent.show()
+        self.app.processEvents()
+        try:
+            self.assertIsInstance(old, ui.ToggleSwitch)
+            self.assertIs(switch.parentWidget(), parent)
+            self.assertEqual(switch.accessibleName(), 'Enable')
+            events = []
+            switch.toggled.connect(events.append)
+            QTest.mouseClick(switch, Qt.LeftButton)
+            QTest.keyClick(switch, Qt.Key_Space)
+            self.assertEqual(events, [True, False])
+            switch.setEnabled(False)
+            QTest.mouseClick(switch, Qt.LeftButton)
+            QTest.keyClick(switch, Qt.Key_Space)
+            self.assertEqual(events, [True, False])
+            old.setChecked(True)
+            for mode in ('dark', 'light', 'dark'):
+                theme.apply(mode)
+                self.app.processEvents()
+                self.assertTrue(old.isChecked())
+                self.assertEqual(old.size(), switch.size())
+                self.assertFalse(old.grab().isNull())
+        finally:
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_segmented_control_exclusivity_keyboard_signals_and_disabled_options(self):
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        control = ui.SegmentedControl((('a', 'First'), ('b', 'Second'), ('c', 'Third')), parent=parent)
+        box.addWidget(control)
+        parent.resize(400, 80)
+        parent.show()
+        self.app.processEvents()
+        try:
+            events = []
+            control.valueChanged.connect(events.append)
+            QTest.mouseClick(control.buttons['b'], Qt.LeftButton)
+            QTest.mouseClick(control.buttons['b'], Qt.LeftButton)
+            self.assertEqual(events, ['b'])
+            self.assertEqual(control.value(), 'b')
+            QTest.keyClick(control.buttons['b'], Qt.Key_Right)
+            self.assertEqual(control.value(), 'c')
+            control.setValue('a')
+            control.setValue('a')
+            self.assertEqual(events, ['b', 'c', 'a'])
+            control.buttons['b'].setEnabled(False)
+            QTest.mouseClick(control.buttons['b'], Qt.LeftButton)
+            self.assertEqual(control.value(), 'a')
+            control.buttons['a'].setFocus(Qt.TabFocusReason)
+            self.app.processEvents()
+            QTest.keyClick(control.buttons['a'], Qt.Key_Right)
+            self.assertEqual(control.value(), 'c')
+            self.assertEqual(sum(button.isChecked() for button in control.buttons.values()), 1)
+            self.assertTrue(control.buttons['a'].isVisible())
+            self.assertEqual(control.height(), theme.CONTROL_HEIGHT)
+            for width in (240, 460):
+                parent.resize(width, 80)
+                self.app.processEvents()
+                self.assertEqual(control.value(), 'c')
+                for button in control.buttons.values():
+                    self.assertLessEqual(button.geometry().right(), control.width())
+                    self.assertGreaterEqual(button.height(), 24)
+        finally:
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_segmented_surface_and_selection_follow_theme_without_extra_paint(self):
+        from ddm import continuous_corners
+        control = ui.SegmentedControl((('a', 'First'), ('b', 'Second')))
+        control.resize(320, theme.CONTROL_HEIGHT)
+        control.show()
+        destroyed = []
+        control.destroyed.connect(lambda: destroyed.append(True))
+        try:
+            for mode in ('dark', 'light', 'dark'):
+                theme.apply(mode)
+                self.app.processEvents()
+                image = control.grab().toImage()
+                with patch.object(continuous_corners, '_paint'):
+                    self.assertEqual(image, control.grab().toImage())
+                self.assertEqual(image.pixelColor(image.width() // 2, image.height() // 2),
+                                 theme.qcolor(theme.BG))
+                self.assertEqual(control.value(), 'a')
+        finally:
+            control.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertEqual(destroyed, [True])
 
 
 if __name__ == '__main__':

@@ -312,7 +312,7 @@ class SurfaceFilter(QObject):
                 self.cache.clear()
             else:
                 self.cache.pop(widget, None)
-        elif kind == QEvent.Paint:
+        elif kind == QEvent.Paint and not widget.property('customControlSurface'):
             values = self.values(widget)
             if not widget.property('tileButton') and any(key.endswith('radius') for key in values):
                 painter = QPainter(widget)

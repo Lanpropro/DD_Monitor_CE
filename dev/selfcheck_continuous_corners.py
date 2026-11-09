@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -146,6 +147,18 @@ class ContinuousCornersTests(unittest.TestCase):
         action.trigger()
         self.assertEqual(calls,['open'])
         self.assertIn('border-radius',corners._filter.values(menu,'item',{'selected':True}))
+
+
+    def test_switch_drawing_is_not_overlaid_by_the_checkbox_indicator(self):
+        from ddm.dialogs import NotificationSwitch
+        switch = NotificationSwitch('Enable', self.host)
+        self.box.addWidget(switch)
+        switch.setChecked(True)
+        self.show()
+        painted = switch.grab().toImage()
+        with patch.object(corners, '_paint'):
+            owned_only = switch.grab().toImage()
+        self.assertEqual(painted, owned_only, 'The switch must own its complete surface, without an extra checkbox indicator')
 
 
 if __name__ == '__main__':

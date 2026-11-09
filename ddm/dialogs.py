@@ -24,6 +24,7 @@ from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .ui import ElidedLabel, ScaleCurveControl, page_header as _page_head, step_button as _step_button
 from .settings_layout import SettingsColumns, SettingsSection, section_grid
+from .ui import ToggleSwitch
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
 
@@ -240,7 +241,7 @@ class GeneralSettingsPage(QWidget):
                 box = QCheckBox(label)
                 grid.addWidget(box, row, 0, 1, 2)
             else:
-                box = NotificationSwitch(label)
+                box = ToggleSwitch(label)
                 title = QLabel(label)
                 title.setWordWrap(True)
                 title.setBuddy(box)
@@ -428,33 +429,8 @@ class TraySettingsPage(QWidget):
             self.close_behavior_combo.findData(DEFAULT_SETTINGS["close_behavior"]))
 
 
-class NotificationSwitch(QCheckBox):
-    """Keep native checkbox keyboard/accessibility behavior with a compact track."""
-
-    def __init__(self, label, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(44, 26)
-        self.setAccessibleName(label)
-        self.setFocusPolicy(Qt.StrongFocus)
-
-    def hitButton(self, position):
-        return self.rect().contains(position)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        if not self.isEnabled():
-            painter.setOpacity(0.45)
-        if self.hasFocus():
-            painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1.5))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(QRectF(0.75, 0.75, 42.5, 24.5), 12, 12)
-        painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER_STRONG), 1))
-        painter.setBrush(theme.qcolor(theme.ACCENT if self.isChecked() else theme.CONTENT_HOVER))
-        painter.drawRoundedRect(QRectF(3, 4, 38, 18), 9, 9)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor('#ffffff') if self.isChecked() else theme.qcolor(theme.TEXT2))
-        painter.drawEllipse(QRectF(25 if self.isChecked() else 6, 7, 12, 12))
+class NotificationSwitch(ToggleSwitch):
+    """Compatibility name for the shared settings switch."""
 
 
 class NoticeBlurPreview(QWidget):
