@@ -1577,7 +1577,7 @@ class SettingsDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        from .settings_navigation import SettingsNavigation, SettingsPointerNavigation
+        from .settings_navigation import SettingsNavigation
         from .online_ui import AppUpdatePage
         self.navigation = SettingsNavigation(self.PAGES, self)
         self.nav = self.navigation.nav
@@ -1635,7 +1635,6 @@ class SettingsDialog(QDialog):
         buttons.addWidget(self.confirm_button)
         right.addLayout(buttons)
         root.addWidget(self.content, 1)
-        self.pointer_navigation = SettingsPointerNavigation(self, self.navigation, self.content)
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
