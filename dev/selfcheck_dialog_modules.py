@@ -85,7 +85,7 @@ assert seen == expected, seen
             with patch('ddm.dialogs.CodecSettingsDialog') as factory:
                 page._edit_codecs()
                 page.codec_editor.source_buttons['hevc'].click()
-                page.codec_editor.decode_buttons['none'].click()
+                page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
                 self.assertEqual(page.values()['bili_codec'], 'hevc')
                 self.assertEqual(page.values()['decode_mode'], 'none')
                 factory.assert_not_called()

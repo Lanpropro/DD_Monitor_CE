@@ -28,7 +28,7 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton, ElidedLabel, BarIconButton, ToggleSwitch, SegmentedControl)
+                    DanmakuToggleButton, ElidedLabel, BarIconButton, ToggleSwitch, SegmentedControl, SelectControl)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -257,6 +257,7 @@ for before, component, after in (
         control.resize(320, theme.CONTROL_HEIGHT)
         control.show()
         destroyed = []
+        snapshots = []
         control.destroyed.connect(lambda: destroyed.append(True))
         try:
             for mode in ('dark', 'light', 'dark'):
@@ -265,13 +266,81 @@ for before, component, after in (
                 image = control.grab().toImage()
                 with patch.object(continuous_corners, '_paint'):
                     self.assertEqual(image, control.grab().toImage())
-                self.assertEqual(image.pixelColor(image.width() // 2, image.height() // 2),
-                                 theme.qcolor(theme.BG))
+                snapshots.append(image)
                 self.assertEqual(control.value(), 'a')
         finally:
             control.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertEqual(destroyed, [True])
+        self.assertNotEqual(snapshots[0], snapshots[1])
+        self.assertEqual(snapshots[0], snapshots[2])
+
+    def test_selected_segment_has_a_raised_surface_in_both_themes(self):
+        control = ui.SegmentedControl((('a', 'First'), ('b', 'Second')), 'b')
+        control.resize(320, theme.CONTROL_HEIGHT)
+        control.show()
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                self.app.processEvents()
+                image = control.buttons['b'].grab().toImage()
+                scale = image.devicePixelRatio()
+                top = image.pixelColor(image.width() // 2, round(4 * scale))
+                bottom = image.pixelColor(image.width() // 2, image.height() - round(4 * scale))
+                self.assertGreater(top.lightnessF(), bottom.lightnessF())
+                self.assertEqual(control.value(), 'b')
+        finally:
+            control.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_select_popup_keeps_layout_and_native_keyboard_commit_cancel(self):
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        select = ui.SelectControl(parent)
+        select.setAccessibleName('Decode mode')
+        for label, value in (('Automatic', 'auto'), ('Compatible', 'copy'), ('CPU', 'cpu')):
+            select.addItem(label, value)
+        box.addWidget(select)
+        parent.resize(300, 100)
+        parent.show()
+        self.app.processEvents()
+        events = []
+        select.currentIndexChanged.connect(events.append)
+        try:
+            before = parent.size()
+            select.showPopup()
+            self.app.processEvents()
+            self.assertTrue(select.view().isVisible())
+            self.assertIsNot(select.view().window(), parent)
+            self.assertEqual(parent.size(), before)
+            self.assertEqual(select.height(), theme.CONTROL_HEIGHT)
+            QTest.keyClick(select.view(), Qt.Key_Down)
+            QTest.keyClick(select.view(), Qt.Key_Return)
+            self.app.processEvents()
+            self.assertEqual(select.currentData(), 'copy')
+            self.assertEqual(events, [1])
+            self.assertFalse(select.view().isVisible())
+            select.showPopup()
+            QTest.keyClick(select.view(), Qt.Key_Down)
+            QTest.keyClick(select.view(), Qt.Key_Escape)
+            self.app.processEvents()
+            self.assertEqual(select.currentData(), 'copy')
+            self.assertEqual(events, [1])
+            select.setEnabled(False)
+            QTest.mouseClick(select, Qt.LeftButton)
+            self.assertFalse(select.view().isVisible())
+            for mode in ('dark', 'light', 'dark'):
+                theme.apply(mode)
+                self.assertEqual(select.currentData(), 'copy')
+                self.assertFalse(select.grab().isNull())
+            select.setEnabled(True)
+            select.showPopup()
+            self.app.processEvents()
+            self.assertTrue(select.view().isVisible())
+        finally:
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertIsNone(QApplication.activePopupWidget())
 
 
 if __name__ == '__main__':
