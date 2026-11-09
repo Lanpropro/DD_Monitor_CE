@@ -1,13 +1,11 @@
-"""Follow-style settings categories and a dialog-scoped pointer dwell controller."""
-from time import monotonic
+"""Follow-style settings categories with an explicit collapse/expand button."""
 import weakref
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QRectF, QSize, Qt, QTimer, QVariantAnimation
-from PySide6.QtGui import QCursor, QFont, QPainter, QPen
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, QVariantAnimation
+from PySide6.QtGui import QFont, QPainter, QPen
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QListWidget,
                               QListWidgetItem, QStyle, QStyledItemDelegate, QVBoxLayout, QWidget)
-from shiboken6 import isValid
 
 from . import motion, theme
 from .corner_geometry import continuous_path
@@ -118,10 +116,10 @@ class SettingsNavigation(QWidget):
         row = QHBoxLayout()
         self.title = QLabel('设置')
         self.title.setObjectName('SettingsNavigationTitle')
-        self.rail_button = NavigationButton('展开设置分类', 'list', self)
-        self.rail_button.clicked.connect(self.expand)
-        self.rail_button.hide()
-        row.addWidget(self.title)
+        self.rail_button = NavigationButton('收起设置分类', 'collapse', self)
+        self.rail_button.setAutoDefault(False)
+        self.rail_button.clicked.connect(self.toggle)
+        row.addWidget(self.title, 1)
         row.addWidget(self.rail_button)
         box.addLayout(row)
         self.search = QLineEdit(self)
@@ -175,6 +173,9 @@ class SettingsNavigation(QWidget):
     def expand(self):
         self.set_collapsed(False)
 
+    def toggle(self):
+        self.set_collapsed(not self.collapsed)
+
     def set_collapsed(self, collapsed, *, animate=True):
         target = self.COMPACT_WIDTH if collapsed else self.EXPANDED_WIDTH
         if collapsed == self.collapsed and (self.animation.state() == QVariantAnimation.Running or self.width() == target):
@@ -187,7 +188,12 @@ class SettingsNavigation(QWidget):
         self.title.setVisible(not collapsed)
         self.search.setVisible(not collapsed)
         self.footer.setVisible(not collapsed)
-        self.rail_button.setVisible(collapsed)
+        action = '展开设置分类' if collapsed else '收起设置分类'
+        self.rail_button.kind = 'expand' if collapsed else 'collapse'
+        self.rail_button.setText(action)
+        self.rail_button.setToolTip(action)
+        self.rail_button.setAccessibleName(action)
+        self.rail_button.update()
         self.nav.doItemsLayout()
         if animate and motion.enabled() and self.isVisible():
             self.animation.setStartValue(self.width())
@@ -197,75 +203,7 @@ class SettingsNavigation(QWidget):
             self.setFixedWidth(target)
 
 
-class SettingsPointerNavigation(QObject):
-    """Only poll while this settings dialog is visible; never install OS hooks."""
-    DWELL_SECONDS = 2.0
-
-    def __init__(self, dialog, navigation, content):
-        super().__init__(dialog)
-        self.dialog = weakref.ref(dialog)
-        self.navigation = weakref.proxy(navigation)
-        self.content = weakref.proxy(content)
-        self.since = None
-        self.keyboard = False
-        self.last_position = None
-        self.timer = QTimer(self)
-        self.timer.setInterval(100)
-        self.timer.timeout.connect(self.sample)
-        dialog.installEventFilter(self)
-
-    def eventFilter(self, watched, event):
-        dialog = self.dialog()
-        if dialog is None or not isValid(dialog):
-            if isValid(self.timer):
-                self.timer.stop()
-            QApplication.instance().removeEventFilter(self)
-            return False
-        kind = event.type()
-        if watched == dialog:
-            if kind == QEvent.Show:
-                QApplication.instance().installEventFilter(self)
-                self.timer.start()
-            elif kind in (QEvent.Hide, QEvent.Close):
-                self.timer.stop()
-                self.since = self.last_position = None
-                self.keyboard = False
-                QApplication.instance().removeEventFilter(self)
-                self.navigation.set_collapsed(False, animate=False)
-            elif kind == QEvent.WindowDeactivate:
-                self.since = None
-        if (kind == QEvent.KeyPress and isinstance(watched, QWidget)
-                and (watched == dialog or dialog.isAncestorOf(watched))):
-            self.keyboard = True
-            self.since = None
-            self.navigation.set_collapsed(False, animate=False)
-        elif kind in (QEvent.MouseMove, QEvent.Enter, QEvent.Leave) and self.timer.isActive():
-            self.sample()
-        return False
-
-    def sample(self):
-        dialog = self.dialog()
-        if dialog is None or not isValid(dialog):
-            self.timer.stop()
-            QApplication.instance().removeEventFilter(self)
-            return
-        position = QCursor.pos()
-        if self.last_position is not None and position != self.last_position:
-            self.keyboard = False
-        self.last_position = position
-        if (not dialog.isActiveWindow() or QApplication.activePopupWidget() is not None
-                or QApplication.mouseButtons() != Qt.NoButton
-                or self.keyboard):
-            self.since = None
-            return
-        if self.navigation.rect().contains(self.navigation.mapFromGlobal(position)):
-            self.since = None
-            self.navigation.set_collapsed(False)
-        elif self.content.rect().contains(self.content.mapFromGlobal(position)):
-            now = monotonic()
-            if self.since is None:
-                self.since = now
-            elif now-self.since >= self.DWELL_SECONDS:
-                self.navigation.set_collapsed(True)
-        else:
-            self.since = None
+    def hideEvent(self, event):
+        self.animation.stop()
+        self.setFixedWidth(self.COMPACT_WIDTH if self.collapsed else self.EXPANDED_WIDTH)
+        super().hideEvent(event)
