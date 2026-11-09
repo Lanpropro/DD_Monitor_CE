@@ -298,3 +298,6 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 同时运行 `selfcheck_douyin_ui_follows`（本机HTTP与真实WebEngine页面读取）、`selfcheck_douyin_follow_cache`、`selfcheck_douyin_restart_cache`、`selfcheck_account_dialog`、`selfcheck_follow_import`，覆盖官网读取到原生页面切换、缓存重开及其他平台的共享勾选行为。根 `run.cmd` 人工验收：导入关注选择抖音，完成官网读取后，应显示软件菜单；勾选直播间及文件夹并导入，关注栏只新增选中房间，不自动播放。真实官网列表完整性与账号验证需单独人工确认。
 
 日常集成版另跑 `python dev/selfcheck_follow_stress.py` 与 `python dev/selfcheck_pinyin_search.py`。压力脚本等待批量填充结束后再勾选，保留 3000 关注、750 主播的数量断言；与 `selfcheck_follow_import` 一起核对滚动头像、搜索、勾选及分批导入。
+
+
+诊断中心：根 `run.cmd --check-diagnostics` 覆盖独立Collector、按需采集和设置页实际导出；原生组件另运行 `python dev/selfcheck_native_diagnostics.py`（需Windows/MSVC x64）。这些是隔离功能回归，不作为issue #222真实复现或根因结论。人工验收用根 `run.cmd` 打开“设置 → 诊断与反馈”，检查填写、附件、导出/摘要、关闭重开及独立EXE；默认不记录/导出转储，两个开关分别验收。

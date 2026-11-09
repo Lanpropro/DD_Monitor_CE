@@ -641,6 +641,13 @@
 - `mobile/test/model_test.dart`
 - `mobile/test/watch_session_test.dart`
 
+- `dev/native_diagnostics_fixture.cpp`
+- `dev/build_native_diagnostics.cmd`
+- `dev/selfcheck_native_diagnostics.py`
+- `dev/selfcheck_settings_diagnostics.py`
+- `tools/diagnostics/CommandLine.cs`
+- `tools/native_diagnostics/capture.cpp`
+
 ## 仅本机存在的其他资料
 
 此处只列目录和文件入口，不展开真实配置、账号、缓存、录制内容或临时依赖。
@@ -681,3 +688,15 @@
 测试、构建、软件文档和开发原型属于软件维护资料，已单独标出。
 本轮文档移动与四项删除见 [整理审查](archive/repository-cleanup-review.md)，软件和打包读取路径已相应调整。
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。
+
+
+### 诊断中心与崩溃证据
+
+- `ddm/settings_diagnostics.py`：设置内诊断表单、采集状态及手动导出反馈。
+- `ddm/diagnostic_export.py`：QProcess 导出/现场采集协调、临时请求与取消清理；复用独立工具后端。
+- `ddm/native_diagnostics.py`：Qt导入前安装原生采集、组件状态与转储开关。
+- `ddm/qt_lifecycle.py`：关键对象生命周期的有界记录，不持有QObject。
+- `tools/native_diagnostics/capture.cpp`：原生未处理异常通知DLL和独立栈/可选转储进程；`dev/build_native_diagnostics.cmd` 构建。
+- `tools/diagnostics/CommandLine.cs`：固定JSON请求的无界面入口；WinForms和设置页共用 `Collector.cs`。
+- `dev/native_diagnostics_fixture.cpp`、`dev/selfcheck_native_diagnostics.py`：隔离受控崩溃、正常退出、栈与转储回归。
+- `dev/selfcheck_settings_diagnostics.py`：临时安装目录中的设置页、实际导出、取消及生命周期回归。

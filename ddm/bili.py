@@ -972,6 +972,9 @@ def rooms_status(room_ids: list[str]) -> dict[str, dict]:
     return result
 
 
+from . import qt_lifecycle
+
+
 class StatusPoller(QThread):
     """定时批量刷新关注房间的直播状态。"""
 
@@ -979,11 +982,13 @@ class StatusPoller(QThread):
     failed = Signal(str)
     status_ready = Signal()
 
+    @qt_lifecycle.construction
     def __init__(self, room_ids: list[str], parent=None, *, platforms=None):
         super().__init__(parent)
         self.room_ids = list(room_ids)
         self.platforms = platforms or {}
 
+    @qt_lifecycle.running
     def run(self) -> None:
         bili_ids = [rid for rid in self.room_ids if str(rid).isdigit()]
         status, uids = {}, {}
@@ -1118,10 +1123,12 @@ class StatsPoller(QThread):
 
     updated = Signal(dict)
 
+    @qt_lifecycle.construction
     def __init__(self, room_ids: list[str], parent=None):
         super().__init__(parent)
         self.room_ids = [str(item) for item in room_ids]
 
+    @qt_lifecycle.running
     def run(self) -> None:
         result = {}
         for room_id in self.room_ids:

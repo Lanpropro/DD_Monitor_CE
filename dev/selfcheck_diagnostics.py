@@ -27,6 +27,48 @@ class DiagnosticTests(unittest.TestCase):
         cls.driver = cls.base / 'test.exe'
         cls.compile(cls.driver, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/NativeDependencies.cs', ROOT / 'tools/diagnostics/Program.cs', ROOT / 'dev/diagnostics_tests.cs'])
 
+    def cli(self, include=False):
+        target = self.base / 'collector-cli.exe'
+        if not target.exists():
+            self.compile(target, [ROOT / 'tools/diagnostics/Collector.cs', ROOT / 'tools/diagnostics/NativeDependencies.cs',
+                ROOT / 'tools/diagnostics/Program.cs'], gui=True)
+        request = self.case / 'request.json'
+        request.write_text(json.dumps({'root': str(self.app), 'destination': str(self.output),
+            'description': 'fixture', 'include_native_dumps': include}), encoding='utf-8')
+        result = subprocess.run([str(target), '--collect-json', str(request)], capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        events = [json.loads(line) for line in result.stdout.decode('utf-8-sig').splitlines()]
+        self.assertEqual(events[-1]['kind'], 'result')
+        self.assertTrue(any(row['kind'] == 'progress' for row in events))
+        self.assertEqual(list(self.output.glob('*.part')), [])
+        return Path(events[-1]['path'])
+
+    def test_native_text_is_redacted_and_dumps_excluded_by_default(self):
+        self.put('logs/native-crash-12-abcdef.json', '{"exception_code":"0xc0000005","cookie":"PRIVATE_NATIVE"}')
+        self.put('logs/qt-lifecycle-12.jsonl', '{"stage":"construct.request","object":"12:1"}')
+        self.put('logs/settings-crash-34.log', 'fixture settings thread stack')
+        self.put('logs/native-crash-12-abcdef.dmp', 'PRIVATE_MEMORY')
+        self.put('logs/native-crash-12-abcdef.json.part', 'PRIVATE_PARTIAL')
+        self.put('logs/unknown.json', 'PRIVATE_UNKNOWN')
+        with zipfile.ZipFile(self.cli()) as archive:
+            self.assertIn('logs/native-crash-12-abcdef.json', archive.namelist())
+            self.assertIn('logs/qt-lifecycle-12.jsonl', archive.namelist())
+            text = b' '.join(archive.read(name) for name in archive.namelist())
+            for private in (b'PRIVATE_NATIVE', b'PRIVATE_MEMORY', b'PRIVATE_PARTIAL', b'PRIVATE_UNKNOWN'):
+                self.assertNotIn(private, text)
+            report = json.loads(archive.read('native-crashes.json'))
+            self.assertFalse(report['dump_export_requested'])
+            self.assertEqual(report['dumps'], [])
+
+    def test_native_dump_export_requires_explicit_choice(self):
+        self.put('logs/native-crash-12-abcdef.dmp', 'PRIVATE_MEMORY_EXPLICIT')
+        self.put('logs/arbitrary.dmp', 'PRIVATE_OTHER_MEMORY')
+        with zipfile.ZipFile(self.cli(include=True)) as archive:
+            self.assertEqual(archive.read('native/native-crash-12-abcdef.dmp'), b'PRIVATE_MEMORY_EXPLICIT')
+            self.assertNotIn('native/arbitrary.dmp', archive.namelist())
+            report = json.loads(archive.read('native-crashes.json'))
+            self.assertTrue(report['dump_export_requested'])
+
     @classmethod
     def compile(cls, target, sources, gui=False):
         references = ['System.Management', 'System.Web.Extensions', 'System.IO.Compression',
@@ -37,7 +79,7 @@ class DiagnosticTests(unittest.TestCase):
         if not gui:
             command += ['/main:DiagnosticsTests']
         command += list(map(str, sources))
-        command += [str(ROOT / 'tools/diagnostics/OnDemand.cs')]
+        command += [str(ROOT / 'tools/diagnostics/OnDemand.cs'), str(ROOT / 'tools/diagnostics/CommandLine.cs')]
         result = subprocess.run(command, capture_output=True, timeout=40)
         if result.returncode:
             raise AssertionError(result.stdout.decode('utf-8', errors='replace') + result.stderr.decode('utf-8', errors='replace'))
@@ -448,7 +490,8 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn(b'scroll passed', result.stdout)
 
     def test_feedback_guidance_fits_minimum_window_size(self):
-        result = subprocess.run([str(self.driver), '--layout', str(self.app)], capture_output=True, timeout=15)
+        arguments = [os.environ['DDM_DIAGNOSTICS_STANDALONE_IMAGE']] if os.environ.get('DDM_DIAGNOSTICS_STANDALONE_IMAGE') else []
+        result = subprocess.run([str(self.driver), '--layout', str(self.app), *arguments], capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'layout passed', result.stdout)
 
@@ -567,7 +610,7 @@ class DiagnosticTests(unittest.TestCase):
             result = subprocess.run(['powershell', '-NoProfile', '-File', str(ROOT / 'dev/build_diagnostics.ps1'),
                                      '-OutDir', str(output), *arguments], capture_output=True, timeout=40)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.3.zip') as archive:
+        with zipfile.ZipFile(standalone / 'DDMonitorDiagnostics-v1.4.zip') as archive:
             self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
             for name in archive.namelist():
                 self.assertEqual(archive.read(name), (standalone / name).read_bytes())

@@ -39,6 +39,8 @@ if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--apply-upd
     raise SystemExit(run_elevated_helper(sys.argv[2]))
 
 if __name__ == "__main__" and sys.argv[1:] == ["--settings-worker"]:
+    from ddm.native_diagnostics import start_worker
+    start_worker(os.environ.get('DDM_DIAGNOSTIC_LOG_DIR'))
     from ddm.settings_process import run_worker
     raise SystemExit(run_worker())
 
