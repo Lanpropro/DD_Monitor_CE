@@ -22,7 +22,14 @@ def remember_card(mime, pixmap, hotspot):
 
 
 def play_card_drop(tile, mime, position, room_id):
-    if not isValid(tile) or not tile.isVisible() or str(tile.room.get('room_id')) != room_id:
+    if not isValid(tile):
+        return None
+    if str(tile.room.get('room_id')) != room_id:
+        # A hot swap moves the incoming widget into the original drop position.
+        tile = next((candidate for candidate in tile.window().findChildren(type(tile))
+                     if str(candidate.room.get('room_id')) == room_id and
+                     QRect(candidate.mapToGlobal(QPoint()), candidate.size()).contains(position)), None)
+    if tile is None or not tile.isVisible():
         return None
     previous = getattr(tile, '_card_drop_overlay', None)
     if previous is not None:

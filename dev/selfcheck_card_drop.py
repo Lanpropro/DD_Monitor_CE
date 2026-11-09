@@ -124,6 +124,27 @@ class CardDropTests(unittest.TestCase):
         self.tile.room = {'room_id': '1001'}
         self.assertIsNone(card_drop.play_card_drop(self.tile, QMimeData(), self.position, '1001'))
 
+    def test_hot_swap_feedback_follows_the_incoming_widget_at_the_drop_position(self):
+        self.tile.room = {'room_id': 'previous'}
+        incoming = DropTile(self.window)
+        incoming.setGeometry(280, 360, 520, 200)
+        incoming.room = {'room_id': '1001'}
+        incoming.show()
+        APP.processEvents()
+        target_geometry = self.tile.geometry()
+        handle = int(incoming.video.winId())
+        def swap(_room_id):
+            self.tile.setGeometry(incoming.geometry())
+            incoming.setGeometry(target_geometry)
+        self.tile.roomDropped.connect(swap)
+        session = self.sidebar.drag_session
+        session.start(self.sidebar.items()[0], self.mime, self.snapshot, self.hotspot, self.position)
+        with patch('ddm.sidebar_drag.widget_at', return_value=self.tile):
+            self.assertTrue(session.finish())
+        self.assertIsNone(getattr(self.tile, '_card_drop_overlay', None))
+        self.assertTrue(incoming._card_drop_overlay.timer.isActive())
+        self.assertEqual(int(incoming.video.winId()), handle)
+
     def test_same_room_and_cancelled_gesture_do_not_replay_feedback(self):
         session = self.sidebar.drag_session
         session.start(self.sidebar.items()[0], self.mime, self.snapshot, self.hotspot, self.position)
