@@ -28,7 +28,7 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton, ToggleSwitch, SegmentedControl, SelectControl, SettingsSurface)
+                    DanmakuToggleButton, ToggleSwitch, SegmentedControl, SelectControl, SettingsSurface, DisclosureButton)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -355,6 +355,39 @@ assert not any(name in sys.modules for name in (
                 parent.deleteLater()
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
                 _frosted_image.cache_clear()
+
+    def test_disclosure_keeps_rounded_corners_during_focus_and_press(self):
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        button = ui.DisclosureButton()
+        button.setObjectName('IconButton')
+        button.setText('编解码设置')
+        box.addWidget(button)
+        parent.resize(360, 100)
+        parent.show()
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                button.setFocus()
+                self.app.processEvents()
+                before = button.geometry()
+                idle = button.grab().toImage()
+                QTest.mousePress(button, Qt.LeftButton)
+                self.app.processEvents()
+                held = button.grab().toImage()
+                self.assertEqual(button.geometry(), before)
+                scale = held.devicePixelRatio()
+                self.assertEqual(held.pixelColor(round(scale), round(scale)),
+                                 idle.pixelColor(round(scale), round(scale)))
+                QTest.mouseRelease(button, Qt.LeftButton)
+                self.assertEqual(button.height(), theme.CONTROL_HEIGHT)
+                self.assertTrue(button.property('customControlSurface'))
+                self.assertFalse(button.autoDefault())
+                button.setChecked(False)
+        finally:
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
 
 
 if __name__ == '__main__':

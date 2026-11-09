@@ -21,6 +21,7 @@
 | `ScaleCurveControl` | SC / 弹幕可拖动控制点的缩放曲线与比例示例 | `ddm/ui/scale_curve.py`；计算规则见 `ddm/viewport_scale.py` |
 | `ToggleSwitch` | 设置行右侧的开关，保留 Qt 点击、空格键、焦点及禁用语义 | `ddm/ui/selection.py`；`NotificationSwitch` 保留兼容子类 |
 | `SegmentedControl` | 单选分段组，共用底板与选中块，支持方向键切换及禁用项 | `ddm/ui/selection.py`；`value()` / `setValue()` / `valueChanged` |
+| `DisclosureButton` | 页内展开条，统一焦点、按下、圆角与箭头绘制 | `ddm/ui/disclosure.py`；Qt 持有勾选值，固定控件高度 |
 | `SettingsSurface` | 设置卡片的半透明渐变、高光和静态背景模糊缓存 | `ddm/ui/settings_surface.py`；供分组、通知及插件卡片复用 |
 | `SelectControl` | 选项较多时使用的紧凑下拉，Qt 负责选择模型、弹层定位和键盘操作 | `ddm/ui/select.py`；沿用 `QComboBox` 的数据与信号接口 |
 
@@ -116,3 +117,9 @@ run.cmd --check-image-cache
 组件专项验证轻量导入、原对象身份、旧导入兼容、按钮信号/禁用/归属、标题/说明样式与旧设置入口、实际页面采用共用控件及主题切换；使用离屏 Qt、临时数据，不读取用户账号、不联网。播放按钮专项另检查音量滚轮上下限、声道提示、暂停/方向/弹幕开关、刷新动画显隐与销毁、多缩放绘制；这些回归不代表实际直播性能验收。
 
 设置分组、通知和插件卡片共用 `SettingsSurface`，使用连续圆角、半透明渐变和细边缘高光。静态图片来自最近的设置内容区或设置窗口分区，以原背景所有者的坐标对齐；自定义不透明底色阻断外层背景。模糊结果按路径、修改时间及大小缓存（最多4张），不抓取窗口、不在卡片/子控件上添加图形效果，不引入定时器。无背景图时保留纯色上的材质层次；预览读取现有预览草稿，不改全局美化状态。设置窗口显式标记 settings 分区，派生的独立进程窗口沿用同一背景归属。
+
+设置整窗由 `ddm/settings_window.py` 管理无边框 QDialog、统一圆角玻璃底板、可拖动顶部栏、常显搜索及圆形关闭按钮；`SettingsDialog` 保留设置协调职责和旧入口。顶部关闭、Esc 和取消均走 reject，不保存草稿；边缘调用 Qt 系统缩放，顶部空白调用系统移动。`ddm/settings_backdrop.py` 隔离 Windows DWM 调用：Windows 11 build 22621 起使用 Desktop Acrylic，其他环境保留主题底板，设置背景图使用既有静态模糊缓存。依据 https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type 。
+
+玻璃整窗内的 SettingsSurface 仅绘制更轻的半透明卡片，不重复采样背景；导航默认透出统一底板。独立进程的宿主页仍由主进程持有：分层内容窗口不自行约束最小尺寸；工作进程先激活分配布局，再传递视口尺寸；主进程显示后应答 host-shown，由工作进程按视口坐标对齐原生子窗口，不改激活或层叠顺序。首次插件页、切页和重开均验证 HWND/DPI/底部边界与透明背景上的文字绘制。
+
+编解码收展使用 SettingsColumns.refresh_section，只替换发生尺寸变化的 Qt 布局项，保留其余卡片的布局项与控件身份，避免先强制子布局再重建全部分组。无新增动画或设置状态副本。

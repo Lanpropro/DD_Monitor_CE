@@ -10,7 +10,8 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QScrollArea
+from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.ui import SettingsSurface
@@ -212,6 +213,60 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(editor.values(), before)
             self.assertTrue(editor.preview.isVisible())
             self.assertTrue(editor.checks['reload'].isVisible())
+
+    def test_disclosure_keeps_neighbour_items_and_leading_controls_stable(self):
+        from ddm.ui import DisclosureButton
+        page = self.page(0)
+        self.assertIsInstance(page.codec_button, DisclosureButton)
+        neighbours = [card for key, card, _wide in page.sections.entries if key != 'playback']
+        items = [page.sections.grid.itemAt(page.sections.grid.indexOf(card)) for card in neighbours]
+        leading = [page._checks[key] for key in ('default_muted', 'fullscreen_solo_audio', 'fullscreen_auto_hide_controls')]
+        positions = [control.pos() for control in leading]
+        for expanded in (True, False, True, False):
+            before = page.codec_button.geometry()
+            QTest.mousePress(page.codec_button, Qt.LeftButton)
+            settle()
+            self.assertEqual(page.codec_button.geometry(), before)
+            QTest.mouseRelease(page.codec_button, Qt.LeftButton)
+            settle()
+            self.assertEqual(page.codec_button.height(), theme.CONTROL_HEIGHT)
+            self.assertEqual(page.codec_button.isChecked(), expanded)
+            self.assertEqual(page.codec_editor.isVisible(), expanded)
+            self.assertEqual([control.pos() for control in leading], positions)
+            for card, item in zip(neighbours, items):
+                self.assertIs(page.sections.grid.itemAt(page.sections.grid.indexOf(card)), item)
+
+    def test_frameless_header_search_and_close_preserve_cancel_semantics(self):
+        self.assertTrue(self.dialog.windowFlags() & Qt.FramelessWindowHint)
+        header = self.dialog.window_header
+        self.assertTrue(header.isAncestorOf(self.dialog.navigation.search))
+        self.dialog.nav.setCurrentRow(3)
+        settle()
+        self.assertIn('录制', header.breadcrumb.text())
+        self.dialog.navigation.set_collapsed(True, animate=False)
+        self.assertTrue(self.dialog.navigation.search.isVisible())
+        self.dialog.general_page.volume_slider.setValue(7)
+        self.assertEqual(header.close_button.accessibleName(), '关闭设置')
+        QTest.mouseClick(header.close_button, Qt.LeftButton)
+        self.assertFalse(self.dialog.isVisible())
+        self.assertEqual(self.dialog.result(), QDialog.Rejected)
+        self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
+
+
+    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
+                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
+    def test_native_system_material_and_caption(self):
+        import ctypes
+        from ctypes import wintypes
+        from ddm.window_fullscreen import _dwm_get
+        hwnd = int(self.dialog.winId())
+        self.assertTrue(self.dialog._native_glass)
+        self.assertEqual(_dwm_get(hwnd, 38), 3)
+        get_style = ctypes.windll.user32.GetWindowLongPtrW
+        get_style.argtypes = (wintypes.HWND, ctypes.c_int)
+        get_style.restype = ctypes.c_ssize_t
+        self.assertEqual(get_style(hwnd, -16) & 0x00c00000, 0)
+
 
 
 if __name__ == '__main__':

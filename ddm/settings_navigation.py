@@ -55,7 +55,7 @@ class SettingsCategoryDelegate(QStyledItemDelegate):
         # row never paints the section title with the item's hover background.
         from .skin_parts import values_for
         surface = values_for('settings.navigation')
-        background = surface.get('background', None if surface.get('image') else theme.SIDEBAR)
+        background = surface.get('background', None if surface.get('image') or nav.window().property('settingsGlassWindow') else theme.SIDEBAR)
         if background is not None:
             painter.fillRect(option.rect, theme.qcolor(background))
         font = QFont(option.font)
@@ -186,7 +186,7 @@ class SettingsNavigation(QWidget):
         if collapsed:
             self.search.clear()
         self.title.setVisible(not collapsed)
-        self.search.setVisible(not collapsed)
+        self.search.setVisible(bool(self.search.property('inSettingsHeader')) or not collapsed)
         self.footer.setVisible(not collapsed)
         action = '展开设置分类' if collapsed else '收起设置分类'
         self.rail_button.kind = 'expand' if collapsed else 'collapse'

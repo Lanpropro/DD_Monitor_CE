@@ -242,6 +242,7 @@ def run_worker():
             self.host_saved = False
             self.host_values = {}
             self.host_container = None
+            self.host_surface_ready = False
             self.foreign = None
             self.plugin_checks = {}
             self.painted = False
@@ -337,6 +338,7 @@ def run_worker():
                   'settings': self.settings(), 'shortcuts': self.shortcuts()})
 
         def embed_host(self, hwnd):
+            attached = False
             if self.host_container is None:
                 self.foreign = QWindow.fromWinId(hwnd)
                 if self.foreign is None:
@@ -344,9 +346,12 @@ def run_worker():
                 self.host_container = QWidget.createWindowContainer(self.foreign, self.stack)
                 self.host_container.setFocusPolicy(Qt.StrongFocus)
                 self.stack.addWidget(self.host_container)
-                send({'kind': 'host-attached'})
+                attached = True
             if self.nav.currentRow() in HOST_PAGES:
                 self.stack.setCurrentWidget(self.host_container)
+                self.stack.layout().activate()
+            if attached:
+                send({'kind': 'host-attached', 'size': [self.host_container.width(), self.host_container.height()]})
 
         def _reset_current(self):
             if self.nav.currentRow() in HOST_PAGES:
@@ -402,6 +407,10 @@ def run_worker():
                 app.quit()
             elif kind == 'host-ready' and self.dialog is not None:
                 self.dialog.embed_host(message['hwnd'])
+            elif kind == 'host-shown' and self.dialog is not None:
+                from .settings_backdrop import align_embedded_content
+                align_embedded_content(self.dialog.host_container, self.dialog.foreign)
+                self.dialog.host_surface_ready = True
             elif kind == 'host-state' and self.dialog is not None:
                 self.dialog.host_values = message['values']
                 self.dialog.confirm_button.setEnabled(message['save_enabled'])

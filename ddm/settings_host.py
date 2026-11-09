@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QCheckBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QLayout
 
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
@@ -58,6 +58,10 @@ class SettingsHost(QObject):
         elif kind == 'host-page':
             if not self.embedded:
                 self.stack.setProperty('embeddedSettings', True)
+                self.stack.setProperty('settingsGlassContent', True)
+                self.stack.layout().setSizeConstraint(QLayout.SetNoConstraint)
+                self.stack.setMinimumSize(0, 0)
+                self.stack.setAttribute(Qt.WA_TranslucentBackground)
                 self.stack.setParent(None, Qt.FramelessWindowHint)
                 self.stack.setAttribute(Qt.WA_ShowWithoutActivating)
                 self.stack.style().polish(self.stack)
@@ -70,7 +74,9 @@ class SettingsHost(QObject):
             self.dialog._reset_current()
             self.sync()
         elif kind == 'host-attached':
+            self.stack.resize(*message['size'])
             self.stack.show()
+            self.client._send({'kind': 'host-shown'})
         elif kind == 'host-hidden':
             self.dialog.nav.setCurrentRow(-1)
         elif kind == 'host-save':

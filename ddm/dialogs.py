@@ -281,9 +281,10 @@ class GeneralSettingsPage(QWidget):
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
         from .settings_codec_editor import InlineCodecEditor
+        from .ui import DisclosureButton
         self.codec_editor = InlineCodecEditor(settings)
         self.codec_editor.hide()
-        self.codec_button = QPushButton()
+        self.codec_button = DisclosureButton()
         self.codec_button.setObjectName("IconButton")
         self.codec_button.setAccessibleName("编解码设置")
         self.codec_button.setCheckable(True)
@@ -339,10 +340,7 @@ class GeneralSettingsPage(QWidget):
 
     def _set_codecs_expanded(self, expanded):
         self.codec_editor.setVisible(expanded)
-        card = self.sections.section('playback')
-        card.layout().activate()
-        card.updateGeometry()
-        self.sections._arrange()
+        self.sections.refresh_section('playback')
 
     def reset(self) -> None:
         from . import config as config_module
@@ -1546,7 +1544,10 @@ class AppearanceSettingsPage(QWidget):
         self._choose("dark")
 
 
-class SettingsDialog(QDialog):
+from .settings_window import SettingsWindow
+
+
+class SettingsDialog(SettingsWindow):
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
     pageCreated = Signal(int, object)
@@ -1579,7 +1580,7 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(760, 520)
         self.resize(min(1200, available.width() - 48), min(800, available.height() - 72))
 
-        root = QHBoxLayout(self)
+        root = self.body_layout
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
@@ -1587,6 +1588,8 @@ class SettingsDialog(QDialog):
         from .online_ui import AppUpdatePage
         self.navigation = SettingsNavigation(self.PAGES, self)
         self.nav = self.navigation.nav
+        self.window_header.set_search(self.navigation.search)
+        self.nav.currentRowChanged.connect(self._update_window_heading)
         root.addWidget(self.navigation)
 
         self.content = QWidget(self)
@@ -1644,9 +1647,14 @@ class SettingsDialog(QDialog):
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
         self.nav.setCurrentRow(0)
+        self.nav.setFocus(Qt.OtherFocusReason)
         if preview:
             return
         self._update_save_button()
+
+    def _update_window_heading(self, index):
+        title = self.PAGES[index][1] if 0 <= index < len(self.PAGES) else ''
+        self.window_header.breadcrumb.setText('设置  ›  ' + title)
 
     def paintEvent(self, event):
         super().paintEvent(event)

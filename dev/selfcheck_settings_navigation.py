@@ -60,7 +60,7 @@ class SettingsNavigationTests(unittest.TestCase):
         self.navigation.search.setText('no-such-setting')
         self.assertTrue(self.navigation.empty_hint.isVisible())
         QTest.mouseClick(self.navigation.rail_button, Qt.LeftButton)
-        self.assertFalse(self.navigation.search.isVisible())
+        self.assertTrue(self.navigation.search.isVisible())
         self.assertTrue(all(not nav.isRowHidden(i) for i in range(nav.count())))
         self.assertEqual(self.navigation.width(), SettingsNavigation.COMPACT_WIDTH)
         self.assertEqual(nav.item(3).toolTip(), '录制')
@@ -153,7 +153,7 @@ class SettingsNavigationTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertFalse(isValid(animation))
 
-    def test_transparent_navigation_keeps_the_settings_skin_visible(self):
+    def test_glass_navigation_keeps_the_settings_skin_visible(self):
         from ddm import skin_parts
         package, personal = deepcopy(skin_parts._package), deepcopy(skin_parts._personal)
         try:
@@ -167,7 +167,10 @@ class SettingsNavigationTests(unittest.TestCase):
                 APP.processEvents()
                 capture = self.dialog.grab().toImage()
                 point = self.dialog.nav.mapTo(self.dialog, QPoint(5, 5))
-                self.assertEqual(capture.pixelColor(point), QColor('#ff8800'))
+                colour = capture.pixelColor(point)
+                self.assertGreater(colour.red(), colour.green())
+                self.assertGreater(colour.green(), colour.blue())
+                self.assertNotEqual(colour, theme.qcolor(theme.SIDEBAR))
         finally:
             skin_parts.configure(package, personal)
 
