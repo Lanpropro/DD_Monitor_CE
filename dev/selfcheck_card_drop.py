@@ -20,6 +20,7 @@ from PySide6.QtWidgets import QApplication, QFrame, QWidget
 from shiboken6 import delete, isValid
 from ddm import card_drop, motion
 from ddm.pane_source_picker import SourceAvatar
+from ddm.playback_badges import LoadingIndicator
 from ddm.sidebar_drag import ROOM_MIME
 from ddm.video_surface import VideoSurface
 from ddm.widgets import Sidebar, Tile
@@ -36,9 +37,12 @@ class DropTile(QFrame):
     def __init__(self, parent):
         super().__init__(parent)
         self.room = {}
+        self._player_active = False
+        self._connecting = False
         self.video = VideoSurface(self)
         self.video.setGeometry(0, 0, 520, 300)
         self.setAcceptDrops(True)
+        self.spinner = LoadingIndicator(self)
 
 
 class CardDropTests(unittest.TestCase):
@@ -82,8 +86,13 @@ class CardDropTests(unittest.TestCase):
         button.sync('选择弹幕来源', 0, '', None)
         button.show()
         self.assertIsNone(button.avatar)
+        self.assertEqual(button.text(), '')
+        self.assertTrue(button.property('sourceEmpty'))
         self.assertEqual(button.accessibleName(), '选择弹幕来源')
         self.assertFalse(button.grab().isNull())
+        button.sync('Fixture', 0, '1001', None)
+        self.assertIsNone(button.avatar, 'Missing photos use the neutral icon, never a colored text avatar')
+        self.assertEqual(button.text(), '')
         button.sync('Fixture', 0, '1001', self.snapshot)
         self.assertIsNotNone(button.avatar)
         self.assertEqual(button.face_key, self.snapshot.cacheKey())
@@ -162,14 +171,56 @@ class CardDropTests(unittest.TestCase):
         self.assertNotEqual(overlay.card_rect(), overlay.source)
         self.assertFalse(overlay.grab().isNull())
         overlay.progress = 1
-        self.assertAlmostEqual(overlay.card_rect().width(), overlay.target.width())
-        self.assertAlmostEqual(overlay.card_rect().y(), overlay.target.y())
+        self.assertLess(overlay.card_rect().width(), overlay.source.width())
+        self.assertGreater(overlay.card_rect().center().y(), overlay.target.center().y())
         with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 2):
             overlay.advance()
         self.assertTrue(overlay.finished)
         self.assertFalse(overlay.timer.isActive())
         self.assertTrue(overlay.snapshot.isNull())
         self.assertIsNone(self.tile._card_drop_overlay)
+
+    def test_initial_loading_is_covered_until_the_first_playing_frame(self):
+        self.tile._connecting = True
+        self.tile.spinner.start()
+        overlay = self.overlay()
+        self.assertTrue(overlay.waiting)
+        self.assertFalse(self.tile.spinner.isVisible())
+        self.tile.spinner.start()
+        self.assertFalse(self.tile.spinner.isVisible(), 'Repeated buffering must not show a second loader')
+        with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 5):
+            overlay.advance()
+        self.assertFalse(overlay.finished, 'The old 280ms deadline must not uncover an unready player')
+        self.assertTrue(overlay.waiting)
+        self.assertEqual(overlay.fade, 0)
+        self.assertLess(overlay.progress, 1)
+        self.tile._player_active, self.tile._connecting = True, False
+        with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 5):
+            overlay.advance()
+        self.assertFalse(overlay.waiting)
+        self.assertFalse(overlay.finished)
+        with patch.object(card_drop.time, 'monotonic', return_value=overlay.started + 5.3):
+            overlay.advance()
+        self.assertTrue(overlay.finished)
+        self.tile._connecting = True
+        self.tile.spinner.start()
+        self.assertTrue(self.tile.spinner.isVisible(), 'Later rebuffering retains the original indicator')
+
+    def test_loading_failure_room_change_and_cancel_restore_normal_presentation(self):
+        self.tile._connecting = True
+        overlay = self.overlay()
+        self.tile._connecting = False
+        overlay.advance()
+        self.assertTrue(overlay.finished)
+        self.assertFalse(self.tile.spinner.isVisible())
+        self.tile._connecting = True
+        overlay = self.overlay()
+        overlay.finish()
+        self.assertTrue(self.tile.spinner.isVisible(), 'Resize/cancel must restore the loader for a pending stream')
+        overlay = self.overlay()
+        self.tile.room = {'room_id': 'another'}
+        overlay.advance()
+        self.assertTrue(overlay.finished)
 
     def test_new_drop_resize_hide_and_target_destruction_clean_up(self):
         first = self.overlay()
@@ -211,6 +262,10 @@ class CardDropTests(unittest.TestCase):
             player = TilePlayer(self.tile.video, self.window, silent=True)
             try:
                 self.tile.room = {}
+                def state_changed(state):
+                    self.tile._player_active = state == 'playing'
+                    self.tile._connecting = state in ('connecting', 'buffering')
+                player.stateChanged.connect(state_changed)
                 def play(room_id):
                     self.tile.room = {'room_id': room_id}
                     player.play(str(media))

@@ -119,7 +119,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组分类、拼音搜索、两秒指针停留、图标栏、键盘与弹窗保护、中断及销毁；隔离窗口和鼠标位置输入，不读取账号 |
 | [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、控件值和重置、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
-| [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；拖入后立即派发播放、沉入水波绘制、同房间与取消、连续拖入、目标销毁、系统关闭动画及来源图标；单独经 bootstrap 传 `--native`，用本地视频核对播放推进与 libmpv/HWND 保持，不读取账号、不移动系统鼠标 |
+| [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；立即派发播放、首次缓冲沉降与首帧揭示、失败／中断后恢复、再次缓冲、换格、连续拖入、销毁、系统关闭动画及中性圆角来源图标；单独经 bootstrap 传 `--native`，用本地视频核对播放推进与 libmpv/HWND 保持，不读取账号、不移动系统鼠标 |
 | [selfcheck_audio_normalization](../selfcheck_audio_normalization.py) | `offline`、`smoke`；压低／保持／恢复时间、静音保持、参数边界、内嵌预设／拖动／设置页保存取消／重置、播放器暂停与退出生命周期；不读取账号、不联网 |
 | [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
