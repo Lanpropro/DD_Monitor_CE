@@ -34,8 +34,10 @@ class DisclosureButton(QPushButton):
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         active = self.isChecked() or self.hasFocus()
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if active else theme.BORDER_STRONG), 1))
+        from ..settings_material import base_color
         painter.setBrush(theme.qcolor(theme.ACCENT_SOFT if self.isChecked() else
-                                     theme.CONTENT_HOVER if self.underMouse() else theme.CONTENT))
+                                     theme.CONTENT_HOVER if self.underMouse() else
+                                     base_color(self, 'control', theme.CONTENT)))
         painter.drawRoundedRect(rect, theme.RADIUS_MD, theme.RADIUS_MD)
         painter.setPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.TEXT2))
         painter.drawText(rect.adjusted(12, 0, -36, 0), Qt.AlignVCenter | Qt.AlignLeft,

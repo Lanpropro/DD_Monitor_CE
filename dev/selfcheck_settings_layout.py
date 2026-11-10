@@ -351,8 +351,10 @@ class SettingsLayoutTests(unittest.TestCase):
                 painter.drawImage(composed.rect(), surface)
                 painter.end()
                 color = composed.pixelColor(composed.width() // 2, composed.height() // 2)
-                self.assertLess(max(color.red(), color.green(), color.blue()), 80,
-                                'Dark glass must retain its theme tint even over a bright backdrop')
+                for actual, reference in zip((color.red(), color.green(), color.blue()), (51, 55, 59)):
+                    expected = reference * .88 + QColor(background).red() * .12
+                    self.assertLessEqual(abs(actual - expected), 4,
+                                         'Glass must layer the reference base tint over the backdrop')
             shell._native_glass = False
             with patch('ddm.skin_parts.values_for', return_value={}):
                 fallback = shell.grab().toImage()

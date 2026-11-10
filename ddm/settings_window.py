@@ -76,6 +76,7 @@ class SettingsWindow(QDialog):
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setProperty('settingsGlassWindow', True)
+        self.setProperty('appearanceLight', theme.is_light())
         self.setProperty('customControlSurface', True)
         self._native_glass = False
         self._native_corners = False
@@ -148,17 +149,19 @@ class SettingsWindow(QDialog):
                 pass
         if image is not None:
             painter.drawPixmap(rect, image, QRectF(image.rect()))
-        color = theme.qcolor(values.get('background', theme.BG))
+        from .settings_material import base_color
+        color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
         if not glass:
             color.setAlpha(255)
         elif 'background' not in values:
             color.setAlpha(round(material['settings_glass_opacity'] * 2.55)
                            if image is not None or self._native_glass else 248)
         painter.fillPath(path, color)
-        sheen = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        sheen.setColorAt(0, QColor(255, 255, 255, 10 if theme.is_light() else 6))
-        sheen.setColorAt(1, QColor(255, 255, 255, 0))
-        painter.fillPath(path, sheen)
+        if glass:
+            sheen = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            sheen.setColorAt(0, QColor(255, 255, 255, 10 if theme.is_light() else 6))
+            sheen.setColorAt(1, QColor(255, 255, 255, 0))
+            painter.fillPath(path, sheen)
         if not (self._native_glass or self._native_corners):
             painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
             painter.setBrush(Qt.NoBrush)
