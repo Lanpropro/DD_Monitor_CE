@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut, QWindow
 from PySide6.QtWidgets import QApplication, QCheckBox, QLayout
 
 from .dialogs import SettingsDialog
@@ -23,6 +23,7 @@ class SettingsHost(QObject):
         from .settings_material import apply_properties
         apply_properties(self.stack, self.dialog.settings())
         self.embedded = False
+        self.embedded_parent = None
         self.pending_apply = None
         # Existing plugins contribute controls on SettingsDialog's Show event.
         # Dispatch that event without showing or activating a second window.
@@ -79,6 +80,11 @@ class SettingsHost(QObject):
                 self.stack.setParent(None, Qt.FramelessWindowHint)
                 self.stack.setAttribute(Qt.WA_ShowWithoutActivating)
                 self.stack.style().polish(self.stack)
+                self.stack.winId()
+                # Establish Qt's parent before the worker embeds the HWND, so
+                # layered repaints use child coordinates from the first frame.
+                self.embedded_parent = QWindow.fromWinId(message['parent_hwnd'])
+                self.stack.windowHandle().setParent(self.embedded_parent)
                 self.embedded = True
             self.dialog.nav.setCurrentRow(message['index'])
             self.stack.finish_transition()
@@ -169,6 +175,9 @@ class SettingsHost(QObject):
         self.timer.stop()
         self.dialog.auto_save.stop()
         self.stack.close()
+        if self.embedded_parent is not None:
+            self.stack.windowHandle().setParent(None)
+            self.embedded_parent.deleteLater()
         self.stack.setParent(self.dialog)
         self.dialog.reject()
         self.dialog.deleteLater()
