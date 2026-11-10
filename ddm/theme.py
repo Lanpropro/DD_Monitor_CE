@@ -152,6 +152,8 @@ RADIUS_XL = 16
 SIDEBAR_WIDTH = 248
 SIDEBAR_RAIL_WIDTH = 60
 CONTROL_HEIGHT = 34
+SETTINGS_SLIDER_WIDTH = 160
+SETTINGS_STEPPER_WIDTH = 180
 SWITCH_WIDTH = 44
 SWITCH_HEIGHT = 26
 SWITCH_TRACK_HEIGHT = 22
@@ -668,6 +670,11 @@ QDialog[settingsGlassWindow="true"] #Search {{border-radius: 17px;}}
 #SettingsHint {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
+}}
+#SettingsValue {{
+    color: {TEXT1};
+    font-size: {FONT_CONTROL}px;
+    font-weight: 700;
 }}
 #SettingsSection {{
     background: transparent;

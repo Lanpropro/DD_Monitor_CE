@@ -2,11 +2,11 @@
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QVBoxLayout, QWidget
+    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 )
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog
-from .ui import StepperControl, page_header as _page_head
+from .ui import SettingsSlider, SettingsValueLabel, StepperControl, page_header as _page_head
 from .settings_layout import SettingsSection, section_grid
 from .bili import BILI_CODECS
 
@@ -243,19 +243,15 @@ class GeneralSettingsPage(QWidget):
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
-        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider = SettingsSlider()
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setMinimumWidth(100)
-        self.volume_slider.setMaximumWidth(240)
         self.volume_slider.setValue(int(settings.get("default_volume", DEFAULT_VOLUME)))
-        self.volume_label = QLabel(str(self.volume_slider.value()))
-        self.volume_label.setObjectName("SettingsHint")
-        self.volume_label.setFixedWidth(28)
+        self.volume_label = SettingsValueLabel(str(self.volume_slider.value()))
         # 直接连接接收控件，避免回调持有父页面并在退出时触发析构重入。
         self.volume_slider.valueChanged.connect(self.volume_label.setNum)
         volume_box.addWidget(self.volume_slider)
         volume_box.addWidget(self.volume_label)
-        self.volume_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        volume_box.insertStretch(0, 1)
         grid.addLayout(volume_box, row, 1)
         row += 1
         grid.addWidget(self.codec_editor, row, 0, 1, 2)

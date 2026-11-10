@@ -76,6 +76,8 @@ class SettingsWindow(QDialog):
         self.setProperty('appearanceLight', theme.is_light())
         self.setProperty('customControlSurface', True)
         self._native_corners = False
+        from .settings_focus import SettingsInputFocus
+        self.input_focus = SettingsInputFocus(self)
         self.window_header = SettingsTitleBar(self)
         self.body_layout = QHBoxLayout()
         outer = QVBoxLayout(self)

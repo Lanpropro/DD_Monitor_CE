@@ -2,10 +2,10 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget
+    QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 )
 from . import theme
-from .ui import SettingsSurface, ToggleSwitch, page_header as _page_head
+from .ui import SettingsSlider, SettingsValueLabel, SettingsSurface, ToggleSwitch, page_header as _page_head
 from .settings_layout import SettingsColumns
 
 
@@ -153,14 +153,14 @@ class NotificationSettingsPage(QWidget):
         controls = QVBoxLayout()
         controls.addWidget(QLabel('Banner 毛玻璃模糊强度'))
         slider_row = QHBoxLayout()
-        self.banner_blur = QSlider(Qt.Horizontal)
+        self.banner_blur = SettingsSlider()
         self.banner_blur.setRange(0, 40)
         self.banner_blur.setAccessibleName('Banner 毛玻璃模糊强度')
         self.banner_blur.setValue(int(settings.get('notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))
         slider_row.addWidget(self.banner_blur, 1)
-        self.banner_blur_value = QLabel()
-        self.banner_blur_value.setMinimumWidth(28)
+        self.banner_blur_value = SettingsValueLabel()
         slider_row.addWidget(self.banner_blur_value)
+        slider_row.addStretch(1)
         controls.addLayout(slider_row)
         row.addLayout(controls, 1)
         self.banner_preview = NoticeBlurPreview()

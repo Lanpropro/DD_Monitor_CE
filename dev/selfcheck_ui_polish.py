@@ -232,7 +232,7 @@ class UiPolishTests(unittest.TestCase):
         control.reset()
         self.assertEqual(control.curve(), scale_curve_points())
         image = graph.grab().toImage()
-        grid_point = graph.point_position([.5, .5]).toPoint()
+        grid_point = graph.point_position([.4, .4]).toPoint()
         self.assertNotEqual(image.pixelColor(grid_point), theme.qcolor(theme.CONTENT),
                             'An open curve must not fill over the grid below it')
 

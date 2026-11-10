@@ -3,11 +3,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QCheckBox, QFontComboBox, QButtonGroup, QFrame, QGridLayout, QHBoxLayout,
-    QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSlider, QSpinBox, QVBoxLayout, QWidget
+    QLabel, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget
 )
 from . import theme
 from .super_chat_preview import SuperChatPlacementPreview
-from .ui import ScaleCurveControl, page_header as _page_head, step_button as _step_button
+from .ui import SettingsSlider, SettingsValueLabel, ScaleCurveControl, page_header as _page_head, step_button as _step_button
 from .settings_layout import section_grid
 
 
@@ -80,11 +80,10 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_enabled.setChecked(bool(settings.get('super_chat_enabled', True)))
         grid.addWidget(self.super_chat_enabled, 3, 0, 1, 2)
         grid.addWidget(QLabel('SC 不透明度'), 4, 0)
-        self.super_chat_opacity = QSlider(Qt.Horizontal)
+        self.super_chat_opacity = SettingsSlider()
         self.super_chat_opacity.setRange(10, 100)
-        self.super_chat_opacity.setMaximumWidth(240)
         self.super_chat_opacity.setValue(int(settings.get('super_chat_opacity', 80)))
-        sc_value = QLabel(f'{self.super_chat_opacity.value()}%')
+        sc_value = SettingsValueLabel(f'{self.super_chat_opacity.value()}%')
         self.super_chat_opacity.valueChanged.connect(lambda value: sc_value.setText(f'{value}%'))
         sc_row = QHBoxLayout()
         sc_row.addWidget(self.super_chat_opacity, 1)
@@ -104,11 +103,10 @@ class DanmakuSettingsPage(QWidget):
         delay_row.addWidget(self.super_chat_collapse_unit)
         delay_row.addStretch(1)
         grid.addLayout(delay_row, 5, 1)
-        self.super_chat_scale = QSlider(Qt.Horizontal)
+        self.super_chat_scale = SettingsSlider()
         self.super_chat_scale.setRange(75, 200)
-        self.super_chat_scale.setMaximumWidth(240)
         self.super_chat_scale.setValue(int(settings.get('super_chat_scale', 100)))
-        scale_value = QLabel(f'{self.super_chat_scale.value()}%')
+        scale_value = SettingsValueLabel(f'{self.super_chat_scale.value()}%')
         self.super_chat_scale.valueChanged.connect(lambda value: scale_value.setText(f'{value}%'))
         scale_row = QHBoxLayout()
         scale_row.addWidget(self.super_chat_scale, 1)

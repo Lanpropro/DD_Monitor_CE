@@ -58,13 +58,11 @@ class ResponseGraph(QWidget):
 
     def paintEvent(self, event):
         from . import theme
-        from .settings_material import base_color
+        from .ui.curve_surface import paint_curve_surface
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        background = base_color(self, 'card', None)
-        brush = theme.qcolor(background) if background else self.palette().base()
-        painter.fillRect(self.rect(), brush)
         rect = self.plot_rect()
+        paint_curve_surface(painter, self, rect)
         painter.setPen(self.palette().text().color())
         painter.drawText(12, 17, '增益 dB')
         for gain in (0, -3, -6):
@@ -87,7 +85,7 @@ class ResponseGraph(QWidget):
         painter.setPen(QPen(accent, 2.5))
         painter.drawPath(path)
         for index, point in enumerate(self.handles()):
-            painter.setBrush(accent if index == self._drag else brush)
+            painter.setBrush(accent if index == self._drag else theme.qcolor('#ffffff'))
             painter.drawEllipse(point, 5, 5)
 
     def mousePressEvent(self, event):
@@ -135,7 +133,7 @@ class AudioNormalizationEditor(QWidget):
         self.body.setSpacing(24)
         outer.addLayout(self.body)
         self.parameters_panel = QWidget()
-        self.parameters_panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.parameters_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         editor = QVBoxLayout(self.parameters_panel)
         editor.setContentsMargins(0, 0, 0, 0)
         editor.setSpacing(12)
@@ -184,8 +182,8 @@ class AudioNormalizationEditor(QWidget):
             spin.valueChanged.connect(self._edited)
             self.controls[key] = spin
             self.steppers[key] = StepperControl(spin)
-            field.addWidget(self.steppers[key])
-            controls.addLayout(field, row, column)
+            field.addWidget(self.steppers[key], 0, Qt.AlignRight)
+            controls.addLayout(field, row, column, Qt.AlignRight)
         reset = QPushButton('恢复平缓默认')
         reset.setObjectName('IconButton')
         reset.clicked.connect(self._reset)
@@ -195,7 +193,7 @@ class AudioNormalizationEditor(QWidget):
         note.setWordWrap(True)
         editor.addWidget(note)
         self.preview_panel = QWidget()
-        self.preview_panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.preview_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         preview = QVBoxLayout(self.preview_panel)
         preview.setContentsMargins(0, 0, 0, 0)
         preview.setSpacing(10)

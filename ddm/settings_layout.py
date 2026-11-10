@@ -116,7 +116,7 @@ def section_grid(grid, groups, *, anchor=None, full_width_rows=()):
         if widget is not None:
             if isinstance(widget, QLabel):
                 widget.setWordWrap(True)
-            target.addWidget(widget, local_row, column, rows, columns)
+            target.addWidget(widget, local_row, column, rows, columns, item.alignment())
         elif layout is not None:
             layout.setParent(None)
             target.addLayout(layout, local_row, column, rows, columns)
