@@ -4,7 +4,7 @@ import math
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QBoxLayout, QDoubleSpinBox, QGridLayout, QHBoxLayout,
-                               QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
+                               QLabel, QSizePolicy, QVBoxLayout, QWidget)
 
 from .ui import SelectControl, StepperControl
 from .audio_normalization import FIELDS, LIMITS, PRESETS, normalize_curve, preset_curve, response_preview
@@ -184,10 +184,6 @@ class AudioNormalizationEditor(QWidget):
             self.steppers[key] = StepperControl(spin)
             field.addWidget(self.steppers[key], 0, Qt.AlignRight)
             controls.addLayout(field, row, column, Qt.AlignRight)
-        reset = QPushButton('恢复平缓默认')
-        reset.setObjectName('IconButton')
-        reset.clicked.connect(self._reset)
-        editor.addWidget(reset, 0, Qt.AlignLeft)
         note = QLabel('这些是本软件的参考预设，非平台官方算法。直播无法预先测完整节目，参数仍可自由调整。')
         note.setObjectName('SettingsHint')
         note.setWordWrap(True)
@@ -220,9 +216,6 @@ class AudioNormalizationEditor(QWidget):
         self.layout().activate()
         self.setMinimumHeight(max(self.layout().minimumSize().height(),
                                   self.layout().totalHeightForWidth(self.width())))
-
-    def _reset(self):
-        self.set_curve(preset_curve())
 
     def _edited(self):
         self.set_curve(dict(preset='custom', **{key: control.value() for key, control in self.controls.items()}))

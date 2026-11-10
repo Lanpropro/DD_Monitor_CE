@@ -163,6 +163,17 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertFalse(first.lineEdit().hasSelectedText())
         self.assertTrue(second.hasFocus())
 
+    def test_normalization_uses_the_shared_switch_and_preserves_values(self):
+        from ddm.ui import ToggleSwitch
+        page = self.page(0)
+        switch = page._checks['volume_normalization']
+        self.assertIsInstance(switch, ToggleSwitch)
+        self.assertFalse(switch.isChecked())
+        QTest.mouseClick(switch, Qt.LeftButton)
+        self.assertTrue(page.values()['volume_normalization'])
+        self.dialog._reset_current()
+        self.assertFalse(page.values()['volume_normalization'])
+
     def test_general_steppers_share_one_surface_and_respect_auto_compact(self):
         page = self.page(0)
         from ddm.ui import StepperControl

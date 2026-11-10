@@ -98,7 +98,7 @@ class EditorTests(unittest.TestCase):
         QTest.mouseRelease(graph, Qt.LeftButton, pos=start + QPoint(30, 0))
         self.assertGreater(dialog.values()['attack'], 3.)
         self.assertAlmostEqual(graph.settings['attack'], dialog.controls['attack'].value(), places=1)
-        dialog._reset()
+        dialog.presets.setCurrentIndex(dialog.presets.findData('gentle'))
         self.assertEqual(dialog.values(), preset_curve())
         dialog.close()
 
@@ -108,6 +108,7 @@ class EditorTests(unittest.TestCase):
         self.addCleanup(page.deleteLater)
         editor = page.normalization_editor
         self.assertFalse(editor.isWindow())
+        self.assertNotIn('恢复平缓默认', [button.text() for button in editor.findChildren(QPushButton)])
         self.assertIs(editor.parentWidget(), page.sections.section('normalization'))
         self.assertFalse(any('响应曲线' in button.text() for button in page.findChildren(QPushButton)))
         editor.presets.setCurrentIndex(list(PRESETS).index('spotify'))
@@ -149,7 +150,7 @@ class EditorTests(unittest.TestCase):
         dialog.auto_save.flush()
         self.assertFalse(dialog.settings()['volume_normalization'])
         self.assertEqual(requests[-1]['settings']['volume_normalization_curve'], preset_curve('spotify'))
-        editor._reset()
+        editor.presets.setCurrentIndex(editor.presets.findData('gentle'))
         dialog.auto_save.flush()
         self.assertEqual(requests[-1]['settings']['volume_normalization_curve'], preset_curve())
         self.assertFalse(dialog.settings()['volume_normalization'])
