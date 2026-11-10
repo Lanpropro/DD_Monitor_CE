@@ -85,7 +85,7 @@ class EditorTests(unittest.TestCase):
         dialog.show()
         self.app.processEvents()
         for index, name in enumerate(PRESETS):
-            dialog.presets.setCurrentRow(index)
+            dialog.presets.setCurrentIndex(index)
             self.assertEqual(dialog.values(), preset_curve(name))
         self.assertIn('非 Apple', dialog.description.text())
         dialog.controls['hold'].setValue(4.5)
@@ -102,7 +102,7 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(dialog.values(), preset_curve())
         dialog.close()
 
-    def test_inline_page_edits_persistence_disable_and_reset(self):
+    def test_inline_page_edits_persistence_playback_toggle_and_reset(self):
         settings = {'volume_normalization': True, 'volume_normalization_curve': preset_curve()}
         page = GeneralSettingsPage(settings)
         self.addCleanup(page.deleteLater)
@@ -110,7 +110,7 @@ class EditorTests(unittest.TestCase):
         self.assertFalse(editor.isWindow())
         self.assertIs(editor.parentWidget(), page.sections.section('normalization'))
         self.assertFalse(any('响应曲线' in button.text() for button in page.findChildren(QPushButton)))
-        editor.presets.setCurrentRow(list(PRESETS).index('spotify'))
+        editor.presets.setCurrentIndex(list(PRESETS).index('spotify'))
         self.assertEqual(page.values()['volume_normalization_curve'], preset_curve('spotify'))
         self.assertEqual(settings['volume_normalization_curve'], preset_curve())
         saved = json.loads(json.dumps(page.values()))
@@ -118,10 +118,46 @@ class EditorTests(unittest.TestCase):
         self.addCleanup(restored.deleteLater)
         self.assertEqual(restored.values()['volume_normalization_curve'], preset_curve('spotify'))
         page._checks['volume_normalization'].setChecked(False)
-        self.assertFalse(editor.isEnabled())
+        self.assertTrue(editor.isEnabled())
         self.assertEqual(page.values()['volume_normalization_curve'], preset_curve('spotify'))
         page.reset()
         self.assertEqual(page.values()['volume_normalization_curve'], preset_curve())
+
+    def test_disabled_playback_still_allows_preset_selection_and_autosave(self):
+        from ddm.ui import SelectControl
+        dialog = SettingsDialog({'volume_normalization': False}, {}, preview=True)
+        self.addCleanup(dialog.deleteLater)
+        editor = dialog.general_page.normalization_editor
+        self.assertIsInstance(editor.presets, SelectControl)
+        dialog.auto_save.start()
+        requests = []
+        def save(changes):
+            requests.append(changes)
+            dialog.auto_save.acknowledge()
+        dialog.auto_save.requested.connect(save)
+        dialog.resize(1200, 900)
+        dialog.show()
+        self.app.processEvents()
+        self.assertTrue(editor.presets.isEnabled())
+        editor.presets.setFocus()
+        # Exercise the enabled combobox's keyboard path, not just its setter.
+        QTest.keyClick(editor.presets, Qt.Key_Down)
+        self.assertEqual(editor.values(), preset_curve('spotify'))
+        self.assertEqual(editor.graph.settings, preset_curve('spotify'))
+        self.assertEqual(editor.controls['target_lufs'].value(), -14.)
+        self.assertTrue(editor.steppers['target_lufs'].minus.isEnabled())
+        dialog.auto_save.flush()
+        self.assertFalse(dialog.settings()['volume_normalization'])
+        self.assertEqual(requests[-1]['settings']['volume_normalization_curve'], preset_curve('spotify'))
+        editor._reset()
+        dialog.auto_save.flush()
+        self.assertEqual(requests[-1]['settings']['volume_normalization_curve'], preset_curve())
+        self.assertFalse(dialog.settings()['volume_normalization'])
+        restored = GeneralSettingsPage(json.loads(json.dumps(dialog.settings())))
+        self.addCleanup(restored.deleteLater)
+        self.assertEqual(restored.normalization_editor.values(), preset_curve())
+        self.assertFalse(restored.values()['volume_normalization'])
+        dialog.close()
 
     def test_parent_settings_cancel_keeps_original_curve_and_save_includes_inline_edits(self):
         settings = {'volume_normalization': True, 'volume_normalization_curve': preset_curve()}
@@ -136,7 +172,7 @@ class EditorTests(unittest.TestCase):
         restored = SettingsDialog(settings, {}, preview=True)
         self.addCleanup(restored.deleteLater)
         self.assertEqual(restored.general_page.normalization_editor.values(), preset_curve())
-        restored.general_page.normalization_editor.presets.setCurrentRow(list(PRESETS).index('netflix'))
+        restored.general_page.normalization_editor.presets.setCurrentIndex(list(PRESETS).index('netflix'))
         self.assertEqual(restored.settings()['volume_normalization_curve'], preset_curve('netflix'))
 
     def test_player_commands_pause_channel_changes_and_release(self):

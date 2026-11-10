@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog
-from .ui import page_header as _page_head, step_button as _step_button
+from .ui import StepperControl, page_header as _page_head
 from .settings_layout import SettingsSection, section_grid
 from .bili import BILI_CODECS
 
@@ -194,15 +194,9 @@ class GeneralSettingsPage(QWidget):
         self.poll_spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.poll_spin.setFixedWidth(90)
         self.poll_spin.setValue(int(settings.get("poll_minutes", 1)))
-        step_box = QHBoxLayout()
-        step_box.setSpacing(6)
-        minus = _step_button("−", "调小", self.poll_spin.stepDown)
-        plus = _step_button("+", "调大", self.poll_spin.stepUp)
-        step_box.addWidget(minus)
-        step_box.addWidget(self.poll_spin)
-        step_box.addWidget(plus)
-        step_box.insertStretch(0, 1)
-        grid.addLayout(step_box, row, 1)
+        self.poll_spin.setAccessibleName('关注列表刷新间隔')
+        self.poll_stepper = StepperControl(self.poll_spin)
+        grid.addWidget(self.poll_stepper, row, 1, Qt.AlignRight)
         row += 1
         for key, label in self.ITEMS:
             if key in ('volume_normalization', 'sidebar_platform_logos'):
@@ -237,17 +231,11 @@ class GeneralSettingsPage(QWidget):
                 self.compact_threshold_spin.setFixedWidth(112)
                 self.compact_threshold_spin.setValue(
                     int(settings.get("sidebar_compact_threshold", 18)))
-                threshold_box = QHBoxLayout()
-                threshold_box.setSpacing(6)
-                threshold_box.addWidget(_step_button(
-                    "−", "调小", self.compact_threshold_spin.stepDown))
-                threshold_box.addWidget(self.compact_threshold_spin)
-                threshold_box.addWidget(_step_button(
-                    "+", "调大", self.compact_threshold_spin.stepUp))
-                threshold_box.insertStretch(0, 1)
-                grid.addLayout(threshold_box, row, 1)
-                box.toggled.connect(self.compact_threshold_spin.setEnabled)
-                self.compact_threshold_spin.setEnabled(box.isChecked())
+                self.compact_threshold_spin.setAccessibleName('自动切换数量')
+                self.compact_threshold_stepper = StepperControl(self.compact_threshold_spin)
+                grid.addWidget(self.compact_threshold_stepper, row, 1, Qt.AlignRight)
+                box.toggled.connect(self.compact_threshold_stepper.setEnabled)
+                self.compact_threshold_stepper.setEnabled(box.isChecked())
                 row += 1
         from .settings_codec_editor import InlineCodecEditor
         self.codec_editor = InlineCodecEditor(settings)
@@ -274,8 +262,6 @@ class GeneralSettingsPage(QWidget):
         row += 1
         from .audio_normalization_ui import AudioNormalizationEditor
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
-        self.normalization_editor.setEnabled(self._checks['volume_normalization'].isChecked())
-        self._checks['volume_normalization'].toggled.connect(self.normalization_editor.setEnabled)
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
             ('playback', '播放与声音', (1, 10, 2, 4), False),

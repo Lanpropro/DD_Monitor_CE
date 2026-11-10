@@ -135,6 +135,25 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             APP.removeEventFilter(hook)
 
+    def test_general_steppers_share_one_surface_and_respect_auto_compact(self):
+        page = self.page(0)
+        from ddm.ui import StepperControl
+        self.assertIsInstance(page.poll_stepper, StepperControl)
+        self.assertIs(page.poll_stepper.spin, page.poll_spin)
+        before = page.poll_spin.value()
+        QTest.mouseClick(page.poll_stepper.plus, Qt.LeftButton)
+        self.assertEqual(page.poll_spin.value(), before + 1)
+        page._checks['sidebar_auto_compact'].setChecked(False)
+        value = page.compact_threshold_spin.value()
+        self.assertFalse(page.compact_threshold_stepper.isEnabled())
+        QTest.mouseClick(page.compact_threshold_stepper.plus, Qt.LeftButton)
+        self.assertEqual(page.compact_threshold_spin.value(), value)
+        page._checks['sidebar_auto_compact'].setChecked(True)
+        QTest.mouseClick(page.compact_threshold_stepper.plus, Qt.LeftButton)
+        self.assertEqual(page.compact_threshold_spin.value(), value + 1)
+        self.assertEqual(page.values()['poll_minutes'], before + 1)
+        self.assertEqual(page.values()['sidebar_compact_threshold'], value + 1)
+
     def test_general_volume_value_uses_readable_theme_text(self):
         from PySide6.QtGui import QPalette
         before = theme.mode()
@@ -394,9 +413,14 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertGreater(card.y(), page.sections.section('playback').geometry().bottom())
             self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
             self.assertLessEqual(editor.geometry().right(), card.width())
-            graph_bottom = editor.graph.mapTo(editor, editor.graph.rect().bottomLeft()).y()
+            if direction == QBoxLayout.LeftToRight:
+                self.assertLess(editor.parameters_panel.geometry().right(), editor.preview_panel.x())
+                self.assertEqual(editor.parameters_panel.y(), editor.preview_panel.y())
+            else:
+                self.assertLess(editor.parameters_panel.geometry().bottom(), editor.preview_panel.y())
             for control in editor.controls.values():
-                self.assertGreater(control.mapTo(editor, control.rect().topLeft()).y(), graph_bottom)
+                self.assertTrue(editor.parameters_panel.isAncestorOf(control))
+            self.assertTrue(editor.preview_panel.isAncestorOf(editor.graph))
             self.assertEqual(page.values()['volume_normalization_curve']['hold'], 4.5)
 
     def test_nested_audio_editor_and_controls_follow_base_colors_in_place(self):
@@ -417,8 +441,8 @@ class SettingsLayoutTests(unittest.TestCase):
                 settle()
                 self.assertEqual(pixel(graph, 2, 30), card)
                 presets = page.normalization_editor.presets
-                self.assertEqual(pixel(presets, 4, presets.height() - 4), card)
-                self.assertEqual(pixel(page.poll_spin, 5, page.poll_spin.height() // 2), control)
+                self.assertEqual(pixel(presets, 12, presets.height() // 2), control)
+                self.assertEqual(pixel(page.poll_stepper, page.poll_stepper.width() // 2, 3), control)
                 self.assertEqual(self.dialog.geometry(), geometry)
                 self.assertEqual(int(self.dialog.winId()), hwnd)
                 self.assertTrue(self.dialog.isVisible())

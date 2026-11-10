@@ -397,6 +397,47 @@ for before, component, after in (
             control.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_stepper_keeps_native_numeric_input_limits_and_disabled_state(self):
+        from PySide6.QtWidgets import QDoubleSpinBox, QSpinBox
+        for factory in (QSpinBox, QDoubleSpinBox):
+            spin = factory()
+            spin.setRange(1, 3)
+            spin.setValue(2)
+            spin.setSuffix(' s')
+            control = ui.StepperControl(spin)
+            control.show()
+            self.app.processEvents()
+            events = []
+            spin.valueChanged.connect(events.append)
+            try:
+                QTest.mouseClick(control.plus, Qt.LeftButton)
+                self.assertEqual(spin.value(), 3)
+                self.assertFalse(control.plus.isEnabled())
+                QTest.mouseClick(control.minus, Qt.LeftButton)
+                spin.setFocus()
+                QTest.keyClick(spin, Qt.Key_Down)
+                self.assertEqual(spin.value(), 1)
+                self.assertFalse(control.minus.isEnabled())
+                spin.lineEdit().selectAll()
+                QTest.keyClicks(spin.lineEdit(), '2')
+                QTest.keyClick(spin, Qt.Key_Return)
+                self.assertEqual(spin.value(), 2)
+                self.assertTrue(control.minus.isEnabled())
+                self.assertEqual(events[:3], [3, 2, 1])
+                self.assertTrue(events[3:])
+                self.assertTrue(all(value == 2 for value in events[3:]))
+                control.setEnabled(False)
+                QTest.mouseClick(control.plus, Qt.LeftButton)
+                self.assertEqual(spin.value(), 2)
+                self.assertFalse(spin.isEnabled())
+                for mode in ('light', 'dark'):
+                    theme.apply(mode)
+                    self.assertFalse(control.grab().isNull())
+                    self.assertEqual(spin.value(), 2)
+            finally:
+                control.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_select_popup_keeps_layout_and_native_keyboard_commit_cancel(self):
         parent = QWidget()
         box = QVBoxLayout(parent)

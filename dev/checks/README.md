@@ -118,10 +118,10 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_general_settings](../selfcheck_general_settings.py) | `offline`、`smoke` |
 | [selfcheck_settings_autosave](../selfcheck_settings_autosave.py) | `offline` / `smoke`；默认和临时数据，自动保存合并／滑块松手／回执与待保存关闭／失败重试及撤回旧值／插件有效组、真实主窗口应用且不重启、独立进程回执及显式迁移隔离；不读取真实账号、不联网 |
 | [selfcheck_settings_navigation](../selfcheck_settings_navigation.py) | `offline` / `smoke`；分组／拼音搜索、按钮收展、鼠标停留不自动变化、图标栏切页及编辑保持、键盘触发、过渡中断、隐藏重开与销毁；隔离窗口和鼠标位置输入，不读取账号 |
-| [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、常规页编解码独立卡片／下拉弹层几何稳定／独立卡高／保存取消和重置／旧 Show 插件注入、延后追加与嵌套布局入框及身份保持、无边框顶部搜索／关闭取消语义、Windows 原生系统材质和标题栏样式、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
+| [selfcheck_settings_layout](../selfcheck_settings_layout.py) | `offline` / `smoke`；宽屏双列、窄屏纵排与滚动、常规页一体式数值步进与禁用边界／编解码独立卡片／下拉弹层几何稳定／独立卡高／保存取消和重置／旧 Show 插件注入、延后追加与嵌套布局入框及身份保持、无边框顶部搜索／关闭取消语义、Windows 原生系统材质和标题栏样式、SC 曲线预览、菜单缩略图及已发布插件插入点；离屏且不保存配置 |
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
 | [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；原缓冲标识保持、短前奏限时与首帧立即清理、透明小窗口、墙内可见卡片抓取／取消／换格、元数据备用卡片、连续拖入、销毁、系统关闭动画及中性圆角来源图标；bootstrap 加 `--native` 用本地视频核对抓取期间进度、libmpv/HWND 保持；不读取账号、不移动系统鼠标 |
-| [selfcheck_audio_normalization](../selfcheck_audio_normalization.py) | `offline`、`smoke`；压低／保持／恢复时间、静音保持、参数边界、内嵌预设／拖动／设置页保存取消／重置、播放器暂停与退出生命周期；不读取账号、不联网 |
+| [selfcheck_audio_normalization](../selfcheck_audio_normalization.py) | `offline`、`smoke`；压低／保持／恢复时间、静音保持、参数边界、左右参数／曲线布局、下拉预设／拖动／关闭均衡时编辑与自动保存／重置、播放器暂停与退出生命周期；不读取账号、不联网 |
 | [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_control](../selfcheck_settings_control.py) | `smoke` / `offline`；设置协调导入、旧对话框工厂、普通/独立入口、真实Qt信号、宿主页/更新页复用、保存取消异常清理、状态与应用顺序、SC预览；隔离替身、无窗口/进程/账号/网络 |
@@ -261,7 +261,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录／单文件权限、EXE／DLL 占用、只读文件拦截和解除限制后修复安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
 | [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、封面640及头像256长边/JPEG与PNG压缩、下载后头像快照、小图不放大、裁切元数据/透明度保留、无URL旧图本地转存和重复读取不再压缩、跨进程清理及头像迟到转存保护、饼图选择及后台清理；不联网、不读真实账号 |
-| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、开关鼠标／空格／禁用兼容、展开条焦点和按下时的圆角、分段互斥／方向键／信号／立体表面／主题／内容宽度、下拉提交取消／禁用／父销毁清理、卡片静态背景缓存／分区遮挡／预览草稿和子控件清晰及实际页面复用；离屏、临时数据，无账号/外网；设置原生/嵌入根节点的深浅色录屏基础色像素、原生与自绘控件、弹出菜单及设置外主题隔离、均匀卡片底色与独立外阴影 |
+| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、开关鼠标／空格／禁用兼容、展开条焦点和按下时的圆角、分段互斥／方向键／信号／立体表面／主题／内容宽度、下拉提交取消／禁用／父销毁清理、一体式数值步进的输入／范围／键盘／禁用边界、卡片静态背景缓存／分区遮挡／预览草稿和子控件清晰及实际页面复用；离屏、临时数据，无账号/外网；设置原生/嵌入根节点的深浅色录屏基础色像素、原生与自绘控件、弹出菜单及设置外主题隔离、均匀卡片底色与独立外阴影 |
 | [check_setup_data_cleanup](../check_setup_data_cleanup.py) | 单项 Windows 后台检查；先构建原生入口，再传入 ISCC；使用独立登记和合成文件验证软件目录／独立数据目录的默认保留、勾选清理、中文路径、链接保护及额外文件保留 |
 | [check_release_package](../check_release_package.py) | 单项执行前核对 |
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |
