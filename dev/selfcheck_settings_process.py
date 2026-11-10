@@ -72,6 +72,9 @@ def child(action):
                     QTimer.singleShot(10, self.exercise)
                     return
                 assert {check.text() for check in self.plugin_checks.values()} == {'显示海外平台 Logo', '显示国内平台 Logo'}
+                card = self.general_page.sections.section('extensions')
+                assert all(card.isAncestorOf(check) for check in self.plugin_checks.values())
+                assert self.general_page.plugin_controls() == self.plugin_checks
                 assert not self.general_page._checks['sidebar_platform_logos'].isVisible()
                 assert not any(check.isChecked() for check in self.plugin_checks.values())
                 self.plugin_checks['global_live_show_platform_logo'].setChecked(True)

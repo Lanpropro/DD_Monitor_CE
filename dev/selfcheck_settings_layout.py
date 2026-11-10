@@ -93,7 +93,7 @@ class SettingsLayoutTests(unittest.TestCase):
         settle()
         for check in checks:
             self.assertTrue(check.isVisible())
-            self.assertGreater(check.y(), page.sections.geometry().bottom())
+            self.assertTrue(page.sections.section('extensions').isAncestorOf(check))
         self.assertLess(checks[0].geometry().bottom(), checks[1].y())
         page.volume_slider.setValue(19)
         page.poll_spin.setValue(8)
@@ -103,27 +103,64 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(page.poll_spin.value(), config.DEFAULT_SETTINGS['poll_minutes'])
         self.assertIsNotNone(grid.itemAt(grid.indexOf(anchor)))
 
-    def test_general_codecs_expand_inline_and_keep_edits_across_widths(self):
+    def test_show_event_plugin_hook_keeps_identity_on_reopen(self):
+        from PySide6.QtCore import QObject
         page = self.page(0)
-        self.assertTrue(page.codec_editor.isHidden())
-        following = page.sections.section('following')
-        before_height = following.height()
-        playback = page.sections.section('playback')
-        collapsed_height = playback.height()
-        with patch('ddm.dialogs.CodecSettingsDialog') as factory:
-            page.codec_button.click()
+        class Hook(QObject):
+            def eventFilter(self, watched, event):
+                if watched is self.parent() and event.type() == QEvent.Show:
+                    if page.findChild(QCheckBox, 'fixture_show') is None:
+                        check = QCheckBox('显示插件标记', page)
+                        check.setObjectName('fixture_show')
+                        grid = page.layout().itemAt(1).layout()
+                        anchor = page._checks['sidebar_platform_logos']
+                        row = grid.getItemPosition(grid.indexOf(anchor))[0] + 1
+                        grid.addWidget(check, row, 0, 1, 2)
+                return False
+        hook = Hook(self.dialog)
+        APP.installEventFilter(hook)
+        try:
+            self.dialog.hide()
+            self.dialog.show()
             settle()
-            factory.assert_not_called()
+            check = page.plugin_controls()['fixture_show']
+            check.setChecked(True)
+            self.assertTrue(page.sections.section('extensions').isAncestorOf(check))
+            self.dialog.hide()
+            self.dialog.show()
+            settle()
+            self.assertIs(page.plugin_controls()['fixture_show'], check)
+            self.assertTrue(check.isChecked())
+            self.assertEqual(len(page.findChildren(QCheckBox, 'fixture_show')), 1)
+        finally:
+            APP.removeEventFilter(hook)
+
+    def test_general_volume_value_uses_readable_theme_text(self):
+        from PySide6.QtGui import QPalette
+        before = theme.mode()
+        try:
+            for mode in ('light', 'dark'):
+                theme.apply(mode)
+                self.dialog.setStyleSheet(theme.qss())
+                settle()
+                label = self.dialog.general_page.volume_label
+                self.assertEqual(label.palette().color(QPalette.WindowText).name(), theme.qcolor(theme.TEXT3).name())
+                self.assertEqual(label.text(), '40')
+        finally:
+            theme.apply(before)
+            self.dialog.setStyleSheet(theme.qss())
+
+    def test_general_codecs_have_a_compact_card_and_keep_edits_across_widths(self):
+        page = self.page(0)
+        card = page.sections.section('codecs')
+        playback = page.sections.section('playback')
+        self.assertTrue(card.isAncestorOf(page.codec_editor))
         self.assertTrue(page.codec_editor.isVisible())
-        self.assertGreater(playback.height(), collapsed_height)
-        expanded_height = playback.height()
-        self.assertLessEqual(page.codec_editor.mapTo(playback, page.codec_editor.rect().bottomRight()).y(), playback.height())
-        self.assertEqual(following.height(), before_height)
-        self.assertEqual(following.y(), page.sections.section('playback').y())
-        page.codec_editor.source_buttons['hevc'].click()
-        page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
-        self.assertIn('HEVC', page.codec_button.text())
-        self.assertIn('CPU', page.codec_button.text())
+        self.assertLess(playback.height(), page.sections.section('following').height())
+        with patch('ddm.dialogs.CodecSettingsDialog') as factory:
+            page.codec_editor.source_buttons['hevc'].click()
+            page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
+            factory.assert_not_called()
         for width in (760, 1200):
             self.dialog.resize(width, 800)
             settle()
@@ -132,17 +169,8 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(self.dialog.settings()['bili_codec'], 'hevc')
             self.assertEqual(self.dialog.settings()['decode_mode'], 'none')
             select = page.codec_editor.decode_control
-            self.assertTrue(select.isVisible())
-            self.assertEqual(select.count(), len(config.DECODE_MODES))
             self.assertLessEqual(select.geometry().right(), page.codec_editor.width())
             self.assertEqual(page.codec_editor.decode_hint.text(), config.DECODE_HINTS['none'])
-            self.assertLess(select.width(), page.codec_editor.width() * .8)
-            self.assertLess(page.codec_editor.source_control.width(), page.codec_editor.width() * .8)
-        page.codec_button.click()
-        self.assertTrue(page.codec_editor.isHidden())
-        settle()
-        self.assertLess(playback.height(), expanded_height)
-        self.assertEqual(page.values()['decode_mode'], 'none')
         self.dialog._reset_current()
         self.assertEqual(page.values()['bili_codec'], config.DEFAULT_SETTINGS['bili_codec'])
         self.assertEqual(page.values()['decode_mode'], config.DEFAULT_SETTINGS['decode_mode'])
@@ -160,7 +188,7 @@ class SettingsLayoutTests(unittest.TestCase):
             restored = SettingsDialog(saved, {}, preview=True)
             self.assertEqual(restored.settings()['bili_codec'], 'av1')
             self.assertEqual(restored.settings()['decode_mode'], 'dxva2')
-            self.assertTrue(restored.general_page.codec_editor.isHidden())
+            self.assertFalse(restored.general_page.codec_editor.isHidden())
         finally:
             for dialog in (draft, restored):
                 if dialog is not None:
@@ -168,27 +196,49 @@ class SettingsLayoutTests(unittest.TestCase):
                     dialog.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
-    def test_disclosure_keeps_neighbour_items_and_leading_controls_stable(self):
-        from ddm.ui import DisclosureButton
+    def test_codec_popup_does_not_move_cards_or_leading_controls(self):
         page = self.page(0)
-        self.assertIsInstance(page.codec_button, DisclosureButton)
-        neighbours = [card for key, card, _wide in page.sections.entries if key != 'playback']
-        items = [page.sections.grid.itemAt(page.sections.grid.indexOf(card)) for card in neighbours]
-        leading = [page._checks[key] for key in ('default_muted', 'fullscreen_solo_audio', 'fullscreen_auto_hide_controls')]
-        positions = [control.pos() for control in leading]
-        for expanded in (True, False, True, False):
-            before = page.codec_button.geometry()
-            QTest.mousePress(page.codec_button, Qt.LeftButton)
+        geometries = [card.geometry() for _key, card, _wide in page.sections.entries]
+        select = page.codec_editor.decode_control
+        select.showPopup()
+        settle()
+        self.assertEqual([card.geometry() for _key, card, _wide in page.sections.entries], geometries)
+        select.hidePopup()
+        settle()
+        self.assertEqual([card.geometry() for _key, card, _wide in page.sections.entries], geometries)
+
+    def test_late_plugin_widgets_and_layouts_share_a_card_without_duplication(self):
+        from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
+        page = self.page(0)
+        grid = page.layout().itemAt(1).layout()
+        row = QHBoxLayout()
+        label, edit = QLabel('插件输入'), QLineEdit('保留值')
+        row.addWidget(label)
+        row.addWidget(edit)
+        grid.addLayout(row, grid.rowCount(), 0, 1, 2)
+        settle()
+        card = page.sections.section('extensions')
+        self.assertTrue(card.isAncestorOf(edit))
+        self.assertEqual(edit.text(), '保留值')
+        hidden = QLineEdit('条件选项', page)
+        hidden.hide()
+        grid.addWidget(hidden, grid.rowCount(), 0, 1, 2)
+        page.plugin_controls()
+        self.assertTrue(card.isAncestorOf(hidden))
+        self.assertTrue(hidden.isHidden())
+        check = QCheckBox('稍后追加', page)
+        check.setObjectName('fixture_late')
+        grid.addWidget(check, grid.rowCount(), 0, 1, 2)
+        settle()
+        self.assertIs(page.plugin_controls()['fixture_late'], check)
+        self.assertTrue(card.isAncestorOf(check))
+        for width in (760, 1200):
+            self.dialog.resize(width, 800)
             settle()
-            self.assertEqual(page.codec_button.geometry(), before)
-            QTest.mouseRelease(page.codec_button, Qt.LeftButton)
-            settle()
-            self.assertEqual(page.codec_button.height(), theme.CONTROL_HEIGHT)
-            self.assertEqual(page.codec_button.isChecked(), expanded)
-            self.assertEqual(page.codec_editor.isVisible(), expanded)
-            self.assertEqual([control.pos() for control in leading], positions)
-            for card, item in zip(neighbours, items):
-                self.assertIs(page.sections.grid.itemAt(page.sections.grid.indexOf(card)), item)
+            self.assertEqual(sum(key == 'extensions' for key, *_ in page.sections.entries), 1)
+            self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
+        self.assertLess(card.width(), page.sections.width() * .6)
+        self.assertLess(card.height(), page.sections.section('codecs').height())
 
     def test_frameless_header_search_and_close_preserve_cancel_semantics(self):
         self.assertTrue(self.dialog.windowFlags() & Qt.FramelessWindowHint)
@@ -220,7 +270,7 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(self.dialog.windowOpacity(), 1.0)
         self.dialog.reset_button.click()
         self.assertEqual(editor.values(), DEFAULTS)
-        self.page(0).codec_button.click()
+        self.page(0)
         button = self.dialog.general_page.codec_editor.source_buttons['avc']
         before = button.grab().toImage()
         self.dialog.set_material(dict(settings_no_shadows=True))

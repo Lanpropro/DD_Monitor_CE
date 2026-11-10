@@ -56,7 +56,6 @@ class AutoSaveTests(unittest.TestCase):
 
     def test_slider_release_coalesces_changes_and_unchanged_controls_do_not_save(self):
         page = self.dialog.general_page
-        page.codec_button.click()
         self.dialog.auto_save.flush()
         self.assertFalse(self.requests)
         page.volume_slider.setSliderDown(True)
@@ -222,6 +221,8 @@ class AutoSaveTests(unittest.TestCase):
             grid.addWidget(check, grid.rowCount(), 0, 1, 2)
             controls.append(check)
         APP.processEvents()
+        self.assertTrue(all(page.sections.section('extensions').isAncestorOf(check) for check in controls))
+        self.assertEqual(set(page.plugin_controls()), {'fixture_domestic', 'fixture_global'})
         self.dialog.auto_save.adopt('plugin_controls', dict(fixture_domestic=False, fixture_global=False))
         controls[1].setChecked(True)
         self.dialog.auto_save.flush()

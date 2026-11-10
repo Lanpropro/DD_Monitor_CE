@@ -83,7 +83,6 @@ assert seen == expected, seen
         page = dialogs.GeneralSettingsPage({'bili_codec': 'avc', 'decode_mode': 'auto'})
         try:
             with patch('ddm.dialogs.CodecSettingsDialog') as factory:
-                page._edit_codecs()
                 page.codec_editor.source_buttons['hevc'].click()
                 page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
                 self.assertEqual(page.values()['bili_codec'], 'hevc')
