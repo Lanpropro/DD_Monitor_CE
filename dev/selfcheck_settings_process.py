@@ -100,6 +100,7 @@ def child(action):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
                 self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
+                                     (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
                                      (1, 0, 1, 7, 1) if action == 'embed-appearance' else
                                      (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
@@ -138,15 +139,18 @@ def child(action):
                     self.reject()
                 return
             self.nav.setCurrentRow(index)
+            if action == 'embed-coordinates':
+                self.move(self.x() + 9, self.y() + 7)
+                self.resize(self.width() + 8, self.height() + 4)
             def observed():
                 if self.host_container is None or not self.host_surface_ready:
-                    QTimer.singleShot(25, observed)
+                    QTimer.singleShot(25, self, observed)
                     return
                 assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
                 extra = {}
-                if action in ('embed-footer', 'embed-appearance'):
+                if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
                     import ctypes
                     from ctypes import wintypes
                     from PySide6.QtCore import QPoint
@@ -168,7 +172,7 @@ def child(action):
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
                 QTimer.singleShot(50, self.step)
-            QTimer.singleShot(200, observed)
+            QTimer.singleShot(200, self, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
     if action.startswith('embed-') or action in ('zorder', 'theme'):
@@ -178,6 +182,10 @@ def child(action):
             dialog.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
             dialog.setGeometry(-10000, -10000, 720 if action == 'embed-footer' else 980,
                                650 if action == 'embed-footer' else 720)
+            if action == 'embed-coordinates':
+                # Expose the layered child at the captured user's positive screen origin.
+                # Off-screen windows never flush their backing store and missed this bug.
+                dialog.setGeometry(670, 291, 1200, 800)
             dialog.show()
         settings_process._activate_dialog = background_activate
     if action == 'zorder':
@@ -675,7 +683,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 extension = ContributedChecks(window)
                 app.installEventFilter(extension)
                 stack.callback(app.removeEventFilter, extension)
-        if action == 'embed-appearance':
+        if action in ('embed-appearance', 'embed-coordinates'):
             from PySide6.QtCore import Qt
             window.setAttribute(Qt.WA_ShowWithoutActivating)
             window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
@@ -711,11 +719,20 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert user32.GetAncestor(handle, 2) == message['hwnd'], 'Host page is not inside worker shell'
                 assert user32.GetDpiForWindow(handle) == user32.GetDpiForWindow(ctypes.c_void_p(message['hwnd']))
                 assert session.stack.isVisible()
+                assert int(session.stack.windowHandle().parent().winId()) == message['hwnd'], 'Host Qt must retain the worker parent across repaints'
                 assert session.stack.width() > 400 and session.stack.height() > 300, (session.stack.width(), session.stack.height(), message)
                 assert message['embedded']
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
-                    if action in ('embed-footer', 'embed-appearance'):
+                    if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
+                        if action == 'embed-coordinates':
+                            from PySide6.QtCore import QEvent
+                            assert session.stack.windowHandle().isExposed()
+                            handle_window = session.stack.windowHandle()
+                            assert not handle_window.isTopLevel()
+                            assert handle_window.geometry() == session.stack.geometry(), 'Qt must retain child coordinates before a layered flush'
+                            session.stack.repaint()
+                            QCoreApplication.sendPostedEvents(None, QEvent.UpdateRequest)
                         from ctypes import wintypes
                         rect = wintypes.RECT()
                         assert user32.GetWindowRect(handle, ctypes.byref(rect))
@@ -759,20 +776,23 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
-                assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
+                if action == 'embed-coordinates':
+                    assert len({tuple(message['size']) for message in shells}) == len(shells)
+                else:
+                    assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
                 assert window.settings['default_volume'] == 17
                 assert window.settings['auto_update'] is (action not in ('embed-footer', 'embed-appearance'))
                 assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
-                if action == 'embed-footer':
+                if action in ('embed-footer', 'embed-coordinates'):
                     process_pid = client.process.processId()
                     messages.clear()
                     client.open(window.settings, window.shortcuts)
                     wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
                     assert client.process.processId() == process_pid, 'Reopen must reuse the worker'
-                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == [7, 0, 7]
+                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8])
                     assert getattr(window, '_settings_host', None) is None
                 assert not errors, errors
                 return
@@ -1016,6 +1036,11 @@ def main():
         check_theme_sync(app)
         return 0
     check_nonblocking_online_close(app)
+    if sys.argv[1:] == ['--coordinates-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-coordinates')
+        print('PASS: exposed host repaints and all host page switches preserve native coordinates')
+        return 0
     if sys.argv[1:] == ['--appearance-native']:
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-appearance')

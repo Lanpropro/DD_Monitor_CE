@@ -31,27 +31,3 @@ def apply_backdrop(widget, light, enabled=True):
     if applied:
         widget._backdrop_key = key
     return applied and enabled
-
-
-def align_embedded_content(container, foreign):
-    """Reconcile a layered host's first show with the worker-owned viewport."""
-    if sys.platform != 'win32' or QApplication.platformName() != 'windows':
-        return
-    from PySide6.QtCore import QPoint
-    user32 = ctypes.windll.user32
-    user32.GetParent.argtypes = (wintypes.HWND,)
-    user32.GetParent.restype = wintypes.HWND
-    user32.ClientToScreen.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.POINT))
-    user32.ScreenToClient.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.POINT))
-    user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-                                  ctypes.c_int, ctypes.c_int, wintypes.UINT)
-    window = container.window()
-    origin = wintypes.POINT()
-    user32.ClientToScreen(int(window.winId()), ctypes.byref(origin))
-    offset = container.mapTo(window, QPoint())
-    scale = window.devicePixelRatioF()
-    point = wintypes.POINT(origin.x + round(offset.x() * scale), origin.y + round(offset.y() * scale))
-    hwnd = int(foreign.winId())
-    user32.ScreenToClient(user32.GetParent(hwnd), ctypes.byref(point))
-    user32.SetWindowPos(hwnd, None, point.x, point.y, round(container.width() * scale),
-                        round(container.height() * scale), 0x14)  # No activation or z-order change.

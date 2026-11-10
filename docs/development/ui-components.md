@@ -134,4 +134,4 @@ run.cmd --check-image-cache
 
 系统圆角状态与是否启用玻璃分离：关闭材质后仍沿用原生轮廓，同一HWND与材质开关构成初始化缓存键。关闭成功也可复用；失败不缓存。SettingsSurface、分段选项及下拉弹出控件读取所属设置窗口／宿主stack的阴影属性，不更改其他主窗口控件。
 
-独立进程的宿主内容在容器Show／Move／Resize及host-ready／host-shown之后，用单次0ms定时器合并对齐；覆盖首次显示、隐藏后重入和布局尺寸变化，不轮询。定时器归RemoteDialog所有，关闭后foreign清空，后续回调不再操作原生窗口。对齐仍由settings_backdrop隔离Win32坐标换算，不复制页面或重建宿主状态。
+独立设置进程在host-page请求中交付外壳HWND。SettingsHost先通过QWindow.fromWinId保存外壳引用，并将真实内容窗口的Qt父窗口设为外壳，再发送host-ready供工作进程创建容器；容器统一管理内容几何与可见性，host-attached仍只确认初始尺寸。这样透明分层窗口首次重绘和后续重绘都使用子窗口坐标，避免Qt仍按顶层屏幕坐标刷新而重复加上外壳位置。关闭时先脱离外部QWindow，再归还QWidget父对象并释放引用；不复制页面状态，不再用Win32手动纠偏或定时器对齐。
