@@ -17,12 +17,13 @@ class CompositionPreview(QFrame):
         self.aspect = 16 / 9
         self.aspects = []
         self.primary = 0
+        self.locked = set()
         self._drag = None
         self._ghost = None
         self._drop_target = None
         self.setAccessibleName('拖动预览画面交换位置')
 
-    def set_panes(self, names, columns, aspects=None, primary=0):
+    def set_panes(self, names, columns, aspects=None, primary=0, locked=()):
         self.cancel_drag()
         for label in self.labels:
             label.hide()
@@ -30,14 +31,15 @@ class CompositionPreview(QFrame):
         self.labels = [ElidedLabel(name, self) for name in names]
         self.columns = columns
         self.primary = primary
+        self.locked = set(locked)
         self.aspects = aspects or [16 / 9] * len(names)
         self.aspect = composition_ratio(self.aspects, columns, primary) if names else 16 / 9
-        for label in self.labels:
+        for index, label in enumerate(self.labels):
             label.setAlignment(Qt.AlignCenter)
             label.setObjectName('PluginCard')
             label.setTextFormat(Qt.PlainText)
-            label.setCursor(Qt.OpenHandCursor)
-            label.setToolTip(label.text() + '\n拖到另一画面上交换位置')
+            label.setCursor(Qt.ArrowCursor if index in self.locked else Qt.OpenHandCursor)
+            label.setToolTip(label.text() if index in self.locked else label.text() + '\n拖到另一画面上交换位置')
             label.installEventFilter(self)
             label.show()
         self._arrange()
@@ -81,7 +83,8 @@ class CompositionPreview(QFrame):
     def eventFilter(self, watched, event):
         kind = event.type()
         if self._drag is None:
-            if watched in self.labels and kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if (watched in self.labels and self.labels.index(watched) not in self.locked
+                    and kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton):
                 position = event.globalPosition().toPoint()
                 self._drag = (self.labels.index(watched), position, watched.mapFromGlobal(position))
                 self.grabMouse(Qt.ClosedHandCursor)
@@ -105,12 +108,13 @@ class CompositionPreview(QFrame):
                 self._ghost.move(point - offset)
                 self._ghost.raise_()
                 self._highlight(next((label for index, label in enumerate(self.labels)
-                    if index != source and label.geometry().contains(point)), None))
+                    if index != source and index not in self.locked and label.geometry().contains(point)), None))
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             source = self._drag[0]
             point = self.mapFromGlobal(event.globalPosition().toPoint())
-            target = next((index for index, label in enumerate(self.labels) if label.geometry().contains(point)), None)
+            target = next((index for index, label in enumerate(self.labels)
+                           if index not in self.locked and label.geometry().contains(point)), None)
             moved = self._ghost is not None
             self.cancel_drag()
             if moved and target is not None and target != source:

@@ -60,6 +60,7 @@ class WallPresentation:
     def relayout_picture_in_picture(self):
         host = self.host
         from .picture_in_picture import pane_rectangles
+        from .pip_composition import focus_chat_cells, focus_slots
         host.setMinimumSize(0, 0)
         for panel in host.pane_danmaku.all_panels():
             panel.hide()
@@ -67,16 +68,23 @@ class WallPresentation:
         for border in host._pane_borders.values():
             border.hide()
         selected = host.picture_in_picture_tiles
+        chat = focus_chat_cells(host, host.picture_in_picture_columns)
+        slots = focus_slots(selected, chat, selected[host.picture_in_picture_primary]) if chat else selected
         for tile in host.tiles:
             tile.setVisible(tile in selected)
         window = host._quick_danmaku_layer.window if host._quick_danmaku_layer is not None else None
         if window is not None:
             window.begin_mask_batch()
         try:
-            for tile, rect in zip(selected, pane_rectangles(
-                    len(selected), host.rect(), host.picture_in_picture_columns,
-                    host.picture_in_picture_aspects, host.picture_in_picture_primary)):
-                tile.setGeometry(rect)
+            rectangles = pane_rectangles(len(slots), host.rect(), host.picture_in_picture_columns,
+                    host.picture_in_picture_aspects, 0 if chat else host.picture_in_picture_primary)
+            widgets = {}
+            for index, (tile, rect) in enumerate(zip(slots, rectangles)):
+                widget = host.pane_danmaku.panels[index] if tile is None else tile
+                widget.setGeometry(rect)
+                widgets[index] = widget
+            if chat:
+                host.pane_danmaku.arrange(dict(enumerate(rectangles)), widgets, gap=0)
         finally:
             if window is not None:
                 window.end_mask_batch()

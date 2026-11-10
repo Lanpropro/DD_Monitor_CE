@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from . import follow_folders, theme
 from .search import matches_text
+from .pip_composition import focus_chat_cells, focus_slots
 from .ui import ActionButton, Avatar, ElidedLabel, page_header
 
 
@@ -81,6 +82,8 @@ class PictureInPicture(QObject):
         if not self.selection and not self.external_rooms:
             capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
             self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
+            if self.chat_cells(FOCUS_LAYOUT):
+                self.columns = FOCUS_LAYOUT
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()
@@ -160,6 +163,18 @@ class PictureInPicture(QObject):
         else:
             self.host.wall._drop_tile(tile)
 
+    def chat_cells(self, columns):
+        return focus_chat_cells(self.host.wall, columns)
+
+    def composition(self, selection, columns, primary=None):
+        aspects = self.aspects_for(selection)
+        chat = self.chat_cells(columns)
+        if chat:
+            values = dict(zip(selection, aspects))
+            slots = focus_slots(selection, chat, primary)
+            return slots, [values.get(key, 16 / 9) for key in slots], 0
+        return list(selection), aspects, selection.index(primary) if primary in selection else 0
+
     def aspects_for(self, selection):
         aspects = []
         for index in selection:
@@ -179,11 +194,11 @@ class PictureInPicture(QObject):
         if not self.active or self.floating._gesture is not None or self.floating._reorder_drag is not None:
             return
         wall = self.host.wall
-        aspects = self.aspects_for(self.selection)
+        _slots, aspects, primary = self.composition(self.selection, self.columns, self.primary)
         if aspects == wall.picture_in_picture_aspects:
             return
         wall.picture_in_picture_aspects = aspects
-        self.floating.set_composition(aspects, self.columns, self.selection.index(self.primary))
+        self.floating.set_composition(aspects, self.columns, primary)
         wall.relayout(force=True)
 
     def swap_positions(self, source, target):
@@ -203,6 +218,9 @@ class PictureInPicture(QObject):
         for key in selection:
             if self.choice_for_index(key) not in candidates:
                 return False
+        chat = self.chat_cells(columns)
+        if chat and len({self.choice_for_index(key) for key in selection}) != 6 - len(chat):
+            return False
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
@@ -250,9 +268,9 @@ class PictureInPicture(QObject):
         else:
             self.floating.track_tiles(starting)
             self._minimums.update((tile, tile.minimumSize()) for tile in starting)
-        aspects = self.aspects_for(selection)
+        _slots, aspects, composition_primary = self.composition(selection, columns, primary)
         wall.set_picture_in_picture(tiles, columns, aspects, selection.index(primary))
-        self.floating.set_composition(aspects, columns, selection.index(primary))
+        self.floating.set_composition(aspects, columns, composition_primary)
         self.floating.show()
         wall.show()
         for rid, tile in list(self._extra_tiles.items()):
@@ -262,6 +280,8 @@ class PictureInPicture(QObject):
         self.primary = wall.tiles.index(primary_tile) if primary_tile in tiles else self.selection[0]
         for tile in starting:
             self.host.start_tile(tile)
+        if chat:
+            self.host.sync_danmaku()
         self.floating.audio_panel.hide()
         self._sync_overlays()
         self._aspect_timer.start()

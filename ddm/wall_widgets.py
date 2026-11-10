@@ -254,7 +254,9 @@ class WallGrid(QWidget):
 
     @property
     def has_danmaku(self) -> bool:
-        return self.picture_in_picture_tiles is None and bool(self.pane_danmaku.bindings()) and bool(self._cells())
+        from .pip_composition import focus_chat_cells
+        shown = self.picture_in_picture_tiles is None or bool(focus_chat_cells(self, self.picture_in_picture_columns))
+        return shown and bool(self.pane_danmaku.bindings()) and bool(self._cells())
 
     def danmaku_target_tile(self):
         if self.pane_danmaku.custom:

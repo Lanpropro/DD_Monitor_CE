@@ -3,7 +3,7 @@ import math
 from PySide6.QtCore import QRect
 
 
-FOCUS_LAYOUT = -1
+from .pip_composition import FOCUS_LAYOUT
 
 
 def composition_rows(aspects, columns=0):

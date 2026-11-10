@@ -22,7 +22,7 @@ class DanmakuLifecycle:
             return                     # 插件装载完成后 _sync_platform_rooms 会再次同步
         wall = host.wall
         panes = wall.pane_danmaku
-        if wall.has_danmaku and wall.fullscreen_tile is None:
+        if wall.has_danmaku and wall.fullscreen_tile is None and wall.picture_in_picture_tiles is None:
             widgets = panes.arrange(panes.rectangles, wall._preset_widgets())
             wall._sync_pane_borders(widgets, panes.dividers)
         wall.sync_sc_placement()

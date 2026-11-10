@@ -64,10 +64,15 @@ class PictureInPictureDialog(QDialog):
         layout.addWidget(self.preview)
         self.columns = QComboBox(self)
         for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
-                             ('单主＋五辅（6路）', FOCUS_LAYOUT)):
+                             ('单主＋五辅（6格）', FOCUS_LAYOUT)):
             self.columns.addItem(title, value)
         self.columns.setAccessibleName('画中画排列方式')
         self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
+        chat = controller.chat_cells(self.columns.currentData())
+        if chat and len(self._order) > 6 - len(chat):
+            wall = {key for key, _room in controller._wall_candidates()}
+            self._order = ([key for key in self._order if key in wall]
+                           + [key for key in self._order if key not in wall])[:6 - len(chat)]
         layout.addWidget(self.columns)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
@@ -92,7 +97,7 @@ class PictureInPictureDialog(QDialog):
         self.rooms = {}
         self.sections = []
         self.choice_grids = []
-        selected = controller.selected_choices()
+        selected = self._order
         faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in controller.host.sidebar.items()}
         for title, entries in controller.candidate_groups():
             if not entries:
@@ -196,6 +201,17 @@ class PictureInPictureDialog(QDialog):
 
     def _swap_preview(self, first, second):
         selection = self._selected()
+        if self.controller.chat_cells(self.columns.currentData()):
+            source, target = self._preview_choices[first], self._preview_choices[second]
+            if source is None or target is None:
+                return
+            left, right = selection.index(source), selection.index(target)
+            selection[left], selection[right] = selection[right], selection[left]
+            self._order = selection
+            if first == 0 or second == 0:
+                self._primary = target if first == 0 else source
+            self._refresh()
+            return
         primary = selection.index(self._primary)
         selection[first], selection[second] = selection[second], selection[first]
         self._order = selection
@@ -210,8 +226,20 @@ class PictureInPictureDialog(QDialog):
         if self._primary not in selection:
             self._primary = selection[0] if selection else None
         focus = self.columns.currentData() == FOCUS_LAYOUT
-        primary = selection.index(self._primary) if selection else 0
-        self.preview.set_panes(names, self.columns.currentData(), self.controller.aspects_for(selection), primary)
+        slots, aspects, primary = self.controller.composition(selection, self.columns.currentData(), self._primary)
+        self._preview_choices = slots
+        chat = self.controller.chat_cells(self.columns.currentData())
+        if chat:
+            names = ['弹幕' if index in chat else self.checks[key].preview_name if key is not None else '未选择视频'
+                     for index, key in enumerate(slots)]
+            self.preview.set_panes(names, self.columns.currentData(), aspects, primary,
+                                   locked=[index for index, key in enumerate(slots) if key is None])
+            required = 6 - len(chat)
+            self.start.setEnabled(len(selection) == required)
+            self.hint.setText(f'此布局需要 {required} 路视频＋{len(chat)} 格弹幕，当前选择 {len(selection)} 路视频。'
+                              '弹幕来源沿用监控室；取消一路视频后可从下方替换。')
+            return
+        self.preview.set_panes(names, self.columns.currentData(), aspects, primary)
         valid = bool(names) and (not focus or len(names) == 6)
         self.start.setEnabled(valid)
         self.hint.setText('单主＋五辅需要选择6路画面；在预览中拖动交换位置。' if focus and len(names) != 6 else
