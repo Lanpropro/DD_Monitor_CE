@@ -170,12 +170,12 @@ class SettingsLayoutTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_theme_switches_reuse_the_material_on_the_same_native_window(self):
+    def test_theme_switches_reuse_the_solid_frame_on_the_same_native_window(self):
         import ctypes
         from ctypes import wintypes
         extend = ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea
         extend.argtypes = (wintypes.HWND, ctypes.c_void_p)
-        self.dialog._backdrop_key = None
+        self.dialog._frame_hwnd = None
         hwnd = int(self.dialog.winId())
         geometry = self.dialog.geometry()
         try:
@@ -184,12 +184,13 @@ class SettingsLayoutTests(unittest.TestCase):
                     theme.apply(mode)
                     settle()
                     self.assertTrue(self.dialog.isVisible())
-                    self.assertTrue(self.dialog._native_glass)
+                    self.assertTrue(self.dialog._native_corners)
                     self.assertEqual(int(self.dialog.winId()), hwnd)
                     self.assertEqual(self.dialog.geometry(), geometry)
-                self.assertEqual(applied.call_count, 1, 'Theme changes must not restart the native material')
+                self.assertEqual(applied.call_count, 1, 'Theme changes must not recreate the native frame')
         finally:
             theme.apply('dark')
+
 
     def test_sc_curve_and_preview_share_a_row_with_display_controls_below(self):
         page = self.page(2)
@@ -278,15 +279,14 @@ class SettingsLayoutTests(unittest.TestCase):
 
     def test_material_controls_preview_reset_and_shadow_rendering(self):
         from ddm.settings_material import DEFAULTS, normalize
+        self.assertFalse(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
         self.assertEqual(normalize(dict(settings_glass_enabled='bad', settings_glass_blur=99,
                                         settings_glass_opacity=-10, settings_no_shadows=None)),
                          {**DEFAULTS, 'settings_glass_blur': 40, 'settings_glass_opacity': 0})
         editor = self.page(1).material_editor
-        editor.controls['settings_glass_opacity'].setValue(55)
-        editor.controls['settings_glass_blur'].setValue(8)
-        editor.controls['settings_glass_enabled'].setChecked(False)
-        self.assertFalse(editor.controls['settings_glass_blur'].isEnabled())
-        self.assertEqual(self.dialog.property('settings_glass_opacity'), 55)
+        self.assertEqual(set(editor.controls), {'settings_no_shadows'})
+        editor.controls['settings_no_shadows'].setChecked(True)
+        self.assertTrue(self.dialog.property('settings_no_shadows'))
         self.assertFalse(self.dialog.property('settings_glass_enabled'))
         self.assertEqual(self.dialog.windowOpacity(), 1.0)
         self.dialog.reset_button.click()
@@ -297,6 +297,7 @@ class SettingsLayoutTests(unittest.TestCase):
         self.dialog.set_material(dict(settings_no_shadows=True))
         after = button.grab().toImage()
         self.assertNotEqual(before, after, 'The shadow preference must change actual selection pixels')
+
 
     def test_material_blur_strength_changes_cached_background_pixels(self):
         import tempfile
@@ -317,33 +318,33 @@ class SettingsLayoutTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_material_switch_disables_the_native_effect_without_recreating_the_window(self):
+    def test_old_glass_values_keep_native_backdrop_disabled(self):
         from ddm.window_fullscreen import _dwm_get
         hwnd = int(self.dialog.winId())
-        editor = self.page(1).material_editor
-        for enabled, backdrop in ((False, 1), (True, 3)):
-            editor.controls['settings_glass_enabled'].setChecked(enabled)
+        for enabled in (True, False, True):
+            self.dialog.set_material({'settings_glass_enabled': enabled, 'settings_glass_opacity': 0})
             settle()
-            self.assertEqual(_dwm_get(hwnd, 38), backdrop)
-            self.assertEqual(self.dialog._native_glass, enabled)
+            self.assertFalse(self.dialog.property('settings_glass_enabled'))
+            self.assertEqual(_dwm_get(hwnd, 38), 1)
             self.assertTrue(self.dialog.isVisible())
             self.assertEqual(int(self.dialog.winId()), hwnd)
 
-    def test_native_material_has_no_second_inner_corner_and_stays_dark(self):
+
+    def test_native_frame_has_no_second_inner_corner_and_is_opaque(self):
         from PySide6.QtGui import QColor, QImage, QPainter
         from ddm.settings_window import SettingsWindow
         shell = SettingsWindow()
         shell.resize(240, 180)
-        shell.set_material(dict(settings_glass_opacity=88))
+        shell.set_material(dict(settings_glass_enabled=True, settings_glass_opacity=0))
         try:
-            with patch('ddm.settings_window.apply_backdrop', return_value=True), \
+            with patch('ddm.settings_window.apply_frame', return_value=True), \
                     patch('ddm.skin_parts.values_for', return_value={}):
                 shell.show()
                 settle()
                 surface = shell.grab().toImage()
             scale = surface.devicePixelRatio()
-            self.assertGreater(surface.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 200,
-                               'DWM owns the outer curve; the client must not expose another cutout')
+            self.assertEqual(surface.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 255,
+                             'DWM owns the outer curve; the client must not expose another cutout')
             for background in ('#ffffff', '#000000'):
                 composed = QImage(surface.size(), QImage.Format_ARGB32_Premultiplied)
                 composed.fill(QColor(background))
@@ -351,11 +352,8 @@ class SettingsLayoutTests(unittest.TestCase):
                 painter.drawImage(composed.rect(), surface)
                 painter.end()
                 color = composed.pixelColor(composed.width() // 2, composed.height() // 2)
-                for actual, reference in zip((color.red(), color.green(), color.blue()), (51, 55, 59)):
-                    expected = reference * .88 + QColor(background).red() * .12
-                    self.assertLessEqual(abs(actual - expected), 4,
-                                         'Glass must layer the reference base tint over the backdrop')
-            shell._native_glass = False
+                self.assertEqual(color.name(), '#33373b', 'The base must be independent of desktop colours')
+            shell._native_corners = False
             with patch('ddm.skin_parts.values_for', return_value={}):
                 fallback = shell.grab().toImage()
             self.assertEqual(fallback.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 0,
@@ -365,21 +363,23 @@ class SettingsLayoutTests(unittest.TestCase):
             shell.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_native_system_material_and_caption(self):
+    def test_native_solid_frame_and_caption(self):
         import ctypes
         from ctypes import wintypes
         from ddm.window_fullscreen import _dwm_get
         hwnd = int(self.dialog.winId())
-        self.assertTrue(self.dialog._native_glass)
-        self.assertEqual(_dwm_get(hwnd, 38), 3)
+        self.assertTrue(self.dialog._native_corners)
+        self.assertEqual(_dwm_get(hwnd, 38), 1)
         self.assertEqual(_dwm_get(hwnd, 33), 2)
         self.assertTrue(self.dialog.mask().isEmpty(), 'Keep native antialiasing at fractional DPI')
         get_style = ctypes.windll.user32.GetWindowLongPtrW
         get_style.argtypes = (wintypes.HWND, ctypes.c_int)
         get_style.restype = ctypes.c_ssize_t
         self.assertEqual(get_style(hwnd, -16) & 0x00c00000, 0)
+
 
 
 

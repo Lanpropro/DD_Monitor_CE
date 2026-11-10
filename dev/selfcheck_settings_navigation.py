@@ -153,7 +153,7 @@ class SettingsNavigationTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.assertFalse(isValid(animation))
 
-    def test_glass_navigation_keeps_the_settings_skin_visible(self):
+    def test_solid_navigation_keeps_legacy_glass_artwork_behind_the_opaque_base(self):
         from ddm import skin_parts
         package, personal = deepcopy(skin_parts._package), deepcopy(skin_parts._personal)
         try:
@@ -164,12 +164,13 @@ class SettingsNavigationTests(unittest.TestCase):
                 image.save(str(path))
                 skin_parts.configure({}, {'settings': {'image': path.as_posix()},
                                           'settings.navigation': {'background': '#00000000'}})
+                self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 0})
                 APP.processEvents()
                 capture = self.dialog.grab().toImage()
                 point = self.dialog.nav.mapTo(self.dialog, QPoint(5, 5))
                 colour = capture.pixelColor(point)
-                self.assertGreater(colour.red(), colour.green())
-                self.assertGreater(colour.green(), colour.blue())
+                self.assertEqual(colour.name(), '#eeedf4' if theme.is_light() else '#33373b')
+                self.assertEqual(colour.alpha(), 255)
                 self.assertNotEqual(colour, theme.qcolor(theme.SIDEBAR))
         finally:
             skin_parts.configure(package, personal)

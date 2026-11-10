@@ -82,13 +82,18 @@ class SettingsSurface(QFrame):
         painter.setClipPath(path)
         glass_shell = bool(self.window().property('settingsGlassWindow') or
                            self.window().property('settingsGlassContent'))
-        from ..settings_material import base_color, properties, shadows_enabled
-        material = properties(self.window())
-        glass_enabled = glass_shell and material['settings_glass_enabled']
-        if glass_shell and not glass_enabled:
+        from ..settings_material import base_color, shadows_enabled
+        if glass_shell:
+            painter.setClipping(False)
+            rect = QRectF(self.rect()).adjusted(3, 2, -3, -7)
+            path = continuous_path(rect, theme.RADIUS_LG)
+            if shadows_enabled(self):
+                for spread, alpha in ((5, 1), (4, 2), (3, 3), (2, 4), (1, 6), (0, 8)):
+                    shadow = rect.adjusted(-spread, -spread, spread, spread).translated(0, 3)
+                    painter.fillPath(continuous_path(shadow, theme.RADIUS_LG + spread), QColor(0, 0, 0, alpha))
             painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
             return
-        backdrop = None if glass_shell else self._backdrop()
+        backdrop = self._backdrop()
         if backdrop is not None:
             owner, image = backdrop
             offset = self.mapTo(owner, QPoint())
@@ -97,8 +102,8 @@ class SettingsSurface(QFrame):
         fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
         color = base_color(self, 'card', theme.CONTENT)
         top, bottom = theme.qcolor(color), theme.qcolor(color)
-        top.setAlpha((104 if theme.is_light() else 66) if glass_enabled else (255 if glass_shell else 218 if theme.is_light() else 210))
-        bottom.setAlpha((82 if theme.is_light() else 48) if glass_enabled else (255 if glass_shell else 200 if theme.is_light() else 188))
+        top.setAlpha(218 if theme.is_light() else 210)
+        bottom.setAlpha(200 if theme.is_light() else 188)
         fill.setColorAt(0, top)
         fill.setColorAt(1, bottom)
         painter.fillPath(path, fill)
