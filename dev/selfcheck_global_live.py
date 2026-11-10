@@ -295,10 +295,19 @@ async def check_protocol(platform):
 
 
 def check_window(app, records):
+    resolve = bili.StreamResolver._platform_play_url
+    def offline_stream(worker):
+        if not isinstance(getattr(worker.platform, "play_url_for_codec", None), Mock):
+            raise RuntimeError("No stream outside the active offline fixture")
+        return resolve(worker)
     state = {"plugins_enabled": ["global_live"], "settings": {"recording_enabled": False,
         "recording_replay_enabled": False, "preview_on_hover": False}}
     with patch("ddm.app.QTimer.singleShot"), patch.object(bili, "play_url", side_effect=AssertionError("Bili called")), \
-            patch("ddm.app.webbrowser.open", side_effect=AssertionError("Browser shortcut")):
+            patch("ddm.app.webbrowser.open", side_effect=AssertionError("Browser shortcut")), \
+            patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
+            patch.object(MainWindow, "_start_avatar_loader"), patch.object(MainWindow, "_play_on"), \
+            patch.object(bili.StreamResolver, "_platform_play_url", autospec=True,
+                         side_effect=offline_stream):
         window = MainWindow([], [], state=state, layout_id="dm_pair")
         clients = []
         try:
@@ -378,10 +387,12 @@ def check_window(app, records):
                 for key in ("rooms", "wall", "pinned", "platform_rooms"):
                     expected = saved[key]
                     if key == "wall":
-                        # 海外自动档属于房间；无房间的格子恢复为 B 站默认档。
-                        expected = [dict(slot, quality=250) if not slot.get("room_id") and
-                                    slot.get("quality") == AUTO_QUALITY else slot for slot in expected]
-                    assert recovered[key] == expected, (key, recovered[key], expected)
+                        # Empty capacity follows the current layout policy; overseas room state must survive.
+                        expected = [slot for slot in expected if slot.get("room_id")]
+                        actual = [slot for slot in recovered[key] if slot.get("room_id")]
+                        assert actual == expected, (key, actual, expected)
+                    else:
+                        assert recovered[key] == expected, (key, recovered[key], expected)
                 assert not recovered["suspended_platform_rooms"]
             finally:
                 restored.close()

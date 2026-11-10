@@ -262,11 +262,13 @@ class AccountPlatformDialog(QDialog):
         else:
             from .platform_login import PlatformFollowDialog
             from .oauth_login import OAuthAccountDialog
+            from .browser_account_dialog import BrowserAccountDialog, prefer_browser_login
             page = self._platform_pages.get(kind)
             if page is None:
                 auto_read = self.import_follows and kind in self.owner._accounts
-                dialog_type = (OAuthAccountDialog if getattr(self.providers[kind], "oauth_provider", "")
-                               else PlatformFollowDialog)
+                dialog_type = (BrowserAccountDialog if prefer_browser_login(self.providers[kind], self.owner) else
+                               OAuthAccountDialog if getattr(self.providers[kind], "oauth_provider", "") else
+                               PlatformFollowDialog)
                 page = dialog_type(self.providers[kind], self.pages, owner=self.owner,
                                    login_only=not self.import_follows, embedded=True,
                                    defer_login=auto_read)
@@ -280,6 +282,10 @@ class AccountPlatformDialog(QDialog):
                         and dialog_type is PlatformFollowDialog):
                     page._forget()
                     self.reauthenticate = False
+                elif (self.reauthenticate and kind == self._reauthenticate_kind
+                        and dialog_type is BrowserAccountDialog):
+                    page._cookies = []
+                    self.reauthenticate = False
                 if auto_read:
                     if (getattr(self.providers[kind], "follow_browser_init_script", "")
                             or getattr(self.providers[kind], "oauth_provider", "")):
@@ -291,7 +297,10 @@ class AccountPlatformDialog(QDialog):
                     page._read()
                     return
             else:
-                if getattr(self.providers[kind], "oauth_provider", ""):
+                if isinstance(page, BrowserAccountDialog):
+                    page.status.setText("点击「登录并读取关注」复用登录状态或打开官方登录窗口" if self.import_follows else
+                                        "点击「打开网页登录」，在独立浏览器完成登录")
+                elif getattr(self.providers[kind], "oauth_provider", ""):
                     page.status.setText("点击「读取关注」复用授权或在系统浏览器授权" if self.import_follows else
                                         "点击「开始授权」，在系统浏览器完成登录")
                 else:
@@ -434,6 +443,14 @@ class AccountPlatformDialog(QDialog):
                                   folders=self.owner.sidebar.folder_state(),
                                   folder_creator=self.owner.sidebar.create_folder,
                                   room_menu=self.kind == "douyin")
+        if self.kind in ("douyin", "youtube", "twitch"):
+            page.reread_button = QPushButton("重新读取", page)
+            page.reread_button.setObjectName("IconButton")
+            page.reread_button.setCursor(Qt.PointingHandCursor)
+            page.reread_button.setAutoDefault(False)
+            page.reread_button.clicked.connect(
+                lambda _checked=False, kind=self.kind: self.select_platform(kind, reread=True))
+            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:
@@ -442,12 +459,6 @@ class AccountPlatformDialog(QDialog):
                     cache_follows(rooms)
                 else:
                     self.owner._douyin_follow_cache = {"uid": str(uid), "rooms": deepcopy(rooms)}
-            page.reread_button = QPushButton("重新读取", page)
-            page.reread_button.setObjectName("IconButton")
-            page.reread_button.setCursor(Qt.PointingHandCursor)
-            page.reread_button.setAutoDefault(False)
-            page.reread_button.clicked.connect(lambda: self.select_platform("douyin", reread=True))
-            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
             page.platform_notice = QLabel("受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。"
                                           "你仍可直接勾选账号导入，软件会随后台刷新继续查询", page)
             page.platform_notice.setObjectName("SettingsHint")

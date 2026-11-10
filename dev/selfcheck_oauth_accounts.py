@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import requests
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm.app import MainWindow
 from ddm.account_store import AccountStore
@@ -62,6 +64,9 @@ def main():
             side_effect=lambda kind: AccountStore(kind, root=root)), patch('ddm.platform_login.AccountStore',
             side_effect=lambda kind: AccountStore(kind, root=root)), patch('ddm.app.QTimer.singleShot'):
         owner = MainWindow([], [], state={'plugins_enabled': ['global_live']})
+        # Exercise the retained OAuth alternative; website login has its own isolated suite.
+        for platform in owner.plugins.platforms.values():
+            platform.browser_login_url = ''
         owner._start_avatar_loader = lambda *_args: None
         owner._render_account = lambda **_kwargs: None
         try:
@@ -97,6 +102,20 @@ def main():
                         'twitch:fixturechannel' if kind == 'twitch' else 'youtube:' + channel]
                     assert dialog.platform_buttons[kind].property('loggedIn')
                     assert all(button.isEnabled() for button in dialog.platform_buttons.values())
+                    original = dialog.page
+                    other_kind = 'youtube' if kind == 'twitch' else 'twitch'
+                    dialog.select_platform(other_kind)
+                    wait_for(app, lambda: all(page._worker is None for page in dialog._platform_pages.values()))
+                    dialog.select_platform(kind)
+                    assert dialog.page is original  # 切平台保留已有选择，不自动重新读取。
+                    updated = dict(original.rooms[0], uname='New subscription')
+                    with patch.object(owner.plugins.platforms[kind], 'follow_rooms',
+                                      return_value=[updated]) as reread:
+                        QTest.mouseClick(original.reread_button, Qt.LeftButton)
+                        wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog)
+                                 and dialog.page is not original and owner._follow_loader is None)
+                        reread.assert_called_once()
+                    assert dialog.page.rooms[0]['uname'] == 'New subscription'
                     dispose(app, dialog)
             # 刷新后即使订阅读取失败，也要保留已确认身份和轮换后的令牌。
             with patch.dict(os.environ, DDM_NO_SAVE='0'), patch('ddm.oauth_login.authorize', side_effect=tokens), \

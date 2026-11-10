@@ -18,7 +18,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: E402
 from ddm import app as app_module, bili, theme  # noqa: E402
 from ddm.account_dialog import AccountPlatformDialog  # noqa: E402
 from ddm.account_store import AccountStore  # noqa: E402
-from ddm.oauth_login import OAuthAccountDialog
+from ddm.browser_account_dialog import BrowserAccountDialog
 from ddm.platform_login import PlatformFollowDialog  # noqa: E402
 from plugins_user.domestic_live.plugin import HuyaPlatform, DouyinPlatform, DouyuPlatform  # noqa: E402
 from plugins_user.global_live.plugin import TwitchPlatform, YouTubePlatform  # noqa: E402
@@ -184,7 +184,7 @@ def check_dialogs():
             for kind in ("huya", "douyu", "douyin"):
                 assert dialog.platform_buttons[kind].y() == dialog.platform_buttons["bilibili"].y()
             assert dialog.platform_buttons["twitch"].y() == dialog.platform_buttons["youtube"].y()
-            assert isinstance(dialog.page, OAuthAccountDialog) and not hasattr(dialog.page, "browser")
+            assert isinstance(dialog.page, BrowserAccountDialog) and not hasattr(dialog.page, "browser")
             assert "youtube" not in owner._accounts
             dialog.select_platform("bilibili")
             app.processEvents()
