@@ -1,4 +1,4 @@
-"""Bounded plugin rail and searchable function center; plugins own their actions."""
+"""Scrollable plugin rail and searchable function center; plugins own their actions."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QActionGroup, QIcon, QIconEngine, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit,
@@ -187,7 +187,7 @@ class WorkspaceControls(QFrame):
     def restore_pins(self, value):
         self._pin_ids = None if value is None else list(dict.fromkeys(
             tuple(entry) for entry in value if isinstance(entry, (list, tuple))
-            and len(entry) == 2 and all(isinstance(part, str) for part in entry)))[:4]
+            and len(entry) == 2 and all(isinstance(part, str) for part in entry)))
         self.sync_layout()
         self._sync_rows()
 
@@ -195,12 +195,10 @@ class WorkspaceControls(QFrame):
         pinned = self.pinned()
         if identity in pinned:
             pinned.remove(identity)
-        elif len(pinned) < 4:
-            pinned.append(identity)
         else:
-            return
+            pinned.append(identity)
         missing = [] if self._pin_ids is None else [i for i in self._pin_ids if i not in self.entries]
-        self._pin_ids = (pinned + missing)[:4]
+        self._pin_ids = pinned + missing
         self.sync_layout(close_popup=False)
         self._sync_rows()
         self.pinsChanged.emit()
@@ -304,8 +302,7 @@ class WorkspaceControls(QFrame):
             pinned = identity in self.pinned()
             pin.setChecked(pinned)
             pin.setAccessibleName(('取消固定 ' if pinned else '固定 ') + original.text())
-            pin.setToolTip('取消固定' if pinned else '固定为常用（最多 4 个）')
-            pin.setEnabled(pinned or len(self.pinned()) < 4)
+            pin.setToolTip('取消固定' if pinned else '固定为常用')
 
     def _filter_rows(self):
         query = self.search.text().strip().casefold()
@@ -314,7 +311,7 @@ class WorkspaceControls(QFrame):
             visible = not query or query in (launch.text() + ' ' + launch.toolTip()).casefold()
             row.setVisible(visible)
             shown += visible
-        self.summary.setText(f'{shown} / {len(self.entries)} 个功能 · 可固定 4 个常用入口')
+        self.summary.setText(f'{shown} / {len(self.entries)} 个功能 · 可固定常用入口到侧栏')
         self.empty.setText('没有匹配的功能' if self.entries else '暂无可用功能，可前往插件商店安装')
         self.empty.setVisible(not shown)
 
