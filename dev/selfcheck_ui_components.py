@@ -36,6 +36,75 @@ assert not any(name in sys.modules for name in (
         result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_settings_base_colors_match_light_and_dark_video_reference(self):
+        from PySide6.QtWidgets import QLineEdit, QSpinBox
+        from ddm.settings_window import SettingsWindow
+        references = {
+            'light': ('#eeedf4', '#ffffff', '#edecef'),
+            'dark': ('#33373b', '#3c4044', '#43444b'),
+        }
+        try:
+            for mode, (background, card_color, control_color) in references.items():
+                theme.apply(mode)
+                for embedded in (False, True):
+                    with self.subTest(mode=mode, embedded=embedded):
+                        window = QWidget() if embedded else SettingsWindow()
+                        if embedded:
+                            window.setProperty('settingsGlassContent', True)
+                            window.setProperty('settings_glass_enabled', False)
+                            box = QVBoxLayout(window)
+                            theme.refresh_theme_properties(window)
+                        else:
+                            window.set_material({'settings_glass_enabled': False})
+                            box = window.body_layout
+                        window.setAttribute(Qt.WA_DontShowOnScreen)
+                        card = ui.SettingsSurface(window)
+                        layout = QVBoxLayout(card)
+                        layout.setContentsMargins(18, 24, 18, 24)
+                        select = ui.SelectControl(card)
+                        select.addItem('自动解码')
+                        disclosure = ui.DisclosureButton(card)
+                        disclosure.setText('编解码')
+                        controls = [select, disclosure, QLineEdit('示例', card), QSpinBox(card)]
+                        for control in controls:
+                            control.setFocusPolicy(Qt.NoFocus)
+                            control.setFixedHeight(theme.CONTROL_HEIGHT)
+                            layout.addWidget(control)
+                        segment = ui.SegmentedControl((('a', 'A'), ('b', 'B')), parent=card)
+                        layout.addWidget(segment)
+                        box.addWidget(card)
+                        window.resize(480, 420)
+                        window.show()
+                        for _ in range(4):
+                            self.app.processEvents()
+                        def pixel(widget, x, y):
+                            image = widget.grab().toImage()
+                            scale = image.devicePixelRatio()
+                            return image.pixelColor(round(x * scale), round(y * scale)).name()
+                        if not embedded:
+                            self.assertEqual(pixel(window, 4, window.height() // 2), background)
+                        self.assertEqual(pixel(card, 10, 10), card_color)
+                        for control in controls:
+                            self.assertEqual(pixel(control, 5, control.height() // 2), control_color,
+                                             type(control).__name__)
+                        self.assertEqual(pixel(segment, segment.width() // 2, 2), control_color)
+                        before = (window.size(), card.geometry())
+                        select.showPopup()
+                        self.app.processEvents()
+                        popup = select.view().window()
+                        self.assertEqual(pixel(popup, popup.width() // 2, popup.height() - 6), card_color)
+                        self.assertEqual((window.size(), card.geometry()), before)
+                        select.hidePopup()
+                        outside = QLineEdit('设置外的输入框')
+                        outside.resize(240, theme.CONTROL_HEIGHT)
+                        self.assertEqual(pixel(outside, 5, outside.height() // 2), theme.qcolor(theme.CONTENT).name())
+                        outside.deleteLater()
+                        window.close()
+                        window.deleteLater()
+                        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        finally:
+            theme.apply('dark')
+
     def test_exports_reuse_original_classes_and_keep_old_imports(self):
         from ddm import avatar_widgets, motion, widgets
         from ddm.ui import labels, toolbar

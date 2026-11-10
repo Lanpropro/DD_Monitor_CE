@@ -74,6 +74,8 @@ class SettingsHost(QObject):
             if not self.embedded:
                 self.stack.setProperty('embeddedSettings', True)
                 self.stack.setProperty('settingsGlassContent', True)
+                from .theme import refresh_theme_properties
+                refresh_theme_properties(self.stack)
                 self.stack.layout().setSizeConstraint(QLayout.SetNoConstraint)
                 self.stack.setMinimumSize(0, 0)
                 self.stack.setAttribute(Qt.WA_TranslucentBackground)

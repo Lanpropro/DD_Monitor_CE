@@ -281,8 +281,10 @@ class SettingsLayoutTests(unittest.TestCase):
                 painter.drawImage(composed.rect(), surface)
                 painter.end()
                 color = composed.pixelColor(composed.width() // 2, composed.height() // 2)
-                self.assertLess(max(color.red(), color.green(), color.blue()), 80,
-                                'Dark glass must retain its theme tint even over a bright backdrop')
+                for actual, reference in zip((color.red(), color.green(), color.blue()), (51, 55, 59)):
+                    expected = reference * .88 + QColor(background).red() * .12
+                    self.assertLessEqual(abs(actual - expected), 4,
+                                         'Glass must layer the reference base tint over the backdrop')
             shell._native_glass = False
             with patch('ddm.skin_parts.values_for', return_value={}):
                 fallback = shell.grab().toImage()
@@ -351,6 +353,32 @@ class SettingsLayoutTests(unittest.TestCase):
             for control in editor.controls.values():
                 self.assertGreater(control.mapTo(editor, control.rect().topLeft()).y(), graph_bottom)
             self.assertEqual(page.values()['volume_normalization_curve']['hold'], 4.5)
+
+    def test_nested_audio_editor_and_controls_follow_base_colors_in_place(self):
+        self.dialog.set_material({'settings_glass_enabled': False})
+        page = self.page(0)
+        graph = page.normalization_editor.graph
+        geometry = self.dialog.geometry()
+        hwnd = int(self.dialog.winId())
+        def pixel(widget, x, y):
+            image = widget.grab().toImage()
+            scale = image.devicePixelRatio()
+            return image.pixelColor(round(x * scale), round(y * scale)).name()
+        try:
+            for mode, card, control in (('light', '#ffffff', '#edecef'),
+                                        ('dark', '#3c4044', '#43444b'),
+                                        ('light', '#ffffff', '#edecef')):
+                theme.apply(mode)
+                settle()
+                self.assertEqual(pixel(graph, 2, 30), card)
+                presets = page.normalization_editor.presets
+                self.assertEqual(pixel(presets, 4, presets.height() - 4), card)
+                self.assertEqual(pixel(page.poll_spin, 5, page.poll_spin.height() // 2), control)
+                self.assertEqual(self.dialog.geometry(), geometry)
+                self.assertEqual(int(self.dialog.winId()), hwnd)
+                self.assertTrue(self.dialog.isVisible())
+        finally:
+            theme.apply('dark')
 
     def test_sc_curve_and_preview_share_a_row_with_display_controls_below(self):
         page = self.page(2)

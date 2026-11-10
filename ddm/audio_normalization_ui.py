@@ -56,9 +56,13 @@ class ResponseGraph(QWidget):
                 self.position(attack + hold + release, depth * .05)]
 
     def paintEvent(self, event):
+        from . import theme
+        from .settings_material import base_color
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), self.palette().base())
+        background = base_color(self, 'card', None)
+        brush = theme.qcolor(background) if background else self.palette().base()
+        painter.fillRect(self.rect(), brush)
         rect = self.plot_rect()
         painter.setPen(self.palette().text().color())
         painter.drawText(12, 17, '增益 dB')
@@ -82,7 +86,7 @@ class ResponseGraph(QWidget):
         painter.setPen(QPen(accent, 2.5))
         painter.drawPath(path)
         for index, point in enumerate(self.handles()):
-            painter.setBrush(accent if index == self._drag else self.palette().base())
+            painter.setBrush(accent if index == self._drag else brush)
             painter.drawEllipse(point, 5, 5)
 
     def mousePressEvent(self, event):

@@ -264,7 +264,8 @@ def refresh_theme_properties(widget, *, defer=False):
     name = widget.objectName()
     if name not in ('NavigationButton', 'BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'):
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid') and not (
+                        widget.property('settingsGlassWindow') or widget.property('settingsGlassContent')):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
@@ -1689,4 +1690,5 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
     from .continuous_corners import stylesheet
-    return stylesheet(style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)
+    from .settings_material import control_stylesheet
+    return stylesheet(style + control_stylesheet() + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)

@@ -123,7 +123,8 @@ class ScaleCurveGraph(QWidget):
         if not self.isEnabled():
             painter.setOpacity(.45)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.qcolor(theme.CONTENT))
+        from ..settings_material import base_color
+        painter.setBrush(theme.qcolor(base_color(self, 'card', theme.CONTENT)))
         painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), theme.RADIUS_MD))
         painter.setClipPath(continuous_path(QRectF(self.rect()), theme.RADIUS_MD))
         rect = self.plot_rect()

@@ -82,9 +82,12 @@ class SettingsSurface(QFrame):
         painter.setClipPath(path)
         glass_shell = bool(self.window().property('settingsGlassWindow') or
                            self.window().property('settingsGlassContent'))
-        from ..settings_material import properties, shadows_enabled
+        from ..settings_material import base_color, properties, shadows_enabled
         material = properties(self.window())
         glass_enabled = glass_shell and material['settings_glass_enabled']
+        if glass_shell and not glass_enabled:
+            painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
+            return
         backdrop = None if glass_shell else self._backdrop()
         if backdrop is not None:
             owner, image = backdrop
@@ -92,7 +95,8 @@ class SettingsSurface(QFrame):
             painter.drawPixmap(QRectF(-offset.x(), -offset.y(), owner.width(), owner.height()),
                                image, QRectF(image.rect()))
         fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        top, bottom = theme.qcolor(theme.CONTENT), theme.qcolor(theme.CONTENT)
+        color = base_color(self, 'card', theme.CONTENT)
+        top, bottom = theme.qcolor(color), theme.qcolor(color)
         top.setAlpha((104 if theme.is_light() else 66) if glass_enabled else (255 if glass_shell else 218 if theme.is_light() else 210))
         bottom.setAlpha((82 if theme.is_light() else 48) if glass_enabled else (255 if glass_shell else 200 if theme.is_light() else 188))
         fill.setColorAt(0, top)

@@ -39,7 +39,8 @@ class ToggleSwitch(QCheckBox):
                                     self.height() / 2, self.height() / 2)
         track = QRectF(1, (self.height() - theme.SWITCH_TRACK_HEIGHT) / 2,
                        self.width() - 2, theme.SWITCH_TRACK_HEIGHT)
-        color = theme.qcolor(theme.ACCENT if self.isChecked() else theme.CONTENT_HOVER)
+        from ..settings_material import base_color
+        color = theme.qcolor(theme.ACCENT if self.isChecked() else base_color(self, 'control', theme.CONTENT_HOVER))
         if self.isEnabled() and self.underMouse():
             color = color.darker(110) if self.isDown() else color.lighter(110)
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER_STRONG), 1))
@@ -90,7 +91,8 @@ class _SegmentButton(QAbstractButton):
                 for offset, alpha in (((2, 12), (1, 26)) if shadows_enabled(self) else ()):
                     painter.setBrush(QColor(0, 0, 0, alpha))
                     painter.drawRoundedRect(rect.translated(0, offset), rect.height() / 2, rect.height() / 2)
-                color = theme.qcolor(theme.mix(theme.CONTENT, theme.ACCENT, .20))
+                from ..settings_material import base_color
+                color = theme.qcolor(theme.mix(base_color(self, 'card', theme.CONTENT), theme.ACCENT, .20))
                 if self.isDown():
                     color = color.darker(110)
                 fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
@@ -164,8 +166,10 @@ class SegmentedControl(QWidget):
             painter.setOpacity(0.45)
         rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
         fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        fill.setColorAt(0, theme.qcolor(theme.BG).darker(112))
-        fill.setColorAt(1, theme.qcolor(theme.BG))
+        from ..settings_material import base_color
+        background = base_color(self, 'control', None)
+        fill.setColorAt(0, theme.qcolor(background) if background else theme.qcolor(theme.BG).darker(112))
+        fill.setColorAt(1, theme.qcolor(background or theme.BG))
         edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
         edge.setColorAt(0, QColor(0, 0, 0, 45))
         edge.setColorAt(1, theme.qcolor(theme.BORDER))

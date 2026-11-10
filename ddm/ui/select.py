@@ -65,7 +65,11 @@ class SelectControl(QComboBox):
         return QSize(min(180, self.sizeHint().width()), theme.CONTROL_HEIGHT)
 
     def showPopup(self):
-        from ..settings_material import shadows_enabled
+        from ..settings_material import base_color, shadows_enabled
+        popup = self.view().window()
+        background = base_color(self, 'card', 'palette(tooltip-base)')
+        popup.setStyleSheet(f'#SelectPopup {{background: {background}; border: 1px solid palette(mid); '
+                           f'border-radius: {theme.RADIUS_LG}px; padding: 4px;}}')
         self.view().window().setWindowFlag(Qt.NoDropShadowWindowHint, not shadows_enabled(self))
         super().showPopup()
         self.update()
@@ -83,7 +87,9 @@ class SelectControl(QComboBox):
         focused = self.hasFocus() or opened
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if focused else theme.BORDER), 1.5 if focused else 1))
-        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if self.underMouse() or opened else theme.CONTENT))
+        from ..settings_material import base_color
+        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if self.underMouse() or opened else
+                                     base_color(self, 'control', theme.CONTENT)))
         painter.drawRoundedRect(rect, theme.RADIUS_MD, theme.RADIUS_MD)
         painter.setPen(theme.qcolor(theme.TEXT1))
         painter.drawText(rect.adjusted(12, 0, -32, 0), Qt.AlignVCenter | Qt.AlignLeft,
