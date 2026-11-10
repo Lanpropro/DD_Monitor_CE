@@ -515,18 +515,19 @@ QCheckBox::indicator:checked {{
     background: {ACCENT};
     border: 1px solid {ACCENT};
 }}
-QSpinBox {{
+QSpinBox, QDoubleSpinBox {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 5px 8px;
     color: {TEXT1};
 }}
-QSpinBox:focus {{
+QSpinBox:focus, QDoubleSpinBox:focus {{
     border: 1px solid {ACCENT};
     background: {CONTENT_HOVER};
 }}
-QSpinBox::up-button, QSpinBox::down-button {{
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
     width: 18px;
     border: none;
     background: transparent;
