@@ -259,6 +259,7 @@
 | [selfcheck_plugin_credentials](../selfcheck_plugin_credentials.py) | `offline` |
 | [selfcheck_plugin_notices](../selfcheck_plugin_notices.py) | `offline` |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
+| [selfcheck_plugin_worker](../selfcheck_plugin_worker.py) | `offline`；真实子进程及相邻模块导入、源码/冻结参数路由，不初始化主窗或账号；仅标准库与临时插件 |
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_hotfix_updates](../selfcheck_hotfix_updates.py) | `smoke` / `offline`；同版本修订号、hotfix 标签、包校验与回滚；根入口 `run.cmd --check-hotfix-updates` |
