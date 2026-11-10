@@ -14,7 +14,7 @@ from .search import matches_text
 from .ui import ActionButton, Avatar, ElidedLabel, page_header
 
 
-FOCUS_LAYOUT = -1
+from .pip_composition import FOCUS_LAYOUT, focus_chat_cells, focus_slots
 
 
 def composition_rows(aspects, columns=0):
@@ -112,12 +112,13 @@ class CompositionPreview(QFrame):
         self.aspect = 16 / 9
         self.aspects = []
         self.primary = 0
+        self.locked = set()
         self._drag = None
         self._ghost = None
         self._drop_target = None
         self.setAccessibleName('拖动预览画面交换位置')
 
-    def set_panes(self, names, columns, aspects=None, primary=0):
+    def set_panes(self, names, columns, aspects=None, primary=0, locked=()):
         self.cancel_drag()
         for label in self.labels:
             label.hide()
@@ -125,14 +126,15 @@ class CompositionPreview(QFrame):
         self.labels = [ElidedLabel(name, self) for name in names]
         self.columns = columns
         self.primary = primary
+        self.locked = set(locked)
         self.aspects = aspects or [16 / 9] * len(names)
         self.aspect = composition_ratio(self.aspects, columns, primary) if names else 16 / 9
-        for label in self.labels:
+        for index, label in enumerate(self.labels):
             label.setAlignment(Qt.AlignCenter)
             label.setObjectName('PluginCard')
             label.setTextFormat(Qt.PlainText)
-            label.setCursor(Qt.OpenHandCursor)
-            label.setToolTip(label.text() + '\n拖到另一画面上交换位置')
+            label.setCursor(Qt.ArrowCursor if index in self.locked else Qt.OpenHandCursor)
+            label.setToolTip(label.text() if index in self.locked else label.text() + '\n拖到另一画面上交换位置')
             label.installEventFilter(self)
             label.show()
         self._arrange()
@@ -176,7 +178,8 @@ class CompositionPreview(QFrame):
     def eventFilter(self, watched, event):
         kind = event.type()
         if self._drag is None:
-            if watched in self.labels and kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if (watched in self.labels and self.labels.index(watched) not in self.locked
+                    and kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton):
                 position = event.globalPosition().toPoint()
                 self._drag = (self.labels.index(watched), position, watched.mapFromGlobal(position))
                 self.grabMouse(Qt.ClosedHandCursor)
@@ -200,12 +203,13 @@ class CompositionPreview(QFrame):
                 self._ghost.move(point - offset)
                 self._ghost.raise_()
                 self._highlight(next((label for index, label in enumerate(self.labels)
-                    if index != source and label.geometry().contains(point)), None))
+                    if index != source and index not in self.locked and label.geometry().contains(point)), None))
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             source = self._drag[0]
             point = self.mapFromGlobal(event.globalPosition().toPoint())
-            target = next((index for index, label in enumerate(self.labels) if label.geometry().contains(point)), None)
+            target = next((index for index, label in enumerate(self.labels)
+                           if index not in self.locked and label.geometry().contains(point)), None)
             moved = self._ghost is not None
             self.cancel_drag()
             if moved and target is not None and target != source:
@@ -277,10 +281,15 @@ class PictureInPictureDialog(QDialog):
         layout.addWidget(self.preview)
         self.columns = QComboBox(self)
         for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
-                             ('单主＋五辅（6路）', FOCUS_LAYOUT)):
+                             ('单主＋五辅（6格）', FOCUS_LAYOUT)):
             self.columns.addItem(title, value)
         self.columns.setAccessibleName('画中画排列方式')
         self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
+        chat = controller.chat_cells(self.columns.currentData())
+        if chat and len(self._order) > 6 - len(chat):
+            wall = {key for key, _room in controller._wall_candidates()}
+            self._order = ([key for key in self._order if key in wall]
+                           + [key for key in self._order if key not in wall])[:6 - len(chat)]
         layout.addWidget(self.columns)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
@@ -305,7 +314,7 @@ class PictureInPictureDialog(QDialog):
         self.rooms = {}
         self.sections = []
         self.choice_grids = []
-        selected = controller.selected_choices()
+        selected = self._order
         faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in controller.host.sidebar.items()}
         for title, entries in controller.candidate_groups():
             if not entries:
@@ -408,6 +417,17 @@ class PictureInPictureDialog(QDialog):
 
     def _swap_preview(self, first, second):
         selection = self._selected()
+        if self.controller.chat_cells(self.columns.currentData()):
+            source, target = self._preview_choices[first], self._preview_choices[second]
+            if source is None or target is None:
+                return
+            left, right = selection.index(source), selection.index(target)
+            selection[left], selection[right] = selection[right], selection[left]
+            self._order = selection
+            if first == 0 or second == 0:
+                self._primary = target if first == 0 else source
+            self._refresh()
+            return
         primary = selection.index(self._primary)
         selection[first], selection[second] = selection[second], selection[first]
         self._order = selection
@@ -422,8 +442,20 @@ class PictureInPictureDialog(QDialog):
         if self._primary not in selection:
             self._primary = selection[0] if selection else None
         focus = self.columns.currentData() == FOCUS_LAYOUT
-        primary = selection.index(self._primary) if selection else 0
-        self.preview.set_panes(names, self.columns.currentData(), self.controller.aspects_for(selection), primary)
+        slots, aspects, primary = self.controller.composition(selection, self.columns.currentData(), self._primary)
+        self._preview_choices = slots
+        chat = self.controller.chat_cells(self.columns.currentData())
+        if chat:
+            names = ['弹幕' if index in chat else self.checks[key].preview_name if key is not None else '未选择视频'
+                     for index, key in enumerate(slots)]
+            self.preview.set_panes(names, self.columns.currentData(), aspects, primary,
+                                   locked=[index for index, key in enumerate(slots) if key is None])
+            required = 6 - len(chat)
+            self.start.setEnabled(len(selection) == required)
+            self.hint.setText(f'此布局需要 {required} 路视频＋{len(chat)} 格弹幕，当前选择 {len(selection)} 路视频。'
+                              '弹幕来源沿用监控室；取消一路视频后可从下方替换。')
+            return
+        self.preview.set_panes(names, self.columns.currentData(), aspects, primary)
         valid = bool(names) and (not focus or len(names) == 6)
         self.start.setEnabled(valid)
         self.hint.setText('单主＋五辅需要选择6路画面；在预览中拖动交换位置。' if focus and len(names) != 6 else
@@ -1068,8 +1100,9 @@ class PictureInPicture(QObject):
             return
         if not self.selection and not self.external_rooms:
             capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
-            self.selection = [index for index, tile in enumerate(self.host.wall.tiles[:capacity])
-                              if tile.room.get('room_id')]
+            self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
+            if self.chat_cells(FOCUS_LAYOUT):
+                self.columns = FOCUS_LAYOUT
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()
@@ -1078,9 +1111,17 @@ class PictureInPicture(QObject):
         self.dialog = None
         self._sync_overlays()
 
+    def _wall_candidates(self):
+        wall = self.host.wall
+        panes = wall.pane_danmaku
+        chat_cells = panes.bindings()
+        chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
+        return [(index, tile.room) for index, tile in enumerate(wall.tiles)
+                if tile not in chat_tiles and tile.room.get('room_id')
+                and not tile.property('pictureInPictureTemporary')]
+
     def candidate_groups(self):
-        wall = [(index, tile.room) for index, tile in enumerate(self.host.wall.tiles)
-                if tile.room.get('room_id') and not tile.property('pictureInPictureTemporary')]
+        wall = self._wall_candidates()
         wall_ids = {str(room['room_id']) for _index, room in wall}
         others = {}
         for room in self.host.sidebar.rooms():
@@ -1160,11 +1201,11 @@ class PictureInPicture(QObject):
         if not self.active or self.floating._gesture is not None or self.floating._reorder_drag is not None:
             return
         wall = self.host.wall
-        aspects = self.aspects_for(self.selection)
+        _slots, aspects, primary = self.composition(self.selection, self.columns, self.primary)
         if aspects == wall.picture_in_picture_aspects:
             return
         wall.picture_in_picture_aspects = aspects
-        self.floating.set_composition(aspects, self.columns, self.selection.index(self.primary))
+        self.floating.set_composition(aspects, self.columns, primary)
         wall.relayout(force=True)
 
     def swap_positions(self, source, target):
@@ -1182,8 +1223,11 @@ class PictureInPicture(QObject):
         wall = self.host.wall
         candidates = {key: room for _title, entries in self.candidate_groups() for key, room in entries}
         for key in selection:
-            if isinstance(key, str) and key not in candidates:
+            if self.choice_for_index(key) not in candidates:
                 return False
+        chat = self.chat_cells(columns)
+        if chat and len({self.choice_for_index(key) for key in selection}) != 6 - len(chat):
+            return False
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
             self.host._exit_fullscreen()
@@ -1231,9 +1275,9 @@ class PictureInPicture(QObject):
         else:
             self.floating.track_tiles(starting)
             self._minimums.update((tile, tile.minimumSize()) for tile in starting)
-        aspects = self.aspects_for(selection)
+        _slots, aspects, composition_primary = self.composition(selection, columns, primary)
         wall.set_picture_in_picture(tiles, columns, aspects, selection.index(primary))
-        self.floating.set_composition(aspects, columns, selection.index(primary))
+        self.floating.set_composition(aspects, columns, composition_primary)
         self.floating.show()
         wall.show()
         for rid, tile in list(self._extra_tiles.items()):
@@ -1243,6 +1287,8 @@ class PictureInPicture(QObject):
         self.primary = wall.tiles.index(primary_tile) if primary_tile in tiles else self.selection[0]
         for tile in starting:
             self.host.start_tile(tile)
+        if chat:
+            self.host.sync_danmaku()
         self.floating.audio_panel.hide()
         self._sync_overlays()
         self._aspect_timer.start()
@@ -1311,3 +1357,16 @@ class PictureInPicture(QObject):
         return dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
                     geometry=geometry, external_rooms=list(self.external_rooms), external_primary=self.external_primary,
                     choice_order=self.selected_choices())
+
+
+    def chat_cells(self, columns):
+        return focus_chat_cells(self.host.wall, columns)
+
+    def composition(self, selection, columns, primary=None):
+        aspects = self.aspects_for(selection)
+        chat = self.chat_cells(columns)
+        if chat:
+            values = dict(zip(selection, aspects))
+            slots = focus_slots(selection, chat, primary)
+            return slots, [values.get(key, 16 / 9) for key in slots], 0
+        return list(selection), aspects, selection.index(primary) if primary in selection else 0

@@ -648,6 +648,8 @@
 - `tools/diagnostics/CommandLine.cs`
 - `tools/native_diagnostics/capture.cpp`
 
+- `dev/checks/widget_cases.py`
+
 ## 仅本机存在的其他资料
 
 此处只列目录和文件入口，不展开真实配置、账号、缓存、录制内容或临时依赖。
@@ -700,3 +702,6 @@
 - `tools/diagnostics/CommandLine.cs`：固定JSON请求的无界面入口；WinForms和设置页共用 `Collector.cs`。
 - `dev/native_diagnostics_fixture.cpp`、`dev/selfcheck_native_diagnostics.py`：隔离受控崩溃、正常退出、栈与转储回归。
 - `dev/selfcheck_settings_diagnostics.py`：临时安装目录中的设置页、实际导出、取消及生命周期回归。
+
+
+画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。

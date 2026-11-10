@@ -1,5 +1,6 @@
 """Isolated main-window checks for the PiP room picker and draggable preview."""
 import faulthandler
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,210 @@ class PipPickerTests(unittest.TestCase):
     setUp = fixtures.MainNoticesTests.setUp
     window = fixtures.MainNoticesTests.window
     close_window = fixtures.MainNoticesTests.close_window
+
+    def test_focus_preview_reserves_chat_cells_and_migrates_old_six_video_choices(self):
+        from ddm.picture_in_picture import FOCUS_LAYOUT
+        window = self.window([dict(room_id=str(i + 1), uname=f'Room {i + 1}', live=False) for i in range(6)])
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: wall.tiles[0], 2: wall.tiles[4]})
+        window.sidebar.add_rooms([dict(room_id='7', uname='Old extra 7', live=True),
+                                  dict(room_id='8', uname='Old extra 8', live=True)])
+        pip.selection, pip.external_rooms = [0, 3, 4, 5], ['7', '8']
+        pip._choice_order = [0, '7', '8', 3, 4, 5]
+        pip.columns = FOCUS_LAYOUT
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5])
+        self.assertEqual(len(dialog.preview.labels), 6)
+        self.assertEqual([dialog.preview.labels[i].text() for i in (1, 2)], ['弹幕', '弹幕'])
+        self.assertTrue(dialog.start.isEnabled())
+        dialog._swap_preview(0, 3)
+        self.assertEqual(dialog.preview.labels[0].text(), dialog.checks[3].preview_name)
+        self.assertEqual([dialog.preview.labels[i].text() for i in (1, 2)], ['弹幕', '弹幕'])
+        order = dialog._selected()
+        dialog._swap_preview(1, 3)
+        self.assertEqual(dialog._selected(), order)
+        QTest.mousePress(dialog.preview.labels[1], Qt.LeftButton)
+        self.assertIsNone(dialog.preview._drag)
+        QTest.mouseRelease(dialog.preview.labels[1], Qt.LeftButton)
+        dialog.checks[0].setChecked(False)
+        self.assertFalse(dialog.start.isEnabled())
+        dialog.checks['7'].setChecked(True)
+        self.assertTrue(dialog.start.isEnabled())
+        self.assertEqual(dialog.preview.labels[1].text(), '弹幕')
+        dialog.reject()
+
+    def test_focus_pip_keeps_live_chat_documents_sources_and_restores_wall(self):
+        from ddm.picture_in_picture import FOCUS_LAYOUT, pane_rectangles
+        from selfcheck_video_danmaku import Client, Snapshot
+        with patch('ddm.app.DanmakuClient', Client), patch('ddm.app.SuperChatSnapshot', Snapshot), \
+                patch('ddm.bili._cookies', return_value={}):
+            window = self.window([dict(room_id=str(i + 1), uname=f'Room {i + 1}', live=False) for i in range(6)])
+            wall, pip = window.wall, window.picture_in_picture
+            wall.set_layout('corner')
+            window.configure_wall_panes({1: wall.tiles[0], 2: wall.tiles[4]})
+            window.danmaku_lifecycle.sync_danmaku()
+            panes = wall.pane_danmaku
+            panels = dict(panes.panels)
+            bindings = panes.state()
+            documents = {cell: panel.body.document() for cell, panel in panels.items()}
+            clients = dict(window._danmaku_clients)
+            window._on_danmaku_message(clients['1'], dict(kind='danmaku', uname='Fixture', text='before PiP'))
+            self.assertTrue(pip.start([0, 3, 4, 5], FOCUS_LAYOUT))
+            self.assertTrue(wall.has_danmaku)
+            self.assertEqual(len(wall.picture_in_picture_aspects), 6)
+            self.assertTrue(all(not panel.isHidden() for panel in panels.values()))
+            expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
+            for cell, panel in panels.items():
+                self.assertEqual(panel.geometry(), expected[cell])
+                self.assertIs(panel.body.document(), documents[cell])
+            geometry = {cell: panel.geometry() for cell, panel in panels.items()}
+            window.danmaku_lifecycle.sync_danmaku()
+            self.assertEqual({cell: panel.geometry() for cell, panel in panels.items()}, geometry)
+            self.assertEqual(window._danmaku_clients, clients)
+            window._on_danmaku_message(clients['1'], dict(kind='danmaku', uname='Fixture', text='during PiP'))
+            self.assertIn('before PiP', panels[1].body.toPlainText())
+            self.assertIn('during PiP', panels[1].body.toPlainText())
+            pip.swap_positions(wall.tiles[0], wall.tiles[3])
+            self.assertIs(panes.target(panels[1]), wall.tiles[0])
+            self.assertEqual(panes.state(), bindings)
+            wall.resize(900, 540)
+            wall.relayout(force=True)
+            expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
+            self.assertEqual(panels[1].geometry(), expected[1])
+            self.assertEqual(panels[2].geometry(), expected[2])
+            pip.restore(activate=False)
+            self.assertEqual(panes.state(), bindings)
+            for cell, panel in panels.items():
+                self.assertIs(panel.body.document(), documents[cell])
+            self.assertIn('during PiP', panels[1].body.toPlainText())
+            self.assertTrue(wall.tiles[1].isHidden() and wall.tiles[2].isHidden())
+
+    def test_focus_chat_preserves_shared_source_merged_document(self):
+        from ddm.picture_in_picture import FOCUS_LAYOUT
+        window = self.window([dict(room_id=str(i + 1), live=False) for i in range(6)])
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: wall.tiles[0], 2: wall.tiles[0]})
+        panes = wall.pane_danmaku
+        self.assertEqual(len(panes.rendered()), 1)
+        panel = panes.rendered()[0]
+        panel.add_message('Fixture', 'shared source history')
+        document = panel.body.document()
+        self.assertTrue(pip.start([0, 3, 4, 5], FOCUS_LAYOUT))
+        self.assertEqual(panes.rendered(), [panel])
+        self.assertFalse(panel.isHidden())
+        self.assertIs(panel.body.document(), document)
+        self.assertEqual(set(next(iter(panes.groups.values()))), {1, 2})
+        pip.restore(activate=False)
+        self.assertIs(panel.body.document(), document)
+        self.assertIn('shared source history', panel.body.toPlainText())
+
+    def test_focus_chat_requires_four_video_choices_before_allocating_extra_tiles(self):
+        from ddm.picture_in_picture import FOCUS_LAYOUT
+        window = self.window([dict(room_id=str(i + 1), live=False) for i in range(6)])
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: None, 2: None})
+        window.sidebar.add_rooms([dict(room_id='7', live=True), dict(room_id='8', live=True)])
+        window.start_tile.reset_mock()
+        self.assertFalse(pip.start([0, 3, 4, '7', '8'], FOCUS_LAYOUT))
+        self.assertFalse(pip._extra_tiles)
+        self.assertFalse(pip.active)
+        window.start_tile.assert_not_called()
+        self.assertTrue(pip.start([0, 3], 0))
+        self.assertFalse(wall.has_danmaku)
+        self.assertTrue(all(panel.isHidden() for panel in wall.pane_danmaku.all_panels()))
+        pip.restore(activate=False)
+
+    def test_chat_backing_rooms_only_appear_in_follow_groups(self):
+        rooms = [dict(room_id=str(index + 1), uname=f'Room {index + 1}', live=True)
+                 for index in range(6)]
+        window = self.window(rooms)
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: wall.tiles[0], 2: wall.tiles[4]})
+        tiles = list(wall.tiles)
+        bindings = wall.pane_danmaku.state()
+        self.assertTrue(tiles[1].isHidden() and tiles[2].isHidden())
+        window.start_tile.reset_mock()
+        groups = pip.candidate_groups()
+        self.assertEqual([key for key, _room in groups[0][1]], [0, 3, 4, 5])
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5])
+        self.assertNotIn(1, dialog.checks)
+        self.assertNotIn(2, dialog.checks)
+        self.assertIn('2', dialog.checks)
+        self.assertIn('3', dialog.checks)
+        dialog.reject()
+        self.assertEqual(wall.tiles, tiles)
+        self.assertEqual(wall.pane_danmaku.state(), bindings)
+        window.start_tile.assert_not_called()
+
+    def test_restored_chat_selection_is_not_checked_and_can_be_selected_as_live_follow(self):
+        rooms = [dict(room_id=str(index + 1), uname=f'Room {index + 1}', live=True)
+                 for index in range(6)]
+        window = self.window(rooms)
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: None, 2: None})
+        tiles = list(wall.tiles)
+        bindings = wall.pane_danmaku.state()
+        pip.selection, pip.primary = list(range(6)), 1
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5])
+        self.assertFalse(dialog.checks['2'].isChecked())
+        dialog.checks['2'].setChecked(True)
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5, '2'])
+        self.assertTrue(pip.start(dialog._selected()))
+        self.assertNotIn(1, pip.selection)
+        self.assertNotIn(2, pip.selection)
+        self.assertIsNot(pip._extra_tiles['2'], tiles[1])
+        dialog.reject()
+        pip.restore(activate=False)
+        self.assertEqual(wall.tiles, tiles)
+        self.assertEqual(wall.pane_danmaku.state(), bindings)
+        self.assertTrue(tiles[1].isHidden() and tiles[2].isHidden())
+
+    def test_managing_active_pip_keeps_unselected_video_cells_available(self):
+        window = self.window([dict(room_id=str(index + 1), live=True) for index in range(6)])
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: None, 2: None})
+        self.assertTrue(pip.start([0, 3]))
+        self.assertTrue(wall.tiles[4].isHidden() and wall.tiles[5].isHidden())
+        self.assertEqual([key for key, _room in pip.candidate_groups()[0][1]], [0, 3, 4, 5])
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3])
+        self.assertIn(4, dialog.checks)
+        self.assertIn(5, dialog.checks)
+        dialog.reject()
+        pip.restore(activate=False)
+
+    def test_active_external_tile_indices_remain_valid_when_reordering(self):
+        window = self.window([dict(room_id='1', live=True)])
+        window.sidebar.add_rooms([dict(room_id='2', live=True)])
+        pip = window.picture_in_picture
+        self.assertTrue(pip.start([0, '2']))
+        temporary = pip._extra_tiles['2']
+        order = list(reversed(pip.selection))
+        self.assertTrue(pip.start(order))
+        self.assertEqual(window.wall.picture_in_picture_tiles, [temporary, window.wall.tiles[0]])
+        self.assertEqual(pip.external_rooms, ['2'])
+        pip.restore(activate=False)
+
+    def test_chat_backing_index_cannot_be_applied_after_picker_layout_changes(self):
+        window = self.window([dict(room_id=str(index + 1), live=True) for index in range(6)])
+        window.wall.set_layout('corner')
+        pip = window.picture_in_picture
+        self.assertIn(1, dict(pip.candidate_groups()[0][1]))
+        window.configure_wall_panes({1: None, 2: None})
+        self.assertFalse(pip.start([0, 1]))
+        self.assertFalse(pip.active)
 
     def test_pip_picker_lists_wall_first_then_live_follows_without_allocating_players(self):
         from ddm.picture_in_picture import FOCUS_LAYOUT
@@ -288,8 +493,12 @@ class PipPickerTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    faulthandler.dump_traceback_later(60, repeat=True)
-    try:
-        unittest.main(verbosity=2)
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(PipPickerTests, __file__))
+    else:
+        faulthandler.dump_traceback_later(60, repeat=True)
+        try:
+            unittest.main(verbosity=2)
+        finally:
+            faulthandler.cancel_dump_traceback_later()
