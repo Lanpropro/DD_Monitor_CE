@@ -324,9 +324,9 @@ def run_worker():
                 check.setChecked(control['checked'])
                 grid.addWidget(check, row, 0, 1, 2)
                 self.plugin_checks[control['name']] = check
+            page.plugin_controls()
             self.auto_save.adopt('plugin_controls', {name: check.isChecked() for name, check in self.plugin_checks.items()})
             if any(name.endswith('_show_platform_logo') for name in self.plugin_checks):
-                grid.removeWidget(anchor)
                 anchor.hide()
                 anchor.setChecked(True)  # Per-plugin switches now decide which platforms are visible.
 

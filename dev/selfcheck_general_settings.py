@@ -128,20 +128,18 @@ def check_codecs(app):
     compatibility = CodecSettingsPanel({"bili_codec": "avc", "decode_mode": "d3d11va-copy"})
     assert compatibility.values()["decode_mode"] == "d3d11va-copy"
     compatibility_page = GeneralSettingsPage(compatibility.values())
-    assert "兼容硬解" in compatibility_page.codec_button.text()
+    assert "兼容硬解" in compatibility_page.codec_editor.decode_control.currentText()
     panel = CodecSettingsPanel({"bili_codec": "av1", "decode_mode": "none"})
     assert panel.values() == {"bili_codec": "av1", "decode_mode": "none"}
     page = GeneralSettingsPage(panel.values())
     assert page._checks['sidebar_platform_logos'].isHidden(), 'Bilibili-only settings must not show a platform-logo switch'
-    assert "AV1" in page.codec_button.text() and "CPU" in page.codec_button.text()
+    assert page.codec_editor.values() == panel.values()
     with patch("ddm.dialogs.CodecSettingsDialog") as mocked:
-        page._edit_codecs()
         assert not page.codec_editor.isHidden()
         page.codec_editor.source_buttons['hevc'].click()
         page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('d3d11va'))
-        page._edit_codecs()
         mocked.assert_not_called()
-    assert page.codec_editor.isHidden()
+    assert not page.codec_editor.isHidden()
     assert page.values()['bili_codec'] == 'hevc'
     assert page.values()['decode_mode'] == 'd3d11va'
     rooms = [{"room_id": str(1001 + i), "uname": f"测试{i}", "live": True}
@@ -280,7 +278,7 @@ def main():
     labels.update(box.text() or box.accessibleName() for box in page._checks.values())
     anchor = page._checks['sidebar_platform_logos']
     assert grid.indexOf(anchor) >= 0, 'Keep the released plugin insertion anchor'
-    assert page.codec_button.accessibleName() == '编解码设置'
+    assert page.codec_editor.accessibleName() == '编解码设置'
     assert set([
         "关注列表刷新间隔", "新建格子初始静音", "全屏只播放该路声音",
         "音量均衡（减小直播间音量差异）",

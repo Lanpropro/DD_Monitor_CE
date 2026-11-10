@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut, QWindow
-from PySide6.QtWidgets import QApplication, QCheckBox, QLayout
+from PySide6.QtWidgets import QApplication, QLayout
 
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
@@ -29,12 +29,7 @@ class SettingsHost(QObject):
         # Dispatch that event without showing or activating a second window.
         QApplication.sendEvent(self.dialog, QEvent(QEvent.Show))
         page = self.dialog.general_page
-        core = set(page._checks.values())
-        grid = page.layout().itemAt(1).layout()
-        checks = [check for check in page.findChildren(QCheckBox)
-                  if check not in core and check.objectName() and grid.indexOf(check) >= 0]
-        checks.sort(key=lambda check: grid.getItemPosition(grid.indexOf(check))[:2])
-        self.plugin_checks = {check.objectName(): check for check in checks}
+        self.plugin_checks = page.plugin_controls()
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self.stack)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))

@@ -32,12 +32,8 @@ class SettingsAutoSave(QObject):
     def snapshot(self):
         dialog = self.dialog
         enabled = dialog.enabled_plugins()
-        grid = dialog.general_page.layout().itemAt(1).layout()
-        core = set(dialog.general_page._checks.values())
-        from PySide6.QtWidgets import QCheckBox
-        controls = {check.objectName(): check.isChecked()
-                    for check in dialog.general_page.findChildren(QCheckBox)
-                    if check not in core and check.objectName() and grid.indexOf(check) >= 0}
+        controls = {name: check.isChecked()
+                    for name, check in dialog.general_page.plugin_controls().items()}
         return dict(settings=dialog.settings(), shortcuts=dialog.shortcuts(),
                     enabled_plugins=None if enabled is None else sorted(enabled), plugin_controls=controls)
 

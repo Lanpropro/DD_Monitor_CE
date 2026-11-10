@@ -56,7 +56,6 @@ class AutoSaveTests(unittest.TestCase):
 
     def test_slider_release_coalesces_changes_and_unchanged_controls_do_not_save(self):
         page = self.dialog.general_page
-        page.codec_button.click()
         self.dialog.auto_save.flush()
         self.assertFalse(self.requests)
         page.volume_slider.setSliderDown(True)

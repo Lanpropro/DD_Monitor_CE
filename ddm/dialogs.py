@@ -281,20 +281,8 @@ class GeneralSettingsPage(QWidget):
                 self.compact_threshold_spin.setEnabled(box.isChecked())
                 row += 1
         from .settings_codec_editor import InlineCodecEditor
-        from .ui import DisclosureButton
         self.codec_editor = InlineCodecEditor(settings)
-        self.codec_editor.hide()
-        self.codec_button = DisclosureButton()
-        self.codec_button.setObjectName("IconButton")
-        self.codec_button.setAccessibleName("编解码设置")
-        self.codec_button.setCheckable(True)
-        self.codec_button.setAutoDefault(False)
-        self.codec_button.toggled.connect(self._set_codecs_expanded)
-        self.codec_button.toggled.connect(self._update_codec_summary)
-        self.codec_editor.changed.connect(self._update_codec_summary)
-        self._update_codec_summary()
-        grid.addWidget(self.codec_button, row, 0, 1, 2)
-        row += 1
+        self.codec_editor.setAccessibleName("编解码设置")
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
@@ -304,7 +292,7 @@ class GeneralSettingsPage(QWidget):
         self.volume_slider.setMaximumWidth(240)
         self.volume_slider.setValue(int(settings.get("default_volume", DEFAULT_VOLUME)))
         self.volume_label = QLabel(str(self.volume_slider.value()))
-        self.volume_label.setObjectName("NavSub")
+        self.volume_label.setObjectName("SettingsHint")
         self.volume_label.setFixedWidth(28)
         # 直接连接接收控件，避免回调持有父页面并在退出时触发析构重入。
         self.volume_slider.valueChanged.connect(self.volume_label.setNum)
@@ -316,31 +304,21 @@ class GeneralSettingsPage(QWidget):
         grid.addWidget(self.codec_editor, row, 0, 1, 2)
         row += 1
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 11, 2, 3, 4, 10, 12), False),
+            ('playback', '播放与声音', (1, 10, 2, 4), False),
             ('following', '关注与预览', (0, 5, 6, 7, 8), False),
+            ('codecs', '编解码', (11,), False),
+            ('normalization', '音量均衡', (3,), False),
         ), anchor=self._checks['sidebar_platform_logos'])
-        for key in ('playback', 'following'):
+        for key in ('playback', 'following', 'codecs'):
             self.sections.section(key).setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections._arrange()
         layout.addLayout(grid)
         layout.addStretch(1)
+        from .settings_contributions import GeneralContributions
+        self.contributions = GeneralContributions(self, grid)
 
-    def _update_codec_summary(self):
-        values = self.codec_editor.values()
-        codec = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}.get(
-            values["bili_codec"], "H.264")
-        mode = {'auto': '自动解码', 'd3d11va-copy': '兼容硬解', 'none': 'CPU 解码',
-                'd3d11va': 'D3D11VA', 'dxva2': 'DXVA2'}[values['decode_mode']]
-        action = '收起' if self.codec_button.isChecked() else '展开'
-        self.codec_button.setText(f"编解码　{codec} · {mode}　{action}")
-        self.codec_button.setToolTip('收起编解码选项' if self.codec_button.isChecked() else '展开编解码选项')
-
-    def _edit_codecs(self):
-        self.codec_button.toggle()
-
-    def _set_codecs_expanded(self, expanded):
-        self.codec_editor.setVisible(expanded)
-        self.sections.refresh_section('playback')
+    def plugin_controls(self):
+        return self.contributions.checks()
 
     def reset(self) -> None:
         from . import config as config_module
@@ -353,7 +331,6 @@ class GeneralSettingsPage(QWidget):
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
         self.codec_editor.set_values(codec_settings(config_module.DEFAULT_SETTINGS))
-        self._update_codec_summary()
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
     def values(self) -> dict:
