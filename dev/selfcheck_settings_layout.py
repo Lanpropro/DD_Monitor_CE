@@ -422,6 +422,33 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertNotEqual(before, after, 'The shadow preference must change actual selection pixels')
 
 
+    def test_appearance_cards_and_compact_theme_preserve_mode_signals(self):
+        from ddm.ui import SegmentedControl
+        page = self.page(1)
+        self.assertIsInstance(page.mode_control, SegmentedControl)
+        modes = []
+        page.modeChanged.connect(modes.append)
+        page.buttons['light'].click()
+        self.assertEqual(modes, ['light'])
+        self.assertEqual(page.values()['appearance_mode'], 'light')
+        page.sync('dark')
+        self.assertEqual(modes, ['light'], 'Theme synchronization must not trigger another save')
+        self.assertEqual(page.mode_control.value(), 'dark')
+        for width, columns in ((1200, 2), (760, 1)):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertEqual(page.sections.columns, columns)
+            theme_card = page.sections.section('theme')
+            material_card = page.sections.section('material')
+            self.assertTrue(theme_card.isAncestorOf(page.mode_control))
+            self.assertLessEqual(page.mode_control.width(), 260)
+            if columns == 2:
+                self.assertEqual(theme_card.y(), material_card.y())
+                self.assertLess(theme_card.geometry().right(), material_card.x())
+            else:
+                self.assertLess(theme_card.geometry().bottom(), material_card.y())
+            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+
     def test_material_blur_strength_changes_cached_background_pixels(self):
         import tempfile
         from PySide6.QtGui import QColor, QPainter, QPixmap
@@ -504,6 +531,91 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(get_style(hwnd, -16) & 0x00c00000, 0)
 
 
+
+
+class AppearanceEditorTests(unittest.TestCase):
+    def test_embedded_controls_keep_values_scene_links_and_narrow_geometry(self):
+        from copy import deepcopy
+        from types import SimpleNamespace
+        from PySide6.QtCore import QObject, Signal
+        from PySide6.QtWidgets import QWidget
+        from ddm.dialogs import AppearanceSettingsPage
+        from ddm.skin_preview import SkinPreview
+        from ddm.ui import SelectControl, SettingsSlider, SettingsValueLabel, ToggleSwitch
+
+        class Layer(QObject):
+            frameReady = Signal()
+            path, image, mask = 'fixture.mp4', None, 35
+
+        class Controller(QObject):
+            changed = Signal()
+            override, error = None, ''
+
+        owner = QWidget()
+        owner.settings = deepcopy(config.DEFAULT_SETTINGS)
+        owner.skin_controller = Controller(owner)
+        owner.skin_controller.window = owner
+        owner.skin_controller.layer = Layer(owner)
+
+        def set_skin(values):
+            owner.settings.update(values)
+            owner.skin_controller.layer.mask = values['skin_mask']
+            owner.skin_controller.changed.emit()
+
+        owner.set_skin = set_skin
+        # Native playback and recursive screenshots are outside this layout check.
+        with patch.object(SkinPreview, 'capture_interface'):
+            page = AppearanceSettingsPage(owner.settings, skin_controller=owner.skin_controller)
+            page.setProperty('settingsGlassWindow', True)
+            page.setStyleSheet(theme.qss())
+            page.show()
+            try:
+                editor = page.parts_editor
+                background = editor.background_controls
+                self.assertIsInstance(editor.scenes, SelectControl)
+                self.assertIsInstance(background.video_toggle, ToggleSwitch)
+                self.assertIsInstance(background.mask_slider, SettingsSlider)
+                self.assertIsInstance(background.mask_label, SettingsValueLabel)
+                for mode in ('light', 'dark'):
+                    theme.apply(mode)
+                    for width, columns in ((1100, 2), (540, 1)):
+                        page.resize(width, 850)
+                        settle()
+                        self.assertEqual(editor.sections.columns, columns)
+                        self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                        preview = editor.sections.section('preview')
+                        controls = editor.sections.section('controls')
+                        if columns == 2:
+                            self.assertEqual(preview.y(), controls.y())
+                            self.assertLess(preview.geometry().right(), controls.x())
+                        else:
+                            self.assertLess(preview.geometry().bottom(), controls.y())
+                        for index, part in enumerate(('background', 'settings', 'layout_menu')):
+                            editor.scenes.setCurrentIndex((index + 1) % 3)
+                            editor.scenes.setCurrentIndex(index)
+                            settle()
+                            self.assertEqual(editor.part.currentData(), part)
+                            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                        editor._select_part('buttons.settings')
+                        self.assertEqual(editor.scenes.currentIndex(), 0)
+                editor._select_part('background')
+                self.assertTrue(background.video_toggle.isVisible())
+                background.video_toggle.click()
+                self.assertFalse(owner.settings['skin_video_enabled'])
+                background.mask_slider.setValue(47)
+                self.assertEqual(owner.settings['skin_mask'], 47)
+                self.assertEqual(background.mask_label.text(), '47%')
+                self.assertEqual(background.mask_slider.width(), theme.SETTINGS_SLIDER_WIDTH)
+                owner.skin_controller.layer.path = 'fixture.png'
+                background.sync()
+                self.assertTrue(background.video_row.isHidden())
+                self.assertTrue(background.video_toggle.isHidden())
+            finally:
+                page.close()
+                page.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                owner.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 if __name__ == '__main__':

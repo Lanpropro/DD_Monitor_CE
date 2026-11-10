@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QForm
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .settings_layout import SettingsColumns, SettingsSection
-from .ui import SettingsSlider, SettingsValueLabel
+from .ui import SettingsSlider, SettingsValueLabel, ToggleSwitch, SelectControl
 from .skins import AssetImport
 from .folder_icons import IconDropArea
 
@@ -67,8 +67,10 @@ class SkinSettings(QWidget):
         self.choose.fileDropped.connect(self.import_file)
         self.clear = QPushButton('恢复默认背景')
         self.clear.setObjectName('IconButton')
+        self.clear.setFixedWidth(180)
         self.clear.clicked.connect(self.reset)
         layout.addWidget(self.choose)
+        row.addStretch(1)
         row.addWidget(self.clear)
         layout.addLayout(row)
         mask_row = QHBoxLayout()
@@ -87,10 +89,15 @@ class SkinSettings(QWidget):
         mask_row.addWidget(self.mask_label)
         self.mask_slider.valueChanged.connect(self._mask_changed)
         layout.addLayout(mask_row)
-        self.video_toggle = QCheckBox('启用视频')
+        self.video_row = QWidget(self)
+        video_row = QHBoxLayout(self.video_row)
+        video_row.setContentsMargins(0, 0, 0, 0)
+        video_row.addWidget(QLabel('启用视频'), 1)
+        self.video_toggle = ToggleSwitch('启用视频')
         self.video_toggle.setChecked(self._video_enabled)
         self.video_toggle.toggled.connect(self._video_changed)
-        layout.addWidget(self.video_toggle)
+        video_row.addWidget(self.video_toggle)
+        layout.addWidget(self.video_row)
         note = QLabel('图片居中铺满；视频静音循环，最小化时暂停。关闭“启用视频”后使用视频首帧作为静态背景。')
         note.setWordWrap(True)
         note.setObjectName('SettingsHint')
@@ -131,6 +138,7 @@ class SkinSettings(QWidget):
             widget.setEnabled(not locked)
         from .skins import VIDEOS
         path = self.controller.layer.path if self.controller else self.path
+        self.video_row.setVisible(Path(path).suffix.lower() in VIDEOS)
         self.video_toggle.setVisible(Path(path).suffix.lower() in VIDEOS)
         value = self.controller.layer.mask if self.controller else self._mask
         previous = self.mask_slider.blockSignals(True)
@@ -231,6 +239,7 @@ class PartSettings(QDialog):
         self.embedded = embedded
         if embedded:
             self.setWindowFlags(Qt.Widget)
+            self.setObjectName('SettingsPage')
             self.setProperty('skinPart', 'settings.content')
         self._drafts = {}
         self._loading = False
@@ -244,15 +253,19 @@ class PartSettings(QDialog):
         preview_panel = QWidget(self)
         preview_column = QVBoxLayout(preview_panel)
         preview_column.setContentsMargins(0, 0, 0, 0)
-        self.scenes = QTabBar()
-        self.scenes.setDrawBase(False)
-        self.scenes.setStyleSheet('QTabBar {background: transparent;}'
-            'QTabBar::tab {background: palette(base); color: palette(text);'
-            'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
-            'QTabBar::tab:selected {background: palette(light); border-color: palette(highlight);}')
+        self.scenes = SelectControl() if embedded else QTabBar()
+        if embedded:
+            self.scenes.setFixedWidth(180)
+            self.scenes.setAccessibleName('预览场景')
+        else:
+            self.scenes.setDrawBase(False)
+            self.scenes.setStyleSheet('QTabBar {background: transparent;}'
+                'QTabBar::tab {background: palette(base); color: palette(text);'
+                'padding: 8px 12px; margin-right: 4px; border: 1px solid palette(mid); border-radius: 8px;}'
+                'QTabBar::tab:selected {background: palette(light); border-color: palette(highlight);}')
         for text in ('主界面', '设置页面', '菜单与提示' if professional else '布局预设'):
-            self.scenes.addTab(text)
-        preview_column.addWidget(self.scenes)
+            self.scenes.addItem(text) if embedded else self.scenes.addTab(text)
+        preview_column.addWidget(self.scenes, 0, Qt.AlignRight if embedded else Qt.Alignment())
         self.preview = SkinPreview(self, editable_parts=None if professional else BASIC_PARTS)
         if embedded:
             self.preview.setMinimumSize(320, 280)
@@ -288,8 +301,10 @@ class PartSettings(QDialog):
         if embedded:
             self.sections = SettingsColumns(self)
             preview_card = SettingsSection('界面预览')
+            preview_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
             preview_card.grid.addWidget(preview_panel, 0, 0, 1, 2)
             controls_card = SettingsSection('分区样式')
+            controls_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
             controls_card.grid.addWidget(right_panel, 0, 0, 1, 2)
             self.sections.add_section('preview', preview_card)
             self.sections.add_section('controls', controls_card)
@@ -310,7 +325,7 @@ class PartSettings(QDialog):
         if embedded:
             layout.setContentsMargins(0, 0, 0, 0)
         self.selection_title = QLabel()
-        self.selection_title.setObjectName('SettingsTitle')
+        self.selection_title.setObjectName('SettingsSectionTitle' if embedded else 'SettingsTitle')
         layout.addWidget(self.selection_title)
         self.part = QComboBox(self)
         self.part.addItem('软件整体背景', 'background')
@@ -390,7 +405,9 @@ class PartSettings(QDialog):
         close.clicked.connect(self.accept)
         defaults = QVBoxLayout() if embedded else QHBoxLayout()
         defaults.addWidget(self.reset_button)
-        defaults.addWidget(self.builtin_button)
+        if embedded:
+            self.builtin_button.setFixedWidth(180)
+        defaults.addWidget(self.builtin_button, 0, Qt.AlignRight if embedded else Qt.Alignment())
         layout.addLayout(defaults)
         if not professional:
             layout.addWidget(self.status)
@@ -406,7 +423,8 @@ class PartSettings(QDialog):
             layout.addStretch(1)
         self.part.currentIndexChanged.connect(self.load_part)
         self.variant.currentIndexChanged.connect(self.load_part)
-        self.scenes.currentChanged.connect(self._select_scene)
+        scene_changed = self.scenes.currentIndexChanged if embedded else self.scenes.currentChanged
+        scene_changed.connect(self._select_scene)
         self.preview.partSelected.connect(self._select_part)
         owner.skin_controller.changed.connect(self._update_background)
         owner.skin_controller.layer.frameReady.connect(self._update_background)
@@ -502,7 +520,7 @@ class PartSettings(QDialog):
             values = resolve_values(self.part.currentData(), self.preview.light, self.preview.personal)
             self.asset_status.setText('当前：' + _background_name(values.get('image', '')))
         self.status.setText('整体背景选择后立即生效。' if background else
-                           '预览已同步；点击设置页下方“保存”后生效。' if self.embedded else
+                           '修改后自动保存。' if self.embedded else
                            '预览已同步；点击应用并保存后生效。')
         return True
 
@@ -552,7 +570,7 @@ class PartSettings(QDialog):
                 self.asset_buttons[key].setToolTip(values.get(key, '') or '尚未导入；跟随美化包或默认')
         self._loading = False
         self.status.setText('整体背景选择后立即生效。' if background else
-                           '预览已同步；点击设置页下方“保存”后生效。' if self.embedded else
+                           '修改后自动保存。' if self.embedded else
                            '预览已同步；点击应用并保存后生效。')
         self._update_preview()
         if self.embedded:
