@@ -1,6 +1,6 @@
 """Shared painted selection controls; Qt owns input, focus and checked state."""
-from PySide6.QtCore import QRectF, QSize, Qt, Signal, QVariantAnimation
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
+from PySide6.QtCore import QEvent, QRectF, QSize, Qt, Signal, QVariantAnimation
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QButtonGroup, QCheckBox, QHBoxLayout, QSizePolicy, QWidget
 
 from .. import motion, theme
@@ -102,11 +102,12 @@ class _SegmentButton(QAbstractButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setProperty('customControlSurface', True)
+        self._pointer_focus = False
         theme.signals().changed.connect(self.update)
 
     def sizeHint(self):
         return QSize(self.fontMetrics().horizontalAdvance(self.text()) + 2 * theme.SEGMENT_ITEM_PADDING,
-                     theme.CONTROL_HEIGHT - 2 * theme.SEGMENT_PADDING)
+                     max(theme.CONTROL_HEIGHT - 2 * theme.SEGMENT_PADDING, self.fontMetrics().height() + 4))
 
     def enterEvent(self, event):
         self.update()
@@ -122,6 +123,18 @@ class _SegmentButton(QAbstractButton):
             super().mouseReleaseEvent(event)
         finally:
             self.parentWidget()._pointer_selection = False
+
+    def mousePressEvent(self, event):
+        self._pointer_focus = True
+        super().mousePressEvent(event)
+
+    def focusInEvent(self, event):
+        self._pointer_focus = event.reason() == Qt.MouseFocusReason
+        super().focusInEvent(event)
+
+    def keyPressEvent(self, event):
+        self._pointer_focus = False
+        super().keyPressEvent(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -156,13 +169,22 @@ class _SegmentButton(QAbstractButton):
                 painter.setPen(QPen(edge, 1))
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        if self.hasFocus():
+        if self.hasFocus() and not self._pointer_focus:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1.5))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        painter.setPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.TEXT2))
-        painter.drawText(rect, Qt.AlignCenter, self.fontMetrics().elidedText(
-            self.text(), Qt.ElideRight, max(0, self.width() - 2 * theme.SEGMENT_ITEM_PADDING)))
+        sliding = self.parentWidget().sliding_enabled()
+        text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight,
+                                            max(0, self.width() - 2 * theme.SEGMENT_ITEM_PADDING))
+        painter.setPen(theme.qcolor(theme.ACCENT if self.isChecked() and not sliding else theme.TEXT2))
+        painter.drawText(rect, Qt.AlignCenter, text)
+        if sliding:
+            indicator = self.parentWidget()._indicator.translated(-self.x(), -self.y())
+            clip = QPainterPath()
+            clip.addRoundedRect(indicator, indicator.height() / 2, indicator.height() / 2)
+            painter.setClipPath(clip)
+            painter.setPen(theme.qcolor(theme.ACCENT))
+            painter.drawText(rect, Qt.AlignCenter, text)
 
 
 class SegmentedControl(QWidget):
@@ -196,7 +218,7 @@ class SegmentedControl(QWidget):
     def sizeHint(self):
         width = max(button.sizeHint().width() for button in self.buttons.values()) * len(self.buttons)
         return QSize(width + 2 * theme.SEGMENT_PADDING + (len(self.buttons) - 1) * theme.SEGMENT_GAP,
-                     theme.CONTROL_HEIGHT)
+                     max(theme.CONTROL_HEIGHT, self.fontMetrics().height() + 2 * theme.SEGMENT_PADDING + 4))
 
     def minimumSizeHint(self):
         return QSize(min(180, self.sizeHint().width()), theme.CONTROL_HEIGHT)
@@ -223,6 +245,8 @@ class SegmentedControl(QWidget):
     def _move_indicator(self, rect):
         self._indicator = QRectF(rect)
         self.update()
+        for button in self.buttons.values():
+            button.update()
 
     def finish_indicator(self):
         self._indicator_animation.stop()
@@ -232,6 +256,11 @@ class SegmentedControl(QWidget):
         super().resizeEvent(event)
         self.layout().activate()
         self.finish_indicator()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange and hasattr(self, 'buttons'):
+            self.setFixedHeight(self.sizeHint().height())
 
     def showEvent(self, event):
         super().showEvent(event)

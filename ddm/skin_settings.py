@@ -66,6 +66,16 @@ class SkinSettings(QWidget):
         gallery_label.setObjectName('SettingsHint')
         gallery_label.setWordWrap(True)
         layout.addWidget(gallery_label)
+        self.gallery_location = QLabel('这里显示历次导入的本地素材；重复导入会保留多份副本。')
+        self.gallery_location.setObjectName('SettingsHint')
+        self.gallery_location.setWordWrap(True)
+        layout.addWidget(self.gallery_location)
+        self.gallery_folder = QPushButton('打开素材目录')
+        self.gallery_folder.setObjectName('IconButton')
+        self.gallery_folder.setFixedWidth(180)
+        self.gallery_folder.setAutoDefault(False)
+        self.gallery_folder.clicked.connect(self._open_gallery_folder)
+        layout.addWidget(self.gallery_folder, 0, Qt.AlignRight)
         from .skin_gallery import SkinGallery
         self.gallery = SkinGallery(self)
         self.gallery.selected.connect(self._select_background)
@@ -129,6 +139,12 @@ class SkinSettings(QWidget):
                 'skin_mask_enabled': self._mask_enabled,
                 'skin_sidebar': True, 'skin_video_enabled': self._video_enabled, **self._overrides}
 
+    def _open_gallery_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from . import config
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str((Path(config.data_root()) / 'utils/skins').resolve())))
+
     def _locked(self):
         override = self.controller.override if self.controller else None
         return override is not None and override.get('version', 1) == 1
@@ -155,6 +171,11 @@ class SkinSettings(QWidget):
         self.mask_toggle.setChecked(self._mask_enabled)
         self.mask_toggle.blockSignals(previous)
         self.gallery.set_current(self.path)
+        from . import config
+        folder = Path(config.data_root()) / 'utils/skins'
+        self.gallery_location.setToolTip(str(folder.resolve()))
+        self.gallery_folder.setToolTip(str(folder.resolve()))
+        self.gallery_folder.setEnabled(folder.is_dir())
         from .skins import VIDEOS
         path = self.controller.layer.path if self.controller else self.path
         self.video_row.setVisible(Path(path).suffix.lower() in VIDEOS)
@@ -330,6 +351,7 @@ class PartSettings(QDialog):
             colors = QHBoxLayout()
             for key, (name, _dark, _light) in GROUPS.items():
                 label = QLabel('● ' + name)
+                label.setWordWrap(True)
                 colors.addWidget(label)
                 self.group_labels[key] = label
             preview_column.addLayout(colors)

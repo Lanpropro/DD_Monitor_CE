@@ -1524,7 +1524,16 @@ class AppearanceSettingsPage(QWidget):
         values = {**self.material_editor.values(), **self.theme_editor.values(), **self.skin_settings.values()}
         if self.skin_settings.controller is not None:
             values['settings_backdrop_path'] = self.skin_settings.controller.layer.path
+        else:
+            from pathlib import Path
+            from . import config
+            values['settings_backdrop_path'] = str(Path(config.data_root()) / self.skin_settings.path) if self.skin_settings.path else ''
+        self.material_editor.set_background(values['settings_backdrop_path'])
         self.materialChanged.emit(values)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._emit_material()
 
     def reset(self):
         self.theme_editor.set_values({})
@@ -1568,7 +1577,8 @@ class SettingsDialog(SettingsWindow):
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
         available = self.screen().availableGeometry()
         self.setMinimumSize(760, 520)
-        self.resize(min(1200, available.width() - 48), min(800, available.height() - 72))
+        self.resize(min(1040 if settings.get('settings_card_layout') == 'vertical' else 1200,
+                        available.width() - 48), min(800, available.height() - 72))
 
         root = self.body_layout
         root.setContentsMargins(0, 0, 0, 0)
@@ -1637,6 +1647,8 @@ class SettingsDialog(SettingsWindow):
         self.confirm_button.hide()
         for index, widget in enumerate((self.reset_button, self.save_status, self.retry_button, self.confirm_button), 1):
             self.window_header.row.insertWidget(index, widget)
+        self.reset_button.hide()
+        self.save_status.hide()
         root.addWidget(self.content, 1)
 
         self.nav.currentRowChanged.connect(self._on_page_changed)
@@ -1661,6 +1673,7 @@ class SettingsDialog(SettingsWindow):
     def _auto_save_status(self, state, error):
         self.save_status.setText({'saving': '正在保存…', 'saved': '已保存', 'error': '保存失败'}[state])
         self.save_status.setToolTip(error)
+        self.save_status.setVisible(state == 'error')
         self.retry_button.setVisible(state == 'error')
 
     def paintEvent(self, event):
@@ -1801,7 +1814,7 @@ class SettingsDialog(SettingsWindow):
                 self._page(index)
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
-            self.reset_button.setVisible(index not in (7, 8))
+            self.reset_button.hide()
             if index == 7 and not self._preview_only:
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
             elif index == 8 and not self._preview_only:

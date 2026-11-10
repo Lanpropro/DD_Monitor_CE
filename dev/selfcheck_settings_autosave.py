@@ -154,6 +154,10 @@ class AutoSaveTests(unittest.TestCase):
                                      'Settings changes must repaint in place without a window-covering wave')
                     self.assertTrue(dialog.isVisible())
                 material = dialog.appearance_page.material_editor
+                with patch.object(window, 'apply_danmaku_settings', wraps=window.apply_danmaku_settings) as apply_chat:
+                    material.controls['settings_segment_motion'].click()
+                    dialog.auto_save.flush()
+                    apply_chat.assert_not_called()
                 self.assertEqual(set(material.controls), {'settings_no_shadows', 'settings_glass_enabled', 'settings_segment_motion'})
                 material.controls['settings_no_shadows'].setChecked(True)
                 dialog.auto_save.flush()

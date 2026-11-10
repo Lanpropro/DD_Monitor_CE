@@ -1075,7 +1075,12 @@ class MainWindow(QMainWindow):
         appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
                              if key.startswith('skin_') or key == 'appearance_mode'}
         codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
-        self.settings.update(dialog.settings())
+        updated_settings = dialog.settings()
+        changed_keys = {key for key, value in updated_settings.items() if self.settings.get(key) != value}
+        from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
+        from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+        presentation_only = bool(changed_keys) and changed_keys <= MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+        self.settings.update(updated_settings)
         if theme.configure_appearance(self.settings):
             theme.apply(self.settings["appearance_mode"])
         from .notification_center import NoticeRow
@@ -1114,7 +1119,8 @@ class MainWindow(QMainWindow):
         # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
         self._sync_recording_switch()
         self._sync_replay_scope()
-        self.apply_danmaku_settings()
+        if not presentation_only or plugins_changed:
+            self.apply_danmaku_settings()
         self.apply_preview_settings()
         print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
         print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)

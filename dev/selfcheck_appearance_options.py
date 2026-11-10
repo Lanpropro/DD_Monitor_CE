@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QColor, QFontDatabase, QImage, QPainter
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QFontDatabase, QImage, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 from ddm import config, theme
@@ -77,6 +77,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             fonts = QFontDatabase.families()
             family = 'Segoe UI' if 'Segoe UI' in fonts else fonts[0]
             page.theme_editor.font.setCurrentIndex(page.theme_editor.font.findData(family))
+            page.theme_editor.font_size.setValue(17)
             material = page.material_editor
             material.controls['settings_glass_enabled'].setChecked(True)
             material.controls['settings_segment_motion'].setChecked(True)
@@ -96,6 +97,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertEqual(settings['settings_card_layout'], 'vertical')
             self.assertEqual(settings['appearance_accent'], '#8866ee')
             self.assertEqual(settings['appearance_font'], family)
+            self.assertEqual(settings['appearance_font_size'], 17)
             self.assertTrue(settings['settings_segment_motion'])
             self.assertTrue(settings['settings_glass_enabled'])
         finally:
@@ -110,6 +112,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertEqual(page.sections.columns, 1)
             self.assertEqual(page.theme_editor.values()['appearance_accent'], '#8866ee')
             self.assertEqual(page.theme_editor.values()['appearance_font'], family)
+            self.assertEqual(page.theme_editor.font_size.value(), 17)
             self.assertEqual(page.material_editor.sliders['settings_glass_blur'][0].value(), 13)
             self.assertEqual(page.material_editor.sliders['settings_glass_opacity'][0].value(), 52)
             page.material_editor.card_layout.setCurrentIndex(0)
@@ -162,6 +165,7 @@ class AppearanceOptionsTests(unittest.TestCase):
         try:
             with patch('ddm.motion.enabled', return_value=True):
                 QTest.mouseClick(control.buttons['c'], Qt.LeftButton)
+                self.assertTrue(control.buttons['c']._pointer_focus)
                 self.assertEqual(control.value(), 'c')
                 self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Running)
                 QTest.qWait(40)
@@ -171,6 +175,7 @@ class AppearanceOptionsTests(unittest.TestCase):
                 control.buttons['b'].setFocus()
                 QTest.keyClick(control.buttons['b'], Qt.Key_Space)
                 self.assertEqual(control.value(), 'b')
+                self.assertFalse(control.buttons['b']._pointer_focus)
                 self.assertEqual(control._indicator, control._target_rect())
                 self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Stopped)
                 control.setValue('c')
@@ -212,6 +217,14 @@ class AppearanceOptionsTests(unittest.TestCase):
             try:
                 self.assertEqual(editor.gallery.count(), 2)
                 item = editor.gallery.item(1)
+                self.assertEqual(editor.gallery.visualItemRect(editor.gallery.item(0)).size(),
+                                 editor.gallery.visualItemRect(item).size())
+                self.assertIn(str(folder.resolve()), editor.gallery_folder.toolTip())
+                self.assertIn('类型：图片', item.toolTip())
+                self.assertIn(str((folder / 'fixture.png').resolve()), item.toolTip())
+                with patch('PySide6.QtGui.QDesktopServices.openUrl', return_value=True) as open_folder:
+                    editor.gallery_folder.click()
+                    self.assertEqual(Path(open_folder.call_args.args[0].toLocalFile()), folder.resolve())
                 QTest.mouseClick(editor.gallery.viewport(), Qt.LeftButton,
                                  pos=editor.gallery.visualItemRect(item).center())
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
@@ -258,6 +271,125 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertGreaterEqual(gap, 0)
         finally:
             dispose(dialog)
+
+    def test_font_sizes_default_button_and_glass_group_are_readable(self):
+        dialog = SettingsDialog(deepcopy(config.DEFAULT_SETTINGS), {}, preview=True)
+        dialog.resize(760, 900)
+        dialog.show()
+        dialog.nav.setCurrentRow(1)
+        settle()
+        try:
+            page = dialog.appearance_page
+            for size in (11, 13, 20):
+                page.theme_editor.font_size.setValue(size)
+                settle()
+                self.assertEqual(theme.FONT_CONTROL, size)
+                heading = page.sections.section('theme').layout().itemAt(0).widget()
+                self.assertEqual(heading.font().pixelSize(), size)
+                button = page.theme_editor.swatches['']
+                self.assertGreaterEqual(button.width(), button.fontMetrics().horizontalAdvance('默认') + 8)
+                self.assertGreaterEqual(button.height(), button.fontMetrics().height())
+                self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                self.assertEqual(dialog.width(), 760)
+            editor = page.material_editor
+            for slider, _label in editor.sliders.values():
+                self.assertTrue(editor.glass_parameters.isAncestorOf(slider))
+                self.assertFalse(slider.isEnabled())
+            self.assertIn('尚无可用图片', editor.background_status.text())
+            editor.controls['settings_glass_enabled'].setChecked(True)
+            self.assertTrue(all(slider.isEnabled() for slider, _label in editor.sliders.values()))
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'fixture.png'
+                image = QImage(32, 32, QImage.Format_RGB32)
+                image.fill(QColor('blue'))
+                image.save(str(path))
+                editor.set_background(str(path))
+                self.assertIn('fixture.png', editor.background_status.text())
+        finally:
+            dispose(dialog)
+
+    def test_header_status_is_quiet_and_vertical_window_is_narrower(self):
+        dialog = SettingsDialog(deepcopy(config.DEFAULT_SETTINGS), {}, preview=True)
+        dialog.resize(1400, 900)
+        dialog.show()
+        try:
+            for index in (0, 1, 2, 3, 4, 5, 6):
+                dialog.nav.setCurrentRow(index)
+                settle()
+                self.assertTrue(dialog.reset_button.isHidden())
+            for state in ('saving', 'saved'):
+                dialog._auto_save_status(state, '')
+                self.assertTrue(dialog.save_status.isHidden())
+            dialog._auto_save_status('error', 'fixture failure')
+            self.assertTrue(dialog.save_status.isVisible())
+            self.assertTrue(dialog.retry_button.isVisible())
+            dialog._auto_save_status('saved', '')
+            self.assertTrue(dialog.save_status.isHidden())
+            dialog.nav.setCurrentRow(1)
+            dialog.appearance_page.material_editor.card_layout.setCurrentIndex(1)
+            settle()
+            self.assertLessEqual(dialog.width(), 1040)
+            self.assertEqual(dialog.appearance_page.sections.columns, 1)
+        finally:
+            dispose(dialog)
+
+    def test_wheel_changes_only_horizontal_sliders_and_chains_nested_lists(self):
+        from PySide6.QtWidgets import QComboBox, QLabel, QListWidget, QScrollArea, QSlider, QSpinBox
+        window = SettingsWindow()
+        window.resize(620, 450)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        combo = QComboBox()
+        combo.addItems(['甲', '乙', '丙'])
+        spin = QSpinBox()
+        spin.setRange(0, 100)
+        spin.setValue(50)
+        horizontal, vertical = QSlider(Qt.Horizontal), QSlider(Qt.Vertical)
+        for slider in (horizontal, vertical):
+            slider.setRange(0, 100)
+            slider.setValue(50)
+        nested = QListWidget()
+        nested.addItems([str(index) for index in range(30)])
+        nested.setFixedHeight(90)
+        for widget in (combo, spin, horizontal, vertical, nested):
+            layout.addWidget(widget)
+        blank = QLabel('页面末尾')
+        blank.setMinimumHeight(900)
+        layout.addWidget(blank)
+        scroll.setWidget(content)
+        window.body_layout.addWidget(scroll)
+        window.show()
+        settle()
+        def wheel(widget, delta=-120):
+            point = widget.rect().center()
+            event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(),
+                                QPoint(0, delta), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+            APP.sendEvent(widget, event)
+            settle()
+        try:
+            for widget in (combo, spin, spin.lineEdit(), vertical):
+                scroll.verticalScrollBar().setValue(0)
+                wheel(widget)
+                self.assertGreater(scroll.verticalScrollBar().value(), 0)
+                self.assertEqual(combo.currentIndex(), 0)
+                self.assertEqual(spin.value(), 50)
+                self.assertEqual(vertical.value(), 50)
+            scroll.verticalScrollBar().setValue(0)
+            wheel(horizontal)
+            self.assertNotEqual(horizontal.value(), 50)
+            self.assertEqual(scroll.verticalScrollBar().value(), 0)
+            nested.verticalScrollBar().setValue(nested.verticalScrollBar().maximum())
+            wheel(nested.viewport())
+            self.assertGreater(scroll.verticalScrollBar().value(), 0)
+            scroll.verticalScrollBar().setValue(0)
+            nested.verticalScrollBar().setValue(0)
+            wheel(nested.viewport())
+            self.assertGreater(nested.verticalScrollBar().value(), 0)
+            self.assertEqual(scroll.verticalScrollBar().value(), 0)
+        finally:
+            dispose(window)
 
 
 if __name__ == '__main__':

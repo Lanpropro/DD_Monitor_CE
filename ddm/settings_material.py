@@ -65,8 +65,11 @@ def apply_properties(widget, values):
     from pathlib import Path
     from . import config
     changed = False
+    layout_changed = motion_changed = False
     for key, value in normalize(values).items():
         if widget.property(key) != value:
+            layout_changed |= key == 'settings_card_layout'
+            motion_changed |= key == 'settings_segment_motion'
             widget.setProperty(key, value)
             changed = True
     if 'settings_backdrop_path' in values or 'skin_background' in values:
@@ -79,11 +82,13 @@ def apply_properties(widget, values):
             changed = True
     if changed:
         from .settings_layout import SettingsColumns
-        for columns in widget.findChildren(SettingsColumns):
-            columns._arrange()
+        if layout_changed:
+            for columns in widget.findChildren(SettingsColumns):
+                columns._arrange()
         from .ui.selection import SegmentedControl
-        for control in widget.findChildren(SegmentedControl):
-            control.finish_indicator()
+        if motion_changed:
+            for control in widget.findChildren(SegmentedControl):
+                control.finish_indicator()
         widget.update()
         from PySide6.QtWidgets import QWidget
         for child in widget.findChildren(QWidget):

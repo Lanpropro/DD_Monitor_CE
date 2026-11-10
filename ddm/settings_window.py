@@ -94,7 +94,15 @@ class SettingsWindow(QDialog):
 
     def set_material(self, values):
         from .settings_material import apply_properties
+        previous = self.property('settings_card_layout')
         if apply_properties(self, values):
+            if previous is not None and previous != self.property('settings_card_layout') and not self.isMaximized():
+                if self.property('settings_card_layout') == 'vertical':
+                    self._layout_restore_width = self.width()
+                    self.resize(min(self.width(), 1040), self.height())
+                elif getattr(self, '_layout_restore_width', None) is not None:
+                    self.resize(min(self._layout_restore_width, self.screen().availableGeometry().width() - 48), self.height())
+                    self._layout_restore_width = None
             self._sync_frame()
 
     def showEvent(self, event):

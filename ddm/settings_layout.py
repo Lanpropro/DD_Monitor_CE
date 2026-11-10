@@ -84,8 +84,10 @@ class SettingsColumns(QWidget):
         self.updateGeometry()
 
     def _column_count(self):
+        from . import theme
         vertical = self.respect_preference and self.window().property('settings_card_layout') == 'vertical'
-        return 2 if not vertical and self.width() >= self.BREAKPOINT else 1
+        threshold = round(self.BREAKPOINT * max(1, theme.FONT_CONTROL / 13))
+        return 2 if not vertical and self.width() >= threshold else 1
 
     def showEvent(self, event):
         super().showEvent(event)
