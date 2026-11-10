@@ -298,3 +298,6 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 同时运行 `selfcheck_douyin_ui_follows`（本机HTTP与真实WebEngine页面读取）、`selfcheck_douyin_follow_cache`、`selfcheck_douyin_restart_cache`、`selfcheck_account_dialog`、`selfcheck_follow_import`，覆盖官网读取到原生页面切换、缓存重开及其他平台的共享勾选行为。根 `run.cmd` 人工验收：导入关注选择抖音，完成官网读取后，应显示软件菜单；勾选直播间及文件夹并导入，关注栏只新增选中房间，不自动播放。真实官网列表完整性与账号验证需单独人工确认。
 
 日常集成版另跑 `python dev/selfcheck_follow_stress.py` 与 `python dev/selfcheck_pinyin_search.py`。压力脚本等待批量填充结束后再勾选，保留 3000 关注、750 主播的数量断言；与 `selfcheck_follow_import` 一起核对滚动头像、搜索、勾选及分批导入。
+
+
+设置控件验收：根run.cmd打开设置，比较深浅主题的加粗数值、180px步进框右端与160px滑条；点击数值并选中文本，按加减或点击空白后不应残留蓝色。曲线区应有独立底板、深色绘图区和细网格，启用后节点可拖动，缩放曲线中间点可增删、720px基准仍固定。连续快速切换开关应从当前位置反向，值立即生效；关闭Windows系统动画时直接切换。正常与独立设置进程均检查关闭重开、修改保存、插件选项与嵌入宿主页；离屏动画定点与绘制快照只作功能回归，不替代实际操作手感。

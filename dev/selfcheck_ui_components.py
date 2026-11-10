@@ -246,6 +246,47 @@ assert not any(name in sys.modules for name in (
             parent.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_switch_mouse_feedback_is_immediate_reversible_and_respects_motion(self):
+        from PySide6.QtCore import QAbstractAnimation
+        from ddm import motion
+        switch = ui.ToggleSwitch('Enable')
+        switch.show()
+        self.app.processEvents()
+        events = []
+        switch.toggled.connect(events.append)
+        try:
+            with patch.object(motion, 'enabled', return_value=True):
+                size = switch.size()
+                QTest.mouseClick(switch, Qt.LeftButton)
+                self.assertTrue(switch.isChecked())
+                self.assertEqual(events, [True])
+                self.assertEqual(switch._transition.state(), QAbstractAnimation.Running)
+                switch._transition.setCurrentTime(80)
+                halfway = switch._position
+                self.assertNotEqual(halfway, 0.)
+                self.assertNotEqual(halfway, 1.)
+                QTest.mouseClick(switch, Qt.LeftButton)
+                self.assertFalse(switch.isChecked())
+                self.assertAlmostEqual(switch._transition.startValue(), halfway)
+                switch._transition.setCurrentTime(motion.SWITCH_TRANSITION_MS)
+                self.assertEqual(switch._position, 0.)
+                QTest.keyClick(switch, Qt.Key_Space)
+                self.assertEqual(switch._position, 1.)
+                self.assertEqual(switch._transition.state(), QAbstractAnimation.Stopped)
+                self.assertEqual(switch.size(), size)
+            with patch.object(motion, 'enabled', return_value=False):
+                QTest.mouseClick(switch, Qt.LeftButton)
+                self.assertEqual(switch._position, 0.)
+                self.assertEqual(switch._transition.state(), QAbstractAnimation.Stopped)
+            with patch.object(motion, 'enabled', return_value=True):
+                QTest.mouseClick(switch, Qt.LeftButton)
+                switch.hide()
+                self.assertEqual(switch._position, 1.)
+                self.assertEqual(switch._transition.state(), QAbstractAnimation.Stopped)
+        finally:
+            switch.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_segmented_control_exclusivity_keyboard_signals_and_disabled_options(self):
         parent = QWidget()
         box = QVBoxLayout(parent)
@@ -370,6 +411,87 @@ assert not any(name in sys.modules for name in (
             finally:
                 control.deleteLater()
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_stepper_selection_is_limited_to_active_edit_and_shadow_is_optional(self):
+        from PySide6.QtWidgets import QDoubleSpinBox, QLabel
+        from ddm.settings_focus import SettingsInputFocus
+        self.addCleanup(theme.apply, theme.mode())
+        theme.apply('dark')
+        root = QWidget()
+        root.setStyleSheet(theme.qss())
+        focus = SettingsInputFocus(root)
+        layout = QVBoxLayout(root)
+        spin = QDoubleSpinBox()
+        spin.setRange(-30, -10)
+        spin.setValue(-18)
+        spin.setSuffix(' LUFS')
+        control = ui.StepperControl(spin)
+        blank = QLabel('Outside the editor')
+        layout.addWidget(control)
+        layout.addWidget(blank)
+        root.show()
+        self.app.processEvents()
+        try:
+            spin.setFocus()
+            spin.lineEdit().selectAll()
+            self.assertTrue(spin.lineEdit().hasSelectedText())
+            QTest.mouseClick(blank, Qt.LeftButton)
+            self.assertFalse(spin.lineEdit().hasSelectedText())
+            self.assertFalse(spin.hasFocus())
+            spin.lineEdit().selectAll()
+            self.assertFalse(spin.lineEdit().hasSelectedText())
+            spin.setFocus()
+            spin.lineEdit().selectAll()
+            QTest.mouseClick(control.plus, Qt.LeftButton)
+            self.assertEqual(spin.value(), -17)
+            self.assertFalse(spin.lineEdit().hasSelectedText())
+            self.assertTrue(spin.lineEdit().font().bold())
+            self.assertEqual(spin.lineEdit().palette().text().color().name(), theme.qcolor(theme.TEXT1).name())
+            first = control.grab().toImage()
+            root.setProperty('settings_no_shadows', True)
+            second = control.grab().toImage()
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.size(), second.size())
+            with patch('ddm.motion.enabled', return_value=False):
+                control._transition_hover(1.)
+                self.assertEqual(control._hover, 1.)
+            control.hide()
+            self.assertEqual(control._hover, 0.)
+        finally:
+            root.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_curve_editor_has_distinct_panel_plot_grid_and_white_nodes(self):
+        from ddm.settings_material import BASE_COLORS
+        root = QWidget()
+        root.setProperty('settingsGlassWindow', True)
+        curve = ui.ScaleCurveControl(parent=root)
+        QVBoxLayout(root).addWidget(curve)
+        root.resize(400, 310)
+        root.show()
+        self.app.processEvents()
+        before = curve.curve()
+        self.addCleanup(theme.apply, theme.mode())
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                self.app.processEvents()
+                graph = curve.graph
+                picture = graph.grab().toImage()
+                scale = picture.devicePixelRatio()
+                def pixel(x, y):
+                    return picture.pixelColor(round(x * scale), round(y * scale)).name()
+                colors = BASE_COLORS[mode == 'light']
+                self.assertEqual(pixel(2, 30), colors['control'])
+                plot = graph.plot_rect()
+                self.assertEqual(pixel(plot.left() + 3, plot.top() + 3), colors['card'])
+                self.assertNotEqual(pixel(plot.left() + plot.width()/2, plot.top() + 3), colors['card'])
+                point = graph.point_position(graph.points[0])
+                self.assertEqual(pixel(point.x(), point.y()), '#ffffff')
+                self.assertEqual(curve.curve(), before)
+        finally:
+            root.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_select_popup_keeps_layout_and_native_keyboard_commit_cancel(self):
         parent = QWidget()

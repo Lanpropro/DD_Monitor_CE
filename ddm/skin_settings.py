@@ -4,9 +4,10 @@ from copy import deepcopy
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget)
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .settings_layout import SettingsColumns, SettingsSection
+from .ui import SettingsSlider, SettingsValueLabel
 from .skins import AssetImport
 from .folder_icons import IconDropArea
 
@@ -72,7 +73,7 @@ class SkinSettings(QWidget):
         layout.addLayout(row)
         mask_row = QHBoxLayout()
         mask_row.addWidget(QLabel('背景遮罩'))
-        self.mask_slider = QSlider(Qt.Horizontal)
+        self.mask_slider = SettingsSlider()
         self.mask_slider.setRange(0, 100)
         try:
             value = int(settings.get('skin_mask', 35))
@@ -80,8 +81,9 @@ class SkinSettings(QWidget):
             value = 35
         self.mask_slider.setValue(value)
         self._mask = self.mask_slider.value()
-        self.mask_label = QLabel()
-        mask_row.addWidget(self.mask_slider, 1)
+        self.mask_label = SettingsValueLabel()
+        mask_row.addStretch(1)
+        mask_row.addWidget(self.mask_slider)
         mask_row.addWidget(self.mask_label)
         self.mask_slider.valueChanged.connect(self._mask_changed)
         layout.addLayout(mask_row)

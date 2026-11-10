@@ -159,6 +159,12 @@ class SettingsLayoutTests(unittest.TestCase):
         grid.addWidget(check, grid.rowCount(), 0, 1, 2)
         settle()
         self.assertIs(page.plugin_controls()['fixture_late'], check)
+        from PySide6.QtWidgets import QSpinBox
+        from ddm.ui import StepperControl
+        stepper = StepperControl(QSpinBox())
+        grid.addWidget(stepper, grid.rowCount(), 1, Qt.AlignRight)
+        page.plugin_controls()
+        self.assertTrue(card.grid.itemAt(card.grid.indexOf(stepper)).alignment() & Qt.AlignRight)
         self.assertTrue(card.isAncestorOf(check))
         for width in (760, 1200):
             self.dialog.resize(width, 800)
@@ -168,11 +174,47 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertLess(card.width(), page.sections.width() * .6)
         self.assertLess(card.height(), page.sections.section('codecs').height())
 
+    def test_settings_sliders_use_one_compact_width(self):
+        from PySide6.QtWidgets import QSlider
+        for index in (0, 1, 2, 4):
+            page = self.page(index)
+            sliders = page.findChildren(QSlider)
+            self.assertTrue(sliders, index)
+            for slider in sliders:
+                self.assertEqual(slider.minimumWidth(), theme.SETTINGS_SLIDER_WIDTH)
+                self.assertEqual(slider.maximumWidth(), theme.SETTINGS_SLIDER_WIDTH)
+
+    def test_numeric_selection_clears_on_blank_and_other_control_clicks(self):
+        APP.setActiveWindow(self.dialog)  # The isolated shell uses WA_DontShowOnScreen.
+        page = self.page(0)
+        first = page.poll_spin
+        second = page.compact_threshold_spin
+        self.dialog.general_scroll.ensureWidgetVisible(first)
+        settle()
+        QTest.mouseClick(first.lineEdit(), Qt.LeftButton)
+        first.lineEdit().selectAll()
+        self.assertTrue(first.lineEdit().hasSelectedText())
+        QTest.mouseClick(page.sections.section('playback'), Qt.LeftButton)
+        self.assertFalse(first.lineEdit().hasSelectedText())
+        first.setFocus()
+        first.lineEdit().selectAll()
+        QTest.mouseClick(second.lineEdit(), Qt.LeftButton)
+        self.assertFalse(first.lineEdit().hasSelectedText())
+        self.assertTrue(second.hasFocus())
+
     def test_general_steppers_share_one_surface_and_respect_auto_compact(self):
         page = self.page(0)
         from ddm.ui import StepperControl
         self.assertIsInstance(page.poll_stepper, StepperControl)
         self.assertIs(page.poll_stepper.spin, page.poll_spin)
+        self.assertEqual(page.poll_stepper.width(), theme.SETTINGS_STEPPER_WIDTH)
+        self.assertEqual(page.compact_threshold_stepper.width(), theme.SETTINGS_STEPPER_WIDTH)
+        self.assertEqual(page.poll_stepper.geometry().right(), page.compact_threshold_stepper.geometry().right())
+        page.poll_stepper.setFixedWidth(theme.SETTINGS_STEPPER_WIDTH - 24)
+        settle()
+        self.assertEqual(page.poll_stepper.geometry().right(), page.compact_threshold_stepper.geometry().right())
+        page.poll_stepper.setFixedWidth(theme.SETTINGS_STEPPER_WIDTH)
+        settle()
         before = page.poll_spin.value()
         QTest.mouseClick(page.poll_stepper.plus, Qt.LeftButton)
         self.assertEqual(page.poll_spin.value(), before + 1)
@@ -196,8 +238,9 @@ class SettingsLayoutTests(unittest.TestCase):
                 self.dialog.setStyleSheet(theme.qss())
                 settle()
                 label = self.dialog.general_page.volume_label
-                self.assertEqual(label.palette().color(QPalette.WindowText).name(), theme.qcolor(theme.TEXT3).name())
+                self.assertEqual(label.palette().color(QPalette.WindowText).name(), theme.qcolor(theme.TEXT1).name())
                 self.assertEqual(label.text(), '40')
+                self.assertTrue(label.font().bold())
         finally:
             theme.apply(before)
             self.dialog.setStyleSheet(theme.qss())

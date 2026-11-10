@@ -1,9 +1,9 @@
 """Shared painted selection controls; Qt owns input, focus and checked state."""
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QAbstractButton, QButtonGroup, QCheckBox, QHBoxLayout, QSizePolicy, QWidget
 
-from .. import theme
+from .. import motion, theme
 
 
 class ToggleSwitch(QCheckBox):
@@ -14,7 +14,40 @@ class ToggleSwitch(QCheckBox):
         self.setAccessibleName(label)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.PointingHandCursor)
+        self._position = 0.
+        self._pointer_toggle = False
+        self._transition = QVariantAnimation(self)
+        self._transition.setDuration(motion.SWITCH_TRANSITION_MS)
+        self._transition.setEasingCurve(motion.SWITCH_TRANSITION_EASING)
+        self._transition.valueChanged.connect(self._set_position)
+        self.toggled.connect(self._retarget)
         theme.signals().changed.connect(self.update)
+
+    def _set_position(self, value):
+        self._position = float(value)
+        self.update()
+
+    def _retarget(self, checked):
+        self._transition.stop()
+        target = float(checked)
+        if self._pointer_toggle and self.isVisible() and motion.enabled():
+            self._transition.setStartValue(self._position)
+            self._transition.setEndValue(target)
+            self._transition.start()
+        else:
+            self._set_position(target)
+
+    def mouseReleaseEvent(self, event):
+        self._pointer_toggle = event.button() == Qt.LeftButton
+        try:
+            super().mouseReleaseEvent(event)
+        finally:
+            self._pointer_toggle = False
+
+    def hideEvent(self, event):
+        self._transition.stop()
+        self._set_position(float(self.isChecked()))
+        super().hideEvent(event)
 
     def hitButton(self, position):
         return self.rect().contains(position)
@@ -40,16 +73,21 @@ class ToggleSwitch(QCheckBox):
         track = QRectF(1, (self.height() - theme.SWITCH_TRACK_HEIGHT) / 2,
                        self.width() - 2, theme.SWITCH_TRACK_HEIGHT)
         from ..settings_material import base_color
-        color = theme.qcolor(theme.ACCENT if self.isChecked() else base_color(self, 'control', theme.CONTENT_HOVER))
+        progress = max(0., min(1., self._position))
+        off = theme.qcolor(base_color(self, 'control', theme.CONTENT_HOVER)).name()
+        color = theme.qcolor(theme.mix(off, theme.ACCENT, progress))
         if self.isEnabled() and self.underMouse():
             color = color.darker(110) if self.isDown() else color.lighter(110)
-        painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER_STRONG), 1))
+        border = theme.qcolor(theme.BORDER_STRONG)
+        accent = theme.qcolor(theme.ACCENT)
+        painter.setPen(QPen(QColor.fromRgbF(*(a + (b - a) * progress
+                          for a, b in zip(border.getRgbF(), accent.getRgbF()))), 1))
         painter.setBrush(color)
         painter.drawRoundedRect(track, track.height() / 2, track.height() / 2)
         inset = (track.height() - theme.SWITCH_THUMB_SIZE) / 2
-        left = track.right() - inset - theme.SWITCH_THUMB_SIZE if self.isChecked() else track.left() + inset
+        left = track.left() + inset + self._position * (track.width() - 2 * inset - theme.SWITCH_THUMB_SIZE)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.qcolor('#ffffff' if self.isChecked() else theme.TEXT2))
+        painter.setBrush(QColor(255, 255, 255))
         painter.drawEllipse(QRectF(left, track.top() + inset, theme.SWITCH_THUMB_SIZE, theme.SWITCH_THUMB_SIZE))
 
 

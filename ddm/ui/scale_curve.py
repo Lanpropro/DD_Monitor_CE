@@ -7,6 +7,7 @@ from .. import theme
 from ..corner_geometry import continuous_path
 from ..viewport_scale import scale_curve_points, viewport_scale
 from .basics import ActionButton
+from .curve_surface import paint_curve_surface
 
 
 class ScaleCurveGraph(QWidget):
@@ -24,7 +25,7 @@ class ScaleCurveGraph(QWidget):
         self.setToolTip('拖动节点调整；拖动线条新增节点；右键删除节点。720 px / 100% 基准点固定，端点可上下拖动。')
 
     def plot_rect(self):
-        return QRectF(42, 24, self.width()-56, self.height()-58)
+        return QRectF(42, 24, self.width()-66, self.height()-58)
 
     def point_position(self, point):
         rect = self.plot_rect()
@@ -120,20 +121,11 @@ class ScaleCurveGraph(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        rect = self.plot_rect()
+        paint_curve_surface(painter, self, rect)
         if not self.isEnabled():
             painter.setOpacity(.45)
-        painter.setPen(Qt.NoPen)
-        from ..settings_material import base_color
-        painter.setBrush(theme.qcolor(base_color(self, 'card', theme.CONTENT)))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), theme.RADIUS_MD))
-        painter.setClipPath(continuous_path(QRectF(self.rect()), theme.RADIUS_MD))
-        rect = self.plot_rect()
-        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        for i in range(9):
-            x = rect.left()+rect.width()*i/8
-            y = rect.top()+rect.height()*i/8
-            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
-            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+        painter.setClipPath(continuous_path(QRectF(self.rect()), theme.RADIUS_LG))
         painter.setPen(theme.qcolor(theme.TEXT3))
         for ratio in (0, 1, 2):
             y = rect.bottom()-rect.height()*ratio/2
@@ -149,9 +141,9 @@ class ScaleCurveGraph(QWidget):
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
         for i, point in enumerate(self.points):
-            painter.setBrush(theme.qcolor(theme.ACCENT if i == self.selected else theme.ELEVATED))
-            painter.setPen(QPen(theme.qcolor(theme.TEXT3 if point == [1, 1] else theme.ACCENT), 2))
-            painter.drawEllipse(self.point_position(point), 4.5, 4.5)
+            painter.setBrush(theme.qcolor(theme.ACCENT if i == self.selected else '#ffffff'))
+            painter.setPen(QPen(theme.qcolor(theme.TEXT2 if point == [1, 1] else theme.ACCENT), 2))
+            painter.drawEllipse(self.point_position(point), 5, 5)
         if self.selected is not None:
             x, y = self.points[self.selected]
             painter.setPen(theme.qcolor(theme.TEXT1))

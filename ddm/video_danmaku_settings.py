@@ -1,11 +1,11 @@
 """画面格右下角的弹幕观看设置，拖动时实时生效。"""
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QLabel, QMenu, QScrollArea, QSlider, QWidget, QWidgetAction
+from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QLabel, QMenu, QScrollArea, QWidget, QWidgetAction
 
 from . import theme
 from .config import DEFAULT_SETTINGS
-from .ui import ActionButton, ColorDialog, ScaleCurveControl
+from .ui import SettingsSlider, SettingsValueLabel, ActionButton, ColorDialog, ScaleCurveControl
 
 
 class VideoDanmakuSettings(QMenu):
@@ -37,13 +37,10 @@ class VideoDanmakuSettings(QMenu):
                 ("video_danmaku_speed", "弹幕速度", 50, 200, "%"),
                 ("video_danmaku_outline_width", "描边宽度", 0, 6, " px"))):
             grid.addWidget(QLabel(label), row, 0)
-            slider = QSlider(Qt.Horizontal, holder)
+            slider = SettingsSlider(holder)
             slider.setRange(low, high)
-            slider.setMinimumWidth(140)
             self.controls[key] = slider
-            value_label = QLabel()
-            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            value_label.setMinimumWidth(48)
+            value_label = SettingsValueLabel()
             self.labels[key] = value_label
             slider.valueChanged.connect(
                 lambda value, k=key, s=suffix: self._change_value(k, value, s))

@@ -42,7 +42,7 @@ class GeneralContributions(QObject):
             widget, layout = item.widget(), item.layout()
             if widget is not None:
                 hidden = widget.isHidden() and widget.testAttribute(Qt.WA_WState_ExplicitShowHide)
-                self.card.grid.addWidget(widget, start + row - first_row, column, rows, columns)
+                self.card.grid.addWidget(widget, start + row - first_row, column, rows, columns, item.alignment())
                 if not hidden:
                     widget.show()
             elif layout is not None:

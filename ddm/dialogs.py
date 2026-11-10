@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFontComboBox,
     QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
     QLineEdit, QListWidget, QListWidgetItem, QKeySequenceEdit, QPlainTextEdit, QPushButton,
-    QScrollArea, QSizePolicy, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -24,6 +24,7 @@ from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog, SettingsStack, SlidingTabs
 from .ui import SettingsSurface, ElidedLabel, ScaleCurveControl, page_header as _page_head, step_button as _step_button
 from .settings_layout import SettingsColumns, SettingsSection, section_grid
+from .ui import SettingsSlider, SettingsValueLabel
 from .ui import ToggleSwitch
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
@@ -275,19 +276,15 @@ class GeneralSettingsPage(QWidget):
         grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
-        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider = SettingsSlider()
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setMinimumWidth(100)
-        self.volume_slider.setMaximumWidth(240)
         self.volume_slider.setValue(int(settings.get("default_volume", DEFAULT_VOLUME)))
-        self.volume_label = QLabel(str(self.volume_slider.value()))
-        self.volume_label.setObjectName("SettingsHint")
-        self.volume_label.setFixedWidth(28)
+        self.volume_label = SettingsValueLabel(str(self.volume_slider.value()))
         # 直接连接接收控件，避免回调持有父页面并在退出时触发析构重入。
         self.volume_slider.valueChanged.connect(self.volume_label.setNum)
         volume_box.addWidget(self.volume_slider)
         volume_box.addWidget(self.volume_label)
-        self.volume_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        volume_box.insertStretch(0, 1)
         grid.addLayout(volume_box, row, 1)
         row += 1
         grid.addWidget(self.codec_editor, row, 0, 1, 2)
@@ -537,14 +534,14 @@ class NotificationSettingsPage(QWidget):
         controls = QVBoxLayout()
         controls.addWidget(QLabel('Banner 毛玻璃模糊强度'))
         slider_row = QHBoxLayout()
-        self.banner_blur = QSlider(Qt.Horizontal)
+        self.banner_blur = SettingsSlider()
         self.banner_blur.setRange(0, 40)
         self.banner_blur.setAccessibleName('Banner 毛玻璃模糊强度')
         self.banner_blur.setValue(int(settings.get('notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))
         slider_row.addWidget(self.banner_blur, 1)
-        self.banner_blur_value = QLabel()
-        self.banner_blur_value.setMinimumWidth(28)
+        self.banner_blur_value = SettingsValueLabel()
         slider_row.addWidget(self.banner_blur_value)
+        slider_row.addStretch(1)
         controls.addLayout(slider_row)
         row.addLayout(controls, 1)
         self.banner_preview = NoticeBlurPreview()
@@ -704,11 +701,10 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_enabled.setChecked(bool(settings.get('super_chat_enabled', True)))
         grid.addWidget(self.super_chat_enabled, 3, 0, 1, 2)
         grid.addWidget(QLabel('SC 不透明度'), 4, 0)
-        self.super_chat_opacity = QSlider(Qt.Horizontal)
+        self.super_chat_opacity = SettingsSlider()
         self.super_chat_opacity.setRange(10, 100)
-        self.super_chat_opacity.setMaximumWidth(240)
         self.super_chat_opacity.setValue(int(settings.get('super_chat_opacity', 80)))
-        sc_value = QLabel(f'{self.super_chat_opacity.value()}%')
+        sc_value = SettingsValueLabel(f'{self.super_chat_opacity.value()}%')
         self.super_chat_opacity.valueChanged.connect(lambda value: sc_value.setText(f'{value}%'))
         sc_row = QHBoxLayout()
         sc_row.addWidget(self.super_chat_opacity, 1)
@@ -728,11 +724,10 @@ class DanmakuSettingsPage(QWidget):
         delay_row.addWidget(self.super_chat_collapse_unit)
         delay_row.addStretch(1)
         grid.addLayout(delay_row, 5, 1)
-        self.super_chat_scale = QSlider(Qt.Horizontal)
+        self.super_chat_scale = SettingsSlider()
         self.super_chat_scale.setRange(75, 200)
-        self.super_chat_scale.setMaximumWidth(240)
         self.super_chat_scale.setValue(int(settings.get('super_chat_scale', 100)))
-        scale_value = QLabel(f'{self.super_chat_scale.value()}%')
+        scale_value = SettingsValueLabel(f'{self.super_chat_scale.value()}%')
         self.super_chat_scale.valueChanged.connect(lambda value: scale_value.setText(f'{value}%'))
         scale_row = QHBoxLayout()
         scale_row.addWidget(self.super_chat_scale, 1)

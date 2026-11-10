@@ -20,6 +20,8 @@ class SettingsHost(QObject):
             {**window.settings, **{key: value for key, value in message['settings'].items()
                                    if key in DEFAULT_SETTINGS}}, message['shortcuts'])
         self.stack = self.dialog.stack
+        from .settings_focus import SettingsInputFocus
+        self.stack_input_focus = SettingsInputFocus(self.stack)
         from .settings_material import apply_properties
         apply_properties(self.stack, self.dialog.settings())
         self.embedded = False
