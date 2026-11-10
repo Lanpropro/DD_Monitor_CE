@@ -427,6 +427,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | `offline`；合成关注列表、替身轮询器，检查刷新连点、头像补充阶段、失败与空列表恢复 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |
+| [selfcheck_playback_capture](../selfcheck_playback_capture.py) | `offline`；按需播放采样的上限、迟到回调、管道断开与隐私回归，使用替身，不启动实播采集 |
 | [selfcheck_browser_accounts](../selfcheck_browser_accounts.py) | `offline`；浏览器与平台请求替身、临时账号存储；校验独立窗口参数、内置代理传递、复用会话、取消及平台隔离，不启动真实浏览器或登录 |
 | [selfcheck_oauth_accounts](../selfcheck_oauth_accounts.py) | 单项执行前核对 |
 | [selfcheck_oauth_guide](../selfcheck_oauth_guide.py) | 单项执行前核对 |

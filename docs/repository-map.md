@@ -322,6 +322,8 @@
 - `dev/selfcheck_native_control_hit.py`
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
+- `dev/selfcheck_playback_capture.py`
+- `dev/capture_playback.py`
 - `dev/selfcheck_browser_accounts.py`
 - `dev/selfcheck_oauth_accounts.py`
 - `dev/selfcheck_oauth_guide.py`
