@@ -68,6 +68,7 @@
     "mode": "offline",
     "description": "已核对的离屏功能回归；需要开发依赖，录制专项另需 FFmpeg；使用替身或本机测试服务",
     "scripts": [
+      "selfcheck_browser_accounts",
       "selfcheck_stream_info",
       "selfcheck_startup_windows",
       "selfcheck_douyu_recovery",

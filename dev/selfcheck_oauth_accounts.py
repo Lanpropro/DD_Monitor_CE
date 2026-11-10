@@ -62,6 +62,9 @@ def main():
             side_effect=lambda kind: AccountStore(kind, root=root)), patch('ddm.platform_login.AccountStore',
             side_effect=lambda kind: AccountStore(kind, root=root)), patch('ddm.app.QTimer.singleShot'):
         owner = MainWindow([], [], state={'plugins_enabled': ['global_live']})
+        # Exercise the retained OAuth alternative; website login has its own isolated suite.
+        for platform in owner.plugins.platforms.values():
+            platform.browser_login_url = ''
         owner._start_avatar_loader = lambda *_args: None
         owner._render_account = lambda **_kwargs: None
         try:

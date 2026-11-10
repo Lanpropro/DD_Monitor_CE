@@ -390,7 +390,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | --- | --- |
 | [selfcheck_douyin_restart_cache](../selfcheck_douyin_restart_cache.py) | 单项执行前核对 |
 | [selfcheck_douyin_room_source](../selfcheck_douyin_room_source.py) | 单项执行前核对 |
-| [selfcheck_global_live](../selfcheck_global_live.py) | 单项执行前核对 |
+| [selfcheck_global_live](../selfcheck_global_live.py) | 单项执行；需核对受控海外插件安装副本，设置`DDM_CHECK_MODE=offline`拦截外网；覆盖本机协议与Qt状态，不作实播性能依据 |
 | [selfcheck_huya_live](../selfcheck_huya_live.py) | 单项执行前核对 |
 | [selfcheck_huya_watch](../selfcheck_huya_watch.py) | 单项执行前核对 |
 | [selfcheck_live_platforms](../selfcheck_live_platforms.py) | 单项执行前核对 |
@@ -427,6 +427,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | `offline`；合成关注列表、替身轮询器，检查刷新连点、头像补充阶段、失败与空列表恢复 |
 | [selfcheck_oauth](../selfcheck_oauth.py) | 单项执行前核对 |
+| [selfcheck_browser_accounts](../selfcheck_browser_accounts.py) | `offline`；浏览器与平台请求替身、临时账号存储；校验独立窗口参数、内置代理传递、复用会话、取消及平台隔离，不启动真实浏览器或登录 |
 | [selfcheck_oauth_accounts](../selfcheck_oauth_accounts.py) | 单项执行前核对 |
 | [selfcheck_oauth_guide](../selfcheck_oauth_guide.py) | 单项执行前核对 |
 | [selfcheck_platform_accounts](../selfcheck_platform_accounts.py) | 单项执行前核对 |
