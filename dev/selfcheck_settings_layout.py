@@ -585,7 +585,7 @@ class AppearanceEditorTests(unittest.TestCase):
         from PySide6.QtWidgets import QWidget
         from ddm.dialogs import AppearanceSettingsPage
         from ddm.skin_preview import SkinPreview
-        from ddm.ui import SelectControl, SettingsSlider, SettingsValueLabel, ToggleSwitch
+        from ddm.ui import SelectControl, SettingsSlider, SettingsSurface, SettingsValueLabel, ToggleSwitch
 
         class Layer(QObject):
             frameReady = Signal()
@@ -597,6 +597,7 @@ class AppearanceEditorTests(unittest.TestCase):
 
         owner = QWidget()
         owner.settings = deepcopy(config.DEFAULT_SETTINGS)
+        owner.settings['skin_background'] = 'fixture.mp4'
         owner.skin_controller = Controller(owner)
         owner.skin_controller.window = owner
         owner.skin_controller.layer = Layer(owner)
@@ -604,9 +605,11 @@ class AppearanceEditorTests(unittest.TestCase):
         def set_skin(values):
             owner.settings.update(values)
             owner.skin_controller.layer.mask = values['skin_mask']
+            owner.skin_controller.layer.path = values['skin_background']
             owner.skin_controller.changed.emit()
 
         owner.set_skin = set_skin
+        owner.set_skin_parts = lambda values: owner.settings.update(skin_parts=values)
         # Native playback and recursive screenshots are outside this layout check.
         with patch.object(SkinPreview, 'capture_interface'):
             page = AppearanceSettingsPage(owner.settings, skin_controller=owner.skin_controller)
@@ -616,6 +619,9 @@ class AppearanceEditorTests(unittest.TestCase):
             try:
                 editor = page.parts_editor
                 background = editor.background_controls
+                self.assertEqual(editor.findChildren(SettingsSurface), [editor.editor_card])
+                self.assertTrue(editor.editor_card.isAncestorOf(editor.preview))
+                self.assertTrue(editor.editor_card.isAncestorOf(background.choose))
                 self.assertIsInstance(editor.scenes, SelectControl)
                 self.assertIsInstance(background.video_toggle, ToggleSwitch)
                 self.assertIsInstance(background.mask_slider, SettingsSlider)
@@ -640,6 +646,14 @@ class AppearanceEditorTests(unittest.TestCase):
                             settle()
                             self.assertEqual(editor.part.currentData(), part)
                             self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                            reset = background.clear if part == 'background' else editor.builtin_button
+                            self.assertTrue(reset.isVisible())
+                            self.assertTrue(editor.scenes.parentWidget() is reset.parentWidget())
+                            self.assertLess(reset.geometry().right(), editor.scenes.x())
+                            self.assertEqual(reset.geometry().center().y(), editor.scenes.geometry().center().y())
+                            self.assertEqual(reset.width(), 180)
+                            self.assertEqual(background.clear.isVisible(), part == 'background')
+                            self.assertEqual(editor.builtin_button.isVisible(), part != 'background')
                         editor._select_part('buttons.settings')
                         self.assertEqual(editor.scenes.currentIndex(), 0)
                 editor._select_part('background')
@@ -650,6 +664,15 @@ class AppearanceEditorTests(unittest.TestCase):
                 self.assertEqual(owner.settings['skin_mask'], 47)
                 self.assertEqual(background.mask_label.text(), '47%')
                 self.assertEqual(background.mask_slider.width(), theme.SETTINGS_SLIDER_WIDTH)
+                background.clear.click()
+                self.assertEqual(owner.settings['skin_background'], '')
+                self.assertEqual(owner.settings['skin_mask'], 35)
+                self.assertTrue(owner.settings['skin_video_enabled'])
+                owner.settings['skin_parts'] = {'settings': {'radius': 13}, 'layout_menu': {'radius': 12}}
+                editor._select_part('settings')
+                editor.builtin_button.click()
+                self.assertEqual(owner.settings['skin_parts'], {
+                    'settings': {'radius': 13, 'builtin': True}, 'layout_menu': {'radius': 12}})
                 owner.skin_controller.layer.path = 'fixture.png'
                 background.sync()
                 self.assertTrue(background.video_row.isHidden())
