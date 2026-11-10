@@ -61,7 +61,6 @@ class SkinSettings(QWidget):
         self.status.setWordWrap(True)
         self.status.setObjectName('SettingsHint')
         layout.addWidget(self.status)
-        row = QHBoxLayout()
         self.choose = SkinAssetDropArea(video=True)
         self.choose.clicked.connect(self._choose)
         self.choose.fileDropped.connect(self.import_file)
@@ -70,9 +69,7 @@ class SkinSettings(QWidget):
         self.clear.setFixedWidth(180)
         self.clear.clicked.connect(self.reset)
         layout.addWidget(self.choose)
-        row.addStretch(1)
-        row.addWidget(self.clear)
-        layout.addLayout(row)
+        layout.addWidget(self.clear, 0, Qt.AlignRight)
         mask_row = QHBoxLayout()
         mask_row.addWidget(QLabel('背景遮罩'))
         self.mask_slider = SettingsSlider()
@@ -265,7 +262,8 @@ class PartSettings(QDialog):
                 'QTabBar::tab:selected {background: palette(light); border-color: palette(highlight);}')
         for text in ('主界面', '设置页面', '菜单与提示' if professional else '布局预设'):
             self.scenes.addItem(text) if embedded else self.scenes.addTab(text)
-        preview_column.addWidget(self.scenes, 0, Qt.AlignRight if embedded else Qt.Alignment())
+        if not embedded:
+            preview_column.addWidget(self.scenes)
         self.preview = SkinPreview(self, editable_parts=None if professional else BASIC_PARTS)
         if embedded:
             self.preview.setMinimumSize(320, 280)
@@ -299,16 +297,14 @@ class PartSettings(QDialog):
         self.introduction.setWordWrap(True)
         right.addWidget(self.introduction)
         if embedded:
-            self.sections = SettingsColumns(self)
-            preview_card = SettingsSection('界面预览')
-            preview_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-            preview_card.grid.addWidget(preview_panel, 0, 0, 1, 2)
-            controls_card = SettingsSection('分区样式')
-            controls_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-            controls_card.grid.addWidget(right_panel, 0, 0, 1, 2)
-            self.sections.add_section('preview', preview_card)
-            self.sections.add_section('controls', controls_card)
-            outer.addWidget(self.sections)
+            self.editor_card = SettingsSection('界面预览与分区样式', self)
+            self.editor_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+            self.sections = SettingsColumns(self.editor_card)
+            for key, panel in (('preview', preview_panel), ('controls', right_panel)):
+                panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+                self.sections.add_section(key, panel)
+            self.editor_card.grid.addWidget(self.sections, 1, 0, 1, 2)
+            outer.addWidget(self.editor_card)
         else:
             outer.addLayout(right, 2)
         content = QWidget()
@@ -407,7 +403,8 @@ class PartSettings(QDialog):
         defaults.addWidget(self.reset_button)
         if embedded:
             self.builtin_button.setFixedWidth(180)
-        defaults.addWidget(self.builtin_button, 0, Qt.AlignRight if embedded else Qt.Alignment())
+        if not embedded:
+            defaults.addWidget(self.builtin_button)
         layout.addLayout(defaults)
         if not professional:
             layout.addWidget(self.status)
@@ -419,6 +416,12 @@ class PartSettings(QDialog):
         if embedded:
             self.apply_button.hide()
             close.hide()
+            self.preview_toolbar = QHBoxLayout()
+            self.preview_toolbar.addStretch(1)
+            self.preview_toolbar.addWidget(self.background_controls.clear)
+            self.preview_toolbar.addWidget(self.builtin_button)
+            self.preview_toolbar.addWidget(self.scenes)
+            self.editor_card.grid.addLayout(self.preview_toolbar, 0, 0, 1, 2)
         else:
             layout.addStretch(1)
         self.part.currentIndexChanged.connect(self.load_part)
@@ -539,6 +542,8 @@ class PartSettings(QDialog):
         self.scenes.blockSignals(blocked)
         self.selection_title.setText(self.part.currentText())
         self.background_controls.setVisible(background)
+        if self.embedded:
+            self.background_controls.clear.setVisible(background)
         self.parameter_box.setVisible(not background)
         self.asset_status.setVisible(not self.professional and part in ('settings', 'layout_menu'))
         self.reset_button.setVisible(self.professional and not background)
