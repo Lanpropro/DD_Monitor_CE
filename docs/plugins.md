@@ -4,6 +4,7 @@
 
 平台可选提供`browser_login_url`、`browser_cookie_domains`、`browser_account_info(session, cancelled)`与`browser_follow_rooms(session, cancelled)`。
 宿主账号窗口在首次登录且本机已配置该平台的OAuth客户端时优先使用官方授权；未配置时提供无需开发者客户端的网页登录。已有OAuth或网页登录会话沿用原流程，网页登录页也保留OAuth高级入口。客户端配置损坏时仍可选择网页登录；离线检查不读取本机客户端配置。旧宿主忽略这些可选字段，继续使用原有OAuth能力。
+YouTube和Twitch导入页提供“重新读取”，重新请求当前账号的关注；窗口内切换平台继续保留上次列表及勾选。YouTube订阅接口不返回开播状态，频道以`live_known=False`导入，由正常状态刷新流程补齐。
 浏览器由`account_browser.py`以临时独立资料目录启动，支持本机Chrome或Edge。用户在普通窗口登录并关闭后，才通过同一临时资料目录的后台浏览器读取指定平台域的Cookie，不在登录页面启用调试，也不使用日常浏览器资料。HTTP(S)代理从当前进程传入登录浏览器，回环控制连接始终直连。完成或取消后释放本次进程与资料目录，持久登录仅沿用AccountStore的DPAPI存储。
 工作线程拥有请求会话，平台通过`cancelled()`停止分页；只有完整成功才发布关注列表。`session.ddm_follow_progress(count)`为可选的已读取数量反馈。网络失败不等于登录失效；仅身份被明确拒绝时抛出既有`LoginRequiredError`并回到网页登录。
 离线入口：根`run.cmd --check-browser-accounts`。本项只验证替身与会话边界，真实Google/Twitch登录、官网验证与订阅完整性仍需用户手动验收，不代表播放性能改善。

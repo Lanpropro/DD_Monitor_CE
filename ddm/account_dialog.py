@@ -411,6 +411,14 @@ class AccountPlatformDialog(QDialog):
                                   folders=self.owner.sidebar.folder_state(),
                                   folder_creator=self.owner.sidebar.create_folder,
                                   room_menu=self.kind == "douyin")
+        if self.kind in ("douyin", "youtube", "twitch"):
+            page.reread_button = QPushButton("重新读取", page)
+            page.reread_button.setObjectName("IconButton")
+            page.reread_button.setCursor(Qt.PointingHandCursor)
+            page.reread_button.setAutoDefault(False)
+            page.reread_button.clicked.connect(
+                lambda _checked=False, kind=self.kind: self.select_platform(kind, reread=True))
+            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:
@@ -419,12 +427,6 @@ class AccountPlatformDialog(QDialog):
                     cache_follows(rooms)
                 else:
                     self.owner._douyin_follow_cache = {"uid": str(uid), "rooms": deepcopy(rooms)}
-            page.reread_button = QPushButton("重新读取", page)
-            page.reread_button.setObjectName("IconButton")
-            page.reread_button.setCursor(Qt.PointingHandCursor)
-            page.reread_button.setAutoDefault(False)
-            page.reread_button.clicked.connect(lambda: self.select_platform("douyin", reread=True))
-            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
             page.platform_notice = QLabel("受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。"
                                           "你仍可直接勾选账号导入，软件会随后台刷新继续查询", page)
             page.platform_notice.setObjectName("SettingsHint")
