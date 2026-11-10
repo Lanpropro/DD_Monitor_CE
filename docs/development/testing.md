@@ -84,6 +84,8 @@ python dev/run_checks.py --script check_live_restore -- 6
 python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backend animator
 ```
 
+关注栏卡片原生预览滚动回归可从根目录运行 `run.cmd --check-preview-scroll`，依次执行离屏回归与本地 MP4 原生检查（需要 ffmpeg，不联网）。原生项核对连续24次滚动后的 Qt 与 HWND 坐标、播放器核心不变和播放进度继续；可设置 `QT_SCALE_FACTOR=1.5` 复核高 DPI。这是功能回归，真实跳位依据来自专项现场采集，不以本地视频证明用户机器的视觉改善。
+
 房间 `6` 仅为命令示例，执行前确认目标正在开播。真实直播检查必须显式选择单项并传入参数，不能隐式批量执行；以上两项不加载个人登录配置、不发送真实弹幕。
 
 Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入口使用当前 Python 的解释器执行子进程，设置 `DDM_NO_SAVE=1`；离屏与原生图形后端按分类选择。每个脚本的退出码和异常保留在日志中；Windows 引导保持 MTA 资源至 Qt 清理结束。
