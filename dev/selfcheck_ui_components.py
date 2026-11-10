@@ -105,6 +105,41 @@ assert not any(name in sys.modules for name in (
         finally:
             theme.apply('dark')
 
+    def test_settings_cards_keep_uniform_fill_and_separate_outer_shadow(self):
+        from ddm.settings_window import SettingsWindow
+        window = SettingsWindow()
+        window.setAttribute(Qt.WA_DontShowOnScreen)
+        window.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 0})
+        card = ui.SettingsSurface(window)
+        card.setGeometry(24, 80, 300, 160)
+        window.resize(360, 270)
+        window.show()
+        try:
+            for mode, expected in (('dark', '#3c4044'), ('light', '#ffffff')):
+                theme.apply(mode)
+                for _ in range(4):
+                    self.app.processEvents()
+                window.set_material({'settings_no_shadows': False})
+                shadow = card.grab().toImage()
+                scale = shadow.devicePixelRatio()
+                x = shadow.width() // 2
+                top = shadow.pixelColor(x, round(12 * scale))
+                bottom = shadow.pixelColor(x, shadow.height() - round(14 * scale))
+                self.assertEqual(top.name(), expected)
+                self.assertEqual(bottom, top, 'A shadow must not fade the card fill from top to bottom')
+                under_card = shadow.pixelColor(x, shadow.height() - round(4 * scale))
+                window.set_material({'settings_no_shadows': True})
+                plain = card.grab().toImage()
+                self.assertLess(under_card.lightnessF(),
+                                plain.pixelColor(x, plain.height() - round(4 * scale)).lightnessF())
+                self.assertEqual(plain.pixelColor(x, round(12 * scale)), top)
+                self.assertIsNone(card.graphicsEffect(), 'Draw the shadow without capturing controls')
+        finally:
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            theme.apply('dark')
+
     def test_exports_reuse_original_classes_and_keep_old_imports(self):
         from ddm import avatar_widgets, motion, widgets
         from ddm.ui import labels, toolbar

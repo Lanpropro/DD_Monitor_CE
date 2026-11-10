@@ -1,14 +1,11 @@
 """Frameless settings shell and its draggable, accessible window header."""
-from pathlib import Path
-
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import theme
 from .corner_geometry import continuous_path
-from .settings_backdrop import apply_backdrop
-from .ui.settings_surface import _frosted_image
+from .settings_backdrop import apply_frame
 
 
 class SettingsCloseButton(QAbstractButton):
@@ -78,7 +75,6 @@ class SettingsWindow(QDialog):
         self.setProperty('settingsGlassWindow', True)
         self.setProperty('appearanceLight', theme.is_light())
         self.setProperty('customControlSurface', True)
-        self._native_glass = False
         self._native_corners = False
         self.window_header = SettingsTitleBar(self)
         self.body_layout = QHBoxLayout()
@@ -87,22 +83,21 @@ class SettingsWindow(QDialog):
         outer.setSpacing(0)
         outer.addWidget(self.window_header)
         outer.addLayout(self.body_layout, 1)
-        theme.signals().changed.connect(self._sync_backdrop)
+        theme.signals().changed.connect(self._sync_frame)
 
-    def _sync_backdrop(self):
-        from .settings_material import properties
+    def _sync_frame(self):
         if self.isVisible():
-            self._native_glass = apply_backdrop(self, theme.is_light(), properties(self)['settings_glass_enabled'])
+            self._native_corners = apply_frame(self, theme.is_light())
         self.update()
 
     def set_material(self, values):
         from .settings_material import apply_properties
         if apply_properties(self, values):
-            self._sync_backdrop()
+            self._sync_frame()
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._sync_backdrop()
+        self._sync_frame()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.windowHandle() is not None:
@@ -123,46 +118,24 @@ class SettingsWindow(QDialog):
 
     def paintEvent(self, event):
         from .skin_parts import resolve_values, values_for
-        from .settings_material import properties
-        material = properties(self)
-        glass = material['settings_glass_enabled']
         preview = getattr(self, '_settings_material_preview', None)
         values = resolve_values('settings', preview[1], preview[0]) if preview is not None else values_for('settings')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
-        if self._native_glass or self._native_corners:
-            # DWM clips the whole material; another client curve exposes its backing.
+        if self._native_corners:
+            # DWM clips the whole window; another client curve exposes its backing.
             path = QPainterPath()
             path.addRect(QRectF(self.rect()))
         else:
             path = continuous_path(rect, 22)
         painter.setClipPath(path)
-        image_path = values.get('image')
-        image = None
-        if image_path and glass:
-            try:
-                stat = Path(image_path).stat()
-                image = _frosted_image(image_path, stat.st_mtime_ns, stat.st_size, material['settings_glass_blur'])
-            except OSError:
-                pass
-        if image is not None:
-            painter.drawPixmap(rect, image, QRectF(image.rect()))
         from .settings_material import base_color
         color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
-        if not glass:
-            color.setAlpha(255)
-        elif 'background' not in values:
-            color.setAlpha(round(material['settings_glass_opacity'] * 2.55)
-                           if image is not None or self._native_glass else 248)
+        color.setAlpha(255)
         painter.fillPath(path, color)
-        if glass:
-            sheen = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-            sheen.setColorAt(0, QColor(255, 255, 255, 10 if theme.is_light() else 6))
-            sheen.setColorAt(1, QColor(255, 255, 255, 0))
-            painter.fillPath(path, sheen)
-        if not (self._native_glass or self._native_corners):
+        if not self._native_corners:
             painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(path)

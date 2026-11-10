@@ -1,14 +1,14 @@
 """Settings material preferences and derived widget presentation properties."""
 
 DEFAULTS = {
-    'settings_glass_enabled': True,
+    'settings_glass_enabled': False,
     'settings_glass_blur': 24,
     'settings_glass_opacity': 70,
     'settings_no_shadows': False,
 }
 
 # Flat colours sampled from the user's light/dark BewlyCat recordings.
-# Glass opacity and highlights are separate layers over this foundation.
+# Regular and embedded settings roots share this opaque foundation.
 BASE_COLORS = {
     False: {'background': '#33373b', 'card': '#3c4044', 'control': '#43444b'},
     True: {'background': '#eeedf4', 'card': '#ffffff', 'control': '#edecef'},
@@ -44,6 +44,8 @@ def normalize(values):
     for key in ('settings_glass_enabled', 'settings_no_shadows'):
         if type(result[key]) is not bool:
             result[key] = DEFAULTS[key]
+    # Retired temporarily: old saved values must not restore glass rendering.
+    result['settings_glass_enabled'] = False
     for key, maximum in (('settings_glass_blur', 40), ('settings_glass_opacity', 100)):
         try:
             result[key] = max(0, min(maximum, int(result[key])))

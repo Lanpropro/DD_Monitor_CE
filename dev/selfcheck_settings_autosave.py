@@ -137,7 +137,8 @@ class AutoSaveTests(unittest.TestCase):
                 patch('ddm.app.QTimer.singleShot', lambda *args: None), patch.dict(os.environ):
             os.environ.pop('DDM_NO_SAVE', None)
             window = app_module.MainWindow([], [], layout_id='1x1', state={
-                'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+                'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit',
+                    'settings_glass_enabled': True, 'settings_glass_opacity': 55, 'settings_glass_blur': 8}})
             dialog = window._create_settings_dialog()
             try:
                 window.show()
@@ -154,15 +155,13 @@ class AutoSaveTests(unittest.TestCase):
                                      'Settings changes must repaint in place without a window-covering wave')
                     self.assertTrue(dialog.isVisible())
                 material = dialog.appearance_page.material_editor
-                material.controls['settings_glass_opacity'].setValue(55)
-                material.controls['settings_glass_blur'].setValue(8)
+                self.assertEqual(set(material.controls), {'settings_no_shadows'})
                 material.controls['settings_no_shadows'].setChecked(True)
-                material.controls['settings_glass_enabled'].setChecked(False)
                 dialog.auto_save.flush()
                 self.assertEqual(window.settings['settings_glass_opacity'], 55)
                 self.assertEqual(window.settings['settings_glass_blur'], 8)
                 self.assertTrue(window.settings['settings_no_shadows'])
-                self.assertFalse(window.settings['settings_glass_enabled'])
+                self.assertFalse(dialog.property('settings_glass_enabled'))
                 dialog.nav.setCurrentRow(0)
                 dialog.general_page.volume_slider.setValue(17)
                 dialog.auto_save.flush()
