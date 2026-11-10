@@ -999,6 +999,43 @@ def exercise_focus(app, native, directory):
         pip.manage()
         assert pip.dialog._primary == 1
         pip.dialog.reject()
+        # Preserve the existing chat panes when the same six-cell layout enters PiP.
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: tiles[0], 2: tiles[4]})
+        bindings = wall.pane_danmaku.state()
+        panels = dict(wall.pane_danmaku.panels)
+        documents = {cell: panel.body.document() for cell, panel in panels.items()}
+        panels[1].add_message('Fixture', 'chat before PiP')
+        chat_cores = [player.player for player in players]
+        chat_handles = [int(tile.video.winId()) for tile in tiles]
+        pip.manage()
+        dialog = pip.dialog
+        assert set(dialog._selected()) == {0, 3, 4, 5}
+        assert [dialog.preview.labels[cell].text() for cell in (1, 2)] == ['弹幕', '弹幕']
+        if native and os.environ.get('DDM_PIP_CHAT_PREVIEW_IMAGE'):
+            QTest.qWait(30)
+            dialog.grab().save(os.environ['DDM_PIP_CHAT_PREVIEW_IMAGE'])
+        dialog.start.click()
+        QTest.qWait(50)
+        assert pip.active and wall.has_danmaku
+        assert all(panel.isVisible() for panel in panels.values())
+        pip.floating.resize_to_width(820)
+        QTest.qWait(50)
+        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
+        for cell, panel in panels.items():
+            assert panel.geometry() == expected[cell]
+            assert panel.body.document() is documents[cell]
+        panels[1].add_message('Fixture', 'chat during PiP')
+        assert 'chat before PiP' in panels[1].body.toPlainText()
+        if native and os.environ.get('DDM_PIP_CHAT_PREVIEW_IMAGE'):
+            pip.floating.grab().save(os.environ['DDM_PIP_CHAT_PREVIEW_IMAGE'] + '-window.png')
+        assert [player.player for player in players] == chat_cores
+        assert [int(tile.video.winId()) for tile in tiles] == chat_handles
+        pip.restore()
+        QTest.qWait(30)
+        assert wall.pane_danmaku.state() == bindings
+        assert 'chat during PiP' in panels[1].body.toPlainText()
+        assert all(panel.body.document() is documents[cell] for cell, panel in panels.items())
     finally:
         window.close()
         QTest.qWait(100)

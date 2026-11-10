@@ -301,3 +301,8 @@ python dev/run_checks.py --script selfcheck_account_login_reopen --timeout 45
 
 
 诊断中心：根 `run.cmd --check-diagnostics` 覆盖独立Collector、按需采集和设置页实际导出；原生组件另运行 `python dev/selfcheck_native_diagnostics.py`（需Windows/MSVC x64）。这些是隔离功能回归，不作为issue #222真实复现或根因结论。人工验收用根 `run.cmd` 打开“设置 → 诊断与反馈”，检查填写、附件、导出/摘要、关闭重开及独立EXE；默认不记录/导出转储，两个开关分别验收。
+
+
+画中画的单主＋五辅六格组合支持监控室当前corner布局的辅格弹幕；视频选择不包含弹幕背后的旧房间，预览与小窗共用 `pip_composition` 的格位模型。回归覆盖旧六路选择恢复为四视频＋两弹幕、固定弹幕位与视频换位、消息继续投递、来源/文档/连接保持、无效数量在分配临时格前拒绝，以及恢复监控室。根 `run.cmd --check-picture-in-picture` 使用本地视频额外检查该组合的面板显示、缩放、播放器和HWND保持；不代表真实直播或性能验收。
+
+选择器新增完整弹幕订阅用例后，单进程连续窗口回归曾在第5项初始化订阅时以3221225477退出，同一用例单独进程通过，原失败日志保留。选择器复用已有 `checks.widget_cases` 逐完整用例创建新QApplication进程；保留全部断言、子进程退出码和超时失败，既有通知/弹幕用例使用同一方式。这是测试隔离边界，不解释或修复产品Qt原生崩溃。

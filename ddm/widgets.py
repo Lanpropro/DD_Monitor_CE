@@ -7567,6 +7567,7 @@ class WallGrid(QWidget):
 
     def _relayout_picture_in_picture(self):
         from .picture_in_picture import pane_rectangles
+        from .pip_composition import focus_chat_cells, focus_slots
         self.setMinimumSize(0, 0)
         for panel in self.pane_danmaku.all_panels():
             panel.hide()
@@ -7574,16 +7575,23 @@ class WallGrid(QWidget):
         for border in self._pane_borders.values():
             border.hide()
         selected = self.picture_in_picture_tiles
+        chat = focus_chat_cells(self, self.picture_in_picture_columns)
+        slots = focus_slots(selected, chat, selected[self.picture_in_picture_primary]) if chat else selected
         for tile in self.tiles:
             tile.setVisible(tile in selected)
         window = self._quick_danmaku_layer.window if self._quick_danmaku_layer is not None else None
         if window is not None:
             window.begin_mask_batch()
         try:
-            for tile, rect in zip(selected, pane_rectangles(
-                    len(selected), self.rect(), self.picture_in_picture_columns,
-                    self.picture_in_picture_aspects, self.picture_in_picture_primary)):
-                tile.setGeometry(rect)
+            rectangles = pane_rectangles(len(slots), self.rect(), self.picture_in_picture_columns,
+                    self.picture_in_picture_aspects, 0 if chat else self.picture_in_picture_primary)
+            widgets = {}
+            for index, (tile, rect) in enumerate(zip(slots, rectangles)):
+                widget = self.pane_danmaku.panels[index] if tile is None else tile
+                widget.setGeometry(rect)
+                widgets[index] = widget
+            if chat:
+                self.pane_danmaku.arrange(dict(enumerate(rectangles)), widgets, gap=0)
         finally:
             if window is not None:
                 window.end_mask_batch()
@@ -7752,7 +7760,9 @@ class WallGrid(QWidget):
 
     @property
     def has_danmaku(self) -> bool:
-        return self.picture_in_picture_tiles is None and bool(self.pane_danmaku.bindings()) and bool(self._cells())
+        from .pip_composition import focus_chat_cells
+        shown = self.picture_in_picture_tiles is None or bool(focus_chat_cells(self, self.picture_in_picture_columns))
+        return shown and bool(self.pane_danmaku.bindings()) and bool(self._cells())
 
     def danmaku_target_tile(self):
         if self.pane_danmaku.custom:
