@@ -511,6 +511,23 @@ class WorkspaceControlTests(unittest.TestCase):
                 self.assertEqual(image.pixelColor(round(button.width()/2*scale), round(3*scale)).name(),
                                  theme.qcolor(getattr(theme, background)).name())
 
+    def test_running_badge_survives_final_dock_tint_and_selected_surface(self):
+        self.addCleanup(theme.apply, theme.mode())
+        button, _action = self.add('running', '运行状态')
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            self.host.setStyleSheet(theme.qss())
+            for selected in (True, False):
+                self.sidebar.navigation.activate(button if selected else self.sidebar.navigation.follow_button)
+                for running in (True, False):
+                    button.setProperty('workspaceRunning', running)
+                    button.update()
+                    settle()
+                    image = button.grab().toImage()
+                    scale = image.devicePixelRatio()
+                    pixel = image.pixelColor(round((button.width() - 6.5) * scale), round(6.5 * scale))
+                    self.assertEqual(pixel == theme.qcolor(theme.SUCCESS), running, (mode, selected))
+
     def test_24_plugins_do_not_reduce_follow_height(self):
         panel = self.sidebar.workspace_controls
         before = self.sidebar.scroll.height()
