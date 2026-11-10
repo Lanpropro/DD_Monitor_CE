@@ -168,6 +168,25 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertLess(card.width(), page.sections.width() * .6)
         self.assertLess(card.height(), page.sections.section('codecs').height())
 
+    def test_general_steppers_share_one_surface_and_respect_auto_compact(self):
+        page = self.page(0)
+        from ddm.ui import StepperControl
+        self.assertIsInstance(page.poll_stepper, StepperControl)
+        self.assertIs(page.poll_stepper.spin, page.poll_spin)
+        before = page.poll_spin.value()
+        QTest.mouseClick(page.poll_stepper.plus, Qt.LeftButton)
+        self.assertEqual(page.poll_spin.value(), before + 1)
+        page._checks['sidebar_auto_compact'].setChecked(False)
+        value = page.compact_threshold_spin.value()
+        self.assertFalse(page.compact_threshold_stepper.isEnabled())
+        QTest.mouseClick(page.compact_threshold_stepper.plus, Qt.LeftButton)
+        self.assertEqual(page.compact_threshold_spin.value(), value)
+        page._checks['sidebar_auto_compact'].setChecked(True)
+        QTest.mouseClick(page.compact_threshold_stepper.plus, Qt.LeftButton)
+        self.assertEqual(page.compact_threshold_spin.value(), value + 1)
+        self.assertEqual(page.values()['poll_minutes'], before + 1)
+        self.assertEqual(page.values()['sidebar_compact_threshold'], value + 1)
+
     def test_general_volume_value_uses_readable_theme_text(self):
         from PySide6.QtGui import QPalette
         before = theme.mode()

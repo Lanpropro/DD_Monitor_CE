@@ -8,6 +8,7 @@ _MODULES = {
     'ui.settings_surface': ('SettingsSurface',),
     'ui.selection': ('ToggleSwitch', 'SegmentedControl'),
     'ui.select': ('SelectControl',),
+    'ui.stepper': ('StepperControl',),
     'ui.color_dialog': ('ColorDialog',),
     'ui.scale_curve': ('ScaleCurveControl',),
     'corner_geometry': ('continuous_path',),
