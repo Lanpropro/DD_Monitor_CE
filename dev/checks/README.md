@@ -377,6 +377,7 @@
 | [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | `offline` |
 | [selfcheck_platform_storage](../selfcheck_platform_storage.py) | 单项执行前核对 |
 | [selfcheck_room_status](../selfcheck_room_status.py) | `offline` |
+| [selfcheck_live_elapsed](../selfcheck_live_elapsed.py) | `offline` / `smoke`；开播时间后到／先到、关注栏缓存入墙、缺失时间、下播重开及悬停显示；根 `run.cmd --check-live-elapsed` |
 | [selfcheck_room_status_controller](../selfcheck_room_status_controller.py) | `offline` / `smoke`；合成信号检查轮询父对象、请求去重、平台参数、刷新排队、旧回调和关闭清理 |
 | [selfcheck_room_images](../selfcheck_room_images.py) | `offline` / `smoke`；合成加载器检查图片分流、横幅去重、回填和线程引用清理；临时缓存与真实 Qt 线程检查主线程回填及关闭，无账号或外网 |
 

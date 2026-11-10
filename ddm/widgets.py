@@ -5878,6 +5878,8 @@ class Tile(QFrame):
         self.volume_button.set_state(self.muted, self.volume, self.audio_channel)
         self.set_status("" if self.room.get("live") else "未开播")
         self.stop_elapsed_timer()
+        if self.room.get("live"):
+            self.start_elapsed_timer()
         self._layout_cover()
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
@@ -7032,8 +7034,8 @@ class Tile(QFrame):
 
     def start_elapsed_timer(self) -> None:
         if self.room.get("live_start_ts"):
-            self._refresh_elapsed()
             self._elapsed_timer.start()
+            self._refresh_elapsed()
 
     def stop_elapsed_timer(self) -> None:
         self._elapsed_timer.stop()
