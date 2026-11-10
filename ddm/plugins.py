@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import config as config_module
+from .plugin_worker import worker_command
 from .file_ops import replace_directory
 from .plugin_controls import TileControl, TileControlContext, TileControls
 from .plugin_credentials import (CredentialSnapshot, CredentialStore,

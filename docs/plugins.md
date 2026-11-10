@@ -1,5 +1,12 @@
 # 插件接口
 
+## 独立工作进程启动（配套开发接口）
+
+`ddm.plugins.worker_command(__file__, 'worker_module')`返回程序路径和参数列表，供插件自己的`QProcess`使用；源码与打包EXE共用`--plugin-worker`入口。模块必须是插件目录内的单个Python模块，提供无参数`run()`，返回退出码。入口只建立相对导入包，不执行`plugin.py/on_load`、发现其他插件或初始化主窗口/账号配置。插件自行管理进程、界面、数据协议与退出清理，不跨进程传递Qt对象。
+
+这是新增能力，使用前检查`hasattr(api, 'worker_command')`；旧本体可保留原实现。进程隔离不构成插件权限沙箱；只运行用户已安装并信任的插件源码。版本号本身不保证已包含此开发接口。
+
+
 ## 独立浏览器账号与关注（配套开发接口）
 
 平台可选提供`browser_login_url`、`browser_cookie_domains`、`browser_account_info(session, cancelled)`与`browser_follow_rooms(session, cancelled)`。
