@@ -110,6 +110,30 @@ class BrowserAccountTests(unittest.TestCase):
         self.assertTrue(identity and loaded == [[]])
         native.__exit__.assert_called_once()
 
+    def test_configured_official_client_is_used_for_first_login(self):
+        owner = SimpleNamespace(_platform_login_sessions={}, _accounts={})
+        with TemporaryDirectory() as root, patch.dict(os.environ, {'DDM_NO_SAVE': '0'}), \
+                patch('ddm.browser_account_dialog.AccountStore',
+                      side_effect=lambda kind: AccountStore(kind, root=root)):
+            for kind in ('youtube', 'twitch'):
+                platform = self.platform()
+                platform.kind = kind
+                platform.oauth_provider = kind
+                self.assertTrue(prefer_browser_login(platform, owner))
+                AccountStore(kind + '_oauth_client', root=root).save([], {'client_id': 'fixture'})
+                self.assertFalse(prefer_browser_login(platform, owner))
+                owner._platform_login_sessions[kind] = {'cookies': cookie_records(COOKIES)}
+                self.assertTrue(prefer_browser_login(platform, owner))
+                owner._platform_login_sessions.clear()
+                AccountStore(kind + '_oauth_client', root=root).path.write_bytes(b'invalid-fixture')
+                self.assertTrue(prefer_browser_login(platform, owner))
+
+    def test_offline_login_selection_does_not_read_client_configuration(self):
+        platform = self.platform()
+        platform.oauth_provider = 'twitch'
+        with patch('ddm.browser_account_dialog.AccountStore', side_effect=AssertionError('Real client read')):
+            self.assertTrue(prefer_browser_login(platform, SimpleNamespace()))
+
     def test_network_failure_does_not_discard_saved_session_or_open_browser(self):
         platform = self.platform()
         platform.browser_account_info.side_effect = RuntimeError('Fixture network error')

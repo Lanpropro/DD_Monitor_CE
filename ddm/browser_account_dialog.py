@@ -19,6 +19,13 @@ def prefer_browser_login(platform, owner):
             return not bool(AccountStore(platform.kind).load_auth().get('access_token'))
         except (OSError, RuntimeError, ValueError):
             pass
+    if getattr(platform, 'oauth_provider', '') and os.environ.get('DDM_NO_SAVE') != '1':
+        try:
+            client = AccountStore(platform.kind + '_oauth_client').load_account()
+            if client.get('client_id'):
+                return False
+        except (OSError, RuntimeError, ValueError):
+            pass
     return True
 
 
