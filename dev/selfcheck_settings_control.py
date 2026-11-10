@@ -317,6 +317,19 @@ class SettingsControlTests(unittest.TestCase):
         self.assertTrue(host._restart_requested)
         host.close.assert_called_once_with()
 
+    def test_presentation_only_save_does_not_reapply_danmaku_styles(self):
+        host = self.host
+        host.settings['settings_segment_motion'] = False
+        dialog = host._create_settings_dialog()
+        dialog.settings.return_value = {'settings_segment_motion': True}
+        host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
+        host.apply_danmaku_settings.assert_not_called()
+        self.assertTrue(host.settings['settings_segment_motion'])
+        self.save.assert_called()
+        dialog.settings.return_value = {'danmaku_font_size': 17}
+        host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
+        host.apply_danmaku_settings.assert_called_once_with()
+
     def test_sc_preview_context_uses_current_surface_and_fullscreen_source(self):
         host = self.host
         viewport = Mock()

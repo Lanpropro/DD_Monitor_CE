@@ -38,7 +38,7 @@ def child(action):
                     print(settings_process.PREFIX + json.dumps({'kind': 'theme-state',
                         'mode': mode, 'light': theme.is_light(),
                         'visible': self.isVisible(), 'hwnd': int(self.winId()),
-                        'accent': theme.ACCENT, 'font': theme.FONT_FAMILY,
+                        'accent': theme.ACCENT, 'font': theme.FONT_FAMILY, 'font_size': theme.FONT_CONTROL,
                         'columns': self.general_page.sections.columns,
                         'volume': self.general_page.volume_slider.value()}), flush=True)
                 if not getattr(self, '_theme_report_connected', False):
@@ -310,12 +310,13 @@ def check_theme_sync(app):
         try:
             theme.apply('dark')
             client.open(dict(config.DEFAULT_SETTINGS, appearance_mode='dark', appearance_accent='#8866ee',
-                             appearance_font='Segoe UI', settings_card_layout='vertical'), {})
+                             appearance_font='Segoe UI', appearance_font_size=17, settings_card_layout='vertical'), {})
             theme.apply('light')  # Also sync a change while startup is still pending.
             wait(app, lambda: any(m['kind'] == 'theme-state' for m in messages))
             row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
             assert row['mode'] == 'light' and row['light'] and row['volume'] == 17, row
             assert 'Segoe UI' in row['font'] and row['accent'].lower() != '#007ba8' and row['columns'] == 1, row
+            assert row['font_size'] == 17, row
             hwnd = row['hwnd']
             assert row['visible'], row
             messages.clear()

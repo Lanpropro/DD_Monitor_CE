@@ -170,7 +170,12 @@ class SettingsControl:
         appearance_before = {key: deepcopy(value) for key, value in host.settings.items()
                              if key.startswith('skin_') or key == 'appearance_mode'}
         codecs_before = {tile: host._codec_settings(tile) for tile in host.wall.tiles}
-        host.settings.update(dialog.settings())
+        updated_settings = dialog.settings()
+        changed_keys = {key for key, value in updated_settings.items() if host.settings.get(key) != value}
+        from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
+        from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+        presentation_only = bool(changed_keys) and changed_keys <= MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+        host.settings.update(updated_settings)
         from . import theme
         if theme.configure_appearance(host.settings):
             theme.apply(host.settings['appearance_mode'])
@@ -215,7 +220,8 @@ class SettingsControl:
         # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
         host._sync_recording_switch()
         host._sync_replay_scope()
-        host.apply_danmaku_settings()
+        if not presentation_only or plugins_changed:
+            host.apply_danmaku_settings()
         host.apply_preview_settings()
         print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
         print(f"[设置] {host.settings} 快捷键 {host.shortcuts}", file=sys.stderr, flush=True)

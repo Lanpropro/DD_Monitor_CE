@@ -58,6 +58,7 @@ class PartSettings(QDialog):
             colors = QHBoxLayout()
             for key, (name, _dark, _light) in GROUPS.items():
                 label = QLabel('● ' + name)
+                label.setWordWrap(True)
                 colors.addWidget(label)
                 self.group_labels[key] = label
             preview_column.addLayout(colors)

@@ -61,7 +61,7 @@ class SettingsCategoryDelegate(QStyledItemDelegate):
             painter.fillRect(option.rect, theme.qcolor(background))
         font = QFont(option.font)
         if heading and not nav.collapsed:
-            font.setPixelSize(11)
+            font.setPixelSize(max(10, theme.FONT_CONTROL - 2))
             painter.setFont(font)
             painter.setPen(theme.qcolor(theme.TEXT3))
             painter.drawText(QRectF(option.rect).adjusted(12, 0, -8, -44), Qt.AlignVCenter, heading)
@@ -83,7 +83,7 @@ class SettingsCategoryDelegate(QStyledItemDelegate):
             icon_rect.moveCenter(rect.center())
         _icon(painter, index.data(Qt.UserRole), icon_rect, color)
         if not nav.collapsed:
-            font.setPixelSize(14)
+            font.setPixelSize(theme.FONT_CONTROL + 1)
             font.setWeight(QFont.DemiBold if selected else QFont.Normal)
             painter.setFont(font)
             painter.setPen(color)

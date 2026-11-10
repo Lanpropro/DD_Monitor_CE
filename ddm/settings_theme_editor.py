@@ -1,22 +1,34 @@
 """Inline accent and installed-font choices using the shared settings controls."""
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QPainter, QPen
-from PySide6.QtWidgets import QAbstractButton, QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QAbstractButton, QButtonGroup, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QSpinBox, QWidget
 
 from .appearance_preferences import normalize
-from .ui import SelectControl
+from .ui import SelectControl, StepperControl
 
 
 class _SwatchButton(QAbstractButton):
     def __init__(self, color):
         super().__init__()
         self.color = QColor(color)
+        self.setText('默认' if not color else '')
         self.setProperty('customControlSurface', True)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(self.rect()).adjusted(2, 3, -2, -3)
+        if not self.color.isValid():
+            from . import theme
+            from .settings_material import base_color
+            painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.BORDER), 1))
+            painter.setBrush(theme.qcolor(base_color(self, 'control', theme.CONTENT)))
+            painter.drawRoundedRect(rect, 8, 8)
+            painter.setPen(theme.qcolor(theme.ACCENT if self.isChecked() else theme.TEXT2))
+            painter.drawText(rect, Qt.AlignCenter, self.text())
+            return
+        diameter = min(rect.width(), rect.height())
+        rect = QRectF(rect.center().x() - diameter / 2, rect.center().y() - diameter / 2, diameter, diameter)
         painter.setPen(Qt.NoPen)
         painter.setBrush(self.color)
         painter.drawEllipse(rect)
@@ -24,6 +36,13 @@ class _SwatchButton(QAbstractButton):
             painter.setPen(QPen(self.palette().text().color(), 2))
             painter.setBrush(Qt.NoBrush)
             painter.drawEllipse(rect.adjusted(-1, -1, 1, 1))
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            self.setFixedHeight(max(34, self.fontMetrics().height() + 6))
+            if self.text():
+                self.setFixedWidth(max(56, self.fontMetrics().horizontalAdvance(self.text()) + 20))
 
 
 class SettingsThemeEditor(QWidget):
@@ -42,13 +61,11 @@ class SettingsThemeEditor(QWidget):
         self.swatches = {}
         for color, label in (('', '默认'), ('#00a1d6', '蓝'), ('#20b976', '绿'),
                              ('#8866ee', '紫'), ('#ef638e', '粉'), ('#f58b32', '橙')):
-            button = _SwatchButton(color) if color else QPushButton('默认')
+            button = _SwatchButton(color)
             button.setCheckable(True)
-            button.setFixedSize(44 if not color else 24, 26)
+            button.setFixedSize(56 if not color else 24, 34)
             button.setAccessibleName('主题色：' + label)
             button.setCursor(Qt.PointingHandCursor)
-            if not color:
-                button.setObjectName('IconButton')
             self.group.addButton(button)
             self.swatches[color] = button
             button.clicked.connect(lambda _checked=False, value=color: self.set_accent(value))
@@ -71,10 +88,17 @@ class SettingsThemeEditor(QWidget):
             self.font.addItem(family, family)
         self.font.currentIndexChanged.connect(self._font_changed)
         grid.addWidget(self.font, 2, 1, Qt.AlignRight)
-        hint = QLabel('主题色会按深浅主题调整对比度；界面字体不影响独立设置的弹幕字体。')
+        grid.addWidget(QLabel('界面字号'), 3, 0)
+        self.font_size = QSpinBox()
+        self.font_size.setRange(11, 20)
+        self.font_size.setSuffix(' px')
+        self.font_size.setAccessibleName('界面字号')
+        self.font_size.valueChanged.connect(self._font_changed)
+        grid.addWidget(StepperControl(self.font_size), 3, 1, Qt.AlignRight)
+        hint = QLabel('字体与字号用于主界面、设置、按钮和列表；弹幕及视频内文字仍由各自设置控制。')
         hint.setObjectName('SettingsHint')
         hint.setWordWrap(True)
-        grid.addWidget(hint, 3, 0, 1, 2)
+        grid.addWidget(hint, 4, 0, 1, 2)
         self.set_values(settings)
 
     def set_values(self, settings):
@@ -84,10 +108,14 @@ class SettingsThemeEditor(QWidget):
         previous = self.font.blockSignals(True)
         self.font.setCurrentIndex(max(0, index))
         self.font.blockSignals(previous)
+        previous = self.font_size.blockSignals(True)
+        self.font_size.setValue(self._values['appearance_font_size'])
+        self.font_size.blockSignals(previous)
         self._sync_swatches()
 
     def values(self):
-        return {**self._values, 'appearance_font': self.font.currentData() or ''}
+        return {**self._values, 'appearance_font': self.font.currentData() or '',
+                'appearance_font_size': self.font_size.value()}
 
     def _sync_swatches(self):
         self.group.setExclusive(False)

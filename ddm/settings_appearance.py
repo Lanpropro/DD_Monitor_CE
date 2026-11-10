@@ -89,7 +89,16 @@ class AppearanceSettingsPage(QWidget):
         values = {**self.material_editor.values(), **self.theme_editor.values(), **self.skin_settings.values()}
         if self.skin_settings.controller is not None:
             values['settings_backdrop_path'] = self.skin_settings.controller.layer.path
+        else:
+            from pathlib import Path
+            from . import config
+            values['settings_backdrop_path'] = str(Path(config.data_root()) / self.skin_settings.path) if self.skin_settings.path else ''
+        self.material_editor.set_background(values['settings_backdrop_path'])
         self.materialChanged.emit(values)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._emit_material()
 
     def reset(self):
         self.theme_editor.set_values({})

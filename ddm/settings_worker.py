@@ -152,7 +152,7 @@ def run_worker():
                 self.stack.setCurrentWidget(self.host_container)
             self.confirm_button.setText(self.host_action_text)
             self.confirm_button.setVisible(self.host_action_visible)
-            self.reset_button.setVisible(index == 1)
+            self.reset_button.hide()
             self.reset_button.setText('恢复本页默认')
             send({'kind': 'host-page', 'index': index,
                   'parent_hwnd': int(self.winId()),

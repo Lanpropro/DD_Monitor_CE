@@ -178,12 +178,13 @@ _light = False
 _styles = WeakKeyDictionary()
 _pending_palette = WeakKeyDictionary()
 _signals = None
-_preferences = {'appearance_accent': '', 'appearance_font': ''}
+_preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
+_applied_typography = None
 
 
 def configure_appearance(values):
     """Store validated tokens; callers decide when to refresh the palette."""
-    global FONT_FAMILY, _preferences
+    global FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING, _preferences
     from .appearance_preferences import normalize
     current = normalize({**_preferences, **values})
     if current == _preferences:
@@ -191,6 +192,8 @@ def configure_appearance(values):
     _preferences = current
     family = current['appearance_font'] or FONT_DEFAULT
     FONT_FAMILY = f'"{family}", "Microsoft YaHei", "Segoe UI", sans-serif'
+    FONT_CONTROL = current['appearance_font_size']
+    FONT_CAPTION, FONT_BODY, FONT_HEADING = FONT_CONTROL - 1, FONT_CONTROL + 2, FONT_CONTROL + 7
     return True
 _skin_active = False
 _skin_sidebar = False
@@ -413,7 +416,7 @@ def _system_changed(_scheme):
 
 def apply(value):
     """重绘主题，不重建控件、播放器或视频窗口。"""
-    global _mode, _light
+    global _mode, _light, _applied_typography
     app = QApplication.instance()
     signals()
     value = normalize_mode(value)
@@ -439,6 +442,8 @@ def apply(value):
         palette['ACCENT'] = accent.name()
         palette['ACCENT_SOFT'] = f'rgba({accent.red()}, {accent.green()}, {accent.blue()}, 0.16)'
     widgets = list(app.allWidgets())
+    typography = (FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING)
+    typography_changed = typography != _applied_typography
     from .continuous_corners import source_stylesheet, stylesheet
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
@@ -475,10 +480,13 @@ def apply(value):
         elif styled and not properties_changed:
             _refresh_widget_palette(widget, defer=True)
         _styles[widget] = (source, colors, styled)
+        if typography_changed:
+            _refresh_widget_palette(widget, invalidate=True)
         refresh = getattr(widget, "refresh_theme", None)
         if callable(refresh):
             refresh()
         QWidget.update(widget)
+    _applied_typography = typography
     signals().changed.emit(value)
 
 

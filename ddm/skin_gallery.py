@@ -1,7 +1,8 @@
 """Thumbnail choices for already imported local backgrounds."""
 from pathlib import Path
+from datetime import datetime
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QImageReader, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QListView, QListWidget, QListWidgetItem, QStyle, QStyledItemDelegate
 
@@ -10,6 +11,10 @@ from .settings_material import base_color
 
 
 class _GalleryDelegate(QStyledItemDelegate):
+    def sizeHint(self, option, index):
+        size = self.parent().gridSize()
+        return QSize(size.width() - 6, size.height() - 6)
+
     def paint(self, painter, option, index):
         painter.save()
         if not option.state & QStyle.State_Enabled:
@@ -20,11 +25,33 @@ class _GalleryDelegate(QStyledItemDelegate):
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if selected else theme.BORDER), 2 if selected else 1))
         painter.setBrush(theme.qcolor(base_color(option.widget, 'control', theme.CONTENT)))
         painter.drawRoundedRect(rect, 8, 8)
-        icon = index.data(Qt.DecorationRole)
-        if icon:
-            icon.paint(painter, rect.adjusted(5, 4, -5, -23).toRect(), Qt.AlignCenter)
+        caption_height = option.fontMetrics.height() + 6
+        art = rect.adjusted(5, 4, -5, -caption_height)
+        kind = index.data(Qt.UserRole + 1)
+        painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1.5))
+        if kind == '默认':
+            box = QRectF(art.center().x() - 15, art.center().y() - 10, 30, 20)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(box, 3, 3)
+            painter.drawLine(box.topLeft(), box.bottomRight())
+        elif kind == '视频':
+            from PySide6.QtGui import QPainterPath
+            triangle = QPainterPath()
+            triangle.moveTo(art.center().x() - 8, art.center().y() - 12)
+            triangle.lineTo(art.center().x() + 12, art.center().y())
+            triangle.lineTo(art.center().x() - 8, art.center().y() + 12)
+            triangle.closeSubpath()
+            painter.setBrush(theme.qcolor(theme.ACCENT))
+            painter.setPen(Qt.NoPen)
+            painter.drawPath(triangle)
+        else:
+            icon = index.data(Qt.DecorationRole)
+            if icon:
+                icon.paint(painter, art.toRect(), Qt.AlignCenter)
+        painter.setPen(theme.qcolor(theme.TEXT3))
+        painter.drawText(art.adjusted(2, 0, -2, 0), Qt.AlignTop | Qt.AlignRight, str(kind))
         painter.setPen(theme.qcolor(theme.ACCENT if selected else theme.TEXT2))
-        painter.drawText(rect.adjusted(4, rect.height() - 21, -4, -1), Qt.AlignCenter,
+        painter.drawText(rect.adjusted(4, rect.height() - caption_height, -4, -1), Qt.AlignCenter,
                          option.fontMetrics.elidedText(str(index.data()), Qt.ElideRight, int(rect.width() - 8)))
         painter.restore()
 
@@ -40,9 +67,8 @@ class SkinGallery(QListWidget):
         self.setResizeMode(QListView.Adjust)
         self.setMovement(QListView.Static)
         self.setIconSize(QSize(88, 56))
-        self.setGridSize(QSize(106, 84))
         self.setSpacing(3)
-        self.setFixedHeight(180)
+        self._update_metrics()
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.itemClicked.connect(lambda item: self.selected.emit(item.data(Qt.UserRole)))
         self.itemActivated.connect(lambda item: self.selected.emit(item.data(Qt.UserRole)))
@@ -57,6 +83,7 @@ class SkinGallery(QListWidget):
         self.clear()
         item = QListWidgetItem(self.style().standardIcon(QStyle.SP_FileIcon), '默认背景', self)
         item.setData(Qt.UserRole, '')
+        item.setData(Qt.UserRole + 1, '默认')
         paths = sorted(folder.iterdir(), key=lambda path: path.name) if folder.is_dir() else []
         for path in paths:
             if not path.is_file() or path.suffix.lower() not in IMAGES | VIDEOS:
@@ -76,8 +103,11 @@ class SkinGallery(QListWidget):
                 if not image.isNull():
                     icon = QIcon(QPixmap.fromImage(image))
             item = QListWidgetItem(icon, name, self)
-            item.setToolTip(name)
+            kind = '视频' if path.suffix.lower() in VIDEOS else '图片'
+            imported = datetime.fromtimestamp(path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            item.setToolTip(f'{name}\n类型：{kind}\n导入时间：{imported}\n位置：{path.resolve()}')
             item.setData(Qt.UserRole, path.relative_to(root).as_posix())
+            item.setData(Qt.UserRole + 1, kind)
         self._loaded = True
         self.set_current(self._current)
 
@@ -95,3 +125,13 @@ class SkinGallery(QListWidget):
         super().showEvent(event)
         if not self._loaded:
             self.refresh()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange:
+            self._update_metrics()
+
+    def _update_metrics(self):
+        self.setGridSize(QSize(max(132, self.fontMetrics().averageCharWidth() * 16),
+                               max(94, self.fontMetrics().height() + 70)))
+        self.setFixedHeight(self.gridSize().height() * 2 + 14)
