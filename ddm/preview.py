@@ -245,7 +245,8 @@ class HoverPreview(QObject):
                 self._popup_playing = True
                 self._popup_player.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
             else:
-                item.thumb.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS)
+                item.thumb.play(url, profile, headers=headers, options=PREVIEW_MEDIA_OPTIONS,
+                                viewport=self.sidebar.scroll.viewport())
         except RuntimeError:
             self._stop_now()
 
@@ -357,9 +358,6 @@ class HoverPreview(QObject):
         """
         if self._pause_for_pointer_action():
             return
-        item = self._item
-        if item is not None and not self._needs_popup():
-            item.thumb.sync_preview_position()
         self._check_hover()
         item = self._item
         if item is None:
@@ -367,7 +365,9 @@ class HoverPreview(QObject):
         if not self._cursor_on_item(item):
             self.cancel()
             return
-        if self._popup.isVisible():
+        if not self._needs_popup():
+            item.thumb.sync_preview_position(self.sidebar.scroll.viewport())
+        elif self._popup.isVisible():
             self._place_popup(item)
 
     def _on_failed(self, generation: int, room_id: str, reason: str) -> None:

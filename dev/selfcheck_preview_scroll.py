@@ -148,6 +148,7 @@ def check_inline_scroll(app, native=False):
         try:
             item = sidebar.items()[3]
             pointer[0] = item.mapToGlobal(QPoint(30, item.height() // 2))
+            home_pointer = QPoint(pointer[0])
             preview.on_hover(item.room)
             preview._begin_resolve()
             preview._show_now()
@@ -156,6 +157,7 @@ def check_inline_scroll(app, native=False):
             preview._resolver.resolved.emit(item.room['room_id'], source, 80, 'web', [])
             video, player = item.thumb.video, item.thumb._player
             generation = preview._generation
+            home_mask = video.mask()
             if native:
                 end = time.monotonic() + 12
                 while time.monotonic() < end and not player._prop('vo-configured', False):
@@ -183,7 +185,63 @@ def check_inline_scroll(app, native=False):
             if native:
                 settle(app, .15)
                 assert player._prop('time-pos', 0) > position, 'Scrolling interrupted local playback'
-            bar.setValue(180)
+            # Keep hovering the exposed half at the top of the viewport.
+            half_scroll = item.thumb.mapTo(sidebar.list_box, QPoint()).y() + video.height() // 2
+            pointer[0] = sidebar.scroll.viewport().mapToGlobal(QPoint(40, video.height() // 4))
+            bar.setValue(half_scroll)
+            settle(app, .02)
+            assert video.isVisible(), 'Partially visible hovered preview was cancelled'
+            expected_clip = video.rect().intersected(
+                sidebar.scroll.viewport().rect().translated(
+                    item.thumb.mapFromGlobal(sidebar.scroll.viewport().mapToGlobal(QPoint()))))
+            assert video.mask().boundingRect() == expected_clip, 'Preview was not clipped to the scroll viewport'
+            if native:
+                gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
+                gdi32.CreateRectRgn.restype = wintypes.HANDLE
+                gdi32.DeleteObject.argtypes = [wintypes.HANDLE]
+                user32.GetWindowRgn.argtypes = [wintypes.HWND, wintypes.HANDLE]
+                gdi32.PtInRegion.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_int]
+                region = gdi32.CreateRectRgn(0, 0, 0, 0)
+                try:
+                    assert user32.GetWindowRgn(hwnd, region) > 0
+                    assert not gdi32.PtInRegion(region, 20, 2), 'HWND still draws above the viewport'
+                    assert gdi32.PtInRegion(region, 20, int((video.height()-2)*video.devicePixelRatioF()))
+                finally:
+                    gdi32.DeleteObject(region)
+                outputs = []
+                callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+                user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+                user32.EnumChildWindows.argtypes = [wintypes.HWND, callback_type, wintypes.LPARAM]
+                user32.MapWindowPoints.argtypes = [wintypes.HWND, wintypes.HWND,
+                                                  ctypes.POINTER(wintypes.POINT), wintypes.UINT]
+                def collect_output(child, _unused):
+                    name = ctypes.create_unicode_buffer(128)
+                    user32.GetClassNameW(child, name, len(name))
+                    if name.value.lower().startswith('mpv'):
+                        outputs.append(child)
+                    return True
+                user32.EnumChildWindows(hwnd, callback_type(collect_output), 0)
+                assert outputs, 'Local preview has no native mpv output to check'
+                for child in outputs:
+                    region = gdi32.CreateRectRgn(0, 0, 0, 0)
+                    point = wintypes.POINT(20, 2)
+                    user32.MapWindowPoints(hwnd, child, ctypes.byref(point), 1)
+                    try:
+                        assert user32.GetWindowRgn(child, region) > 0
+                        assert not gdi32.PtInRegion(region, point.x, point.y), 'mpv child escapes the viewport mask'
+                    finally:
+                        gdi32.DeleteObject(region)
+            pointer[0] = home_pointer
+            bar.setValue(0)
+            assert video.mask() == home_mask, 'Returning preview did not restore its viewport clip'
+            original_stop = player.stop
+            def stop_after_hide(*args, **kwargs):
+                assert video.isHidden(), 'Preview stayed visible during synchronous player shutdown'
+                return original_stop(*args, **kwargs)
+            with patch.object(player, 'stop', side_effect=stop_after_hide), \
+                    patch.object(item.thumb, 'sync_preview_position', wraps=item.thumb.sync_preview_position) as sync:
+                bar.setValue(180)
+                assert not sync.called, 'Scroll-away moved the doomed native video before hiding it'
             assert not video.isVisible(), 'Inline preview survived scrolling away from the pointer'
             assert not preview._grace.isActive(), 'Scroll-away incorrectly retained the mouse-leave grace'
             print('PASS: inline scroll alignment, stable playback and immediate ownership release; native=', native)
