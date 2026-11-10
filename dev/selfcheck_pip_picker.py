@@ -53,6 +53,94 @@ class PipPickerTests(unittest.TestCase):
             window._on_status_updated({'douyu:6979222': dict(status, display_room_id='')})
             self.assertEqual(sidebar.visible_items(), [])
 
+    def test_chat_backing_rooms_only_appear_in_follow_groups(self):
+        rooms = [dict(room_id=str(index + 1), uname=f'Room {index + 1}', live=True)
+                 for index in range(6)]
+        window = self.window(rooms)
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: wall.tiles[0], 2: wall.tiles[4]})
+        tiles = list(wall.tiles)
+        bindings = wall.pane_danmaku.state()
+        self.assertTrue(tiles[1].isHidden() and tiles[2].isHidden())
+        window.start_tile.reset_mock()
+        groups = pip.candidate_groups()
+        self.assertEqual([key for key, _room in groups[0][1]], [0, 3, 4, 5])
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5])
+        self.assertNotIn(1, dialog.checks)
+        self.assertNotIn(2, dialog.checks)
+        self.assertIn('2', dialog.checks)
+        self.assertIn('3', dialog.checks)
+        dialog.reject()
+        self.assertEqual(wall.tiles, tiles)
+        self.assertEqual(wall.pane_danmaku.state(), bindings)
+        window.start_tile.assert_not_called()
+
+    def test_restored_chat_selection_is_not_checked_and_can_be_selected_as_live_follow(self):
+        rooms = [dict(room_id=str(index + 1), uname=f'Room {index + 1}', live=True)
+                 for index in range(6)]
+        window = self.window(rooms)
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: None, 2: None})
+        tiles = list(wall.tiles)
+        bindings = wall.pane_danmaku.state()
+        pip.selection, pip.primary = list(range(6)), 1
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5])
+        self.assertFalse(dialog.checks['2'].isChecked())
+        dialog.checks['2'].setChecked(True)
+        self.assertEqual(dialog._selected(), [0, 3, 4, 5, '2'])
+        self.assertTrue(pip.start(dialog._selected()))
+        self.assertNotIn(1, pip.selection)
+        self.assertNotIn(2, pip.selection)
+        self.assertIsNot(pip._extra_tiles['2'], tiles[1])
+        dialog.reject()
+        pip.restore(activate=False)
+        self.assertEqual(wall.tiles, tiles)
+        self.assertEqual(wall.pane_danmaku.state(), bindings)
+        self.assertTrue(tiles[1].isHidden() and tiles[2].isHidden())
+
+    def test_managing_active_pip_keeps_unselected_video_cells_available(self):
+        window = self.window([dict(room_id=str(index + 1), live=True) for index in range(6)])
+        wall, pip = window.wall, window.picture_in_picture
+        wall.set_layout('corner')
+        window.configure_wall_panes({1: None, 2: None})
+        self.assertTrue(pip.start([0, 3]))
+        self.assertTrue(wall.tiles[4].isHidden() and wall.tiles[5].isHidden())
+        self.assertEqual([key for key, _room in pip.candidate_groups()[0][1]], [0, 3, 4, 5])
+        pip.manage()
+        dialog = pip.dialog
+        self.assertEqual(dialog._selected(), [0, 3])
+        self.assertIn(4, dialog.checks)
+        self.assertIn(5, dialog.checks)
+        dialog.reject()
+        pip.restore(activate=False)
+
+    def test_active_external_tile_indices_remain_valid_when_reordering(self):
+        window = self.window([dict(room_id='1', live=True)])
+        window.sidebar.add_rooms([dict(room_id='2', live=True)])
+        pip = window.picture_in_picture
+        self.assertTrue(pip.start([0, '2']))
+        temporary = pip._extra_tiles['2']
+        order = list(reversed(pip.selection))
+        self.assertTrue(pip.start(order))
+        self.assertEqual(window.wall.picture_in_picture_tiles, [temporary, window.wall.tiles[0]])
+        self.assertEqual(pip.external_rooms, ['2'])
+        pip.restore(activate=False)
+
+    def test_chat_backing_index_cannot_be_applied_after_picker_layout_changes(self):
+        window = self.window([dict(room_id=str(index + 1), live=True) for index in range(6)])
+        window.wall.set_layout('corner')
+        pip = window.picture_in_picture
+        self.assertIn(1, dict(pip.candidate_groups()[0][1]))
+        window.configure_wall_panes({1: None, 2: None})
+        self.assertFalse(pip.start([0, 1]))
+        self.assertFalse(pip.active)
+
     def test_pip_picker_lists_wall_first_then_live_follows_without_allocating_players(self):
         from ddm.picture_in_picture import FOCUS_LAYOUT
         window = self.window([{'room_id': '1', 'uname': 'Wall', 'live': False},
