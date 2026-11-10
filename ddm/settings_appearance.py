@@ -1,10 +1,12 @@
 """Settings appearance; owned page implementations with legacy exports in dialogs."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget
+    QFrame, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
 from . import theme
 from .ui import page_header as _page_head
+from .ui import SegmentedControl
+from .settings_layout import SettingsColumns, SettingsSection
 
 
 class AppearanceSettingsPage(QWidget):
@@ -26,26 +28,25 @@ class AppearanceSettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
-        layout.addLayout(_page_head("外观", ""))
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        self.buttons = {}
-        self.group = QButtonGroup(self)
-        for key, label in (("dark", "深色"), ("light", "浅色"), ("system", "跟随系统")):
-            button = QPushButton(label)
-            button.setObjectName("AppearanceChoice")
-            button.setCheckable(True)
-            button.setMinimumHeight(36)
-            button.setCursor(Qt.PointingHandCursor)
-            self.group.addButton(button)
-            self.buttons[key] = button
-            button.clicked.connect(lambda _checked=False, mode=key: self._choose(mode))
-            row.addWidget(button)
-        layout.addLayout(row)
+        layout.addLayout(_page_head("外观", "设置主题、背景与界面分区样式。"))
+        self.sections = SettingsColumns(content)
+        colors = SettingsSection('主题')
+        colors.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        colors.grid.addWidget(QLabel('界面主题'), 0, 0)
+        self.mode_control = SegmentedControl(
+            (("dark", "深色"), ("light", "浅色"), ("system", "跟随系统")))
+        self.mode_control.setFixedWidth(260)
+        self.buttons = self.mode_control.buttons
+        self.group = self.mode_control.group
+        self.mode_control.valueChanged.connect(self._choose)
+        colors.grid.addWidget(self.mode_control, 0, 1, Qt.AlignRight)
+        self.sections.add_section('theme', colors)
         from .settings_material_editor import SettingsMaterialEditor
         self.material_editor = SettingsMaterialEditor(settings, content)
         self.material_editor.changed.connect(lambda: self.materialChanged.emit(self.material_editor.values()))
-        layout.addWidget(self.material_editor)
+        self.material_editor.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.sections.add_section('material', self.material_editor)
+        layout.addWidget(self.sections)
         from .skin_settings import PartSettings, SkinSettings
         self.parts_editor = None
         if skin_controller is not None:
@@ -62,7 +63,9 @@ class AppearanceSettingsPage(QWidget):
 
     def sync(self, mode):
         self._mode = mode
-        self.buttons[mode].setChecked(True)
+        previous = self.mode_control.blockSignals(True)
+        self.mode_control.setValue(mode)
+        self.mode_control.blockSignals(previous)
 
     def _choose(self, mode):
         self.sync(mode)

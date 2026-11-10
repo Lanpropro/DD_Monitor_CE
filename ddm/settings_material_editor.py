@@ -15,7 +15,7 @@ class SettingsMaterialEditor(SettingsSurface):
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(18)
         title = QLabel('视觉效果')
-        title.setObjectName('SettingsTitle')
+        title.setObjectName('SettingsSectionTitle')
         layout.addWidget(title)
         self.controls = {}
         entries = (

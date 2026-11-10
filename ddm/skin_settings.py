@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QForm
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .settings_layout import SettingsColumns, SettingsSection
-from .ui import SettingsSlider, SettingsValueLabel
+from .ui import SettingsSlider, SettingsValueLabel, ToggleSwitch
 from .skins import AssetImport
 from .folder_icons import IconDropArea
 
@@ -41,8 +41,10 @@ class SkinSettings(QWidget):
         self.choose.fileDropped.connect(self.import_file)
         self.clear = QPushButton('恢复默认背景')
         self.clear.setObjectName('IconButton')
+        self.clear.setFixedWidth(180)
         self.clear.clicked.connect(self.reset)
         layout.addWidget(self.choose)
+        row.addStretch(1)
         row.addWidget(self.clear)
         layout.addLayout(row)
         mask_row = QHBoxLayout()
@@ -61,10 +63,15 @@ class SkinSettings(QWidget):
         mask_row.addWidget(self.mask_label)
         self.mask_slider.valueChanged.connect(self._mask_changed)
         layout.addLayout(mask_row)
-        self.video_toggle = QCheckBox('启用视频')
+        self.video_row = QWidget(self)
+        video_row = QHBoxLayout(self.video_row)
+        video_row.setContentsMargins(0, 0, 0, 0)
+        video_row.addWidget(QLabel('启用视频'), 1)
+        self.video_toggle = ToggleSwitch('启用视频')
         self.video_toggle.setChecked(self._video_enabled)
         self.video_toggle.toggled.connect(self._video_changed)
-        layout.addWidget(self.video_toggle)
+        video_row.addWidget(self.video_toggle)
+        layout.addWidget(self.video_row)
         note = QLabel('图片居中铺满；视频静音循环，最小化时暂停。关闭“启用视频”后使用视频首帧作为静态背景。')
         note.setWordWrap(True)
         note.setObjectName('SettingsHint')
@@ -105,6 +112,7 @@ class SkinSettings(QWidget):
             widget.setEnabled(not locked)
         from .skins import VIDEOS
         path = self.controller.layer.path if self.controller else self.path
+        self.video_row.setVisible(Path(path).suffix.lower() in VIDEOS)
         self.video_toggle.setVisible(Path(path).suffix.lower() in VIDEOS)
         value = self.controller.layer.mask if self.controller else self._mask
         previous = self.mask_slider.blockSignals(True)
