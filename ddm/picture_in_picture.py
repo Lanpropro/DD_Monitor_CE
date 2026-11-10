@@ -1068,8 +1068,7 @@ class PictureInPicture(QObject):
             return
         if not self.selection and not self.external_rooms:
             capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
-            self.selection = [index for index, tile in enumerate(self.host.wall.tiles[:capacity])
-                              if tile.room.get('room_id')]
+            self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()
@@ -1078,9 +1077,17 @@ class PictureInPicture(QObject):
         self.dialog = None
         self._sync_overlays()
 
+    def _wall_candidates(self):
+        wall = self.host.wall
+        panes = wall.pane_danmaku
+        chat_cells = panes.bindings()
+        chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
+        return [(index, tile.room) for index, tile in enumerate(wall.tiles)
+                if tile not in chat_tiles and tile.room.get('room_id')
+                and not tile.property('pictureInPictureTemporary')]
+
     def candidate_groups(self):
-        wall = [(index, tile.room) for index, tile in enumerate(self.host.wall.tiles)
-                if tile.room.get('room_id') and not tile.property('pictureInPictureTemporary')]
+        wall = self._wall_candidates()
         wall_ids = {str(room['room_id']) for _index, room in wall}
         others = {}
         for room in self.host.sidebar.rooms():
@@ -1182,7 +1189,7 @@ class PictureInPicture(QObject):
         wall = self.host.wall
         candidates = {key: room for _title, entries in self.candidate_groups() for key, room in entries}
         for key in selection:
-            if isinstance(key, str) and key not in candidates:
+            if self.choice_for_index(key) not in candidates:
                 return False
         self.host._cancel_interactive_resize()
         if self.host._fullscreen_tile is not None:
