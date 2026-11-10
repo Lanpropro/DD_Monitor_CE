@@ -356,14 +356,18 @@ class HoverPreview(QObject):
         """
         if self._pause_for_pointer_action():
             return
+        item = self._item
+        if item is not None and not self._needs_popup():
+            item.thumb.sync_preview_position()
         self._check_hover()
         item = self._item
-        if item is None or not self._popup.isVisible():
+        if item is None:
             return
         if not self._cursor_on_item(item):
             self.cancel()
             return
-        self._place_popup(item)
+        if self._popup.isVisible():
+            self._place_popup(item)
 
     def _on_failed(self, generation: int, room_id: str, reason: str) -> None:
         if generation != self._generation:

@@ -26,6 +26,7 @@ if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
 if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
+if /i "%~1"=="--check-preview-scroll" goto previewScrollCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
@@ -54,6 +55,15 @@ if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
+
+:previewScrollCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_preview_scroll
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_NO_SAVE=1"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_preview_scroll.py" --native
+exit /b %errorlevel%
 
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"

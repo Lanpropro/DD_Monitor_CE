@@ -1900,6 +1900,15 @@ class NavThumb(QFrame):
         """
         return self.rect()
 
+    def sync_preview_position(self) -> None:
+        # Silent previews keep their ancestors alien. Scrolling an alien parent
+        # does not move this native surface; map from the thumbnail, not the
+        # surface's stale QWindow position. Keep the existing HWND and mpv core.
+        window = self.video.windowHandle()
+        if self.video.isVisible() and window is not None:
+            ancestor = self.video.nativeParentWidget()
+            window.setPosition(self.mapTo(ancestor, self.video.pos()))
+
     def _set_overlay_visible(self, visible: bool) -> None:
         if self._overlay_widgets is None:
             return
