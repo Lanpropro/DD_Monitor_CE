@@ -21,6 +21,7 @@ set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
@@ -58,6 +59,11 @@ exit /b 0
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:browserAccountsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_browser_accounts
 exit /b %errorlevel%
 
 :updateInstallCheck
