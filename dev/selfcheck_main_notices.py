@@ -1321,11 +1321,13 @@ class MainNoticesTests(unittest.TestCase):
         window.settings['close_behavior'] = 'exit'
         nav = window.sidebar.navigation
         context = PluginContext(window.plugins, 'order-fixture')
-        for key in ('first', 'second'):
+        for priority, key in enumerate(('first', 'second', 'third', 'fourth', 'fifth', 'sixth')):
             button = QToolButton()
             button.setText(key)
-            context.register_workspace_control(key, button)
+            context.register_workspace_control(key, button, priority=priority)
         controls = window.sidebar.workspace_controls
+        for key in ('third', 'fourth', 'fifth', 'sixth'):
+            controls.toggle_pin(('order-fixture', key))
         tools = nav.movable_tools()
         window._save_timer.stop()
         nav.reorder_group(tools, list(reversed(tools)))
@@ -1335,7 +1337,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertTrue(window._save_timer.isActive())
         state = window.current_state()
         self.assertEqual(state['ui']['sidebar_tool_order'], [nav.tool_key(button) for button in reversed(tools)])
-        self.assertEqual(state['ui']['workspace_pins'], [['order-fixture', 'second'], ['order-fixture', 'first']])
+        self.assertEqual(state['ui']['workspace_pins'], [['order-fixture', key] for key in ('sixth', 'fifth', 'fourth', 'third', 'second', 'first')])
         restored = MainWindow([], [], layout_id='2x2', state=state)
         restored.settings['close_behavior'] = 'exit'
         self.addCleanup(self.close_window, restored)
