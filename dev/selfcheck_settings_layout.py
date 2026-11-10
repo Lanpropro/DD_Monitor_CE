@@ -331,12 +331,12 @@ class SettingsLayoutTests(unittest.TestCase):
 
     def test_material_controls_preview_reset_and_shadow_rendering(self):
         from ddm.settings_material import DEFAULTS, normalize
-        self.assertFalse(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
+        self.assertTrue(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
         self.assertEqual(normalize(dict(settings_glass_enabled='bad', settings_glass_blur=99,
                                         settings_glass_opacity=-10, settings_no_shadows=None)),
                          {**DEFAULTS, 'settings_glass_blur': 40, 'settings_glass_opacity': 0})
         editor = self.page(1).material_editor
-        self.assertEqual(set(editor.controls), {'settings_no_shadows'})
+        self.assertEqual(set(editor.controls), {'settings_no_shadows', 'settings_glass_enabled', 'settings_segment_motion'})
         editor.controls['settings_no_shadows'].setChecked(True)
         self.assertTrue(self.dialog.property('settings_no_shadows'))
         self.assertFalse(self.dialog.property('settings_glass_enabled'))
@@ -396,13 +396,13 @@ class SettingsLayoutTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_old_glass_values_keep_native_backdrop_disabled(self):
+    def test_glass_keeps_native_backdrop_disabled(self):
         from ddm.window_fullscreen import _dwm_get
         hwnd = int(self.dialog.winId())
         for enabled in (True, False, True):
             self.dialog.set_material({'settings_glass_enabled': enabled, 'settings_glass_opacity': 0})
             settle()
-            self.assertFalse(self.dialog.property('settings_glass_enabled'))
+            self.assertEqual(self.dialog.property('settings_glass_enabled'), enabled)
             self.assertEqual(_dwm_get(hwnd, 38), 1)
             self.assertTrue(self.dialog.isVisible())
             self.assertEqual(int(self.dialog.winId()), hwnd)

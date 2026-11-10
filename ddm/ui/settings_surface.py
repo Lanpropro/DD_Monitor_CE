@@ -92,6 +92,9 @@ class SettingsSurface(QFrame):
                     shadow = rect.adjusted(-spread, -spread, spread, spread).translated(0, 3)
                     painter.fillPath(continuous_path(shadow, theme.RADIUS_LG + spread), QColor(0, 0, 0, alpha))
             painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
+            if self.window().property('settings_glass_enabled'):
+                from ..settings_material_paint import paint_backdrop
+                paint_backdrop(painter, self, path, theme.qcolor(base_color(self, 'card', theme.CONTENT)), card=True)
             return
         backdrop = self._backdrop()
         if backdrop is not None:

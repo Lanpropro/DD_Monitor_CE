@@ -83,7 +83,7 @@ class PartSettings(QDialog):
         if embedded:
             self.editor_card = SettingsSection('界面预览与分区样式', self)
             self.editor_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-            self.sections = SettingsColumns(self.editor_card)
+            self.sections = SettingsColumns(self.editor_card, respect_preference=False)
             for key, panel in (('preview', preview_panel), ('controls', right_panel)):
                 panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
                 self.sections.add_section(key, panel)

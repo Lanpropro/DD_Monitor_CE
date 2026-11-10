@@ -5,6 +5,8 @@ DEFAULTS = {
     'settings_glass_blur': 24,
     'settings_glass_opacity': 70,
     'settings_no_shadows': False,
+    'settings_segment_motion': False,
+    'settings_card_layout': 'auto',
 }
 
 # Flat colours sampled from the user's light/dark BewlyCat recordings.
@@ -41,11 +43,11 @@ def control_stylesheet():
 
 def normalize(values):
     result = {key: values.get(key, default) for key, default in DEFAULTS.items()}
-    for key in ('settings_glass_enabled', 'settings_no_shadows'):
+    for key in ('settings_glass_enabled', 'settings_no_shadows', 'settings_segment_motion'):
         if type(result[key]) is not bool:
             result[key] = DEFAULTS[key]
-    # Retired temporarily: old saved values must not restore glass rendering.
-    result['settings_glass_enabled'] = False
+    if result['settings_card_layout'] not in ('auto', 'vertical'):
+        result['settings_card_layout'] = 'auto'
     for key, maximum in (('settings_glass_blur', 40), ('settings_glass_opacity', 100)):
         try:
             result[key] = max(0, min(maximum, int(result[key])))
@@ -60,13 +62,32 @@ def properties(widget):
 
 
 def apply_properties(widget, values):
+    from pathlib import Path
+    from . import config
     changed = False
     for key, value in normalize(values).items():
         if widget.property(key) != value:
             widget.setProperty(key, value)
             changed = True
+    if 'settings_backdrop_path' in values or 'skin_background' in values:
+        path = values.get('settings_backdrop_path')
+        if path is None:
+            path = values.get('skin_background', '')
+            path = str(Path(config.data_root()) / path) if path else ''
+        if widget.property('settings_backdrop_path') != path:
+            widget.setProperty('settings_backdrop_path', path)
+            changed = True
     if changed:
+        from .settings_layout import SettingsColumns
+        for columns in widget.findChildren(SettingsColumns):
+            columns._arrange()
+        from .ui.selection import SegmentedControl
+        for control in widget.findChildren(SegmentedControl):
+            control.finish_indicator()
         widget.update()
+        from PySide6.QtWidgets import QWidget
+        for child in widget.findChildren(QWidget):
+            child.update()
     return changed
 
 

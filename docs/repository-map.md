@@ -232,6 +232,7 @@
 - `dev/selfcheck_fullscreen_switch.py`
 - `dev/selfcheck_general_settings.py`
 - `dev/selfcheck_settings_autosave.py`
+- `dev/selfcheck_appearance_options.py`
 - `dev/selfcheck_ui_polish.py`
 - `dev/selfcheck_card_drop.py`
 - `dev/selfcheck_settings_navigation.py`

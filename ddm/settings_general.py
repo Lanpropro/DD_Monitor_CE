@@ -207,11 +207,16 @@ class GeneralSettingsPage(QWidget):
                 box = ToggleSwitch(label)
                 title = QLabel(label)
                 title.setWordWrap(True)
+                if key == 'volume_normalization':
+                    title.setWordWrap(False)
                 title.setBuddy(box)
                 toggle_row = QHBoxLayout()
                 toggle_row.setContentsMargins(0, 6, 0, 6)
-                toggle_row.addWidget(title, 1)
+                toggle_row.addWidget(title, 0 if key == 'volume_normalization' else 1)
                 toggle_row.addWidget(box)
+                if key == 'volume_normalization':
+                    toggle_row.setSpacing(12)
+                    toggle_row.addStretch(1)
                 grid.addLayout(toggle_row, row, 0, 1, 2)
             box.setChecked(bool(settings.get(key, key != "volume_normalization")))
             if key == "volume_normalization":

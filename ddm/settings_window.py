@@ -137,6 +137,9 @@ class SettingsWindow(QDialog):
         color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
         color.setAlpha(255)
         painter.fillPath(path, color)
+        if self.property('settings_glass_enabled'):
+            from .settings_material_paint import paint_backdrop
+            paint_backdrop(painter, self, path, color)
         if not self._native_corners:
             painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
             painter.setBrush(Qt.NoBrush)

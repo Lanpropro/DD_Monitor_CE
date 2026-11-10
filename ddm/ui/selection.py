@@ -116,13 +116,21 @@ class _SegmentButton(QAbstractButton):
         self.update()
         super().leaveEvent(event)
 
+    def mouseReleaseEvent(self, event):
+        self.parentWidget()._pointer_selection = event.button() == Qt.LeftButton
+        try:
+            super().mouseReleaseEvent(event)
+        finally:
+            self.parentWidget()._pointer_selection = False
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         if not self.isEnabled():
             painter.setOpacity(0.45)
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -2)
-        if self.isChecked() or self.underMouse() or self.isDown():
+        if (self.isChecked() and not self.parentWidget().sliding_enabled()) or (
+                not self.isChecked() and (self.underMouse() or self.isDown())):
             painter.setPen(Qt.NoPen)
             if self.isChecked():
                 from ..settings_material import shadows_enabled
@@ -170,6 +178,12 @@ class SegmentedControl(QWidget):
         box.setSpacing(theme.SEGMENT_GAP)
         self.group = QButtonGroup(self)
         self.buttons = {}
+        self._pointer_selection = False
+        self._indicator = QRectF()
+        self._indicator_animation = QVariantAnimation(self)
+        self._indicator_animation.setDuration(motion.SWITCH_TRANSITION_MS)
+        self._indicator_animation.setEasingCurve(motion.THEME_WAVE_EASING)
+        self._indicator_animation.valueChanged.connect(self._move_indicator)
         for key, label in options:
             button = _SegmentButton(label, self)
             self.buttons[key] = button
@@ -189,13 +203,52 @@ class SegmentedControl(QWidget):
 
     def _selection_changed(self, button, checked):
         if checked:
+            target = self._target_rect()
+            self._indicator_animation.stop()
+            if (self.sliding_enabled() and self._pointer_selection and self.isVisible()
+                    and motion.enabled() and not self._indicator.isEmpty()):
+                self._indicator_animation.setStartValue(self._indicator)
+                self._indicator_animation.setEndValue(target)
+                self._indicator_animation.start()
+            else:
+                self._move_indicator(target)
             self.valueChanged.emit(self.value())
+
+    def sliding_enabled(self):
+        return bool(self.window().property('settings_segment_motion'))
+
+    def _target_rect(self):
+        return QRectF(self.buttons[self.value()].geometry()).adjusted(1, 1, -1, -2)
+
+    def _move_indicator(self, rect):
+        self._indicator = QRectF(rect)
+        self.update()
+
+    def finish_indicator(self):
+        self._indicator_animation.stop()
+        self._move_indicator(self._target_rect())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.layout().activate()
+        self.finish_indicator()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.layout().activate()
+        self.finish_indicator()
+
+    def hideEvent(self, event):
+        self.finish_indicator()
+        super().hideEvent(event)
 
     def value(self):
         return next(key for key, button in self.buttons.items() if button.isChecked())
 
     def setValue(self, value):
         self.buttons[value].setChecked(True)
+        if not self._pointer_selection:
+            self.finish_indicator()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -214,3 +267,17 @@ class SegmentedControl(QWidget):
         painter.setPen(QPen(edge, 1))
         painter.setBrush(fill)
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        if self.sliding_enabled():
+            from ..settings_material import shadows_enabled
+            rect = self._indicator if not self._indicator.isEmpty() else self._target_rect()
+            if shadows_enabled(self):
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(0, 0, 0, 28))
+                painter.drawRoundedRect(rect.translated(0, 2), rect.height() / 2, rect.height() / 2)
+            color = theme.qcolor(theme.mix(base_color(self, 'card', theme.CONTENT), theme.ACCENT, .20))
+            fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            fill.setColorAt(0, color.lighter(108))
+            fill.setColorAt(1, color.darker(108))
+            painter.setBrush(fill)
+            painter.setPen(QPen(QColor(255, 255, 255, 28), 1))
+            painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)

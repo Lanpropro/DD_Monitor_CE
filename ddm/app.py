@@ -216,6 +216,7 @@ class MainWindow(QMainWindow):
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
         if not isinstance(self.settings.get('skin_background'), str):
             self.settings['skin_background'] = ''
+        theme.configure_appearance(self.settings)
         theme.apply(self.settings["appearance_mode"])
         self.settings["freeze_watch"] = True  # 卡死检测固定开启，不再提供全局开关。
         if (saved_settings.get("danmaku_retention_version") != 1

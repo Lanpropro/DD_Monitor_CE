@@ -40,10 +40,14 @@ class AppearanceSettingsPage(QWidget):
         self.group = self.mode_control.group
         self.mode_control.valueChanged.connect(self._choose)
         colors.grid.addWidget(self.mode_control, 0, 1, Qt.AlignRight)
+        from .settings_theme_editor import SettingsThemeEditor
+        self.theme_editor = SettingsThemeEditor(settings)
+        self.theme_editor.changed.connect(self._preferences_changed)
+        colors.grid.addWidget(self.theme_editor, 1, 0, 1, 2)
         self.sections.add_section('theme', colors)
         from .settings_material_editor import SettingsMaterialEditor
         self.material_editor = SettingsMaterialEditor(settings, content)
-        self.material_editor.changed.connect(lambda: self.materialChanged.emit(self.material_editor.values()))
+        self.material_editor.changed.connect(self._emit_material)
         self.material_editor.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections.add_section('material', self.material_editor)
         layout.addWidget(self.sections)
@@ -56,6 +60,7 @@ class AppearanceSettingsPage(QWidget):
         else:
             self.skin_settings = SkinSettings(settings, skin_controller, self)
             self.skin_settings.hide()
+        self.skin_settings.changed.connect(self._emit_material)
         layout.addStretch(1)
         self._mode = theme.normalize_mode(settings.get("appearance_mode"))
         self.sync(self._mode)
@@ -72,8 +77,22 @@ class AppearanceSettingsPage(QWidget):
         self.modeChanged.emit(mode)
 
     def values(self):
-        return {"appearance_mode": self._mode, **self.material_editor.values(), **self.skin_settings.values()}
+        return {"appearance_mode": self._mode, **self.material_editor.values(),
+                **self.theme_editor.values(), **self.skin_settings.values()}
+
+    def _preferences_changed(self):
+        if theme.configure_appearance(self.theme_editor.values()):
+            theme.apply(theme.mode())
+        self._emit_material()
+
+    def _emit_material(self, *_args):
+        values = {**self.material_editor.values(), **self.theme_editor.values(), **self.skin_settings.values()}
+        if self.skin_settings.controller is not None:
+            values['settings_backdrop_path'] = self.skin_settings.controller.layer.path
+        self.materialChanged.emit(values)
 
     def reset(self):
+        self.theme_editor.set_values({})
         self.material_editor.reset()
+        self._preferences_changed()
         self._choose("dark")

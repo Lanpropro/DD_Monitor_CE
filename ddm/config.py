@@ -37,9 +37,11 @@ DEFAULT_VOLUME = 40
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
+from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
 
 DEFAULT_SETTINGS = {
     **MATERIAL_DEFAULTS,
+    **APPEARANCE_DEFAULTS,
     "tile_context_menu": None,
     "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
@@ -49,6 +51,7 @@ DEFAULT_SETTINGS = {
     "skin_sidebar": True,
     "skin_video_enabled": True,
     "skin_mask": 35,
+    "skin_mask_enabled": True,
     "skin_parts": {},
     "skin_package_owner": "",
     "skin_background_override": False,

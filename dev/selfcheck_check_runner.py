@@ -145,7 +145,7 @@ if __name__ == '__main__':
         suite = runner.load_suites()['smoke']
         self.assertEqual(suite['mode'], 'offline')
         self.assertEqual(suite['scripts'], [
-            'selfcheck_general_settings', 'selfcheck_settings_autosave', 'selfcheck_settings_control', 'selfcheck_audio_normalization', 'selfcheck_startup_windows',
+            'selfcheck_general_settings', 'selfcheck_settings_autosave', 'selfcheck_appearance_options', 'selfcheck_settings_control', 'selfcheck_audio_normalization', 'selfcheck_startup_windows',
             'selfcheck_single_instance', 'selfcheck_drag_lifecycle', 'selfcheck_sidebar_hit_test',
             'selfcheck_room_placement', 'selfcheck_room_preset_control', 'selfcheck_window_layout', 'selfcheck_pane_danmaku',
             'selfcheck_picture_in_picture', 'selfcheck_pip_picker',
