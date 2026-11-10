@@ -49,6 +49,7 @@ class SkinSettings(QWidget):
         self.controller = controller
         self.path = settings.get('skin_background', '')
         self._video_enabled = bool(settings.get('skin_video_enabled', True))
+        self._mask_enabled = bool(settings.get('skin_mask_enabled', True))
         self.job = None
         self._overrides = {key: bool(settings.get(key, False)) for key in
                            ('skin_background_override', 'skin_mask_override', 'skin_sidebar_override')}
@@ -61,6 +62,14 @@ class SkinSettings(QWidget):
         self.status.setWordWrap(True)
         self.status.setObjectName('SettingsHint')
         layout.addWidget(self.status)
+        gallery_label = QLabel('本地背景图库（已导入的图片与视频）')
+        gallery_label.setObjectName('SettingsHint')
+        gallery_label.setWordWrap(True)
+        layout.addWidget(gallery_label)
+        from .skin_gallery import SkinGallery
+        self.gallery = SkinGallery(self)
+        self.gallery.selected.connect(self._select_background)
+        layout.addWidget(self.gallery)
         self.choose = SkinAssetDropArea(video=True)
         self.choose.clicked.connect(self._choose)
         self.choose.fileDropped.connect(self.import_file)
@@ -70,6 +79,12 @@ class SkinSettings(QWidget):
         self.clear.clicked.connect(self.reset)
         layout.addWidget(self.choose)
         layout.addWidget(self.clear, 0, Qt.AlignRight)
+        enabled_row = QHBoxLayout()
+        enabled_row.addWidget(QLabel('启用背景遮罩'), 1)
+        self.mask_toggle = ToggleSwitch('启用背景遮罩')
+        self.mask_toggle.toggled.connect(self._mask_enabled_changed)
+        enabled_row.addWidget(self.mask_toggle)
+        layout.addLayout(enabled_row)
         mask_row = QHBoxLayout()
         mask_row.addWidget(QLabel('背景遮罩'))
         self.mask_slider = SettingsSlider()
@@ -111,6 +126,7 @@ class SkinSettings(QWidget):
 
     def values(self):
         return {'skin_background': self.path, 'skin_mask': self._mask,
+                'skin_mask_enabled': self._mask_enabled,
                 'skin_sidebar': True, 'skin_video_enabled': self._video_enabled, **self._overrides}
 
     def _locked(self):
@@ -128,16 +144,22 @@ class SkinSettings(QWidget):
             self.path = settings.get('skin_background', '')
             self._mask = settings.get('skin_mask', 35)
             self._video_enabled = bool(settings.get('skin_video_enabled', True))
+            self._mask_enabled = bool(settings.get('skin_mask_enabled', True))
             self._overrides = {key: bool(settings.get(key, False)) for key in self._overrides}
         override = self.controller.override if self.controller is not None else None
         locked = self._locked() or self.job is not None
-        for widget in (self.choose, self.clear, self.mask_slider, self.video_toggle):
+        for widget in (self.choose, self.clear, self.gallery, self.mask_toggle, self.video_toggle):
             widget.setEnabled(not locked)
+        self.mask_slider.setEnabled(not locked and self._mask_enabled)
+        previous = self.mask_toggle.blockSignals(True)
+        self.mask_toggle.setChecked(self._mask_enabled)
+        self.mask_toggle.blockSignals(previous)
+        self.gallery.set_current(self.path)
         from .skins import VIDEOS
         path = self.controller.layer.path if self.controller else self.path
         self.video_row.setVisible(Path(path).suffix.lower() in VIDEOS)
         self.video_toggle.setVisible(Path(path).suffix.lower() in VIDEOS)
-        value = self.controller.layer.mask if self.controller else self._mask
+        value = self.controller.layer.mask if self.controller and self._mask_enabled else self._mask
         previous = self.mask_slider.blockSignals(True)
         self.mask_slider.setValue(value)
         self.mask_slider.blockSignals(previous)
@@ -160,6 +182,38 @@ class SkinSettings(QWidget):
             return
         self._mask = value
         self._overrides['skin_mask_override'] = True
+        self.changed.emit(self.values())
+        self.sync()
+
+    def _mask_enabled_changed(self, value):
+        if self._locked():
+            self.sync()
+            return
+        self._mask = self.mask_slider.value()
+        self._mask_enabled = value
+        self._overrides['skin_mask_override'] = True
+        self.changed.emit(self.values())
+        self.sync()
+
+    def _select_background(self, path):
+        if self.job is not None or self._locked():
+            return
+        if not path:
+            self.reset()
+            return
+        from . import config
+        from .skins import validate_asset
+        try:
+            managed = (Path(config.data_root()) / path).resolve()
+            if not managed.is_relative_to((Path(config.data_root()) / 'utils/skins').resolve()):
+                return
+            validate_asset(managed)
+        except (OSError, ValueError) as error:
+            self.status.setText(str(error))
+            return
+        self.path = path
+        self._video_enabled = True
+        self._overrides['skin_background_override'] = True
         self.changed.emit(self.values())
         self.sync()
 
@@ -203,6 +257,7 @@ class SkinSettings(QWidget):
     def _finished(self):
         job, self.job = self.job, None
         self.sync()
+        self.gallery.refresh()
         error = getattr(self, '_import_error', '')
         if error:
             self.status.setText(error)
@@ -214,6 +269,7 @@ class SkinSettings(QWidget):
             return
         self.path = ''
         self._video_enabled = True
+        self._mask_enabled = True
         self._overrides = dict.fromkeys(self._overrides, True)
         self.mask_slider.setValue(35)
         self.changed.emit(self.values())
@@ -299,7 +355,7 @@ class PartSettings(QDialog):
         if embedded:
             self.editor_card = SettingsSection('界面预览与分区样式', self)
             self.editor_card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-            self.sections = SettingsColumns(self.editor_card)
+            self.sections = SettingsColumns(self.editor_card, respect_preference=False)
             for key, panel in (('preview', preview_panel), ('controls', right_panel)):
                 panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
                 self.sections.add_section(key, panel)

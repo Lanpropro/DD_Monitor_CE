@@ -27,8 +27,9 @@ class SettingsColumns(QWidget):
     """Use two columns when both cards have useful space, otherwise stack them."""
     BREAKPOINT = 760
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, respect_preference=True):
         super().__init__(parent)
+        self.respect_preference = respect_preference
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(0, 0, 0, 0)
@@ -61,12 +62,12 @@ class SettingsColumns(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        columns = 2 if self.width() >= self.BREAKPOINT else 1
+        columns = self._column_count()
         if columns != self.columns:
             self._arrange()
 
     def _arrange(self):
-        self.columns = 2 if self.width() >= self.BREAKPOINT else 1
+        self.columns = self._column_count()
         while self.grid.count():
             self.grid.takeAt(0)
         row, column = 0, 0
@@ -81,6 +82,14 @@ class SettingsColumns(QWidget):
         self.grid.setColumnStretch(0, 1)
         self.grid.setColumnStretch(1, 1 if self.columns == 2 else 0)
         self.updateGeometry()
+
+    def _column_count(self):
+        vertical = self.respect_preference and self.window().property('settings_card_layout') == 'vertical'
+        return 2 if not vertical and self.width() >= self.BREAKPOINT else 1
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._arrange()
 
 
 def section_grid(grid, groups, *, anchor=None, full_width_rows=()):

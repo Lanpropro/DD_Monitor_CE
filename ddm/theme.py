@@ -178,6 +178,20 @@ _light = False
 _styles = WeakKeyDictionary()
 _pending_palette = WeakKeyDictionary()
 _signals = None
+_preferences = {'appearance_accent': '', 'appearance_font': ''}
+
+
+def configure_appearance(values):
+    """Store validated tokens; callers decide when to refresh the palette."""
+    global FONT_FAMILY, _preferences
+    from .appearance_preferences import normalize
+    current = normalize({**_preferences, **values})
+    if current == _preferences:
+        return False
+    _preferences = current
+    family = current['appearance_font'] or FONT_DEFAULT
+    FONT_FAMILY = f'"{family}", "Microsoft YaHei", "Segoe UI", sans-serif'
+    return True
 _skin_active = False
 _skin_sidebar = False
 
@@ -408,7 +422,22 @@ def apply(value):
     previous = {name: globals()[name] for name in _DARK}
     _mode = value
     _light = light
-    palette = _LIGHT if light else _DARK
+    palette = dict(_LIGHT if light else _DARK)
+    if _preferences['appearance_accent']:
+        accent = QColor(_preferences['appearance_accent'])
+        # Keep the accent readable against either control surface.
+        def luminance(color):
+            channels = [channel / 12.92 if channel <= .04045 else
+                        ((channel + .055) / 1.055) ** 2.4 for channel in color.getRgbF()[:3]]
+            return sum(a * b for a, b in zip(channels, (.2126, .7152, .0722)))
+        surface = QColor('#ffffff' if light else '#3c4044')
+        for _ in range(40):
+            a, b = sorted((luminance(accent), luminance(surface)))
+            if (b + .05) / (a + .05) >= 3:
+                break
+            accent = accent.darker(110) if light else QColor(mix(accent.name(), '#ffffff', .12))
+        palette['ACCENT'] = accent.name()
+        palette['ACCENT_SOFT'] = f'rgba({accent.red()}, {accent.green()}, {accent.blue()}, 0.16)'
     widgets = list(app.allWidgets())
     from .continuous_corners import source_stylesheet, stylesheet
     # Keep the source palette of local QSS, so identical light backgrounds can

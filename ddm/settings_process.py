@@ -453,7 +453,10 @@ def run_worker():
                 SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])
             elif kind == 'host-state' and self.dialog is not None:
                 self.dialog.host_values = message['values']
-                self.dialog.set_material({**self.dialog._initial_settings, **message['values']})
+                if theme.configure_appearance(message['values']):
+                    theme.apply(theme.mode())
+                self.dialog.set_material({**self.dialog._initial_settings, **message['values'],
+                                          'settings_backdrop_path': message.get('material_background', '')})
                 self.dialog.auto_save.adopt('settings', message['values'])
                 self.dialog.host_action_visible = message.get('action_visible', False)
                 self.dialog.host_action_text = message['save_text']
@@ -483,6 +486,7 @@ def run_worker():
                 _activate_dialog(self.dialog)
             elif kind == 'open' and self.dialog is None:
                 mode = theme.normalize_mode(message['settings'].get('appearance_mode'))
+                theme.configure_appearance(message['settings'])
                 theme.apply(mode)
                 dialog = RemoteDialog(message)
                 self.dialog = dialog
