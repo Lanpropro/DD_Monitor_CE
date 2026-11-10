@@ -233,7 +233,7 @@ class GeneralSettingsPage(QWidget):
         grid.addWidget(self.poll_stepper, row, 1, Qt.AlignRight)
         row += 1
         for key, label in self.ITEMS:
-            if key in ('volume_normalization', 'sidebar_platform_logos'):
+            if key == 'sidebar_platform_logos':
                 box = QCheckBox(label)
                 grid.addWidget(box, row, 0, 1, 2)
             else:
