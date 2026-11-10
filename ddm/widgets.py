@@ -1603,7 +1603,7 @@ class NavThumb(QFrame):
         self.cover.setGeometry(0, 0, self.WIDTH, self.HEIGHT)
         _ignore_mouse(self.cover)
 
-        self.video = QFrame(self)
+        self.video = VideoSurface(self)
         self.video.setObjectName("NavThumbVideo")
         self.video.setAttribute(Qt.WA_StyledBackground, True)
         self.video.setGeometry(0, 0, self.WIDTH, self.HEIGHT)
@@ -1900,12 +1900,17 @@ class NavThumb(QFrame):
         """
         return self.rect()
 
-    def sync_preview_position(self) -> None:
+    def sync_preview_position(self, viewport) -> None:
         # Silent previews keep their ancestors alien. Scrolling an alien parent
         # does not move this native surface; map from the thumbnail, not the
         # surface's stale QWindow position. Keep the existing HWND and mpv core.
+        origin = self.mapFromGlobal(viewport.mapToGlobal(QPoint())) - self.video.pos()
+        clip = self.video.rect().intersected(QRect(origin, viewport.size()))
+        # Qt treats an empty mask as unmasked. An outside region hides the
+        # surface when only the card's padding remains inside the viewport.
+        self.video.setMask(QRegion(clip if not clip.isEmpty() else QRect(-1, -1, 1, 1)))
         window = self.video.windowHandle()
-        if self.video.isVisible() and window is not None:
+        if window is not None:
             ancestor = self.video.nativeParentWidget()
             window.setPosition(self.mapTo(ancestor, self.video.pos()))
 
@@ -1993,7 +1998,7 @@ class NavThumb(QFrame):
         if self._card_mode and not self._compact_thumb():
             self._ensure_player().bind()
 
-    def play(self, url: str, profile: str = "web", options=None, *, headers=None) -> None:
+    def play(self, url: str, profile: str = "web", options=None, *, headers=None, viewport=None) -> None:
         """在这个缩略图里放预览（静音、低画质）。
 
         ``options`` 由预览那边给（见 ddm/preview.py 的 PREVIEW_MEDIA_OPTIONS）。
@@ -2008,6 +2013,8 @@ class NavThumb(QFrame):
         player = self._ensure_player()
         self.video.setGeometry(self._preview_rect())
         self.hint.setGeometry(self._preview_rect())
+        if viewport is not None:
+            self.sync_preview_position(viewport)
         self.video.setVisible(True)
         self.video.raise_()
         # 大卡片预览时让画面完全干净；简洁列表的预览只占右侧三分之一，左侧信息保留。
@@ -2022,10 +2029,10 @@ class NavThumb(QFrame):
         """收掉预览，回到封面（播放器留着复用，下回悬停直接 play）。"""
         if self._player is None and self.video.isHidden() and self.hint.isHidden():
             return
-        if self._player is not None:
-            self._player.stop()
         self.video.setVisible(False)
         self.hint.setVisible(False)
+        if self._player is not None:
+            self._player.stop()
         self.video.setGeometry(self.rect())
         self.hint.setGeometry(self.rect())
         self.cover.setVisible(not self._compact_thumb() and

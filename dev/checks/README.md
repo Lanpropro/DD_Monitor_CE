@@ -294,7 +294,7 @@
 | [selfcheck_preview](../selfcheck_preview.py) | 单项执行前核对 |
 | [selfcheck_preview_collapsed](../selfcheck_preview_collapsed.py) | 单项执行前核对 |
 | [selfcheck_preview_popup](../selfcheck_preview_popup.py) | 单项执行前核对 |
-| [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；卡片滚出指针立即收起、65行紧凑关注栏取流竞态及拖动保护；`--native` 用本地MP4检查内嵌预览连续滚动24次的Qt/HWND位置、核心与播放进度 |
+| [selfcheck_preview_scroll](../selfcheck_preview_scroll.py) | `offline`；卡片滚出指针立即收起、65行紧凑关注栏取流竞态及拖动保护；`--native` 用本地MP4检查内嵌预览连续滚动24次的Qt/HWND位置、核心与播放进度、半卡片的Qt/mpv原生裁剪及离开先隐藏 |
 | [selfcheck_quality](../selfcheck_quality.py) | 单项执行前核对 |
 | [selfcheck_recording](../selfcheck_recording.py) | `offline`；FFmpeg 与临时合成视频、本机 HTTP 的功能回归，含手动回放停止/恢复、缓存升级、录制计时、画质请求取消及过期源恢复；不能作为真实性能改善依据 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | `offline`；FFmpeg 功能回归：退出保存完整录制、等待重连的分段和主动导出的回放，清理未保存缓存；隔离账号和安装插件 |
