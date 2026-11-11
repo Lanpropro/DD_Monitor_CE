@@ -52,6 +52,7 @@ from .playback_controls import (DanmakuToggleButton, PauseButton, RecordingButto
                                 _draw_arrow_head, _icon_color)
 from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
+from .video_caption import VideoCaption
 from .video_danmaku import VideoDanmaku
 from .video_danmaku_settings import VideoDanmakuSettings
 from .super_chat import (SuperChatAvatar, SuperChatPresentation, format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR,
@@ -5648,6 +5649,7 @@ class Tile(QFrame):
         bottom_layout = QHBoxLayout(self.bottom)
         bottom_layout.setContentsMargins(10, 4, 10, 4)
         bottom_layout.setSpacing(8)
+        self.video_caption = VideoCaption(self)
 
         # 左上角浮标：圆形镂空 + LIVE + 直播间人数
         self.stream_badge = StreamBadge(self)
@@ -6150,6 +6152,14 @@ class Tile(QFrame):
         border = getattr(wall, '_pane_borders', {}).get(self)
         if border is not None and border.isVisible():
             border.raise_()
+        self.video_caption.raise_()
+
+    def set_translation_caption(self, original, translated="", *, style=None, visible=True):
+        return self.video_caption.set_caption(
+            original, translated, style=style, visible=visible)
+
+    def clear_translation_caption(self):
+        return self.video_caption.clear_caption()
 
     def _update_quick_danmaku_mask(self) -> None:
         self.video_danmaku.update_quick_mask((
@@ -6430,6 +6440,7 @@ class Tile(QFrame):
             self.bottom.setWindowOpacity(1.0 - self._bar_progress)
         self.bottom.setVisible(self._bar_progress < 1.0 or self._bar_target == 0.0)
         self._layout_time_badge()
+        self.video_caption.sync_geometry()
         self.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
@@ -6653,13 +6664,14 @@ class Tile(QFrame):
             parent.update(QRect(event.oldPos(), self.size()))
         # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
         self.video_danmaku.schedule_quick_geometry()
+        self.video_caption.sync_geometry()
 
     def _refresh_moved_overlays(self) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
         self._move_repaint_timer.stop()
         if not self.isVisible():
             return
-        for widget in (self.video_danmaku, self.stream_badge, self.title_badge, self.time_badge,
+        for widget in (self.video_danmaku, self.video_caption, self.stream_badge, self.title_badge, self.time_badge,
                        self.controls, self.spinner, self.pause_overlay, self.bottom):
             if widget.isVisible():
                 widget.repaint()
@@ -6691,6 +6703,7 @@ class Tile(QFrame):
             self.pause_overlay.move(max(0, (width - self.pause_overlay.width()) // 2),
                                     max(8, (height - self.pause_overlay.height()) // 2))
             self._layout_cover()
+            self.video_caption.sync_geometry()
             self.raise_overlays()
             return
         self._update_recording_button(layout=False)
@@ -6743,6 +6756,7 @@ class Tile(QFrame):
         self.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         self._layout_time_badge()
         self.video_danmaku.setGeometry(self.video.geometry())
+        self.video_caption.sync_geometry()
         self._layout_bottom_controls()
         self._layout_cover()
         self.raise_overlays()
@@ -6907,6 +6921,7 @@ class Tile(QFrame):
     def closeEvent(self, event) -> None:
         self._mask_refresh_timer.stop()
         self._move_repaint_timer.stop()
+        self.video_caption.clear_caption()
         super().closeEvent(event)
 
     def _refresh_overlay_masks(self) -> None:
@@ -7003,6 +7018,7 @@ class Tile(QFrame):
         self._round_video()
         self._update_controls_mask()
         self._layout_cover()
+        self.video_caption.sync_geometry()
 
     # ---- 直播时长 ----
     def _elapsed_visible(self) -> bool:

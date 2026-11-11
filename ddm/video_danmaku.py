@@ -674,7 +674,12 @@ class VideoDanmaku(QWidget):
         if self.paused:
             self._set_hover(None)
         if not self.paused:
-            self.super_chat_overlay.raise_()
+            parent = self.parentWidget()
+            raise_overlays = getattr(parent, "raise_overlays", None)
+            if raise_overlays is not None:
+                raise_overlays()
+            else:
+                self.super_chat_overlay.raise_()
         self._set_quick_active()
         if self.paused:
             self._stop_timer()
@@ -1304,7 +1309,12 @@ class VideoDanmaku(QWidget):
         super().showEvent(event)
         self.super_chat_overlay._refresh()
         if self.super_chat_overlay.isVisible():
-            self.super_chat_overlay.raise_()
+            parent = self.parentWidget()
+            raise_overlays = getattr(parent, "raise_overlays", None)
+            if raise_overlays is not None:
+                raise_overlays()
+            else:
+                self.super_chat_overlay.raise_()
         if self._native_layered():
             self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested)
             self.setAttribute(Qt.WA_NativeWindow, True)
