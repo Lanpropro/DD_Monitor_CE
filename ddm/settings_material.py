@@ -93,6 +93,8 @@ def apply_properties(widget, values):
         from PySide6.QtWidgets import QWidget
         for child in widget.findChildren(QWidget):
             child.update()
+        from .settings_material_paint import sync_text_contrast
+        sync_text_contrast(widget)
     return changed
 
 

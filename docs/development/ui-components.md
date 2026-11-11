@@ -271,3 +271,7 @@ SettingsInputFocus同时承担设置根内的滚轮路由：启用的横向滑�
 
 弹幕页由 `settings_danmaku.DanmakuSettingsPage` 持有控件、SC 预览、缩放曲线和 values/reset；dialogs 保留同类兼容导出。`FontSelectControl` 在共享下拉上保留 currentFont/setCurrentFont/currentFontChanged 契约；步进和开关使用共享组件。字体/屏蔽与 SC 显示为紧凑卡片，复杂 SC 卡片内部左参数/曲线、右位置预览；画面弹幕缩放也分说明/曲线两栏，窄窗上下排列。SC 预览仍独立维护位置、同步和共用大小，无业务状态副本。根与源的其他设置页及宿主协调仍保持各自职责边界，本轮不迁移。
 大字号下，SettingsValueLabel 按实际百分比文字度量宽度，ScaleCurveGraph 的坐标轴边距及行高跟随字体，避免20px时裁切百分比与轴标签；滑条本身仍保持统一长度。
+
+ToggleSwitch.setChecked 在 signalsBlocked 状态下仍同步自己的绘制位置；Qt 勾选值始终是唯一数据来源，普通鼠标/键盘信号和缓动保持。SettingsMaterialEditor 静默加载保存值无需额外触发业务信号。
+
+settings_material_paint.sync_text_contrast 负责深色实时玻璃标签的轻微暗色轮廓和 SettingsHint 提亮；由材质属性更新、窗口主题刷新和卡片首次显示调用，覆盖宿主stack及懒加载页。只管理带有自身标记的 QLabel 效果，不覆盖其他效果，不给整窗/卡片截图或加捕获定时器；浅色/纯色时清理效果和提示属性。文字轮廓用于可读性，独立于卡片外投影。临时配置的新进程回归区分持久化值与绘制状态。

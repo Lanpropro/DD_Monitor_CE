@@ -170,6 +170,69 @@ assert not any(name in sys.modules for name in (
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             theme.apply('dark')
 
+    def test_switch_restores_silent_values_without_emitting_business_signals(self):
+        from PySide6.QtTest import QSignalSpy
+        switch = ui.ToggleSwitch('Fixture')
+        spy = QSignalSpy(switch.toggled)
+        try:
+            for checked in (True, False, True):
+                previous = switch.blockSignals(True)
+                switch.setChecked(checked)
+                switch.blockSignals(previous)
+                self.assertEqual(switch.isChecked(), checked)
+                self.assertEqual(switch._position, float(checked))
+            self.assertEqual(spy.count(), 0)
+            switch.setChecked(False)
+            self.assertEqual(spy.count(), 1)
+            self.assertEqual(switch._position, 0.)
+        finally:
+            switch.deleteLater()
+
+    def test_live_glass_text_contrast_is_local_and_follows_mode(self):
+        from PySide6.QtWidgets import QLabel, QGraphicsDropShadowEffect
+        from ddm.settings_window import SettingsWindow
+        window = SettingsWindow()
+        window.setAttribute(Qt.WA_DontShowOnScreen)
+        window.resize(400, 280)
+        card = ui.SettingsSurface(window)
+        card.setGeometry(20, 70, 360, 190)
+        layout = QVBoxLayout(card)
+        label = QLabel('Bright video behind white text')
+        label.setObjectName('SettingsHint')
+        layout.addWidget(label)
+        original = label.sizeHint()
+        try:
+            with patch('ddm.settings_backdrop.blur_available', return_value=True), \
+                    patch('ddm.settings_window.apply_blur', return_value=True):
+                theme.apply('dark')
+                window.set_material({'settings_glass_enabled': True})
+                window.show()
+                self.app.processEvents()
+                effect = label.graphicsEffect()
+                self.assertIsInstance(effect, QGraphicsDropShadowEffect)
+                self.assertEqual(effect.objectName(), 'SettingsTextContrast')
+                from PySide6.QtGui import QPalette
+                self.assertEqual(label.palette().color(QPalette.WindowText).name(), '#d9dde4')
+                protected = window.grab().toImage()
+                effect.setEnabled(False)
+                unprotected = window.grab().toImage()
+                effect.setEnabled(True)
+                self.assertNotEqual(protected, unprotected, 'The local text halo must actually render')
+                self.assertIsNone(card.graphicsEffect())
+                self.assertIsNone(window.graphicsEffect())
+                self.assertEqual(label.sizeHint(), original)
+                theme.apply('light')
+                self.assertIsNone(label.graphicsEffect())
+                theme.apply('dark')
+                self.assertIsInstance(label.graphicsEffect(), QGraphicsDropShadowEffect)
+                window.set_material({'settings_glass_enabled': False})
+                self.assertIsNone(label.graphicsEffect())
+        finally:
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            theme.apply('dark')
+
     def test_settings_cards_keep_uniform_fill_and_separate_outer_shadow(self):
         from ddm.settings_window import SettingsWindow
         window = SettingsWindow()

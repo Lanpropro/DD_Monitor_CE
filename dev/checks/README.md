@@ -31,7 +31,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_appearance](../selfcheck_appearance.py) | 单项执行前核对 |
-| [selfcheck_appearance_options](../selfcheck_appearance_options.py) | `smoke`；主题色/字体/字号与布局保存重开、大字号与默认按钮、实时毛玻璃alpha/纯色回退、分段焦点/中断/键盘/减少动画、图库目录与遮罩、滚轮路由及安静保存标题栏 |
+| [selfcheck_appearance_options](../selfcheck_appearance_options.py) | `smoke`；主题色/字体/字号与布局保存重开、大字号与默认按钮、实时毛玻璃alpha/纯色回退、分段焦点/中断/键盘/减少动画、图库目录与遮罩、滚轮路由、静默重载的开关绘制及安静保存标题栏 |
 | [selfcheck_appearance_design](../selfcheck_appearance_design.py) | `repository` |
 | [selfcheck_appearance_playback](../selfcheck_appearance_playback.py) | 单项执行前核对 |
 | [selfcheck_badge_memory](../selfcheck_badge_memory.py) | `native` |

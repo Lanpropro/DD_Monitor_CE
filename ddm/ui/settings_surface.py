@@ -39,9 +39,15 @@ class SettingsSurface(QFrame):
         super().__init__(parent)
         self.setProperty('customControlSurface', True)
         theme.signals().changed.connect(self.update)
+        theme.signals().changed.connect(self._sync_text_contrast)
+
+    def _sync_text_contrast(self):
+        from ..settings_material_paint import sync_text_contrast
+        sync_text_contrast(self)
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._sync_text_contrast()
         owner = self.parentWidget()
         while owner is not None:
             owner.installEventFilter(self)

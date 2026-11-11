@@ -92,6 +92,8 @@ class SettingsWindow(QDialog):
         if self.isVisible():
             self._native_corners = apply_frame(self, theme.is_light())
             self._native_glass = apply_blur(self, self.property('settings_glass_enabled'))
+            from .settings_material_paint import sync_text_contrast
+            sync_text_contrast(self)
         self.update()
 
     def set_material(self, values):
