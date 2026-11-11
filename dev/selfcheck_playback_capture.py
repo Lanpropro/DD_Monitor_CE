@@ -135,7 +135,7 @@ class CaptureTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_', json.dumps(self.records))
 
     def test_bundled_mpv_supplies_forward_cache_bytes_to_capture(self):
-        import mpv
+        from ddm.player import mpv
         import tempfile
         import threading
         import wave
