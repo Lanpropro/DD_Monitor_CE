@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QAbstractButton, QDialog, QHBoxLayout, QLabel, QVB
 
 from . import theme
 from .corner_geometry import continuous_path
-from .settings_backdrop import apply_frame
+from .settings_backdrop import apply_blur, apply_frame
 
 
 class SettingsCloseButton(QAbstractButton):
@@ -76,6 +76,7 @@ class SettingsWindow(QDialog):
         self.setProperty('appearanceLight', theme.is_light())
         self.setProperty('customControlSurface', True)
         self._native_corners = False
+        self._native_glass = False
         from .settings_focus import SettingsInputFocus
         self.input_focus = SettingsInputFocus(self)
         self.window_header = SettingsTitleBar(self)
@@ -90,6 +91,7 @@ class SettingsWindow(QDialog):
     def _sync_frame(self):
         if self.isVisible():
             self._native_corners = apply_frame(self, theme.is_light())
+            self._native_glass = apply_blur(self, self.property('settings_glass_enabled'))
         self.update()
 
     def set_material(self, values):
@@ -143,11 +145,11 @@ class SettingsWindow(QDialog):
         painter.setClipPath(path)
         from .settings_material import base_color
         color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
-        color.setAlpha(255)
+        from .settings_material_paint import glass_tint
+        color = glass_tint(self, color) if self._native_glass else color
+        if not self._native_glass:
+            color.setAlpha(255)
         painter.fillPath(path, color)
-        if self.property('settings_glass_enabled'):
-            from .settings_material_paint import paint_backdrop
-            paint_backdrop(painter, self, path, color)
         if not self._native_corners:
             painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
             painter.setBrush(Qt.NoBrush)

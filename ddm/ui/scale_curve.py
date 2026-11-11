@@ -25,7 +25,11 @@ class ScaleCurveGraph(QWidget):
         self.setToolTip('拖动节点调整；拖动线条新增节点；右键删除节点。720 px / 100% 基准点固定，端点可上下拖动。')
 
     def plot_rect(self):
-        return QRectF(42, 24, self.width()-66, self.height()-58)
+        left = max(42, self.fontMetrics().horizontalAdvance('200%') + 8)
+        right = max(24, self.fontMetrics().horizontalAdvance('1440') / 2 + 4)
+        top = max(24, self.fontMetrics().height() + 4)
+        bottom = max(34, self.fontMetrics().height() + 12)
+        return QRectF(left, top, self.width() - left - right, self.height() - top - bottom)
 
     def point_position(self, point):
         rect = self.plot_rect()
@@ -127,12 +131,15 @@ class ScaleCurveGraph(QWidget):
             painter.setOpacity(.45)
         painter.setClipPath(continuous_path(QRectF(self.rect()), theme.RADIUS_LG))
         painter.setPen(theme.qcolor(theme.TEXT3))
+        label_height = max(20, self.fontMetrics().height() + 2)
         for ratio in (0, 1, 2):
             y = rect.bottom()-rect.height()*ratio/2
-            painter.drawText(QRectF(0, y-9, 36, 18), Qt.AlignRight | Qt.AlignVCenter, f'{ratio*100}%')
+            painter.drawText(QRectF(0, y-label_height/2, rect.left()-8, label_height),
+                             Qt.AlignRight | Qt.AlignVCenter, f'{ratio*100}%')
         for x, text in ((0, '0'), (1, '720'), (2, '1440')):
             center = rect.left()+x/2*rect.width()
-            painter.drawText(QRectF(center-25, rect.bottom()+5, 50, 20), Qt.AlignCenter, text)
+            width = max(50, self.fontMetrics().horizontalAdvance(text) + 4)
+            painter.drawText(QRectF(center-width/2, rect.bottom()+5, width, label_height), Qt.AlignCenter, text)
         path = QPainterPath()
         path.moveTo(self.point_position(self.points[0]))
         for point in self.points[1:]:
@@ -147,7 +154,7 @@ class ScaleCurveGraph(QWidget):
         if self.selected is not None:
             x, y = self.points[self.selected]
             painter.setPen(theme.qcolor(theme.TEXT1))
-            painter.drawText(QRectF(rect.left(), 1, rect.width(), 20), Qt.AlignRight, f'{x*720:.0f} px · {y:.0%}')
+            painter.drawText(QRectF(rect.left(), 1, rect.width(), label_height), Qt.AlignRight, f'{x*720:.0f} px · {y:.0%}')
 
 
 class ScaleCurveControl(QWidget):

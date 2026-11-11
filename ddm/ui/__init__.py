@@ -7,7 +7,7 @@ _MODULES = {
     'ui.disclosure': ('DisclosureButton',),
     'ui.settings_surface': ('SettingsSurface',),
     'ui.selection': ('ToggleSwitch', 'SegmentedControl'),
-    'ui.select': ('SelectControl',),
+    'ui.select': ('SelectControl', 'FontSelectControl'),
     'ui.stepper': ('StepperControl',),
     'ui.slider': ('SettingsSlider', 'SettingsValueLabel'),
     'ui.color_dialog': ('ColorDialog',),
