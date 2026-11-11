@@ -95,7 +95,7 @@ class CaptureTests(unittest.TestCase):
         callback('width', 1920)
         callback('height', 1080)
         callback('container-fps', 60.0)
-        callback('demuxer-cache-bytes', 1024)
+        callback('demuxer-cache-state', {'fw-bytes': 1024, 'private': 'PRIVATE_SECRET'})
         callback('height', float('inf'))
         self.capture.sample()
         row = self.records[-1]['players'][0]
@@ -103,8 +103,8 @@ class CaptureTests(unittest.TestCase):
                                             transport='flv', route='direct-mpv', actual_quality=10000))
         self.assertEqual(row['requested_quality'], 10000)
         self.assertEqual({key: row['properties'][key] for key in
-                          ('width', 'height', 'container-fps', 'demuxer-cache-bytes')},
-                         dict(width=1920, height=1080, **{'container-fps': 60.0, 'demuxer-cache-bytes': 1024}))
+                          ('width', 'height', 'container-fps', 'cache-forward-bytes')},
+                         dict(width=1920, height=1080, **{'container-fps': 60.0, 'cache-forward-bytes': 1024}))
         self.assertNotIn('PRIVATE_', json.dumps(self.records))
         self.assertEqual(set(self.window.players[self.tiles[1]].player.callbacks), set(self.capture.PROPERTIES))
 
@@ -133,6 +133,36 @@ class CaptureTests(unittest.TestCase):
         self.capture.start()
         self.assertEqual(self.records[-1]['players'][0]['source']['host'], 'unknown')
         self.assertNotIn('PRIVATE_', json.dumps(self.records))
+
+    def test_bundled_mpv_supplies_forward_cache_bytes_to_capture(self):
+        import mpv
+        import tempfile
+        import threading
+        import wave
+        player = self.window.players[self.tiles[0]]
+        player.stream_profile = 'douyin'
+        self.capture.start()
+        changed = player.player.callbacks['demuxer-cache-state']
+        ready = threading.Event()
+        def received(name, value):
+            changed(name, value)
+            if isinstance(value, dict) and type(value.get('fw-bytes')) is int:
+                ready.set()
+        core = mpv.MPV(config=False, load_scripts=False, vo='null', ao='null',
+                       idle=True, terminal=False, pause=True, cache='yes')
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'cache.wav'
+                with wave.open(str(path), 'wb') as audio:
+                    audio.setparams((1, 2, 48000, 0, 'NONE', 'not compressed'))
+                    audio.writeframes(b'\0\0' * 48000)
+                core.observe_property('demuxer-cache-state', received)
+                core.play(str(path))
+                self.assertTrue(ready.wait(5), 'Bundled mpv must expose the observed cache byte field')
+                self.capture.sample()
+                self.assertGreaterEqual(self.records[-1]['players'][0]['properties']['cache-forward-bytes'], 0)
+        finally:
+            core.terminate()
 
     def test_relay_metrics_are_numeric_aggregates_and_detach_after_capture(self):
         player = self.window.players[self.tiles[0]]

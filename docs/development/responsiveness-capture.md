@@ -150,4 +150,8 @@ Windows批处理会把未加引号的 `--diagnose-session=drag` 拆为两个参�
 原始数据在本机 `work/test-artifacts/playback-capture/20261110-015954-unknown.json`，整理结果在同目录 `20261110-015954-summary.json`。现场观察进程环境为回环代理、其子进程 Mihomo 运行，但未核对节点身份或规则实际出站，标签保留 unknown，不把内核运行等同于逐连接路由已确认。该正常窗口与用户反馈一致，没有复现此前转圈，不能据此确定历史根因、声称性能已改善或构成与 FlClash 的同条件对比。本轮只增加采样证据与记录，没有改播放参数或业务代码；再出现转圈时使用同一按需入口采集问题时段。
 
 
-2026-11-11，DOUYIN-INPUT-20261111-01：已有同画质本体实播记录出现缓存耗尽、EOF与重连，解码/显示丢帧为零；尚不能区分CDN、传输协议与本机接入。按需采样为抖音补充source字段（选用URL的host、scheme、由扩展名识别的transport、direct-mpv/local-relay路径、actual_quality）及requested_quality，另用原异步观察回调读取width、height、container-fps、demuxer-cache-bytes。只在60秒采样期间启用，重连后重取字段并丢弃旧回调；不记录媒体路径、查询、签名、凭据、房间或账号。host是选用URL的主机，不代表已确认重定向终点或实际出站；扩展名不明确时transport=unknown。其他平台仍观察原九项。监测本身不更改取流选择、代理、缓存或重试，功能回归通过不代表本次卡顿已修复。
+2026-11-11，DOUYIN-INPUT-20261111-01：已有同画质本体实播记录出现缓存耗尽、EOF与重连，解码/显示丢帧为零；尚不能区分CDN、传输协议与本机接入。按需采样为抖音补充source字段（选用URL的host、scheme、由扩展名识别的transport、direct-mpv/local-relay路径、actual_quality）及requested_quality，另用原异步观察回调读取width、height、container-fps、demuxer-cache-state/fw-bytes。只在60秒采样期间启用，重连后重取字段并丢弃旧回调；不记录媒体路径、查询、签名、凭据、房间或账号。host是选用URL的主机，不代表已确认重定向终点或实际出站；扩展名不明确时transport=unknown。其他平台仍观察原九项。监测本身不更改取流选择、代理、缓存或重试，功能回归通过不代表本次卡顿已修复。
+
+实播接入核对发现初版缓存字节字段在本机mpv不可用（返回null），不能当零字节。已改为观察demuxer-cache-state，仅提取fw-bytes为cache-forward-bytes，仍不保留其他map字段；其定义为当前解码位置之后的已缓存包字节估值，见[mpv官方属性说明](https://mpv.io/manual/stable/#command-interface-demuxer-cache-state)。新增随软件libmpv加载本地WAV的功能回归，确认真实回调能取得该字段；不连接直播、不输出音频、不作为性能证据。
+
+本机2026-11-11 20:04:07–20:05:07实际采样（PID44828，playback-capture/20261111-200507-unknown.json）：抖音原画10000，选用pull-flv-l13.douyincdn.com的HTTPS FLV，direct-mpv，1920x1080/60fps；缓存2.667–2.944秒，缓存暂停/EOF/丢帧采样均0。该正常窗口未复现16:49的缓存耗尽，不能据此认定已修复或确定历史CDN/网络根因。此段旧版字节字段不可用，其余新增源/格式字段有效；本轮不为字节字段要求用户再次重启。

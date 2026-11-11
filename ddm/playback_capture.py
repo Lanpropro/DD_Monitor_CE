@@ -13,7 +13,7 @@ class PlaybackCapture(QObject):
     PROPERTIES = ('time-pos', 'audio-pts', 'paused-for-cache', 'demuxer-cache-duration',
                   'cache-speed', 'video-bitrate', 'frame-drop-count',
                   'decoder-frame-drop-count', 'eof-reached')
-    DOUYIN_PROPERTIES = ('width', 'height', 'container-fps', 'demuxer-cache-bytes')
+    DOUYIN_PROPERTIES = ('width', 'height', 'container-fps', 'demuxer-cache-state')
 
     def __init__(self, window, emit, done):
         super().__init__(window)
@@ -104,7 +104,12 @@ class PlaybackCapture(QObject):
         def changed(name, value):
             # The callback runs on mpv's event thread. Never write logs or query
             # properties there; keep only the latest finite numeric value.
-            if name not in properties or not isinstance(value, (int, float, bool, type(None))):
+            if name not in properties:
+                return
+            if name == 'demuxer-cache-state':
+                name = 'cache-forward-bytes'
+                value = value.get('fw-bytes') if isinstance(value, dict) else None
+            if not isinstance(value, (int, float, bool, type(None))):
                 return
             if isinstance(value, (int, float)) and not math.isfinite(value):
                 return
