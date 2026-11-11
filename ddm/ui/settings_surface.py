@@ -102,8 +102,17 @@ class SettingsSurface(QFrame):
             live = getattr(window, '_native_glass', False) or window.property('settingsGlassContent') and blur_available()
             if window.property('settings_glass_enabled') and live:
                 from ..settings_material_paint import glass_tint
-                color = glass_tint(self, color, card=True)
+                color = glass_tint(self, card=True)
             painter.fillPath(path, color)
+            if window.property('settings_glass_enabled') and live:
+                # A small inset highlight gives the translucent group an edge
+                # without making the whole card opaque or shading its bottom.
+                edge = QLinearGradient(rect.topLeft(), rect.bottomRight())
+                edge.setColorAt(0, QColor(255, 255, 255, 87 if theme.is_light() else 15))
+                edge.setColorAt(1, QColor(255, 255, 255, 36 if theme.is_light() else 8))
+                painter.setPen(QPen(edge, 1))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(path)
             return
         backdrop = self._backdrop()
         if backdrop is not None:
