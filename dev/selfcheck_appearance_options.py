@@ -113,6 +113,10 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertEqual(page.theme_editor.values()['appearance_accent'], '#8866ee')
             self.assertEqual(page.theme_editor.values()['appearance_font'], family)
             self.assertEqual(page.theme_editor.font_size.value(), 17)
+            for key in ('settings_glass_enabled', 'settings_segment_motion'):
+                switch = page.material_editor.controls[key]
+                self.assertTrue(switch.isChecked())
+                self.assertEqual(switch._position, 1., 'Reloaded enabled values must also paint as enabled')
             self.assertEqual(page.material_editor.values()['settings_glass_blur'], 13)
             self.assertEqual(page.material_editor.sliders['settings_glass_opacity'][0].value(), 52)
             page.material_editor.card_layout.setCurrentIndex(0)

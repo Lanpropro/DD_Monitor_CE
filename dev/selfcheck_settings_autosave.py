@@ -213,6 +213,33 @@ class AutoSaveTests(unittest.TestCase):
                 dialog.reject()
                 self.assertEqual(window.settings['default_volume'], 17)
                 self.assertEqual(config.load()['settings']['default_volume'], 17)
+                for key in ('settings_glass_enabled', 'settings_segment_motion'):
+                    self.assertTrue(config.load()['settings'][key])
+                import subprocess
+                script = """
+import sys
+from PySide6.QtWidgets import QApplication
+from ddm import config
+from ddm.dialogs import SettingsDialog
+config.CONFIG_PATH = sys.argv[1]
+app = QApplication([])
+values = config.load()['settings']
+window = SettingsDialog({**config.DEFAULT_SETTINGS, **values}, {}, preview=True)
+window.show()
+window.nav.setCurrentRow(1)
+app.processEvents()
+for key in ('settings_glass_enabled', 'settings_segment_motion'):
+    switch = window.appearance_page.material_editor.controls[key]
+    assert values[key] is True and window.property(key) is True
+    assert switch.isChecked() and switch._position == 1., key
+window.close()
+app.shutdown()
+"""
+                result = subprocess.run([sys.executable, '-c', script, config.CONFIG_PATH],
+                                        cwd=Path(__file__).resolve().parents[1],
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
                 reopened = window._create_settings_dialog()
                 self.assertEqual(reopened.general_page.volume_slider.value(), 17)
                 self.assertEqual(reopened.property('settings_glass_opacity'), 55)

@@ -707,6 +707,7 @@ QDialog[settingsGlassWindow="true"] #Search {{border-radius: 17px;}}
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 #SettingsValue {{
     color: {TEXT1};
     font-size: {FONT_CONTROL}px;

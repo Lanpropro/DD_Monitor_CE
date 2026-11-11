@@ -23,6 +23,12 @@ class ToggleSwitch(QCheckBox):
         self.toggled.connect(self._retarget)
         theme.signals().changed.connect(self.update)
 
+    def setChecked(self, checked):
+        super().setChecked(checked)
+        if self.signalsBlocked():
+            # Loading a saved value suppresses business signals, not its paint state.
+            self._retarget(self.isChecked())
+
     def _set_position(self, value):
         self._position = float(value)
         self.update()
