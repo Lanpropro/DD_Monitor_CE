@@ -127,6 +127,7 @@ DEFAULT_SETTINGS = {
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
     "danmaku_retention_version": 1,  # 旧版默认 300 条的一次性升级标记
+    "danmaku_blocked_users": [],  # {platform, uid, uname}; platform-scoped user blocks
     "danmaku_block_words": [],  # 屏蔽词：弹幕里包含这些词就不显示
     "video_danmaku_size": 28,
     "video_danmaku_speed": 100,

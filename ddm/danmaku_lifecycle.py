@@ -133,8 +133,10 @@ class DanmakuLifecycle:
         if source is not None and host._super_chat_snapshots.get(room_id) is not source:
             return
         store = host._super_chats.setdefault(room_id, SuperChatStore())
+        from .danmaku_filter import event_blocked
         for event in events:
-            store.upsert(event)
+            if not event_blocked(event, room_id, host.settings):
+                store.upsert(event)
         host._publish_super_chats(room_id)
 
     def _on_super_chat_snapshot_finished(self, room_id: str, source) -> None:

@@ -242,6 +242,7 @@ class _Handler(_HandlerBase):
         emotes = emotes if isinstance(emotes, dict) else {}
         self._emit({
             "kind": "danmaku",
+            "uid": str(getattr(message, 'uid', '') or ''),
             "uname": message.uname,
             "text": message.msg,
             "dm_type": message.dm_type,
@@ -257,6 +258,7 @@ class _Handler(_HandlerBase):
     def _on_gift(self, client, message):
         self._emit({
             "kind": "gift",
+            "uid": str(getattr(message, 'uid', '') or ''),
             "uname": message.uname,
             "text": f"投喂 {message.gift_name} ×{message.num}",
         })
@@ -264,6 +266,7 @@ class _Handler(_HandlerBase):
     def _on_buy_guard(self, client, message):
         self._emit({
             "kind": "guard",
+            "uid": str(getattr(message, 'uid', '') or ''),
             "uname": message.username,
             "text": f"开通了 {message.gift_name}",
         })

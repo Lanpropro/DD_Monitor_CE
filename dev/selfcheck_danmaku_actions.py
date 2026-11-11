@@ -83,7 +83,7 @@ class ActionsTests(unittest.TestCase):
     def choose(self, index, before=None):
         class TestMenu(danmaku_actions.CommentToolbar):
             def popup(menu, _position):
-                self.assertEqual([a.text() for a in menu.command_actions], ['复制', '+1'])
+                self.assertEqual([a.text() for a in menu.command_actions], ['复制', '+1', '屏蔽弹幕', '屏蔽用户'])
                 if before:
                     before(menu)
                 menu.command_actions[index].trigger()

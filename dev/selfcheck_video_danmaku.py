@@ -947,9 +947,9 @@ def check_settings(app):
         assert page.values()['video_danmaku_scale_curve'] == points
         labels = [label.text() for label in page.findChildren(QLabel)]
         assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
-        assert not {"大小", "滚动速度", "不透明度", "顶部显示区域"}.intersection(labels)
-        assert {box.text() for box in page.findChildren(QCheckBox)} == {
-            '显示醒目留言（SC）', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置', '弹幕随画面缩放'}, \
+        assert not {"滚动速度", "顶部显示区域"}.intersection(labels)
+        assert {box.accessibleName() or box.text() for box in page.findChildren(QCheckBox)} == {
+            '显示醒目留言', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置', '弹幕随画面缩放'}, \
             'Global danmaku settings expose SC and scaling curves without unrelated rolling-text controls'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)

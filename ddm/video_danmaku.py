@@ -845,6 +845,21 @@ class VideoDanmaku(QWidget):
                 refresh_mask()
         self.update()
 
+    def filter_events(self, allowed):
+        kept = []
+        for comment in self.comments:
+            if allowed(comment.event):
+                kept.append(comment)
+            else:
+                if self._hovered is comment:
+                    self._set_hover(None)
+                if self._quick_layer is not None and self._quick_group is not None:
+                    self._quick_layer.remove(comment.render_id)
+        self.comments = kept
+        self._pending_comments = {key: value for key, value in self._pending_comments.items() if allowed(value[-1])}
+        self._set_quick_active()
+        self.update()
+
     def clear_comments(self) -> None:
         self._comment_resize_timer.stop()
         self._stop_timer()

@@ -98,7 +98,8 @@ def youtube_events(data):
         item = action.get("addChatItemAction", {}).get("item", {}).get("liveChatTextMessageRenderer", {})
         text = text_runs(item.get("message", {}))
         if text and item.get("id"):
-            yield item["id"], {"kind": "danmaku", "uname": text_runs(item.get("authorName", {})), "text": text}
+            yield item["id"], {"kind": "danmaku", "uid": str(item.get('authorExternalChannelId') or ''),
+                              "uname": text_runs(item.get("authorName", {})), "text": text}
 
 
 class GlobalDanmakuClient(LiveDanmakuClient):
@@ -153,6 +154,7 @@ class GlobalDanmakuClient(LiveDanmakuClient):
                         connected = True
                     elif command == "PRIVMSG" and params == [channel] and tail:
                         self._emit_once(tags.get("id", ""), {"kind": "danmaku",
+                            "uid": tags.get('user-id', ''),
                             "uname": tags.get("display-name") or prefix.split("!", 1)[0], "text": tail})
                     elif command in ("RECONNECT", "464") or (command == "NOTICE" and
                             tags.get("msg-id") in ("msg_channel_suspended", "msg_banned", "msg_room_not_found")):

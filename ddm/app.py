@@ -182,6 +182,8 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        from .danmaku_blocking import DanmakuBlocking
+        self.danmaku_blocking = DanmakuBlocking(self)
         if "video_danmaku_outline" in saved_settings:
             self.settings["video_danmaku_outline_width"] = (
                 saved_settings.get("video_danmaku_outline_width", 2)
@@ -1028,6 +1030,7 @@ class MainWindow(QMainWindow):
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
             if key == 'danmaku':
+                widget.sync_blocking(self.settings)
                 widget.super_chat_placement.set_preview_context(self._sc_preview_context())
             elif key == 'plugins':
                 widget.store_page.offersChanged.connect(self._set_plugin_updates)
@@ -2688,6 +2691,7 @@ class MainWindow(QMainWindow):
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
     def _wire_tile(self, tile) -> None:
+        tile._danmaku_blocking = self.danmaku_blocking
         if hasattr(self, 'plugins'):
             self.plugins.attach_tile(tile)
         # 格子创建时接线一次；之后填入或替换房间不再重复连接。
@@ -3353,6 +3357,7 @@ class MainWindow(QMainWindow):
         self.sync_danmaku()
 
     def _connect_danmaku_panel(self, panel):
+        panel._danmaku_blocking = self.danmaku_blocking
         panel.apply_style(str(self.settings.get('danmaku_font') or ''),
                           int(self.settings.get('danmaku_font_size') or 13))
         panel.set_max_blocks(int(self.settings.get('danmaku_max_blocks') or 3000))
@@ -3444,6 +3449,7 @@ class MainWindow(QMainWindow):
             panel.apply_super_chat_settings(self.settings)
         for tile in self.wall.tiles:
             tile.apply_video_danmaku_settings(self.settings)
+        self.danmaku_blocking.apply()
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
@@ -3470,12 +3476,8 @@ class MainWindow(QMainWindow):
 
     def _danmaku_blocked(self, text: str) -> bool:
         """命中屏蔽词就不显示这条弹幕（大小写不敏感）。"""
-        words = [str(word).strip() for word in (self.settings.get("danmaku_block_words") or [])]
-        words = [word for word in words if word]
-        if not words:
-            return False
-        lowered = str(text).lower()
-        return any(word.lower() in lowered for word in words)
+        from .danmaku_filter import text_blocked
+        return text_blocked(text, self.settings.get('danmaku_block_words'))
 
     def _on_danmaku_message(self, source, event: dict) -> None:
         room_id = next((rid for rid, client in self._danmaku_clients.items()
@@ -3483,8 +3485,10 @@ class MainWindow(QMainWindow):
         if self._closing or not room_id:
             return                         # 已切换房间，忽略旧线程排队中的消息
         kind = event.get("kind") or "danmaku"
-        if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
+        from .danmaku_filter import event_blocked, platform_name
+        if event_blocked(event, room_id, self.settings):
             return
+        event = dict(event, platform=platform_name(room_id), room_id=room_id)
         if kind == "super_chat":
             store = self._super_chats.setdefault(room_id, SuperChatStore())
             event = store.upsert(event)
@@ -3519,6 +3523,8 @@ class MainWindow(QMainWindow):
     def _publish_super_chats(self, room_id: str) -> None:
         store = self._super_chats.get(room_id)
         chats = store.active() if store is not None else []
+        from .danmaku_filter import event_blocked
+        chats = [chat for chat in chats if not event_blocked(chat, room_id, self.settings)]
         for tile in self.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.video_danmaku.set_super_chats(chats)

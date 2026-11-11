@@ -774,6 +774,12 @@ class DanmakuPanel(QFrame):
             self.roomDropped.emit(source)
 
     # ---- 内容 ----
+    def filter_events(self, allowed):
+        kept = [event for event in self._blocks if allowed(event)]
+        if len(kept) != len(self._blocks):
+            self._blocks = kept
+            self._render_all()
+
     def _message_clicked(self, index, position):
         if not 0 <= index < len(self._blocks):
             return
@@ -843,6 +849,10 @@ class DanmakuPanel(QFrame):
     def add_event(self, event: dict) -> None:
         """一条消息：带粉丝牌、表情（表情图下好之后会补上）。"""
         entry = {
+            "kind": event.get('kind') or 'danmaku',
+            "uid": event.get('uid') or event.get('user_id') or event.get('author_id') or '',
+            "platform": event.get('platform') or '',
+            "room_id": event.get('room_id') or '',
             "uname": event.get("uname") or "",
             "text": event.get("text") or "",
             "color": event.get("color") or self.KIND_COLORS.get(

@@ -150,6 +150,7 @@
 - `dev/selfcheck_danmaku_limit_settings.py`
 - `dev/selfcheck_danmaku_menu.py`
 - `dev/selfcheck_danmaku_actions.py`
+- `dev/selfcheck_danmaku_blocking.py`
 - `dev/selfcheck_danmaku_render_thread.py`
 - `dev/selfcheck_danmaku_retention.py`
 - `dev/selfcheck_danmaku_room_switches.py`

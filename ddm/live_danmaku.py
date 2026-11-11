@@ -128,7 +128,7 @@ def huya_events(data):
             user = notice.get(0, {})
             text = notice.get(3, "")
             if text:
-                events.append({"kind": "danmaku", "uname": user.get(2, ""), "text": text})
+                events.append({"kind": "danmaku", "uid": str(user.get(0) or ''), "uname": user.get(2, ""), "text": text})
     return kind, events
 
 
@@ -353,7 +353,7 @@ class LiveDanmakuClient(QThread):
                     elif data.get("type") == "error":
                         raise ValueError("Douyu server rejected subscription")
                     elif data.get("type") == "chatmsg" and data.get("txt"):
-                        self.message.emit({"kind": "danmaku", "uname": data.get("nn", ""),
+                        self.message.emit({"kind": "danmaku", "uid": str(data.get('uid') or ''), "uname": data.get("nn", ""),
                                            "text": data["txt"]})
         finally:
             writer.close()

@@ -362,7 +362,7 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_danmaku_sc_options_share_one_card_with_the_preview(self):
         page = self.page(2)
         self.assertEqual([key for key, _card, _wide in page.sections.entries],
-                         ['font_filter', 'danmaku_curve', 'sc_placement'])
+                         ['font_filter', 'danmaku_curve', 'blocking', 'sc_placement'])
         card = page.sections.section('sc_placement')
         for control in (page.super_chat_enabled, page.super_chat_opacity,
                         page.super_chat_collapse_stepper, page.super_chat_scale,
