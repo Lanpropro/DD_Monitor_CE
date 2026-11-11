@@ -2,7 +2,7 @@
 
 DEFAULTS = {
     'settings_glass_enabled': False,
-    'settings_glass_blur': 24,
+    'settings_glass_blur': 24,  # Legacy image radius; live compositor blur is system-managed.
     'settings_glass_opacity': 70,
     'settings_no_shadows': False,
     'settings_segment_motion': False,

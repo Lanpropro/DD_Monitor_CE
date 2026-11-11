@@ -93,7 +93,6 @@ class AppearanceSettingsPage(QWidget):
             from pathlib import Path
             from . import config
             values['settings_backdrop_path'] = str(Path(config.data_root()) / self.skin_settings.path) if self.skin_settings.path else ''
-        self.material_editor.set_background(values['settings_backdrop_path'])
         self.materialChanged.emit(values)
 
     def showEvent(self, event):

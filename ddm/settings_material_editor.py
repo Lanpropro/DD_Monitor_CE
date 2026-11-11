@@ -18,8 +18,6 @@ class SettingsMaterialEditor(SettingsSurface):
         title.setObjectName('SettingsSectionTitle')
         layout.addWidget(title)
         self.controls = {}
-        self._background_path = ''
-        self._background_ready = False
         self.glass_parameters = QWidget(self)
         parameters = QVBoxLayout(self.glass_parameters)
         parameters.setContentsMargins(18, 0, 0, 4)
@@ -32,7 +30,7 @@ class SettingsMaterialEditor(SettingsSurface):
         self.background_status.setWordWrap(True)
         parameters.addWidget(self.background_status)
         entries = (
-            ('settings_glass_enabled', '启用毛玻璃效果', '使用图片背景的模糊材质，下方参数仅在开启时生效。'),
+            ('settings_glass_enabled', '启用毛玻璃效果', '实时模糊设置窗口背后的内容；底色不透明度仅在开启时生效。'),
             ('settings_segment_motion', '滑动分段指示器', '鼠标切换时滑动选中底片，系统关闭动画时直接切换。'),
             ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
         )
@@ -57,8 +55,7 @@ class SettingsMaterialEditor(SettingsSurface):
                 layout.addWidget(self.glass_parameters)
         self.sliders = {}
         for key, label, minimum, maximum in (
-                ('settings_glass_blur', '模糊强度', 0, 40),
-                ('settings_glass_opacity', '底色不透明度', 0, 100)):
+                ('settings_glass_opacity', '底色不透明度', 0, 100),):
             row = QHBoxLayout()
             row.addWidget(QLabel(label), 1)
             slider = SettingsSlider()
@@ -111,18 +108,9 @@ class SettingsMaterialEditor(SettingsSurface):
         for slider, label in self.sliders.values():
             slider.setEnabled(self.controls['settings_glass_enabled'].isChecked())
             label.setEnabled(slider.isEnabled())
-        self.background_status.setText('毛玻璃背景：' + self._background_path + '。仅影响设置窗口。'
-            if self._background_ready else '尚无可用图片背景，当前使用纯色。请在下方导入图片，或为设置页选择图片。')
-
-    def set_background(self, path):
-        from pathlib import Path
-        from .skin_parts import values_for
-        from .skin_settings import _background_name
-        from .skins import IMAGES
-        source = values_for('settings').get('image') or path or ''
-        self._background_ready = Path(source).is_file() and Path(source).suffix.lower() in IMAGES
-        self._background_path = _background_name(source)
-        self._sync_enabled()
+        from .settings_backdrop import blur_available
+        self.background_status.setText('显示窗口背后的实时内容；模糊程度由 Windows 控制，仅影响设置窗口。'
+            if blur_available() else '当前平台不支持系统毛玻璃，将使用纯色底板。')
 
     def reset(self):
         self.set_values(DEFAULTS)

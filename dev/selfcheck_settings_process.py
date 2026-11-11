@@ -62,8 +62,7 @@ def child(action):
                     page.super_chat_position_sync.click()
                     assert page.super_chat_placement.position_sync
                 assert page.super_chat_placement.preview_context['panel']['size'] == [800, 450]
-                assert page.super_chat_collapse_delay.suffix() == ''
-                assert page.super_chat_collapse_unit.text() == '秒'
+                assert page.super_chat_collapse_delay.suffix() == ' 秒'
                 page.super_chat_opacity.setValue(45)
                 assert page.super_chat_placement.opacity == 45
                 assert 'sc_preview_frame' not in self.settings()
@@ -176,6 +175,7 @@ def child(action):
                                              round(self.host_container.width() * scale), round(self.host_container.height() * scale)]
                 print(settings_process.PREFIX + json.dumps({
                     'kind': 'shell', 'index': index, 'hwnd': int(self.winId()),
+                    'glass': self._native_glass,
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
                 QTimer.singleShot(50, self.step)
@@ -649,6 +649,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
             window = host.MainWindow([], [], layout_id='1x1', state={
                 'plugins_enabled': [], 'settings': {'seen_update_versions': {'app': '0.5.1'},
                                                    'close_behavior': 'exit',
+                                                   'settings_glass_enabled': action == 'embed-appearance',
                                                    'appearance_mode': 'light' if action == 'embed-cancel' else 'dark',
                                                    'sidebar_platform_logos': not action.startswith('logos-')}})
         plugin_saves = {}
@@ -736,6 +737,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert int(session.stack.windowHandle().parent().winId()) == message['hwnd'], 'Host Qt must retain the worker parent across repaints'
                 assert session.stack.width() > 400 and session.stack.height() > 300, (session.stack.width(), session.stack.height(), message)
                 assert message['embedded']
+                if action == 'embed-appearance':
+                    assert message['glass'], 'Worker must use live composition blur while host pages are embedded'
+                    assert session.stack.property('settings_glass_enabled')
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
                     if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):

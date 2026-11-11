@@ -105,11 +105,36 @@ assert not any(name in sys.modules for name in (
         finally:
             theme.apply('dark')
 
-    def test_settings_cards_keep_uniform_fill_and_separate_outer_shadow(self):
+    def test_live_card_shadow_does_not_tint_its_translucent_fill(self):
         from ddm.settings_window import SettingsWindow
         window = SettingsWindow()
         window.setAttribute(Qt.WA_DontShowOnScreen)
         window.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 0})
+        window.resize(360, 270)
+        card = ui.SettingsSurface(window)
+        card.setGeometry(24, 80, 300, 160)
+        try:
+            with patch('ddm.settings_window.apply_blur', return_value=True):
+                window.show()
+                self.app.processEvents()
+                colors = []
+                for disabled in (False, True):
+                    window.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 0,
+                                         'settings_no_shadows': disabled})
+                    surface = card.grab().toImage()
+                    colors.append(surface.pixelColor(surface.width() // 2, surface.height() // 2))
+                self.assertEqual(colors[0], colors[1], 'Only the outside shadow changes')
+                self.assertTrue(window._native_glass)
+        finally:
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_settings_cards_keep_uniform_fill_and_separate_outer_shadow(self):
+        from ddm.settings_window import SettingsWindow
+        window = SettingsWindow()
+        window.setAttribute(Qt.WA_DontShowOnScreen)
+        window.set_material({'settings_glass_enabled': False, 'settings_glass_opacity': 0})
         card = ui.SettingsSurface(window)
         card.setGeometry(24, 80, 300, 160)
         window.resize(360, 270)
@@ -559,6 +584,23 @@ for before, component, after in (
         finally:
             root.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_font_selector_preserves_family_api_and_emits_edits(self):
+        from PySide6.QtGui import QFont
+        from PySide6.QtTest import QSignalSpy
+        from ddm.ui import FontSelectControl, SelectControl
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=['Arial', 'Consolas']):
+            control = FontSelectControl()
+        try:
+            self.assertIsInstance(control, SelectControl)
+            self.assertGreater(control.count(), 0)
+            spy = QSignalSpy(control.currentFontChanged)
+            family = control.itemText(control.count() - 1)
+            control.setCurrentFont(QFont(family))
+            self.assertEqual(control.currentFont().family(), family)
+            self.assertGreater(spy.count(), 0)
+        finally:
+            control.deleteLater()
 
     def test_select_popup_keeps_layout_and_native_keyboard_commit_cancel(self):
         parent = QWidget()

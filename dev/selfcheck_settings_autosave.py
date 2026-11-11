@@ -106,6 +106,33 @@ class AutoSaveTests(unittest.TestCase):
         self.dialog.reset_button.click()
         self.assertEqual(self.requests[-1], {'settings': {'default_volume': 40}})
 
+    def test_danmaku_shared_controls_trigger_autosave_and_reopen(self):
+        from PySide6.QtGui import QFont
+        self.dialog.nav.setCurrentRow(2)
+        APP.processEvents()
+        self.dialog.auto_save.flush()
+        page = self.dialog.danmaku_page
+        page.font_box.setCurrentFont(QFont('Consolas'))
+        page.size_spin.setValue(18)
+        page.super_chat_collapse_delay.setValue(12)
+        page.super_chat_enabled.setChecked(False)
+        page.block_edit.setPlainText('fixture\nsecond')
+        self.assertTrue(self.dialog.auto_save.timer.isActive())
+        self.dialog.auto_save.flush()
+        changes = self.requests[-1]['settings']
+        self.assertEqual(changes['danmaku_font'], 'Consolas')
+        self.assertEqual(changes['danmaku_font_size'], 18)
+        self.assertEqual(changes['super_chat_collapse_delay'], 12)
+        self.assertFalse(changes['super_chat_enabled'])
+        self.assertEqual(changes['danmaku_block_words'], ['fixture', 'second'])
+        reopened = SettingsDialog({**config.DEFAULT_SETTINGS, **changes}, {}, preview=True)
+        try:
+            reopened.nav.setCurrentRow(2)
+            restored = reopened.danmaku_page.values()
+            self.assertTrue(all(restored[key] == value for key, value in changes.items()))
+        finally:
+            reopened.deleteLater()
+
     def test_preview_placeholder_pages_keep_explicit_actions_hidden(self):
         self.dialog.auto_save.active = False
         for index in (7, 8, 0):

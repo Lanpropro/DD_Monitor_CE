@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, Qt
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QFrame, QGraphicsBlurEffect, QGraphicsPixmapItem, QGraphicsScene
 
 from .. import theme
@@ -88,13 +88,22 @@ class SettingsSurface(QFrame):
             rect = QRectF(self.rect()).adjusted(3, 2, -3, -7)
             path = continuous_path(rect, theme.RADIUS_LG)
             if shadows_enabled(self):
+                painter.save()
+                outside = QPainterPath()
+                outside.addRect(QRectF(self.rect()))
+                painter.setClipPath(outside.subtracted(path))
                 for spread, alpha in ((5, 1), (4, 2), (3, 3), (2, 4), (1, 6), (0, 8)):
                     shadow = rect.adjusted(-spread, -spread, spread, spread).translated(0, 3)
                     painter.fillPath(continuous_path(shadow, theme.RADIUS_LG + spread), QColor(0, 0, 0, alpha))
-            painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
-            if self.window().property('settings_glass_enabled'):
-                from ..settings_material_paint import paint_backdrop
-                paint_backdrop(painter, self, path, theme.qcolor(base_color(self, 'card', theme.CONTENT)), card=True)
+                painter.restore()
+            color = theme.qcolor(base_color(self, 'card', theme.CONTENT))
+            from ..settings_backdrop import blur_available
+            window = self.window()
+            live = getattr(window, '_native_glass', False) or window.property('settingsGlassContent') and blur_available()
+            if window.property('settings_glass_enabled') and live:
+                from ..settings_material_paint import glass_tint
+                color = glass_tint(self, color, card=True)
+            painter.fillPath(path, color)
             return
         backdrop = self._backdrop()
         if backdrop is not None:

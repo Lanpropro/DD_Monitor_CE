@@ -396,7 +396,7 @@ class SettingsLayoutTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_glass_keeps_native_backdrop_disabled(self):
+    def test_glass_uses_composition_blur_without_changing_native_backdrop(self):
         from ddm.window_fullscreen import _dwm_get
         hwnd = int(self.dialog.winId())
         for enabled in (True, False, True):
@@ -404,6 +404,8 @@ class SettingsLayoutTests(unittest.TestCase):
             settle()
             self.assertEqual(self.dialog.property('settings_glass_enabled'), enabled)
             self.assertEqual(_dwm_get(hwnd, 38), 1)
+            self.assertEqual(self.dialog._native_glass, enabled)
+            self.assertEqual(self.dialog._blur_state, (hwnd, enabled))
             self.assertTrue(self.dialog.isVisible())
             self.assertEqual(int(self.dialog.winId()), hwnd)
 
@@ -412,7 +414,7 @@ class SettingsLayoutTests(unittest.TestCase):
         from ddm.settings_window import SettingsWindow
         shell = SettingsWindow()
         shell.resize(240, 180)
-        shell.set_material(dict(settings_glass_enabled=True, settings_glass_opacity=0))
+        shell.set_material(dict(settings_glass_enabled=False, settings_glass_opacity=0))
         try:
             with patch('ddm.settings_window.apply_frame', return_value=True), \
                     patch('ddm.skin_parts.values_for', return_value={}):
@@ -530,19 +532,63 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             theme.apply('dark')
 
-    def test_sc_curve_and_preview_share_a_row_with_display_controls_below(self):
+    def test_danmaku_uses_shared_controls_and_responsive_preview_panels(self):
+        from ddm.ui import FontSelectControl, SegmentedControl, StepperControl, ToggleSwitch
         page = self.page(2)
-        left, right, display = [page.sections.section(key) for key in
-                                ('sc_curve', 'sc_placement', 'sc_display')]
-        self.assertEqual(left.y(), right.y())
-        self.assertGreater(display.y(), left.geometry().bottom())
-        self.assertGreater(display.width(), left.width() * 1.9)
+        self.assertIsInstance(page.font_box, FontSelectControl)
+        self.assertIsInstance(page.super_chat_layout_control, SegmentedControl)
+        for control in (page.super_chat_enabled, page.super_chat_scale_with_video,
+                        page.super_chat_position_sync, page.video_danmaku_scale):
+            self.assertIsInstance(control, ToggleSwitch)
+        for control in (page.size_stepper, page.keep_stepper, page.super_chat_collapse_stepper):
+            self.assertIsInstance(control, StepperControl)
+            self.assertEqual(control.width(), theme.SETTINGS_STEPPER_WIDTH)
+        page.super_chat_collapse_delay.setValue(12)
+        page.keep_spin.setValue(500)
         points = [[0, .5], [1, 1], [2, 1.4]]
         page.super_chat_scale_curve.set_curve(points)
         page.super_chat_scale_curve.curveChanged.emit(points)
-        self.assertEqual(page.super_chat_placement.scale_curve, points)
-        self.assertEqual(self.dialog.settings()['super_chat_scale_curve'], points)
-        self.assertIs(page.super_chat_placement.parentWidget(), right)
+        for width, columns in ((1200, 2), (760, 1), (1200, 2)):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertEqual(page.sc_columns.columns, columns)
+            self.assertEqual(page.video_columns.columns, columns)
+            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+            self.assertTrue(page.sc_preview.isAncestorOf(page.super_chat_placement))
+            self.assertTrue(page.sc_parameters.isAncestorOf(page.super_chat_scale_curve))
+            self.assertEqual(page.values()['super_chat_collapse_delay'], 12)
+            self.assertEqual(page.values()['danmaku_max_blocks'], 500)
+            self.assertEqual(page.super_chat_placement.scale_curve, points)
+            self.assertEqual(page.values()['super_chat_scale_curve'], points)
+        page.super_chat_layout_control.buttons['panel'].click()
+        self.assertEqual(page.super_chat_placement.layout_mode, 'panel')
+        self.dialog._reset_current()
+        self.assertEqual(page.values()['super_chat_collapse_delay'], config.DEFAULT_SETTINGS['super_chat_collapse_delay'])
+
+    def test_danmaku_large_font_and_single_column_keep_controls_in_bounds(self):
+        page = self.page(2)
+        before = page.values()
+        try:
+            theme.configure_appearance({'appearance_font_size': 20})
+            theme.apply('light')
+            self.dialog.setStyleSheet(theme.qss())
+            self.dialog.set_material({'settings_card_layout': 'vertical'})
+            for width in (760, 1200):
+                self.dialog.resize(width, 850)
+                settle()
+                self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                self.assertEqual(page.sections.columns, 1)
+                self.assertEqual(page.values(), before)
+                from ddm.ui import SettingsValueLabel
+                for label in page.findChildren(SettingsValueLabel):
+                    self.assertGreaterEqual(label.width(), label.fontMetrics().horizontalAdvance(label.text()))
+                graph = page.video_danmaku_scale_curve.graph
+                self.assertGreaterEqual(graph.plot_rect().left() - 8, graph.fontMetrics().horizontalAdvance('200%'))
+                for _name, card, _wide in page.sections.entries:
+                    self.assertLessEqual(card.geometry().right(), page.sections.width())
+        finally:
+            theme.configure_appearance({'appearance_font_size': 13})
+            theme.apply('dark')
 
     def test_recording_state_and_shortcuts_survive_column_changes(self):
         page = self.page(3)

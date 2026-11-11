@@ -81,7 +81,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             material = page.material_editor
             material.controls['settings_glass_enabled'].setChecked(True)
             material.controls['settings_segment_motion'].setChecked(True)
-            material.sliders['settings_glass_blur'][0].setValue(13)
+            material.set_values({**material.values(), 'settings_glass_blur': 13})
             material.sliders['settings_glass_opacity'][0].setValue(52)
             material.card_layout.setCurrentIndex(1)
             settle()
@@ -113,7 +113,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertEqual(page.theme_editor.values()['appearance_accent'], '#8866ee')
             self.assertEqual(page.theme_editor.values()['appearance_font'], family)
             self.assertEqual(page.theme_editor.font_size.value(), 17)
-            self.assertEqual(page.material_editor.sliders['settings_glass_blur'][0].value(), 13)
+            self.assertEqual(page.material_editor.values()['settings_glass_blur'], 13)
             self.assertEqual(page.material_editor.sliders['settings_glass_opacity'][0].value(), 52)
             page.material_editor.card_layout.setCurrentIndex(0)
             settle()
@@ -121,35 +121,35 @@ class AppearanceOptionsTests(unittest.TestCase):
         finally:
             dispose(reopened)
 
-    def test_static_glass_changes_pixels_and_keeps_window_identity(self):
+    def test_live_glass_uses_alpha_not_wallpaper_and_keeps_window_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'wallpaper.png'
-            image = QImage(400, 240, QImage.Format_RGB32)
-            image.fill(QColor('#0640cc'))
-            painter = QPainter(image)
-            painter.fillRect(200, 0, 200, 240, QColor('#ffb020'))
-            painter.end()
+            image = QImage(200, 200, QImage.Format_RGB32)
+            image.fill(QColor('red'))
             image.save(str(path))
             window = SettingsWindow()
             window.resize(400, 240)
-            card = SettingsSection('Fixture')
-            window.body_layout.addWidget(card)
             window.show()
             try:
                 hwnd = int(window.winId())
-                samples = []
                 for mode in ('dark', 'light'):
                     theme.apply(mode)
-                    for enabled, opacity, blur in ((False, 70, 0), (True, 20, 0), (True, 20, 30), (True, 90, 30)):
-                        window.set_material(dict(settings_glass_enabled=enabled, settings_glass_opacity=opacity,
-                                                 settings_glass_blur=blur, settings_backdrop_path=str(path)))
-                        samples.append(window.grab().toImage())
-                        self.assertEqual(int(window.winId()), hwnd)
-                        self.assertTrue(window.isVisible())
-                        self.assertEqual(window.windowOpacity(), 1)
-                    self.assertNotEqual(samples[-4], samples[-3])
-                    self.assertNotEqual(samples[-3].pixelColor(199, 180), samples[-2].pixelColor(199, 180))
-                    self.assertNotEqual(samples[-2], samples[-1])
+                    with patch('ddm.settings_window.apply_blur', return_value=True):
+                        window.set_material(dict(settings_glass_enabled=True, settings_glass_opacity=20,
+                                                 settings_backdrop_path=str(path)))
+                        surface = window.grab().toImage()
+                        color = surface.pixelColor(surface.width() // 2, surface.height() // 2)
+                        self.assertAlmostEqual(color.alpha(), 51, delta=1)
+                        self.assertNotEqual(color.name(), '#ff0000')
+                        window.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 80})
+                        opaque = window.grab().toImage()
+                        self.assertGreater(opaque.pixelColor(200, 180).alpha(), color.alpha())
+                    with patch('ddm.settings_window.apply_blur', return_value=False):
+                        window.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 0})
+                        self.assertEqual(window.grab().toImage().pixelColor(200, 180).alpha(), 255)
+                    self.assertEqual(int(window.winId()), hwnd)
+                    self.assertTrue(window.isVisible())
+                    self.assertEqual(window.windowOpacity(), 1)
             finally:
                 dispose(window)
 
@@ -293,16 +293,13 @@ class AppearanceOptionsTests(unittest.TestCase):
             for slider, _label in editor.sliders.values():
                 self.assertTrue(editor.glass_parameters.isAncestorOf(slider))
                 self.assertFalse(slider.isEnabled())
-            self.assertIn('尚无可用图片', editor.background_status.text())
+            self.assertNotIn('settings_glass_blur', editor.sliders)
+            self.assertIn('当前平台不支持', editor.background_status.text())
             editor.controls['settings_glass_enabled'].setChecked(True)
             self.assertTrue(all(slider.isEnabled() for slider, _label in editor.sliders.values()))
-            with tempfile.TemporaryDirectory() as directory:
-                path = Path(directory) / 'fixture.png'
-                image = QImage(32, 32, QImage.Format_RGB32)
-                image.fill(QColor('blue'))
-                image.save(str(path))
-                editor.set_background(str(path))
-                self.assertIn('fixture.png', editor.background_status.text())
+            with patch('ddm.settings_backdrop.blur_available', return_value=True):
+                editor._sync_enabled()
+                self.assertIn('背后的实时内容', editor.background_status.text())
         finally:
             dispose(dialog)
 

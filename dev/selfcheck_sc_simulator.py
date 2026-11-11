@@ -280,12 +280,8 @@ class SimulatorTests(unittest.TestCase):
         self.assertFalse(hasattr(preview, 'frame'))
         self.assertLessEqual(page.super_chat_opacity.width(), 240)
         self.assertLessEqual(page.super_chat_scale.width(), 240)
-        self.assertLessEqual(page.super_chat_collapse_delay.width(), 160)
-        self.assertEqual(page.super_chat_collapse_delay.suffix(), '')
-        self.assertNotIn('秒', page.super_chat_collapse_delay.text())
-        self.assertEqual(page.super_chat_collapse_unit.text(), '秒')
-        self.assertGreaterEqual(page.super_chat_collapse_unit.x(),
-                                page.super_chat_collapse_delay.x() + page.super_chat_collapse_delay.width())
+        self.assertEqual(page.super_chat_collapse_stepper.width(), theme.SETTINGS_STEPPER_WIDTH)
+        self.assertEqual(page.super_chat_collapse_delay.suffix(), ' 秒')
         self.assertLess(page.super_chat_opacity.width(), preview.width())
         self.assertTrue(preview.rect().contains(preview.video_rect().toAlignedRect()))
         video_size = preview.preview_context['video']['size']
@@ -293,7 +289,7 @@ class SimulatorTests(unittest.TestCase):
                                video_size[0] / video_size[1])
         for index in (0, 1):
             button = page.super_chat_preview_layout.button(index)
-            self.assertEqual(button.objectName(), 'AppearanceChoice')
+            self.assertIs(button, list(page.super_chat_layout_control.buttons.values())[index])
             button.click()
             self.assertTrue(button.isChecked())
             self.assertFalse(page.super_chat_preview_layout.button(1 - index).isChecked())

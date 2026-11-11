@@ -1,6 +1,6 @@
 """Shared compact selector using Qt's model, popup placement and input handling."""
-from PySide6.QtCore import QRectF, QSize, Qt
-from PySide6.QtGui import QPainter, QPainterPath, QPen
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QFont, QFontDatabase, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QComboBox, QFrame, QListView, QSizePolicy, QStyle, QStyledItemDelegate
 
 from .. import theme
@@ -104,3 +104,23 @@ class SelectControl(QComboBox):
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if opened else theme.TEXT3), 1.8,
                             Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawPath(arrow)
+
+
+class FontSelectControl(SelectControl):
+    """Installed font families with the same compact surface and popup as settings."""
+    currentFontChanged = Signal(QFont)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.addItems(QFontDatabase.families())
+        self.currentTextChanged.connect(lambda family: self.currentFontChanged.emit(QFont(family)))
+
+    def currentFont(self):
+        return QFont(self.currentText())
+
+    def setCurrentFont(self, font):
+        index = self.findText(font.family(), Qt.MatchFixedString)
+        if index < 0:
+            self.addItem(font.family())
+            index = self.count() - 1
+        self.setCurrentIndex(index)
