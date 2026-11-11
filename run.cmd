@@ -176,6 +176,8 @@ exit /b %errorlevel%
 
 :qtLogCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_logging
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_qt_log
 exit /b %errorlevel%
 

@@ -72,7 +72,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
 | [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台消息；字体库info原生过滤、并发回调、warning与fatal保留 |
-| [selfcheck_logging](../selfcheck_logging.py) | `offline`；临时日志、脱敏、轮转、启动失败与线程异常 |
+| [selfcheck_logging](../selfcheck_logging.py) | `offline`；临时日志、脱敏、轮转失败与并发 stderr 锁顺序、启动失败与线程异常；根 `run.cmd --check-qt-log` 包含此项 |
 | [selfcheck_readme](../selfcheck_readme.py) | `repository` |
 | [selfcheck_repository_files](../selfcheck_repository_files.py) | `repository` |
 | [selfcheck_repository_map](../selfcheck_repository_map.py) | `repository` |
