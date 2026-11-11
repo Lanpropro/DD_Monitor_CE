@@ -146,7 +146,7 @@ class SettingsWindow(QDialog):
         from .settings_material import base_color
         color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
         from .settings_material_paint import glass_tint
-        color = glass_tint(self, color) if self._native_glass else color
+        color = glass_tint(self, values.get('background')) if self._native_glass else color
         if not self._native_glass:
             color.setAlpha(255)
         painter.fillPath(path, color)

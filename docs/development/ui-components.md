@@ -212,7 +212,7 @@ flowchart LR
 
 设置分组、通知和插件卡片共用 `SettingsSurface`。设置窗口内使用均匀的不透明卡片和柔和外投影；设置以外的表面继续沿用静态图片模糊、半透明渐变和细边缘高光。图片模糊按路径、修改时间及大小缓存（最多4张），不抓取窗口，不对卡片内容或子控件添加图形效果，不引入定时器。
 
-设置基础色由 `settings_material.BASE_COLORS` 统一持有：浅色底板/卡片/控件分别为 `#EEEDF4`、`#FFFFFF`、`#EDECEF`，深色分别为 `#33373B`、`#3C4044`、`#43444B`。关闭毛玻璃时底板与卡片不透明；开启时由 `settings_backdrop.apply_blur` 使用 Windows 合成器模糊 HWND 背后的实时内容，`settings_material_paint.glass_tint` 只绘制底色蒙版，卡片加18%表面底色，阴影裁切在卡片外侧，避免透进透明内容区。不开截图轮询，不模糊控件，不修改 Qt flags、原生父子关系或 HWND。系统模糊半径不可调，旧 settings_glass_blur 仅保留数据兼容；UI 只显示底色不透明度。不支持的后端回退纯色。
+设置基础色由 `settings_material.BASE_COLORS` 统一持有：浅色底板/卡片/控件分别为 `#EEEDF4`、`#FFFFFF`、`#EDECEF`，深色分别为 `#33373B`、`#3C4044`、`#43444B`。关闭毛玻璃时底板与卡片不透明；开启时由 `settings_backdrop.apply_blur` 使用 Windows 合成器模糊 HWND 背后的实时内容，`settings_material_paint.glass_tint` 只绘制底色蒙版，卡片采用 BewlyCat 的 --bew-fill-alt 浅灰叠层（rgb(131 131 145)，深色10%/浅色15%），叠加细边缘高光；阴影仍裁切在卡片外侧。玻璃底板采用深色#35383d/浅色白，显式分区底色与用户不透明度保持优先。不开截图轮询，不模糊控件，不修改 Qt flags、原生父子关系或 HWND。系统模糊半径不可调，旧 settings_glass_blur 仅保留数据兼容；UI 只显示底色不透明度。不支持的后端回退纯色。
 
 设置整窗由 `ddm/settings_window.py` 管理无边框 QDialog、不透明基础底板、可拖动顶部栏、常显搜索及圆形关闭按钮；`SettingsDialog` 保留设置协调职责和旧入口。顶部关闭和 Esc 等待自动保存协调器确认后完成关闭，顶部空白和边缘使用Qt系统移动/缩放。`settings_backdrop.apply_frame` 在Windows 11保留DWM原生圆角及深浅色边框属性，明确使用DWMSBT_NONE，客户区扩展边距为0；初始化按HWND缓存，切主题只更新颜色，不重建窗口。原生圆角可用时由DWM统一裁切，不再叠画第二套客户端圆角/描边或硬mask；其他环境使用连续圆角自绘。
 

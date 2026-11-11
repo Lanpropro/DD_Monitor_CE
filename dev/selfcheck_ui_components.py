@@ -130,6 +130,46 @@ assert not any(name in sys.modules for name in (
             window.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_glass_groups_follow_reference_surface_contrast_in_both_themes(self):
+        from PySide6.QtGui import QColor, QImage, QPainter
+        from ddm.settings_window import SettingsWindow
+        window = SettingsWindow()
+        window.setAttribute(Qt.WA_DontShowOnScreen)
+        window.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 68})
+        window.resize(360, 270)
+        card = ui.SettingsSurface(window)
+        card.setGeometry(24, 80, 300, 160)
+        try:
+            with patch('ddm.settings_window.apply_blur', return_value=True):
+                window.show()
+                for mode in ('dark', 'light'):
+                    theme.apply(mode)
+                    self.app.processEvents()
+                    surface = window.grab().toImage()
+                    composed = QImage(surface.size(), QImage.Format_ARGB32_Premultiplied)
+                    composed.fill(QColor('#65686c'))
+                    painter = QPainter(composed)
+                    painter.drawImage(0, 0, surface)
+                    painter.end()
+                    ratio = surface.devicePixelRatio()
+                    shell = composed.pixelColor(round(12*ratio), round(150*ratio))
+                    inside = composed.pixelColor(round(174*ratio), round(150*ratio))
+                    if mode == 'dark':
+                        self.assertGreater(inside.lightnessF(), shell.lightnessF(),
+                                           'The glass group should lift the dark shell, not darken it')
+                    else:
+                        self.assertLess(inside.lightnessF(), shell.lightnessF())
+                    edge = [composed.pixelColor(round(174*ratio), round(y*ratio))
+                            for y in (81, 82, 83, 84)]
+                    self.assertGreater(max(color.lightnessF() for color in edge), inside.lightnessF(),
+                                       'The group retains a fine highlight along its top edge')
+                    self.assertEqual(window.property('settings_glass_opacity'), 68)
+        finally:
+            window.close()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            theme.apply('dark')
+
     def test_settings_cards_keep_uniform_fill_and_separate_outer_shadow(self):
         from ddm.settings_window import SettingsWindow
         window = SettingsWindow()
