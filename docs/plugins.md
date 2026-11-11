@@ -306,6 +306,28 @@ context.set_setting("token", "abc")     # 写，并通知本体落盘
 不支持的房间无需重新注册，移除格子或卸载时 `shutdown()` 只调用一次。
 注册在 `on_load` 成功之后生效；不要修改格子私有布局或包裹本体方法。
 
+## 格子字幕覆盖层
+
+插件可在 GUI 线程调用以下接口，在当前播放格上显示宿主管理的独立字幕，不需要把文本写入弹幕列表或访问播放器内部状态：
+
+```python
+context.set_tile_caption(
+    tile,
+    original="原文",
+    translated="译文",
+    style={"mode": "both", "lines": 2, "opacity": 65,
+           "width": 80, "height": 18, "font_size": 24},
+    visible=True,
+)
+context.clear_tile_caption(tile)
+```
+
+`mode` 支持 `both`、`original`、`translation`；`lines` 为 1–4；`opacity` 为 0–100；`width` 为视频宽度的 20%–100%；`height` 为可用高度的 8%–45%；`font_size` 为 10–64 px。字体过大时宿主按当前字幕框高度安全截断。黑色背景按每行实际文字宽度绘制，不覆盖整个字幕框。
+
+字幕使用宿主的独立覆盖层，位于视频、弹幕和醒目留言之上；全屏显示，画中画隐藏。播放栏显示或收起时，字幕安全区域随可用画面高度调整。字幕不会进入 `VideoDanmaku` 的弹幕轨道，真实弹幕仍可经过字幕区域；清除字幕不会停止插件任务。
+
+`set_tile_caption()` 返回 `False` 表示当前宿主不支持覆盖层，插件应回退到自己的独立字幕窗。字幕正文不写入宿主日志或插件设置。
+
 ## 登录快照与交互状态
 
 `context.credentials(platform)` 返回 `CredentialSnapshot(platform, generation, values)`，

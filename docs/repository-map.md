@@ -414,6 +414,7 @@
 - `dev/selfcheck_video_danmaku.py`
 - `dev/selfcheck_danmaku_color.py`
 - `dev/selfcheck_video_danmaku_controls.py`
+- `dev/selfcheck_video_caption.py`
 - `dev/selfcheck_video_danmaku_native.py`
 - `dev/selfcheck_video_danmaku_quick.py`
 - `dev/selfcheck_video_surface.py`
