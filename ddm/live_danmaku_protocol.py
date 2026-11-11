@@ -118,7 +118,7 @@ def huya_events(data):
             user = notice.get(0, {})
             text = notice.get(3, "")
             if text:
-                events.append({"kind": "danmaku", "uname": user.get(2, ""), "text": text})
+                events.append({"kind": "danmaku", "uid": str(user.get(0) or ''), "uname": user.get(2, ""), "text": text})
     return kind, events
 
 

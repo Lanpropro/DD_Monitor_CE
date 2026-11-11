@@ -236,6 +236,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_danmaku_limit_migration](../selfcheck_danmaku_limit_migration.py) | 单项执行前核对 |
 | [selfcheck_danmaku_limit_settings](../selfcheck_danmaku_limit_settings.py) | 单项执行前核对 |
 | [selfcheck_danmaku_menu](../selfcheck_danmaku_menu.py) | 单项执行前核对 |
+| [selfcheck_danmaku_blocking](../selfcheck_danmaku_blocking.py) | `offline`；平台＋ID／昵称回退、接收前过滤与插件派发、左键词条／用户屏蔽、历史及排队栅格／SC过滤、设置增删／自动保存／临时文件重建、已开及延后设置页同步；临时数据、不读取账号、不联网、不发送真实弹幕 |
 | [selfcheck_danmaku_actions](../selfcheck_danmaku_actions.py) | `offline`；单条悬停、点击、复制和房间绑定发送，使用替身输入控件 |
 | [selfcheck_danmaku_render_thread](../selfcheck_danmaku_render_thread.py) | `native`；另以 `--unthrottled` 检查不等待垂直同步时的实际滚动速度 |
 | [selfcheck_danmaku_retention](../selfcheck_danmaku_retention.py) | 单项执行前核对 |

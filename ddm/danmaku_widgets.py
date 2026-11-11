@@ -385,6 +385,12 @@ class DanmakuPanel(QFrame):
             self.roomDropped.emit(source)
 
     # ---- 内容 ----
+    def filter_events(self, allowed):
+        kept = [event for event in self._blocks if allowed(event)]
+        if len(kept) != len(self._blocks):
+            self._blocks = kept
+            self._render_all()
+
     def _message_clicked(self, index, position):
         if not 0 <= index < len(self._blocks):
             return

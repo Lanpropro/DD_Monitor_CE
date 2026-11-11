@@ -4,6 +4,7 @@ import sys
 from PySide6.QtCore import QTimer
 
 from .super_chat_model import SuperChatStore
+from .danmaku_filter import event_blocked, platform_name, text_blocked
 from PySide6.QtCore import QTimer
 from . import bili
 from . import config as config_module
@@ -139,7 +140,8 @@ class DanmakuLifecycle:
             return
         store = host._super_chats.setdefault(room_id, SuperChatStore())
         for event in events:
-            store.upsert(event)
+            if not event_blocked(event, room_id, host.settings):
+                store.upsert(event)
         host._publish_super_chats(room_id)
 
     def _on_super_chat_snapshot_finished(self, room_id: str, source) -> None:
@@ -186,6 +188,7 @@ class DanmakuLifecycle:
 
     def connect_danmaku_panel(self, panel):
         host = self.host
+        panel._danmaku_blocking = host.danmaku_blocking
         panel.apply_style(str(host.settings.get('danmaku_font') or ''),
                           int(host.settings.get('danmaku_font_size') or 13))
         panel.set_max_blocks(int(host.settings.get('danmaku_max_blocks') or 3000))
@@ -257,6 +260,7 @@ class DanmakuLifecycle:
             panel.apply_super_chat_settings(host.settings)
         for tile in host.wall.tiles:
             tile.apply_video_danmaku_settings(host.settings)
+        host.danmaku_blocking.apply()
 
     def on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
@@ -267,12 +271,7 @@ class DanmakuLifecycle:
     def danmaku_blocked(self, text: str) -> bool:
         """命中屏蔽词就不显示这条弹幕（大小写不敏感）。"""
         host = self.host
-        words = [str(word).strip() for word in (host.settings.get("danmaku_block_words") or [])]
-        words = [word for word in words if word]
-        if not words:
-            return False
-        lowered = str(text).lower()
-        return any(word.lower() in lowered for word in words)
+        return text_blocked(text, host.settings.get('danmaku_block_words'))
 
     def on_danmaku_message(self, source, event: dict) -> None:
         host = self.host
@@ -281,8 +280,9 @@ class DanmakuLifecycle:
         if host._closing or not room_id:
             return                         # 已切换房间，忽略旧线程排队中的消息
         kind = event.get("kind") or "danmaku"
-        if kind == "danmaku" and host._danmaku_blocked(event.get("text") or ""):
+        if event_blocked(event, room_id, host.settings):
             return
+        event = dict(event, platform=platform_name(room_id), room_id=room_id)
         if kind == "super_chat":
             store = host._super_chats.setdefault(room_id, SuperChatStore())
             event = store.upsert(event)
@@ -319,6 +319,7 @@ class DanmakuLifecycle:
         host = self.host
         store = host._super_chats.get(room_id)
         chats = store.active() if store is not None else []
+        chats = [chat for chat in chats if not event_blocked(chat, room_id, host.settings)]
         for tile in host.wall.tiles:
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.video_danmaku.set_super_chats(chats)

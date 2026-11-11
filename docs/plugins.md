@@ -177,7 +177,10 @@ plugin = MyPlugin()
 | `room.live` / `room.offline` | `tile`、`room` | 开播 / 下播 |
 | `danmaku.message` | `room_id`、`message` | 弹幕、礼物、上舰、SC |
 | `danmaku.status` | `room_id`、`status` | 弹幕连接状态文字 |
+
 | `tile.added` / `tile.removed` | `tile` | 格子增删 |
+
+普通弹幕事件可提供字符串 `uid`（兼容 `user_id` / `author_id`）及 `uname`。本体在进入展示与 `danmaku.message` 订阅前按全局词条及平台用户规则过滤，并补充来源 `platform`、`room_id`；已屏蔽消息不向插件派发。平台由宿主房间标识确定，用户ID只在所属平台内比较，支持非数字ID；无ID时快捷屏蔽明确使用昵称。国内和海外内置协议适配均保留可用发送者ID，无需发送控件或账号登录即可屏蔽。
 
 `StreamSource` 就是这一路的取流结果：
 

@@ -228,7 +228,7 @@ async def check_protocol(platform):
                     await ws.send_str(":server 001 justinfan :Welcome\r\n")
                 elif packet.data.startswith("JOIN #test"):
                     await ws.send_str(":server 366 justinfan #test :joined\r\nPING :server\r\n")
-                    message = "@id=abc;display-name=Test\\sName :test!test@host PRIVMSG #test :你好 Kappa 🎃\r\n"
+                    message = "@id=abc;user-id=42;display-name=Test\\sName :test!test@host PRIVMSG #test :你好 Kappa 🎃\r\n"
                     await ws.send_str(message[:20])
                     await ws.send_str(message[20:] + message + ":wrong!x@x PRIVMSG #other :ignore\r\n")
                 elif packet.data.startswith("PONG :server"):
@@ -245,7 +245,7 @@ async def check_protocol(platform):
         assert request.headers["X-Goog-Visitor-Id"] == "public-visitor"
         assert body["continuation"] == ("watch-seed" if count == 0 else "all-chat" if count == 1 else "next-token")
         count += 1
-        item = {"id": "message-id", "authorName": {"simpleText": "YT User"},
+        item = {"id": "message-id", "authorExternalChannelId": CHANNEL, "authorName": {"simpleText": "YT User"},
                 "message": {"runs": [{"text": "你好 "}, {"emoji": {"shortcuts": [":smile:"]}}]}}
         data = {"actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": item}}}],
                 "continuations": [{"timedContinuationData": {"continuation": "next-token", "timeoutMs": 500}}]}
@@ -280,6 +280,7 @@ async def check_protocol(platform):
                     await asyncio.wait_for(done.wait(), 3)
                     await asyncio.sleep(.03)
                     assert statuses == ["已连接"] and len(events) == 1, (statuses, events)
+                    assert events[0]["uid"] == ("42" if kind == "twitch" else CHANNEL)
                     assert events[0]["text"] == ("你好 Kappa 🎃" if kind == "twitch" else "你好 :smile:")
                     if kind == "twitch":
                         assert events[0]["uname"] == "Test Name"
@@ -295,6 +296,8 @@ async def check_protocol(platform):
 
 
 def check_window(app, records):
+    avatar = QPixmap(32, 32)
+    avatar.fill(Qt.transparent)
     resolve = bili.StreamResolver._platform_play_url
     def offline_stream(worker):
         if not isinstance(getattr(worker.platform, "play_url_for_codec", None), Mock):
@@ -302,7 +305,8 @@ def check_window(app, records):
         return resolve(worker)
     state = {"plugins_enabled": ["global_live"], "settings": {"recording_enabled": False,
         "recording_replay_enabled": False, "preview_on_hover": False}}
-    with patch("ddm.app.QTimer.singleShot"), patch.object(bili, "play_url", side_effect=AssertionError("Bili called")), \
+    with patch.object(images, "_load_one", return_value=avatar), \
+            patch("ddm.app.QTimer.singleShot"), patch.object(bili, "play_url", side_effect=AssertionError("Bili called")), \
             patch("ddm.app.webbrowser.open", side_effect=AssertionError("Browser shortcut")), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
             patch.object(MainWindow, "_start_avatar_loader"), patch.object(MainWindow, "_play_on"), \

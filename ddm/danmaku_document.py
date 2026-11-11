@@ -22,6 +22,10 @@ class DanmakuDocument:
         """一条消息：带粉丝牌、表情（表情图下好之后会补上）。"""
         host = self.host
         entry = {
+            "kind": event.get('kind') or 'danmaku',
+            "uid": event.get('uid') or event.get('user_id') or event.get('author_id') or '',
+            "platform": event.get('platform') or '',
+            "room_id": event.get('room_id') or '',
             "uname": event.get("uname") or "",
             "text": event.get("text") or "",
             "color": event.get("color") or host.KIND_COLORS.get(

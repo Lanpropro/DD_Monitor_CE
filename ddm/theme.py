@@ -1582,23 +1582,23 @@ QPushButton#PrimaryButton:pressed {{
 }}
 
 /* 弹出菜单 */
-QListWidget#FollowList {{
+QListWidget#FollowList, QListWidget#BlockedUsersList {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 4px;
     outline: none;
 }}
-QListWidget#FollowList::item {{
+QListWidget#FollowList::item, QListWidget#BlockedUsersList::item {{
     padding: 6px 4px;
     border-radius: {RADIUS_SM + 2}px;
     color: {TEXT2};
 }}
-QListWidget#FollowList::item:hover {{
+QListWidget#FollowList::item:hover, QListWidget#BlockedUsersList::item:hover {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
-QListWidget#FollowList::item:selected {{
+QListWidget#FollowList::item:selected, QListWidget#BlockedUsersList::item:selected {{
     background: {ACCENT_SOFT};
     color: {ACCENT};
 }}

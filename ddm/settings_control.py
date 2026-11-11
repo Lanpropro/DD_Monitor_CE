@@ -119,6 +119,7 @@ class SettingsControl:
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
             if key == 'danmaku':
+                widget.sync_blocking(host.settings)
                 widget.super_chat_placement.set_preview_context(host._sc_preview_context())
             elif key == 'plugins':
                 widget.store_page.offersChanged.connect(host._set_plugin_updates)

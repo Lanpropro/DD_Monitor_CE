@@ -37,7 +37,7 @@ class DanmakuSettingsPage(QWidget):
         self.sections = SettingsColumns(content)
         layout.addWidget(self.sections)
 
-        font = SettingsSection('字体与屏蔽')
+        font = SettingsSection('弹幕字体与记录')
         font.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         grid = font.grid
         self.font_box = FontSelectControl()
@@ -63,16 +63,34 @@ class DanmakuSettingsPage(QWidget):
         self.keep_stepper = StepperControl(self.keep_spin)
         grid.addWidget(QLabel('最多保留'), 2, 0)
         grid.addWidget(self.keep_stepper, 2, 1, Qt.AlignRight)
-        grid.addWidget(_hint('字体与屏蔽词共用于弹幕格和画面弹幕；这里的字号仅控制弹幕格，也可在弹幕格底部调整。超过保留上限后移除最早的内容。'), 3, 0, 1, 2)
-        grid.addWidget(QLabel('屏蔽词（每行一个）'), 4, 0, 1, 2)
+        grid.addWidget(_hint('字体共用于弹幕格和画面弹幕；这里的字号仅控制弹幕格，也可在弹幕格底部调整。超过保留上限后移除最早的内容。'), 3, 0, 1, 2)
+        self.sections.add_section('font_filter', font)
+        blocking = SettingsSection('屏蔽管理')
+        self.blocking_columns = SettingsColumns(respect_preference=False)
+        word_panel, user_panel = QWidget(), QWidget()
+        word_layout, user_layout = QVBoxLayout(word_panel), QVBoxLayout(user_panel)
+        for box in (word_layout, user_layout):
+            box.setContentsMargins(0, 0, 0, 0)
+            box.setSpacing(12)
+        word_layout.addWidget(QLabel('屏蔽词（每行一个）'))
         self.block_edit = QPlainTextEdit()
         self.block_edit.setObjectName('BlockWords')
         self.block_edit.setAccessibleName('弹幕屏蔽词，每行一个')
         self.block_edit.setPlaceholderText('每行输入一个屏蔽词')
         self.block_edit.setPlainText('\n'.join(settings.get('danmaku_block_words') or []))
-        self.block_edit.setFixedHeight(110)
-        grid.addWidget(self.block_edit, 5, 0, 1, 2)
-        self.sections.add_section('font_filter', font)
+        self.block_edit.setFixedHeight(150)
+        word_layout.addWidget(self.block_edit)
+        word_layout.addWidget(_hint('各平台共用，包含屏蔽词的普通弹幕不显示，匹配时忽略大小写；可在弹幕左键菜单中快速添加。'))
+        word_layout.addStretch(1)
+        user_layout.addWidget(QLabel('屏蔽用户'))
+        from .settings_danmaku_blocking import BlockedUsersEditor
+        self.blocked_users = BlockedUsersEditor(settings.get('danmaku_blocked_users'))
+        user_layout.addWidget(self.blocked_users)
+        user_layout.addWidget(_hint('按平台与用户 ID 屏蔽，在该平台所有房间生效；无 ID 的记录按昵称匹配，同名用户也会被屏蔽。移除后恢复接收。'))
+        user_layout.addStretch(1)
+        self.blocking_columns.add_section('words', word_panel)
+        self.blocking_columns.add_section('users', user_panel)
+        blocking.grid.addWidget(self.blocking_columns, 0, 0, 1, 2)
 
         display = QWidget()
         display.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
@@ -200,8 +218,15 @@ class DanmakuSettingsPage(QWidget):
         self.video_columns.add_section('curve', self.video_preview)
         video.grid.addWidget(self.video_columns, 0, 0, 1, 2)
         self.sections.add_section('danmaku_curve', video)
+        self.sections.add_section('blocking', blocking, wide=True)
         self.sections.add_section('sc_placement', placement, wide=True)
         layout.addStretch(1)
+
+    def sync_blocking(self, values):
+        if 'danmaku_block_words' in values:
+            self.block_edit.setPlainText('\n'.join(values['danmaku_block_words'] or []))
+        if 'danmaku_blocked_users' in values:
+            self.blocked_users.set_users(values['danmaku_blocked_users'])
 
     def _sc_placement_changed(self, values):
         self.super_chat_scale.setValue(values['super_chat_scale'])
@@ -237,6 +262,8 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_placement.scale_curve = self.super_chat_scale_curve.curve()
         self.super_chat_position_sync.setChecked(config_module.DEFAULT_SETTINGS['super_chat_position_sync'])
         self.block_edit.setPlainText("")
+        self.blocked_users.set_users([])
+        self.blocked_users.changed.emit()
 
     def values(self) -> dict:
         family = self.font_box.currentFont().family()
@@ -248,6 +275,7 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
+            "danmaku_blocked_users": self.blocked_users.users(),
             "super_chat_enabled": self.super_chat_enabled.isChecked(),
             "super_chat_opacity": self.super_chat_opacity.value(),
             "super_chat_collapse_delay": self.super_chat_collapse_delay.value(),

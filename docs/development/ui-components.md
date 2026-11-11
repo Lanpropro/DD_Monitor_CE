@@ -275,3 +275,8 @@ SettingsInputFocus同时承担设置根内的滚轮路由：启用的横向滑�
 ToggleSwitch.setChecked 在 signalsBlocked 状态下仍同步自己的绘制位置；Qt 勾选值始终是唯一数据来源，普通鼠标/键盘信号和缓动保持。SettingsMaterialEditor 静默加载保存值无需额外触发业务信号。
 
 settings_material_paint.sync_text_contrast 负责深色实时玻璃标签的轻微暗色轮廓和 SettingsHint 提亮；由材质属性更新、窗口主题刷新和卡片首次显示调用，覆盖宿主stack及懒加载页。只管理带有自身标记的 QLabel 效果，不覆盖其他效果，不给整窗/卡片截图或加捕获定时器；浅色/纯色时清理效果和提示属性。文字轮廓用于可读性，独立于卡片外投影。临时配置的新进程回归区分持久化值与绘制状态。
+
+
+弹幕屏蔽由 `danmaku_filter` 处理平台命名空间、用户ID/昵称校验与词条匹配，`danmaku_blocking.DanmakuBlocking` 协调快捷操作、历史过滤、设置草稿同步及原写盘定时器；唯一持久状态在host.settings的danmaku_block_words/danmaku_blocked_users。弹幕接收先过滤再进入弹幕格、画面和插件事件；用户规则跨同平台房间生效，UID优先，无ID的显式昵称规则保留同名提示；普通词条仍不屏蔽SC。用户规则也过滤SC快照与既有SC，删除控制消息照常处理。
+
+CommentToolbar左键操作使用“复制 / +1 / 屏蔽弹幕 / 屏蔽用户”，后两项以额外间距分组并提供完整提示，复用本体协调器且与发送插件独立。弹幕文档保留kind/uid/platform/room_id，画面保留原event；点击后过滤已有行、画面及等待栅格的消息，迟到栅格结果不能重新加入已移除的token。设置→弹幕的“屏蔽管理”卡片统一呈现词条与BlockedUsersEditor；后者仅负责列表及增删，changed接入原自动保存，未加载页和已开页同步避免旧草稿覆盖快捷屏蔽。界面、过滤与协调各自独立，无新增接收线程或账号状态。

@@ -118,7 +118,7 @@ class LiveDanmakuClient(QThread):
                     elif data.get("type") == "error":
                         raise ValueError("Douyu server rejected subscription")
                     elif data.get("type") == "chatmsg" and data.get("txt"):
-                        self.message.emit({"kind": "danmaku", "uname": data.get("nn", ""),
+                        self.message.emit({"kind": "danmaku", "uid": str(data.get('uid') or ''), "uname": data.get("nn", ""),
                                            "text": data["txt"]})
         finally:
             writer.close()

@@ -103,6 +103,7 @@
       "selfcheck_danmaku_connection",
       "selfcheck_widget_lifetime",
       "selfcheck_danmaku_actions",
+      "selfcheck_danmaku_blocking",
       "selfcheck_danmaku_room_switches",
       "selfcheck_general_settings",
       "selfcheck_settings_autosave",

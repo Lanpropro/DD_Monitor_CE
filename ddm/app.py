@@ -142,6 +142,8 @@ class MainWindow(QMainWindow):
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
         self.danmaku_lifecycle = DanmakuLifecycle(self)
+        from .danmaku_blocking import DanmakuBlocking
+        self.danmaku_blocking = DanmakuBlocking(self)
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -1221,6 +1223,7 @@ class MainWindow(QMainWindow):
         return self.room_placement.on_close_tile(room)
 
     def _wire_tile(self, tile) -> None:
+        tile._danmaku_blocking = self.danmaku_blocking
         if hasattr(self, 'plugins'):
             self.plugins.attach_tile(tile)
         # 格子创建时接线一次；之后填入或替换房间不再重复连接。
