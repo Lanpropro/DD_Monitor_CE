@@ -1,7 +1,7 @@
 """Danmaku settings presentation; the page owns controls, previews and saved values."""
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 from . import theme
 from .super_chat_preview import SuperChatPlacementPreview
 from .ui import (FontSelectControl, ScaleCurveControl, SegmentedControl, SettingsSlider,
@@ -74,9 +74,13 @@ class DanmakuSettingsPage(QWidget):
         grid.addWidget(self.block_edit, 5, 0, 1, 2)
         self.sections.add_section('font_filter', font)
 
-        display = SettingsSection('醒目留言（SC）')
+        display = QWidget()
         display.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-        grid = display.grid
+        grid = QGridLayout(display)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        grid.setColumnStretch(1, 1)
         self.super_chat_enabled = ToggleSwitch('显示醒目留言')
         self.super_chat_enabled.setChecked(bool(settings.get('super_chat_enabled', True)))
         label = QLabel('显示醒目留言')
@@ -103,16 +107,16 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_collapse_stepper = StepperControl(self.super_chat_collapse_delay)
         grid.addWidget(QLabel('自动折叠'), 2, 0)
         grid.addWidget(self.super_chat_collapse_stepper, 2, 1, Qt.AlignRight)
-        grid.addWidget(_hint('醒目留言在画面与弹幕栏中共用显示开关和不透明度；展开后经过设定时间自动折叠。位置和缩放在下方调整。'), 3, 0, 1, 2)
-        self.sections.add_section('sc_display', display)
+        grid.addWidget(_hint('显示开关、不透明度、自动折叠和大小共用于画面与弹幕栏；位置可在预览中分别调整。'), 3, 0, 1, 2)
 
-        placement = SettingsSection('SC 位置与大小')
+        placement = SettingsSection('醒目留言（SC）')
         self.sc_columns = SettingsColumns(respect_preference=False)
         self.sc_parameters, self.sc_preview = QWidget(), QWidget()
         parameters, preview = QVBoxLayout(self.sc_parameters), QVBoxLayout(self.sc_preview)
         for box in (parameters, preview):
             box.setContentsMargins(0, 0, 0, 0)
             box.setSpacing(12)
+        parameters.addWidget(display)
         row = QHBoxLayout()
         scale_label = QLabel('大小（画面与弹幕栏共用）')
         scale_label.setWordWrap(True)
@@ -171,7 +175,6 @@ class DanmakuSettingsPage(QWidget):
         self.sc_columns.add_section('parameters', self.sc_parameters)
         self.sc_columns.add_section('preview', self.sc_preview)
         placement.grid.addWidget(self.sc_columns, 0, 0, 1, 2)
-        self.sections.add_section('sc_placement', placement, wide=True)
 
         video = SettingsSection('画面弹幕缩放')
         self.video_columns = SettingsColumns(respect_preference=False)
@@ -196,7 +199,8 @@ class DanmakuSettingsPage(QWidget):
         self.video_columns.add_section('parameters', self.video_parameters)
         self.video_columns.add_section('curve', self.video_preview)
         video.grid.addWidget(self.video_columns, 0, 0, 1, 2)
-        self.sections.add_section('danmaku_curve', video, wide=True)
+        self.sections.add_section('danmaku_curve', video)
+        self.sections.add_section('sc_placement', placement, wide=True)
         layout.addStretch(1)
 
     def _sc_placement_changed(self, values):
