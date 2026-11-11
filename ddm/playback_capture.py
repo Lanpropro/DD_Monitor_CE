@@ -1,6 +1,7 @@
 """On-demand real playback evidence, with bounded asynchronous mpv observation."""
 import math
 import os
+import re
 import threading
 import time
 from urllib.parse import urlsplit
@@ -12,6 +13,7 @@ class PlaybackCapture(QObject):
     PROPERTIES = ('time-pos', 'audio-pts', 'paused-for-cache', 'demuxer-cache-duration',
                   'cache-speed', 'video-bitrate', 'frame-drop-count',
                   'decoder-frame-drop-count', 'eof-reached')
+    DOUYIN_PROPERTIES = ('width', 'height', 'container-fps', 'demuxer-cache-bytes')
 
     def __init__(self, window, emit, done):
         super().__init__(window)
@@ -27,7 +29,8 @@ class PlaybackCapture(QObject):
 
     def start(self):
         self.emit('playback-start', limit_seconds=60, limit_players=4,
-                  properties=list(self.PROPERTIES), mpv_queries_on_gui_thread=False)
+                  properties=list(self.PROPERTIES), douyin_properties=list(self.DOUYIN_PROPERTIES),
+                  mpv_queries_on_gui_thread=False)
         self.timer.start()
         self.sample()
 
@@ -41,6 +44,26 @@ class PlaybackCapture(QObject):
         except ValueError:
             return 'other-proxy'
 
+    @staticmethod
+    def _douyin_source(player):
+        if getattr(player, 'stream_profile', '') != 'douyin':
+            return None
+        host, scheme, transport = 'unknown', 'unknown', 'unknown'
+        try:
+            parts = urlsplit(getattr(player, 'url', ''))
+            if parts.scheme in ('http', 'https'):
+                scheme = parts.scheme
+                if re.fullmatch(r'[A-Za-z0-9.-]{1,253}', parts.hostname or ''):
+                    host = parts.hostname
+                transport = ('flv' if parts.path.lower().endswith('.flv') else
+                             'hls' if parts.path.lower().endswith('.m3u8') else 'unknown')
+        except (ValueError, TypeError):
+            pass
+        quality = getattr(player, 'actual_quality', None)
+        return dict(host=host, scheme=scheme, transport=transport,
+                    route='local-relay' if getattr(player, '_hls_proxy', None) is not None else 'direct-mpv',
+                    actual_quality=quality if type(quality) is int and quality > 0 else None)
+
     def _watch(self, slot, player):
         started = time.perf_counter()
         core = getattr(player, 'player', None)
@@ -51,7 +74,9 @@ class PlaybackCapture(QObject):
         if old is not None:
             self._unwatch(old)
         entry = dict(player=player, core=core, session=session, values={}, observers=[], failed=0,
-                     relay=getattr(player, '_hls_proxy', None), network={}, network_callback=None)
+                     relay=getattr(player, '_hls_proxy', None), network={}, network_callback=None,
+                     source=self._douyin_source(player))
+        properties = self.PROPERTIES + (self.DOUYIN_PROPERTIES if entry['source'] is not None else ())
         self.players[slot] = entry
         relay = entry['relay']
         if relay is not None and getattr(relay, 'playback_diagnostic', None) is None:
@@ -79,14 +104,14 @@ class PlaybackCapture(QObject):
         def changed(name, value):
             # The callback runs on mpv's event thread. Never write logs or query
             # properties there; keep only the latest finite numeric value.
-            if name not in self.PROPERTIES or not isinstance(value, (int, float, bool, type(None))):
+            if name not in properties or not isinstance(value, (int, float, bool, type(None))):
                 return
             if isinstance(value, (int, float)) and not math.isfinite(value):
                 return
             with self.lock:
                 if not self.closed and self.players.get(slot) is entry:
                     entry['values'][name] = value
-        for name in self.PROPERTIES:
+        for name in properties:
             try:
                 core.observe_property(name, changed)
                 entry['observers'].append((name, changed))
@@ -133,6 +158,10 @@ class PlaybackCapture(QObject):
                        stall_ticks=getattr(player, '_stall_ticks', 0),
                        frozen_ticks=getattr(player, '_frozen_ticks', 0), properties=values,
                        stream_profile=getattr(player, 'stream_profile', 'unknown'), relay_requests=network)
+            if entry['source'] is not None:
+                requested = getattr(tile, 'quality', None)
+                row.update(source=entry['source'], requested_quality=(
+                    requested if type(requested) is int and requested > 0 else None))
             relay = getattr(player, '_hls_proxy', None)
             if relay is not None:
                 speed, samples = relay.network_speed()

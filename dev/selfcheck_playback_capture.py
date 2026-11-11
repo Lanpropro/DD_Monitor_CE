@@ -84,6 +84,56 @@ class CaptureTests(unittest.TestCase):
         self.assertFalse(player.player.callbacks)
         self.assertFalse(self.capture.players)
 
+    def test_douyin_source_and_format_are_observed_without_retaining_signed_url(self):
+        player = self.window.players[self.tiles[0]]
+        player.stream_profile = 'douyin'
+        player.url = 'https://pull-flv-l13.douyincdn.com/PRIVATE_ROOM.flv?sign=PRIVATE_SECRET#PRIVATE_FRAGMENT'
+        player.actual_quality = 10000
+        self.tiles[0].quality = 10000
+        self.capture.start()
+        callback = player.player.callbacks['width']
+        callback('width', 1920)
+        callback('height', 1080)
+        callback('container-fps', 60.0)
+        callback('demuxer-cache-bytes', 1024)
+        callback('height', float('inf'))
+        self.capture.sample()
+        row = self.records[-1]['players'][0]
+        self.assertEqual(row['source'], dict(host='pull-flv-l13.douyincdn.com', scheme='https',
+                                            transport='flv', route='direct-mpv', actual_quality=10000))
+        self.assertEqual(row['requested_quality'], 10000)
+        self.assertEqual({key: row['properties'][key] for key in
+                          ('width', 'height', 'container-fps', 'demuxer-cache-bytes')},
+                         dict(width=1920, height=1080, **{'container-fps': 60.0, 'demuxer-cache-bytes': 1024}))
+        self.assertNotIn('PRIVATE_', json.dumps(self.records))
+        self.assertEqual(set(self.window.players[self.tiles[1]].player.callbacks), set(self.capture.PROPERTIES))
+
+    def test_douyin_reconnect_replaces_source_and_rejects_old_format_callbacks(self):
+        player = self.window.players[self.tiles[0]]
+        player.stream_profile = 'douyin'
+        player.url = 'https://pull-flv-l13.douyincdn.com/PRIVATE.flv'
+        self.capture.start()
+        late = player.player.callbacks['width']
+        player.play_session = 'replacement'
+        player.url = 'https://pull-hls-l13.douyincdn.com/PRIVATE.m3u8?PRIVATE_SECRET'
+        self.capture.sample()
+        late('width', 999)
+        self.capture.sample()
+        row = self.records[-1]['players'][0]
+        self.assertEqual(row['source']['transport'], 'hls')
+        self.assertEqual(row['source']['host'], 'pull-hls-l13.douyincdn.com')
+        self.assertNotIn('width', row['properties'])
+        self.capture.stop()
+        self.assertFalse(player.player.callbacks)
+
+    def test_douyin_invalid_source_does_not_break_capture_or_expose_input(self):
+        player = self.window.players[self.tiles[0]]
+        player.stream_profile = 'douyin'
+        player.url = 'https://[PRIVATE_SECRET'
+        self.capture.start()
+        self.assertEqual(self.records[-1]['players'][0]['source']['host'], 'unknown')
+        self.assertNotIn('PRIVATE_', json.dumps(self.records))
+
     def test_relay_metrics_are_numeric_aggregates_and_detach_after_capture(self):
         player = self.window.players[self.tiles[0]]
         relay = player._hls_proxy = SimpleNamespace(playback_diagnostic=None, network_speed=lambda: (1000, 2))
