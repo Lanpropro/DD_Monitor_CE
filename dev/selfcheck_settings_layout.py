@@ -346,7 +346,7 @@ class SettingsLayoutTests(unittest.TestCase):
             self.dialog.resize(width, 800)
             settle()
             self.assertEqual(page.sc_columns.columns, columns)
-            self.assertEqual(page.video_columns.columns, columns)
+            self.assertEqual(page.video_columns.columns, 1)
             self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
             self.assertTrue(page.sc_preview.isAncestorOf(page.super_chat_placement))
             self.assertTrue(page.sc_parameters.isAncestorOf(page.super_chat_scale_curve))
@@ -358,6 +358,33 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(page.super_chat_placement.layout_mode, 'panel')
         self.dialog._reset_current()
         self.assertEqual(page.values()['super_chat_collapse_delay'], config.DEFAULT_SETTINGS['super_chat_collapse_delay'])
+
+    def test_danmaku_sc_options_share_one_card_with_the_preview(self):
+        page = self.page(2)
+        self.assertEqual([key for key, _card, _wide in page.sections.entries],
+                         ['font_filter', 'danmaku_curve', 'sc_placement'])
+        card = page.sections.section('sc_placement')
+        for control in (page.super_chat_enabled, page.super_chat_opacity,
+                        page.super_chat_collapse_stepper, page.super_chat_scale,
+                        page.super_chat_scale_with_video, page.super_chat_scale_curve,
+                        page.super_chat_layout_control, page.super_chat_placement,
+                        page.super_chat_position_sync):
+            self.assertTrue(card.isAncestorOf(control))
+        for width in (1200, 760, 1200):
+            self.dialog.resize(width, 850)
+            settle()
+            self.assertTrue(page.sc_parameters.isAncestorOf(page.super_chat_enabled))
+            if page.sc_columns.columns == 2:
+                self.assertLess(page.sc_parameters.geometry().right(), page.sc_preview.x())
+            else:
+                self.assertLess(page.sc_parameters.geometry().bottom(), page.sc_preview.y())
+        page.super_chat_opacity.setValue(67)
+        self.assertEqual(page.super_chat_placement.opacity, 67)
+        saved = page.values()
+        from ddm.settings_danmaku import DanmakuSettingsPage
+        reopened = DanmakuSettingsPage(saved)
+        self.assertEqual(reopened.values(), saved)
+        reopened.deleteLater()
 
     def test_danmaku_large_font_and_single_column_keep_controls_in_bounds(self):
         page = self.page(2)

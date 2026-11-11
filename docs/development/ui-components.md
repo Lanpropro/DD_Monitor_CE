@@ -162,7 +162,7 @@ ToggleSwitch的鼠标切换以250ms缓动绘制圆点位置和轨道颜色，使
 
 settings_card_layout支持auto与vertical，SettingsColumns按窗口偏好排列卡片；新建懒加载页也遵循偏好。预览与编辑等复杂卡片的内部两栏使用respect_preference=False，仍按可用宽度排布。settings_segment_motion仅控制共享SegmentedControl鼠标选中底片的250ms位移，复用已有强ease-out；快速反向从当前矩形继续，键盘／程序设置／减少动画直达，隐藏和尺寸变化停止并归位，状态信号即时发送。
 
-skin_gallery只列出已导入utils/skins中的本地图片／视频，使用缩略图与选中描边，复用原背景加载和插件所有权；视频使用类型图标，不另起预览播放器。skin_mask_enabled关闭时保留skin_mask数值、渲染使用零遮罩，重新开启恢复强度；旧版皮肤插件的锁定语义保持。音量均衡开关与说明紧邻排列。
+skin_gallery只列出已导入utils/skins中的本地图片／视频，使用144×85网格内居中铺满的圆角横图与选中描边；不在图内叠放文件名，完整名称、类型、时间与路径保留在提示中。默认背景及继承SkinAssetDropArea的导入入口同在网格，图库刷新保留导入控件身份与信号；选择、导入、拖放、插件锁定仍复用原通道。视频使用类型图标，不另起预览播放器。skin_mask_enabled关闭时保留skin_mask数值、渲染使用零遮罩，重新开启恢复强度；旧版皮肤插件的锁定语义保持。音量均衡开关与说明紧邻排列。
 
 
 外观字体参数包含appearance_font_size（11–20px，默认13），configure_appearance同步字体层级令牌；theme仅在字体/字号变化时同步刷新已有控件的字体样式，深浅色或分段开关不触发这次字体刷新。分类列表按相同令牌绘制，预览示意图的内部画布文字保持固定比例。主题色默认按钮共用自绘色块，避免原生按钮padding挤掉文字。
@@ -173,7 +173,7 @@ SettingsInputFocus同时承担设置根内的滚轮路由：启用的横向滑�
 
 正常自动保存不显示顶部状态，当前页恢复按钮保留内部兼容入口但隐藏；出错状态和重试仍可见。纵向布局窗口默认1040px，切换布局时只调整窗口尺寸，不改变窗口flags或原生归属。图库增加打开导入目录与文件类型/完整路径/时间提示，文件不清理；实时毛玻璃参数放在其开关下方并标明系统控制及纯色回退。
 
-弹幕页由 `settings_danmaku.DanmakuSettingsPage` 持有控件、SC 预览、缩放曲线和 values/reset；dialogs 保留同类兼容导出。`FontSelectControl` 在共享下拉上保留 currentFont/setCurrentFont/currentFontChanged 契约；步进和开关使用共享组件。字体/屏蔽与 SC 显示为紧凑卡片，复杂 SC 卡片内部左参数/曲线、右位置预览；画面弹幕缩放也分说明/曲线两栏，窄窗上下排列。SC 预览仍独立维护位置、同步和共用大小，无业务状态副本。根与源的其他设置页及宿主协调仍保持各自职责边界，本轮不迁移。
+弹幕页由 `settings_danmaku.DanmakuSettingsPage` 持有控件、SC 预览、缩放曲线和 values/reset；dialogs 保留同类兼容导出。`FontSelectControl` 在共享下拉上保留 currentFont/setCurrentFont/currentFontChanged 契约；步进和开关使用共享组件。字体/屏蔽与画面弹幕缩放为上方两张普通卡片；所有SC显示、透明度、折叠、大小、缩放曲线和位置设置合并到同一张宽卡片，内部左参数/曲线、右位置预览。画面弹幕说明/曲线仍按自身可用宽度排列；窄窗上下排列，保留用户的纵向布局偏好。SC 预览仍独立维护位置、同步和共用大小，无业务状态副本。根与源的其他设置页及宿主协调仍保持各自职责边界，本轮不迁移。
 大字号下，SettingsValueLabel 按实际百分比文字度量宽度，ScaleCurveGraph 的坐标轴边距及行高跟随字体，避免20px时裁切百分比与轴标签；滑条本身仍保持统一长度。
 
 ToggleSwitch.setChecked 在 signalsBlocked 状态下仍同步自己的绘制位置；Qt 勾选值始终是唯一数据来源，普通鼠标/键盘信号和缓动保持。SettingsMaterialEditor 静默加载保存值无需额外触发业务信号。

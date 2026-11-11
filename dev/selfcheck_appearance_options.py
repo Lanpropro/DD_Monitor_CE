@@ -219,10 +219,14 @@ class AppearanceOptionsTests(unittest.TestCase):
             editor.show()
             settle()
             try:
-                self.assertEqual(editor.gallery.count(), 2)
+                self.assertEqual(editor.gallery.count(), 3)
                 item = editor.gallery.item(1)
                 self.assertEqual(editor.gallery.visualItemRect(editor.gallery.item(0)).size(),
                                  editor.gallery.visualItemRect(item).size())
+                self.assertIs(editor.choose, editor.gallery.import_button)
+                self.assertEqual(editor.gallery.visualItemRect(item).size(), editor.choose.size())
+                self.assertGreater(editor.gallery.gridSize().width(), editor.gallery.gridSize().height())
+                self.assertIn('默认背景', editor.gallery.item(0).toolTip())
                 self.assertIn(str(folder.resolve()), editor.gallery_folder.toolTip())
                 self.assertIn('类型：图片', item.toolTip())
                 self.assertIn(str((folder / 'fixture.png').resolve()), item.toolTip())
@@ -234,6 +238,30 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
                 self.assertEqual(len(list(folder.iterdir())), 1)
                 self.assertIsNotNone(controller.layer.image)
+                with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=('', '')) as picker:
+                    QTest.mouseClick(editor.choose, Qt.LeftButton)
+                    self.assertEqual(picker.call_count, 1)
+                    self.assertFalse(editor.choose.hasFocus())
+                self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
+                choose = editor.choose
+                editor.gallery.refresh()
+                settle()
+                self.assertIs(editor.gallery.import_button, choose)
+                self.assertTrue(choose.isVisible())
+                self.assertEqual(editor.gallery.currentItem().data(Qt.UserRole), 'utils/skins/fixture.png')
+                with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=(str(folder / 'fixture.png'), '')):
+                    QTest.mouseClick(choose, Qt.LeftButton)
+                    for _ in range(100):
+                        if editor.job is None:
+                            break
+                        QTest.qWait(20)
+                self.assertIsNone(editor.job)
+                self.assertEqual(editor.gallery.count(), 4)
+                self.assertIs(editor.gallery.import_button, choose)
+                self.assertNotEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
+                self.assertTrue((Path(directory) / owner.settings['skin_background']).is_file())
+                self.assertEqual(editor.gallery.currentItem().data(Qt.UserRole), owner.settings['skin_background'])
+                editor._select_background('utils/skins/fixture.png')
                 editor.mask_toggle.click()
                 self.assertFalse(owner.settings['skin_mask_enabled'])
                 self.assertEqual(owner.settings['skin_mask'], 47)
@@ -251,12 +279,71 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(editor.mask_slider.value(), 22)
                 self.assertFalse(editor.gallery.isEnabled())
                 self.assertFalse(editor.mask_toggle.isEnabled())
+                self.assertFalse(choose.isEnabled())
                 editor._select_background('')
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
             finally:
                 dispose(editor)
                 controller.stop()
                 dispose(owner)
+
+    def test_gallery_covers_thumbnail_and_keeps_import_drop_contract(self):
+        from PySide6.QtCore import QMimeData, QUrl
+        from PySide6.QtGui import QDragEnterEvent, QDropEvent
+        from PySide6.QtTest import QSignalSpy
+        from ddm.skin_gallery import SkinGallery
+        with tempfile.TemporaryDirectory() as directory, patch.object(config, 'REPO', directory):
+            folder = Path(directory) / 'utils/skins'
+            folder.mkdir(parents=True)
+            image = QImage(100, 300, QImage.Format_RGB32)
+            image.fill(QColor('#cc2222'))
+            painter = QPainter(image)
+            painter.fillRect(0, 100, 100, 100, QColor('#229944'))
+            painter.end()
+            source = folder / 'portrait.png'
+            image.save(str(source))
+            (folder / 'video.mp4').write_bytes(b'gallery listing fixture')
+            gallery = SkinGallery()
+            gallery.resize(480, gallery.height())
+            gallery.show()
+            settle()
+            try:
+                self.assertEqual(gallery.count(), 4)
+                self.assertEqual(gallery.item(2).data(Qt.UserRole + 1), '视频')
+                self.assertEqual(gallery.visualItemRect(gallery.item(2)).size(), gallery.import_button.size())
+                for mode in ('dark', 'light'):
+                    theme.apply(mode)
+                    gallery.setStyleSheet(theme.qss())
+                    settle()
+                    rect = gallery.visualItemRect(gallery.item(1))
+                    rendered = gallery.viewport().grab().toImage()
+                    dpr = rendered.devicePixelRatio()
+                    for point in (rect.topLeft() + QPoint(12, 12), rect.bottomRight() - QPoint(12, 12)):
+                        self.assertEqual(rendered.pixelColor(round(point.x() * dpr), round(point.y() * dpr)).name(), '#229944')
+                    QTest.mouseClick(gallery.viewport(), Qt.LeftButton, pos=rect.center())
+                    rendered = gallery.viewport().grab().toImage()
+                    self.assertEqual(rendered.pixelColor(round((rect.left() + 4) * dpr),
+                                                        round(rect.center().y() * dpr)).name(), theme.qcolor(theme.ACCENT).name())
+                mime = QMimeData()
+                mime.setUrls([QUrl.fromLocalFile(str(source))])
+                enter = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                gallery.import_button.dragEnterEvent(enter)
+                self.assertTrue(enter.isAccepted())
+                dropped = QSignalSpy(gallery.import_button.fileDropped)
+                selected = QSignalSpy(gallery.selected)
+                drop = QDropEvent(QPointF(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                gallery.import_button.dropEvent(drop)
+                self.assertTrue(drop.isAccepted())
+                self.assertEqual(dropped.count(), 1)
+                self.assertEqual(Path(dropped.at(0)[0]), source)
+                self.assertEqual(selected.count(), 0)
+                self.assertFalse(gallery.import_button.property('dragging'))
+                mime.setUrls([QUrl('https://example.invalid/image.png')])
+                enter = QDragEnterEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+                gallery.import_button.dragEnterEvent(enter)
+                self.assertFalse(enter.isAccepted())
+            finally:
+                dispose(gallery)
 
     def test_normalization_switch_stays_next_to_its_label(self):
         from PySide6.QtWidgets import QLabel
