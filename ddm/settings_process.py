@@ -125,6 +125,15 @@ class SettingsProcess(QObject):
     def _send(self, message):
         self.process.write((json.dumps(message) + '\n').encode('utf-8'))
 
+    def push_settings(self, values):
+        """Push host-owned values into an already open isolated settings window."""
+        if not values:
+            return
+        if self.pending is not None:
+            self.pending['settings'].update(values)
+        if self.ready and self.visible and not self.closing:
+            self._send({'kind': 'host-settings', 'values': values})
+
     def _set_occlusion(self, rect):
         if rect != self.occlusion:
             self.occlusion = rect
@@ -469,6 +478,14 @@ def run_worker():
                 self.dialog.set_plugin_controls(message['controls'])
             elif kind == 'host-theme' and self.dialog is not None:
                 theme.apply(message['mode'])
+            elif kind == 'host-settings' and self.dialog is not None:
+                values = message.get('values') or {}
+                self.dialog.host_values.update(values)
+                self.dialog.initial_settings.update(values)
+                self.dialog.auto_save.adopt('settings', values)
+                page = self.dialog._loaded_pages.get(2)
+                if page is not None:
+                    page.sync_blocking(values)
             elif kind == 'host-save-blocked' and self.dialog is not None:
                 _save_trace('worker.save.blocked', getattr(self.dialog, '_save_clicked_at', None))
                 self.dialog._save_clicked_at = None

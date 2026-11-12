@@ -25,6 +25,9 @@ class DanmakuBlocking:
             if word.lower() not in {str(item).strip().lower() for item in value}:
                 value.append(word)
         host.settings[key] = value
+        settings_process = getattr(host, '_settings_process', None)
+        if settings_process is not None:
+            settings_process.push_settings({key: value})
         # An already open or lazy settings page must not restore the old rules.
         from .dialogs import SettingsDialog
         for dialog in host.findChildren(SettingsDialog):

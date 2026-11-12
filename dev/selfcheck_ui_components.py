@@ -297,6 +297,18 @@ assert not any(name in sys.modules for name in (
         self.assertEqual(clicked, [True])
         parent.close()
 
+    def test_icon_button_keeps_hover_feedback_when_entered_programmatically(self):
+        parent = QWidget()
+        button = QPushButton('继续', parent)
+        button.setObjectName('IconButton')
+        theme.apply('dark')
+        theme.signals()
+        QApplication.sendEvent(button, QEvent(QEvent.Enter))
+        self.assertTrue(button.property('hovered'))
+        QApplication.sendEvent(button, QEvent(QEvent.Leave))
+        self.assertFalse(button.property('hovered'))
+        parent.close()
+
     def test_headers_and_step_buttons_keep_existing_settings_contract(self):
         from ddm import dialogs
         self.assertIs(dialogs._page_head, ui.page_header)
