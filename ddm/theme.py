@@ -86,30 +86,6 @@ FULLSCREEN_BAR_STYLE = '''
     border: none;
     border-radius: 0px;
 }
-#TileBottom[fullscreen="true"] #DanmakuComposer,
-#TileBottom[fullscreen="true"] #DanmakuBar {
-    background: transparent;
-    border: none;
-}
-#TileBottom[fullscreen="true"] #DanmakuComposer QLineEdit {
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 14px;
-    padding: 2px 10px;
-}
-#TileBottom[fullscreen="true"] #DanmakuSendButton {
-    background: rgba(0, 174, 236, 0.92);
-    color: #ffffff;
-    border: none;
-    border-radius: 14px;
-    padding: 0 12px;
-}
-#TileBottom[fullscreen="true"] #DanmakuSendButton:hover,
-#TileBottom[fullscreen="true"] #DanmakuSendButton[hasText="true"]:hover {
-    background: #00aeec;
-    color: #ffffff;
-}
 #TileBottom[fullscreen="true"] QLabel,
 #TileBottom[fullscreen="true"] #TileCtrl,
 #TileBottom[fullscreen="true"] #TileToggle {
