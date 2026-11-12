@@ -16,6 +16,7 @@ class FullscreenBar(QWidget):
         super().__init__(parent)
         self.setProperty('fullscreen', False)
         self._masked_labels = set()
+        self._masked_label_widgets = {}
         self._label_mask_pending = False
         self._tile_rect = QRect()
         self._owner_window = parent.window()
@@ -140,27 +141,41 @@ class FullscreenBar(QWidget):
         gdi32.CreateRectRgn.restype = wintypes.HRGN
         user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN, wintypes.BOOL)
         gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
-        for label in self.findChildren(QLabel):
-            if not (label.testAttribute(Qt.WA_NativeWindow)
-                    and label.testAttribute(Qt.WA_TransparentForMouseEvents)):
+        if not hide:
+            for hwnd in tuple(self._masked_labels):
+                user32.SetWindowRgn(hwnd, None, True)
+            labels = tuple({id(label): label for label in (
+                *self.findChildren(QLabel), *self._masked_label_widgets.values()
+            )}.values())
+            self._masked_labels.clear()
+            self._masked_label_widgets.clear()
+        else:
+            labels = self.findChildren(QLabel)
+        for label in labels:
+            try:
+                native_label = (label.testAttribute(Qt.WA_NativeWindow)
+                                and label.testAttribute(Qt.WA_TransparentForMouseEvents))
+            except RuntimeError:
                 continue
-            hwnd = int(label.winId())
+            if not native_label:
+                continue
+            try:
+                hwnd = int(label.winId() if hide else (label.internalWinId() or 0))
+            except RuntimeError:
+                continue
             if hide and hwnd not in self._masked_labels:
                 region = gdi32.CreateRectRgn(0, 0, 0, 0)
                 if user32.SetWindowRgn(hwnd, region, True):
                     self._masked_labels.add(hwnd)
+                    self._masked_label_widgets[hwnd] = label
                 elif region:
                     gdi32.DeleteObject(region)
-            elif not hide and hwnd in self._masked_labels:
-                user32.SetWindowRgn(hwnd, None, True)
             if not hide and not label.findChildren(QWidget):
                 # Tool-window composition made these passive labels native.
                 # Return their text to the ordinary bar's backing store instead
                 # of leaving opaque child HWNDs across the status/input region.
                 label.destroy()
                 label.setAttribute(Qt.WA_NativeWindow, False)
-        if not hide:
-            self._masked_labels.clear()
 
     def _schedule_label_mask(self):
         if self.qt_composited and not self._label_mask_pending:

@@ -87,7 +87,8 @@ class TileControls:
     def slide_fullscreen_bar(self, progress) -> None:
         host = self.host
         host._bar_progress = float(progress)
-        offset = round(TILE_BAR_HEIGHT * host._bar_progress)
+        offset = (0 if host.bottom.qt_composited else
+                   round(TILE_BAR_HEIGHT * host._bar_progress))
         host.bottom.set_tile_geometry(0, host.height() - TILE_BAR_HEIGHT
                                       + offset,
                                       host.bottom.width(), host.bottom.height())
