@@ -9,6 +9,7 @@ class ActionButton(QPushButton):
         self.setObjectName('IconButton')
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_Hover, True)
 
     def enterEvent(self, event):
         self.setProperty('hovered', True)

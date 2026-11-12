@@ -9,7 +9,7 @@ def glass_tint(widget, tint=None, *, card=False):
         # BewlyCat SettingsItemGroup uses --bew-fill-alt, not a translucent
         # version of the opaque card colour: rgb(131 131 145 / 10% or 15%).
         return QColor(131, 131, 145, round(255 * (.15 if light else .10)))
-    color = QColor(tint or ('#ffffff' if light else '#35383d'))
+    color = QColor(tint or ('#ffffff' if light else '#21262d'))
     opacity = widget.window().property('settings_glass_opacity')
     opacity = 70 if opacity is None else int(opacity)
     color.setAlpha(round(255 * opacity / 100))
@@ -34,8 +34,8 @@ def sync_text_contrast(root):
             effect = QGraphicsDropShadowEffect(label)
             effect.setObjectName('SettingsTextContrast')
             effect.setOffset(0, 0)
-            effect.setBlurRadius(3)
-            effect.setColor(QColor(0, 0, 0, 210))
+            effect.setBlurRadius(4)
+            effect.setColor(QColor(0, 0, 0, 230))
             label.setGraphicsEffect(effect)
         elif not enabled and owned:
             label.setGraphicsEffect(None)
