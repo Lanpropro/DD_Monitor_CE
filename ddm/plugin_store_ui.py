@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import time
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
 from . import config, online, plugin_updates, theme, version
 from .ui import SettingsSurface, ActionButton, AnimatedDialog, ElidedLabel, page_header
 from .update_notice import set_update_dot
@@ -149,8 +149,11 @@ class PluginStorePage(OnlinePage):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 4, 12)
-        self.cards = QVBoxLayout()
-        self.cards.setSpacing(6)
+        self.cards = QGridLayout()
+        self.cards.setHorizontalSpacing(12)
+        self.cards.setVerticalSpacing(12)
+        self.cards.setColumnStretch(0, 1)
+        self.cards.setColumnStretch(1, 1)
         content_layout.addLayout(self.cards)
         self.empty = QLabel('没有符合条件的插件，请尝试其他关键词或筛选条件。', content)
         self.empty.setObjectName('SettingsHint')
@@ -335,8 +338,8 @@ class PluginStorePage(OnlinePage):
         position = self.scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
-        for offer in visible:
-            self.cards.addWidget(self._offer_cards[offer['id']])
+        for index, offer in enumerate(visible):
+            self.cards.addWidget(self._offer_cards[offer['id']], index // 2, index % 2)
         self.count.setText(f'{len(visible)} / {len(self._display_offers)} 个插件')
         self.empty.setVisible(not visible)
         self.scroll.verticalScrollBar().setValue(0 if reset_scroll else position)

@@ -804,6 +804,9 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
 }}
+#PluginCard:hover {{
+    border-color: {BORDER_STRONG};
+}}
 #PluginScroll, #PluginScroll > QWidget > QWidget {{
     background: transparent;
 }}
@@ -812,16 +815,17 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     background: transparent;
 }}
 #PluginTabs QTabBar::tab {{
-    background: transparent;
+    background: {CONTENT};
     color: {TEXT2};
-    padding: 7px 14px;
+    padding: 8px 18px;
     margin-right: 6px;
-    border-radius: {RADIUS_MD}px;
-    border: 1px solid {BORDER};
+    border-radius: 16px;
+    border: 1px solid transparent;
 }}
 #PluginTabs QTabBar::tab:selected {{
-    background: {ACCENT_SOFT};
-    color: {ACCENT};
+    background: {ELEVATED};
+    color: {TEXT1};
+    border: 1px solid {BORDER_STRONG};
 }}
 #PluginName {{
     font-weight: 600;

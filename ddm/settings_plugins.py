@@ -82,9 +82,12 @@ class PluginSettingsPage(QWidget):
         content = QWidget()
         installed_layout = QVBoxLayout(content)
         installed_layout.setContentsMargins(0, 0, 4, 12)
-        self.cards = QVBoxLayout()
+        self.cards = QGridLayout()
         self.cards.setContentsMargins(0, 0, 0, 0)
-        self.cards.setSpacing(6)
+        self.cards.setHorizontalSpacing(12)
+        self.cards.setVerticalSpacing(12)
+        self.cards.setColumnStretch(0, 1)
+        self.cards.setColumnStretch(1, 1)
         installed_layout.addLayout(self.cards)
         self.empty = QLabel('未发现插件。可装载 ZIP 插件包', content)
         self.empty.setObjectName('SettingsHint')
@@ -197,8 +200,8 @@ class PluginSettingsPage(QWidget):
         position = self.installed_scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
-        for entry in visible:
-            self.cards.addWidget(self._installed_cards[entry['id']])
+        for index, entry in enumerate(visible):
+            self.cards.addWidget(self._installed_cards[entry['id']], index // 2, index % 2)
         self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
         self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
         self.empty.setVisible(not visible)
@@ -281,7 +284,8 @@ class PluginSettingsPage(QWidget):
         footer.addWidget(author)
         summary.addLayout(footer)
         self.card_details[entry["id"]] = (description, status, entry['description'])
-        self.cards.addWidget(card)
+        index = self.cards.count()
+        self.cards.addWidget(card, index // 2, index % 2)
 
     def _remove(self, plugin_id, card):
         if self.manager is None:
