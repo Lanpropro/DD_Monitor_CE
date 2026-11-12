@@ -118,6 +118,16 @@ class RoomStatus:
         item_was_live = {item: bool(item.room.get("live")) for item in host.sidebar._items}
         item_was_known = {item: bool(item.room.get("live_known", True))
                           for item in host.sidebar._items}
+        before_live = (
+            tuple((str(tile.room.get("room_id") or ""),
+                   bool(tile.room.get("live")),
+                   bool(tile.room.get("live_known", True)))
+                  for tile in host.wall.tiles),
+            tuple((str(item.room.get("room_id") or ""),
+                   bool(item.room.get("live")),
+                   bool(item.room.get("live_known", True)))
+                  for item in host.sidebar._items),
+        )
         faces: dict[str, str] = {}
         covers: dict[str, str] = {}
         for tile in host.wall.tiles:
@@ -193,9 +203,21 @@ class RoomStatus:
                 # 缓存命中也由 AvatarLoader 后台读取，批量状态回调不在 UI 线程解码图片。
             item.room["live_known"] = info.get("live_known", True)
             host.sidebar._folder_pending.discard(str(item.room.get("room_id")))
-        host.sidebar.resort()               # 「开播优先」要跟着开播状态重排
-        host._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
-        host.sync_danmaku()
+        after_live = (
+            tuple((str(tile.room.get("room_id") or ""),
+                   bool(tile.room.get("live")),
+                   bool(tile.room.get("live_known", True)))
+                  for tile in host.wall.tiles),
+            tuple((str(item.room.get("room_id") or ""),
+                   bool(item.room.get("live")),
+                   bool(item.room.get("live_known", True)))
+                  for item in host.sidebar._items),
+        )
+        live_state_changed = before_live != after_live
+        if live_state_changed:
+            host.sidebar.resort()           # 「开播优先」要跟着开播状态重排
+            host._sync_replay_scope()      # 回放范围设成「所有格子」时在这里补开缓存
+            host.sync_danmaku()
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             host.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
