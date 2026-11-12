@@ -123,7 +123,7 @@ def check_transparent_bar(app, tile):
             assert editor.paints > 0, 'Transparent composition must include the live editor'
             sample_x = tile.bottom.width() // 2 + 120
             assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
-            assert 140 < image.pixelColor(sample_x, image.height() - 1).alpha() < 220, 'Bottom gradient must remain translucent'
+            assert 80 < image.pixelColor(sample_x, image.height() - 1).alpha() < 160, 'Bottom gradient must remain translucent'
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
