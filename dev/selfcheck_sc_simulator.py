@@ -382,7 +382,7 @@ class SimulatorTests(unittest.TestCase):
             text_height = sc_message_document(event, 340 * scale, scale).size().height()
             self.assertGreaterEqual(height, 56 * scale + 2 * SC_BODY_PADDING * scale + text_height)
 
-    def test_layout_previews_keep_independent_positions_and_shared_scale_opacity(self):
+    def test_layout_previews_keep_independent_positions_and_layout_specific_scale_opacity(self):
         from ddm.dialogs import DanmakuSettingsPage
         page = DanmakuSettingsPage(dict(config.DEFAULT_SETTINGS, super_chat_position_sync=False))
         self.addCleanup(page.close)
@@ -412,6 +412,13 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(preview.values(), changed)
         page.super_chat_opacity.setValue(45)
         page.super_chat_preview_layout.button(1).click()
+        self.assertEqual(preview.opacity, 80)
+        page.super_chat_opacity.setValue(55)
+        page.super_chat_scale.setValue(145)
+        self.assertEqual(preview.values()['super_chat_video_opacity'], 45)
+        self.assertEqual(preview.values()['super_chat_panel_opacity'], 55)
+        self.assertEqual(preview.values()['super_chat_panel_scale'], 145)
+        page.super_chat_preview_layout.button(0).click()
         self.assertEqual(preview.opacity, 45)
         page.reset()
         self.assertIsNone(preview.position)

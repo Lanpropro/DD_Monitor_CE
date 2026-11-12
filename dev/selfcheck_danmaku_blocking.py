@@ -192,6 +192,10 @@ class BlockingTests(unittest.TestCase):
             editor.add.click()
             dialog.auto_save.flush()
             self.assertEqual(self.window.settings['danmaku_blocked_users'][0]['uid'], 'UCfixture')
+            self.assertFalse(editor.list.item(0).icon().isNull())
+            editor.set_users([{'platform': 'youtube', 'uid': str(index)} for index in range(20)])
+            self.assertGreater(editor.list.verticalScrollBar().maximum(), 0)
+            editor.set_users([{'platform': 'youtube', 'uid': 'UCfixture'}])
             with patch.dict(os.environ):
                 os.environ.pop('DDM_NO_SAVE', None)
                 config.save(self.window.current_state(), raise_errors=True)

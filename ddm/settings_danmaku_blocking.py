@@ -1,9 +1,12 @@
 """User-block list editing; identity validation and matching live in danmaku_filter."""
+import os
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget
 
 from .danmaku_filter import normalize_users
 from .ui import SelectControl
+from .widget_support import BRAND_ASSETS_DIR
 
 
 PLATFORMS = {'bilibili': '哔哩哔哩', 'douyin': '抖音', 'douyu': '斗鱼',
@@ -22,7 +25,9 @@ class BlockedUsersEditor(QWidget):
         self.list.setObjectName('BlockedUsersList')
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setMinimumWidth(0)
-        self.list.setFixedHeight(150)
+        self.list.setMinimumHeight(120)
+        self.list.setMaximumHeight(190)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         layout.addWidget(self.list)
         self.empty = QLabel('尚未屏蔽用户，可在弹幕左键菜单中屏蔽。')
         self.empty.setObjectName('SettingsHint')
@@ -67,10 +72,19 @@ class BlockedUsersEditor(QWidget):
             label = PLATFORMS.get(platform, platform)
             identity = 'ID: ' + rule['uid'] if rule['uid'] else '按昵称匹配，含同名用户'
             name = (rule['uname'] + ' · ') if rule['uname'] else ''
-            text = f"{label} · {name}{identity}"
+            text = f"{name}{identity}"
             item = QListWidgetItem(text, self.list)
+            icon_path = os.path.join(BRAND_ASSETS_DIR, 'platforms',
+                                     'huya.png' if platform == 'huya' else platform + '.ico')
+            if not os.path.isfile(icon_path):
+                icon_path = os.path.join(BRAND_ASSETS_DIR, 'platforms', 'generic.svg')
+            item.setIcon(QIcon(icon_path))
+            item.setData(Qt.UserRole + 1, platform)
             item.setToolTip(text)
             item.setData(Qt.UserRole, rule)
+        # QListWidget defers its geometry pass after clear()/insert; force it so
+        # the internal scrollbar is immediately available to the settings page.
+        self.list.doItemsLayout()
         self.empty.setVisible(self.list.count() == 0)
         self.remove.setEnabled(False)
 

@@ -280,3 +280,5 @@ settings_material_paint.sync_text_contrast 负责深色实时玻璃标签的轻�
 弹幕屏蔽由 `danmaku_filter` 处理平台命名空间、用户ID/昵称校验与词条匹配，`danmaku_blocking.DanmakuBlocking` 协调快捷操作、历史过滤、设置草稿同步及原写盘定时器；唯一持久状态在host.settings的danmaku_block_words/danmaku_blocked_users。弹幕接收先过滤再进入弹幕格、画面和插件事件；用户规则跨同平台房间生效，UID优先，无ID的显式昵称规则保留同名提示；普通词条仍不屏蔽SC。用户规则也过滤SC快照与既有SC，删除控制消息照常处理。
 
 CommentToolbar左键操作使用“复制 / +1 / 屏蔽弹幕 / 屏蔽用户”，后两项以额外间距分组并提供完整提示，复用本体协调器且与发送插件独立。弹幕文档保留kind/uid/platform/room_id，画面保留原event；点击后过滤已有行、画面及等待栅格的消息，迟到栅格结果不能重新加入已移除的token。设置→弹幕的“屏蔽管理”卡片统一呈现词条与BlockedUsersEditor；后者仅负责列表及增删，changed接入原自动保存，未加载页和已开页同步避免旧草稿覆盖快捷屏蔽。界面、过滤与协调各自独立，无新增接收线程或账号状态。
+
+屏蔽用户列表使用 `assets/platforms` 中的品牌图标表达平台，用户过多时在列表自身滚动，不撑开设置页；更新列表后立即执行布局以确保滚动条状态可见。`SettingsInputFocus` 将嵌套列表在边界处的滚轮交给外层设置滚动区，外观页和弹幕页因此保持连续滚动。`ScaleCurveControl` 为图表和说明保留固定纵向空间，说明不会覆盖绘图区；SC 预览在关闭位置同步后分别保存画面与弹幕栏的大小、不透明度，开启同步时仍沿用共享值。

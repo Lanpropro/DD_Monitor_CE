@@ -342,8 +342,9 @@ class DanmakuLifecycle:
                     tile.video_danmaku.super_chat_overlay.set_chats(
                         tile.video_danmaku.super_chats,
                         int(host.settings.get(
-                            "super_chat_opacity",
-                            config_module.DEFAULT_SETTINGS["super_chat_opacity"])) / 100)
+                            "super_chat_video_opacity",
+                            host.settings.get("super_chat_opacity",
+                                               config_module.DEFAULT_SETTINGS["super_chat_opacity"]))) / 100)
 
     def on_danmaku_status(self, source, text: str) -> None:
         host = self.host

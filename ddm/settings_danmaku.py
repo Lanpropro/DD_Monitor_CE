@@ -108,8 +108,8 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_opacity = SettingsSlider()
         self.super_chat_opacity.setRange(10, 100)
         self.super_chat_opacity.setValue(int(settings.get('super_chat_opacity', 80)))
-        self.super_chat_opacity.setAccessibleName('SC 不透明度')
-        value = SettingsValueLabel(f'{self.super_chat_opacity.value()}%')
+        self.super_chat_opacity.setAccessibleName('SC 当前布局不透明度')
+        value = self._sc_opacity_value = SettingsValueLabel(f'{self.super_chat_opacity.value()}%')
         self.super_chat_opacity.valueChanged.connect(lambda amount: value.setText(f'{amount}%'))
         opacity = QHBoxLayout()
         opacity.addStretch(1)
@@ -125,7 +125,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_collapse_stepper = StepperControl(self.super_chat_collapse_delay)
         grid.addWidget(QLabel('自动折叠'), 2, 0)
         grid.addWidget(self.super_chat_collapse_stepper, 2, 1, Qt.AlignRight)
-        grid.addWidget(_hint('显示开关、不透明度、自动折叠和大小共用于画面与弹幕栏；位置可在预览中分别调整。'), 3, 0, 1, 2)
+        grid.addWidget(_hint('显示开关和自动折叠共用于画面与弹幕栏；位置、大小和不透明度可按当前布局分别调整。'), 3, 0, 1, 2)
 
         placement = SettingsSection('醒目留言（SC）')
         self.sc_columns = SettingsColumns(respect_preference=False)
@@ -136,14 +136,14 @@ class DanmakuSettingsPage(QWidget):
             box.setSpacing(12)
         parameters.addWidget(display)
         row = QHBoxLayout()
-        scale_label = QLabel('大小（画面与弹幕栏共用）')
+        scale_label = QLabel('大小（当前布局）')
         scale_label.setWordWrap(True)
         row.addWidget(scale_label, 1)
         self.super_chat_scale = SettingsSlider()
         self.super_chat_scale.setRange(75, 200)
         self.super_chat_scale.setValue(int(settings.get('super_chat_scale', 100)))
-        self.super_chat_scale.setAccessibleName('SC 共用大小')
-        scale_value = SettingsValueLabel(f'{self.super_chat_scale.value()}%')
+        self.super_chat_scale.setAccessibleName('SC 当前布局大小')
+        scale_value = self._sc_scale_value = SettingsValueLabel(f'{self.super_chat_scale.value()}%')
         self.super_chat_scale.valueChanged.connect(lambda amount: scale_value.setText(f'{amount}%'))
         row.addWidget(self.super_chat_scale)
         row.addWidget(scale_value)
@@ -154,7 +154,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_scale_with_video.setChecked(bool(settings.get('super_chat_scale_with_video', False)))
         row.addWidget(self.super_chat_scale_with_video)
         parameters.addLayout(row)
-        parameters.addWidget(_hint('以 720 px 高的画面为基准，卡片、文字与头像一起缩放；弹幕栏保持上方设置的共用大小。'))
+        parameters.addWidget(_hint('以 720 px 高的画面为基准，卡片、文字与头像一起缩放；此项只影响画面布局。'))
         self.super_chat_scale_curve = ScaleCurveControl(settings.get('super_chat_scale_curve'),
                                                        strength=int(settings.get('super_chat_scale_strength', 35)))
         self.super_chat_scale_curve.setEnabled(self.super_chat_scale_with_video.isChecked())
@@ -170,8 +170,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_placement = SuperChatPlacementPreview()
         self.super_chat_placement.apply_settings(settings)
         self.super_chat_placement.scale_curve = self.super_chat_scale_curve.curve()
-        self.super_chat_layout_control.valueChanged.connect(
-            lambda mode: self.super_chat_placement.set_layout_mode(1 if mode == 'panel' else 0))
+        self.super_chat_layout_control.valueChanged.connect(self._sc_layout_changed)
         self.super_chat_opacity.valueChanged.connect(self.super_chat_placement.set_opacity)
         self.super_chat_placement.changed.connect(self._sc_placement_changed)
         self.super_chat_scale.valueChanged.connect(self._sc_scale_changed)
@@ -188,7 +187,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_position_sync.toggled.connect(self.super_chat_placement.set_position_sync)
         row.addWidget(self.super_chat_position_sync)
         preview.addLayout(row)
-        preview.addWidget(_hint('拖动卡片调整位置，拖动右下角调整大小；双击恢复当前布局的位置和共用大小。'))
+        preview.addWidget(_hint('拖动卡片调整位置，拖动右下角调整当前布局大小；双击恢复当前布局的位置和大小。'))
         preview.addStretch(1)
         self.sc_columns.add_section('parameters', self.sc_parameters)
         self.sc_columns.add_section('preview', self.sc_preview)
@@ -229,11 +228,25 @@ class DanmakuSettingsPage(QWidget):
             self.blocked_users.set_users(values['danmaku_blocked_users'])
 
     def _sc_placement_changed(self, values):
-        self.super_chat_scale.setValue(values['super_chat_scale'])
+        self._sync_sc_controls()
         self.super_chat_position_sync.setChecked(values['super_chat_position_sync'])
 
+    def _sc_layout_changed(self, mode):
+        self.super_chat_placement.set_layout_mode(1 if mode == 'panel' else 0)
+        self._sync_sc_controls()
+
+    def _sync_sc_controls(self):
+        self.super_chat_scale.blockSignals(True)
+        self.super_chat_opacity.blockSignals(True)
+        self.super_chat_scale.setValue(self.super_chat_placement.scale)
+        self.super_chat_opacity.setValue(self.super_chat_placement.opacity)
+        self._sc_scale_value.setText(f'{self.super_chat_placement.scale}%')
+        self._sc_opacity_value.setText(f'{self.super_chat_placement.opacity}%')
+        self.super_chat_scale.blockSignals(False)
+        self.super_chat_opacity.blockSignals(False)
+
     def _sc_scale_changed(self, value):
-        self.super_chat_placement.scale = value
+        self.super_chat_placement.set_scale(value)
         self.super_chat_placement.update()
 
     def _sc_video_scale_changed(self, checked):
@@ -261,6 +274,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_placement.apply_settings(config_module.DEFAULT_SETTINGS)
         self.super_chat_placement.scale_curve = self.super_chat_scale_curve.curve()
         self.super_chat_position_sync.setChecked(config_module.DEFAULT_SETTINGS['super_chat_position_sync'])
+        self._sync_sc_controls()
         self.block_edit.setPlainText("")
         self.blocked_users.set_users([])
         self.blocked_users.changed.emit()
@@ -278,9 +292,13 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_blocked_users": self.blocked_users.users(),
             "super_chat_enabled": self.super_chat_enabled.isChecked(),
             "super_chat_opacity": self.super_chat_opacity.value(),
+            "super_chat_video_opacity": self.super_chat_placement.values()['super_chat_video_opacity'],
+            "super_chat_panel_opacity": self.super_chat_placement.values()['super_chat_panel_opacity'],
             "super_chat_collapse_delay": self.super_chat_collapse_delay.value(),
             "video_danmaku_scale": self.video_danmaku_scale.isChecked(),
             "video_danmaku_scale_curve": self.video_danmaku_scale_curve.curve(),
             **self.super_chat_placement.values(),
             "super_chat_scale_curve": self.super_chat_scale_curve.curve(),
+            "super_chat_video_scale": self.super_chat_placement.values()['super_chat_video_scale'],
+            "super_chat_panel_scale": self.super_chat_placement.values()['super_chat_panel_scale'],
         }

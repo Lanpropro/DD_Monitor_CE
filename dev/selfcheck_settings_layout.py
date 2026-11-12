@@ -10,7 +10,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QScrollArea
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QScrollArea
 from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -616,6 +616,17 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             theme.configure_appearance({'appearance_font_size': 13})
             theme.apply('dark')
+
+    def test_scale_curve_hint_stays_below_graph(self):
+        page = self.page(2)
+        control = page.video_danmaku_scale_curve
+        self.dialog.resize(1200, 850)
+        settle()
+        graph = control.graph
+        hint = next(label for label in control.findChildren(QLabel)
+                    if label.text().startswith('横轴为画面高度'))
+        self.assertGreaterEqual(graph.height(), 220)
+        self.assertGreaterEqual(hint.y(), graph.geometry().bottom())
 
     def test_recording_state_and_shortcuts_survive_column_changes(self):
         page = self.page(3)
