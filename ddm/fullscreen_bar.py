@@ -128,18 +128,11 @@ class FullscreenBar(QWidget):
         self.update()
 
     def _render_badge(self, painter):
-        if self.property('matchSyncFullscreen'):
-            shade = QLinearGradient(0, 0, 0, self.height())
-            shade.setColorAt(0, QColor(0, 0, 0, 0))
-            shade.setColorAt(.45, QColor(0, 0, 0, 8))
-            shade.setColorAt(1, QColor(0, 0, 0, 64))
-            painter.fillRect(self.rect(), shade)
-            return
         shade = QLinearGradient(0, 0, 0, self.height())
         shade.setColorAt(0, QColor(0, 0, 0, 0))
-        shade.setColorAt(.32, QColor(0, 0, 0, 10))
-        shade.setColorAt(.72, QColor(0, 0, 0, 54))
-        shade.setColorAt(1, QColor(0, 0, 0, 112))
+        shade.setColorAt(.32, QColor(0, 0, 0, 18))
+        shade.setColorAt(.72, QColor(0, 0, 0, 96))
+        shade.setColorAt(1, QColor(0, 0, 0, 180))
         painter.fillRect(self.rect(), shade)
 
     def _mask_label_windows(self, hide):
