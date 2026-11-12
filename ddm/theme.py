@@ -16,7 +16,7 @@ from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPalette
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QToolButton, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -406,6 +406,13 @@ class ThemeSignals(QObject):
             self._repairing_palette = False
 
     def eventFilter(self, widget, event):
+        if event.type() in (QEvent.Enter, QEvent.Leave) and isinstance(widget, (QPushButton, QToolButton)):
+            hovered = event.type() == QEvent.Enter
+            if widget.property('hovered') != hovered:
+                widget.setProperty('hovered', hovered)
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
         if event.type() == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
                 _refresh_widget_palette(widget)
@@ -1087,7 +1094,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 #PrimaryButton:focus {{
     border: 1px solid #04161f;
 }}
-#IconButton:hover {{
+#IconButton:hover, #IconButton[hovered="true"] {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}

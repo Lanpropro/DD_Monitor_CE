@@ -266,6 +266,14 @@ def run_worker():
                 self.dialog.set_plugin_controls(message['controls'])
             elif kind == 'host-theme' and self.dialog is not None:
                 theme.apply(message['mode'])
+            elif kind == 'host-settings' and self.dialog is not None:
+                values = message.get('values') or {}
+                self.dialog.host_values.update(values)
+                self.dialog.initial_settings.update(values)
+                self.dialog.auto_save.adopt('settings', values)
+                page = self.dialog._loaded_pages.get(2)
+                if page is not None:
+                    page.sync_blocking(values)
             elif kind == 'host-save-blocked' and self.dialog is not None:
                 host_api._save_trace('worker.save.blocked', getattr(self.dialog, '_save_clicked_at', None))
                 self.dialog._save_clicked_at = None

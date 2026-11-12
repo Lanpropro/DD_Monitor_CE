@@ -322,6 +322,18 @@ for before, component, after in (
         self.assertEqual(clicked, [True])
         parent.close()
 
+    def test_action_button_keeps_hover_feedback_when_entered_programmatically(self):
+        parent = QWidget()
+        button = QPushButton('继续', parent)
+        button.setObjectName('IconButton')
+        theme.apply('dark')
+        theme.signals()
+        QApplication.sendEvent(button, QEvent(QEvent.Enter))
+        self.assertTrue(button.property('hovered'))
+        QApplication.sendEvent(button, QEvent(QEvent.Leave))
+        self.assertFalse(button.property('hovered'))
+        parent.close()
+
     def test_elided_label_recovers_full_text_after_resize_and_update(self):
         parent = QWidget()
         label = ui.ElidedLabel('一段用于验证标签缩放后恢复的完整标题', parent)

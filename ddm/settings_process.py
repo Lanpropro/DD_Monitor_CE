@@ -132,6 +132,15 @@ class SettingsProcess(QObject):
     def _send(self, message):
         self.process.write((json.dumps(message) + '\n').encode('utf-8'))
 
+    def push_settings(self, values):
+        """Push host-owned values into an already open isolated settings window."""
+        if not values:
+            return
+        if self.pending is not None:
+            self.pending['settings'].update(values)
+        if self.ready and self.visible and not self.closing:
+            self._send({'kind': 'host-settings', 'values': values})
+
     def _set_occlusion(self, rect, *, force=False):
         if force or rect != self.occlusion:
             self.occlusion = rect

@@ -239,6 +239,17 @@ class BlockingTests(unittest.TestCase):
             dialog.close()
             dialog.deleteLater()
 
+    def test_blocking_pushes_rules_to_isolated_settings_process(self):
+        pushed = []
+        class Process:
+            def push_settings(self, values):
+                pushed.append(values)
+            def stop(self):
+                pass
+        self.window._settings_process = Process()
+        self.window.danmaku_blocking.block({'text': 'fixture'}, '1001')
+        self.assertEqual(pushed, [{'danmaku_block_words': ['fixture']}])
+
 
 if __name__ == '__main__':
     unittest.main()
