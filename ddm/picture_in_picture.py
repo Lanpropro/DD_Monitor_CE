@@ -41,6 +41,8 @@ class PictureInPicture(QObject):
         self.external_primary = saved.get('external_primary', '')
         self._choice_order = list(saved.get('choice_order', []))
         self._extra_tiles = {}
+        self._start_serial = 0
+        self._pending_start = None
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
         self._video_aspects = {}
@@ -269,27 +271,57 @@ class PictureInPicture(QObject):
             self.floating.track_tiles(starting)
             self._minimums.update((tile, tile.minimumSize()) for tile in starting)
         _slots, aspects, composition_primary = self.composition(selection, columns, primary)
-        wall.set_picture_in_picture(tiles, columns, aspects, selection.index(primary))
-        self.floating.set_composition(aspects, columns, composition_primary)
         self.floating.show()
-        wall.show()
+        self.floating.audio_panel.hide()
+        self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
         for rid, tile in list(self._extra_tiles.items()):
             if tile not in tiles:
                 self._remove_extra(rid)
         self.selection = [wall.tiles.index(tile) for tile in tiles]
         self.primary = wall.tiles.index(primary_tile) if primary_tile in tiles else self.selection[0]
-        for tile in starting:
-            self.host.start_tile(tile)
-        if chat:
-            self.host.sync_danmaku()
-        self.floating.audio_panel.hide()
-        self._sync_overlays()
-        self._aspect_timer.start()
-        self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
+        self._queue_start(tiles, columns, aspects, composition_primary, starting, chat, opened)
+        return True
+
+    def _queue_start(self, tiles, columns, aspects, composition_primary, starting, chat, opened):
+        """Yield once after showing the shell before touching native video panes."""
+        self._start_serial += 1
+        serial = self._start_serial
+        self._pending_start = (serial, list(starting), bool(chat), bool(opened))
+        if QApplication.platformName() != 'windows':
+            self._apply_start(serial, tiles, columns, aspects, composition_primary)
+            return
         if opened:
             QTimer.singleShot(0, self, self._minimize_host)
+        QTimer.singleShot(0, self, lambda: self._apply_start(
+            serial, tiles, columns, aspects, composition_primary))
+
+    def _apply_start(self, serial, tiles, columns, aspects, composition_primary):
+        pending = self._pending_start
+        if self.floating is None or pending is None or pending[0] != serial:
+            return
+        wall = self.host.wall
+        wall.set_picture_in_picture(tiles, columns, aspects, self.selection.index(self.primary))
+        self.floating.set_composition(aspects, columns, composition_primary)
+        wall.show()
+        if pending[3]:
+            QTimer.singleShot(0, self, self._minimize_host)
+        self._start_next_tile(serial)
+
+    def _start_next_tile(self, serial):
+        pending = self._pending_start
+        if self.floating is None or pending is None or pending[0] != serial:
+            return
+        starting, chat, _opened = pending[1:]
+        if starting:
+            self.host.start_tile(starting.pop(0))
+            QTimer.singleShot(0, self, lambda: self._start_next_tile(serial))
+            return
+        self._pending_start = None
+        if chat:
+            self.host.sync_danmaku()
+        self._sync_overlays()
+        self._aspect_timer.start()
         self.host._save_timer.start()
-        return True
 
     def _minimize_host(self):
         if self.active and not self.host._closing:
@@ -311,6 +343,8 @@ class PictureInPicture(QObject):
         floating = self.floating
         if floating is None:
             return
+        self._start_serial += 1
+        self._pending_start = None
         if self.dialog is not None:
             self.dialog.reject()
         self.geometry = str(floating.saveGeometry().toBase64(), 'ascii')

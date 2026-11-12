@@ -854,6 +854,7 @@ def exercise(app, window, native, directory):
     if layer is not None:
         assert layer.window.transientParent() is window.windowHandle()
     pip.start([0, 1], 1)
+    assert pip.active and pip.floating is not None
     QTest.qWait(80)
     assert tiles[0].y() < tiles[1].y() and tiles[0].x() == tiles[1].x()
     pip.floating.tools.back.click()
@@ -1119,6 +1120,7 @@ def exercise_live_room_picker(app, native, directory):
         dialog.checks['3101'].setChecked(False)
         dialog.checks['3105'].setChecked(True)
         dialog.start.click()
+        QTest.qWait(50)
         assert '3101' not in pip._extra_tiles and removed not in wall.tiles
         assert removed not in window.players
         if old_player is not None:
