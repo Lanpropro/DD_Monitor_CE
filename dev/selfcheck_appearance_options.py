@@ -492,11 +492,15 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
             scroll.verticalScrollBar().setValue(0)
             point = scroll.viewport().rect().center()
-            event = QWheelEvent(QPointF(point), QPointF(scroll.viewport().mapToGlobal(point)), QPoint(),
-                                QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
-            APP.sendEvent(scroll.viewport(), event)
-            settle()
-            self.assertGreater(scroll.verticalScrollBar().value(), 0)
+            values = []
+            for _ in range(6):
+                event = QWheelEvent(QPointF(point), QPointF(scroll.viewport().mapToGlobal(point)), QPoint(),
+                                    QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+                APP.sendEvent(scroll.viewport(), event)
+                settle()
+                values.append(scroll.verticalScrollBar().value())
+            self.assertEqual(values, sorted(values))
+            self.assertGreater(values[-1], values[0])
         finally:
             dispose(dialog)
 

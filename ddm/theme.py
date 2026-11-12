@@ -361,13 +361,16 @@ class ThemeSignals(QObject):
             self._repairing_palette = False
 
     def eventFilter(self, widget, event):
-        if event.type() in (QEvent.Enter, QEvent.Leave) and isinstance(widget, (QPushButton, QToolButton)):
-            hovered = event.type() == QEvent.Enter
+        if event.type() in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
+            hovered = event.type() in (QEvent.Enter, QEvent.HoverEnter)
             if widget.property('hovered') != hovered:
                 widget.setProperty('hovered', hovered)
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
                 widget.update()
+        if event.type() == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
+            widget.setMouseTracking(True)
+            widget.setAttribute(Qt.WA_Hover, True)
         if event.type() == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
                 _refresh_widget_palette(widget)
@@ -1241,6 +1244,19 @@ QPushButton#PrimaryButton:pressed {{
 #ShortcutEdit:focus {{
     border: 1px solid {ACCENT};
 }}
+#ShortcutGroupTitle {{
+    color: {TEXT1}; font-size: {FONT_HEADING}px; font-weight: 700; padding: 2px 0 8px;
+}}
+#ShortcutRowTitle {{ color: {TEXT1}; font-size: {FONT_CONTROL}px; font-weight: 700; }}
+#ShortcutDivider {{ background: {BORDER}; }}
+#ShortcutAction, #ShortcutIconButton {{
+    background: {CONTENT_HOVER}; border: 1px solid {BORDER}; border-radius: {RADIUS_SM + 2}px;
+    color: {TEXT1}; min-height: {CONTROL_HEIGHT}px;
+}}
+#ShortcutAction {{ padding: 0 12px; font-weight: 600; }}
+#ShortcutIconButton {{ min-width: 30px; padding: 0; font-size: 16px; }}
+#ShortcutAction:hover, #ShortcutIconButton:hover {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {ACCENT}; }}
+#ShortcutAction:pressed, #ShortcutIconButton:pressed {{ background: {style_mix("CONTENT", "#000000", 0.12)}; }}
 #AccountId {{
     color: {TEXT3}; background: transparent;
 }}

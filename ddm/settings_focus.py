@@ -43,8 +43,6 @@ class SettingsInputFocus(QObject):
                     return False
                 blocked = True  # Chain to the page at either end of a nested list.
             elif isinstance(owner, QScrollArea):
-                if not blocked:
-                    return False
                 bar = owner.verticalScrollBar()
                 if bar.maximum() <= bar.minimum():
                     return True

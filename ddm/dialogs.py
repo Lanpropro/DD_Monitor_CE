@@ -27,6 +27,7 @@ from .ui import SettingsSlider, SettingsValueLabel
 from .ui import ToggleSwitch
 from .bili import BILI_CODECS
 from .encoders import ENCODER_CHOICES
+from .settings_shortcuts import ShortcutSettingsPage as ModernShortcutSettingsPage
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
@@ -1364,7 +1365,7 @@ class SettingsDialog(SettingsWindow):
             2: lambda: DanmakuSettingsPage(settings),
             3: lambda: RecordingSettingsPage(settings),
             4: lambda: NotificationSettingsPage(settings),
-            5: lambda: ShortcutSettingsPage(shortcuts),
+            5: lambda: ModernShortcutSettingsPage(shortcuts),
             6: lambda: TraySettingsPage(settings),
             7: lambda: PluginSettingsPage(plugin_manager),
             8: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
