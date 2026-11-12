@@ -15,7 +15,7 @@ from functools import lru_cache
 from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QPalette
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPalette
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 
@@ -129,6 +129,42 @@ BORDER_STRONG = "rgba(255, 255, 255, 0.12)"
 FONT_DEFAULT = "Microsoft YaHei UI"
 FONT_FAMILY = f'"{FONT_DEFAULT}", "Microsoft YaHei", "Segoe UI", sans-serif'
 FONT_DANMAKU = "Source Han Sans SC"
+DANMAKU_FALLBACK_FAMILIES = ("Segoe UI Historic",)
+DANMAKU_FALLBACK_RANGES = ((0x12000, 0x123FF), (0x12400, 0x1247F))
+
+
+def danmaku_font(font_family: str = "", pixel_size: int | None = None) -> QFont:
+    """Create a text font with a system fallback for historic Unicode blocks."""
+    font = QFont(font_family or danmaku_font_family())
+    families = list(font.families())
+    for family in DANMAKU_FALLBACK_FAMILIES:
+        if family not in families:
+            families.append(family)
+    font.setFamilies(families)
+    if pixel_size is not None:
+        font.setPixelSize(int(pixel_size))
+    return font
+
+
+def danmaku_font_runs(text: str, font: QFont) -> list[tuple[str, QFont]]:
+    """Split text into runs whose selected font contains each Unicode glyph."""
+    candidates = [QFont(font)]
+    for family in DANMAKU_FALLBACK_FAMILIES:
+        fallback = QFont(font)
+        fallback.setFamilies([family])
+        candidates.append(fallback)
+    runs: list[tuple[str, QFont]] = []
+    for char in str(text):
+        codepoint = ord(char)
+        historic = any(start <= codepoint <= end for start, end in DANMAKU_FALLBACK_RANGES)
+        pool = candidates[1:] if historic else candidates
+        selected = next((candidate for candidate in pool
+                         if QFontMetricsF(candidate).inFontUcs4(codepoint)), candidates[0])
+        if runs and runs[-1][1].families() == selected.families():
+            runs[-1] = (runs[-1][0] + char, runs[-1][1])
+        else:
+            runs.append((char, selected))
+    return runs
 
 
 @lru_cache(maxsize=1)

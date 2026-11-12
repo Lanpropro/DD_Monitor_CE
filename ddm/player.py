@@ -47,6 +47,7 @@ class TilePlayer(QObject):
 
     PICTURE_POLL_MS = 1000
     FROZEN_TICKS = 2
+    DOUYIN_STARTUP_BUFFER_TICKS = 10
     PROFILE_HEADERS: ClassVar = {
         "app": {"User-Agent": APP_UA},
         "web": {"User-Agent": UA, "Referer": "https://live.bilibili.com/"},
@@ -106,6 +107,7 @@ class TilePlayer(QObject):
         self._last_time = None
         self._frozen_ticks = 0
         self._stall_ticks = 0
+        self._startup_buffering = True
         self._picture_limit = self.FROZEN_TICKS
         self._buffer_limit = 6
         self._watch = QTimer(self)
@@ -197,7 +199,10 @@ class TilePlayer(QObject):
             self._decode_key = key
             self.decode_mode = "none" if self.silent else requested
             self._decode_tried = {self.decode_mode}
+        first_play = self._play_request is None
         self._play_request = (url, profile, dict(headers or {}), options)
+        if first_play:
+            self._startup_buffering = True
         self._play_media(url, profile, headers, options)
 
     def _play_media(self, url, profile, headers, options) -> None:
@@ -520,6 +525,7 @@ class TilePlayer(QObject):
             self._set_state("error")
             return
         if advanced and not ended and self._prop("vo-configured", False):
+            self._startup_buffering = False
             self._stall_ticks = 0
             if self.state != "frozen":
                 self._set_state("playing")
@@ -528,7 +534,10 @@ class TilePlayer(QObject):
             self._set_state("error")
             return
         self._stall_ticks += 2 if ended else 1
-        if self._stall_ticks >= self._buffer_limit:
+        limit = self._buffer_limit
+        if self.stream_profile == "douyin" and self._startup_buffering:
+            limit = self.DOUYIN_STARTUP_BUFFER_TICKS
+        if self._stall_ticks >= limit:
             self._set_state("error")
         elif self._stall_ticks >= 2:
             self._set_state("buffering")

@@ -61,8 +61,7 @@ class DanmakuDocument:
         host._font_family = font_family or theme.danmaku_font_family()
         host._base_size = max(host.MIN_FONT_SIZE,
                               min(host.MAX_FONT_SIZE, int(font_size or host.BASE_FONT_SIZE)))
-        font = QFont(host._font_family)
-        font.setPixelSize(host._base_size)
+        font = theme.danmaku_font(host._font_family, host._base_size)
         host.body.setFont(font)          # 具体字号在 HTML 里，这里给个底
         host.font_slider.blockSignals(True)
         host.font_slider.setValue(host._base_size)
