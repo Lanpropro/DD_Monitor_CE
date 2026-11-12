@@ -243,14 +243,14 @@ class SuperChatPlacementPreview(SkinPreview):
         self.setFixedHeight(300)
         self.setMouseTracking(True)
         self.setAccessibleName('SC 位置与大小预览')
-        self.setToolTip('拖动卡片摆放，拖动右下角调整共用大小；位置是否同步由下方开关决定，双击恢复当前位置和共用大小')
+        self.setToolTip('拖动卡片摆放，拖动右下角调整当前布局大小；位置是否同步由下方开关决定，双击恢复当前位置和大小')
         self._positions = {'video': None, 'panel': None}
         self.position_sync = True
-        self.scale = 100
+        self._scales = {'video': 100, 'panel': 100}
         self.scale_with_video = False
         self.scale_strength = 35
         self.scale_curve = None
-        self.opacity = 80
+        self._opacities = {'video': 80, 'panel': 80}
         self.layout_mode = 'video'
         self.preview_context = {
             'video': {'size': [1280, 720], 'cards': [{'message': '', 'collapsed': False}]},
@@ -269,10 +269,36 @@ class SuperChatPlacementPreview(SkinPreview):
             other = 'panel' if self.layout_mode == 'video' else 'video'
             self._positions[other] = None if value is None else list(value)
 
+    @property
+    def scale(self):
+        return self._scales[self.layout_mode]
+
+    @scale.setter
+    def scale(self, value):
+        value = max(75, min(200, int(value)))
+        self._scales[self.layout_mode] = value
+        if self.position_sync:
+            other = 'panel' if self.layout_mode == 'video' else 'video'
+            self._scales[other] = value
+
+    @property
+    def opacity(self):
+        return self._opacities[self.layout_mode]
+
+    @opacity.setter
+    def opacity(self, value):
+        value = max(0, min(100, int(value)))
+        self._opacities[self.layout_mode] = value
+        if self.position_sync:
+            other = 'panel' if self.layout_mode == 'video' else 'video'
+            self._opacities[other] = value
+
     def set_position_sync(self, enabled):
         self.position_sync = bool(enabled)
         if self.position_sync:
             self.position = self.position
+            self._scales['panel'] = self._scales['video']
+            self._opacities['panel'] = self._opacities['video']
         self.update()
         self.changed.emit(self.values())
 
@@ -283,7 +309,12 @@ class SuperChatPlacementPreview(SkinPreview):
                 'super_chat_scale_with_video': self.scale_with_video,
                 'super_chat_scale_strength': self.scale_strength,
                 'super_chat_scale_curve': self.scale_curve,
-                'super_chat_scale': self.scale}
+                'super_chat_scale': self._scales['video'],
+                'super_chat_video_scale': self._scales['video'],
+                'super_chat_panel_scale': self._scales['panel'],
+                'super_chat_opacity': self._opacities['video'],
+                'super_chat_video_opacity': self._opacities['video'],
+                'super_chat_panel_opacity': self._opacities['panel']}
 
     def apply_settings(self, settings):
         self.position_sync = bool(settings.get('super_chat_position_sync', True))
@@ -292,15 +323,28 @@ class SuperChatPlacementPreview(SkinPreview):
             self._positions[mode] = list(position) if isinstance(position, (list, tuple)) and len(position) == 2 else None
         if self.position_sync:
             self._positions['panel'] = None if self._positions['video'] is None else list(self._positions['video'])
-        self.scale = max(75, min(200, int(settings.get('super_chat_scale', 100))))
+        shared_scale = int(settings.get('super_chat_scale', 100))
+        self._scales = {
+            'video': max(75, min(200, int(settings.get('super_chat_video_scale', shared_scale)))),
+            'panel': max(75, min(200, int(settings.get('super_chat_panel_scale', shared_scale))))}
         self.scale_with_video = bool(settings.get('super_chat_scale_with_video', False))
         self.scale_strength = int(settings.get('super_chat_scale_strength', 35))
         self.scale_curve = settings.get('super_chat_scale_curve')
-        self.set_opacity(settings.get('super_chat_opacity', 80))
+        shared_opacity = int(settings.get('super_chat_opacity', 80))
+        self._opacities = {
+            'video': max(10, min(100, int(settings.get('super_chat_video_opacity', shared_opacity)))),
+            'panel': max(10, min(100, int(settings.get('super_chat_panel_opacity', shared_opacity))))}
+        if self.position_sync:
+            self._scales['panel'] = self._scales['video']
+            self._opacities['panel'] = self._opacities['video']
         self.update()
 
     def set_opacity(self, value):
         self.opacity = max(10, min(100, int(value)))
+        self.update()
+
+    def set_scale(self, value):
+        self.scale = value
         self.update()
 
     def set_preview_context(self, context):

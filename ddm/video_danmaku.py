@@ -249,7 +249,7 @@ class SuperChatOverlay(BadgeSurface):
         self._moved = False
         rects = self.card_rects()
         self._start_origin = QPointF(min(rect.left() for rect in rects), min(rect.top() for rect in rects))
-        self._start_scale = int(self._video_danmaku.settings.get('super_chat_scale', 100))
+        self._start_scale = int(self._video_danmaku.settings.get('super_chat_video_scale', self._video_danmaku.settings.get('super_chat_scale', 100)))
         self._start_extent = self.size()
         event.accept()
 
@@ -271,7 +271,9 @@ class SuperChatOverlay(BadgeSurface):
             dx = delta.x() * self._corner_sign[0] / max(1, self._start_extent.width())
             dy = delta.y() * self._corner_sign[1] / max(1, self._start_extent.height())
             change = dx if abs(dx) >= abs(dy) else dy
-            owner.settings['super_chat_scale'] = max(75, min(200, round(self._start_scale * (1 + change))))
+            value = max(75, min(200, round(self._start_scale * (1 + change))))
+            owner.settings['super_chat_video_scale'] = value
+            owner.settings['super_chat_scale'] = value
         else:
             self._place_at(self._start_origin + delta)
             self.setCursor(Qt.ClosedHandCursor)
@@ -299,8 +301,12 @@ class SuperChatOverlay(BadgeSurface):
             return super().mouseReleaseEvent(event)
         gesture, self._gesture = self._gesture, None
         if self._moved:
-            key = 'super_chat_scale' if gesture == 'resize' else 'super_chat_position'
-            self.settingsChanged.emit({key: self._video_danmaku.settings[key]})
+            if gesture == 'resize':
+                self.settingsChanged.emit({
+                    'super_chat_scale': self._video_danmaku.settings['super_chat_scale'],
+                    'super_chat_video_scale': self._video_danmaku.settings['super_chat_video_scale']})
+            else:
+                self.settingsChanged.emit({'super_chat_position': self._video_danmaku.settings['super_chat_position']})
         else:
             self._activate(self._press_point)
         self.setCursor(Qt.OpenHandCursor)
@@ -355,7 +361,7 @@ class SuperChatOverlay(BadgeSurface):
             return []
         rects, self._paint_scale = sc_placement_rects(
             self.chats, owner.width(), owner.height(),
-            max(.75, min(2.0, int(owner.settings.get('super_chat_scale', 100)) / 100)),
+            max(.75, min(2.0, int(owner.settings.get('super_chat_video_scale', owner.settings.get('super_chat_scale', 100))) / 100)),
             owner.settings.get('super_chat_position'), collapsed=self.presentation.is_collapsed,
             scale_with_video=owner.settings.get('super_chat_scale_with_video', False),
             scale_strength=owner.settings.get('super_chat_scale_strength', 35),
@@ -603,11 +609,14 @@ class VideoDanmaku(QWidget):
             "video_danmaku_opacity", "video_danmaku_area", "video_danmaku_scale",
             "video_danmaku_color_mode", "video_danmaku_color",
             "video_danmaku_outline_width", "super_chat_enabled", "super_chat_opacity",
-            "super_chat_collapse_delay", "super_chat_scale", "super_chat_position")}
+            "super_chat_video_opacity", "super_chat_collapse_delay", "super_chat_scale",
+            "super_chat_video_scale", "super_chat_position")}
         values['super_chat_enabled'] = settings.get('super_chat_enabled', True)
         values['super_chat_opacity'] = settings.get('super_chat_opacity', 80)
+        values['super_chat_video_opacity'] = settings.get('super_chat_video_opacity', values['super_chat_opacity'])
         values['super_chat_collapse_delay'] = settings.get('super_chat_collapse_delay', 7)
         values['super_chat_scale'] = settings.get('super_chat_scale', 100)
+        values['super_chat_video_scale'] = settings.get('super_chat_video_scale', values['super_chat_scale'])
         values['super_chat_scale_with_video'] = bool(settings.get('super_chat_scale_with_video', False))
         values['super_chat_scale_strength'] = settings.get('super_chat_scale_strength', 35)
         values['video_danmaku_scale_strength'] = settings.get('video_danmaku_scale_strength', 35)
@@ -646,7 +655,7 @@ class VideoDanmaku(QWidget):
             if self.super_chats:
                 self.super_chat_overlay.set_chats(
                     self.super_chats,
-                    int(values.get("super_chat_opacity") or 80) / 100)
+                    int(values.get("super_chat_video_opacity") or values.get("super_chat_opacity") or 80) / 100)
             if self.isVisible():
                 self._apply_layered()
 
@@ -831,7 +840,7 @@ class VideoDanmaku(QWidget):
             chats.append(dict(event))
         self.super_chats = chats
         self.super_chat_overlay.set_chats(
-            chats, int(self.settings.get("super_chat_opacity") or 80) / 100)
+            chats, int(self.settings.get("super_chat_video_opacity") or self.settings.get("super_chat_opacity") or 80) / 100)
         if chats:
             self.super_chat_overlay.sync(self)
             parent = self.parentWidget()

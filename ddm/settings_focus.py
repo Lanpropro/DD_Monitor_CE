@@ -45,11 +45,12 @@ class SettingsInputFocus(QObject):
             elif isinstance(owner, QScrollArea):
                 if not blocked:
                     return False
-                target = owner.viewport()
-                forwarded = QWheelEvent(QPointF(target.mapFromGlobal(event.globalPosition().toPoint())),
-                    event.globalPosition(), event.pixelDelta(), event.angleDelta(), event.buttons(),
-                    event.modifiers(), event.phase(), event.inverted(), event.source())
-                QApplication.sendEvent(target, forwarded)
+                bar = owner.verticalScrollBar()
+                if bar.maximum() <= bar.minimum():
+                    return True
+                amount = abs(delta)
+                step = bar.singleStep() * max(1, round(amount / 120)) if amount else bar.singleStep()
+                bar.setValue(bar.value() - step if delta > 0 else bar.value() + step)
                 event.accept()
                 return True
             owner = owner.parentWidget()

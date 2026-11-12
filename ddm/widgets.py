@@ -473,8 +473,10 @@ class SuperChatStack(QWidget):
         self._position = settings.get('super_chat_position' if settings.get('super_chat_position_sync', True)
                                       else 'super_chat_panel_position')
         self._enabled = bool(settings.get('super_chat_enabled', True))
-        self._opacity = int(settings.get('super_chat_opacity', 80)) / 100
-        self._scale = max(.75, min(2.0, int(settings.get('super_chat_scale', 100)) / 100))
+        self._opacity = int(settings.get('super_chat_panel_opacity',
+                                         settings.get('super_chat_opacity', 80))) / 100
+        self._scale = max(.75, min(2.0, int(settings.get(
+            'super_chat_panel_scale', settings.get('super_chat_scale', 100))) / 100))
         self.presentation.configure(settings)
         self._presentation_changed()
 

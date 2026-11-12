@@ -7,6 +7,8 @@ class ActionButton(QPushButton):
     def __init__(self, text='', parent=None):
         super().__init__(text, parent)
         self.setObjectName('IconButton')
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMouseTracking(True)
 
 
 class TitleLabel(QLabel):

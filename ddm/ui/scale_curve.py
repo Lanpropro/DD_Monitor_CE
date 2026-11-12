@@ -1,7 +1,7 @@
 """Interactive viewport-height / content-size curve for SC and video danmaku."""
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from .. import theme
 from ..corner_geometry import continuous_path
@@ -18,7 +18,9 @@ class ScaleCurveGraph(QWidget):
         self.points = scale_curve_points()
         self.selected = None
         self._dragging = False
-        self.setMinimumSize(220, 185)
+        self.setMinimumSize(220, 220)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setFixedHeight(220)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
         self.setAccessibleName('缩放曲线：横轴画面高度，纵轴内容大小；拖动节点或线条调整')
@@ -162,6 +164,7 @@ class ScaleCurveControl(QWidget):
 
     def __init__(self, points=None, parent=None, *, strength=35):
         super().__init__(parent)
+        self.setMinimumHeight(306)
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
         self.graph = ScaleCurveGraph(self)

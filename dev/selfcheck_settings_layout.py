@@ -10,7 +10,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QScrollArea
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QScrollArea
 from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -135,45 +135,6 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             APP.removeEventFilter(hook)
 
-    def test_late_plugin_widgets_and_layouts_share_a_card_without_duplication(self):
-        from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
-        page = self.page(0)
-        grid = page.layout().itemAt(1).layout()
-        row = QHBoxLayout()
-        label, edit = QLabel('插件输入'), QLineEdit('保留值')
-        row.addWidget(label)
-        row.addWidget(edit)
-        grid.addLayout(row, grid.rowCount(), 0, 1, 2)
-        settle()
-        card = page.sections.section('extensions')
-        self.assertTrue(card.isAncestorOf(edit))
-        self.assertEqual(edit.text(), '保留值')
-        hidden = QLineEdit('条件选项', page)
-        hidden.hide()
-        grid.addWidget(hidden, grid.rowCount(), 0, 1, 2)
-        page.plugin_controls()
-        self.assertTrue(card.isAncestorOf(hidden))
-        self.assertTrue(hidden.isHidden())
-        check = QCheckBox('稍后追加', page)
-        check.setObjectName('fixture_late')
-        grid.addWidget(check, grid.rowCount(), 0, 1, 2)
-        settle()
-        self.assertIs(page.plugin_controls()['fixture_late'], check)
-        from PySide6.QtWidgets import QSpinBox
-        from ddm.ui import StepperControl
-        stepper = StepperControl(QSpinBox())
-        grid.addWidget(stepper, grid.rowCount(), 1, Qt.AlignRight)
-        page.plugin_controls()
-        self.assertTrue(card.grid.itemAt(card.grid.indexOf(stepper)).alignment() & Qt.AlignRight)
-        self.assertTrue(card.isAncestorOf(check))
-        for width in (760, 1200):
-            self.dialog.resize(width, 800)
-            settle()
-            self.assertEqual(sum(key == 'extensions' for key, *_ in page.sections.entries), 1)
-            self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
-        self.assertLess(card.width(), page.sections.width() * .6)
-        self.assertLess(card.height(), page.sections.section('codecs').height())
-
     def test_settings_sliders_use_one_compact_width(self):
         from PySide6.QtWidgets import QSlider
         for index in (0, 1, 2, 4):
@@ -187,14 +148,14 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_numeric_selection_clears_on_blank_and_other_control_clicks(self):
         APP.setActiveWindow(self.dialog)  # The isolated shell uses WA_DontShowOnScreen.
         page = self.page(0)
-        first = page.poll_spin
-        second = page.compact_threshold_spin
+        first = page.normalization_editor.controls['target_lufs']
+        second = page.normalization_editor.controls['hold']
         self.dialog.general_scroll.ensureWidgetVisible(first)
         settle()
         QTest.mouseClick(first.lineEdit(), Qt.LeftButton)
         first.lineEdit().selectAll()
         self.assertTrue(first.lineEdit().hasSelectedText())
-        QTest.mouseClick(page.sections.section('playback'), Qt.LeftButton)
+        QTest.mouseClick(page.sections.section('normalization'), Qt.LeftButton)
         self.assertFalse(first.lineEdit().hasSelectedText())
         first.setFocus()
         first.lineEdit().selectAll()
@@ -302,6 +263,201 @@ class SettingsLayoutTests(unittest.TestCase):
                     dialog.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_codec_popup_does_not_move_cards_or_leading_controls(self):
+        page = self.page(0)
+        geometries = [card.geometry() for _key, card, _wide in page.sections.entries]
+        select = page.codec_editor.decode_control
+        select.showPopup()
+        settle()
+        self.assertEqual([card.geometry() for _key, card, _wide in page.sections.entries], geometries)
+        select.hidePopup()
+        settle()
+        self.assertEqual([card.geometry() for _key, card, _wide in page.sections.entries], geometries)
+
+    def test_late_plugin_widgets_and_layouts_share_a_card_without_duplication(self):
+        from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit
+        page = self.page(0)
+        grid = page.layout().itemAt(1).layout()
+        row = QHBoxLayout()
+        label, edit = QLabel('插件输入'), QLineEdit('保留值')
+        row.addWidget(label)
+        row.addWidget(edit)
+        grid.addLayout(row, grid.rowCount(), 0, 1, 2)
+        settle()
+        card = page.sections.section('extensions')
+        self.assertTrue(card.isAncestorOf(edit))
+        self.assertEqual(edit.text(), '保留值')
+        hidden = QLineEdit('条件选项', page)
+        hidden.hide()
+        grid.addWidget(hidden, grid.rowCount(), 0, 1, 2)
+        page.plugin_controls()
+        self.assertTrue(card.isAncestorOf(hidden))
+        self.assertTrue(hidden.isHidden())
+        check = QCheckBox('稍后追加', page)
+        check.setObjectName('fixture_late')
+        grid.addWidget(check, grid.rowCount(), 0, 1, 2)
+        settle()
+        self.assertIs(page.plugin_controls()['fixture_late'], check)
+        from PySide6.QtWidgets import QSpinBox
+        from ddm.ui import StepperControl
+        stepper = StepperControl(QSpinBox())
+        grid.addWidget(stepper, grid.rowCount(), 1, Qt.AlignRight)
+        page.plugin_controls()
+        self.assertTrue(card.grid.itemAt(card.grid.indexOf(stepper)).alignment() & Qt.AlignRight)
+        self.assertTrue(card.isAncestorOf(check))
+        for width in (760, 1200):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertEqual(sum(key == 'extensions' for key, *_ in page.sections.entries), 1)
+            self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
+        self.assertLess(card.width(), page.sections.width() * .6)
+        self.assertLess(card.height(), page.sections.section('codecs').height())
+
+    def test_frameless_header_search_and_close_preserve_cancel_semantics(self):
+        self.assertTrue(self.dialog.windowFlags() & Qt.FramelessWindowHint)
+        header = self.dialog.window_header
+        self.assertTrue(header.isAncestorOf(self.dialog.navigation.search))
+        self.dialog.nav.setCurrentRow(3)
+        settle()
+        self.assertIn('录制', header.breadcrumb.text())
+        self.dialog.navigation.set_collapsed(True, animate=False)
+        self.assertTrue(self.dialog.navigation.search.isVisible())
+        self.dialog.general_page.volume_slider.setValue(7)
+        self.assertEqual(header.close_button.accessibleName(), '关闭设置')
+        QTest.mouseClick(header.close_button, Qt.LeftButton)
+        self.assertFalse(self.dialog.isVisible())
+        self.assertEqual(self.dialog.result(), QDialog.Rejected)
+        self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
+
+    def test_material_controls_preview_reset_and_shadow_rendering(self):
+        from ddm.settings_material import DEFAULTS, normalize
+        self.assertTrue(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
+        self.assertEqual(normalize(dict(settings_glass_enabled='bad', settings_glass_blur=99,
+                                        settings_glass_opacity=-10, settings_no_shadows=None)),
+                         {**DEFAULTS, 'settings_glass_blur': 40, 'settings_glass_opacity': 0})
+        editor = self.page(1).material_editor
+        self.assertEqual(set(editor.controls), {'settings_no_shadows', 'settings_glass_enabled', 'settings_segment_motion'})
+        editor.controls['settings_no_shadows'].setChecked(True)
+        self.assertTrue(self.dialog.property('settings_no_shadows'))
+        self.assertFalse(self.dialog.property('settings_glass_enabled'))
+        self.assertEqual(self.dialog.windowOpacity(), 1.0)
+        self.dialog.reset_button.click()
+        self.assertEqual(editor.values(), DEFAULTS)
+        self.page(0)
+        button = self.dialog.general_page.codec_editor.source_buttons['avc']
+        before = button.grab().toImage()
+        self.dialog.set_material(dict(settings_no_shadows=True))
+        after = button.grab().toImage()
+        self.assertNotEqual(before, after, 'The shadow preference must change actual selection pixels')
+
+    def test_appearance_cards_and_compact_theme_preserve_mode_signals(self):
+        from ddm.ui import SegmentedControl
+        page = self.page(1)
+        self.assertIsInstance(page.mode_control, SegmentedControl)
+        modes = []
+        page.modeChanged.connect(modes.append)
+        page.buttons['light'].click()
+        self.assertEqual(modes, ['light'])
+        self.assertEqual(page.values()['appearance_mode'], 'light')
+        page.sync('dark')
+        self.assertEqual(modes, ['light'], 'Theme synchronization must not trigger another save')
+        self.assertEqual(page.mode_control.value(), 'dark')
+        for width, columns in ((1200, 2), (760, 1)):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertEqual(page.sections.columns, columns)
+            theme_card = page.sections.section('theme')
+            material_card = page.sections.section('material')
+            self.assertTrue(theme_card.isAncestorOf(page.mode_control))
+            self.assertLessEqual(page.mode_control.width(), 260)
+            if columns == 2:
+                self.assertEqual(theme_card.y(), material_card.y())
+                self.assertLess(theme_card.geometry().right(), material_card.x())
+            else:
+                self.assertLess(theme_card.geometry().bottom(), material_card.y())
+            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+
+    def test_material_blur_strength_changes_cached_background_pixels(self):
+        import tempfile
+        from PySide6.QtGui import QColor, QPainter, QPixmap
+        from ddm.ui.settings_surface import _frosted_image
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'background.png'
+            image = QPixmap(960, 640)
+            image.fill(QColor('black'))
+            painter = QPainter(image)
+            painter.fillRect(0, 0, 480, 640, QColor('white'))
+            painter.end()
+            image.save(str(path))
+            stat = path.stat()
+            sharp = _frosted_image(str(path), stat.st_mtime_ns, stat.st_size, 0).toImage()
+            blurred = _frosted_image(str(path), stat.st_mtime_ns, stat.st_size, 32).toImage()
+            self.assertLess(blurred.pixelColor(475, 320).red(), sharp.pixelColor(475, 320).red())
+
+    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
+                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
+    def test_glass_uses_composition_blur_without_changing_native_backdrop(self):
+        from ddm.window_fullscreen import _dwm_get
+        hwnd = int(self.dialog.winId())
+        for enabled in (True, False, True):
+            self.dialog.set_material({'settings_glass_enabled': enabled, 'settings_glass_opacity': 0})
+            settle()
+            self.assertEqual(self.dialog.property('settings_glass_enabled'), enabled)
+            self.assertEqual(_dwm_get(hwnd, 38), 1)
+            self.assertEqual(self.dialog._native_glass, enabled)
+            self.assertEqual(self.dialog._blur_state, (hwnd, enabled))
+            self.assertTrue(self.dialog.isVisible())
+            self.assertEqual(int(self.dialog.winId()), hwnd)
+
+    def test_native_frame_has_no_second_inner_corner_and_is_opaque(self):
+        from PySide6.QtGui import QColor, QImage, QPainter
+        from ddm.settings_window import SettingsWindow
+        shell = SettingsWindow()
+        shell.resize(240, 180)
+        shell.set_material(dict(settings_glass_enabled=False, settings_glass_opacity=0))
+        try:
+            with patch('ddm.settings_window.apply_frame', return_value=True), \
+                    patch('ddm.skin_parts.values_for', return_value={}):
+                shell.show()
+                settle()
+                surface = shell.grab().toImage()
+            scale = surface.devicePixelRatio()
+            self.assertEqual(surface.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 255,
+                             'DWM owns the outer curve; the client must not expose another cutout')
+            for background in ('#ffffff', '#000000'):
+                composed = QImage(surface.size(), QImage.Format_ARGB32_Premultiplied)
+                composed.fill(QColor(background))
+                painter = QPainter(composed)
+                painter.drawImage(composed.rect(), surface)
+                painter.end()
+                color = composed.pixelColor(composed.width() // 2, composed.height() // 2)
+                self.assertEqual(color.name(), '#33373b', 'The base must be independent of desktop colours')
+            shell._native_corners = False
+            with patch('ddm.skin_parts.values_for', return_value={}):
+                fallback = shell.grab().toImage()
+            self.assertEqual(fallback.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 0,
+                             'The software fallback still owns its rounded transparent corners')
+        finally:
+            shell.close()
+            shell.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
+                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
+    def test_native_solid_frame_and_caption(self):
+        import ctypes
+        from ctypes import wintypes
+        from ddm.window_fullscreen import _dwm_get
+        hwnd = int(self.dialog.winId())
+        self.assertTrue(self.dialog._native_corners)
+        self.assertEqual(_dwm_get(hwnd, 38), 1)
+        self.assertEqual(_dwm_get(hwnd, 33), 2)
+        self.assertTrue(self.dialog.mask().isEmpty(), 'Keep native antialiasing at fractional DPI')
+        get_style = ctypes.windll.user32.GetWindowLongPtrW
+        get_style.argtypes = (wintypes.HWND, ctypes.c_int)
+        get_style.restype = ctypes.c_ssize_t
+        self.assertEqual(get_style(hwnd, -16) & 0x00c00000, 0)
+
     @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
                          and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
     def test_theme_switches_reuse_the_solid_frame_on_the_same_native_window(self):
@@ -325,6 +481,56 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             theme.apply('dark')
 
+    def test_audio_curve_is_inline_full_width_and_preserves_edits_when_stacked(self):
+        page = self.page(0)
+        page._checks['volume_normalization'].setChecked(True)
+        editor = page.normalization_editor
+        card = page.sections.section('normalization')
+        self.assertIs(editor.parentWidget(), card)
+        self.assertIs(page._checks['volume_normalization'].parentWidget(), card)
+        editor.controls['hold'].setValue(4.5)
+        for width, direction in ((1200, QBoxLayout.LeftToRight), (760, QBoxLayout.TopToBottom)):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertEqual(editor.body.direction(), direction)
+            self.assertGreater(card.y(), page.sections.section('playback').geometry().bottom())
+            self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
+            self.assertLessEqual(editor.geometry().right(), card.width())
+            if direction == QBoxLayout.LeftToRight:
+                self.assertLess(editor.parameters_panel.geometry().right(), editor.preview_panel.x())
+                self.assertEqual(editor.parameters_panel.y(), editor.preview_panel.y())
+            else:
+                self.assertLess(editor.parameters_panel.geometry().bottom(), editor.preview_panel.y())
+            for control in editor.controls.values():
+                self.assertTrue(editor.parameters_panel.isAncestorOf(control))
+            self.assertTrue(editor.preview_panel.isAncestorOf(editor.graph))
+            self.assertEqual(page.values()['volume_normalization_curve']['hold'], 4.5)
+
+    def test_nested_audio_editor_and_controls_follow_base_colors_in_place(self):
+        self.dialog.set_material({'settings_glass_enabled': False})
+        page = self.page(0)
+        graph = page.normalization_editor.graph
+        geometry = self.dialog.geometry()
+        hwnd = int(self.dialog.winId())
+        def pixel(widget, x, y):
+            image = widget.grab().toImage()
+            scale = image.devicePixelRatio()
+            return image.pixelColor(round(x * scale), round(y * scale)).name()
+        try:
+            for mode, card, control in (('light', '#ffffff', '#edecef'),
+                                        ('dark', '#3c4044', '#43444b'),
+                                        ('light', '#ffffff', '#edecef')):
+                theme.apply(mode)
+                settle()
+                self.assertEqual(pixel(graph, 2, 30), control)
+                presets = page.normalization_editor.presets
+                self.assertEqual(pixel(presets, 12, presets.height() // 2), control)
+                self.assertNotEqual(pixel(page.poll_stepper, page.poll_stepper.width() // 2, 3), card)
+                self.assertEqual(self.dialog.geometry(), geometry)
+                self.assertEqual(int(self.dialog.winId()), hwnd)
+                self.assertTrue(self.dialog.isVisible())
+        finally:
+            theme.apply('dark')
 
     def test_danmaku_uses_shared_controls_and_responsive_preview_panels(self):
         from ddm.ui import FontSelectControl, SegmentedControl, StepperControl, ToggleSwitch
@@ -411,6 +617,17 @@ class SettingsLayoutTests(unittest.TestCase):
             theme.configure_appearance({'appearance_font_size': 13})
             theme.apply('dark')
 
+    def test_scale_curve_hint_stays_below_graph(self):
+        page = self.page(2)
+        control = page.video_danmaku_scale_curve
+        self.dialog.resize(1200, 850)
+        settle()
+        graph = control.graph
+        hint = next(label for label in control.findChildren(QLabel)
+                    if label.text().startswith('横轴为画面高度'))
+        self.assertGreaterEqual(graph.height(), 220)
+        self.assertGreaterEqual(hint.y(), graph.geometry().bottom())
+
     def test_recording_state_and_shortcuts_survive_column_changes(self):
         page = self.page(3)
         page.directory.setText('offline-recordings')
@@ -442,168 +659,6 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(editor.values(), before)
             self.assertTrue(editor.preview.isVisible())
             self.assertTrue(editor.checks['reload'].isVisible())
-
-    def test_codec_popup_does_not_move_cards_or_leading_controls(self):
-        page = self.page(0)
-        geometries = [card.geometry() for _key, card, _wide in page.sections.entries]
-        select = page.codec_editor.decode_control
-        select.showPopup()
-        settle()
-        self.assertEqual([card.geometry() for _key, card, _wide in page.sections.entries], geometries)
-        select.hidePopup()
-        settle()
-        self.assertEqual([card.geometry() for _key, card, _wide in page.sections.entries], geometries)
-
-    def test_frameless_header_search_and_close_preserve_cancel_semantics(self):
-        self.assertTrue(self.dialog.windowFlags() & Qt.FramelessWindowHint)
-        header = self.dialog.window_header
-        self.assertTrue(header.isAncestorOf(self.dialog.navigation.search))
-        self.dialog.nav.setCurrentRow(3)
-        settle()
-        self.assertIn('录制', header.breadcrumb.text())
-        self.dialog.navigation.set_collapsed(True, animate=False)
-        self.assertTrue(self.dialog.navigation.search.isVisible())
-        self.dialog.general_page.volume_slider.setValue(7)
-        self.assertEqual(header.close_button.accessibleName(), '关闭设置')
-        QTest.mouseClick(header.close_button, Qt.LeftButton)
-        self.assertFalse(self.dialog.isVisible())
-        self.assertEqual(self.dialog.result(), QDialog.Rejected)
-        self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
-
-
-    def test_material_controls_preview_reset_and_shadow_rendering(self):
-        from ddm.settings_material import DEFAULTS, normalize
-        self.assertTrue(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
-        self.assertEqual(normalize(dict(settings_glass_enabled='bad', settings_glass_blur=99,
-                                        settings_glass_opacity=-10, settings_no_shadows=None)),
-                         {**DEFAULTS, 'settings_glass_blur': 40, 'settings_glass_opacity': 0})
-        editor = self.page(1).material_editor
-        self.assertEqual(set(editor.controls), {'settings_no_shadows', 'settings_glass_enabled', 'settings_segment_motion'})
-        editor.controls['settings_no_shadows'].setChecked(True)
-        self.assertTrue(self.dialog.property('settings_no_shadows'))
-        self.assertFalse(self.dialog.property('settings_glass_enabled'))
-        self.assertEqual(self.dialog.windowOpacity(), 1.0)
-        self.dialog.reset_button.click()
-        self.assertEqual(editor.values(), DEFAULTS)
-        self.page(0)
-        button = self.dialog.general_page.codec_editor.source_buttons['avc']
-        before = button.grab().toImage()
-        self.dialog.set_material(dict(settings_no_shadows=True))
-        after = button.grab().toImage()
-        self.assertNotEqual(before, after, 'The shadow preference must change actual selection pixels')
-
-
-    def test_appearance_cards_and_compact_theme_preserve_mode_signals(self):
-        from ddm.ui import SegmentedControl
-        page = self.page(1)
-        self.assertIsInstance(page.mode_control, SegmentedControl)
-        modes = []
-        page.modeChanged.connect(modes.append)
-        page.buttons['light'].click()
-        self.assertEqual(modes, ['light'])
-        self.assertEqual(page.values()['appearance_mode'], 'light')
-        page.sync('dark')
-        self.assertEqual(modes, ['light'], 'Theme synchronization must not trigger another save')
-        self.assertEqual(page.mode_control.value(), 'dark')
-        for width, columns in ((1200, 2), (760, 1)):
-            self.dialog.resize(width, 800)
-            settle()
-            self.assertEqual(page.sections.columns, columns)
-            theme_card = page.sections.section('theme')
-            material_card = page.sections.section('material')
-            self.assertTrue(theme_card.isAncestorOf(page.mode_control))
-            self.assertLessEqual(page.mode_control.width(), 260)
-            if columns == 2:
-                self.assertEqual(theme_card.y(), material_card.y())
-                self.assertLess(theme_card.geometry().right(), material_card.x())
-            else:
-                self.assertLess(theme_card.geometry().bottom(), material_card.y())
-            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
-
-    def test_material_blur_strength_changes_cached_background_pixels(self):
-        import tempfile
-        from PySide6.QtGui import QColor, QPainter, QPixmap
-        from ddm.ui.settings_surface import _frosted_image
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'background.png'
-            image = QPixmap(960, 640)
-            image.fill(QColor('black'))
-            painter = QPainter(image)
-            painter.fillRect(0, 0, 480, 640, QColor('white'))
-            painter.end()
-            image.save(str(path))
-            stat = path.stat()
-            sharp = _frosted_image(str(path), stat.st_mtime_ns, stat.st_size, 0).toImage()
-            blurred = _frosted_image(str(path), stat.st_mtime_ns, stat.st_size, 32).toImage()
-            self.assertLess(blurred.pixelColor(475, 320).red(), sharp.pixelColor(475, 320).red())
-
-    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
-                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_glass_uses_composition_blur_without_changing_native_backdrop(self):
-        from ddm.window_fullscreen import _dwm_get
-        hwnd = int(self.dialog.winId())
-        for enabled in (True, False, True):
-            self.dialog.set_material({'settings_glass_enabled': enabled, 'settings_glass_opacity': 0})
-            settle()
-            self.assertEqual(self.dialog.property('settings_glass_enabled'), enabled)
-            self.assertEqual(_dwm_get(hwnd, 38), 1)
-            self.assertEqual(self.dialog._native_glass, enabled)
-            self.assertEqual(self.dialog._blur_state, (hwnd, enabled))
-            self.assertTrue(self.dialog.isVisible())
-            self.assertEqual(int(self.dialog.winId()), hwnd)
-
-
-    def test_native_frame_has_no_second_inner_corner_and_is_opaque(self):
-        from PySide6.QtGui import QColor, QImage, QPainter
-        from ddm.settings_window import SettingsWindow
-        shell = SettingsWindow()
-        shell.resize(240, 180)
-        shell.set_material(dict(settings_glass_enabled=False, settings_glass_opacity=0))
-        try:
-            with patch('ddm.settings_window.apply_frame', return_value=True), \
-                    patch('ddm.skin_parts.values_for', return_value={}):
-                shell.show()
-                settle()
-                surface = shell.grab().toImage()
-            scale = surface.devicePixelRatio()
-            self.assertEqual(surface.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 255,
-                             'DWM owns the outer curve; the client must not expose another cutout')
-            for background in ('#ffffff', '#000000'):
-                composed = QImage(surface.size(), QImage.Format_ARGB32_Premultiplied)
-                composed.fill(QColor(background))
-                painter = QPainter(composed)
-                painter.drawImage(composed.rect(), surface)
-                painter.end()
-                color = composed.pixelColor(composed.width() // 2, composed.height() // 2)
-                self.assertEqual(color.name(), '#33373b', 'The base must be independent of desktop colours')
-            shell._native_corners = False
-            with patch('ddm.skin_parts.values_for', return_value={}):
-                fallback = shell.grab().toImage()
-            self.assertEqual(fallback.pixelColor(round(3 * scale), round(3 * scale)).alpha(), 0,
-                             'The software fallback still owns its rounded transparent corners')
-        finally:
-            shell.close()
-            shell.deleteLater()
-            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-
-
-    @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows'
-                         and sys.getwindowsversion().build >= 22621, 'Windows 11 system backdrop only')
-    def test_native_solid_frame_and_caption(self):
-        import ctypes
-        from ctypes import wintypes
-        from ddm.window_fullscreen import _dwm_get
-        hwnd = int(self.dialog.winId())
-        self.assertTrue(self.dialog._native_corners)
-        self.assertEqual(_dwm_get(hwnd, 38), 1)
-        self.assertEqual(_dwm_get(hwnd, 33), 2)
-        self.assertTrue(self.dialog.mask().isEmpty(), 'Keep native antialiasing at fractional DPI')
-        get_style = ctypes.windll.user32.GetWindowLongPtrW
-        get_style.argtypes = (wintypes.HWND, ctypes.c_int)
-        get_style.restype = ctypes.c_ssize_t
-        self.assertEqual(get_style(hwnd, -16) & 0x00c00000, 0)
-
-
 
 
 class AppearanceEditorTests(unittest.TestCase):
