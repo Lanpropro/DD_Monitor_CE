@@ -189,7 +189,10 @@ def _color(value, palette):
         return QApplication.palette().color(roles[match[1].replace('-','')])
     color = theme.qcolor(value)
     if value.startswith('rgba('):
-        color.setAlpha(int(float(value[5:-1].split(',')[-1])*255))
+        alpha = float(value[5:-1].split(',')[-1].strip())
+        # CSS uses 0..1, while a few generated legacy rules use the Qt
+        # 0..255 form. Do not multiply an already byte-sized alpha again.
+        color.setAlpha(round(alpha * 255) if alpha <= 1 else round(alpha))
     return color
 
 

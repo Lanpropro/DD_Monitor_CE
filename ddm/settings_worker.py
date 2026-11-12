@@ -280,7 +280,8 @@ def run_worker():
             elif kind == 'host-cancel' and self.dialog is not None:
                 self.dialog.reject()
             elif kind == 'focus' and self.dialog is not None:
-                host_api._activate_dialog(self.dialog)
+                QTimer.singleShot(0, self.dialog,
+                                  lambda dialog=self.dialog: host_api._activate_dialog(dialog))
             elif kind == 'open' and self.dialog is None:
                 mode = theme.normalize_mode(message['settings'].get('appearance_mode'))
                 theme.configure_appearance(message['settings'])
@@ -289,7 +290,8 @@ def run_worker():
                 self.dialog = dialog
                 dialog.finished.connect(self.finished)
                 send({'kind': 'window', 'hwnd': int(dialog.winId())})
-                host_api._activate_dialog(dialog)
+                QTimer.singleShot(0, dialog,
+                                  lambda dialog=dialog: host_api._activate_dialog(dialog))
 
         def finished(self, accepted):
             dialog, self.dialog = self.dialog, None

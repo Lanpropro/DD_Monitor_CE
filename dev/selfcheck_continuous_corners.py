@@ -90,6 +90,12 @@ class ContinuousCornersTests(unittest.TestCase):
         self.assertEqual(button.size(),before)
         self.assertEqual(button.grab().toImage().pixelColor(button.width()//2,4),QColor('#227744'))
 
+    def test_rgba_alpha_accepts_css_and_legacy_byte_forms(self):
+        for value, expected in (('rgba(12, 19, 30, 0.82)', 209),
+                                ('rgba(12, 19, 30, 209)', 209),
+                                ('rgba(12, 19, 30, 230)', 230)):
+            self.assertEqual(corners._color(value, None).alpha(), expected)
+
     def test_identical_native_rules_keep_distinct_local_colors(self):
         widgets = []
         for color in ('#123456','#227744'):
