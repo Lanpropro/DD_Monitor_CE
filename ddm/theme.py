@@ -127,10 +127,19 @@ BORDER = "rgba(131, 131, 145, 0.16)"
 BORDER_STRONG = "rgba(255, 255, 255, 0.12)"
 
 FONT_DEFAULT = "Microsoft YaHei UI"
-FONT_FAMILY = f'"{FONT_DEFAULT}", "Microsoft YaHei", "Segoe UI", sans-serif'
 FONT_DANMAKU = "Source Han Sans SC"
 DANMAKU_FALLBACK_FAMILIES = ("Segoe UI Historic",)
 DANMAKU_FALLBACK_RANGES = ((0x12000, 0x123FF), (0x12400, 0x1247F))
+
+
+def _control_font_family(primary: str) -> str:
+    """Keep the historic-Unicode fallback available to every Qt text control."""
+    families = [primary, "Microsoft YaHei", "Segoe UI", *DANMAKU_FALLBACK_FAMILIES, "sans-serif"]
+    return ", ".join(f'"{family}"' if family != "sans-serif" else family
+                      for family in dict.fromkeys(families) if family)
+
+
+FONT_FAMILY = _control_font_family(FONT_DEFAULT)
 
 
 def danmaku_font(font_family: str = "", pixel_size: int | None = None) -> QFont:
@@ -227,7 +236,7 @@ def configure_appearance(values):
         return False
     _preferences = current
     family = current['appearance_font'] or FONT_DEFAULT
-    FONT_FAMILY = f'"{family}", "Microsoft YaHei", "Segoe UI", sans-serif'
+    FONT_FAMILY = _control_font_family(family)
     FONT_CONTROL = current['appearance_font_size']
     FONT_CAPTION, FONT_BODY, FONT_HEADING = FONT_CONTROL - 1, FONT_CONTROL + 2, FONT_CONTROL + 7
     return True

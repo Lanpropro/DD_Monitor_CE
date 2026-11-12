@@ -10,8 +10,8 @@ RUNTIME = next((path for path in (ROOT, *ROOT.parents)
 os.environ["PATH"] = str(RUNTIME) + os.pathsep + os.environ.get("PATH", "")
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtGui import QColor, QFont, QFontDatabase  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLineEdit  # noqa: E402
 from ddm import theme  # noqa: E402
 from ddm.danmaku_raster import CommentRaster  # noqa: E402
 
@@ -31,7 +31,22 @@ def main():
     raster = CommentRaster(font, 1, 1, 500, {})
     image = raster._render_text("𒅌", QColor("white"))
     assert not image.isNull() and image.width() > 0 and image.height() > 0
-    print("PASS: historic Unicode glyph fallback and raster rendering")
+    previous = app.styleSheet()
+    try:
+        app.setStyleSheet(theme.qss())
+        edit = QLineEdit()
+        edit.show()
+        app.processEvents()
+        if QFontDatabase.families():
+            assert "Segoe UI Historic" in edit.font().families(), edit.font().families()
+            assert QFontMetricsF(edit.font()).inFontUcs4(0x1224C)
+        else:
+            # The offscreen plugin has no system font database and collapses
+            # the QSS family list to its generic placeholder.
+            assert '"Segoe UI Historic"' in theme.qss()
+    finally:
+        app.setStyleSheet(previous)
+    print("PASS: historic Unicode glyph fallback, raster rendering, and input controls")
 
 
 if __name__ == "__main__":
