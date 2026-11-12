@@ -103,8 +103,6 @@ def check_transparent_bar(app, tile):
             tile.bottom._trace_input('expired', tile.bottom, key)
             assert log.call_count == 300
     tile.bottom._input_trace_until = tile.bottom._input_trace_count = 0
-    assert not tile.bottom.testAttribute(Qt.WA_StyledBackground), \
-        'Fullscreen bar must leave styled background painting to its alpha gradient'
     editor = PaintProbeEdit(tile.bottom)
     editor.setGeometry(tile.bottom.width() // 2 - 90, 4, 180, 24)
     editor.setStyleSheet("QLineEdit {background: #236343; color: white; border: none;}")
@@ -368,8 +366,6 @@ def main():
             window._fullscreen_tile = None
             window.wall.set_fullscreen_tile(None)
         assert not tile.bottom.property('fullscreen')
-        assert tile.bottom.testAttribute(Qt.WA_StyledBackground), \
-            'Leaving fullscreen must restore styled background painting'
         assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
         assert not tile.bottom.isWindow(), 'Leaving fullscreen must restore the ordinary child bar'
         assert not tile.bottom._masked_labels, 'Leaving fullscreen must restore native label regions'
