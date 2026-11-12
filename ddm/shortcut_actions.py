@@ -9,4 +9,8 @@ SHORTCUT_ACTIONS = [
     ("record", "开始／停止鼠标所在格子的录制", "R"),
     ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
+    ("volume_up", "按住 Shift 滚轮向上提高音量", "Shift+WheelUp"),
+    ("volume_down", "按住 Shift 滚轮向下降低音量", "Shift+WheelDown"),
+    ("pip_volume_up", "画中画中提高当前画面音量", "Up"),
+    ("pip_volume_down", "画中画中降低当前画面音量", "Down"),
 ]

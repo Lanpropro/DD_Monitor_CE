@@ -1,17 +1,21 @@
 """Main window app shortcuts; window remains the only state and Qt lifetime owner."""
 import sys
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from .playback_controls import VolumeButton
 
 
-class AppShortcuts:
+class AppShortcuts(QObject):
     def __init__(self, host):
+        super().__init__(host)
         self.host = host
 
     def refresh_shortcuts(self) -> None:
         host = self.host
+        if not hasattr(host, '_shortcut_wheel_filter'):
+            QApplication.instance().installEventFilter(self)
+            host._shortcut_wheel_filter = True
         if not hasattr(host, "_shortcut_focus_connected"):
             application = QApplication.instance()
             assert isinstance(application, QApplication)
@@ -21,7 +25,9 @@ class AppShortcuts:
             shortcut.setEnabled(False)
             shortcut.deleteLater()
         host._window_shortcuts = []
-        sequences = [*host.shortcuts.values(), "Up", "Down"]
+        sequences = [value for key, value in host.shortcuts.items()
+                     if key not in ('volume_up', 'volume_down')]
+        sequences += ["Up", "Down"]
         if host.shortcuts.get("danmaku_input") == "Return":
             sequences.append("Enter")
         for sequence in dict.fromkeys(sequences):
@@ -36,6 +42,37 @@ class AppShortcuts:
             shortcut.activated.connect(lambda key=sequence: host._handle_shortcut(key))
             host._window_shortcuts.append(shortcut)
         host._sync_input_shortcuts()
+
+    def eventFilter(self, watched, event):
+        if event.type() != QEvent.Wheel:
+            return False
+        host = self.host
+        window = watched.window() if hasattr(watched, 'window') else None
+        if window is not host and window is not host._fullscreen_tile:
+            return False
+        if not event.modifiers() & Qt.ShiftModifier:
+            return False
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if not delta:
+            return False
+        key = 'volume_up' if delta > 0 else 'volume_down'
+        shortcut = host.shortcuts.get(key, 'Shift+WheelUp' if delta > 0 else 'Shift+WheelDown')
+        parts = [part for part in shortcut.split('+') if part]
+        wheel = 'WheelUp' if delta > 0 else 'WheelDown'
+        if not parts or parts[-1] != wheel:
+            return False
+        modifiers = Qt.NoModifier
+        for part in parts[:-1]:
+            modifiers |= {'Shift': Qt.ShiftModifier, 'Ctrl': Qt.ControlModifier,
+                          'Alt': Qt.AltModifier, 'Meta': Qt.MetaModifier}.get(part, Qt.NoModifier)
+        if event.modifiers() != modifiers:
+            return False
+        tile = host._tile_under_cursor()
+        if tile is None:
+            return False
+        tile.set_volume(tile.volume + (5 if delta > 0 else -5))
+        event.accept()
+        return True
 
     def sync_input_shortcuts(self, *_args) -> None:
         host = self.host
@@ -72,11 +109,13 @@ class AppShortcuts:
         if any(tile.plugin_interaction_active() for tile in host.wall.tiles if tile.isVisible()):
             return False
         shortcuts = host.shortcuts
-        if pressed in ("Up", "Down") and host._fullscreen_tile is not None:
+        volume_up = shortcuts.get('pip_volume_up', 'Up')
+        volume_down = shortcuts.get('pip_volume_down', 'Down')
+        if pressed in (volume_up, volume_down) and host._fullscreen_tile is not None:
             if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
                 return False
             tile = host._fullscreen_tile
-            tile.set_volume(tile.volume + (10 if pressed == "Up" else -10))
+            tile.set_volume(tile.volume + (10 if pressed == volume_up else -10))
         elif pressed and pressed == shortcuts.get("focus"):
             if host._fullscreen_tile is not None:
                 host._exit_fullscreen()

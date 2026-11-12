@@ -368,14 +368,16 @@ class PictureInPictureWindow(QWidget):
                 and watched.window() in (self, self.tools, self.audio_tools)):
             pressed = QKeySequence(event.keyCombination()).toString()
             shortcuts = self.controller.host.shortcuts
-            if pressed in ('Up', 'Down', shortcuts.get('mute'), shortcuts.get('solo')):
+            volume_up = shortcuts.get('pip_volume_up', 'Up')
+            volume_down = shortcuts.get('pip_volume_down', 'Down')
+            if pressed in (volume_up, volume_down, shortcuts.get('mute'), shortcuts.get('solo')):
                 if kind == QEvent.ShortcutOverride:
                     event.accept()
                     return True
                 tile = self._tile_at(QCursor.pos()) if self._pointer_over() else None
                 if tile is not None:
-                    if pressed in ('Up', 'Down'):
-                        tile.set_volume(tile.volume + (5 if pressed == 'Up' else -5))
+                    if pressed in (volume_up, volume_down):
+                        tile.set_volume(tile.volume + (5 if pressed == volume_up else -5))
                     elif pressed == shortcuts.get('mute'):
                         tile.set_muted(not tile.muted)
                     else:
