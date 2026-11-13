@@ -219,6 +219,7 @@ if (-not $SourceOnly) {
         --collect-all streamlink `
         --collect-all pypinyin `
         --collect-all av `
+        --collect-submodules ddm.ui `
         --hidden-import numpy `
         --hidden-import mpv `
         --copy-metadata python-mpv `

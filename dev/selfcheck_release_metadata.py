@@ -64,6 +64,7 @@ def main():
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
     assert '--hidden-import ddm.ui.color_dialog' in source, 'The lazy RGB picker must be included in frozen builds'
     assert '--hidden-import ddm.ui.stepper' in source, 'The lazy settings stepper must be included in frozen builds'
+    assert '--collect-submodules ddm.ui' in source, 'All lazy settings UI modules must be included in frozen builds'
     assert '--hidden-import ddm.widgets' in source, 'Frozen builds must retain legacy widget imports for plugins'
     assert 'archive --format=zip --output=$snapshot HEAD' in source
     for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
