@@ -439,6 +439,7 @@ class NoticeBlurPreview(QWidget):
 
 class NotificationSettingsPage(QWidget):
     ITEMS = [
+        ('notifications_enabled', '开启通知'),
         ('live_alert', '启用开播提醒（顶部提示与关注栏动效）'),
         ('notice_hide_fullscreen', '全屏时不弹出通知'),
         ('notice_persist_updates', '软件和插件更新'),
@@ -469,6 +470,7 @@ class NotificationSettingsPage(QWidget):
         self._checks = {}
         self._states = {}
         descriptions = (
+            '显示软件、开播、更新和操作结果等浮动通知；关闭后仍可在通知面板查看历史。',
             '主播开播时显示浮动提醒，并突出关注卡片。',
             '全屏观看时不显示浮动通知，仍可在通知面板查看。',
             '发现新版本时，保留更新入口。',
@@ -478,22 +480,22 @@ class NotificationSettingsPage(QWidget):
             '录制、保存等操作结果是否持续显示。',
         )
         for index, (key, label) in enumerate(self.ITEMS):
-            if index in (0, 2):
+            if index in (0, 3):
                 card = SettingsSurface()
                 card.setObjectName('NotificationSettingsGroup')
                 rows = QVBoxLayout(card)
                 rows.setContentsMargins(14, 12, 14, 10)
                 rows.setSpacing(6)
-                heading = QLabel('开播提醒' if index == 0 else '浮动通知停留方式')
+                heading = QLabel('通知与开播提醒' if index == 0 else '浮动通知停留方式')
                 heading.setObjectName('NotificationSettingsHeading')
                 rows.addWidget(heading)
-                if index == 2:
+                if index == 3:
                     hint = QLabel('关闭常驻后自动收起，仍可在通知面板查看。')
                     hint.setObjectName('SettingsHint')
                     hint.setWordWrap(True)
                     rows.addWidget(hint)
                 groups.addWidget(card)
-            if index not in (0, 2):
+            if index not in (0, 3):
                 separator = QFrame()
                 separator.setObjectName('NotificationSettingsDivider')
                 separator.setFixedHeight(1)
@@ -503,7 +505,7 @@ class NotificationSettingsPage(QWidget):
             row.setSpacing(8)
             text = QVBoxLayout()
             text.setSpacing(3)
-            title = QLabel('接收开播提醒' if index == 0 else label)
+            title = QLabel('接收开播提醒' if index == 1 else label)
             title.setWordWrap(True)
             text.addWidget(title)
             description = QLabel(descriptions[index])
@@ -517,8 +519,9 @@ class NotificationSettingsPage(QWidget):
             box = NotificationSwitch(title.text())
             box.setAccessibleDescription(descriptions[index])
             box.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
-            def update_state(checked, state=state, live=index < 2):
-                state.setText(('已启用' if checked else '已关闭') if live
+            def update_state(checked, state=state,
+                             simple=key in ('notifications_enabled', 'live_alert', 'notice_hide_fullscreen')):
+                state.setText(('已启用' if checked else '已关闭') if simple
                               else ('手动关闭' if checked else '自动收起'))
             box.toggled.connect(update_state)
             update_state(box.isChecked())

@@ -1167,8 +1167,10 @@ class ResultNotice(UpdateNotice):
 
 
 def _notifications_hidden(parent):
-    return bool(getattr(parent, 'settings', {}).get('notice_hide_fullscreen', False)
-                and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen()))
+    settings = getattr(parent, 'settings', {})
+    return bool(not settings.get('notifications_enabled', True)
+                or (settings.get('notice_hide_fullscreen', False)
+                    and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen())))
 
 
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False,

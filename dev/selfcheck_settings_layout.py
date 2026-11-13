@@ -10,7 +10,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QScrollArea
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QScrollArea
 from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -646,6 +646,17 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(self.dialog.shortcuts()['mute'], 'Ctrl+M')
         self.dialog._reset_current()
         self.assertEqual(self.dialog.shortcuts()['mute'], 'M')
+
+    def test_shortcut_wheel_and_pip_groups_are_separate_and_match_edit_style(self):
+        page = self.page(5)
+        self.assertEqual([key for key, _widget, _wide in page.sections.entries],
+                         ['home', 'general', 'wheel', 'pip'])
+        for key in ('volume_up', 'volume_down'):
+            edit = page._edits[key]
+            self.assertIsInstance(edit, QLineEdit)
+            self.assertEqual(edit.property('mouseShortcut'), True)
+        self.assertIn('pip_volume_up', page.values())
+        self.assertIn('pip_volume_down', page.values())
 
     def test_tray_retains_menu_preview_order_and_visibility(self):
         page = self.page(6)

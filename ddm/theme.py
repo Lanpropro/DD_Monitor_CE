@@ -1244,6 +1244,16 @@ QPushButton#PrimaryButton:pressed {{
 #ShortcutEdit:focus {{
     border: 1px solid {ACCENT};
 }}
+QLineEdit#ShortcutEdit[mouseShortcut="true"] {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM + 2}px;
+    padding: 4px 8px;
+    color: {TEXT1};
+}}
+QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
+    border: 1px solid {ACCENT};
+}}
 #ShortcutGroupTitle {{
     color: {TEXT1}; font-size: {FONT_HEADING}px; font-weight: 700; padding: 2px 0 8px;
 }}

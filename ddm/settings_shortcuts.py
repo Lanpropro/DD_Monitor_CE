@@ -48,7 +48,8 @@ class ShortcutSettingsPage(QWidget):
         groups = (
             ('home', '首页快捷键', ('focus', 'restore', 'close_tile', 'danmaku_input')),
             ('general', '常规快捷键', ('mute', 'audio_cycle', 'record', 'video_danmaku', 'solo')),
-            ('pip', '滚轮与画中画', ('volume_up', 'volume_down', 'pip_volume_up', 'pip_volume_down')),
+            ('wheel', '滚轮快捷键', ('volume_up', 'volume_down')),
+            ('pip', '画中画快捷键', ('pip_volume_up', 'pip_volume_down')),
         )
         actions_by_key = {key: item for item in SHORTCUT_ACTIONS for key in (item[0],)}
         for key, title, keys in groups:
@@ -88,6 +89,8 @@ class ShortcutSettingsPage(QWidget):
             special_mouse = default.startswith('Shift+Wheel')
             edit = QLineEdit(shortcuts.get(key, default)) if special_mouse else QKeySequenceEdit(QKeySequence(shortcuts.get(key, default)))
             edit.setObjectName('ShortcutEdit')
+            if special_mouse:
+                edit.setProperty('mouseShortcut', True)
             if isinstance(edit, QKeySequenceEdit):
                 edit.setClearButtonEnabled(True)
             edit.setFixedWidth(150)

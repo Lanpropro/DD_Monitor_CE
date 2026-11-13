@@ -72,8 +72,10 @@ class NotificationTests(unittest.TestCase):
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
         self.assertIs(dialog.stack.currentWidget(), dialog.notification_page)
         dialog.notification_page._checks['live_alert'].setChecked(False)
+        dialog.notification_page._checks['notifications_enabled'].setChecked(False)
         dialog.notification_page._checks['notice_persist_warning'].setChecked(True)
         self.assertFalse(dialog.settings()['live_alert'])
+        self.assertFalse(dialog.settings()['notifications_enabled'])
         self.assertTrue(dialog.settings()['notice_persist_warning'])
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['shortcuts'])
         self.assertIs(dialog.stack.currentWidget(), dialog.shortcut_page)
@@ -114,7 +116,7 @@ class NotificationTests(unittest.TestCase):
             box.setFocus()
             QTest.keyClick(box, Qt.Key_Space)
             self.assertEqual(box.isChecked(), not before)
-            expected = ('已启用' if box.isChecked() else '已关闭') if key in ('live_alert', 'notice_hide_fullscreen') else (
+            expected = ('已启用' if box.isChecked() else '已关闭') if key in ('notifications_enabled', 'live_alert', 'notice_hide_fullscreen') else (
                 '手动关闭' if box.isChecked() else '自动收起')
             self.assertEqual(page._states[key].text(), expected)
             QTest.mouseClick(box, Qt.LeftButton, pos=QPoint(box.width()-2, box.height()//2))
