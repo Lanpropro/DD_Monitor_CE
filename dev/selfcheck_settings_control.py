@@ -231,7 +231,7 @@ class SettingsControlTests(unittest.TestCase):
         self.save.assert_called_once()
         preview = Mock()
         with patch.object(host, '_sc_preview_context', return_value={'fixture': True}):
-            dialog.pageCreated.emit(3, SimpleNamespace(super_chat_placement=preview))
+            dialog.pageCreated.emit(3, SimpleNamespace(sync_blocking=Mock(), super_chat_placement=preview))
         preview.set_preview_context.assert_called_once_with({'fixture': True})
         class Store(QObject):
             offersChanged = Signal(object)

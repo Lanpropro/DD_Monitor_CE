@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QObject
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 
@@ -99,15 +99,15 @@ class FunctionalModulesTests(unittest.TestCase):
                 "assert not {'ddm.app','ddm.widgets','ddm.tile_widgets'}.intersection(sys.modules)")
 
     def test_window_domains_import_independently_and_keep_one_host(self):
-        from types import SimpleNamespace
         import importlib
-        host = SimpleNamespace()
+        host = QObject()
         for module, name in (('app_accounts', 'AppAccounts'), ('app_shortcuts', 'AppShortcuts'),
                 ('fullscreen_control', 'FullscreenControl'), ('app_notices', 'AppNotices')):
             self.child('import sys; import ddm.'+module+'; '
                 "assert not {'ddm.app','ddm.widgets'}.intersection(sys.modules)")
             controller = getattr(importlib.import_module('ddm.'+module), name)(host)
-            self.assertEqual(vars(controller), {'host': host})
+            self.assertIs(controller.host, host)
+            self.assertTrue(set(vars(controller)) <= {'host', 'destroyed', 'objectNameChanged'})
 
     def test_super_chat_model_is_independent_and_legacy_exports_keep_identity(self):
         self.child("import sys; import ddm.super_chat_model; "

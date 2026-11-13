@@ -161,6 +161,7 @@ class RoomStatus:
                 if tile not in host._resolvers:
                     host.start_tile(tile)         # 已在取流的格子继续等待，不重复请求
         just_went_live: list = []
+        filter_changed = False
         for item in host.sidebar._items:            # noqa: SLF001
             info = status.get(str(item.room.get("room_id")))
             if not info:
@@ -172,6 +173,8 @@ class RoomStatus:
                 item.set_uname(info["uname"])
             for key in ('uid', 'banner_url', 'display_room_id'):
                 if key in info:
+                    if key == 'display_room_id' and item.room.get(key) != info[key]:
+                        filter_changed = True
                     item.room[key] = info[key]
             if info["live"] and info.get("live_start_ts"):
                 item.room["live_start_ts"] = info["live_start_ts"]
@@ -219,6 +222,8 @@ class RoomStatus:
             host.sidebar.resort()           # 「开播优先」要跟着开播状态重排
             host._sync_replay_scope()      # 回放范围设成「所有格子」时在这里补开缓存
             host.sync_danmaku()
+        if filter_changed:
+            host.sidebar.refresh_filter()
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             host.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]
