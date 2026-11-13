@@ -82,7 +82,7 @@ TILE_FULLSCREEN_STYLE = '''
 
 FULLSCREEN_BAR_STYLE = '''
 #TileBottom[fullscreen="true"] {
-    background: {CONTENT};
+    background: transparent;
     border: none;
     border-radius: 0px;
 }
@@ -90,7 +90,7 @@ FULLSCREEN_BAR_STYLE = '''
 #TileBottom[fullscreen="true"] #TileCtrl,
 #TileBottom[fullscreen="true"] #TileToggle {
     color: #ffffff;
-    background: {CONTENT};
+    background: transparent;
     border: none;
 }
 #TileBottom[fullscreen="true"] #TileCtrl:hover,
@@ -632,7 +632,7 @@ QSpinBox::up-button, QSpinBox::down-button,
 QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
     width: 18px;
     border: none;
-    background: {CONTENT};
+    background: transparent;
 }}
 QComboBox, QFontComboBox {{
     background: {CONTENT};
@@ -650,7 +650,7 @@ QComboBox:focus, QFontComboBox:focus {{
 QComboBox::drop-down, QFontComboBox::drop-down {{
     width: 20px;
     border: none;
-    background: {CONTENT};
+    background: transparent;
 }}
 QComboBox::down-arrow, QFontComboBox::down-arrow {{
     image: url({asset("arrow_down.png")});
@@ -747,13 +747,13 @@ QDialog[settingsGlassWindow="true"] #Search {{border-radius: 17px;}}
     font-weight: 600;
 }}
 #SettingsStack, #SettingsPage {{
-    background: {CONTENT};
+    background: transparent;
 }}
 #SettingsStack[embeddedSettings="true"] {{
     background: {BG};
 }}
 #SettingsStack[embeddedSettings="true"][settingsGlassContent="true"] {{
-    background: {CONTENT};
+    background: transparent;
 }}
 #SettingsTitle {{
     font-size: {FONT_HEADING}px;
@@ -770,7 +770,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     font-weight: 700;
 }}
 #SettingsSection {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     border-radius: {RADIUS_LG}px;
 }}
@@ -781,7 +781,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     border-radius: {RADIUS_MD}px;
 }}
@@ -800,7 +800,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     background: {BORDER};
 }}
 #PluginCard {{
-    background: {CONTENT};
+    background: transparent;
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
 }}
@@ -808,11 +808,11 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border-color: {BORDER_STRONG};
 }}
 #PluginScroll, #PluginScroll > QWidget > QWidget {{
-    background: {CONTENT};
+    background: transparent;
 }}
 #PluginTabs::pane {{
     border: none;
-    background: {CONTENT};
+    background: transparent;
 }}
 #PluginTabs QTabBar::tab {{
     background: {CONTENT};
@@ -833,7 +833,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #PluginDetailsButton {{
     border: none;
-    background: {CONTENT};
+    background: transparent;
     color: {ACCENT};
     padding: 2px 6px;
     border-radius: {RADIUS_SM}px;
@@ -842,18 +842,18 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     background: {ACCENT_SOFT};
 }}
 #UpdateNotes, #UpdateNotes:focus {{
-    background: {CONTENT};
+    background: transparent;
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 6px 8px;
     color: {TEXT1};
 }}
 #UpdateNotice {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
 }}
 #NotificationCenter, #NotificationScroll, #NotificationViewport, #NotificationList {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
 }}
 #HistoryNotice {{
@@ -902,7 +902,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border-radius: {RADIUS_MD}px;
 }}
 #NoticeClose {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     color: {TEXT3};
 }}
@@ -923,7 +923,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #NavigationDivider {{background: {BORDER_STRONG}; border: none;}}
 #NavigationButton {{
-    background: {CONTENT};
+    background: transparent;
     color: {TEXT2};
     border: none;
     border-radius: {RADIUS_MD}px;
@@ -940,7 +940,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 #NavigationButton[dockRail="true"][dockActive="false"]:checked {{background: transparent; color: {TEXT2};}}
 #NavigationButton[dockRail="true"][dockActive="false"]:checked:hover {{background: {CONTENT_HOVER}; color: {ACCENT};}}
 #SidebarFilter {{
-    background: {CONTENT};
+    background: transparent;
     color: {TEXT2};
     border: none;
     border-radius: {RADIUS_SM}px;
@@ -957,7 +957,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #FunctionEntry {{
     text-align: left;
-    background: {CONTENT};
+    background: transparent;
     color: {TEXT1};
     border: none;
     border-radius: {RADIUS_MD}px;
@@ -1005,7 +1005,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 /* 房间条目 */
 #NavItem {{
     border-radius: {RADIUS_MD}px;
-    background: {CONTENT};
+    background: transparent;
 }}
 #NavItem[portraitStrip="true"] {{
     background: {CONTENT};
@@ -1030,12 +1030,12 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     color: #ffffff;
     font-size: {FONT_CONTROL}px;
     font-weight: 700;
-    background: {CONTENT};
+    background: transparent;
 }}
 #NavSub {{
     color: rgba(238, 241, 246, 0.88);
     font-size: {FONT_CAPTION}px;
-    background: {CONTENT};
+    background: transparent;
 }}
 #NavName[cardMode="false"] {{
     color: {TEXT1};
@@ -1139,7 +1139,7 @@ QPushButton#PrimaryButton:pressed {{
     background: {style_mix("ACCENT", "#000000", 0.16)};
 }}
 #GhostButton {{
-    background: {CONTENT};
+    background: transparent;
     border: 1px dashed {BORDER_STRONG};
     border-radius: {RADIUS_MD}px;
     min-height: {CONTROL_HEIGHT}px;
@@ -1152,7 +1152,7 @@ QPushButton#PrimaryButton:pressed {{
 
 /* ---------- 侧栏折叠按钮 ---------- */
 #SidebarToggle {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     color: {TEXT3};
     font-size: 14px;
@@ -1170,7 +1170,7 @@ QPushButton#PrimaryButton:pressed {{
 }}
 /* 竖屏顶部横栏右上角的收起/展开：比侧栏那个更紧凑，别把横栏撑高 */
 #BarToggle {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     color: {TEXT3};
     font-size: 12px;
@@ -1249,11 +1249,11 @@ QPushButton#PrimaryButton:pressed {{
     border: none;
 }}
 #TileControls {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
 }}
 #LoadingIndicator {{
-    background: {CONTENT};         /* 圆角与半透明由逐像素浮层绘制 */
+    background: transparent;         /* 圆角与半透明由逐像素浮层绘制 */
 }}
 #LoadingText {{
     color: {TEXT2};
@@ -1269,7 +1269,7 @@ QPushButton#PrimaryButton:pressed {{
     font-weight: 600;
 }}
 #FloatClose {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     color: {TEXT3};
     min-width: 22px;
@@ -1430,7 +1430,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
 #RoomPresetEntry QPushButton[deleteConfirm="true"] {{border-color: {ERROR};}}
 #RoomPresetEntry #LayoutCard {{
-    background: {CONTENT}; border: none; padding: 0; color: {TEXT2};
+    background: transparent; border: none; padding: 0; color: {TEXT2};
 }}
 #RoomPresetEntry #LayoutCard:hover, #RoomPresetEntry #LayoutCard:checked {{color: {TEXT1};}}
 #RoomPresetEntry #LayoutCard:focus {{border: 1px solid {ACCENT};}}
@@ -1517,14 +1517,14 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     color: #04161f;
 }}
 #TileCtrl:disabled {{
-    background: {CONTENT};
+    background: transparent;
     color: {TEXT4};
 }}
 #TileCtrl:focus, #TileToggle:focus, #BiliVolumeButton:focus {{
     outline: none;
 }}
 #BiliVolumeButton {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     border-radius: 13px;
     padding: 0;
@@ -1536,10 +1536,10 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     background: rgba(0, 174, 236, 0.24);
 }}
 #TileCtrlStrip {{
-    background: {CONTENT};
+    background: transparent;
 }}
 #DanmakuSendButton {{
-    background: {CONTENT}; color: {TEXT3}; border: 1px solid {BORDER};
+    background: transparent; color: {TEXT3}; border: 1px solid {BORDER};
     border-radius: {TILE_CONTROL_HEIGHT // 2}px; padding: 0;
     font-size: {FONT_CAPTION}px; font-weight: 600;
 }}
@@ -1565,7 +1565,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     background: rgba({volume_light.red()}, {volume_light.green()}, {volume_light.blue()}, 0.84);
 }}
 #TileVolumePopup QLabel {{
-    background: {CONTENT}; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;
+    background: transparent; border: none; color: {TEXT2}; font-size: {FONT_CAPTION}px;
 }}
 #TileVolumePopup QSlider::sub-page:vertical {{background: {BORDER_STRONG}; border-radius: 2px;}}
 #TileVolumePopup QSlider::add-page:vertical {{background: {ACCENT}; border-radius: 2px;}}
@@ -1589,7 +1589,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #DanmakuDot {{
     color: {PINK};
     font-size: 8px;
-    background: {CONTENT};
+    background: transparent;
 }}
 #DanmakuTitle {{
     color: {TEXT1};
@@ -1598,13 +1598,13 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 }}
 #DanmakuCount {{
     color: {TEXT3};
-    background: {CONTENT};
+    background: transparent;
 }}
 #DanmakuCount[state="connected"] {{
     color: {PINK};
 }}
 #DanmakuBody {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
     border-bottom-left-radius: 10px;
     border-bottom-right-radius: 10px;
@@ -1612,7 +1612,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     font-size: {FONT_CAPTION}px;
 }}
 #DanmakuBody QScrollBar:vertical {{
-    background: {CONTENT};
+    background: transparent;
     width: 6px;
     margin: 2px 0;
 }}
@@ -1623,7 +1623,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 }}
 #DanmakuBody QScrollBar::add-line:vertical, #DanmakuBody QScrollBar::sub-line:vertical,
 #DanmakuBody QScrollBar::add-page:vertical, #DanmakuBody QScrollBar::sub-page:vertical {{
-    background: {CONTENT};
+    background: transparent;
     height: 0;
 }}
 #DanmakuBar {{
@@ -1646,7 +1646,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 
 /* ---------- 关注列表的封面卡片 ---------- */
 #NavThumb {{
-    background: {CONTENT};
+    background: transparent;
 }}
 #NavThumbCover {{
     background: rgba(18, 20, 25, 0.82);
@@ -1757,11 +1757,11 @@ QMenu::separator {{
 
 /* ---------- 滚动条 ---------- */
 QScrollArea, QScrollArea > QWidget > QWidget {{
-    background: {CONTENT};
+    background: transparent;
     border: none;
 }}
 QScrollBar:vertical, #NotificationCenter QScrollBar:vertical {{
-    background: {CONTENT};
+    background: transparent;
     width: {SCROLLBAR_SIZE}px;
     margin: 2px 0;
 }}
@@ -1784,7 +1784,7 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
    竖屏顶部横栏的横向卡片条靠它滚。样式和上面的竖向条一一对应（同一组颜色、
    同粗、同样去掉两端箭头），否则会掉回系统原生那条灰底带箭头的滚动条。 */
 QScrollBar:horizontal {{
-    background: {CONTENT};
+    background: transparent;
     height: {SCROLLBAR_SIZE}px;
     margin: 0 2px;
 }}
