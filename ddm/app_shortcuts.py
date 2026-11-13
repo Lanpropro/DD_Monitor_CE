@@ -70,7 +70,7 @@ class AppShortcuts(QObject):
         tile = host._tile_under_cursor()
         if tile is None:
             return False
-        tile.set_volume(tile.volume + (5 if delta > 0 else -5))
+        tile.set_volume(tile.volume + (10 if delta > 0 else -10))
         event.accept()
         return True
 

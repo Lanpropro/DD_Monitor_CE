@@ -44,8 +44,12 @@ class SettingsInputFocus(QObject):
                 blocked = True  # Chain to the page at either end of a nested list.
             elif isinstance(owner, QScrollArea):
                 bar = owner.verticalScrollBar()
-                if bar.maximum() <= bar.minimum():
-                    return True
+                can_scroll = (delta > 0 and bar.value() > bar.minimum()
+                               or delta < 0 and bar.value() < bar.maximum())
+                if not can_scroll:
+                    blocked = True
+                    owner = owner.parentWidget()
+                    continue
                 amount = abs(delta)
                 step = bar.singleStep() * max(1, round(amount / 120)) if amount else bar.singleStep()
                 bar.setValue(bar.value() - step if delta > 0 else bar.value() + step)
