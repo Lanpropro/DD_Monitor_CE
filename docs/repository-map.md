@@ -164,6 +164,7 @@
 - `dev/selfcheck_danmaku_room_switches.py`
 - `dev/selfcheck_danmaku_smoothness.py`
 - `dev/selfcheck_danmaku_sort.py`
+- `dev/selfcheck_danmaku_unicode.py`
 - `dev/selfcheck_super_chat.py`
 - `dev/selfcheck_sc_simulator.py`
 - `dev/sc_simulator.py`
@@ -179,6 +180,7 @@
 - `dev/selfcheck_douyin_room_verification.py`
 - `dev/selfcheck_douyin_restart_cache.py`
 - `dev/selfcheck_douyin_room_source.py`
+- `dev/selfcheck_douyin_startup.py`
 - `dev/selfcheck_douyin_stream_fallback.py`
 - `dev/selfcheck_douyin_ui_follows.py`
 - `dev/selfcheck_download_retry.py`
@@ -553,6 +555,7 @@
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/RELEASE-v0.7.1.md`
 - `docs/releases/RELEASE-v0.7.2.md`
+- `docs/releases/RELEASE-v0.7.3.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具

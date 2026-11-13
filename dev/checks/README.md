@@ -243,6 +243,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_danmaku_room_switches](../selfcheck_danmaku_room_switches.py) | `offline` |
 | [selfcheck_danmaku_smoothness](../selfcheck_danmaku_smoothness.py) | 单项执行前核对 |
 | [selfcheck_danmaku_sort](../selfcheck_danmaku_sort.py) | 单项执行前核对 |
+| [selfcheck_danmaku_unicode](../selfcheck_danmaku_unicode.py) | `offline`；历史 Unicode 字形回退、文字栅格非空和输入框主题刷新 |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
 | [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行 |
@@ -393,6 +394,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | --- | --- |
 | [selfcheck_douyin_restart_cache](../selfcheck_douyin_restart_cache.py) | 单项执行前核对 |
 | [selfcheck_douyin_room_source](../selfcheck_douyin_room_source.py) | 单项执行前核对 |
+| [selfcheck_douyin_startup](../selfcheck_douyin_startup.py) | `offline`；抖音启动缓冲宽限、启动后恢复边界和失败状态保持 |
 | [selfcheck_global_live](../selfcheck_global_live.py) | 单项执行；需核对受控海外插件安装副本，设置`DDM_CHECK_MODE=offline`拦截外网；覆盖本机协议与Qt状态，不作实播性能依据 |
 | [selfcheck_huya_live](../selfcheck_huya_live.py) | 单项执行前核对 |
 | [selfcheck_huya_watch](../selfcheck_huya_watch.py) | 单项执行前核对 |
