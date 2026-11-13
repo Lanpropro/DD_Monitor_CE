@@ -584,7 +584,7 @@ QDialog QLabel {{
     color: {TEXT1};
 }}
 QLineEdit {{
-    background: {CONTENT};
+    background: transparent;
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 6px 10px;
