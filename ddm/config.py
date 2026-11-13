@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 0.5 秒，缩略图里播静音预览
     "sidebar_platform_logos": True,
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
+    "notifications_enabled": True,  # 浮动通知总开关；关闭后仍保留通知中心历史
     "notice_hide_fullscreen": False,
     "notice_banner_blur": 16,
     "notice_persist_updates": True,

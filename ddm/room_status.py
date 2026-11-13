@@ -187,7 +187,8 @@ class RoomStatus:
                 # 只有**本来就知道是没开播**的才算「刚开播」：启动时占位条目
                 # （live_known=False）第一次补上真实状态不算，否则一开软件满列表
                 # 冒气泡／弹提醒 —— 用户要的是「开播时」的提示。
-                if (host._startup_status_complete and host.settings.get("live_alert", True)
+                if (host._startup_status_complete and host.settings.get("notifications_enabled", True)
+                        and host.settings.get("live_alert", True)
                         and item_was_known[item] and info.get("live_known", True)):
                     item.room["live"] = True        # 徽标由动效砸中时再换
                     just_went_live.append(item)

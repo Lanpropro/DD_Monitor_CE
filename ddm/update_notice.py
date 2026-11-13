@@ -274,5 +274,6 @@ def _notifications_hidden(parent):
     settings = getattr(parent, 'settings', {})
     if callable(settings):
         settings = settings()
-    return bool(settings.get('notice_hide_fullscreen', False)
-                and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen()))
+    return bool(not settings.get('notifications_enabled', True)
+                or (settings.get('notice_hide_fullscreen', False)
+                    and (getattr(parent, '_fullscreen_tile', None) is not None or parent.isFullScreen())))
