@@ -67,6 +67,9 @@ class FullscreenBar(QWidget):
         if not enabled:
             self._mask_label_windows(False)
         self.setProperty('fullscreen', enabled)
+        # Fullscreen paints its own alpha gradient; prevent the ordinary
+        # #TileBottom stylesheet background from filling the whole bar first.
+        self.setAttribute(Qt.WA_StyledBackground, not enabled)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             # Recreate this backing store (and its native input children) when
             # changing alpha modes; Qt can retain layered HWNDs after reparenting.
