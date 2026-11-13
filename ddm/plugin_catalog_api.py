@@ -15,6 +15,7 @@ KNOWN_PLUGINS = {
     'domestic_live': ('国内直播平台', '虎牙、斗鱼、抖音的直播与关注接入'),
     'global_live': ('海外直播平台', 'Twitch、YouTube 的直播与账号授权'),
     'match_sync': ('比赛二路同步', '多主播比赛画面同步、声音和弹幕合并'),
+    'proxy_control': ('网络代理', '导入订阅与节点，按需启动内置代理内核'),
 }
 
 
@@ -64,7 +65,7 @@ def plugin_catalog(client, current_version, cache=None):
     for release in published:
         candidates = []
         for asset in release.get('assets', []):
-            match = re.fullmatch(r'(domestic_live|global_live|match_sync|match-sync|bili_live)-v?(\d+(?:\.\d+){0,3})\.zip',
+            match = re.fullmatch(r'(domestic_live|global_live|match_sync|match-sync|bili_live|proxy_control)-v?(\d+(?:\.\d+){0,3})\.zip',
                                  asset.get('name', ''))
             if not match:
                 continue

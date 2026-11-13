@@ -97,7 +97,8 @@ def main():
     with patch.object(online, 'latest_manifest', return_value=None), \
             patch.object(online, 'releases', side_effect=online.requests.HTTPError('rate limited')):
         fallback = online.plugin_catalog(Client([]), '0.3')
-        assert len(fallback) == 4
+        assert len(fallback) == 5
+        assert {offer['id'] for offer in fallback} == set(online.KNOWN_PLUGINS)
         assert all(offer.get('cached') for offer in fallback if offer['available'])
     bili_entry = {'id': 'bili_live', 'name': 'B站直播互动', 'description': '互动',
                   'version': '1.0', 'min_app_version': '0.5.1', 'author': 'reon-nynes',
