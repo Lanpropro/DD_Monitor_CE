@@ -45,9 +45,9 @@ class Client:
         return self.responses.pop(0)
 
 
-def asset(name, data=b'zip', repository=online.PLUGIN_REPOSITORY):
+def asset(name, data=b'zip', repository=online.PLUGIN_REPOSITORY, tag='v1'):
     return {'name': name, 'size': len(data), 'digest': 'sha256:' + hashlib.sha256(data).hexdigest(),
-            'browser_download_url': f'https://github.com/{repository}/releases/download/v1/{name}'}
+            'browser_download_url': f'https://github.com/{repository}/releases/download/{tag}/{name}'}
 
 
 def package(path, plugin_id='global_live', version='1.0', minimum='0.3'):
@@ -86,13 +86,31 @@ def main():
                 'size': 3, 'sha256': hashlib.sha256(b'zip').hexdigest(), 'notes': 'manifest update'}
     with patch.object(online, 'latest_manifest', return_value=manifest):
         edited = {'tag_name': 'v0.3.2', 'body': '# Edited after publication\n'}
-        current = online.app_release(Client([Response(payload=edited)]), '0.3')
+        current = online.app_release(Client([
+            Response(payload={'tag_name': 'v0.3.2', 'assets': [
+                asset('DD监控室CE-v0.3.2-exe.zip', repository=online.APP_REPOSITORY, tag='v0.3.2')]}),
+            Response(payload=edited)]), '0.3')
         assert current['version'] == '0.3.2' and current['notes'] == edited['body']
         assert current['sha256'] == manifest['sha256'] and current['url'] == manifest['url']
         with patch.object(online, 'release_notes', side_effect=online.requests.HTTPError('rate limited')):
-            assert online.app_release(Client([]), '0.3')['notes'] == manifest['notes']
+            assert online.app_release(Client([
+                Response(payload={'tag_name': 'v0.3.2', 'assets': [
+                    asset('DD监控室CE-v0.3.2-exe.zip', repository=online.APP_REPOSITORY, tag='v0.3.2')]}),
+                ]), '0.3')['notes'] == manifest['notes']
         with patch.object(online, 'release_notes', side_effect=ValueError('invalid release')):
-            assert online.app_release(Client([]), '0.3')['notes'] == manifest['notes']
+            assert online.app_release(Client([
+                Response(payload={'tag_name': 'v0.3.2', 'assets': [
+                    asset('DD监控室CE-v0.3.2-exe.zip', repository=online.APP_REPOSITORY, tag='v0.3.2')]}),
+                ]), '0.3')['notes'] == manifest['notes']
+        renamed = dict(manifest, asset_name='DDMonitorCE-v0.3.2-exe.zip',
+                       url=f'https://github.com/{online.APP_REPOSITORY}/releases/download/v0.3.2/DDMonitorCE-v0.3.2-exe.zip')
+        with patch.object(online, 'latest_manifest', return_value=renamed), \
+                patch.object(online, 'release_notes', return_value='notes'):
+            repaired = online.app_release(Client([Response(payload={
+                'tag_name': 'v0.3.2', 'assets': [asset('DD.CE-v0.3.2-exe.zip', repository=online.APP_REPOSITORY, tag='v0.3.2')]
+            })]), '0.3')
+        assert repaired['name'] == 'DD.CE-v0.3.2-exe.zip'
+        assert repaired['url'].endswith('/DD.CE-v0.3.2-exe.zip')
         assert online.app_release(Client([]), '0.3.2') is None
     with patch.object(online, 'latest_manifest', return_value=None), \
             patch.object(online, 'releases', side_effect=online.requests.HTTPError('rate limited')):
