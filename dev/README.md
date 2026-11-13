@@ -42,6 +42,7 @@ dev\run-checks.cmd
 dev\run-checks.cmd --list
 dev\run-checks.cmd --suite offline
 dev\run-checks.cmd --script selfcheck_emoticon_tabs
+python dev/selfcheck_documents.py
 ```
 
 Windows 包装器优先使用仓库 `.venv`，其次使用相邻的 `DD_Monitor-venv`，也可回退到 PATH 中的 Python。其他环境直接使用当前 Python：

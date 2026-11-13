@@ -124,7 +124,7 @@ if __name__ == '__main__':
             'selfcheck_repository_files', 'selfcheck_project_workflow',
             'selfcheck_repository_map', 'selfcheck_check_runner',
             'selfcheck_readme', 'selfcheck_appearance_design',
-            'selfcheck_customization_plan'])
+            'selfcheck_customization_plan', 'selfcheck_documents'])
         for name in suites['repository']['scripts']:
             source = (runner.ROOT / 'dev' / (name + '.py')).read_text(encoding='utf-8')
             for node in ast.walk(ast.parse(source)):

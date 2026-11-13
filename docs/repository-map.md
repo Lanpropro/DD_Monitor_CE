@@ -1,6 +1,17 @@
 # 仓库文件分类清单
 
-盘点日期：2026-10-19。用户已确认深浅色功能完成；首轮完成分类盘点；本轮按用户要求集中说明并删除四个过时脚本，详见 repository-cleanup-review.md。
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-14 ｜ 读者：维护者
+
+## 本页用法
+
+本页是文件级清单，不是架构说明。
+
+- 找某个文件归谁管：先看“软件本体与插件功能范围”，再在“已跟踪的其他文件”中按分类查找。
+- 新增或删除已跟踪文件时同步更新对应清单；`dev/selfcheck_repository_map.py` 会核对清单与 Git 索引一致。
+- 目录与运行入口的整体关系见[架构总览](architecture/overview.md)；本机资料不进入版本库和发布包。
+
+盘点日期：2026-10-19；当时完成分类盘点并删除四个过时脚本，详见[整理审查](archive/repository-cleanup-review.md)。
+最近整理：2026-11-14，补充文档分层、架构与规范索引，详见[归档记录](archive/docs-organization-20261114.md)。
 以下按当前工作区与 Git 索引盘点，不代表远端仓库状态；未读取真实配置、账号数据或媒体内容。
 
 ## 软件本体与插件功能范围
@@ -472,6 +483,7 @@
 
 - `docs/archive/BUG-STATUS-2026-10-02.md`
 - `docs/archive/README.md`
+- `docs/archive/docs-organization-20261114.md`
 - `docs/archive/pr11-pr12-integration-testing.md`
 - `docs/archive/pr6-pr7-layout-testing.md`
 - `docs/archive/repository-cleanup-review.md`
@@ -479,12 +491,19 @@
 
 ### 开发指南
 
+- `docs/development/README.md`
 - `docs/development/liveaquarium-learning.md`
 - `docs/development/bili-shadowreplay-learning.md`
 - `docs/development/testing.md`
 - `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
+
+### 架构与文档规范
+
+- `docs/architecture/README.md`
+- `docs/architecture/overview.md`
+- `docs/standards/documentation.md`
 
 ### 性能基准
 
@@ -530,9 +549,11 @@
 - `dev/checks/suites.json`
 - `dev/run-checks.cmd`
 - `dev/run_checks.py`
+- `dev/selfcheck_documents.py`
 
 ### 版本说明
 
+- `docs/releases/README.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.1.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.2.md`
 - `docs/releases/PLUGIN-match-sync-v1.2.3.md`
