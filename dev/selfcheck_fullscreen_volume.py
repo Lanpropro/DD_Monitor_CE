@@ -8,7 +8,8 @@ from unittest.mock import Mock, patch
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPushButton, QVBoxLayout
 from ddm.app import MainWindow
@@ -60,6 +61,12 @@ def main():
                 QTest.keyClick(second.pause_button, Qt.Key_Down)
                 assert second.volume == 0
                 second.set_volume(42)
+                with patch.object(window, '_tile_under_cursor', return_value=second):
+                    wheel = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, 120),
+                                        Qt.NoButton, Qt.ShiftModifier, Qt.NoScrollPhase, False)
+                    QApplication.sendEvent(second.pause_button, wheel)
+                    assert second.volume == 52, 'Shift+滚轮每次应调整 10 音量'
+                    second.set_volume(42)
                 for modifiers in (Qt.ControlModifier, Qt.ShiftModifier, Qt.AltModifier):
                     QTest.keyClick(second.pause_button, Qt.Key_Up, modifiers)
                     assert second.volume == 42

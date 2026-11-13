@@ -19,7 +19,9 @@ class CommentToolbar(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.copy_action = QAction('复制', self)
         self.repeat_action = QAction('+1', self)
-        self.command_actions = [self.copy_action, self.repeat_action]
+        self.block_action = QAction('屏蔽弹幕', self)
+        self.block_user_action = QAction('屏蔽用户', self)
+        self.command_actions = [self.copy_action, self.repeat_action, self.block_action, self.block_user_action]
         self.chosen = None
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -28,6 +30,11 @@ class CommentToolbar(QDialog):
         self.repeat_button = self._button(self.repeat_action, self)
         layout.addWidget(self.copy_button)
         layout.addWidget(self.repeat_button)
+        layout.addSpacing(6)
+        self.block_button = self._button(self.block_action, self)
+        self.block_user_button = self._button(self.block_user_action, self)
+        layout.addWidget(self.block_button)
+        layout.addWidget(self.block_user_button)
         self.refresh_theme()
 
     def _button(self, action, parent):
@@ -83,20 +90,32 @@ class CommentToolbar(QDialog):
 def show_comment_menu(parent, message, controls, position, finished=None):
     event = dict(message) if isinstance(message, dict) else {'text': str(message)}
     text = str(event.get('text') or '')
-    room_id = controls.room_id() if controls is not None else ''
+    room_id = str(event.get('room_id') or (controls.room_id() if controls is not None else
+                                         getattr(parent, '_linked_room_id', '')))
+    blocker = getattr(parent, '_danmaku_blocking', None)
     menu = CommentToolbar(parent)
-    copy, repeat = menu.command_actions
+    copy, repeat, block, block_user = menu.command_actions
     copy.setEnabled(bool(text))
     repeat.setToolTip('复制并发送到当前直播间')
     menu.repeat_button.setToolTip(repeat.toolTip())
     repeat.setEnabled(bool(controls is not None and (text or event.get('dm_type') == 1)
                            and controls.can_repeat(event)))
+    from .danmaku_filter import user_identity
+    identity = user_identity(event, room_id)
+    block.setEnabled(blocker is not None and bool(text.strip()))
+    block_user.setEnabled(blocker is not None and identity is not None)
+    menu.block_button.setToolTip('将这条弹幕的正文加入全局屏蔽词，可在设置 → 弹幕中管理')
+    menu.block_user_button.setToolTip('屏蔽该用户在此平台所有房间的消息，可在设置 → 弹幕中管理' if identity and identity['uid'] else
+                                    '此消息未提供用户 ID，将按昵称屏蔽（同名用户也会被屏蔽）')
     def complete(_result):
         try:
             if text and (menu.chosen is copy or menu.chosen is repeat):
                 QApplication.clipboard().setText(text)
             if menu.chosen is repeat and not controls.repeat_message(event, room_id):
                 QToolTip.showText(position, '当前房间的发送入口不可用，请检查登录状态或发送控件。', parent)
+            if menu.chosen is block or menu.chosen is block_user:
+                if blocker.block(event, room_id, user=menu.chosen is block_user):
+                    QToolTip.showText(position, '已屏蔽，可在设置 → 弹幕中管理', parent)
         finally:
             if finished is not None:
                 finished()

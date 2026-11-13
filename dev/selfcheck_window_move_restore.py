@@ -2,9 +2,11 @@
 import ctypes
 from ctypes import wintypes
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -111,6 +113,86 @@ class MoveRestoreTests(unittest.TestCase):
             QTest.qWait(300)
             self.assertEqual(self.window.isMaximized(), expected)
             self.assertEqual(bool(self.user32.IsZoomed(hwnd)), expected)
+
+    def test_restore_order_keeps_interactive_resize_until_native_exit(self):
+        window = self.window
+        for enter_first in (True, False):
+            with self.subTest(enter_first=enter_first):
+                window._native_size_state = 2
+                message = wintypes.MSG()
+                message.hWnd = int(window.winId())
+                message.message, message.wParam = 0x0005, 0
+                if enter_first:
+                    self.send(0x0231)
+                with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                    window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+                if not enter_first:
+                    self.assertTrue(window._resize_idle_timer.isActive())
+                    self.send(0x0231)
+                QTest.qWait(230)
+                self.assertTrue(window._interactive_resize)
+                self.assertTrue(window.wall._interactive_resize)
+                self.assertFalse(window._resize_idle_timer.isActive())
+                self.send(0x0232)
+                assert_settled(window)
+
+    def test_first_native_size_arms_wall_before_qt_resizes_children(self):
+        window = self.window
+        self.send(0x0231)
+        self.assertFalse(window.wall._interactive_resize, 'Pure movement must not activate wall resize')
+        message = wintypes.MSG()
+        message.hWnd = int(window.winId())
+        message.message, message.wParam = 0x0005, 0
+        with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+            window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+        self.assertTrue(window.wall._interactive_resize)
+        with patch.object(window.wall, '_relayout_corner', wraps=window.wall._relayout_corner) as layout:
+            window.resize(window.width() + 30, window.height() + 15)
+            layout.assert_not_called()
+            self.assertTrue(window.wall._resize_timer.isActive())
+            self.send(0x0232)
+            layout.assert_called_once()
+        assert_settled(window)
+
+    def test_resize_trace_records_native_order_and_nested_layout_work(self):
+        from dev.diagnose_window_resize import WindowResizeTrace
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            with trace:
+                # PySide caches virtual overrides when constructing an object;
+                # install before construction, as the diagnostic launcher does.
+                window = make_window(6, 'corner')
+                try:
+                    hwnd = int(window.winId())
+                    self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
+                    window.resize(window.width() + 40, window.height() + 20)
+                    QTest.qWait(70)
+                    self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
+                finally:
+                    window.close()
+                    window.deleteLater()
+                    self.app.processEvents()
+            row = json.loads(path.read_text())
+        self.assertFalse(row['final']['interactive'])
+        self.assertFalse(row['final']['wallInteractive'])
+        self.assertEqual([x['message'] for x in row['messages'] if x['message'] in (0x0231, 0x0232)],
+                         [0x0231, 0x0232])
+        self.assertTrue(any(x['method'] == 'WallGrid._flush_resize' for x in row['calls']))
+        self.assertTrue(any(x['method'] == 'Tile._layout_areas' for x in row['calls']))
+        self.assertTrue(all(x['elapsedMs'] >= x['selfMs'] >= 0 for x in row['calls']))
+
+    def test_same_size_native_message_still_clears_wall_mode_on_exit(self):
+        window = self.window
+        self.send(0x0231)
+        message = wintypes.MSG()
+        message.hWnd = int(window.winId())
+        message.message, message.wParam = 0x0005, 0
+        with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+            window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+        self.assertTrue(window.wall._interactive_resize)
+        self.send(0x0232)
+        assert_settled(window)
 
 
 if __name__ == '__main__':

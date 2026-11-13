@@ -17,7 +17,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 
 from ddm import bili, theme  # noqa: E402
 from ddm import app as app_module  # noqa: E402
-from ddm import widgets as widgets_module  # noqa: E402
+from ddm import danmaku_widgets as widgets_module  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 from ddm.danmaku import _Client, blivedm_ws_base  # noqa: E402
 

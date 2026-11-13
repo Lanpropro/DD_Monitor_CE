@@ -94,7 +94,7 @@ New-Item -ItemType Directory -Force -Path $app | Out-Null
 # ---- 1) 源码：**只打包 git 跟踪的文件** ----
 # 不是简单拷目录：未跟踪的草稿/私有残留（比如 dev/mock_portrait.py 这种本地
 # 试做文件）不能进发布包 —— 用户要求上传/发布前不能带他自己的测试数据。
-& git -C $repo diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt dev/build_release.ps1 dev/pyi_rth_pyside6_paths.py tools/diagnostics dev/build_diagnostics.ps1
+& git -C $repo diff --quiet HEAD -- ddm blivedm assets main.py requirements.txt dev/build_release.ps1 dev/pyi_rth_pyside6_paths.py tools/diagnostics dev/build_diagnostics.ps1 tools/native_diagnostics dev/build_native_diagnostics.cmd
 if ($LASTEXITCODE -ne 0) { throw "请先提交开发源码，再从同一提交打包" }
 $snapshot = Join-Path $OutDir "source-snapshot.zip"
 & git -C $repo archive --format=zip --output=$snapshot HEAD
@@ -172,6 +172,14 @@ Set-Content -Path (Join-Path $app "运行说明.txt") -Value $readme -Encoding U
 & (Join-Path $app "dev\build_diagnostics.ps1") -OutDir $app -NoZip
 if ($LASTEXITCODE -ne 0) { throw "独立诊断工具构建失败" }
 
+$nativeBuild = Join-Path $repo "work\native-diagnostics-release"
+& (Join-Path $app "dev\build_native_diagnostics.cmd") $nativeBuild
+if ($LASTEXITCODE -ne 0) { throw "原生诊断组件构建失败" }
+New-Item -ItemType Directory -Force (Join-Path $app "native-diagnostics") | Out-Null
+foreach ($nativeFile in @("DDMonitorNativeCapture.dll", "DDMonitorCrashWatcher.exe")) {
+    Copy-Item -LiteralPath (Join-Path $nativeBuild $nativeFile) -Destination (Join-Path $app "native-diagnostics") -Force
+}
+
 # ---- 4) exe 便携版（默认做；Q:\-SourceOnly 可跳过）----
 if (-not $SourceOnly) {
     $deps = if ($DependencyRoot) { [System.IO.Path]::GetFullPath($DependencyRoot) } else { Join-Path $repo "work\deps" }
@@ -206,15 +214,20 @@ if (-not $SourceOnly) {
         --version-file $versionInfo `
         --distpath $OutDir --workpath $build --specpath $build `
         --runtime-hook (Join-Path $repo "dev\pyi_rth_pyside6_paths.py") `
+        --add-binary ((Join-Path $app "native-diagnostics\DDMonitorNativeCapture.dll") + ";native-diagnostics") `
+        --add-binary ((Join-Path $app "native-diagnostics\DDMonitorCrashWatcher.exe") + ";native-diagnostics") `
         --collect-all streamlink `
         --collect-all pypinyin `
         --collect-all av `
+        --collect-submodules ddm.ui `
         --hidden-import numpy `
         --hidden-import mpv `
         --copy-metadata python-mpv `
         --hidden-import ddm.live_danmaku `
         --hidden-import ddm.global_danmaku `
         --hidden-import ddm.ui.color_dialog `
+        --hidden-import ddm.ui.stepper `
+        --hidden-import ddm.widgets `
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
         $freezeExit = $LASTEXITCODE

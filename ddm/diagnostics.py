@@ -86,11 +86,15 @@ class _StreamMirror:
             return len(text)
         self._local.writing = True
         try:
+            lines = []
             with self._lock:
                 self._buffer += text
                 while "\n" in self._buffer:
                     line, self._buffer = self._buffer.split("\n", 1)
-                    self._emit(line)
+                    lines.append(line)
+            # A handler error can write back to stderr while holding its lock.
+            for line in lines:
+                self._emit(line)
         finally:
             self._local.writing = False
         return len(text)
@@ -158,6 +162,12 @@ class LogSession:
         faulthandler.enable(file=self.crash_handle, all_threads=True)
         self.logger.info("[启动] 日志已开启")
         self.closed = False
+        from . import native_diagnostics, qt_lifecycle
+        native_diagnostics.install(self.directory)
+        try:
+            qt_lifecycle.start(self.directory)
+        except OSError:
+            self.logger.exception("[对象诊断] unavailable")
 
     def close(self):
         if self.closed:
@@ -174,6 +184,8 @@ class LogSession:
         self.handler.close()
         faulthandler.disable()
         self.crash_handle.close()
+        from . import qt_lifecycle
+        qt_lifecycle.close()
         self.closed = True
 
 

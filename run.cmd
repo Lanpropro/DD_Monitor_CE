@@ -21,25 +21,43 @@ set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
+if /i "%~1"=="--check-ui-polish" goto uiPolishCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
+if /i "%~1"=="--check-live-elapsed" goto liveElapsedCheck
+if /i "%~1"=="--check-functional-modules" goto functionalModulesCheck
+if /i "%~1"=="--check-widget-boundaries" goto widgetBoundariesCheck
+if /i "%~1"=="--check-room-presets" goto roomPresetsCheck
 if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
+if /i "%~1"=="--check-preview-scroll" goto previewScrollCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
+if /i "%~1"=="--check-audio-normalization" goto audioNormalizationCheck
 if /i "%~1"=="--check-wall-panes" goto wallPanesCheck
 if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
 if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
+if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
+if /i "%~1"=="--check-settings-control" goto settingsControlCheck
+if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
+if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
+if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
+if /i "%~1"=="--check-sidebar-folders" goto sidebarFoldersCheck
+if /i "%~1"=="--check-sidebar-order" goto sidebarOrderCheck
+if /i "%~1"=="--check-sidebar-presentation" goto sidebarPresentationCheck
 if /i "%~1"=="--check-update-install" goto updateInstallCheck
 if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
 if /i "%~1"=="--check-sc-layers" goto scLayersCheck
 if /i "%~1"=="--check-stream-info" goto streamInfoCheck
+if /i "%~1"=="--check-playback-capture" goto playbackCaptureCheck
+if /i "%~1"=="--capture-playback" goto playbackCapture
 if /i "%~1"=="--check-notice-close" goto noticeCloseCheck
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
@@ -51,13 +69,49 @@ if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
 if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
 if /i "%~1"=="--diagnose-danmaku-motion" set "DDM_DANMAKU_MOTION_CAPTURE=1"
 if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
+if /i "%~1"=="--diagnose-window-resize" set "DDM_WINDOW_RESIZE_CAPTURE=1"
+if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
 
+:liveElapsedCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_live_elapsed
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_status_controller
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_status
+exit /b %errorlevel%
+
+:previewScrollCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_preview_scroll
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_NO_SAVE=1"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_preview_scroll.py" --native
+exit /b %errorlevel%
+
 :continuousCornersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_continuous_corners
+exit /b %errorlevel%
+
+:uiPolishCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_polish
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_navigation
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_card_drop
+exit /b %errorlevel%
+
+:browserAccountsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_browser_accounts
 exit /b %errorlevel%
 
 :updateInstallCheck
@@ -95,6 +149,18 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pane_danmaku
 exit /b %errorlevel%
 
+:audioNormalizationCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_audio_normalization
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_audit.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_routing.py"
+exit /b %errorlevel%
+
 :pictureInPictureCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_NO_SAVE=1"
@@ -110,6 +176,8 @@ exit /b %errorlevel%
 
 :qtLogCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_logging
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_qt_log
 exit /b %errorlevel%
 
@@ -122,6 +190,8 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_session
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_development_hang
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_diagnostics.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\selfcheck_diagnostics.py"
 exit /b %errorlevel%
@@ -164,6 +234,105 @@ exit /b %errorlevel%
 :hotfixUpdatesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
+exit /b %errorlevel%
+
+
+:sidebarPresentationCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_presentation
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sort_manager
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_order
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_modules
+exit /b %errorlevel%
+
+:sidebarOrderCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_order
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sort_manager
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_frequent_sort
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_folder_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_card_drag
+exit /b %errorlevel%
+
+:sidebarFoldersCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_folder_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_frequent_sort
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sort_manager
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_hit_test
+exit /b %errorlevel%
+
+:streamPlaybackCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_stream_playback
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_codec_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_codec
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_recovery
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_startup_windows
+exit /b %errorlevel%
+
+:dialogModulesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_dialog_modules
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout
+exit /b %errorlevel%
+
+:windowLayoutCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_window_layout
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_layout_growth_empty
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_layout_16
+exit /b %errorlevel%
+
+:settingsControlCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
+exit /b %errorlevel%
+
+:appUpdatesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_app_updates
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_hotfix_updates
+exit /b %errorlevel%
+
+:widgetBoundariesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_modules
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_wall_border
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
+exit /b %errorlevel%
+
+:roomPresetsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_preset_control
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_presets
 exit /b %errorlevel%
 
 :widgetLifetimeCheck
@@ -236,6 +405,22 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_notification_center.py"
 exit /b %errorlevel%
 
+:playbackCapture
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "PLAYBACK_CAPTURE_LABEL=%~2"
+if not defined PLAYBACK_CAPTURE_LABEL set "PLAYBACK_CAPTURE_LABEL=unknown"
+"%CHECK_PY%" "%PROJ%dev\capture_playback.py" --label "%PLAYBACK_CAPTURE_LABEL%"
+exit /b %errorlevel%
+
+:playbackCaptureCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_playback_capture.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_on_demand_diagnostics.py"
+exit /b %errorlevel%
+
 :diagnosticSession
 start "" "%PY%" "%PROJ%main.py" "%DIAG_ARG%"
 exit /b 0
@@ -282,3 +467,8 @@ call flutter.bat run
 set "MOBILE_EXIT=%ERRORLEVEL%"
 popd
 exit /b %MOBILE_EXIT%
+
+:functionalModulesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_functional_modules
+exit /b %errorlevel%

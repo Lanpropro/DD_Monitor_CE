@@ -13,7 +13,7 @@ os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QPoint  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from ddm import bili, plugins, preview, widgets  # noqa: E402
+from ddm import bili, plugins, preview, widgets, sidebar_cards  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 
@@ -128,7 +128,7 @@ def main():
     state = {"plugins_enabled": ["domestic_live"], "settings": {"preview_on_hover": True,
              "recording_enabled": False, "recording_replay_enabled": False}}
     with patch("ddm.app.QTimer.singleShot"), patch.object(preview, "TilePlayer", FakePlayer), \
-            patch.object(widgets, "TilePlayer", FakePlayer), \
+            patch.object(sidebar_cards, "TilePlayer", FakePlayer), \
             patch.object(bili, "play_url", side_effect=AssertionError("Plugin preview must not call Bili")):
         window = MainWindow([], [], state=state, layout_id="2x2")
         check_rates(window.plugins)

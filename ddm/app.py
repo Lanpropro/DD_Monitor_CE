@@ -24,39 +24,48 @@ from PySide6.QtWidgets import (
 
 from . import bili
 from . import config as config_module
-from . import diagnostics
+from . import diagnostics, qt_lifecycle
 from . import layouts
 from . import room_presets
 from . import overlay
 from . import plugins as plugin_api
 from . import theme
 from . import version as version_module
-from .update_version import installed_revision, release_label, update_identity
 from . import watchdog
 from . import window_fullscreen
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .fullscreen_cursor import FullscreenCursor
 from .danmaku import DanmakuClient
-from .super_chat import SuperChatSnapshot, SuperChatStore
+from .super_chat_api import SuperChatSnapshot
+from .super_chat_model import SuperChatStore
 from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
-from .dialogs import (
-    SHORTCUT_ACTIONS, AddRoomDialog, CodecSettingsDialog, SettingsDialog,
-)
+from .dialogs import SettingsDialog
+from .add_room_dialog import AddRoomDialog
+from .settings_general import CodecSettingsDialog
+from .shortcut_actions import SHORTCUT_ACTIONS
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
-from . import player as player_module
 from .player import TilePlayer
 from .playback_recovery import PlaybackRecovery
+from .stream_playback import StreamPlayback
+from .codec_control import CodecControl
 from .preview import HoverPreview
 from .recording import RecordingManager
 from .room_placement import RoomPlacement
+from .room_preset_control import RoomPresetController
+from .app_updates import AppUpdates
+from .settings_control import SettingsControl
+from .window_layout import WindowLayout
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
 from .danmaku_lifecycle import DanmakuLifecycle
-from .widgets import Sidebar, Tile, VolumeButton, WallGrid
+from .sidebar_widgets import Sidebar
+from .tile_widgets import Tile
+from .wall_widgets import WallGrid
+from .playback_controls import VolumeButton
 from .watch_history import WatchHistory
 from .system_tray import SystemTray
 from .single_instance import SingleInstance, restore_main_window
@@ -72,6 +81,10 @@ PORTRAIT_ENTER_RATIO = PORTRAIT_MAX_RATIO
 PORTRAIT_EXIT_RATIO = 1.0
 RESIZE_SETTLE_MS = 150
 from .fullscreen_presentation import FullscreenPresentation
+from .app_accounts import AppAccounts
+from .app_shortcuts import AppShortcuts
+from .fullscreen_control import FullscreenControl
+from .app_notices import AppNotices
 
 DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
@@ -98,9 +111,14 @@ EMPTY_HINT = ("还没有直播间\n\n"
 
 
 class MainWindow(QMainWindow):
+    @qt_lifecycle.construction
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "", state: dict | None = None):
         super().__init__()
+        self.notice_control = AppNotices(self)
+        self.fullscreen_control = FullscreenControl(self)
+        self.shortcut_control = AppShortcuts(self)
+        self.account_control = AppAccounts(self)
         self.setWindowTitle(version_module.DISPLAY_NAME)
         self.setFocusPolicy(Qt.StrongFocus)     # 让窗口能接收快捷键
         self.rooms = rooms
@@ -114,10 +132,18 @@ class MainWindow(QMainWindow):
         self.layout_id = layout_id
         self.players: dict[Tile, TilePlayer] = {}      # 按格子持有播放器
         self.room_placement = RoomPlacement(self)
+        self.room_preset_control = RoomPresetController(self)
+        self.app_updates = AppUpdates(self)
+        self.settings_control = SettingsControl(self)
+        self.window_layout = WindowLayout(self)
+        self.stream_playback = StreamPlayback(self)
+        self.codec_control = CodecControl(self)
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
         self.danmaku_lifecycle = DanmakuLifecycle(self)
+        from .danmaku_blocking import DanmakuBlocking
+        self.danmaku_blocking = DanmakuBlocking(self)
         self._resolvers: dict[object, StreamResolver] = {}
         self._resolvers_running: set[StreamResolver] = set()
         self._platform_info_running: set[InfoResolver] = set()
@@ -182,6 +208,8 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        from .native_diagnostics import set_dump_enabled
+        set_dump_enabled(self.settings.get("native_crash_dump", False))
         if "video_danmaku_outline" in saved_settings:
             self.settings["video_danmaku_outline_width"] = (
                 saved_settings.get("video_danmaku_outline_width", 2)
@@ -190,6 +218,7 @@ class MainWindow(QMainWindow):
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
         if not isinstance(self.settings.get('skin_background'), str):
             self.settings['skin_background'] = ''
+        theme.configure_appearance(self.settings)
         theme.apply(self.settings["appearance_mode"])
         self.settings["freeze_watch"] = True  # 卡死检测固定开启，不再提供全局开关。
         if (saved_settings.get("danmaku_retention_version") != 1
@@ -434,180 +463,55 @@ class MainWindow(QMainWindow):
             self._startup_update_timer.start()
 
     def _check_startup_update(self) -> None:
-        self._check_startup_plugins()
-        if self._closing or self._startup_update_checked or not self.settings.get("auto_update", False):
-            return
-        from . import online
-        from .online_ui import OnlineTask
-        self._startup_update_checked = True
-        def check(cancelled, progress):
-            with online.session() as client:
-                return online.app_release(client, version_module.VERSION,
-                    installed_revision(config_module.REPO, version_module.VERSION))
-        task = OnlineTask(check, None, self)
-        self._startup_update_task = task
-        task.succeeded.connect(self._startup_update_ready)
-        task.failed.connect(self._startup_update_failed)
-        task.finished.connect(self._startup_update_finished)
-        task.start()
+        return self.app_updates.check_startup_update()
 
     def _startup_update_ready(self, payload) -> None:
-        offer = payload[1]
-        if self._closing or not self.settings.get("auto_update", False) or not offer:
-            return
-        self._set_app_update(offer)
-        self._show_update_notice()
+        return self.app_updates.startup_update_ready(payload)
 
     def _set_app_update(self, offer):
-        self._available_update = offer
-        self._mark_updates()
+        return self.app_updates.set_app_update(offer)
 
     def _set_plugin_updates(self, offers):
-        from .online_ui import plugin_update_offers
-        self._plugin_catalog_offers = list(offers)
-        self._plugin_update_offers = plugin_update_offers(self.plugins, offers)
-        self._mark_updates()
+        return self.app_updates.set_plugin_updates(offers)
 
     def _mark_updates(self):
-        from .online_ui import set_update_dot
-        seen = self.settings.get('seen_update_entry_versions') or {}
-        offer = self._unread_app_update()
-        active = bool((offer and seen.get('app') != update_identity(offer)) or any(
-            seen.get(entry['id']) != entry['version'] for entry in self._unread_plugin_updates()))
-        set_update_dot(self.sidebar.settings_button, active)
-        self.sidebar.settings_button.setToolTip('有新版本，打开设置查看' if active else '打开设置')
+        return self.app_updates.mark_updates()
 
     def _unread_app_update(self):
-        seen = self.settings.get('seen_update_versions') or {}
-        return self._available_update if (self._available_update
-            and seen.get('app') != update_identity(self._available_update)) else None
+        return self.app_updates.unread_app_update()
 
     def _unread_plugin_updates(self):
-        seen = self.settings.get('seen_update_versions') or {}
-        return [offer for offer in self._plugin_update_offers
-                if seen.get(offer['id']) != offer['version']]
+        return self.app_updates.unread_plugin_updates()
 
     def _remember_updates(self, versions):
-        self.settings['seen_update_versions'] = dict(versions)
-        self._mark_updates()
-        config_module.save(self.current_state())
+        return self.app_updates.remember_updates(versions)
 
     def _check_startup_plugins(self):
-        if self._closing or self._startup_plugin_checked:
-            return
-        self._startup_plugin_checked = True
-        if not self.plugins.catalog():
-            return
-        from pathlib import Path
-        from . import online
-        from .online_ui import OnlineTask
-        path = Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json'
-        def check(cancelled, progress):
-            with online.session() as client:
-                return online.cached_plugin_catalog(client, version_module.VERSION, path)
-        task = OnlineTask(check, None, self)
-        self._startup_plugin_task = task
-        task.succeeded.connect(self._startup_plugins_ready)
-        task.failed.connect(self._startup_update_failed)
-        task.finished.connect(self._startup_plugins_finished)
-        task.start()
+        return self.app_updates.check_startup_plugins()
 
     def _startup_plugins_ready(self, payload):
-        if self._closing:
-            return
-        self._set_plugin_updates(payload[1])
-        if self._unread_plugin_updates():
-            self._show_update_notice()
+        return self.app_updates.startup_plugins_ready(payload)
 
     def _startup_plugins_finished(self):
-        task = self.sender()
-        if task is self._startup_plugin_task:
-            self._startup_plugin_task = None
-        task.deleteLater()
+        return self.app_updates.startup_plugins_finished()
 
     def _show_update_notice(self):
-        from .online_ui import UpdateNotice
-        app_offer = self._unread_app_update()
-        plugin_offers = self._unread_plugin_updates()
-        if not app_offer and not plugin_offers:
-            return
-        if self._update_notice is None:
-            self._update_notice = UpdateNotice(self)
-            self._update_notice.activated.connect(lambda: self.open_settings(
-                "updates" if self._unread_app_update() else "plugins"))
-        self._update_notice.show_offer(app_offer or {'version': ''},
-            persistent=self.settings.get('notice_persist_updates', True))
-        parts = []
-        if app_offer:
-            parts.append('软件有新版 v' + release_label(app_offer))
-        if plugin_offers:
-            parts.append(f'{len(plugin_offers)} 个插件可更新')
-        self._update_notice.title.setText(' · '.join(parts))
-        center = self.sidebar.notification_button.center
-        entry = center.add(' · '.join(parts), kind='update',
-            callback=lambda: self.open_settings('updates' if self._unread_app_update() else 'plugins'),
-            action='查看更新', key=('update', update_identity(app_offer) if app_offer else '',
-                tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
-        self._update_notice.track_history((center, entry))
+        return self.app_updates.show_update_notice()
 
     def _startup_update_failed(self, payload) -> None:
-        if not self._closing:
-            print(f"[更新检查] {payload[1]}", file=sys.stderr, flush=True)
+        return self.app_updates.startup_update_failed(payload)
 
     def _startup_update_finished(self) -> None:
-        task = self.sender()
-        if task is self._startup_update_task:
-            self._startup_update_task = None
-        task.deleteLater()
+        return self.app_updates.startup_update_finished()
 
     def _room_browser_url(self, room: dict) -> str:
-        room_id = str(room.get("room_id") or "")
-        if room_id.isascii() and room_id.isdecimal():
-            return f"https://live.bilibili.com/{room_id}"
-        kind, separator, raw_id = room_id.partition(":")
-        platform = self.plugins.platforms.get(kind) if separator and raw_id else None
-        if platform is None:
-            return ""
-        try:
-            url = platform.room_url(room_id)
-            parts = urlsplit(url)
-            return url if parts.scheme in ("http", "https") and parts.netloc else ""
-        except Exception:  # noqa: BLE001
-            return ""
+        return self.room_placement.room_browser_url(room)
 
     def _open_room_browser(self, url: str) -> None:
-        try:
-            opened = webbrowser.open(url)
-        except OSError:
-            opened = False
-        if not opened:
-            QMessageBox.warning(self, "观看直播", "无法打开默认浏览器，请检查系统浏览器设置。")
+        return self.room_placement.open_room_browser(url)
 
     def _normalize_room_input(self, text: str) -> str | None:
-        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
-        text = extract_room_input(text)
-        platform = self.plugins.platform_for(text)
-        if platform is not None:
-            profile = getattr(platform, "profile_sec_uid", None)
-            sec_uid = profile(text) if callable(profile) else ""
-            if sec_uid:
-                from .profile_room import ProfileRoomDialog
-                dialog = ProfileRoomDialog(platform, sec_uid, self)
-                result = dialog.exec()
-                room_id = dialog.room_id
-                dialog.deleteLater()
-                if result != QDialog.Accepted:
-                    raise ValueError("主页读取已取消，可重新粘贴主页链接重试")
-                return room_id
-            return platform.normalize(text)
-        if room_id := bili_room_id(text):
-            return room_id
-        if is_bili_short_url(text):
-            return text  # Expand the short link in InfoResolver's background thread.
-        # 未装载的平台输入不能被旧的数字提取误当作 B 站房间。
-        if ":" in text and urlsplit(text).hostname != "live.bilibili.com":
-            raise ValueError("未识别平台，请启用对应的平台插件并重启")
-        return None                    # B 站仍使用原有房间号解析
+        return self.room_placement.normalize_room_input(text)
 
     # ---- 界面状态 ----
     def _restore_ui(self) -> None:
@@ -648,25 +552,7 @@ class MainWindow(QMainWindow):
         横屏：侧栏在左（固定宽）+ 右侧画面墙。
         竖屏：侧栏变成顶部横栏（撑满宽）+ 下面画面墙。
         """
-        layout = self._root_layout
-        # 只改变同一个根布局的排列方向。侧栏和画面墙始终挂在 root 下，
-        # 播放器 正在使用的原生视频 HWND 就不会因换父窗口而被 Qt 销毁。
-        layout.setDirection(
-            QBoxLayout.TopToBottom if orientation == "portrait"
-            else QBoxLayout.LeftToRight
-        )
-        if layout.indexOf(self.sidebar) < 0:
-            layout.addWidget(self.sidebar)
-        if layout.indexOf(self._content) < 0:
-            layout.addWidget(self._content, 1)
-        layout.setStretch(layout.indexOf(self.sidebar), 0)
-        layout.setStretch(layout.indexOf(self._content), 1)
-        if orientation == "landscape":
-            self.sidebar.setMaximumHeight(16_777_215)
-        self.sidebar.set_side("top" if orientation == "portrait" else "left")
-        # 换完排布再同步一次可见性：收起/展开只影响「露哪些控件」，
-        # 而 set_collapsed 在换排布之前就设过了，不补这一下头像排不会露出来。
-        self.sidebar._sync_top_mode()      # noqa: SLF001
+        return self.window_layout.build_arrangement(orientation)
 
     def is_portrait(self) -> bool:
         """窗口比高度矮（含接近方形）就算竖屏。"""
@@ -674,18 +560,7 @@ class MainWindow(QMainWindow):
         return width <= height * PORTRAIT_MAX_RATIO
 
     def _saved_layout(self, orientation: str) -> str:
-        ui = self.state.get("ui") or {}
-        saved = str(ui.get(f"layout_{orientation}") or "")
-        if not saved:
-            # 配置里还没有这一项 = 第一次启动（或从很老的配置升上来）：
-            # 用第一次启动的默认布局，别退成兜底的九分
-            return (layouts.FIRST_LAYOUT if orientation == "landscape"
-                    else layouts.PORTRAIT_AUTO)
-        # 老配置里的 "auto"（以及任何已经删掉的布局 id）折算成兜底布局：
-        # 「自动」已经按用户要求从菜单里去掉了
-        if saved not in layouts.BY_ID:
-            return layouts.DEFAULT_LAYOUT
-        return saved
+        return self.window_layout.saved_layout(orientation)
 
     @staticmethod
     def _layout_fits(layout_id: str, portrait: bool) -> bool:
@@ -701,83 +576,7 @@ class MainWindow(QMainWindow):
 
     def _apply_orientation(self, orientation: str | None = None) -> None:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
-        if self._applying_room_preset or (getattr(self, 'picture_in_picture', None)
-                                         and self.picture_in_picture.active):
-            return
-        # Side/header reparenting activates ancestor layouts synchronously.
-        # Commit their final arrangement once; DPI and painting remain enabled.
-        layout_enabled = self._root_layout.isEnabled()
-        self._root_layout.setEnabled(False)
-        try:
-            orientation = orientation or ("portrait" if self.is_portrait() else "landscape")
-            # 启动后第一次定方向？**要在下面写 self.orientation 之前取**，
-            # 否则 first 永远是 False，第一次也会走「对映」那条路。
-            first = not self.orientation
-            changed = orientation != self.orientation
-            if changed:
-                self.hover_preview.cancel()
-                self._build_arrangement(orientation)
-            # 切走之前正在用的那套，记在**原来那个方向**名下：用户转个方向逛一圈再转回来，
-            # 原来那边的布局得原样还在，不能靠「按容量折算」猜回来。
-            if self.orientation and changed:
-                self._layout_by_orientation[self.orientation] = self.wall.layout_id
-            self.orientation = orientation
-            portrait = orientation == "portrait"
-
-            # 竖屏不再强制「收起」：顶部横栏本来就只占一条，横屏的收起语义（60px 窄条）
-            # 混进来会在拖回横屏时留下一堆隐藏控件。竖屏保持展开（头像排 + 按钮行）。
-            self.sidebar.set_collapsed(False, animate=False)
-
-            saved = self._saved_layout(orientation)
-            # 调用方显式指定的布局：只认和当前方向匹配的那次，认完就清掉
-            pending = getattr(self, "_pending_layout", "")
-            if pending and self._layout_fits(pending, portrait):
-                layout_id = pending
-                self._pending_layout = ""
-            elif first:
-                # 启动：配置里存过哪套就用哪套（第一次启动就是 FIRST_LAYOUT /
-                # PORTRAIT_AUTO）；只有存的那套跟当前方向不匹配（老配置、
-                # 或者上次是在另一个方向下用的）才按「对映」折算一套出来。
-                layout_id = saved if self._layout_fits(saved, portrait) else (
-                    layouts.counterpart(self.wall.layout_id, portrait)
-                    or (layouts.PORTRAIT_AUTO if portrait else layouts.FIRST_LAYOUT))
-            else:
-                # 回自己待过的方向：先把「切走之前在用的那套」摆回来。横屏的
-                # 「主画面 + 5 小环绕」和「六分」都是 6 路，只按容量折算的话，从竖屏
-                # 切回来会被换成六分 —— 用户报的「布局被改了」就是这个。
-                remembered = self._layout_by_orientation.get(orientation, "")
-                if remembered and self._layout_fits(remembered, portrait):
-                    layout_id = remembered
-                else:
-                    # 本次会话第一次进这个方向：跟着当前这套找最相似的那套
-                    # （横屏 1+2 ↔ 竖屏 1+2，弹幕对弹幕），不能退成「自动」。
-                    # 这一步要压过配置里存的那个值 —— 用户报的正是这个：
-                    # 横屏 1+2 拖成竖屏，结果用了以前在竖屏存过的「1+2+弹幕」。
-                    mapped = layouts.counterpart(self.wall.layout_id, portrait)
-                    if mapped:
-                        layout_id = mapped
-                    elif self._layout_fits(saved, portrait):
-                        layout_id = saved
-                    else:
-                        layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
-            if layout_id != self.wall.layout_id:
-                if not first:
-                    self._clear_expanded_slots(layout_id)
-                self.wall.set_layout(layout_id, relayout=False)
-                self.sidebar.set_layout_name(layout_id)
-            # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
-            if self._settling_resize:
-                self.wall.set_interactive_resize(True)
-        finally:
-            self._root_layout.setEnabled(layout_enabled)
-            if layout_enabled:
-                self._root_layout.invalidate()
-        self._root_layout.activate()
-        self._content.layout().activate()
-        self.wall.relayout(force=True)
-        self._sync_tile_playback()
-        print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
-              file=sys.stderr, flush=True)
+        return self.window_layout.apply_orientation(orientation)
 
     def resizeEvent(self, event) -> None:
         if (getattr(self, "_interactive_resize", False)
@@ -808,50 +607,33 @@ class MainWindow(QMainWindow):
             elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
                 previous = self._native_size_state
                 self._native_size_state = int(msg.wParam)
+                # Qt can resize child layouts before MainWindow.resizeEvent.
+                # Arm the coalesced wall path before returning this native size.
+                if (msg.wParam in (0, 2) and self._interactive_resize
+                        and hasattr(self, "wall") and not self._closing
+                        and not self._startup_layout_pending and self._fullscreen_tile is None):
+                    self.wall.set_interactive_resize(True)
+                    self._resize_dirty = True
                 if msg.wParam == 2 or msg.wParam == 0 and previous == 2:
                     if (hasattr(self, "wall") and not self._closing
                             and not self._settling_resize and not self._startup_layout_pending
                             and self._fullscreen_tile is None):
                         self.wall.set_interactive_resize(True)
                         self._resize_dirty = True
-                        self._resize_idle_timer.start()
+                        # A restore can arrive after WM_ENTERSIZEMOVE. Only
+                        # WM_EXITSIZEMOVE may settle an active native gesture.
+                        if not self._interactive_resize:
+                            self._resize_idle_timer.start()
         return super().nativeEvent(event_type, message)
 
     def _begin_interactive_resize(self) -> None:
-        if (not hasattr(self, "wall") or self._closing
-                or self._fullscreen_tile is not None or self._interactive_resize):
-            return
-        self._resize_idle_timer.stop()
-        self._interactive_resize = True
+        return self.window_layout.begin_interactive_resize()
 
     def _finish_interactive_resize(self) -> None:
-        if not hasattr(self, "wall") or self._settling_resize:
-            return
-        self._resize_idle_timer.stop()
-        self._interactive_resize = False
-        if self._closing or self._fullscreen_tile is not None or not self._resize_dirty:
-            return
-        self._settling_resize = True
-        try:
-            orientation = self._resize_orientation()
-            if orientation != self.orientation:
-                self._apply_orientation(orientation)
-            self._root_layout.activate()
-            self._content.layout().activate()
-            self.wall.finish_resize()
-        finally:
-            self.wall.set_interactive_resize(False)
-            self._resize_dirty = False
-            self._settling_resize = False
-            self._resize_idle_timer.stop()
+        return self.window_layout.finish_interactive_resize()
 
     def _resize_orientation(self) -> str:
-        ratio = self.width() / max(1, self.height())
-        if ratio <= PORTRAIT_ENTER_RATIO:
-            return "portrait"
-        if ratio >= PORTRAIT_EXIT_RATIO:
-            return "landscape"
-        return self.orientation
+        return self.window_layout.resize_orientation(enter_ratio=PORTRAIT_ENTER_RATIO, exit_ratio=PORTRAIT_EXIT_RATIO)
 
     def hideEvent(self, event) -> None:
         self._resize_on_show = self._resize_on_show or self._resize_dirty
@@ -877,32 +659,13 @@ class MainWindow(QMainWindow):
     def show_initial_maximized(self) -> None:
         # Windows can expose a maximized HWND before Qt receives its final
         # resize event. Size the hidden tree first, including the native caption.
-        bounds = self.screen().availableGeometry()
-        if sys.platform == "win32" and QApplication.platformName() == "windows":
-            import ctypes
-            scale = self.screen().devicePixelRatio()
-            caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
-        else:
-            self.winId()
-            margins = self.windowHandle().frameMargins()
-            caption = max(0, margins.top() - margins.bottom())
-        self.setGeometry(bounds.adjusted(0, caption, 0, 0))
-        self.layout().activate()
-        self._resize_dirty = True
-        self._finish_interactive_resize()
-        self.showMaximized()
+        return self.window_layout.show_initial_maximized()
 
     def refresh_theme(self) -> None:
         window_fullscreen.sync_titlebar(self)
 
     def _cancel_interactive_resize(self) -> None:
-        timer = getattr(self, "_resize_idle_timer", None)
-        if timer is not None:
-            timer.stop()
-        self._interactive_resize = False
-        self._resize_dirty = False
-        if hasattr(self, "wall"):
-            self.wall.set_interactive_resize(False)
+        return self.window_layout.cancel_interactive_resize()
 
     # ---- 设置 ----
     def poll_interval_ms(self) -> int:
@@ -910,267 +673,53 @@ class MainWindow(QMainWindow):
         return max(1, min(30, minutes)) * 60_000
 
     def set_appearance(self, mode: str) -> None:
-        self.settings["appearance_mode"] = theme.normalize_mode(mode)
-        from .theme_transition import ThemeTransition
-        if not hasattr(self, '_theme_transition'):
-            self._theme_transition = ThemeTransition(self)
-        source = self.sender()
-        page = getattr(source, 'appearance_page', None)
-        button = page.buttons[self.settings["appearance_mode"]] if page is not None else self.sidebar.appearance_button
-        self._theme_transition.change(self.settings["appearance_mode"], button.mapToGlobal(QPoint()))
-        self._save_timer.start()
+        return self.settings_control.set_appearance(mode)
 
     def _open_sidebar_settings(self):
-        if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
-            return self.open_settings()
-        self._get_settings_process().open(self.settings, self.shortcuts, self._sc_preview_context())
-        return False
+        return self.settings_control.open_sidebar_settings()
 
     def _sidebar_card_mode_changed(self, enabled):
-        self.settings['sidebar_card_mode'] = enabled
-        self.settings['sidebar_auto_compact'] = False
-        self._save_timer.start()
+        return self.settings_control.sidebar_card_mode_changed(enabled)
 
     def _sc_preview_context(self):
-        def surface(widget, events, presentation):
-            cards = [{'message': event.get('message') or event.get('text') or '',
-                      'collapsed': presentation.is_collapsed(event)} for event in events]
-            return {'size': [max(1, widget.width()), max(1, widget.height())],
-                    'cards': cards or [{'message': '', 'collapsed': False}]}
-
-        panel = self.wall.danmaku
-        context = {'panel': surface(panel.body.viewport(), panel.super_chats._events,
-                                    panel.super_chats.presentation)}
-        viewport = panel.body.viewport()
-        origin = viewport.mapTo(panel, QPoint())
-        context['panel'].update(outer_size=[max(1, panel.width()), max(1, panel.height())],
-                                viewport_rect=[origin.x(), origin.y(), viewport.width(), viewport.height()])
-        tile = self._fullscreen_tile or self.wall.danmaku_target_tile()
-        if tile is not None:
-            video = tile.video_danmaku
-            context['video'] = surface(video, video.super_chat_overlay.chats,
-                                       video.super_chat_overlay.presentation)
-        return context
+        return self.settings_control.sc_preview_context()
 
     def _get_settings_process(self):
-        if getattr(self, "_settings_process", None) is None:
-            from .settings_process import SettingsProcess
-            self._settings_process = SettingsProcess(self)
-            self._settings_process.saved.connect(self._remote_settings_saved)
-            self._settings_process.hostRequest.connect(self._settings_host_request)
-            self._settings_process.closed.connect(self._close_settings_host)
-            self._settings_process.occlusionChanged.connect(
-                lambda: self.wall._quick_danmaku_layer.show()
-                if self.wall._quick_danmaku_layer is not None else None)
-            self._settings_process.failed.connect(lambda message: self._show_notice(
-                "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=self.open_settings))
-        return self._settings_process
+        return self.settings_control.get_settings_process()
 
     def _remote_settings_saved(self, changes):
-        if getattr(self, '_closing', False) or not any(changes.values()):
-            return
-        from types import SimpleNamespace
-        dialog = SimpleNamespace(
-            settings=lambda: changes.get("settings", {}),
-            shortcuts=lambda: {**self.shortcuts, **changes.get("shortcuts", {})},
-            enabled_plugins=lambda: self.plugins.enabled,
-            _loaded_pages={}, restart_requested=False)
-        before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
-                  dict(self.plugins._platform_owner), set(self.plugins._removed))
-        self._apply_settings_dialog(dialog, before)
+        return self.settings_control.remote_settings_saved(changes)
 
     def _settings_host_request(self, message):
-        if getattr(self, '_closing', False):
-            return
-        session = getattr(self, '_settings_host', None)
-        if session is None:
-            if message['kind'] not in ('host-page', 'host-general'):
-                return
-            from .settings_host import SettingsHost
-            session = self._settings_host = SettingsHost(self, self._settings_process, message)
-        session.handle(message)
+        return self.settings_control.settings_host_request(message)
 
     def _close_settings_host(self):
-        session = getattr(self, '_settings_host', None)
-        if session is not None:
-            self._settings_host = None
-            session.close()
+        return self.settings_control.close_settings_host()
 
     def _get_update_page(self, settings):
-        if getattr(self, '_app_update_page', None) is None:
-            from .online_ui import AppUpdatePage
-            self._app_update_page = AppUpdatePage(settings, self)
-            self._app_update_page.releaseChecked.connect(self._set_app_update)
-        page = self._app_update_page
-        page.auto.setChecked(bool(settings.get('auto_update', False)))
-        return page
+        return self.settings_control.get_update_page(settings)
 
     def _create_settings_dialog(self, settings=None, shortcuts=None):
-        seen = dict(self.settings.get('seen_update_entry_versions') or {})
-        if self._available_update:
-            seen['app'] = update_identity(self._available_update)
-        seen.update({offer['id']: offer['version'] for offer in self._plugin_update_offers})
-        if seen != (self.settings.get('seen_update_entry_versions') or {}):
-            self.settings['seen_update_entry_versions'] = seen
-            self._mark_updates()
-            config_module.save(self.current_state())
-        dialog = SettingsDialog(self.settings if settings is None else settings,
-                                self.shortcuts if shortcuts is None else shortcuts, self,
-                                plugin_manager=self.plugins, update_page_factory=self._get_update_page)
-        def page_created(index, widget):
-            key = dialog.PAGES[index][0]
-            if key == 'danmaku':
-                widget.super_chat_placement.set_preview_context(self._sc_preview_context())
-            elif key == 'plugins':
-                widget.store_page.offersChanged.connect(self._set_plugin_updates)
-                if self._plugin_catalog_offers:
-                    widget.store_page._catalog_ready(self._plugin_catalog_offers)
-            elif key == 'updates':
-                if (self._available_update and not (widget.jobs or widget.plan_path)
-                        and (not widget._checked or not widget.offer
-                             or update_identity(widget.offer) != update_identity(self._available_update))):
-                    widget._release_ready(self._available_update)
-                    widget._busy(False)
-        dialog.pageCreated.connect(page_created)
-        dialog.updatesViewed.connect(self._remember_updates)
-        dialog.appearanceChanged.connect(self.set_appearance)
-        dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
-                                                for offer in self._plugin_update_offers))
-        dialog._mark_update_page('updates', bool(self._available_update and
-                                                dialog.seen_versions.get('app') != update_identity(self._available_update)))
-        return dialog
+        return self.settings_control.create_settings_dialog(settings, shortcuts, dialog_class=SettingsDialog)
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
-        started = time.perf_counter()
-        plugins_before = (None if self.plugins.enabled is None else set(self.plugins.enabled),
-                          dict(self.plugins._platform_owner), set(self.plugins._removed))
-        dialog = self._create_settings_dialog()
-        try:
-            print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            for index, (key, _label) in enumerate(dialog.PAGES):
-                if key == page:
-                    dialog.nav.setCurrentRow(index)
-                    break
-            if page == "plugins":
-                dialog.plugin_page.tabs.setCurrentIndex(1)
-            if dialog.exec() != SettingsDialog.Accepted:
-                return False
-            return self._apply_settings_dialog(dialog, plugins_before)
-        finally:
-            dialog.deleteLater()
+        return self.settings_control.open_settings(page, dialog_class=SettingsDialog)
 
     def _apply_settings_dialog(self, dialog, plugins_before):
-        saved_at = time.perf_counter()
-        appearance_before = {key: deepcopy(value) for key, value in self.settings.items()
-                             if key.startswith('skin_') or key == 'appearance_mode'}
-        codecs_before = {tile: self._codec_settings(tile) for tile in self.wall.tiles}
-        self.settings.update(dialog.settings())
-        from .notification_center import NoticeRow
-        from .online_ui import ResultNotice
-        for notice in [*self.findChildren(NoticeRow), *self.findChildren(ResultNotice)]:
-            notice.update()
-        for codec_dialog in self._codec_dialogs.values():
-            codec_dialog.controls.set_defaults(config_module.codec_settings(self.settings))
-        if not self.settings.get("auto_update", False):
-            self._startup_update_timer.stop()
-            if self._update_notice is not None:
-                self._update_notice.dismiss()
-        self._sync_fullscreen_audio()
-        self.shortcuts = dialog.shortcuts()
-        self._refresh_shortcuts()
-        enabled_plugins = dialog.enabled_plugins()
-        self.plugins.enabled = None if enabled_plugins is None else set(enabled_plugins)
-        plugins_changed = (self.plugins.enabled, self.plugins._platform_owner, self.plugins._removed) != plugins_before
-        appearance_after = {key: value for key, value in self.settings.items()
-                            if key.startswith('skin_') or key == 'appearance_mode'}
-        if appearance_after != appearance_before or plugins_changed:
-            self.refresh_skin()
-        print(f"[设置耗时] 应用控件和外观 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        if plugins_changed:
-            self._sync_platform_rooms()
-        self.state["settings"] = dict(self.settings)
-        self.state.setdefault("ui", {})["shortcuts"] = dict(self.shortcuts)
-        self._poll_timer.setInterval(self.poll_interval_ms())
-        for player in self.players.values():
-            player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-            player.set_volume_normalization(bool(self.settings.get("volume_normalization", False)))
-        for tile in self.wall.tiles:
-            if self._tile_codecs_changed(tile, codecs_before.get(tile, {})):
-                self._restart_codec_tile(tile)
-        config_module.save(self.current_state())
-        # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
-        self._sync_recording_switch()
-        self._sync_replay_scope()
-        self.apply_danmaku_settings()
-        self.apply_preview_settings()
-        print(f"[设置耗时] 保存并应用全部设置 {(time.perf_counter() - saved_at) * 1000:.1f}ms", file=sys.stderr, flush=True)
-        print(f"[设置] {self.settings} 快捷键 {self.shortcuts}", file=sys.stderr, flush=True)
-        update_page = dialog._loaded_pages.get(SettingsDialog.PAGE_INDEX['updates'])
-        if getattr(update_page, "install_requested", False):
-            self._update_plan = dialog.update_page.plan_path
-            self.close()
-        elif getattr(dialog, "restart_requested", False):
-            self._restart_requested = True
-            self.close()
-        return True
+        return self.settings_control.apply_settings_dialog(dialog, plugins_before, dialog_class=SettingsDialog)
 
     def refresh_skin(self):
         self.skin_controller.refresh()
 
     def set_skin(self, values):
-        active = self.plugins.active_skin()
-        if active is not None and active['version'] == 1:
-            self.refresh_skin()
-            return
-        self.settings.update(values)
-        self.refresh_skin()
-        config_module.save(self.current_state())
+        return self.settings_control.set_skin(values)
 
     def set_skin_parts(self, values):
-        from .skin_parts import validate_parts
-        from pathlib import Path
-        validate_parts(values, Path(config_module.data_root()) / 'utils' / 'skins')
-        self.settings['skin_parts'] = deepcopy(values)
-        self.refresh_skin()
-        config_module.save(self.current_state())
+        return self.settings_control.set_skin_parts(values)
 
     def _sync_platform_rooms(self) -> None:
-        self.hover_preview.cancel()
-        active = {kind for kind, owner in self.plugins._platform_owner.items()
-                  if owner not in self.plugins._removed and
-                  (self.plugins.enabled is None or owner in self.plugins.enabled)}
-        saved = config_module.sync_platform_rooms(self.current_state(), active)
-        self.state["suspended_platform_rooms"] = saved["suspended_platform_rooms"]
-        rooms, wall = config_module.build_rooms(saved)
-        followed = {room["room_id"] for room in rooms}
-        for room in self.sidebar.rooms():
-            if room["room_id"] not in followed:
-                self.sidebar.remove_room(room)
-        for room in rooms:
-            if not any(item["room_id"] == room["room_id"] for item in self.sidebar.rooms()):
-                self.sidebar.add_room(room)
-        for key in ("import_order", "custom_order"):
-            getattr(self.sidebar, "set_" + key)(saved[key])
-        self.sidebar.apply_pins(saved["pinned"])
-        self.sidebar.set_folders(saved.get("follow_folders") or [])
-        for index, room in enumerate(wall):
-            if index >= len(self.wall.tiles):
-                self.wall.add_room(room)
-                continue
-            tile = self.wall.tiles[index]
-            if str(tile.room.get("room_id") or "") == str(room.get("room_id") or ""):
-                continue
-            if tile is self._fullscreen_tile:
-                self._exit_fullscreen()
-            self.recorder.stop(tile)
-            self._pending_capture.pop(tile, None)
-            self._stop_tile(tile)
-            tile.set_volume(room["volume"])
-            tile.set_audio_channel(room["audio_channel"])
-            tile.set_muted(room["muted"])
-            tile.set_room(room)
-        self._refresh_meta()
+        return self.room_placement.sync_platform_rooms()
 
     def current_state(self) -> dict:
         cookies = bili._cookies()
@@ -1186,6 +735,7 @@ class MainWindow(QMainWindow):
             "platform_rooms": {
                 str(room["room_id"]): {key: room.get(key, "") for key in
                                        (("uname", "title", "platform", "playback_mode") +
+                                        (("display_room_id",) if room.get("display_room_id") else ()) +
                                         (("anchor_uid", "sec_uid", "follow_account_ref", "resolved_room_id", "face")
                                          if room.get("platform") == "douyin" else ()))}
                 for room in self.sidebar.rooms() if ":" in str(room.get("room_id") or "")
@@ -1237,18 +787,7 @@ class MainWindow(QMainWindow):
         }
 
     def _check_audio_output_device(self) -> None:
-        if self._closing:
-            return
-        device_id = bytes(self._audio_devices.defaultAudioOutput().id())
-        if device_id == self._default_audio_output_id:
-            return
-        try:
-            for player in self.players.values():
-                player.refresh_audio_device()
-        except Exception as exc:  # noqa: BLE001 - device notifications must not stop Qt
-            print(f"[音频输出] 刷新设备失败：{exc}", file=sys.stderr, flush=True)
-            return
-        self._default_audio_output_id = device_id
+        return self.stream_playback.check_audio_output_device()
 
     def closeEvent(self, event) -> None:
         if self._tray.handle_close(event):
@@ -1371,295 +910,29 @@ class MainWindow(QMainWindow):
         self._platform_info_running.clear()
 
     def _clear_expanded_slots(self, layout_id: str) -> None:
-        current = self.wall._capacity() or len(self.wall.tiles)
-        target = (layouts.capacity(layout_id)
-                  - int(layouts.danmaku_cell(layout_id) is not None and
-                        layout_id not in self.wall.pane_danmaku.settings)) or len(self.wall.tiles)
-        if target <= current:
-            return
-        # 扩大布局只补空位，先前隐藏的房间不能自动回到画面墙。
-        for tile in self.wall.tiles[current:]:
-            if tile.room.get("room_id"):
-                self._clear_tile_room(tile)
+        return self.window_layout.clear_expanded_slots(layout_id)
 
     def _prioritize_live_tiles(self, layout_id: str) -> None:
         """缩小布局时，用后面的开播格子填前面的未开播位置。"""
-        capacity = layouts.capacity(layout_id) - int(layouts.danmaku_cell(layout_id) is not None and
-                        layout_id not in self.wall.pane_danmaku.settings)
-        tiles = self.wall.tiles
-        if (capacity <= 0 or capacity >= len(tiles)
-                or capacity >= (self.wall._capacity() or len(tiles))):
-            return
-        live = lambda tile: bool(tile.room.get("room_id") and tile.room.get("live"))
-        vacant = [index for index in range(capacity) if not live(tiles[index])]
-        waiting = [index for index in range(capacity, len(tiles)) if live(tiles[index])]
-        for visible_index, hidden_index in zip(vacant, waiting):
-            visible, hidden = tiles[visible_index], tiles[hidden_index]
-            tiles[visible_index], tiles[hidden_index] = hidden, visible
-            # 音量、静音和声道属于位置；画面随格子移动，声音设置留在原位置。
-            visible.volume, hidden.volume = hidden.volume, visible.volume
-            visible.muted, hidden.muted = hidden.muted, visible.muted
-            visible.audio_channel, hidden.audio_channel = hidden.audio_channel, visible.audio_channel
-            for tile in (visible, hidden):
-                tile.room["volume"] = tile.volume
-                tile.room["muted"] = tile.muted
-                tile.room["audio_channel"] = tile.audio_channel
-                tile.sync_audio_ui()
-                player = self.players.get(tile)
-                if player is not None:
-                    player.set_volume(int(tile.volume))
-                    player.set_muted(tile.muted)
-                    player.set_audio_channel(int(tile.audio_channel))
-                    player.reapply_audio_channel()
+        return self.window_layout.prioritize_live_tiles(layout_id)
 
     def _on_layout_changed(self, layout_id: str) -> None:
-        self.picture_in_picture.restore()
-        self._cancel_interactive_resize()
-        panes_reset = self.wall.pane_danmaku.reset_preset(layout_id)
-        want_portrait = layouts.is_portrait_layout(layout_id)
-        reshape = (want_portrait != (self.orientation == "portrait")
-                   or want_portrait != (self._resize_orientation() == "portrait"))
-        if layout_id == self.wall.layout_id and not reshape:
-            self.wall.reset_layout_ratios()
-            if panes_reset:
-                self.wall.relayout(force=True)
-                self.apply_quality_policy()
-                self._sync_tile_playback(start_visible=True)
-                self._refresh_meta()
-                self._save_timer.start()
-            return
-        self._prioritize_live_tiles(layout_id)
-        self._clear_expanded_slots(layout_id)
-        # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
-        # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
-        # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
-        if reshape:
-            print(f"[布局] {layout_id} 是给{'竖屏' if want_portrait else '横屏'}的，"
-                  f"把窗口也改成{'竖屏' if want_portrait else '横屏'}的",
-                  file=sys.stderr, flush=True)
-            # 转窗口会同步触发 _apply_orientation，而那里会把「切走前的记忆」摆回来，
-            # 把用户刚选的这套顶掉 —— 先挂成 pending，让它认这个选择
-            self._pending_layout = layout_id
-            previous_orientation, previous_layout = self.orientation, self.wall.layout_id
-            # resize 时必须按目标预设计算最小尺寸，避免旧的密集网格挡住转方向。
-            self.wall.set_layout(layout_id, relayout=False)
-            self._reshape_window(want_portrait)
-            self._resize_idle_timer.stop()
-            self._resize_dirty = False
-            self._apply_orientation("portrait" if want_portrait else "landscape")
-            if previous_orientation:
-                self._layout_by_orientation[previous_orientation] = previous_layout
-        self.wall.set_layout(layout_id)
-        self.wall.relayout(force=True)
-        self.sidebar.set_layout_name(self.wall.layout_id)
-        # 记在**当前方向**名下：横屏选的布局不该被竖屏覆盖，反之亦然
-        key = f"layout_{self.orientation or 'landscape'}"
-        self.state.setdefault("ui", {})[key] = layout_id
-        self.apply_quality_policy()
-        self._sync_tile_playback(start_visible=True)
-        self._refresh_meta()
+        return self.window_layout.on_layout_changed(layout_id)
 
     def room_preset_snapshot(self):
-        wall = self.wall
-        identifier = wall.layout_id
-        if identifier == "corner":
-            ratios = wall.corner_ratios()
-        else:
-            ratios = deepcopy(wall._layout_ratios.get(identifier, {}))
-            # Defaults such as portrait 16:9 depend on the viewport; freeze their current proportions.
-            for (key, _index), (_node, _area, sizes) in wall._preset_dividers.items():
-                ratios.setdefault(key, [size / sum(sizes) for size in sizes])
-        custom = wall.pane_danmaku.custom
-        dm = None if custom else (layouts.danmaku_cell(identifier) if
-            layouts.is_portrait_layout(identifier) else wall._danmaku_cell)
-        pane_layout = dict(id=identifier, ratios=ratios, danmaku_cell=dm)
-        if custom:
-            cells = wall.pane_danmaku.cell_tiles()
-            pane_layout["panels"] = [dict(cell=cell, source=None if tile is None else
-                next((index for index, item in cells.items() if item is tile), -1))
-                for cell, tile in sorted(wall.pane_danmaku.bindings().items())]
-        order = [cell for cell in range(layouts.capacity(identifier)) if cell != dm]
-        saved_layout = (self._room_preset_fullscreen_layout if self._fullscreen_tile is not None else None)
-        return room_presets.validate({"layout": deepcopy(saved_layout) if saved_layout else pane_layout,
-            "slots": [dict(cell=cell, room_id=str(tile.room.get("room_id") or ""),
-                           label=str(tile.room.get("uname") or tile.room.get("room_id") or "空位"),
-                           volume=int(tile.volume), audio_channel=int(tile.audio_channel),
-                           muted=self._fullscreen_audio_saved.get(tile, bool(tile.muted)))
-                      for cell, tile in zip(order, wall.tiles)]})
+        return self.room_preset_control.snapshot()
 
     def save_room_preset(self, name, preset_id=None):
-        from uuid import uuid4
-        name = str(name).strip()
-        if not name:
-            raise ValueError("请输入组合名称")
-        if self.room_presets["version"] != 1:
-            raise ValueError("组合数据版本暂不支持")
-        items = self.room_presets["items"]
-        if any(item.get("name") == name and item.get("id") != preset_id for item in items):
-            raise ValueError("已有同名组合")
-        snapshot = self.room_preset_snapshot()
-        record = dict(snapshot, id=preset_id or uuid4().hex, name=name)
-        if preset_id:
-            index = next((i for i, item in enumerate(items) if item.get("id") == preset_id), None)
-            if index is None:
-                raise ValueError("该组合已不存在")
-            items[index] = record
-        else:
-            items.append(record)
-        self._active_room_preset_id = record["id"]
-        self._save_timer.start()
-        return record["id"]
+        return self.room_preset_control.save(name, preset_id)
 
     def rename_room_preset(self, preset_id, name):
-        name = str(name).strip()
-        if not name:
-            raise ValueError("请输入组合名称")
-        if any(item.get("name") == name and item.get("id") != preset_id
-               for item in self.room_presets["items"]):
-            raise ValueError("已有同名组合")
-        for item in self.room_presets["items"]:
-            if item.get("id") == preset_id:
-                item["name"] = name
-                self._save_timer.start()
-                return
-        raise ValueError("该组合已不存在")
+        return self.room_preset_control.rename(preset_id, name)
 
     def delete_room_preset(self, preset_id):
-        self.room_presets["items"] = [item for item in self.room_presets["items"]
-                                     if item.get("id") != preset_id]
-        if self._active_room_preset_id == preset_id:
-            self._active_room_preset_id = ""
-        self._save_timer.start()
+        return self.room_preset_control.delete(preset_id)
 
     def apply_room_preset(self, preset_id):
-        self.picture_in_picture.restore()
-        if self._closing:
-            return False
-        if self.room_presets["version"] != 1:
-            raise ValueError("组合数据版本暂不支持")
-        record = next((item for item in self.room_presets["items"] if item.get("id") == preset_id), None)
-        snapshot = room_presets.validate(record)
-        if room_presets.same(snapshot, self.room_preset_snapshot()):
-            if self._active_room_preset_id != preset_id:
-                self._active_room_preset_id = preset_id
-                self._save_timer.start()
-            return True
-        self._cancel_interactive_resize()
-        slots = snapshot["slots"]
-        available = list(self.wall.tiles)
-        assigned = []
-        # Reserve matching live players before taking spare/empty tiles for new rooms.
-        for slot in slots:
-            tile = next((tile for tile in available if slot["room_id"] and
-                         str(tile.room.get("room_id") or "") == slot["room_id"]), None)
-            assigned.append(tile)
-            if tile is not None:
-                available.remove(tile)
-        for index, tile in enumerate(assigned):
-            if tile is None:
-                spare = next((item for item in available if item not in self.recorder.sessions), None)
-                if spare is not None:
-                    available.remove(spare)
-                    assigned[index] = spare
-        keeping = {tile for tile, slot in zip(assigned, slots) if tile is not None
-                   and str(tile.room.get("room_id") or "") == slot["room_id"]}
-        affected = [tile for tile, session in self.recorder.sessions.items()
-                    if tile not in keeping and session.recording and not session.stopping]
-        affected += [tile for tile, recording in self._pending_capture.items()
-                     if tile not in keeping and recording and tile not in affected]
-        if affected:
-            names = "、".join(str(tile.room.get("uname") or tile.room.get("room_id")) for tile in affected)
-            if QMessageBox.question(self, "恢复直播间组合", f"将结束以下直播间的录制后恢复组合：\n{names}\n是否继续？",
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
-                return False
-        if self._fullscreen_tile is not None:
-            self._exit_fullscreen()
-        self.hover_preview.cancel()
-        self.wall._cancel_border_drag()
-        self._pending_layout = ""
-        self._applying_room_preset = True
-        try:
-            for tile in list(self.wall.tiles):
-                if tile not in keeping:
-                    self._clear_tile_room(tile)
-            for index, tile in enumerate(assigned):
-                if tile is None:
-                    assigned[index] = self.wall._make_tile({})
-            for tile in list(self.wall.tiles):
-                if tile not in assigned:
-                    if tile in self.recorder.sessions:
-                        # ffmpeg may still be finishing; its completion signal needs a live tile.
-                        tile.hide()
-                        self._preset_retired_tiles.add(tile)
-                    else:
-                        self.wall._drop_tile(tile)
-            self.wall.tiles = assigned
-            identifier = snapshot["layout"]["id"]
-            portrait = layouts.is_portrait_layout(identifier)
-            previous_orientation, previous_layout = self.orientation, self.wall.layout_id
-            self.wall.pane_danmaku.settings.pop(identifier, None)
-            if "panels" in snapshot["layout"]:
-                by_cell = {slot["cell"]: tile for slot, tile in zip(slots, assigned)}
-                self.wall.pane_danmaku.settings[identifier] = {item["cell"]:
-                    None if item["source"] is None else by_cell.get(item["source"], -1)
-                    for item in snapshot["layout"]["panels"]}
-            self.wall.set_layout(identifier, relayout=False)
-            self.wall._danmaku_cell = snapshot["layout"]["danmaku_cell"]
-            if identifier == "corner":
-                self.wall.restore_corner_ratios(snapshot["layout"]["ratios"])
-            else:
-                self.wall._layout_ratios[identifier] = deepcopy(snapshot["layout"]["ratios"])
-            if portrait != (self.orientation == "portrait"):
-                self._reshape_window(portrait)
-                if previous_orientation:
-                    self._layout_by_orientation[previous_orientation] = previous_layout
-            self.orientation = "portrait" if portrait else "landscape"
-            self.sidebar.set_collapsed(False, animate=False)
-            self._build_arrangement(self.orientation)
-            self.state.setdefault("ui", {})[f"layout_{self.orientation}"] = identifier
-            self._layout_by_orientation[self.orientation] = identifier
-            starting = []
-            for tile, slot in zip(assigned, slots):
-                rid = slot["room_id"]
-                if tile not in keeping:
-                    known = next((room for room in self.sidebar.rooms()
-                                  if str(room.get("room_id")) == rid), None)
-                    if known is None:
-                        _, placeholders = config_module.build_rooms({"wall": [slot]})
-                        known = placeholders[0]
-                        if rid:
-                            known["uname"] = slot["label"] or f"房间 {rid}"
-                    tile.set_room(self._prepare_room(dict(known)))
-                    if rid:
-                        starting.append(tile)
-                # These setters normally emit individual player updates; apply the whole sound state first.
-                blocked = tile.blockSignals(True)
-                try:
-                    tile.set_volume(slot["volume"])
-                    tile.set_audio_channel(slot["audio_channel"])
-                    tile.set_muted(slot["muted"])
-                finally:
-                    tile.blockSignals(blocked)
-                player = self.players.get(tile)
-                if player is not None:
-                    player.set_volume(tile.volume)
-                    player.set_audio_channel(tile.audio_channel)
-                    player.set_muted(tile.muted)
-            self.wall.relayout(force=True)
-            self.sidebar.set_layout_name(identifier)
-            for tile in starting:
-                if tile.isVisible() and (tile.room.get("live") or (":" in str(tile.room.get("room_id")) and
-                        self.plugins.platform_for(str(tile.room["room_id"])) is None)):
-                    self.start_tile(tile)
-                else:
-                    tile.set_status("未开播" if tile.room.get("live_known", True) else "等待刷新直播状态")
-            self._active_room_preset_id = preset_id
-            self._refresh_meta()
-            self._save_timer.start()
-        finally:
-            self._applying_room_preset = False
-        self.refresh_status(force=True)
-        return True
+        return self.room_preset_control.apply(preset_id)
 
     def _reshape_window(self, portrait: bool) -> None:
         """把主窗口改成竖屏/横屏的形状（宽高对调，并夹在当前屏幕里）。
@@ -1668,42 +941,7 @@ class MainWindow(QMainWindow):
         塞在横屏窗口里，预览就是一张拉伸的横屏。所以选另一个方向的布局时顺手把
         窗口也摆成那个方向；最大化状态下先还原，否则改不动尺寸。
         """
-        if self.isMaximized():
-            self.showNormal()
-        screen = self.screen() or QApplication.primaryScreen()
-        area = screen.availableGeometry() if screen is not None else None
-        width, height = max(self.width(), 480), max(self.height(), 360)
-        if portrait:
-            new_height = max(height, width)                 # 高的那一维当高度
-            if area is not None:
-                new_height = min(new_height, area.height())  # 先夹进屏幕
-            new_width = max(360, int(new_height * 9 / 16))   # 再按 9:16 算宽度
-            if area is not None:
-                new_width = min(new_width, area.width())
-        else:
-            new_width = max(width, height)                  # 宽的那一维当宽度
-            if area is not None:
-                new_width = min(new_width, area.width())
-            new_height = max(360, int(new_width * 9 / 16))
-            if area is not None:
-                new_height = min(new_height, area.height())
-        # 别让窗口跑到屏幕外：贴进可用区域
-        left, top = self.x(), self.y()
-        if area is not None:
-            left = min(max(left, area.left()), max(area.left(), area.right() - new_width))
-            top = min(max(top, area.top()), max(area.top(), area.bottom() - new_height))
-            self.move(left, top)
-        # 拖动布局有自己的最小尺寸；转方向前先解除旧预设的约束，
-        # 否则横屏最小宽度会挡住变窄，resizeEvent 无法进入竖屏排布。
-        self.wall.setMinimumSize(0, 0)
-        self._build_arrangement("portrait" if portrait else "landscape")
-        self._content.layout().invalidate()
-        self._content.layout().activate()
-        self._root_layout.invalidate()
-        self._root_layout.activate()
-        self.resize(new_width, new_height)
-        print(f"[窗口] 改成 {'竖屏' if portrait else '横屏'} {new_width}x{new_height}",
-              file=sys.stderr, flush=True)
+        return self.window_layout.reshape_window(portrait)
 
     def _on_pin_changed(self, pinned: list) -> None:
         self.state["pinned"] = list(pinned)
@@ -1720,534 +958,84 @@ class MainWindow(QMainWindow):
         config_module.save(self.current_state())
 
     def _tick_watch_history(self):
-        now = time.monotonic()
-        elapsed = now - self._watch_history_last_tick
-        self._watch_history_last_tick = now
-        history = self.sidebar.watch_history
-        if self._closing or not history.enabled:
-            return
-        present = {str(tile.room.get("room_id")) for tile in self.wall.tiles
-                   if tile.room.get("room_id")}
-        active = set()
-        if self.isVisible() and not self.isMinimized():
-            for tile in self.wall.visible_tiles():
-                player = self.players.get(tile)
-                if (tile.isVisible() and not tile.paused and player is not None
-                        and player.state == "playing" and not player.paused):
-                    active.add(str(tile.room.get("room_id")))
-        if history.sample(present, active, elapsed):
-            self._save_timer.start()
+        return self.room_placement.tick_watch_history()
 
     # ---- 播放 ----
     def _start_startup_tiles(self) -> None:
-        if self._closing:
-            return
-        self.apply_quality_policy(restart=False)
-        pending = list(self.wall.tiles)
-        def start_next():
-            if self._closing:
-                return
-            while pending:
-                tile = pending.pop(0)
-                if (tile in self.wall.tiles and tile not in self.players
-                        and tile not in self._resolvers):
-                    self.start_tile(tile)
-                    break
-            if pending:
-                QTimer.singleShot(0, self, start_next)
-        QTimer.singleShot(0, self, start_next)
+        return self.stream_playback.start_startup_tiles()
 
     def start_all(self) -> None:
-        # 启动阶段先静默写好主次画质，再统一启动；否则 set_quality 的信号会
-        # 先取一次流，下面的循环又取一次，同一格两个 resolver 会互相抢播放器。
-        self.apply_quality_policy(restart=False)
-        for tile in self.wall.tiles:
-            self.start_tile(tile)
+        return self.stream_playback.start_all()
 
     def apply_quality_policy(self, *, restart: bool = True) -> list:
         """有主次布局时：主画面自动用原画，其余用 720P。"""
-        changed = []
-        if not self.settings.get("auto_quality", True):
-            return changed
-        main = self.wall.main_index()
-        if main is None:
-            return changed
-        for index, tile in enumerate(self.wall.tiles):
-            if not tile.room.get("room_id"):
-                continue
-            if not str(tile.room["room_id"]).isdigit():
-                continue                  # 原画/720P 策略仅适用于 B 站，插件沿用本平台手选档位
-            if tile in self._capture_quality:
-                continue
-            target = 10000 if index == main else 250
-            if tile.quality != target:
-                print(f"[画质策略] {tile.room.get('uname')} -> "
-                      f"{'原画' if target == 10000 else '720P'}", file=sys.stderr, flush=True)
-                blocked = tile.blockSignals(True)
-                try:
-                    tile.set_quality(target)
-                finally:
-                    tile.blockSignals(blocked)
-                tile.room["quality"] = target
-                changed.append(tile)
-                if restart and tile.room.get("live"):
-                    self.start_tile(tile)
-        return changed
+        return self.stream_playback.apply_quality_policy(restart=restart)
 
     def start_tile(self, tile, *, stream_quality: int | None = None) -> None:
-        if getattr(self, "_tray", None) is not None and self._tray.hold_playback(tile):
-            return
-        if self._match_sync_holds(tile):
-            self._match_sync_saved.setdefault(tile, (str(tile.room.get("room_id") or ""), tile.paused))
-            return
-        if self._closing:
-            return                    # 关窗途中别再起取流/播放器
-        room = tile.room or {}
-        room_id = str(room.get("room_id") or "")
-        if not room_id:
-            return
-        tile.codec_reconnect_pending = False
-        platform = self.plugins.platform_for(room_id)
-        if platform is not None and platform.kind in OVERSEAS_PLATFORMS and tile.quality == 250:
-            tile.quality = tile.room["quality"] = AUTO_QUALITY
-        if ":" in room_id and platform is None:
-            tile.set_status("请启用对应的平台插件并重启")
-            return
-        if not room.get("live") and (platform is None or room.get("live_known", True)):
-            self._offline_tile(tile)
-            tile.set_status("未开播")
-            return
-        self.playback_recovery.cancel_retry(tile)
-        previous = self._resolvers.get(tile)
-        if previous is not None:
-            previous.cancel()
-        player = self.players.get(tile)
-        if player is not None:
-            player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        codec = self._codec_settings(tile)["bili_codec"]
-        retained_codec = player.stream_codec if player is not None and tile.stream_url else ""
-        strict_codec = platform is None and retained_codec in bili.CODEC_PARAM and codec != retained_codec
-        if strict_codec:
-            names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
-            tile.codec_probe_note = f"正在探测 {names[codec]}；当前继续使用 {names[retained_codec]}。"
-            if player is not None and player.paused and not tile.paused:
-                player.set_paused(False)
-        else:
-            tile.codec_probe_note = ""
-            tile.set_paused(False)        # 重新取流就恢复播放状态
-            tile.set_status("连接中…")
-        # 以格子上的画质为准（信号带过来的字典是副本，不能当数据源）
-        quality = int(tile.quality or room.get("quality", 250))
-        source_offset = self._stream_attempts.get(tile, 0)
-        self._stream_attempts[tile] = source_offset + 1
-        if room_id.startswith("huya:"):
-            print(f"[平台诊断] 阶段=source_request 房间={room_id} 画质={quality} 尝试={source_offset + 1}",
-                  file=sys.stderr, flush=True)
-        resolver = StreamResolver(room_id, quality if stream_quality is None else stream_quality,
-                                  self, source_offset=source_offset,
-                                  platform=platform,
-                                  codec=codec, strict_codec=strict_codec)
-
-        def current():
-            return (not self._closing and tile in self.wall.tiles
-                    and str(tile.room.get("room_id") or "") == room_id
-                    and self._resolvers.get(tile) is resolver and not resolver.is_cancelled()
-                    and self._codec_settings(tile)["bili_codec"] == codec)
-
-        def resolved(_rid, url, qn, profile, options):
-            if not current() or int(tile.quality) != quality:
-                return
-            self._resolvers.pop(tile, None)
-            if tile.paused:
-                tile.codec_reconnect_pending = True
-                return
-            if strict_codec:
-                if bili.codec_from_profile(profile) != codec:
-                    self._keep_tile_codec(tile, codec, retained_codec, unavailable=True)
-                    return
-                tile.codec_probe_note = ""
-            elif platform is not None:
-                tile.codec_probe_note = getattr(resolver, "codec_probe_note", "")
-            elif getattr(resolver, "original_quality_note", ""):
-                tile.codec_probe_note = f"{resolver.original_quality_note}；已使用默认 H.264。"
-                tile.codec_overrides["bili_codec"] = "avc"
-                dialog = self._codec_dialogs.get(tile)
-                if dialog is not None:
-                    dialog.controls.set_values(tile.codec_overrides)
-                self._save_timer.start()
-            self._play_on(tile, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id, requested_quality=quality,
-                          source_codec=(getattr(resolver, "source_codec", "")
-                                        if platform is not None else None))
-
-        def failed(_rid, reason):
-            if not current() or int(tile.quality) != quality:
-                return
-            self._resolvers.pop(tile, None)
-            tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
-            if strict_codec:
-                self._keep_tile_codec(tile, codec, retained_codec,
-                                      unavailable=resolver.codec_unavailable,
-                                      quality_note=getattr(resolver, "original_quality_note", ""))
-            else:
-                tile.codec_probe_note = f"取流失败：{reason}"
-                self._on_resolve_failed(tile, reason, requested_quality=quality,
-                                        login_required=resolver.login_required)
-
-        resolver.resolved.connect(resolved)
-        resolver.failed.connect(failed)
-        resolver.finished.connect(lambda t=tile, r=resolver: self._on_resolver_finished(t, r))
-        resolver.finished.connect(resolver.deleteLater)
-        self._resolvers_running.add(resolver)
-        self._resolvers[tile] = resolver
-        resolver.start()
-        self._stats_refresh_timer.start()  # 取流优先，多路同时开播时合并人数查询
+        return self.stream_playback.start_tile(tile, stream_quality=stream_quality, resolver_type=StreamResolver)
 
     def _on_resolver_finished(self, tile, resolver) -> None:
-        if self._resolvers.get(tile) is resolver:
-            self._resolvers.pop(tile, None)
-        self._resolvers_running.discard(resolver)
+        return self.stream_playback.resolver_finished(tile, resolver)
 
     def _play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
                  room_id: str = "", requested_quality: int = 0,
                  source_codec: str | None = None) -> None:
-        if self._closing:
-            # 关窗后迟到的取流回调：播放器已经 release，碰它就是野指针
-            return
-        if self._match_sync_holds(tile):
-            return
-        if getattr(self, "_tray", None) is not None and self._tray.hold_playback(tile):
-            return
-        if room_id and str(tile.room.get("room_id") or "") != str(room_id):
-            return                    # 迟到的取流结果（格子已经换台/被换走了）
-        if requested_quality and int(tile.quality) != requested_quality:
-            return                    # 画质已切换，旧请求不能覆盖新流
-        if ":" in str(tile.room.get("room_id") or ""):
-            tile.set_live(True)
-        if options:
-            discover_highest = (not tile.quality_options and self._fullscreen_tile is tile
-                                and requested_quality == 10000)
-            tile.set_quality_options(options)
-            if discover_highest and self._upgrade_fullscreen_quality(tile):
-                return  # 首次档位迟到：直接取最高档，不先播放旧的较低档。
-            if quality and requested_quality != AUTO_QUALITY and ":" in str(tile.room.get("room_id") or ""):
-                tile.quality = quality
-                tile.room["quality"] = quality
-        if quality:
-            tile.set_actual_quality(quality)
-            if (requested_quality != AUTO_QUALITY and ":" in str(tile.room.get("room_id") or "") and requested_quality != quality
-                    and any(int(option["qn"]) == requested_quality for option in options or [])):
-                tile.quality_button.setToolTip(
-                    f"请求 {tile._quality_name(requested_quality)}，平台实际返回 {tile._quality_name(quality)}")
-        player = self.players.get(tile)
-        if player is None:
-            player = TilePlayer(tile.video, self)
-            # 连接里不锁死格子：秒切之后播放器会挂到别的格子上，回调现查
-            player.stateChanged.connect(
-                lambda state, p=player:
-                self._on_player_state(self._tile_of_player(p), state))
-            player.pictureActivity.connect(
-                lambda p=player: self._on_picture_activity(self._tile_of_player(p)))
-            player.autoQualityRequested.connect(lambda qn, p=player: self._on_auto_quality(p, qn))
-            player.decoderFallback.connect(lambda mode, p=player: self._on_decoder_fallback(p, mode))
-            self.players[tile] = player
-        player.freeze_watch = bool(self.settings.get("freeze_watch", True))
-        player.set_volume_normalization(bool(self.settings.get("volume_normalization", False)))
-        player.set_volume(int(tile.volume))
-        player.set_audio_channel(int(tile.audio_channel))
-        player.set_muted(tile.muted or bool(getattr(self, "_match_sync_active", False)))
-        # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
-        # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
-        room = tile.room or {}
-        stream_codec = (source_codec if source_codec is not None else
-                        bili.codec_from_profile(profile) if self._is_bili_tile(tile) else "")
-        tile.stream_url = url
-        tile.stream_profile = profile
-        tile.stream_codec = stream_codec
-        tile.stream_headers = dict(headers or TilePlayer.PROFILE_HEADERS.get(
-            profile, TilePlayer.PROFILE_HEADERS["web"]))
-        player.stream_url = tile.stream_url
-        player.stream_profile = profile
-        player.stream_codec = stream_codec
-        player.stream_headers = dict(tile.stream_headers)
-        player.diagnostic_room = str(room.get("room_id") or "")
-        player.actual_quality = int(quality or 0)
-        player.configure_auto_quality(str(room.get("room_id") or ""),
-            options if tile.quality == AUTO_QUALITY and profile in OVERSEAS_PLATFORMS else [])
-        try:
-            player.play(url, profile, tile.stream_headers,
-                        options=self.media_options(tile))
-        except (RuntimeError, OSError) as error:
-            tile.set_buffering(False)
-            tile.set_status(str(error))
-            tile.codec_probe_note = f"播放失败：{error}"
-            return
-        self.recorder.on_resolved(tile)
-        if tile in self._pending_capture:
-            self._finish_pending_capture(tile)
-        self._emit_stream_resolved(tile, quality)
-        if getattr(self, "_tray", None) is not None and self._tray.hold_playback(tile):
-            self._stop_tile(tile)
-            return
-        resume = getattr(self, "_match_sync_resume_pause", {}).pop(tile, None)
-        if resume == str(tile.room.get("room_id") or ""):
-            tile.set_paused(True)
-            player.set_paused(True)
-        # 直播起来了：即时回放该开的就在这里开，不用用户手动点
-        self._sync_replay_scope()
+        return self.stream_playback.play_on(tile, url, quality, profile, options, headers,
+            room_id, requested_quality, source_codec, player_type=TilePlayer)
 
     def _on_auto_quality(self, player, quality: int) -> None:
-        tile = self._tile_of_player(player)
-        if (self._closing or tile is None or tile.quality != AUTO_QUALITY or tile.paused
-                or tile in self._resolvers or tile in self._capture_quality
-                or not tile.room.get("live") or player.auto_quality is None
-                or str(tile.room.get("room_id")) != player.auto_quality.room_id):
-            return
-        self.start_tile(tile, stream_quality=quality)
+        return self.stream_playback.auto_quality(player, quality)
 
     def _on_decoder_fallback(self, player, mode: str) -> None:
-        tile = self._tile_of_player(player)
-        if tile is None:
-            return
-        label = config_module.DECODE_LABELS.get(mode, mode)
-        tile.set_status(f"解码异常，正在尝试{label}…")
-        print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
-              file=sys.stderr, flush=True)
+        return self.codec_control.decoder_fallback(player, mode)
 
     def _emit_stream_resolved(self, tile, quality: int = 0) -> None:
         """把「这一格现在播的是哪路流」告诉插件（录像等要靠它拉同一路流）。"""
-        room = tile.room or {}
-        self.plugins.emit(
-            plugin_api.EVENT_STREAM_RESOLVED,
-            source=plugin_api.StreamSource(
-                room_id=str(room.get("room_id") or ""),
-                url=str(tile.stream_url or ""),
-                quality=int(quality or 0),
-                channel=str(tile.stream_profile or "web"),
-                headers=dict(tile.stream_headers or {}),
-                platform=str(room.get("platform") or "bilibili"),
-                uname=str(room.get("uname") or ""),
-                title=str(room.get("title") or ""),
-            ),
-            tile=tile,
-        )
+        return self.stream_playback.emit_stream_resolved(tile, quality)
 
     def media_options(self, tile=None) -> tuple[str, ...]:
         """按设置给每一路画面墙媒体选择 播放器 解码方式。"""
-        return player_module.decode_media_options(self._codec_settings(tile)["decode_mode"])
+        return self.codec_control.media_options(tile)
 
     def _codec_settings(self, tile=None) -> dict:
-        return config_module.codec_settings(self.settings,
-            getattr(tile, "codec_overrides", None))
+        return self.codec_control.codec_settings(tile)
 
     def _is_bili_tile(self, tile) -> bool:
-        room_id = str(tile.room.get("room_id") or "")
-        return room_id.isdigit() and self.plugins.platform_for(room_id) is None
+        return self.codec_control.is_bili_tile(tile)
 
     def _restart_codec_tile(self, tile) -> None:
-        tile.codec_reconnect_pending = True
-        resolver = self._resolvers.pop(tile, None)
-        if resolver is not None:
-            resolver.cancel()
-        if (not tile.room.get("room_id") or not tile.room.get("live")
-                or tile.paused or tile.isHidden()):
-            return
-        self.start_tile(tile)
+        return self.codec_control.restart_codec_tile(tile)
 
     def _tile_codecs_changed(self, tile, before: dict) -> bool:
-        after = self._codec_settings(tile)
-        return (before.get("decode_mode") != after["decode_mode"]
-                or before.get("bili_codec") != after["bili_codec"])
+        return self.codec_control.tile_codecs_changed(tile, before)
 
     def _set_tile_codecs(self, tile, values: dict) -> None:
-        if self._closing or tile not in self.wall.tiles:
-            return
-        before = self._codec_settings(tile)
-        tile.codec_overrides = config_module.codec_overrides(values)
-        if self._tile_codecs_changed(tile, before):
-            self._restart_codec_tile(tile)
-        self._save_timer.start()
+        return self.codec_control.set_tile_codecs(tile, values)
 
     def _keep_tile_codec(self, tile, requested: str, retained: str, *, unavailable: bool,
                          quality_note: str = "") -> None:
-        names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
-        reason = "直播源未提供" if unavailable else "未能验证直播源格式"
-        detail = quality_note or f"{reason} {names[requested]}"
-        tile.codec_probe_note = f"{detail}，未切换；继续使用 {names[retained]}。"
-        tile.codec_overrides["bili_codec"] = retained
-        dialog = self._codec_dialogs.get(tile)
-        if dialog is not None:
-            dialog.controls.set_values(tile.codec_overrides)
-        self._save_timer.start()
-        player = self.players.get(tile)
-        if (player is not None and player._decode_key is not None
-                and player._decode_key[1] != self._codec_settings(tile)["decode_mode"]):
-            try:
-                player.play(player.stream_url, player.stream_profile, player.stream_headers,
-                            options=self.media_options(tile))
-            except (RuntimeError, OSError):
-                tile.codec_probe_note += " 新的本机解码方式未能应用。"
+        return self.codec_control.keep_tile_codec(tile, requested, retained,
+            unavailable=unavailable, quality_note=quality_note)
 
     def _codec_status(self, tile) -> str:
-        if self._closing or tile not in self.wall.tiles:
-            return "该窗口已关闭。"
-        requested = self._codec_settings(tile)
-        names = {"avc": "H.264", "hevc": "HEVC", "av1": "AV1"}
-        if tile in self._resolvers and not getattr(self._resolvers[tile], "strict_codec", False):
-            return "正在连接，等待新流；当前选择将在连接成功后生效。"
-        player = self.players.get(tile)
-        if player is None or not tile.room.get("room_id"):
-            return (getattr(tile, "codec_probe_note", "")
-                    or "当前没有播放中的流；设置将在下次播放时生效。")
-        if getattr(tile, "codec_reconnect_pending", False):
-            return "新设置已保存，将在恢复播放或下次连接时生效。"
-        codec = names.get(player.actual_codec, "未知（平台未提供编码信息）")
-        if (self._is_bili_tile(tile) and player.stream_codec
-                and player.stream_codec != requested["bili_codec"]):
-            codec += f"（首选 {names[requested['bili_codec']]}，当前未切换）"
-        mode = player.decode_mode
-        labels = {value: label for label, value in player_module.DECODE_MODES}
-        actual = player.actual_decoder
-        decoder = "软件解码（CPU）" if actual == "no" else actual
-        decoder = f"{labels.get(mode, mode)}；实际：{decoder}"
-        if mode != requested["decode_mode"] or actual == "no" and mode != "none":
-            decoder += "（故障回退）"
-        note = getattr(tile, "codec_probe_note", "")
-        params = player._prop("video-params") or {}
-        resolution = (f"\n实际分辨率：{params['w']}×{params['h']}"
-                      if isinstance(params, dict) and params.get("w") and params.get("h") else "")
-        return f"实际直播源：{codec}\n当前解码方式：{decoder}" + resolution + (f"\n{note}" if note else "") + (
-            "\n已暂停；新设置将在恢复播放时生效。" if tile.paused else "")
+        return self.codec_control.codec_status(tile)
 
     def _open_tile_codecs(self, tile) -> None:
-        if self._closing or tile not in self.wall.tiles:
-            return
-        existing = self._codec_dialogs.get(tile)
-        if existing is not None:
-            existing.show()
-            existing.raise_()
-            existing.activateWindow()
-            return
-        dialog = CodecSettingsDialog(tile.codec_overrides, self,
-            defaults=config_module.codec_settings(self.settings),
-            bili_enabled=self._is_bili_tile(tile), status=lambda: self._codec_status(tile))
-        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        dialog.controls.changed.connect(lambda values: self._set_tile_codecs(tile, values))
-        dialog.finished.connect(lambda _result: self._codec_dialogs.pop(tile, None))
-        self._codec_dialogs[tile] = dialog
-        dialog.show()
+        return self.codec_control.open_tile_codecs(tile, dialog_type=CodecSettingsDialog)
 
     def _stream_info_snapshot(self, tile):
-        if self._closing or tile not in self.wall.tiles or not tile.room.get('room_id'):
-            return None
-        player = self.players.get(tile)
-        info = player.stream_info() if player is not None else {'state': 'idle'}
-        info['room'] = f"{tile.room.get('uname') or '直播间'} · {tile.room['room_id']}"
-        return info
+        return self.codec_control.stream_info_snapshot(tile)
 
     def _open_tile_stream_info(self, tile):
-        if self._stream_info_snapshot(tile) is None:
-            return
-        existing = self._stream_info_dialogs.get(tile)
-        if existing is not None:
-            existing.set_presentation_owner(tile.window())
-            existing.refresh()
-            existing.show()
-            existing.raise_()
-            existing.activateWindow()
-            return
-        from .stream_info import StreamInfoDialog
-        dialog = StreamInfoDialog(lambda: self._stream_info_snapshot(tile), self)
-        dialog.finished.connect(lambda _result: self._stream_info_dialogs.pop(tile, None))
-        self._stream_info_dialogs[tile] = dialog
-        dialog.set_presentation_owner(tile.window())
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+        return self.codec_control.open_tile_stream_info(tile)
 
     def _on_resolve_failed(self, tile, reason: str, requested_quality: int = 0,
                            *, login_required=False) -> None:
-        if self._closing:
-            return                    # 关窗后迟到的取流失败：别再拉轮询线程
-        if requested_quality and int(tile.quality) != requested_quality:
-            return
-        if not tile.room.get("live") and tile.room.get("live_known", True):
-            self._offline_tile(tile)
-            tile.set_status("未开播")
-            return
-        if tile in self._pending_capture:
-            self._pending_capture.pop(tile)
-            self._record_notice(f"原画取流失败，录制未开始：{reason}", tile.room)
-            self._restore_capture_quality(tile)
-            if not login_required:
-                return
-        if login_required:
-            tile.set_buffering(False)
-            tile.set_status(reason)
-            kind = str(tile.room.get("room_id") or "").partition(":")[0]
-            account = self._accounts.get(kind)
-            already_warned = bool(account and account.get("_login_expired"))
-            if account is not None:
-                account["_login_expired"] = True
-            self._render_account(load_avatar=False)
-            if not already_warned:
-                self._show_notice(reason, kind="warning")
-            return
-        tile.set_buffering(False)
-        tile.set_status("连接失败")
-        print(f"[取流失败] {tile.room.get('uname')}: {reason}")
-        self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
-                          room=dict(tile.room or {}))
-        self.refresh_status()       # 取不到流时立刻确认是否已经下播
-        if tile in self._freeze_refreshed:
-            self._on_picture_frozen(tile)
-        elif tile.room.get("room_id") and tile.room.get("live") and not tile.paused:
-            self._schedule_retry(tile)
+        return self.stream_playback.resolve_failed(tile, reason, requested_quality, login_required=login_required)
 
     def _on_player_state(self, tile, state: str) -> None:
-        if tile is None:
-            return                        # 播放器已经不在任何格子上（刚被停掉）
-        if not tile.room.get("room_id"):
-            return
-        if state == "playing":
-            self.playback_recovery.cancel_retry(tile)
-            tile.set_video_active(True)
-            tile.set_buffering(False)
-            tile.set_status("")
-            tile.start_elapsed_timer()
-            self.playback_recovery.reset_retry_after_playing(tile)
-            player = self.players.get(tile)
-            if player is not None:
-                # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
-                player.reapply_audio_channel()
-            self.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
-                              room=dict(tile.room or {}))
-        elif state == "connecting":
-            tile.set_video_active(False)
-            tile.set_status("连接中…")
-        elif state == "buffering":
-            tile.set_buffering(True)         # 卡顿时也显示缓冲动画
-        elif state == "frozen":
-            player = self.players.get(tile)
-            if str(tile.room.get("room_id", "")).startswith("douyu:") and player is not None:
-                self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
-                    source_url=player.stream_url, reason="STALL")
-            self._on_picture_frozen(tile)
-        elif state == "error":
-            self._clear_freeze_recovery(tile)
-            tile.set_video_active(False)
-            tile.stop_elapsed_timer()
-            player = self.players.get(tile)
-            if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")) and player is not None:
-                self.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, room=dict(tile.room),
-                    source_url=player.stream_url, reason=player.source_failure or "STALL")
-            self.refresh_status()           # 断流可能来自下播，立即向接口确认
-            self._schedule_retry(tile)
-        else:
-            tile.set_video_active(False)
-            tile.stop_elapsed_timer()
-        tile.raise_overlays()
+        return self.stream_playback.on_player_state(tile, state)
 
     def _reset_stable_huya_retry(self, tile, player, generation):
         return self.playback_recovery.reset_stable_retry(tile, player, generation)
@@ -2271,50 +1059,14 @@ class MainWindow(QMainWindow):
         return self.playback_recovery.retry_now(tile)
 
     def _stop_tile(self, tile) -> None:
-        dialog = self._codec_dialogs.get(tile)
-        if dialog is not None:
-            dialog.close()
-        self._replay_suppressed.pop(tile, None)
-        self.playback_recovery.clear_tile(tile)
-        self._stream_attempts.pop(tile, None)
-        player = self.players.pop(tile, None)
-        if player is not None:
-            player.release()
-        resolver = self._resolvers.pop(tile, None)
-        if resolver is not None:
-            # 只作废、不强杀：terminate() 会带走线程本地存储和锁，主线程可能
-            # 整个卡死（窗口不动也不退出，用户看到的就是「直接崩了」）
-            resolver.cancel()
-        self.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
-                          room=dict(tile.room or {}))
+        return self.stream_playback.stop_tile(tile)
 
     def _match_sync_holds(self, tile):
-        if not getattr(self, "_match_sync_active", False):
-            return False
-        return tile not in self.recorder.sessions and tile not in self._pending_capture
+        return self.stream_playback.match_sync_holds(tile)
 
     def set_match_sync_playback(self, active):
         """Release hidden watching sessions, preserving independent recordings."""
-        if bool(active) == getattr(self, "_match_sync_active", False):
-            return
-        self._match_sync_active = bool(active)
-        if active:
-            self._match_sync_saved = {}
-            self._match_sync_resume_pause = {}
-            for tile in set(self.players) | set(self._resolvers) | set(self._retry_timers):
-                if self._match_sync_holds(tile):
-                    self._match_sync_saved[tile] = (str(tile.room.get("room_id") or ""), tile.paused)
-                    self._stop_tile(tile)
-        else:
-            saved, self._match_sync_saved = getattr(self, "_match_sync_saved", {}), {}
-            if self._closing:
-                return
-            for tile, (room_id, paused) in saved.items():
-                if (tile.isVisible() and room_id == str(tile.room.get("room_id") or "")
-                        and tile.room.get("live")):
-                    if paused:
-                        self._match_sync_resume_pause[tile] = room_id
-                    self.start_tile(tile)
+        return self.stream_playback.set_match_sync_playback(active)
 
     def _sync_tile_playback(self, *, start_visible: bool = False) -> None:
         """只让**看得见**的格子播放。
@@ -2323,45 +1075,14 @@ class MainWindow(QMainWindow):
         一步没停，还在解码、**还在出声**（用户报「没显示出来的格子也在响」）。这里
         把当前布局放不下的停掉；已选择的可见房间按需起播，新增位置保持空白。
         """
-        if getattr(self, "_tray", None) is not None and self._tray.playback_suspended:
-            return
-        if not getattr(self, "plugins", None):
-            start_visible = False       # 构造期间插件还没装好，不能在这里起流
-        for tile in self.wall.tiles:
-            if getattr(self, "_match_sync_active", False):
-                continue
-            player = self.players.get(tile)
-            if tile.isVisible():
-                if start_visible and player is None and tile.room.get("live"):
-                    self.start_tile(tile)
-            else:
-                self._pending_capture.pop(tile, None)
-                self.recorder.stop(tile)
-                if tile not in self.recorder.sessions:
-                    self._restore_capture_quality(tile)
-                if (player is None and tile not in self._resolvers
-                        and tile not in self._retry_timers
-                        and tile not in self._freeze_retry_timers):
-                    continue
-                print(f"[布局] {tile.room.get('uname')} 当前布局放不下，先停播",
-                      file=sys.stderr, flush=True)
-                self._stop_tile(tile)
+        return self.stream_playback.sync_tile_playback(start_visible=start_visible)
 
     def _offline_tile(self, tile) -> None:
         """这一路下播：停掉播放（画面变黑），格子继续留给它，等重新开播自动接上。"""
-        self.playback_recovery.cancel_retry(tile, reset_attempts=True)
-        self._pending_capture.pop(tile, None)
-        self.recorder.stop(tile)
-        self._stop_tile(tile)
-        tile.set_offline()
-        if tile not in self.recorder.sessions:
-            self._restore_capture_quality(tile)
-        print(f"[下播] {tile.room.get('uname')} 画面已清空，格子保留",
-              file=sys.stderr, flush=True)
+        return self.stream_playback.offline_tile(tile)
 
     def _tile_of(self, room_id: str):
-        return next((tile for tile in self.wall.tiles
-                     if str(tile.room.get("room_id") or "") == str(room_id)), None)
+        return self.stream_playback.tile_of(room_id)
 
     def _sender_tile(self):
         """发信号的那个格子；不是格子发的（定时器之类）返回 None。
@@ -2372,26 +1093,14 @@ class MainWindow(QMainWindow):
         身上的、照样亮着。用户报的「开这格静音，旁边那格声音不对」就是这个。
         这些信号都是直接连接的，sender() 可靠；反查只留作兜底。
         """
-        sender = self.sender()
-        return sender if isinstance(sender, Tile) else None
+        return self.stream_playback.sender_tile()
 
     def _prepare_room(self, room: dict) -> dict:
         """给新建格子补初始声音；已有格子的静音和音量由 Tile 保留。"""
-        if "muted" not in room:
-            room["muted"] = bool(self.settings.get("default_muted", True))
-        if "volume" not in room:
-            room["volume"] = int(self.settings.get(
-                "default_volume", config_module.DEFAULT_VOLUME))
-        room.setdefault("quality", AUTO_QUALITY
-            if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250)
-        return room
+        return self.room_placement.prepare_room(room)
 
     def _room_dict(self, room_id: str) -> dict | None:
-        room_id = str(room_id)
-        for room in self.sidebar.rooms():
-            if str(room.get("room_id")) == room_id:
-                return room
-        return bili.room_info(room_id) if room_id.isdigit() else None
+        return self.room_placement.room_dict(room_id)
 
     # ---- 拖拽 ----
     def _on_room_dropped(self, tile, room_id: str) -> None:
@@ -2405,10 +1114,7 @@ class MainWindow(QMainWindow):
 
     def _tile_of_player(self, player):
         """播放器现在挂在哪个格子上（格子换位置之后连接不用重接，靠这个现查）。"""
-        for tile, candidate in self.players.items():
-            if candidate is player:
-                return tile
-        return None
+        return self.stream_playback.tile_of_player(player)
 
     # ---- 直播状态轮询 ----
     def refresh_stats(self) -> None:
@@ -2438,68 +1144,21 @@ class MainWindow(QMainWindow):
     # ---- 全局操作 ----
     def _on_tile_clicked(self, room: dict) -> None:
         # 信号带过来的字典是副本，用房间号比较（不能比较对象身份）
-        room_id = str(room.get("room_id") or "")
-        self.sidebar.watch_history.select(room_id)
-        for tile in self.wall.tiles:
-            tile.set_focused(bool(room_id) and str(tile.room.get("room_id") or "") == room_id)
-        self.sidebar.select_room(room)
+        return self.stream_playback.on_tile_clicked(room)
 
     # ---- 单个格子的操作 ----
     def _on_volume_changed(self, room: dict, value: int) -> None:
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        player = self.players.get(tile) if tile is not None else None
-        if player is not None:
-            player.set_volume(value)
-        self._save_timer.start()       # 滑块停下 700ms 后保存每个格子的音量
+        return self.stream_playback.on_volume_changed(room, value)
 
     def _on_audio_changed(self, room: dict, value: int) -> None:
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        player = self.players.get(tile) if tile is not None else None
-        if player is not None:
-            player.set_audio_channel(value)
-            # 播放中的这一路要等音频输出模块起来后再补一次，否则会被初始化冲掉
-            player.reapply_audio_channel()
-        self._save_timer.start()       # 声道属于格子，和音量一起记住
+        return self.stream_playback.on_audio_changed(room, value)
 
     def _on_quality_changed(self, room: dict, quality: int) -> None:
         # 注意：Qt 信号传过来的 dict 是副本，必须写回格子自己的字典
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        if tile is None:
-            return
-        if tile in self._capture_quality and quality != 10000:
-            blocked = tile.blockSignals(True)
-            try:
-                tile.set_quality(10000)
-            finally:
-                tile.blockSignals(blocked)
-            return
-        tile.quality = quality
-        tile.room["quality"] = quality
-        self._save_timer.start()
-        if tile.room.get("live"):
-            player = self.players.get(tile)
-            if (player is not None and player.stream_profile in OVERSEAS_PLATFORMS
-                    and player._media is not None and player.state in ("playing", "buffering")
-                    and any(int(item["qn"]) == player.actual_quality
-                            for item in tile.quality_options)
-                    and quality in (AUTO_QUALITY, player.actual_quality)):
-                # 自动是画质策略；沿用正在播放的档位，避免点击时停掉原生解码器。
-                # 锁定当前档也只需关掉策略。其他手选档位仍走正常换流流程。
-                previous = self._resolvers.pop(tile, None)
-                if previous is not None:
-                    previous.cancel()
-                player.configure_auto_quality(str(tile.room["room_id"]),
-                    tile.quality_options if quality == AUTO_QUALITY else [])
-                tile.set_actual_quality(player.actual_quality)
-                return
-            self.start_tile(tile)
+        return self.stream_playback.on_quality_changed(room, quality)
 
     def _on_mute_changed(self, room: dict, muted: bool) -> None:
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        player = self.players.get(tile) if tile is not None else None
-        if player is not None:
-            player.set_muted(muted)
-        self._save_timer.start()       # 静音也是格子状态，和音量一起记住
+        return self.stream_playback.on_mute_changed(room, muted)
 
     def _replay_scope(self) -> str:
         return self.capture_control.replay_scope()
@@ -2524,39 +1183,13 @@ class MainWindow(QMainWindow):
 
     def _audit_audio(self) -> None:
         """保持每格的独立音量、静音和声道。"""
-        for tile in self.wall.tiles:
-            player = self.players.get(tile)
-            if player is not None and tile.room.get("room_id"):
-                player.sync_audio(int(tile.volume), bool(tile.muted), int(tile.audio_channel))
+        return self.stream_playback.audit_audio()
 
     def _on_reload(self, room: dict) -> None:
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        if tile is not None:
-            self._clear_freeze_recovery(tile)
-            if self._is_bili_tile(tile) and tile.codec_probe_note:
-                tile.codec_probe_note = ""
-            self.start_tile(tile)
+        return self.stream_playback.on_reload(room)
 
     def _on_pause_toggled(self, room: dict) -> None:
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        if tile is None:
-            return
-        paused = not tile.paused
-        tile.set_paused(paused)
-        resolver = self._resolvers.get(tile)
-        if paused and resolver is not None:
-            self._resolvers.pop(tile, None)
-            resolver.cancel()
-            tile.codec_reconnect_pending = True
-            tile.codec_probe_note = "探测已暂停；恢复播放时重新探测，当前流保持暂停。"
-        if not paused and getattr(tile, "codec_reconnect_pending", False):
-            self.start_tile(tile)
-            return
-        player = self.players.get(tile)
-        if player is not None:
-            player.set_paused(paused)
-        print(f"[暂停] {tile.room.get('uname')} -> {'暂停' if paused else '继续'}",
-              file=sys.stderr, flush=True)
+        return self.stream_playback.on_pause_toggled(room)
 
     def _report_fullscreen_cost(self, action: str, started: float, covered: float,
                                 switched: float, done: float) -> None:
@@ -2565,111 +1198,32 @@ class MainWindow(QMainWindow):
         记录窗口样式与格子布局的耗时；实时视频在切换期间保持播放。
         有这几个数，下次再觉得卡就知道该动哪一段，而不是从头猜。
         """
-        print(f"[全屏] {action} {(done - started) * 1000:.0f} ms"
-              f"（准备 {(covered - started) * 1000:.0f}"
-              f" / 切换 {(switched - covered) * 1000:.0f}"
-              f" / 布局 {(done - switched) * 1000:.0f}）",
-              file=sys.stderr, flush=True)
+        return self.fullscreen_control.report_fullscreen_cost(action, started, covered, switched, done)
 
     def _sync_fullscreen_audio(self) -> None:
-        if self._fullscreen_tile is not None and self.settings.get("fullscreen_solo_audio", True):
-            for tile in self.wall.tiles:
-                self._fullscreen_audio_saved.setdefault(tile, bool(tile.muted))
-                muted = tile is not self._fullscreen_tile
-                if tile.muted != muted:
-                    tile.set_muted(muted)
-        else:
-            saved, self._fullscreen_audio_saved = self._fullscreen_audio_saved, {}
-            for tile, muted in saved.items():
-                if tile in self.wall.tiles and tile.muted != muted:
-                    tile.set_muted(muted)
+        return self.fullscreen_control.sync_fullscreen_audio()
 
     def _upgrade_fullscreen_quality(self, tile: Tile) -> bool:
-        if (tile.quality == AUTO_QUALITY or tile in self._capture_quality
-                or getattr(tile, "quality_locked", False)):
-            return False
-        # 平台档位按画质从高到低排列，编号大小不代表跨平台的清晰度。
-        highest = next((int(item["qn"]) for item in tile.quality_options
-                        if int(item["qn"]) != AUTO_QUALITY), 10000)
-        if tile.quality == highest:
-            return False
-        tile.set_quality(highest)
-        return True
+        return self.fullscreen_control.upgrade_fullscreen_quality(tile)
 
     def _on_fullscreen(self, tile: Tile) -> None:
-        self.picture_in_picture.restore()
-        if tile not in self.wall.tiles or not tile.room.get("room_id"):
-            return
-        self._cancel_interactive_resize()
-        if self._fullscreen_tile is None and self.wall.layout_id in layouts.BY_ID:
-            self._room_preset_fullscreen_layout = deepcopy(self.room_preset_snapshot()["layout"])
-        if self._fullscreen_tile is tile:
-            self._exit_fullscreen()
-            return
-        if self._fullscreen_tile is not None:
-            return
-        started = time.perf_counter()
-        covered = time.perf_counter()
-        print(f"[全屏音频] 进入原格子={self.wall.tiles.index(tile)+1} "
-              f"房间={tile.room.get('room_id', '')} 音量={tile.volume} "
-              f"声道={tile.audio_channel} 静音={tile.muted}", file=sys.stderr, flush=True)
-        self._fullscreen_tile = tile
-        if self.settings.get('notice_hide_fullscreen', False):
-            for notice in tuple(getattr(self, '_notices', [])):
-                notice.dismiss(animate=False)
-        self._sync_input_shortcuts()
-        self._sync_fullscreen_audio()
-        self._fullscreen_presentation.enter(tile)
-        tile.fullscreen_button.setToolTip("退出全屏（F / Esc）")
-        self._refresh_shortcuts()
-        self.sync_danmaku()
-        finished = time.perf_counter()
-        self._fullscreen_cursor.start()
-        self._upgrade_fullscreen_quality(tile)
-        print(f"[全屏音频] 展开后音量={tile.volume} 声道={tile.audio_channel} "
-              f"静音={tile.muted}", file=sys.stderr, flush=True)
-        self._report_fullscreen_cost("进入全屏", started, covered, finished, finished)
+        return self.fullscreen_control.on_fullscreen(tile)
 
     def _exit_fullscreen(self) -> None:
-        self._fullscreen_cursor.stop()
-        tile = self._fullscreen_tile
-        if tile is None:
-            return
-        started = time.perf_counter()
-        covered = time.perf_counter()
-        self._fullscreen_presentation.leave()
-        switched = time.perf_counter()
-        self._fullscreen_tile = None
-        self.refresh_theme()
-        self._refresh_shortcuts()
-        self._sync_fullscreen_audio()
-        self.sync_danmaku()
-        laid_out = time.perf_counter()
-        tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
-        self._refresh_meta()
-        self._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
+        return self.fullscreen_control.exit_fullscreen()
 
     def _clear_tile_room(self, tile: Tile) -> None:
-        self._pending_capture.pop(tile, None)
-        self.recorder.stop(tile)
-        self._stop_tile(tile)
-        tile.set_room(None)
-        if tile not in self.recorder.sessions:
-            self._restore_capture_quality(tile)
+        return self.room_placement.clear_tile_room(tile)
 
     def _clear_wall(self) -> None:
         self.wall_removal.toggle_menu()
 
     def _on_close_tile(self, room: dict) -> None:
         """关掉这一路，但留下空格子等新的直播间拖进来。"""
-        tile = self._sender_tile() or self._tile_of(str(room.get("room_id")))
-        if tile is None:
-            return
-        self._clear_tile_room(tile)
-        self._refresh_meta()
-        print(f"已关闭 {room.get('uname')}，格子已清空")
+        return self.room_placement.on_close_tile(room)
 
     def _wire_tile(self, tile) -> None:
+        tile._danmaku_blocking = self.danmaku_blocking
         if hasattr(self, 'plugins'):
             self.plugins.attach_tile(tile)
         # 格子创建时接线一次；之后填入或替换房间不再重复连接。
@@ -2747,37 +1301,7 @@ class MainWindow(QMainWindow):
         return self.capture_control.start_capture(tile, recording=recording)
 
     def _refresh_recording_source(self, session) -> None:
-        tile = session.tile
-        platform = self.plugins.platform_for(session.room_id)
-        if self._closing or tile not in self.wall.tiles or (':' in session.room_id and platform is None):
-            self.recorder.source_failed(session, '直播间已关闭或平台不可用')
-            return
-        resolver = StreamResolver(session.room_id, int(tile.actual_quality or tile.quality or 250),
-                                  self, platform=platform,
-                                  codec=session.video_codec or self._codec_settings(tile)['bili_codec'])
-        session.resolver = resolver
-
-        def current():
-            return (not self._closing and self.recorder.sessions.get(tile) is session
-                    and not session.stopping and session.resolver is resolver
-                    and tile in self.wall.tiles
-                    and str(tile.room.get('room_id') or '') == session.room_id)
-
-        def resolved(_rid, url, _quality, profile, _options):
-            if current():
-                codec = resolver.source_codec if platform is not None else bili.codec_from_profile(profile)
-                self.recorder.source_resolved(session, url, dict(resolver.headers), codec)
-
-        def failed(_rid, reason):
-            if current():
-                self.recorder.source_failed(session, reason)
-
-        resolver.resolved.connect(resolved)
-        resolver.failed.connect(failed)
-        resolver.finished.connect(lambda: self._resolvers_running.discard(resolver))
-        resolver.finished.connect(resolver.deleteLater)
-        self._resolvers_running.add(resolver)
-        resolver.start()
+        return self.capture_control.refresh_recording_source(session, resolver_type=StreamResolver)
 
     def _finish_pending_capture(self, tile) -> None:
         return self.capture_control.finish_pending_capture(tile)
@@ -2792,353 +1316,74 @@ class MainWindow(QMainWindow):
         return self.capture_control.tick_record_clock()
 
     def _record_notice(self, message: str, room=None) -> None:
-        if self._closing:
-            return
-        prefix, separator, path = message.partition('：')
-        if separator and path and prefix in (
-                '已保存录制', '已保存切片素材', '已保存即时回放', '正在导出录制', '正在导出即时回放',
-                '导出录制失败（原始分段保留）', '导出即时回放失败（原始分段保留）'):
-            self._show_notice(prefix + '：', rooms=[room] if room else (), file_path=path,
-                              kind='warning' if '失败' in prefix else 'info',
-                              notice_key=('record-export', str(Path(path))),
-                              pending=prefix.startswith('正在导出'))
-            return
-        room_id = str((room or {}).get('room_id') or '')
-        progress = any(text in message for text in (
-            '开始录制', '已开始录制切片素材', '切片素材继续录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
-            '重新连接录制流', '正在保存分段', '分段已保存，', '等待 ',
-            '重新获取录制地址失败', 'FFmpeg 意外退出'))
-        warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能", "意外退出"))
-        self._show_notice(message, rooms=[room] if room else (), kind="warning" if warning else "info",
-                          notice_key=('record-state', room_id) if room_id and progress else None,
-                          auto_room_link=False)
+        return self.notice_control.record_notice(message, room)
 
     def _show_notice(self, message: str, *, rooms=(), kind="info", on_click=None, file_path=None,
                      notice_key=None, pending=False, auto_room_link=True) -> None:
-        if self._closing:
-            return
-        from .online_ui import show_result
-        by_id = {str(item.room.get('room_id')): item.room for item in self.sidebar._items}
-        rooms = [{**by_id.get(str(room.get('room_id')), {}), **room} for room in rooms]
-        self._load_room_banners(rooms)
-        pinned_live = kind == 'live' and any(
-            str(room.get('room_id')) in self.sidebar.pinned for room in rooms)
-        category = 'pinned_live' if pinned_live else kind
-        persistent = self.settings.get('notice_persist_' + category, pinned_live)
-        if auto_room_link and on_click is None and rooms and not file_path:
-            if kind == 'live':
-                on_click = lambda targets=tuple(dict(room) for room in rooms): self._place_live_notice_rooms(targets)
-            else:
-                url = self._room_browser_url(rooms[0])
-                if url:
-                    on_click = lambda target=url: self._open_room_browser(target)
-        show_result(self, message, rooms=rooms, kind=kind, on_click=on_click,
-                    persistent=persistent or pending, file_path=file_path,
-                    notice_key=notice_key, pending=pending)
+        return self.notice_control.show_notice(message, rooms=rooms, kind=kind, on_click=on_click, file_path=file_path, notice_key=notice_key, pending=pending, auto_room_link=auto_room_link)
 
     def _place_live_notice_rooms(self, rooms):
         self.room_placement.place_live_notice_rooms(rooms)
 
     # ---- 房间增删 ----
     def open_add_room(self) -> None:
-        dialog = AddRoomDialog(self, room_id_resolver=self._normalize_room_input,
-                               folders=self.sidebar.folder_state(),
-                               folder_creator=self.sidebar.create_folder)
-        hints = [hint for p in self.plugins.platforms.values()
-                 if (hint := getattr(p, "room_input_hint", ""))]
-        if hints:
-            dialog.hint.setText("支持 B 站房间号；" + "；".join(hints))
-        if dialog.exec() != AddRoomDialog.Accepted:
-            return
-        self._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
+        return self.room_placement.open_add_room(dialog_type=AddRoomDialog)
 
     def _add_room_id(self, room_id: str, *, folder_id: str = "") -> None:
-        from .room_input import is_bili_short_url
-        short_link = is_bili_short_url(room_id)
-        if any(str(room.get("room_id")) == room_id for room in self.sidebar.rooms()):
-            print(f"房间 {room_id} 已在关注列表里")
-            return
-        platform = self.plugins.platform_for(room_id)
-        if ":" in room_id and not short_link:
-            if platform is None:
-                QMessageBox.warning(self, "添加直播间", "请启用对应的平台插件并重启")
-                return
-            resolver = InfoResolver(room_id, self, platform=platform)
-            resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id)
-                                      if not self._closing else None)
-            resolver.failed.connect(lambda _rid, r=resolver: self._on_platform_room_failed(
-                r, platform, room_id, folder_id=folder_id))
-            resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
-            resolver.finished.connect(resolver.deleteLater)
-            self._platform_info_running.add(resolver)
-            resolver.start()
-            return
-        print(f"正在查询房间 {room_id} ...")
-        resolver = InfoResolver(room_id, self)
-        resolver.resolved.connect(lambda room: self._on_room_added(room, folder_id=folder_id))
-        if short_link:
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                self, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
-                if not self._closing else None)
-        else:
-            resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
-        resolver.finished.connect(lambda r=resolver: self._platform_info_running.discard(r))
-        resolver.finished.connect(resolver.deleteLater)
-        self._platform_info_running.add(resolver)
-        resolver.start()
+        return self.room_placement.add_room_id(room_id, folder_id=folder_id, resolver_type=InfoResolver)
 
     def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
-        if self._closing:
-            return
-        if (getattr(resolver, "browser_verification", False) is True
-                and platform.kind == "douyin" and getattr(platform, "room_browser_init_script", "")):
-            from .profile_room import ProfileRoomDialog
-            dialog = ProfileRoomDialog(platform, "", self, room_id=room_id)
-            result = dialog.exec()
-            canonical = dialog.room_id
-            dialog.deleteLater()
-            if result == QDialog.Accepted and canonical and not self._closing:
-                self._add_room_id(canonical, folder_id=folder_id)
-            return
-        QMessageBox.warning(self, "添加直播间", "平台房间获取失败\n\n" + (
-            getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
+        return self.room_placement.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id)
 
     def _on_room_added(self, room: dict, *, folder_id: str = "") -> None:
-        if self._closing:
-            return
-        if self.sidebar.add_room(room):
-            if folder_id:
-                self.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
-            self.load_avatars_for([room])       # 新加的房间立刻显示头像
-            from .online_ui import show_result
-            show_result(self, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
-        status = "直播中" if room.get("live") else "未开播"
-        print(f"已添加 {room.get('uname')}（{status}）")
-        if len(self.wall.tiles) < MAX_TILES:
-            self.add_to_wall(room)
-        self._refresh_meta()
-        self._save_timer.start()
+        return self.room_placement.on_room_added(room, folder_id=folder_id, max_tiles=MAX_TILES)
 
     def add_to_wall(self, room: dict, *, empty_only=False) -> None:
-        self._prepare_room(room)
-        room_id = str(room.get("room_id"))
-        self.sidebar.watch_history.select(room_id)
-        if self._tile_of(room_id) is not None:
-            print(f"{room.get('uname')} 已经在画面墙上")
-            return
-        candidates = self.wall.visible_tiles() if empty_only else self.wall.tiles
-        empty = next((tile for tile in candidates if not tile.room.get("room_id")), None)
-        if empty is not None:                      # 优先填空位
-            self.recorder.stop(empty)
-            self._stop_tile(empty)
-            empty.set_room(room)
-            self._wire_tile(empty)
-            self.start_tile(empty)
-            self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
-                              room=dict(empty.room or {}))
-            self._refresh_meta()
-            return
-        if empty_only:
-            return
-        if len(self.wall.tiles) >= MAX_TILES:
-            print(f"画面墙已满（{MAX_TILES} 路）")
-            return
-        tile = self.wall.add_room(room)
-        self._wire_tile(tile)
-        self.start_tile(tile)
-        self.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,
-                          room=dict(tile.room or {}))
-        self._refresh_meta()
+        return self.room_placement.add_to_wall(room, empty_only=empty_only, max_tiles=MAX_TILES)
 
     def remove_room(self, room: dict) -> None:
-        if self.hover_preview._room_id() == str(room.get("room_id")):
-            self.hover_preview.cancel()
-        tile = self._tile_of(str(room.get("room_id")))
-        if tile is not None:
-            self.plugins.emit(plugin_api.EVENT_TILE_REMOVED, tile=tile,
-                              room=dict(tile.room or {}))
-            self._pending_capture.pop(tile, None)
-            self.recorder.stop(tile)
-            self._stop_tile(tile)
-            self.wall.remove_room(tile.room)
-            if tile not in self.recorder.sessions:
-                self._restore_capture_quality(tile)
-        self.sidebar.remove_room(room)
-        self._refresh_meta()
-        print(f"已移除 {room.get('uname')}")
+        return self.room_placement.remove_room(room)
 
     def remove_rooms(self, rooms: list) -> None:
-        for room in rooms:
-            self.remove_room(room)
-        print(f"多选删除完成，共 {len(rooms)} 个")
+        return self.room_placement.remove_rooms(rooms)
 
     # ---- 登录 / 导入关注 ----
     def _follow_platforms(self) -> dict:
-        return {p.label or p.kind: p for p in self.plugins.platforms.values()
-                if (p.follow_login_url and p.follow_cookie_domain)
-                or getattr(p, "oauth_provider", "")}
+        return self.account_control.follow_platforms()
 
     def _account_dialog_platforms(self) -> dict:
-        providers = self._account_platforms()
-        providers.update({p.label or p.kind: p for p in self.plugins.platforms.values()
-                          if getattr(p, "account_login_notice", "")})
-        return providers
+        return self.account_control.account_dialog_platforms()
 
     def _login_choices(self) -> list:
-        choices = [] if bili.SESSION_DATA else ["B站"]
-        return choices + [label for label, p in self._account_platforms().items()
-                          if p.kind not in self._accounts or self._accounts[p.kind].get("_login_expired")]
+        return self.account_control.login_choices()
 
     def _account_platforms(self) -> dict:
-        return {p.label or p.kind: p for p in self.plugins.platforms.values()
-                if callable(getattr(p, "account_info", None))
-                and (getattr(p, "oauth_provider", "") or (
-                    (getattr(p, "account_login_url", "") or p.follow_login_url)
-                    and (getattr(p, "account_cookie_domain", "") or p.follow_cookie_domain)))}
+        return self.account_control.account_platforms()
 
     def _account_kind(self) -> str:
-        return "bilibili" if bili.SESSION_DATA else next(
-            (p.kind for p in self._account_platforms().values() if p.kind in self._accounts), "")
+        return self.account_control.account_kind()
 
     def _restore_platform_accounts(self) -> None:
-        if os.environ.get("DDM_NO_SAVE") != "1":
-            from .account_store import AccountStore
-            for platform in self._account_platforms().values():
-                try:
-                    account = AccountStore(platform.kind).load_account()
-                    if account.get("uid"):
-                        self._accounts[platform.kind] = account
-                except (OSError, RuntimeError, ValueError):
-                    pass  # 登录数据无法读取时，由用户重新登录。
-            uid = str(self._accounts.get("douyin", {}).get("uid") or "")
-            try:
-                cache = AccountStore("douyin_follows").load_account()
-                rooms = cache.get("rooms")
-                if (uid and cache.get("uid") == uid and isinstance(rooms, list)
-                        and all(isinstance(room, dict) and (
-                            str(room.get("room_id", "")).startswith("douyin:") or
-                            (not room.get("room_id") and str(room.get("anchor_uid", "")).isdigit()))
-                                for room in rooms)):
-                    self._douyin_follow_cache = cache
-                    platform = self.plugins.platforms.get("douyin")
-                    if callable(getattr(platform, "restore_follow_rooms", None)):
-                        platform.restore_follow_rooms(rooms)
-            except (OSError, RuntimeError, ValueError):
-                pass
-        self._render_account(load_avatar=False)
+        return self.account_control.restore_platform_accounts()
 
     def _cache_douyin_follows(self, rooms, *, pending=None) -> None:
-        uid = str(self._accounts.get("douyin", {}).get("uid") or "")
-        if not uid:
-            return
-        previous = self._douyin_follow_cache or {}
-        if pending is None:
-            pending = previous.get("pending", []) if previous.get("uid") == uid else []
-        self._douyin_follow_cache = {"uid": uid, "rooms": deepcopy(rooms), "pending": deepcopy(pending)}
-        platform = self.plugins.platforms.get("douyin")
-        if callable(getattr(platform, "restore_follow_rooms", None)):
-            platform.restore_follow_rooms(rooms)
-        if os.environ.get("DDM_NO_SAVE") != "1":
-            from .account_store import AccountStore
-            store = AccountStore("douyin_follows")
-            try:
-                if self._platform_login_sessions.get("douyin", {}).get("remember", True):
-                    # 只保存房间身份与显示信息；带签名的媒体地址始终重新获取。
-                    keys = ("room_id", "platform", "uname", "title", "live", "live_known", "viewers",
-                            "cover_url", "face", "playback_mode", "anchor_uid", "sec_uid",
-                            "pending_folder_id", "pending_import", "follow_account_ref", "resolved_room_id")
-                    store.save([], {"uid": uid, "rooms": [
-                        {key: room[key] for key in keys if key in room} for room in rooms], "pending": [
-                        {key: room[key] for key in keys if key in room} for room in pending]})
-                else:
-                    store.clear()
-            except (OSError, RuntimeError):
-                print("[账号] 抖音关注缓存保存失败，本次读取结果仍可使用", file=sys.stderr)
+        return self.account_control.cache_douyin_follows(rooms, pending=pending)
 
     def _render_account(self, *, load_avatar=True) -> None:
-        if self._closing:
-            return
-        self.sidebar.can_login_other = bool(self._login_choices())
-        kinds = (["bilibili"] if bili.SESSION_DATA else []) + [
-            p.kind for p in self._account_platforms().values() if p.kind in self._accounts]
-        self.sidebar.logged_accounts = [(kind, self._accounts.get(kind, {"uname": "B站账号"}))
-                                       for kind in kinds]
-        for account_kind, info in self.sidebar.logged_accounts:
-            if "_pixmap" not in info:
-                info["_pixmap"] = load_cached_avatar(info.get("face") or "")
-            if load_avatar:
-                self._load_account_avatar(account_kind, info)
-        kind = self._account_kind()
-        if not kind:
-            self.sidebar.clear_account()
-            from .online_ui import set_update_dot
-            set_update_dot(self.sidebar.account_row, False)
-            return
-        account = self._accounts.get(kind, {"uname": "B站账号"})
-        name = account.get("uname") or str(account.get("uid") or "已登录")
-        face = account.get("face") or ""
-        if "_pixmap" not in account:
-            account["_pixmap"] = load_cached_avatar(face)
-        self.sidebar.set_account(name, account.get("_pixmap"), platform=kind, uid=account.get("uid"))
-        from .online_ui import set_update_dot
-        expired = [p.label or p.kind for p in self._account_platforms().values()
-                   if self._accounts.get(p.kind, {}).get("_login_expired")]
-        set_update_dot(self.sidebar.account_row, bool(expired))
-        self.sidebar.account_row.account_id.setStyleSheet(
-            f"color: {theme.PINK};" if account.get("_login_expired") else "")
-        if account.get("_login_expired"):
-            self.sidebar.account_row.account_id.setText("登录已失效 · 请重新登录")
-        if expired:
-            self.sidebar.account_row.setToolTip("、".join(expired) + "登录已失效，请重新登录")
+        return self.account_control.render_account(load_avatar=load_avatar, cached_avatar=load_cached_avatar)
 
     def _load_account_avatar(self, kind, account):
-        face = account.get("face") or ""
-        if not face or account.get("_pixmap") is not None or account.get("_avatar_requested"):
-            return
-        account["_avatar_requested"] = True
-        session = bili.SESSION_DATA
-        loader = AvatarLoader({"account": face}, self)
-        def loaded(_key, pixmap):
-            if (not self._closing and self._accounts.get(kind) is account
-                    and (kind != "bilibili" or bili.SESSION_DATA == session)):
-                account["_pixmap"] = pixmap
-                self._render_account()
-        loader.loaded.connect(loaded)
-        loader.finished.connect(loader.deleteLater)
-        self._account_avatar_loader = loader
-        self._avatar_loaders = [item for item in self._avatar_loaders if self._loader_running(item)]
-        self._avatar_loaders.append(loader)
-        loader.start()
+        return self.account_control.load_account_avatar(kind, account, avatar_type=AvatarLoader)
 
     def refresh_account(self, *, retry: bool = True) -> None:
         """刷新侧栏底部的账号信息。"""
-        if not bili.SESSION_DATA:
-            self._render_account()
-            return
-        session = bili.SESSION_DATA
-        current = lambda: not self._closing and bili.SESSION_DATA == session
-        loader = AccountLoader(self)
-        loader.loaded.connect(lambda account: self._on_account_loaded(account) if current() else None)
-        if retry:
-            loader.failed.connect(lambda: QTimer.singleShot(
-                5000, lambda: self.refresh_account(retry=False) if current() else None))
-        loader.finished.connect(loader.deleteLater)
-        self._account_loader = loader
-        loader.start()
+        return self.account_control.refresh_account(retry=retry, loader_type=AccountLoader)
 
     def _on_account_loaded(self, account: dict) -> None:
-        self._accounts["bilibili"] = dict(account)
-        self._render_account()
+        return self.account_control.on_account_loaded(account)
 
     def _clear_platform_account(self, kind: str) -> None:
-        self._accounts.pop(kind, None)
-        self._platform_login_sessions.pop(kind, None)
-        if kind == "douyin":
-            self._douyin_follow_cache = None
-            if os.environ.get("DDM_NO_SAVE") != "1":
-                from .account_store import AccountStore
-                AccountStore("douyin_follows").clear()
-        self._render_account()
+        return self.account_control.clear_platform_account(kind)
 
     def load_cached_covers(self) -> None:
         return self.room_images.load_cached_covers(CachedCoverLoader)
@@ -3178,220 +1423,64 @@ class MainWindow(QMainWindow):
         return self.room_images.apply_cover(room_id, pixmap)
 
     def logout(self, kind=None) -> None:
-        kind = kind or self.sidebar.account_row.platform or "bilibili"
-        if kind == "bilibili":
-            bili.set_sessdata("")
-            self.state["sessdata"] = ""
-            self.state["bili_jct"] = ""
-            self.plugins.notify_credentials('bilibili')
-            config_module.save(self.current_state())
-            self.stop_danmaku()
-            self.sync_danmaku()
-        else:
-            from .platform_login import clear_platform_login
-            try:
-                clear_platform_login(kind)
-            except OSError:
-                QMessageBox.warning(self, "退出登录", "登录状态清除失败，请检查文件权限后重试")
-                return
-        self._clear_platform_account(kind)
-        print("已退出登录", file=sys.stderr, flush=True)
+        return self.account_control.logout(kind)
 
     def open_login(self, platform_kind=None, *, reauthenticate=False) -> None:
-        follow_loader = getattr(self, "_follow_loader", None)
-        if self._closing or (follow_loader is not None and self._loader_running(follow_loader)):
-            return
-        choices = self._login_choices()
-        if platform_kind is None and not choices:
-            QMessageBox.information(self, "账号登录", "当前支持登录的平台均已成功登录。")
-            return
-        providers = self._account_dialog_platforms()
-        if platform_kind is None:
-            platform_kind = "bilibili" if choices[0] == "B站" else providers[choices[0]].kind
-        self._open_account_dialog(providers, platform_kind=platform_kind,
-                                  reauthenticate=reauthenticate)
+        return self.account_control.open_login(platform_kind, reauthenticate=reauthenticate)
 
     def _open_account_dialog(self, providers, *, import_follows=False, platform_kind="bilibili",
                              reauthenticate=False):
-        from .account_dialog import AccountPlatformDialog
-        dialog = AccountPlatformDialog(self, providers, import_follows=import_follows,
-                                       platform_kind=platform_kind, reauthenticate=reauthenticate)
-        try:
-            result = dialog.exec()
-            selected = dialog.rooms
-            pending_count = dialog.pending_count
-            folder_id = dialog.folder_id
-            removed_ids = dialog.removed_ids
-            move_existing = dialog.folder_changed
-            folder_room_ids = dialog.folder_room_ids
-        finally:
-            dialog.deleteLater()
-        if import_follows and result == QDialog.Accepted and not self._closing:
-            self._import_selected_follows(selected, folder_id=folder_id,
-                                          removed_ids=removed_ids, move_existing=move_existing,
-                                          folder_room_ids=folder_room_ids, pending_count=pending_count)
+        return self.account_control.open_account_dialog(providers, import_follows=import_follows, platform_kind=platform_kind, reauthenticate=reauthenticate)
 
     def _update_bilibili_credentials(self, changes: dict) -> None:
-        if 'buvid3' in changes:
-            self.state['buvid3'] = bili.remember_buvid3(changes['buvid3'])
-            config_module.save(self.current_state())
+        return self.account_control.update_bilibili_credentials(changes)
 
     def _on_login(self, sessdata: str) -> None:
-        bili.set_sessdata(sessdata)
-        self.state["sessdata"] = sessdata
-        self.plugins.notify_credentials('bilibili')
-        config_module.save(self.current_state())
-        self._render_account()
-        self.refresh_account()
-        # 之前是匿名连的弹幕，服务端会把用户名打码；登录后重连一次
-        self.stop_danmaku()
-        self.sync_danmaku()
-        print(f"登录成功，已保存登录状态（{len(sessdata)} 字符）", file=sys.stderr, flush=True)
+        return self.account_control.on_login(sessdata)
 
     def open_import_follows(self) -> None:
-        if getattr(self, "_follow_import_timer", None) is not None:
-            return
-        follow_loader = getattr(self, "_follow_loader", None)
-        if follow_loader is not None and self._loader_running(follow_loader):
-            return
-        if self._closing:
-            return
-        self._open_account_dialog(self._follow_platforms(), import_follows=True)
+        return self.account_control.open_import_follows()
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
                                  removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0) -> None:
-        if self._closing or getattr(self, "_follow_import_timer", None) is not None:
-            return
-        selected_ids = {str(room["room_id"]) for room in selected}
-        removing = set(removed_ids) - selected_ids
-        for room in list(self.sidebar.rooms()):
-            if str(room["room_id"]) in removing:
-                self.remove_room(room)
-        # Small imports finish immediately; large imports yield between bounded batches.
-        added_rooms = []
-        offset = 0
-        timer = QTimer(self)
-        self._follow_import_timer = timer
-
-        def import_batch():
-            nonlocal offset
-            if self._closing:
-                timer.stop()
-                timer.deleteLater()
-                self._follow_import_timer = None
-                return
-            added_rooms.extend(self.sidebar.add_rooms(selected[offset:offset + 8]))
-            offset += 8
-            if offset < len(selected):
-                timer.start(0)
-                return
-            timer.stop()
-            timer.deleteLater()
-            self._follow_import_timer = None
-            self._finish_follow_import(selected, added_rooms, folder_id=folder_id,
-                                       move_existing=move_existing, folder_room_ids=folder_room_ids,
-                                       pending_count=pending_count)
-
-        timer.timeout.connect(import_batch)
-        import_batch()
+        return self.account_control.import_selected_follows(selected, folder_id=folder_id, removed_ids=removed_ids, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count)
 
     def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
                               folder_room_ids=None, pending_count):
-        moving = selected if move_existing else added_rooms
-        if move_existing and folder_room_ids is not None:
-            folder_ids = set(folder_room_ids)
-            moving = [room for room in selected if str(room["room_id"]) in folder_ids]
-        if (folder_id or move_existing) and moving:
-            self.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
-        if not move_existing:
-            pending_folders = {}
-            for room in added_rooms:
-                if room.get("pending_folder_id"):
-                    pending_folders.setdefault(room["pending_folder_id"], []).append(str(room["room_id"]))
-            for pending_folder, room_ids in pending_folders.items():
-                self.sidebar.move_to_folder(room_ids, pending_folder)
-        added = len(added_rooms)
-        self.load_avatars_for(selected)          # 导入后立刻补头像
-        self._refresh_meta()
-        self._save_timer.start()
-        message = f"导入完成：新增 {added} 个"
-        if pending_count:
-            message += f"，另保存 {pending_count} 个待识别账号"
-        print(message)
-        from .online_ui import show_result
-        show_result(self, message, rooms=added_rooms)
+        return self.account_control.finish_follow_import(selected, added_rooms, folder_id=folder_id, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count)
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
-        self.sidebar.set_wall_rooms(
-            str(tile.room.get("room_id") or "") for tile in self.wall.tiles
-            if not tile.property('pictureInPictureTemporary'))
-        # 替换后格子仍保持聚焦，卡片选择需跟随它当前的房间。
-        focused = next((tile for tile in self.wall.tiles if tile.property("focused")), None)
-        if focused is not None:
-            self.sidebar.select_room(focused.room)
-        self.wall.setVisible(bool(self.wall.tiles))
-        self.empty_hint.setVisible(not self.wall.tiles)
-        self.sync_danmaku()
+        return self.account_control.refresh_meta()
 
     def _connect_danmaku_panel(self, panel):
-        panel.apply_style(str(self.settings.get('danmaku_font') or ''),
-                          int(self.settings.get('danmaku_font_size') or 13))
-        panel.set_max_blocks(int(self.settings.get('danmaku_max_blocks') or 3000))
-        panel.apply_super_chat_settings(self.settings)
-        panel.fontSizeChanged.connect(self._on_danmaku_font_size)
-        panel.superChatDismissed.connect(lambda chat_id, p=panel:
-            self._dismiss_super_chat(getattr(p, '_linked_room_id', ''), chat_id))
+        return self.danmaku_lifecycle.connect_danmaku_panel(panel)
 
     def switch_tile_to_danmaku(self, cell=-1):
-        panes = self.wall.pane_danmaku
-        if cell not in range(len(self.wall._cells())):
-            return
-        panes.request(cell, -1)
-        panel = panes.panels.get(cell)
-        if panel is not None:
-            picker = panel.source_picker
-            QTimer.singleShot(0, picker, lambda: picker.set_expanded(True))
+        return self.danmaku_lifecycle.switch_tile_to_danmaku(cell)
 
     def _apply_pane_menu(self, bindings):
-        try:
-            self.configure_wall_panes(bindings)
-        except ValueError as error:
-            self._show_notice(str(error), kind='warning')
+        return self.danmaku_lifecycle.apply_pane_menu(bindings)
 
     def configure_wall_panes(self, bindings):
-        tiles = self.wall.pane_danmaku.cell_tiles()
-        for cell in bindings:
-            tile = tiles.get(cell)
-            session = self.recorder.sessions.get(tile)
-            if (session is not None and session.recording) or self._pending_capture.get(tile):
-                raise ValueError('该格正在录制，请先结束录制后再改为弹幕栏。')
-        self.wall.pane_danmaku.apply(bindings)
-        self._pane_configuration_changed()
+        return self.danmaku_lifecycle.configure_wall_panes(bindings)
 
     def _pane_configuration_changed(self):
-        self._sync_tile_playback(start_visible=True)
-        self.sync_danmaku()
-        self._refresh_meta()
-        self._save_timer.start()
+        return self.danmaku_lifecycle.pane_configuration_changed()
 
     # ---- 弹幕 ----
     def _danmaku_target_room(self) -> dict:
         """弹幕格跟着主画面走；没有主画面就跟第一路有人的画面。"""
-        tile = self.wall.danmaku_target_tile()
-        return tile.room if tile is not None else {}
+        return self.danmaku_lifecycle.danmaku_target_room()
 
     def sync_danmaku(self) -> None:
         return self.danmaku_lifecycle.sync_danmaku()
 
     def _on_video_danmaku_changed(self, enabled: bool) -> None:
-        self.sync_danmaku()
-        self._save_timer.start()
+        return self.danmaku_lifecycle.on_video_danmaku_changed(enabled)
 
     def _on_video_danmaku_settings_changed(self, values: dict) -> None:
-        self.settings.update(values)
-        self.apply_danmaku_settings()
-        self._save_timer.start()
+        return self.danmaku_lifecycle.on_video_danmaku_settings_changed(values)
 
     def start_danmaku(self, room_id: str, uname: str = "") -> None:
         return self.danmaku_lifecycle.start_danmaku(room_id, uname)
@@ -3419,167 +1508,41 @@ class MainWindow(QMainWindow):
 
     def apply_danmaku_settings(self) -> None:
         """把设置里的弹幕字体、字号、保留条数交给弹幕格。"""
-        for panel in self.wall.pane_danmaku.all_panels():
-            panel.apply_style(str(self.settings.get("danmaku_font") or ""),
-                              int(self.settings.get("danmaku_font_size") or 13))
-            panel.set_max_blocks(int(self.settings.get("danmaku_max_blocks") or 3000))
-            panel.apply_super_chat_settings(self.settings)
-        for tile in self.wall.tiles:
-            tile.apply_video_danmaku_settings(self.settings)
+        return self.danmaku_lifecycle.apply_danmaku_settings()
 
     def _on_danmaku_font_size(self, value: int) -> None:
         """面板上拖了字号：记住并延迟写盘（拖一次会发很多次信号）。"""
-        self.settings["danmaku_font_size"] = int(value)
-        self._save_timer.start()
+        return self.danmaku_lifecycle.on_danmaku_font_size(value)
 
     def apply_preview_settings(self) -> None:
         """关注列表样式与悬停预览开关。"""
-        before = self.sidebar.card_mode
-        self.sidebar.show_platform_logos = bool(self.settings.get("sidebar_platform_logos", True))
-        self.sidebar._sync_count()
-        self.sidebar.set_compact_background(
-            bool(self.settings.get("sidebar_compact_background", True)))
-        self.sidebar.set_compact_policy(
-            bool(self.settings.get("sidebar_card_mode", True)),
-            bool(self.settings.get("sidebar_auto_compact", True)),
-            int(self.settings.get("sidebar_compact_threshold", 18)),
-        )
-        if self.sidebar.card_mode != before:
-            self.hover_preview.stop()
-        self.hover_preview.enabled = bool(self.settings.get("preview_on_hover", True))
-        if not self.hover_preview.enabled:
-            self.hover_preview.stop()
+        return self.settings_control.apply_preview_settings()
 
     def _danmaku_blocked(self, text: str) -> bool:
         """命中屏蔽词就不显示这条弹幕（大小写不敏感）。"""
-        words = [str(word).strip() for word in (self.settings.get("danmaku_block_words") or [])]
-        words = [word for word in words if word]
-        if not words:
-            return False
-        lowered = str(text).lower()
-        return any(word.lower() in lowered for word in words)
+        return self.danmaku_lifecycle.danmaku_blocked(text)
 
     def _on_danmaku_message(self, source, event: dict) -> None:
-        room_id = next((rid for rid, client in self._danmaku_clients.items()
-                        if client is source), "")
-        if self._closing or not room_id:
-            return                         # 已切换房间，忽略旧线程排队中的消息
-        kind = event.get("kind") or "danmaku"
-        if kind == "danmaku" and self._danmaku_blocked(event.get("text") or ""):
-            return
-        if kind == "super_chat":
-            store = self._super_chats.setdefault(room_id, SuperChatStore())
-            event = store.upsert(event)
-            self._publish_super_chats(room_id)
-        elif kind == "super_chat_delete":
-            store = self._super_chats.setdefault(room_id, SuperChatStore())
-            store.remove(event.get("ids") or ())
-            self._publish_super_chats(room_id)
-        if kind not in ("super_chat", "super_chat_delete"):
-            for panel in self.wall.pane_danmaku.rendered():
-                if getattr(panel, "_linked_room_id", "") == room_id:
-                    panel.add_event(event)
-        for tile in self.wall.tiles:
-            if str(tile.room.get("room_id") or "") == room_id:
-                if kind == "danmaku":
-                    tile.video_danmaku.add_event(event)
-        self.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=room_id,
-                          message=dict(event))
+        return self.danmaku_lifecycle.on_danmaku_message(source, event)
 
     def _dismiss_super_chat(self, room_id: str, chat_id: str) -> None:
-        store = self._super_chats.get(room_id)
-        if store is not None:
-            for tile in self.wall.tiles:
-                if str(tile.room.get('room_id') or '') == room_id:
-                    tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
-            for panel in self.wall.pane_danmaku.rendered():
-                if getattr(panel, "_linked_room_id", "") == room_id:
-                    panel.super_chats.animate_dismiss(chat_id)
-            store.dismiss(chat_id)
-            self._publish_super_chats(room_id)
+        return self.danmaku_lifecycle.dismiss_super_chat(room_id, chat_id)
 
     def _publish_super_chats(self, room_id: str) -> None:
-        store = self._super_chats.get(room_id)
-        chats = store.active() if store is not None else []
-        for tile in self.wall.tiles:
-            if str(tile.room.get("room_id") or "") == room_id:
-                tile.video_danmaku.set_super_chats(chats)
-        for panel in self.wall.pane_danmaku.rendered():
-            if getattr(panel, "_linked_room_id", "") == room_id:
-                panel.set_super_chats(chats)
+        return self.danmaku_lifecycle.publish_super_chats(room_id)
 
     def _tick_super_chats(self) -> None:
-        changed = False
-        for room_id, store in list(self._super_chats.items()):
-            if store.expire():
-                changed = True
-                self._publish_super_chats(room_id)
-        if changed or any(store.items for store in self._super_chats.values()):
-            for panel in self.wall.pane_danmaku.all_panels():
-                panel.super_chats.tick()
-            for tile in self.wall.tiles:
-                if tile.video_danmaku.super_chats:
-                    tile.video_danmaku.super_chat_overlay.set_chats(
-                        tile.video_danmaku.super_chats,
-                        int(self.settings.get(
-                            "super_chat_opacity",
-                            config_module.DEFAULT_SETTINGS["super_chat_opacity"])) / 100)
+        return self.danmaku_lifecycle.tick_super_chats()
 
     def _on_danmaku_status(self, source, text: str) -> None:
-        room_id = next((rid for rid, client in self._danmaku_clients.items()
-                        if client is source), "")
-        if self._closing or not room_id:
-            return                         # 旧连接不能覆盖当前连接的状态
-        self._danmaku_status[room_id] = text
-        if text == "已连接" and self.state.get("buvid3", "") != bili.BUVID3:
-            self.state["buvid3"] = bili.BUVID3
-            self._save_timer.start()  # 旧配置首次补齐设备身份后自动持久化。
-        for tile in self.wall.tiles:
-            if str(tile.room.get("room_id") or "") == room_id:
-                tile.danmaku_button.setToolTip(
-                    f"画面弹幕：{text}\n显示参数在「设置 → 弹幕」调整")
-        for panel in self.wall.pane_danmaku.rendered():
-            if getattr(panel, "_linked_room_id", "") == room_id:
-                panel.set_status(text)
-        self.plugins.emit(plugin_api.EVENT_DANMAKU_STATUS,
-                          room_id=room_id, status=text)
+        return self.danmaku_lifecycle.on_danmaku_status(source, text)
 
     # ---- 快捷键 ----
     def _refresh_shortcuts(self) -> None:
-        if not hasattr(self, "_shortcut_focus_connected"):
-            application = QApplication.instance()
-            assert isinstance(application, QApplication)
-            application.focusChanged.connect(self._sync_input_shortcuts)
-            self._shortcut_focus_connected = True
-        for shortcut in getattr(self, "_window_shortcuts", []):
-            shortcut.setEnabled(False)
-            shortcut.deleteLater()
-        self._window_shortcuts = []
-        sequences = [*self.shortcuts.values(), "Up", "Down"]
-        if self.shortcuts.get("danmaku_input") == "Return":
-            sequences.append("Enter")
-        for sequence in dict.fromkeys(sequences):
-            if not sequence:
-                continue
-            shortcut = QShortcut(QKeySequence(sequence), self._fullscreen_tile or self)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.setProperty("danmakuInput", sequence in (
-                self.shortcuts.get("danmaku_input"),
-                "Enter" if self.shortcuts.get("danmaku_input") == "Return" else ""))
-            shortcut.activated.connect(lambda key=sequence: self._handle_shortcut(key))
-            self._window_shortcuts.append(shortcut)
-        self._sync_input_shortcuts()
+        return self.shortcut_control.refresh_shortcuts()
 
     def _sync_input_shortcuts(self, *_args) -> None:
-        editing = isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
-        for shortcut in self._window_shortcuts:
-            sequence = shortcut.key().toString()
-            if sequence in ("Up", "Down"):
-                shortcut.setEnabled(not editing and (self._fullscreen_tile is not None
-                                    or sequence in self.shortcuts.values()))
-            elif shortcut.property("danmakuInput"):
-                shortcut.setEnabled(not editing)
+        return self.shortcut_control.sync_input_shortcuts(*_args)
 
     def _tile_under_cursor(self):
         """鼠标现在压在哪一格的画面上（没有就 None）。
@@ -3589,15 +1552,7 @@ class MainWindow(QMainWindow):
         于是 F（全屏）/ M / Alt+M 全都按不动 —— 用户报的「切换画布完全失效」
         就是这个。改成拿光标全局坐标和每个格子的矩形比，跟画面是不是原生窗口无关。
         """
-        point = QCursor.pos()
-        tiles = ([self._fullscreen_tile] if self._fullscreen_tile is not None else
-                 self.wall.tiles if hasattr(self, "wall") else [])
-        for tile in tiles:
-            if not tile.isVisible():
-                continue
-            if tile.rect().contains(tile.mapFromGlobal(point)):
-                return tile
-        return None
+        return self.shortcut_control.tile_under_cursor()
 
     def keyPressEvent(self, event) -> None:
         pressed = QKeySequence(event.keyCombination()).toString()
@@ -3609,98 +1564,22 @@ class MainWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def _handle_shortcut(self, pressed: str) -> bool:
-        if any(tile.plugin_interaction_active() for tile in self.wall.tiles if tile.isVisible()):
-            return False
-        shortcuts = self.shortcuts
-        if pressed in ("Up", "Down") and self._fullscreen_tile is not None:
-            if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
-                return False
-            tile = self._fullscreen_tile
-            tile.set_volume(tile.volume + (10 if pressed == "Up" else -10))
-        elif pressed and pressed == shortcuts.get("focus"):
-            if self._fullscreen_tile is not None:
-                self._exit_fullscreen()
-            else:
-                tile = self._tile_under_cursor()
-                if tile is not None and tile.room.get("room_id"):
-                    self._on_fullscreen(tile)
-        elif pressed and pressed == shortcuts.get("mute"):
-            self._toggle_mute_under_cursor()
-        elif pressed and pressed == shortcuts.get("audio_cycle"):
-            self._cycle_audio_under_cursor()
-        elif pressed and pressed == shortcuts.get("record"):
-            tile = self._tile_under_cursor()
-            if tile is not None and tile.room.get("room_id"):
-                self._toggle_recording(tile)
-        elif pressed and pressed == shortcuts.get("video_danmaku"):
-            tile = self._tile_under_cursor()
-            if tile is not None:
-                tile.danmaku_button.toggle()
-        elif pressed and pressed == shortcuts.get("close_tile"):
-            tile = self._tile_under_cursor()
-            if tile is not None and tile.room.get("room_id"):
-                tile.closeRequested.emit(tile.room)
-        elif pressed and (pressed == shortcuts.get("danmaku_input") or (
-                pressed == "Enter" and shortcuts.get("danmaku_input") == "Return")):
-            for panel in self.wall.pane_danmaku.all_panels():
-                if panel.isVisible() and panel.rect().contains(panel.mapFromGlobal(QCursor.pos())):
-                    controls = getattr(panel, "_linked_controls", None) or panel._tile_controls
-                    if controls is not None:
-                        controls.focus_input()
-                    return True
-            tile = self._fullscreen_tile or self._tile_under_cursor()
-            if tile is not None and tile.room.get("room_id"):
-                if tile is self._fullscreen_tile:
-                    self._fullscreen_cursor.start()
-                    tile.set_fullscreen_controls_hidden(False)
-                tile.focus_danmaku_input()
-        elif pressed and pressed == shortcuts.get("solo"):
-            self._toggle_solo_audio()
-        elif pressed and pressed == shortcuts.get("restore") and self._fullscreen_tile:
-            self._exit_fullscreen()
-        else:
-            return False
-        return True
+        return self.shortcut_control.handle_shortcut(pressed)
 
     def _toggle_mute_under_cursor(self) -> None:
         """M：静音 / 取消静音鼠标所在的那一路（只动这一路，别的格子不变）。"""
-        target = self._tile_under_cursor()
-        if target is None:
-            return
-        target.set_muted(not target.muted)
-        print(f"[快捷键] {target.room.get('uname')} "
-              f"{'已静音' if target.muted else '已取消静音'}",
-              file=sys.stderr, flush=True)
+        return self.shortcut_control.toggle_mute_under_cursor()
 
     def _cycle_audio_under_cursor(self) -> None:
         """E：鼠标所在格子依次启用双声道、左声道、右声道、静音。"""
-        target = self._tile_under_cursor()
-        if target is None or not target.room.get("room_id"):
-            return
-        if target.muted:
-            target.set_audio_channel(0)
-        elif target.audio_channel == VolumeButton.CHANNEL_RIGHT:
-            target.set_muted(True)
-        else:
-            target.set_audio_channel(VolumeButton.CHANNEL_RIGHT
-                                     if target.audio_channel == VolumeButton.CHANNEL_LEFT
-                                     else VolumeButton.CHANNEL_LEFT)
+        return self.shortcut_control.cycle_audio_under_cursor()
 
     def _toggle_solo_audio(self) -> None:
         """Alt+M：只让鼠标悬停的那一路有声，其他格子一律静音。
 
         鼠标不在任何格子上时等于「全部静音」——这也是想安静下来时最顺手的按法。
         """
-        target = self._tile_under_cursor()
-        if target is not None and not target.room.get("room_id"):
-            target = None
-        for tile in self.wall.tiles:
-            tile.set_muted(tile is not target)
-        if target is not None:
-            print(f"[快捷键] 只保留 {target.room.get('uname')} 的声音",
-                  file=sys.stderr, flush=True)
-        else:
-            print("[快捷键] 全部静音", file=sys.stderr, flush=True)
+        return self.shortcut_control.toggle_solo_audio()
 
 
 def _launch_restart() -> bool:

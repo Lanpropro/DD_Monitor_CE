@@ -13,17 +13,13 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7.2'
-    assert version.VERSION_TAG == 'v0.7.2'
+    assert version.VERSION == '0.7.3'
+    assert version.VERSION_TAG == 'v0.7.3'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
-    assert notes.startswith('# DD监控室CE v0.7.2 更新说明')
-    hotfix2 = notes.split('## 0.7.2 热修复（修订 2）', 1)[1].split('## 0.7.2 热修复（修订 1）', 1)[0]
-    for feature in ('room_id', '安装插件', '原目录重装', '内部修订号为 2', '仅增加以上三处修复'):
-        assert feature in hotfix2, feature
-    for feature in ('0.7.2 热修复（修订 1）', '独立设置进程退出', '覆盖前检查', '失败记录', 'Qt 退出阶段', '保留内容相同'):
-        assert feature in notes, feature
-    for feature in ('0.7.1 Hotfix', '字体回退日志', 'RGB、HEX', '已有日志打包'):
+    assert notes.startswith('# DD监控室CE v0.7.3 更新说明')
+    for feature in ('设置与外观', '弹幕、画面墙与播放', '更新、插件与诊断',
+                    '普通输入框透明绘制', '跨平台弹幕词条和用户屏蔽', '发布源码通过'):
         assert feature in notes, feature
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
     for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
@@ -67,6 +63,9 @@ def main():
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
     assert '--hidden-import ddm.ui.color_dialog' in source, 'The lazy RGB picker must be included in frozen builds'
+    assert '--hidden-import ddm.ui.stepper' in source, 'The lazy settings stepper must be included in frozen builds'
+    assert '--collect-submodules ddm.ui' in source, 'All lazy settings UI modules must be included in frozen builds'
+    assert '--hidden-import ddm.widgets' in source, 'Frozen builds must retain legacy widget imports for plugins'
     assert 'archive --format=zip --output=$snapshot HEAD' in source
     for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
         assert pattern in source

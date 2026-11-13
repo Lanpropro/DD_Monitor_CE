@@ -101,7 +101,7 @@ class MainNoticesTests(unittest.TestCase):
         clock = [100.0]
         with patch('ddm.widgets.QCursor.pos', return_value=position) as pointer, \
                 patch('ddm.widgets.time.monotonic', side_effect=lambda: clock[0]), \
-                patch('ddm.widgets.set_native_cursor') as native:
+                patch('ddm.tile_widgets.set_native_cursor') as native:
             tile._poll_control_hover()
             for reason in ('menu', 'outside', 'override', 'fullscreen', 'hide'):
                 clock[0] += 4
@@ -1278,6 +1278,9 @@ class MainNoticesTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.addCleanup(theme.signals().changed.disconnect)
+        self.fixture_plugins = self.stack.enter_context(
+            tempfile.TemporaryDirectory(prefix='ddm-window-plugins-'))
+        self.stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', self.fixture_plugins))
         for method in ('_start_startup_tiles', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
                        'load_cached_covers', 'load_cached_avatars', '_start_avatar_loader',
@@ -1311,6 +1314,11 @@ class MainNoticesTests(unittest.TestCase):
         prompt.assert_not_called()
         self.assertTrue(window._closing)
 
+    def test_fixture_uses_empty_plugins_directory(self):
+        window = self.window([])
+        self.assertEqual(window.plugins.plugins_dir, self.fixture_plugins)
+        self.assertEqual(list(Path(self.fixture_plugins).iterdir()), [])
+
     def status(self, live, **values):
         return dict(live=live, viewers='', title='', uname='', face='', **values)
 
@@ -1321,11 +1329,13 @@ class MainNoticesTests(unittest.TestCase):
         window.settings['close_behavior'] = 'exit'
         nav = window.sidebar.navigation
         context = PluginContext(window.plugins, 'order-fixture')
-        for key in ('first', 'second'):
+        for priority, key in enumerate(('first', 'second', 'third', 'fourth', 'fifth', 'sixth')):
             button = QToolButton()
             button.setText(key)
-            context.register_workspace_control(key, button)
+            context.register_workspace_control(key, button, priority=priority)
         controls = window.sidebar.workspace_controls
+        for key in ('third', 'fourth', 'fifth', 'sixth'):
+            controls.toggle_pin(('order-fixture', key))
         tools = nav.movable_tools()
         window._save_timer.stop()
         nav.reorder_group(tools, list(reversed(tools)))
@@ -1335,7 +1345,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertTrue(window._save_timer.isActive())
         state = window.current_state()
         self.assertEqual(state['ui']['sidebar_tool_order'], [nav.tool_key(button) for button in reversed(tools)])
-        self.assertEqual(state['ui']['workspace_pins'], [['order-fixture', 'second'], ['order-fixture', 'first']])
+        self.assertEqual(state['ui']['workspace_pins'], [['order-fixture', key] for key in ('sixth', 'fifth', 'fourth', 'third', 'second', 'first')])
         restored = MainWindow([], [], layout_id='2x2', state=state)
         restored.settings['close_behavior'] = 'exit'
         self.addCleanup(self.close_window, restored)
@@ -2035,8 +2045,12 @@ class MainNoticesTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    faulthandler.dump_traceback_later(60, repeat=True)
-    try:
-        unittest.main(verbosity=2)
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(MainNoticesTests, __file__))
+    else:
+        faulthandler.dump_traceback_later(60, repeat=True)
+        try:
+            unittest.main(verbosity=2)
+        finally:
+            faulthandler.cancel_dump_traceback_later()

@@ -7,8 +7,10 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from shiboken6 import isValid
 
 from .sidebar_hit_test import widget_at
+from .card_drop import remember_card
 
 ROOM_MIME = 'application/x-ddm-room'
+TILE_MIME = 'application/x-ddm-tile'
 NAV_MIME = 'application/x-ddm-nav'
 FOLDER_MIME = 'application/x-ddm-folder'
 
@@ -39,11 +41,13 @@ class SidebarDrag(QObject):
         if self.active:
             return
         self.source, self.mime = source, mime
+        if mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME):
+            remember_card(mime, pixmap, hotspot)
         self.position = QPoint(global_pos)
         self.hotspot = QPoint(hotspot)
         self._last_update = None
         self.owner = self.sidebar.window()
-        self.actions = Qt.MoveAction if mime.hasFormat(FOLDER_MIME) else Qt.CopyAction | Qt.MoveAction
+        self.actions = Qt.MoveAction if (mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)) else Qt.CopyAction | Qt.MoveAction
         self.ghost = QLabel(self.owner, Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowTransparentForInput)
         self.ghost.setAttribute(Qt.WA_ShowWithoutActivating)
         self.ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -221,8 +225,9 @@ class SidebarDrag(QObject):
             self.ghost.deleteLater()
             self.ghost = None
             folder = self.mime.hasFormat(FOLDER_MIME)
+            tile = self.mime.hasFormat(TILE_MIME)
             self.mime = self.owner = None
             if folder:
                 self.sidebar.end_folder_drag()
-            else:
+            elif not tile:
                 self.sidebar.end_drag()

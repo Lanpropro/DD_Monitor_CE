@@ -68,6 +68,85 @@ class LoggingTests(unittest.TestCase):
         self.assertIn("still open", Path(session.crash_path).read_text())
         self.assertIn("previous crash", Path(session.crash_path + ".1").read_text())
 
+    def test_rotation_error_does_not_deadlock_concurrent_stderr(self):
+        # Reproduce GUI stderr -> handler versus decoder handler -> stderr.
+        # A child process bounds a failure without leaving blocked test threads.
+        program = """
+import io, logging, os, sys, threading
+from logging.handlers import RotatingFileHandler
+sys.path.insert(0, sys.argv[1])
+from ddm.diagnostics import _StreamMirror
+
+handler_entered = threading.Event()
+gui_logging = threading.Event()
+errors = []
+class FailingRotation(RotatingFileHandler):
+    def shouldRollover(self, record):
+        if record.getMessage() == 'decoder warning':
+            handler_entered.set()
+            if not gui_logging.wait(2):
+                raise RuntimeError('GUI did not enter logging')
+            raise PermissionError('fixture rotation denied')
+        return False
+
+logger = logging.getLogger('mirror-lock-regression')
+logger.setLevel(logging.INFO)
+logger.propagate = False
+handler = FailingRotation(sys.argv[2], encoding='utf-8')
+logger.addHandler(handler)
+def observe_gui(record):
+    if record.getMessage() == 'qt warning':
+        gui_logging.set()
+    return True
+logger.addFilter(observe_gui)
+console = io.StringIO()
+mirror = _StreamMirror(console, logger, 'stderr')
+sys.stderr = mirror
+def run(action):
+    try:
+        action()
+    except BaseException as error:
+        errors.append(repr(error))
+decoder = threading.Thread(target=run, args=(lambda: logger.warning('decoder warning'),), daemon=True)
+gui = threading.Thread(target=run, args=(lambda: mirror.write('qt warning\\n'),), daemon=True)
+decoder.start()
+assert handler_entered.wait(2), 'decoder did not acquire handler'
+gui.start()
+decoder.join(2)
+gui.join(2)
+if decoder.is_alive() or gui.is_alive():
+    os._exit(2)
+sys.stderr = sys.__stderr__
+assert not errors, errors
+assert gui_logging.is_set()
+assert 'fixture rotation denied' in console.getvalue()
+logger.warning('logging still usable')
+handler.close()
+"""
+        logfile = self.directory / 'rotation-error.log'
+        result = subprocess.run([sys.executable, "-c", program, str(ROOT), str(logfile)],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        contents = logfile.read_text(encoding='utf-8')
+        self.assertIn('qt warning', contents)
+        self.assertIn('logging still usable', contents)
+
+    def test_stream_mirror_keeps_partial_lines_and_reentrant_output(self):
+        console = io.StringIO()
+        lines = []
+        class ReentrantLogger:
+            def log(self, level, message, line, **kwargs):
+                lines.append((level, line))
+                if line != 'tail':
+                    mirror.write('nested output\n')
+        mirror = diagnostics._StreamMirror(console, ReentrantLogger(), 'stderr')
+        self.assertEqual(mirror.write('first'), 5)
+        mirror.write(' line\nsecond\ntail')
+        mirror.flush()
+        self.assertEqual(lines, [(logging.WARNING, 'first line'),
+                                 (logging.WARNING, 'second'), (logging.WARNING, 'tail')])
+        self.assertIn('nested output', console.getvalue())
+
     def test_unwritable_destination_falls_back_without_changing_config(self):
         blocked = self.directory / "file"
         blocked.write_text("not a directory")

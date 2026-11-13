@@ -17,6 +17,7 @@ def channel_filters(channel: int) -> list[str]:
 
 
 def audio_filters(channel: int, normalize: bool = False) -> list[str]:
-    # Short analysis windows suit live streams; cap gain and leave near-silence alone.
-    filters = ["lavfi=[dynaudnorm=f=100:g=5:p=0.9:m=4:r=0.15:t=0.01]"] if normalize else []
+    filters = ["@ddm_meter:lavfi=[ebur128=metadata=1]",
+               "@ddm_gain:lavfi=[volume=0dB]",
+               "lavfi=[alimiter=limit=0.891251:level=false:latency=true]"] if normalize else []
     return filters + channel_filters(channel)

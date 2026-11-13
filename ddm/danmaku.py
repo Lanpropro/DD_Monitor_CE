@@ -14,7 +14,7 @@ from PySide6.QtCore import QThread, Signal
 
 from . import bili
 from . import config as config_module
-from .super_chat import normalize as normalize_super_chat
+from .super_chat_model import normalize as normalize_super_chat
 
 # blivedm 在原仓库根目录，独立版也放在项目根目录
 if config_module.REPO not in sys.path:
@@ -242,6 +242,7 @@ class _Handler(_HandlerBase):
         emotes = emotes if isinstance(emotes, dict) else {}
         self._emit({
             "kind": "danmaku",
+            "uid": str(getattr(message, 'uid', '') or ''),
             "uname": message.uname,
             "text": message.msg,
             "dm_type": message.dm_type,
@@ -257,6 +258,7 @@ class _Handler(_HandlerBase):
     def _on_gift(self, client, message):
         self._emit({
             "kind": "gift",
+            "uid": str(getattr(message, 'uid', '') or ''),
             "uname": message.uname,
             "text": f"投喂 {message.gift_name} ×{message.num}",
         })
@@ -264,6 +266,7 @@ class _Handler(_HandlerBase):
     def _on_buy_guard(self, client, message):
         self._emit({
             "kind": "guard",
+            "uid": str(getattr(message, 'uid', '') or ''),
             "uname": message.username,
             "text": f"开通了 {message.gift_name}",
         })

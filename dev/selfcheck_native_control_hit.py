@@ -96,7 +96,7 @@ def main():
                     def exec(self, _pos):
                         next(a for a in self.actions() if a.text() == "流畅").trigger()
 
-                with patch("ddm.widgets.QMenu", TestMenu):
+                with patch("ddm.tile_widgets.QMenu", TestMenu):
                     for button in (tile.quality_button, tile.reload_button, tile.close_button):
                         pos = button.mapTo(tile.controls, button.rect().center())
                         scale = tile.devicePixelRatioF()

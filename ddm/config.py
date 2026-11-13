@@ -36,7 +36,14 @@ def initialize_paths():
 DEFAULT_VOLUME = 40
 
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
+from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
+from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+
 DEFAULT_SETTINGS = {
+    **MATERIAL_DEFAULTS,
+    **APPEARANCE_DEFAULTS,
+    "tile_context_menu": None,
+    "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,
     "appearance_mode": "dark",
@@ -44,6 +51,7 @@ DEFAULT_SETTINGS = {
     "skin_sidebar": True,
     "skin_video_enabled": True,
     "skin_mask": 35,
+    "skin_mask_enabled": True,
     "skin_parts": {},
     "skin_package_owner": "",
     "skin_background_override": False,
@@ -63,6 +71,7 @@ DEFAULT_SETTINGS = {
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
     "volume_normalization": False,  # 播放时减小不同直播间与片段的音量差异。
+    "volume_normalization_curve": None,  # 缺省使用平缓时间响应；编辑后保存独立参数。
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
@@ -70,6 +79,7 @@ DEFAULT_SETTINGS = {
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 0.5 秒，缩略图里播静音预览
     "sidebar_platform_logos": True,
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
+    "notifications_enabled": True,  # 浮动通知总开关；关闭后仍保留通知中心历史
     "notice_hide_fullscreen": False,
     "notice_banner_blur": 16,
     "notice_persist_updates": True,
@@ -121,6 +131,7 @@ DEFAULT_SETTINGS = {
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
     "danmaku_retention_version": 1,  # 旧版默认 300 条的一次性升级标记
     "danmaku_block_words": [],  # 屏蔽词：弹幕里包含这些词就不显示
+    "danmaku_blocked_users": [],  # 本体统一屏蔽：{platform, uid, uname}，无ID时按昵称匹配
     "video_danmaku_size": 28,
     "video_danmaku_speed": 100,
     "video_danmaku_opacity": 80,
@@ -131,11 +142,15 @@ DEFAULT_SETTINGS = {
     "super_chat_collapse_delay": 7,
     "super_chat_scale": 100,
     "super_chat_scale_with_video": False,
+    "super_chat_scale_strength": 35,
+    "super_chat_scale_curve": None,
     "super_chat_position": None,
     "super_chat_panel_position": None,
     "super_chat_position_sync": True,
     "video_danmaku_area": 50,
     "video_danmaku_scale": True,
+    "video_danmaku_scale_strength": 35,
+    "video_danmaku_scale_curve": None,
     "video_danmaku_outline_width": 0,
 }
 
@@ -194,14 +209,7 @@ def _read_json(path: str) -> dict:
         return {}
 
 
-def _unique(values) -> list[str]:
-    result: list[str] = []
-    for value in values:
-        text = str(value)
-        if text in ("", "0") or text in result:
-            continue
-        result.append(text)
-    return result
+from .room_configuration import (_unique, sync_platform_rooms, build_rooms)
 
 
 def load() -> dict:
@@ -219,7 +227,7 @@ def load() -> dict:
     return {}
 
 
-def save(state: dict) -> None:
+def save(state: dict, *, raise_errors=False) -> None:
     if os.environ.get("DDM_NO_SAVE"):   # 自检/预览脚本用这个开关，避免动到真实配置
         return
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
@@ -230,117 +238,5 @@ def save(state: dict) -> None:
             handle.write(json.dumps(state, ensure_ascii=False, indent=2))
     except Exception as error:  # noqa: BLE001
         print(f"配置写入失败: {error}")
-
-
-def sync_platform_rooms(state: dict, active_platforms: set[str]) -> dict:
-    """未启用的平台房间移入暂存；启用后恢复，已占用的格子不覆盖。"""
-    state = deepcopy(state)
-    storage = state.setdefault("suspended_platform_rooms", {})
-    fields = ("rooms", "pinned", "import_order", "custom_order")
-    metadata = state.setdefault("platform_rooms", {})
-    wall = state.setdefault("wall", [])
-    restored = [storage.pop(kind) for kind in list(storage) if kind in active_platforms]
-    for saved in restored:
-        metadata.update(saved.get("platform_rooms", {}))
-    for key in fields:
-        values = state.setdefault(key, [])
-        records = [record for saved in restored for record in saved.get(key, [])]
-        for record in sorted(records, key=lambda record: record["index"]):
-            if record["room_id"] not in values:
-                values.insert(min(record["index"], len(values)), record["room_id"])
-    for saved in restored:
-        for record in saved.get("wall", []):
-            index, slot = record["index"], record["slot"]
-            while index >= len(wall):
-                wall.append({"room_id": ""})
-            if not wall[index].get("room_id"):
-                wall[index] = slot
-            elif slot["room_id"] not in state["rooms"]:
-                state["rooms"].append(slot["room_id"])
-
-    def suspended(room_id):
-        return ":" in room_id and room_id.split(":", 1)[0] not in active_platforms
-
-    for key in fields:
-        values = state.get(key, [])
-        for index, room_id in enumerate(values):
-            if suspended(room_id):
-                saved = storage.setdefault(room_id.split(":", 1)[0], {})
-                saved.setdefault(key, []).append({"index": index, "room_id": room_id})
-        state[key] = [room_id for room_id in values if not suspended(room_id)]
-    for index, slot in enumerate(wall):
-        room_id = str(slot.get("room_id") or "")
-        if suspended(room_id):
-            saved = storage.setdefault(room_id.split(":", 1)[0], {})
-            saved.setdefault("wall", []).append({"index": index, "slot": slot})
-            wall[index] = dict(slot, room_id="")
-    for room_id in list(metadata):
-        if suspended(room_id):
-            saved = storage.setdefault(room_id.split(":", 1)[0], {})
-            saved.setdefault("platform_rooms", {})[room_id] = metadata.pop(room_id)
-    return state
-
-
-def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
-    """(侧栏房间, 画面墙房间)。格子设置从配置里带。
-
-    房间的实时信息（直播状态/标题/主播名/头像）**不在启动时同步拉**：以前这里
-    对每个房间逐个同步请求（单个超时 10 秒），房间一多窗口就要在主线程上干等
-    几十秒才出现。现在只造占位条目让窗口立刻出现，真实信息由启动后的
-    ``refresh_status()``（后台线程、批量一次请求）补上，见 app 的
-    ``_on_status_updated``。
-    """
-    room_ids = _unique(state.get("rooms", []))
-    wall_slots = state.get("wall", []) or []
-    default_volume = int((state.get("settings") or {}).get("default_volume", DEFAULT_VOLUME))
-
-    def placeholder(room_id: str) -> dict:
-        room = {
-            "room_id": room_id, "uname": f"房间 {room_id}",
-            "title": "", "live": False, "viewers": "",
-            "face": "", "cover_url": "",
-            # 直播状态还没拉过：第一次补上真实状态时不算「刚开播」，
-            # 否则一打开软件，所有已开播的房间都会冒一遍开播提醒（见 app）。
-            "live_known": False,
-        }
-        saved = ((state.get("platform_rooms") or {}).get(room_id) or
-                 (state.get("browser_rooms") or {}).get(room_id) or {})
-        if ":" in room_id:
-            room.update(platform=room_id.split(":", 1)[0], playback_mode="stream")
-        if saved.get("playback_mode") in ("browser", "stream"):
-            for key in ("uname", "title", "platform", "playback_mode", "anchor_uid", "sec_uid", "resolved_room_id", "face"):
-                if isinstance(saved.get(key), str):
-                    room[key] = saved[key]
-            if saved.get("follow_account_ref") is True:
-                room["follow_account_ref"] = True
-        if room.get("platform") == "huya":
-            room["playback_mode"] = "stream"     # 迁移旧版虎牙网页卡片
-        return room
-
-    sidebar = [placeholder(room_id) for room_id in room_ids]
-    wall = []
-    for slot in wall_slots:
-        room_id = str(slot.get("room_id") or "")
-        if not room_id:
-            # 空格子也保留格子设置；之后拖入主播时音量应沿用这个位置的值。
-            wall.append({
-                "room_id": "",
-                "muted": bool(slot.get("muted", True)),
-                "volume": int(slot.get("volume", default_volume)),
-                "quality": int(slot.get("quality", 250)),
-                "audio_channel": int(slot.get("audio_channel", 0)),
-                "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
-                "video_danmaku_overrides": video_danmaku_overrides(slot.get("video_danmaku_overrides")),
-                "codec_overrides": codec_overrides(slot.get("codec_overrides")),
-            })
-            continue
-        room = placeholder(room_id)
-        room["muted"] = bool(slot.get("muted", True))
-        room["volume"] = int(slot.get("volume", default_volume))
-        room["quality"] = int(slot.get("quality", 250))
-        room["audio_channel"] = int(slot.get("audio_channel", 0))
-        room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))
-        room["video_danmaku_overrides"] = video_danmaku_overrides(slot.get("video_danmaku_overrides"))
-        room["codec_overrides"] = codec_overrides(slot.get("codec_overrides"))
-        wall.append(room)
-    return sidebar, wall
+        if raise_errors:
+            raise

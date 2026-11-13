@@ -2,6 +2,7 @@
 import sys
 
 from . import plugins as plugin_api
+from .qt_lifecycle import delete_requested
 
 
 class RoomStatus:
@@ -33,6 +34,7 @@ class RoomStatus:
         # finished 可能在下一轮启动后才送达，只清理发出信号的线程。
         if host._stats_poller is poller:
             host._stats_poller = None
+        delete_requested(poller)
         poller.deleteLater()
 
     def apply_stats(self, stats: dict) -> None:
@@ -74,6 +76,7 @@ class RoomStatus:
 
     def status_finished(self, poller) -> None:
         host = self.host
+        delete_requested(poller)
         poller.deleteLater()
         if host._poller is not poller:
             return
@@ -115,6 +118,16 @@ class RoomStatus:
         item_was_live = {item: bool(item.room.get("live")) for item in host.sidebar._items}
         item_was_known = {item: bool(item.room.get("live_known", True))
                           for item in host.sidebar._items}
+        before_live = (
+            tuple((str(tile.room.get("room_id") or ""),
+                   bool(tile.room.get("live")),
+                   bool(tile.room.get("live_known", True)))
+                  for tile in host.wall.tiles),
+            tuple((str(item.room.get("room_id") or ""),
+                   bool(item.room.get("live")),
+                   bool(item.room.get("live_known", True)))
+                  for item in host.sidebar._items),
+        )
         faces: dict[str, str] = {}
         covers: dict[str, str] = {}
         for tile in host.wall.tiles:
@@ -126,8 +139,11 @@ class RoomStatus:
             tile.set_live(info["live"], info["viewers"])
             if info.get("uname") or info.get("title"):
                 tile.set_uname_title(info.get("uname", ""), info.get("title", ""))
-            if info.get("live_start_ts"):
+            if info["live"] and info.get("live_start_ts"):
                 tile.room["live_start_ts"] = info["live_start_ts"]
+                tile.start_elapsed_timer()
+            elif not info["live"] and info.get("live_known", True):
+                tile.room.pop("live_start_ts", None)
             if not info["live"] and tile.room["live_known"]:
                 if (was_live or tile in host.players or tile in host._resolvers
                         or tile in host._retry_timers or tile._status_text not in ("未开播", "已下播")):
@@ -145,6 +161,7 @@ class RoomStatus:
                 if tile not in host._resolvers:
                     host.start_tile(tile)         # 已在取流的格子继续等待，不重复请求
         just_went_live: list = []
+        filter_changed = False
         for item in host.sidebar._items:            # noqa: SLF001
             info = status.get(str(item.room.get("room_id")))
             if not info:
@@ -154,9 +171,15 @@ class RoomStatus:
                 item.set_title(info["title"])
             if info.get("uname"):
                 item.set_uname(info["uname"])
-            for key in ('uid', 'banner_url'):
+            for key in ('uid', 'banner_url', 'display_room_id'):
                 if key in info:
+                    if key == 'display_room_id' and item.room.get(key) != info[key]:
+                        filter_changed = True
                     item.room[key] = info[key]
+            if info["live"] and info.get("live_start_ts"):
+                item.room["live_start_ts"] = info["live_start_ts"]
+            elif not info["live"] and info.get("live_known", True):
+                item.room.pop("live_start_ts", None)
             cover = info.get("cover_url") or ""
             if cover and cover != item.room.get("cover_url"):
                 item.room["cover_url"] = cover      # 开播/下播后封面会变，缩略图跟着换
@@ -167,7 +190,8 @@ class RoomStatus:
                 # 只有**本来就知道是没开播**的才算「刚开播」：启动时占位条目
                 # （live_known=False）第一次补上真实状态不算，否则一开软件满列表
                 # 冒气泡／弹提醒 —— 用户要的是「开播时」的提示。
-                if (host._startup_status_complete and host.settings.get("live_alert", True)
+                if (host._startup_status_complete and host.settings.get("notifications_enabled", True)
+                        and host.settings.get("live_alert", True)
                         and item_was_known[item] and info.get("live_known", True)):
                     item.room["live"] = True        # 徽标由动效砸中时再换
                     just_went_live.append(item)
@@ -183,9 +207,23 @@ class RoomStatus:
                 # 缓存命中也由 AvatarLoader 后台读取，批量状态回调不在 UI 线程解码图片。
             item.room["live_known"] = info.get("live_known", True)
             host.sidebar._folder_pending.discard(str(item.room.get("room_id")))
-        host.sidebar.resort()               # 「开播优先」要跟着开播状态重排
-        host._sync_replay_scope()           # 回放范围设成「所有格子」时在这里补开缓存
-        host.sync_danmaku()
+        after_live = (
+            tuple((str(tile.room.get("room_id") or ""),
+                   bool(tile.room.get("live")),
+                   bool(tile.room.get("live_known", True)))
+                  for tile in host.wall.tiles),
+            tuple((str(item.room.get("room_id") or ""),
+                   bool(item.room.get("live")),
+                   bool(item.room.get("live_known", True)))
+                  for item in host.sidebar._items),
+        )
+        live_state_changed = before_live != after_live
+        if live_state_changed:
+            host.sidebar.resort()           # 「开播优先」要跟着开播状态重排
+            host._sync_replay_scope()      # 回放范围设成「所有格子」时在这里补开缓存
+            host.sync_danmaku()
+        if filter_changed:
+            host.sidebar.refresh_filter()
         if just_went_live:                  # 排完再播动效：水滴落在卡片的新位置上
             host.sidebar.play_live_alerts(just_went_live)
             rooms = [dict(item.room) for item in just_went_live]

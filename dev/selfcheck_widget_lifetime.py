@@ -16,7 +16,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QTimer
 from PySide6.QtWidgets import QApplication, QMenu, QSlider, QWidget
 from ddm import theme
 from ddm.skins import BackgroundLayer
-from ddm.widgets import Tile
+from ddm.widgets import DanmakuPanel, Tile
 
 
 def drain():
@@ -29,6 +29,16 @@ class WidgetLifetimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_queued_scroll_restore_ignores_deleted_panel(self):
+        panel = DanmakuPanel()
+        panel.add_message('测试用户', '排队重排后立即关闭')
+        errors = []
+        with patch.object(sys, 'excepthook', side_effect=lambda *args: errors.append(args[1])):
+            panel.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+        self.assertEqual(errors, [])
 
     def test_repeated_context_and_quality_menus_release_children(self):
         tile = Tile(dict(room_id='1', uname='Menu fixture', live=False))
@@ -86,7 +96,7 @@ class WidgetLifetimeTests(unittest.TestCase):
         event = SimpleNamespace(globalPos=lambda: QPoint())
         before = (len(tile.findChildren(QMenu)), len(tile.findChildren(QSlider)))
         try:
-            with patch('ddm.widgets.QMenu', FailedMenu):
+            with patch('ddm.tile_widgets.QMenu', FailedMenu):
                 for operation in (lambda: tile.contextMenuEvent(event), tile._open_quality_menu):
                     with self.assertRaisesRegex(RuntimeError, 'Fixture menu failure'):
                         operation()

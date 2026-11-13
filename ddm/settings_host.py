@@ -2,8 +2,8 @@
 from types import SimpleNamespace
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QCheckBox
+from PySide6.QtGui import QKeySequence, QShortcut, QWindow
+from PySide6.QtWidgets import QApplication, QLayout
 
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
@@ -20,29 +20,41 @@ class SettingsHost(QObject):
             {**window.settings, **{key: value for key, value in message['settings'].items()
                                    if key in DEFAULT_SETTINGS}}, message['shortcuts'])
         self.stack = self.dialog.stack
+        from .settings_focus import SettingsInputFocus
+        self.stack_input_focus = SettingsInputFocus(self.stack)
+        from .settings_material import apply_properties
+        apply_properties(self.stack, self.dialog.settings())
         self.embedded = False
+        self.embedded_parent = None
         self.pending_apply = None
         # Existing plugins contribute controls on SettingsDialog's Show event.
         # Dispatch that event without showing or activating a second window.
         QApplication.sendEvent(self.dialog, QEvent(QEvent.Show))
         page = self.dialog.general_page
-        core = set(page._checks.values())
-        grid = page.layout().itemAt(1).layout()
-        checks = [check for check in page.findChildren(QCheckBox)
-                  if check not in core and check.objectName() and grid.indexOf(check) >= 0]
-        checks.sort(key=lambda check: grid.getItemPosition(grid.indexOf(check))[:2])
-        self.plugin_checks = {check.objectName(): check for check in checks}
+        self.plugin_checks = page.plugin_controls()
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self.stack)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
         self.dialog.pageCreated.connect(self._page_created)
+        self.dialog.auto_save.statusChanged.connect(self._auto_status)
+        self.dialog.auto_save.start()
         self.last_state = None
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.sync)
         self.timer.start()
 
+    def _auto_status(self, state, error):
+        self.client._send({'kind': 'auto-status', 'state': state, 'error': error})
+
+    def _material_changed(self, values):
+        from .settings_material import apply_properties
+        apply_properties(self.stack, values)
+        self.sync()
+
     def _page_created(self, index, page):
+        if index == 1:
+            page.materialChanged.connect(self._material_changed)
         if index == 8:
             page.saveRequested.disconnect(self.dialog._save)
             page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
@@ -58,9 +70,20 @@ class SettingsHost(QObject):
         elif kind == 'host-page':
             if not self.embedded:
                 self.stack.setProperty('embeddedSettings', True)
+                self.stack.setProperty('settingsGlassContent', True)
+                from .theme import refresh_theme_properties
+                refresh_theme_properties(self.stack)
+                self.stack.layout().setSizeConstraint(QLayout.SetNoConstraint)
+                self.stack.setMinimumSize(0, 0)
+                self.stack.setAttribute(Qt.WA_TranslucentBackground)
                 self.stack.setParent(None, Qt.FramelessWindowHint)
                 self.stack.setAttribute(Qt.WA_ShowWithoutActivating)
                 self.stack.style().polish(self.stack)
+                self.stack.winId()
+                # Establish Qt's parent before the worker embeds the HWND, so
+                # layered repaints use child coordinates from the first frame.
+                self.embedded_parent = QWindow.fromWinId(message['parent_hwnd'])
+                self.stack.windowHandle().setParent(self.embedded_parent)
                 self.embedded = True
             self.dialog.nav.setCurrentRow(message['index'])
             self.stack.finish_transition()
@@ -70,9 +93,16 @@ class SettingsHost(QObject):
             self.dialog._reset_current()
             self.sync()
         elif kind == 'host-attached':
+            self.stack.resize(*message['size'])
             self.stack.show()
+            self.client._send({'kind': 'host-shown'})
         elif kind == 'host-hidden':
             self.dialog.nav.setCurrentRow(-1)
+        elif kind == 'host-flush':
+            if not self.dialog.auto_save.defer(self._flushed):
+                self._flushed()
+        elif kind == 'host-retry':
+            self.dialog.auto_save.flush()
         elif kind == 'host-save':
             self.save(message['changes'])
         elif kind == 'result' and self.pending_apply is not None:
@@ -81,6 +111,9 @@ class SettingsHost(QObject):
             window = self.window
             window._close_settings_host()
             window._apply_settings_dialog(adapter, before)
+
+    def _flushed(self):
+        self.client._send({'kind': 'host-flushed'})
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
@@ -92,7 +125,9 @@ class SettingsHost(QObject):
 
     def sync(self):
         state = {'kind': 'host-state', 'values': self.values(),
+                 'material_background': self.stack.property('settings_backdrop_path') or '',
                  'save_enabled': self.dialog.confirm_button.isEnabled(),
+                 'action_visible': not self.dialog.confirm_button.isHidden(),
                  'save_text': self.dialog.confirm_button.text(),
                  'marks': {key: bool(self.dialog.nav.item(index).data(Qt.UserRole + 1))
                            for index, (key, _label) in enumerate(self.dialog.PAGES)}}
@@ -138,7 +173,11 @@ class SettingsHost(QObject):
 
     def close(self):
         self.timer.stop()
+        self.dialog.auto_save.stop()
         self.stack.close()
+        if self.embedded_parent is not None:
+            self.stack.windowHandle().setParent(None)
+            self.embedded_parent.deleteLater()
         self.stack.setParent(self.dialog)
         self.dialog.reject()
         self.dialog.deleteLater()

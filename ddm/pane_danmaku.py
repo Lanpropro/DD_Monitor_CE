@@ -115,7 +115,7 @@ class PaneDanmaku:
             self.prepare()
         return changed
 
-    def arrange(self, rectangles, widgets):
+    def arrange(self, rectangles, widgets, *, gap=None):
         """Join adjacent sources only when their bounding rectangle covers no other cell."""
         self.rectangles = {cell: QRect(rect) for cell, rect in rectangles.items()}
         if not self.panels:
@@ -129,7 +129,7 @@ class PaneDanmaku:
             tile = self.target(panel)
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
             areas.append(([cell], QRect(rectangles[cell]), room))
-        gap = self.wall.grid.spacing()
+        gap = self.wall.grid.spacing() if gap is None else gap
         changed = True
         while changed:
             changed = False
@@ -176,7 +176,7 @@ class PaneDanmaku:
         return visible
 
     def prepare(self):
-        from .widgets import DanmakuPanel
+        from .danmaku_widgets import DanmakuPanel
         cells = sorted(self.bindings())
         while len(self.all_panels()) < len(cells):
             panel = DanmakuPanel(self.wall)

@@ -39,8 +39,16 @@ if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "--apply-upd
     raise SystemExit(run_elevated_helper(sys.argv[2]))
 
 if __name__ == "__main__" and sys.argv[1:] == ["--settings-worker"]:
+    from ddm.native_diagnostics import start_worker
+    start_worker(os.environ.get('DDM_DIAGNOSTIC_LOG_DIR'))
     from ddm.settings_process import run_worker
     raise SystemExit(run_worker())
+
+if __name__ == "__main__" and sys.argv[1:2] == ["--plugin-worker"]:
+    if len(sys.argv) != 4:
+        raise SystemExit('Usage: --plugin-worker DIRECTORY MODULE')
+    from ddm.plugin_worker import run_worker
+    raise SystemExit(run_worker(sys.argv[2], sys.argv[3]))
 
 PROJ = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PROJ)                       # 配置、日志、头像缓存都按这个目录算

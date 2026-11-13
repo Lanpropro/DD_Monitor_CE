@@ -131,7 +131,7 @@ class OneDrag(QObject):
 
 
 class DiagnosticEndpoint(QObject):
-    """A per-process, current-user pipe accepting only two fixed requests."""
+    """A per-process, current-user pipe accepting fixed diagnostic requests."""
     def __init__(self, window, directory, root, *, name=None):
         super().__init__(window)
         self.window, self.root = window, str(Path(root).resolve())
@@ -172,7 +172,7 @@ class DiagnosticEndpoint(QObject):
         try:
             request = json.loads(bytes(socket.readLine()))
             if (not isinstance(request, dict) or request.get('protocol') != 1
-                    or request.get('mode') not in ('folders', 'drag')
+                    or request.get('mode') not in ('folders', 'drag', 'playback')
                     or set(request) != {'protocol', 'mode'}):
                 raise ValueError('invalid-request')
         except (ValueError, TypeError):
@@ -213,7 +213,11 @@ class DiagnosticEndpoint(QObject):
                 emit('folder-snapshot', state=folder_snapshot(self.window.sidebar))
                 done('snapshot-finished')
             else:
-                observer = OneDrag(self.window, emit, done)
+                if request['mode'] == 'playback':
+                    from .playback_capture import PlaybackCapture
+                    observer = PlaybackCapture(self.window, emit, done)
+                else:
+                    observer = OneDrag(self.window, emit, done)
                 self.active['observer'] = observer
                 observer.start()
                 self.send(socket, dict(status='armed', protocol=1, pid=os.getpid(),

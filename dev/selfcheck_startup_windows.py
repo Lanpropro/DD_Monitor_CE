@@ -118,7 +118,7 @@ class StartupWindowsTests(unittest.TestCase):
         sidebar = Sidebar([dict(room_id='1', uname='Fixture', title='Title', live=False)])
         item = sidebar.items()[0]
         try:
-            with patch('ddm.widgets._repolish') as polish, \
+            with patch('ddm.sidebar_item._repolish') as polish, \
                     patch.object(item.thumb, '_layout_overlay') as layout:
                 item.set_live(False)
                 item.set_title('Title')
@@ -145,6 +145,8 @@ class StartupWindowsTests(unittest.TestCase):
         tiles = [object(), object(), object()]
         host = SimpleNamespace(_closing=False, wall=SimpleNamespace(tiles=tiles[:]),
             players={tiles[1]: object()}, _resolvers={}, apply_quality_policy=Mock(), start_tile=Mock())
+        from ddm.stream_playback import StreamPlayback
+        host.stream_playback = StreamPlayback(host)
         callbacks = []
         with patch('ddm.app.QTimer.singleShot', side_effect=lambda delay, context, callback: callbacks.append(callback)):
             MainWindow._start_startup_tiles(host)

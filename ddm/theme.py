@@ -3,8 +3,8 @@
 配色与尺度参考 BewlyCat（暗色体系）：基色 #2a2d32 派生背景/卡片/浮层，
 主题色取 B 站蓝，强调色取 B 站粉。
 
-Qt 没有真正的背景模糊，这里用半透明叠加 + 细描边模拟玻璃质感，
-避免玻璃效果带来的 GPU 开销（本项目以低占用为优先）。
+玻璃表面使用半透明叠加与细描边；设置卡片和通知仅对静态背景图缓存模糊，
+不对文字、控件或实时画面施加模糊效果。
 """
 
 
@@ -15,8 +15,8 @@ from functools import lru_cache
 from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPalette
+from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QToolButton, QWidget
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -127,8 +127,53 @@ BORDER = "rgba(131, 131, 145, 0.16)"
 BORDER_STRONG = "rgba(255, 255, 255, 0.12)"
 
 FONT_DEFAULT = "Microsoft YaHei UI"
-FONT_FAMILY = f'"{FONT_DEFAULT}", "Microsoft YaHei", "Segoe UI", sans-serif'
 FONT_DANMAKU = "Source Han Sans SC"
+DANMAKU_FALLBACK_FAMILIES = ("Segoe UI Historic",)
+DANMAKU_FALLBACK_RANGES = ((0x12000, 0x123FF), (0x12400, 0x1247F))
+
+
+def _control_font_family(primary: str) -> str:
+    """Keep the historic-Unicode fallback available to every Qt text control."""
+    families = [primary, "Microsoft YaHei", "Segoe UI", *DANMAKU_FALLBACK_FAMILIES, "sans-serif"]
+    return ", ".join(f'"{family}"' if family != "sans-serif" else family
+                      for family in dict.fromkeys(families) if family)
+
+
+FONT_FAMILY = _control_font_family(FONT_DEFAULT)
+
+
+def danmaku_font(font_family: str = "", pixel_size: int | None = None) -> QFont:
+    """Create a text font with a system fallback for historic Unicode blocks."""
+    font = QFont(font_family or danmaku_font_family())
+    families = list(font.families())
+    for family in DANMAKU_FALLBACK_FAMILIES:
+        if family not in families:
+            families.append(family)
+    font.setFamilies(families)
+    if pixel_size is not None:
+        font.setPixelSize(int(pixel_size))
+    return font
+
+
+def danmaku_font_runs(text: str, font: QFont) -> list[tuple[str, QFont]]:
+    """Split text into runs whose selected font contains each Unicode glyph."""
+    candidates = [QFont(font)]
+    for family in DANMAKU_FALLBACK_FAMILIES:
+        fallback = QFont(font)
+        fallback.setFamilies([family])
+        candidates.append(fallback)
+    runs: list[tuple[str, QFont]] = []
+    for char in str(text):
+        codepoint = ord(char)
+        historic = any(start <= codepoint <= end for start, end in DANMAKU_FALLBACK_RANGES)
+        pool = candidates[1:] if historic else candidates
+        selected = next((candidate for candidate in pool
+                         if QFontMetricsF(candidate).inFontUcs4(codepoint)), candidates[0])
+        if runs and runs[-1][1].families() == selected.families():
+            runs[-1] = (runs[-1][0] + char, runs[-1][1])
+        else:
+            runs.append((char, selected))
+    return runs
 
 
 @lru_cache(maxsize=1)
@@ -152,6 +197,15 @@ RADIUS_XL = 16
 SIDEBAR_WIDTH = 248
 SIDEBAR_RAIL_WIDTH = 60
 CONTROL_HEIGHT = 34
+SETTINGS_SLIDER_WIDTH = 160
+SETTINGS_STEPPER_WIDTH = 180
+SWITCH_WIDTH = 44
+SWITCH_HEIGHT = 26
+SWITCH_TRACK_HEIGHT = 22
+SWITCH_THUMB_SIZE = 18
+SEGMENT_PADDING = 4
+SEGMENT_GAP = 4
+SEGMENT_ITEM_PADDING = 12
 TILE_CONTROL_HEIGHT = 26
 AVATAR_SIZE = 32              # 关注列表里的头像尺寸（收起侧栏后账号头像也用这个）
 SCROLLBAR_SIZE = 8            # 滚动条粗细（两轴同一个值；横排列表要按它留高度）
@@ -169,6 +223,23 @@ _light = False
 _styles = WeakKeyDictionary()
 _pending_palette = WeakKeyDictionary()
 _signals = None
+_preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
+_applied_typography = None
+
+
+def configure_appearance(values):
+    """Store validated tokens; callers decide when to refresh the palette."""
+    global FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING, _preferences
+    from .appearance_preferences import normalize
+    current = normalize({**_preferences, **values})
+    if current == _preferences:
+        return False
+    _preferences = current
+    family = current['appearance_font'] or FONT_DEFAULT
+    FONT_FAMILY = _control_font_family(family)
+    FONT_CONTROL = current['appearance_font_size']
+    FONT_CAPTION, FONT_BODY, FONT_HEADING = FONT_CONTROL - 1, FONT_CONTROL + 2, FONT_CONTROL + 7
+    return True
 _skin_active = False
 _skin_sidebar = False
 
@@ -257,7 +328,8 @@ def refresh_theme_properties(widget, *, defer=False):
     name = widget.objectName()
     if name not in ('NavigationButton', 'BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
                     'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'):
+                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid') and not (
+                        widget.property('settingsGlassWindow') or widget.property('settingsGlassContent')):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
@@ -334,6 +406,16 @@ class ThemeSignals(QObject):
             self._repairing_palette = False
 
     def eventFilter(self, widget, event):
+        if event.type() in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
+            hovered = event.type() in (QEvent.Enter, QEvent.HoverEnter)
+            if widget.property('hovered') != hovered:
+                widget.setProperty('hovered', hovered)
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+                widget.update()
+        if event.type() == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
+            widget.setMouseTracking(True)
+            widget.setAttribute(Qt.WA_Hover, True)
         if event.type() == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
                 _refresh_widget_palette(widget)
@@ -389,7 +471,7 @@ def _system_changed(_scheme):
 
 def apply(value):
     """重绘主题，不重建控件、播放器或视频窗口。"""
-    global _mode, _light
+    global _mode, _light, _applied_typography
     app = QApplication.instance()
     signals()
     value = normalize_mode(value)
@@ -398,8 +480,25 @@ def apply(value):
     previous = {name: globals()[name] for name in _DARK}
     _mode = value
     _light = light
-    palette = _LIGHT if light else _DARK
+    palette = dict(_LIGHT if light else _DARK)
+    if _preferences['appearance_accent']:
+        accent = QColor(_preferences['appearance_accent'])
+        # Keep the accent readable against either control surface.
+        def luminance(color):
+            channels = [channel / 12.92 if channel <= .04045 else
+                        ((channel + .055) / 1.055) ** 2.4 for channel in color.getRgbF()[:3]]
+            return sum(a * b for a, b in zip(channels, (.2126, .7152, .0722)))
+        surface = QColor('#ffffff' if light else '#3c4044')
+        for _ in range(40):
+            a, b = sorted((luminance(accent), luminance(surface)))
+            if (b + .05) / (a + .05) >= 3:
+                break
+            accent = accent.darker(110) if light else QColor(mix(accent.name(), '#ffffff', .12))
+        palette['ACCENT'] = accent.name()
+        palette['ACCENT_SOFT'] = f'rgba({accent.red()}, {accent.green()}, {accent.blue()}, 0.16)'
     widgets = list(app.allWidgets())
+    typography = (FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING)
+    typography_changed = typography != _applied_typography
     from .continuous_corners import source_stylesheet, stylesheet
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
@@ -436,10 +535,13 @@ def apply(value):
         elif styled and not properties_changed:
             _refresh_widget_palette(widget, defer=True)
         _styles[widget] = (source, colors, styled)
+        if typography_changed:
+            _refresh_widget_palette(widget, invalidate=True)
         refresh = getattr(widget, "refresh_theme", None)
         if callable(refresh):
             refresh()
         QWidget.update(widget)
+    _applied_typography = typography
     signals().changed.emit(value)
 
 
@@ -482,7 +584,7 @@ QDialog QLabel {{
     color: {TEXT1};
 }}
 QLineEdit {{
-    background: {CONTENT};
+    background: transparent;
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 6px 10px;
@@ -515,18 +617,19 @@ QCheckBox::indicator:checked {{
     background: {ACCENT};
     border: 1px solid {ACCENT};
 }}
-QSpinBox {{
+QSpinBox, QDoubleSpinBox {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 5px 8px;
     color: {TEXT1};
 }}
-QSpinBox:focus {{
+QSpinBox:focus, QDoubleSpinBox:focus {{
     border: 1px solid {ACCENT};
     background: {CONTENT_HOVER};
 }}
-QSpinBox::up-button, QSpinBox::down-button {{
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
     width: 18px;
     border: none;
     background: transparent;
@@ -608,11 +711,24 @@ QSlider::handle:horizontal:hover {{
 }}
 
 /* ---------- 设置窗口（左侧选类别，右侧改内容） ---------- */
+
+QDialog[settingsGlassWindow="true"] {{background: transparent; border: none;}}
+QDialog[settingsGlassWindow="true"] #SettingsNavigation,
+QDialog[settingsGlassWindow="true"] #SettingsNav {{background: transparent;}}
+#SettingsTextButton {{background: transparent; border: none; color: {TEXT3}; padding: 4px 6px;}}
+#SettingsTextButton:hover {{color: {TEXT1}; background: {CONTENT_HOVER};}}
+#SettingsBreadcrumb {{font-size: 16px; font-weight: 600; background: transparent;}}
+QDialog[settingsGlassWindow="true"] #Search {{border-radius: 17px;}}
+
+#SettingsNavigation {{
+    background: {SIDEBAR};
+    border-right: 1px solid {BORDER};
+}}
+#SettingsNavigationTitle {{font-size: 22px; font-weight: 700; padding: 8px;}}
 #SettingsNav {{
     background: {SIDEBAR};
     border: none;
-    border-right: 1px solid {BORDER};
-    padding: 12px 8px;
+    padding: 0;
     outline: none;
 }}
 #SettingsNav::item {{
@@ -636,6 +752,9 @@ QSlider::handle:horizontal:hover {{
 #SettingsStack[embeddedSettings="true"] {{
     background: {BG};
 }}
+#SettingsStack[embeddedSettings="true"][settingsGlassContent="true"] {{
+    background: transparent;
+}}
 #SettingsTitle {{
     font-size: {FONT_HEADING}px;
     font-weight: 700;
@@ -644,9 +763,26 @@ QSlider::handle:horizontal:hover {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
 }}
+QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
+#SettingsValue {{
+    color: {TEXT1};
+    font-size: {FONT_CONTROL}px;
+    font-weight: 700;
+}}
+#SettingsSection {{
+    background: transparent;
+    border: none;
+    border-radius: {RADIUS_LG}px;
+}}
+#SettingsSectionTitle {{
+    color: {TEXT1};
+    font-size: {FONT_CONTROL}px;
+    font-weight: 600;
+}}
+#TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
-    background: {CONTENT};
-    border: 1px solid {BORDER};
+    background: transparent;
+    border: none;
     border-radius: {RADIUS_MD}px;
 }}
 #NotificationSettingsHeading {{
@@ -668,6 +804,9 @@ QSlider::handle:horizontal:hover {{
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
 }}
+#PluginCard:hover {{
+    border-color: {BORDER_STRONG};
+}}
 #PluginScroll, #PluginScroll > QWidget > QWidget {{
     background: transparent;
 }}
@@ -676,16 +815,17 @@ QSlider::handle:horizontal:hover {{
     background: transparent;
 }}
 #PluginTabs QTabBar::tab {{
-    background: transparent;
+    background: {CONTENT};
     color: {TEXT2};
-    padding: 7px 14px;
+    padding: 8px 18px;
     margin-right: 6px;
-    border-radius: {RADIUS_MD}px;
-    border: 1px solid {BORDER};
+    border-radius: 16px;
+    border: 1px solid transparent;
 }}
 #PluginTabs QTabBar::tab:selected {{
-    background: {ACCENT_SOFT};
-    color: {ACCENT};
+    background: {ELEVATED};
+    color: {TEXT1};
+    border: 1px solid {BORDER_STRONG};
 }}
 #PluginName {{
     font-weight: 600;
@@ -961,7 +1101,7 @@ QSlider::handle:horizontal:hover {{
 #PrimaryButton:focus {{
     border: 1px solid #04161f;
 }}
-#IconButton:hover {{
+#IconButton:hover, #IconButton[hovered="true"] {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
@@ -1153,6 +1293,47 @@ QPushButton#PrimaryButton:pressed {{
 }}
 #ShortcutEdit:focus {{
     border: 1px solid {ACCENT};
+}}
+QLineEdit#ShortcutEdit[mouseShortcut="true"] {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM + 2}px;
+    padding: 4px 8px;
+    color: {TEXT1};
+}}
+QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
+    border: 1px solid {ACCENT};
+}}
+#ShortcutGroupTitle {{
+    color: {TEXT1};
+    font-size: {FONT_HEADING}px;
+    font-weight: 700;
+    padding: 2px 0 8px;
+}}
+#ShortcutRowTitle {{
+    color: {TEXT1};
+    font-size: {FONT_CONTROL}px;
+    font-weight: 700;
+}}
+#ShortcutDivider {{
+    background: {BORDER};
+}}
+#ShortcutAction, #ShortcutIconButton {{
+    background: {CONTENT_HOVER};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_SM + 2}px;
+    color: {TEXT1};
+    min-height: {CONTROL_HEIGHT}px;
+}}
+#ShortcutAction {{ padding: 0 12px; font-weight: 600; }}
+#ShortcutIconButton {{ min-width: 30px; padding: 0; font-size: 16px; }}
+#ShortcutAction:hover, #ShortcutIconButton:hover {{
+    background: {ACCENT_SOFT};
+    border-color: {ACCENT};
+    color: {ACCENT};
+}}
+#ShortcutAction:pressed, #ShortcutIconButton:pressed {{
+    background: {style_mix("CONTENT", "#000000", 0.12)};
 }}
 #AccountId {{
     color: {TEXT3}; background: transparent;
@@ -1501,23 +1682,23 @@ QPushButton#PrimaryButton:pressed {{
 }}
 
 /* 弹出菜单 */
-QListWidget#FollowList {{
+QListWidget#FollowList, QListWidget#BlockedUsersList {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 4px;
     outline: none;
 }}
-QListWidget#FollowList::item {{
+QListWidget#FollowList::item, QListWidget#BlockedUsersList::item {{
     padding: 6px 4px;
     border-radius: {RADIUS_SM + 2}px;
     color: {TEXT2};
 }}
-QListWidget#FollowList::item:hover {{
+QListWidget#FollowList::item:hover, QListWidget#BlockedUsersList::item:hover {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
-QListWidget#FollowList::item:selected {{
+QListWidget#FollowList::item:selected, QListWidget#BlockedUsersList::item:selected {{
     background: {ACCENT_SOFT};
     color: {ACCENT};
 }}
@@ -1654,4 +1835,5 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         #DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}
         """
     from .continuous_corners import stylesheet
-    return stylesheet(style + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)
+    from .settings_material import control_stylesheet
+    return stylesheet(style + control_stylesheet() + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)

@@ -3,11 +3,12 @@ import re
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QSpinBox, QVBoxLayout
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout
 
 from .. import theme
 from ..motion import AnimatedDialog
 from .basics import ActionButton, page_header
+from .slider import SettingsSlider
 
 
 class ColorDialog(AnimatedDialog):
@@ -32,7 +33,7 @@ class ColorDialog(AnimatedDialog):
         self.sliders, self.channels = [], []
         for index, label in enumerate(('红 R', '绿 G', '蓝 B')):
             grid.addWidget(QLabel(label), index, 0)
-            slider = QSlider(Qt.Horizontal, self)
+            slider = SettingsSlider(self)
             slider.setRange(0, 255)
             slider.setAccessibleName(label)
             spin = QSpinBox(self)
