@@ -13,7 +13,7 @@ from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint,
 from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
-from ddm import app as app_module, theme
+from ddm import app as app_module, continuous_corners, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
@@ -121,8 +121,17 @@ def check_transparent_bar(app, tile):
             assert editor.paints > 0, 'Transparent composition must include the live editor'
             sample_x = tile.bottom.width() // 2 + 120
             assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
+            assert image.pixelColor(sample_x, round(image.height() * .32)).alpha() < 40, \
+                'Fullscreen bar must remain nearly transparent above the controls'
+            assert image.pixelColor(sample_x, round(image.height() * .72)).alpha() < 130, \
+                'Fullscreen bar gradient must rise smoothly from the bottom'
             assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
+            tile.volume_button.setProperty('hovered', True)
+            volume_values = continuous_corners._filter.values(tile.volume_button, overrides={'hover': True})
+            assert volume_values.get('background') == 'rgba(255, 255, 255, 0.18)', \
+                'Fullscreen volume hover must use the translucent white control surface'
+            tile.volume_button.setProperty('hovered', False)
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
             QTest.mouseClick(tile.pause_button, Qt.LeftButton)

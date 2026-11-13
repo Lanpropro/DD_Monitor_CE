@@ -91,6 +91,24 @@ class FullscreenBar(QWidget):
         if restore_focus:
             focus.setFocus(Qt.OtherFocusReason)
         self.refresh_theme()
+        if enabled:
+            # Promoting the bar to its own HWND can defer the final child
+            # layout until the new window is exposed.  Re-activate the
+            # existing layout once the native window is live so the input
+            # composer and edge controls keep the same coordinates.
+            QTimer.singleShot(0, self, self._sync_native_children)
+
+    def _sync_native_children(self):
+        if not self.qt_composited or not self.isVisible():
+            return
+        layout = self.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
+        for child in self.findChildren(QWidget):
+            if child.isVisible():
+                child.updateGeometry()
+        self.update()
 
     def set_tile_geometry(self, x, y, width, height):
         self._tile_rect = QRect(x, y, width, height)
@@ -129,7 +147,11 @@ class FullscreenBar(QWidget):
     def _render_badge(self, painter):
         shade = QLinearGradient(0, 0, 0, self.height())
         shade.setColorAt(0, QColor(0, 0, 0, 0))
-        shade.setColorAt(1, QColor(0, 0, 0, 150))
+        # Bilibili's live bar keeps the upper edge clear and reaches its
+        # darkest surface only at the bottom edge.
+        shade.setColorAt(.32, QColor(0, 0, 0, 18))
+        shade.setColorAt(.72, QColor(0, 0, 0, 96))
+        shade.setColorAt(1, QColor(0, 0, 0, 180))
         painter.fillRect(self.rect(), shade)
 
     def _mask_label_windows(self, hide):

@@ -95,7 +95,10 @@ FULLSCREEN_BAR_STYLE = '''
 }
 #TileBottom[fullscreen="true"] #TileCtrl:hover,
 #TileBottom[fullscreen="true"] #TileCtrl[hovered="true"],
-#TileBottom[fullscreen="true"] #TileToggle:hover {
+#TileBottom[fullscreen="true"] #TileToggle:hover,
+#TileBottom[fullscreen="true"] #TileToggle[hovered="true"],
+#TileBottom[fullscreen="true"] #BiliVolumeButton:hover,
+#TileBottom[fullscreen="true"] #BiliVolumeButton[hovered="true"] {
     background: rgba(255, 255, 255, 0.18);
     color: #ffffff;
 }
