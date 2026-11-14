@@ -13,13 +13,12 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7.3'
-    assert version.VERSION_TAG == 'v0.7.3'
+    assert version.VERSION == '0.7.4'
+    assert version.VERSION_TAG == 'v0.7.4'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
-    assert notes.startswith('# DD监控室CE v0.7.3 更新说明')
-    for feature in ('设置与外观', '弹幕、画面墙与播放', '更新、插件与诊断',
-                    '普通输入框透明绘制', '跨平台弹幕词条和用户屏蔽', '发布源码通过'):
+    assert notes.startswith('# DD监控室CE v0.7.4 更新说明')
+    for feature in ('插件商店', 'proxy_control', '网络代理 1.0', '插件与本体独立发布', '公开插件目录'):
         assert feature in notes, feature
     technical = (Path(__file__).resolve().parents[1] / 'docs/online-updates.md').read_text(encoding='utf-8')
     for feature in ('legacy-program-backup-', 'SHA-256', '不自动删除恢复备份', 'DDM_SETTINGS_PROCESS=0'):
