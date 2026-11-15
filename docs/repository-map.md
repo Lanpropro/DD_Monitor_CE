@@ -719,7 +719,7 @@
 | `Video_reference/` | 宣传片参考视频和音乐 | 已忽略；保留 |
 | `raw/` | 原始录制素材目录，未核验具体来源与保留价值 | 现有规则判定为忽略；保留 |
 | `results/promo-final/` | 最终宣传成片与封面 | 已忽略；保留 |
-| `results/` 其他内容 | 本体历史 ZIP、最新本体的正式附件与一个解压入口、各插件最新正式 ZIP；具体边界见[本机工作区维护](development/workspace-maintenance.md) | 已忽略（除 .gitignore）；非最终资料移入 `work/` |
+| `results/` 其他内容 | `archive/` 保存本体旧版本 ZIP；最新本体的正式附件与一个解压入口、各插件最新正式 ZIP 的边界见[本机工作区维护](development/workspace-maintenance.md) | 已忽略（除 .gitignore）；非最终资料移入 `work/` |
 | `work/` | 混合临时目录：构建、依赖、Git 工作树、测试截图及宣传资料 | 已忽略；不整体清理 |
 | `docs/local/archive/handoffs/`、`PROJECT_STATE.md` | 历史交接归档与当前交接入口 | 已忽略；不进入 `results/` 或发布包 |
 | `docs/local/idea.md` | 本机需求建议 | 已忽略；保留 |

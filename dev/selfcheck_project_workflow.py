@@ -113,8 +113,17 @@ class ProjectWorkflowTests(unittest.TestCase):
         source = (ROOT / 'docs/development/workspace-maintenance.md').read_text(encoding='utf-8')
         for text in ('同一版本号只保留最终修订', '一个可直接运行的解压入口',
                      '每个插件 ID 最新正式版本的 ZIP', '宣传片最终成片',
-                     '除此之外', 'ZIP 外的运行配置和日志'):
+                     '除此之外', 'ZIP 外的运行配置和日志', 'results/archive/'):
             self.assertIn(text, source)
+
+    def test_release_requires_human_review_of_changes_and_notes(self):
+        release = (ROOT / 'docs/releases/README.md').read_text(encoding='utf-8')
+        contributing = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
+        for text in ('上一正式标签至候选提交', 'docs/local/release-drafts/v<版本>.md',
+                     '维护者人工验收改动', '确认发布说明', '发布成功', '删除本机临时审核单'):
+            self.assertIn(text, release)
+        self.assertIn('人工验收前不得发布', release)
+        self.assertIn('才可创建版本标签和 GitHub Release', contributing)
 
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
