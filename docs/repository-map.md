@@ -22,7 +22,7 @@
 | `blivedm/` | B站弹幕协议实现 |
 | `assets/`、`favicon.ico` | 软件图标、平台图标与资源 |
 | `main.py`、`requirements.txt`、`run.cmd`、`run-console.cmd` | 软件入口、依赖和启动脚本 |
-| `plugins_user/` | 插件源码、模板、本机安装副本与更新暂存；不能整体当杂项 |
+| `plugins_user/` | 本仓库只跟踪 `_template_platform/` 开发模板；其余为本机安装副本、旧目录或更新暂存，现行插件源码在独立插件仓库 |
 | `libmpv-2.dll` | 本机播放运行库；使用 `dev/fetch_mpv.py` 下载并按来源清单校验，不进入 Git |
 
 头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。播放恢复调度集中在 `ddm/playback_recovery.py`，独立持有重连与冻结恢复状态及定时器；主窗口负责播放器操作、界面和插件事件，并保留原有内部入口的委托。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
