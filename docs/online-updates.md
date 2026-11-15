@@ -42,7 +42,7 @@ EXE 默认启用独立设置进程，`DDM_SETTINGS_PROCESS=0` 可使用原设置
 
 0.3 开始包含更新助手。EXE 构建中生成 `ddm-build.json`，记录版本、Windows x64 平台和更新协议；生成 ZIP 时另在输出目录生成 `app-update.json`，包含版本、下载地址、大小、SHA-256 及更新说明。它们由正常发布脚本生成，不需要用户配置 GitHub Token。
 
-正式发布时上传 **EXE ZIP 和 app-update.json**，并使用与本体版本一致的新 tag，例如 `v0.3`、`v0.3.1`。将该 Release 标记为最新正式版本。程序优先从最新 Release 的固定附件 URL 获取更新清单，兼容 GitHub Release API；草稿和预发布版本不会通过 API 推送。程序包内的 `ddm-build.json` 记录 `source_commit`；发布前将其与实际构建提交、更新清单的附件名称、大小和 SHA-256 一起核对。
+正式发布时上传在线更新必需的 **EXE ZIP 和 app-update.json**，并提供已验收的 `DDMonitorSetup.exe` 供新用户安装；源码 ZIP 与 `SHA256SUMS.txt` 随正式发布附上。使用与本体版本一致的新 tag，例如 `v0.3`、`v0.3.1`，并将该 Release 标记为最新正式版本。程序优先从最新 Release 的固定附件 URL 获取更新清单，兼容 GitHub Release API；草稿和预发布版本不会通过 API 推送。程序包内的 `ddm-build.json` 记录 `source_commit`；发布前将其与实际构建提交、更新清单的附件名称、大小和 SHA-256 一起核对。
 
 ### 同版本 Hotfix
 

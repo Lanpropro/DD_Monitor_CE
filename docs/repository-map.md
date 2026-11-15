@@ -574,6 +574,7 @@
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/RELEASE-v0.7.1.md`
 - `docs/releases/RELEASE-v0.7.2.md`
+- `docs/releases/RELEASE-v0.7.2-hotfix.2.md`
 - `docs/releases/RELEASE-v0.7.3.md`
 - `docs/releases/UNRELEASED.md`
 
