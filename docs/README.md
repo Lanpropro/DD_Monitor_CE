@@ -92,9 +92,11 @@
 - 提交前运行：
 
 ```powershell
-python dev/selfcheck_documents.py
-python dev/run_checks.py --suite repository
+dev\run-checks.cmd --script selfcheck_documents
+dev\run-checks.cmd --suite repository
 git diff --check
 ```
+
+其他系统使用 Python 3.10 及以上版本运行相同脚本。
 
 发现链接失效、文档未入索引或元信息缺失时，修正文档和索引，不删除检查规则。

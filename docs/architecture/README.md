@@ -1,6 +1,6 @@
 # 架构文档
 
-> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-14 ｜ 读者：贡献者、维护者
+> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：贡献者、维护者
 
 本目录说明系统如何组成，以及修改时边界在哪里。它不替代代码、文件清单和单功能设计文档。
 
@@ -24,4 +24,4 @@
 - 不在这里复制完整文件清单；文件归属以[仓库文件分类清单](../repository-map.md)为准。
 - 单功能的交互与验收写在对应设计文档（如[画中画](../picture-in-picture.md)、[直播间组合](../room-presets-design.md)），
   架构页只保留结构与边界。
-- 修改后运行 `python dev/selfcheck_documents.py` 与 `python dev/run_checks.py --suite repository`。
+- 修改后运行 `dev\run-checks.cmd --script selfcheck_documents` 与 `dev\run-checks.cmd --suite repository`；其他系统使用 Python 3.10 及以上版本运行相同脚本。

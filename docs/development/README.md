@@ -1,6 +1,6 @@
 # 开发指南
 
-> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-14 ｜ 读者：贡献者、维护者
+> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：贡献者、维护者
 
 本目录放"怎么做"的文档：环境、验证、界面组件、打包安装、工作区维护和专项采集。
 系统组成与边界见[架构总览](../architecture/overview.md)；流程和提交规则见[贡献指南](../../CONTRIBUTING.md)。
@@ -16,10 +16,12 @@
 
 ```powershell
 # 基础三件套，不联网、不读账号
-python dev/run_checks.py --suite repository
+dev\run-checks.cmd --suite repository
 python -m compileall -q ddm blivedm main.py
 git diff --check
 ```
+
+编译检查也应使用项目虚拟环境的 Python；系统 PATH 若指向旧版解释器，不能用其失败结果判断源码有误。
 
 ## 按改动类型查找
 

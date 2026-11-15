@@ -11,7 +11,7 @@
 - 目录与运行入口的整体关系见[架构总览](architecture/overview.md)；本机资料不进入版本库和发布包。
 
 盘点日期：2026-10-19；当时完成分类盘点并删除四个过时脚本，详见[整理审查](archive/repository-cleanup-review.md)。
-最近整理：2026-11-14，补充文档分层、架构与规范索引，详见[归档记录](archive/docs-organization-20261114.md)。
+最近整理：2026-11-15，移除不再使用的旧网站原型截图；2026-11-14 的文档分层调整见[归档记录](archive/docs-organization-20261114.md)。
 以下按当前工作区与 Git 索引盘点，不代表远端仓库状态；未读取真实配置、账号数据或媒体内容。
 
 ## 软件本体与插件功能范围
@@ -604,19 +604,6 @@
 - `docs/resize-performance.md`
 - `docs/room-presets-design.md`
 - `docs/skins.md`
-
-### 网站原型截图归档
-
-- `docs/archive/website-screenshots/assets/hero-main.jpg`
-- `docs/archive/website-screenshots/assets/tile-danmaku.jpg`
-- `docs/archive/website-screenshots/assets/tile-game.jpg`
-- `docs/archive/website-screenshots/assets/tile-portrait.jpg`
-- `docs/archive/website-screenshots/assets/wall-danmaku.jpg`
-- `docs/archive/website-screenshots/assets/wall-landscape.jpg`
-- `docs/archive/website-screenshots/assets/wall-portrait.jpg`
-- `docs/archive/website-screenshots/shots/desktop.png`
-- `docs/archive/website-screenshots/shots/hero.png`
-- `docs/archive/website-screenshots/shots/mobile.png`
 
 ### Flutter 移动端
 
