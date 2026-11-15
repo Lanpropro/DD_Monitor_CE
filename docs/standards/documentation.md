@@ -22,9 +22,9 @@
 | 阶段 | 要回答的问题 | 文档产出 | 位置 |
 | --- | --- | --- | --- |
 | 需求与范围 | 改什么、不改什么、如何判定完成 | Issue 表单、验收条件；已复现故障进入案例库 | `.github/ISSUE_TEMPLATE/`、[Bug 案例库](../bug-cases.md) |
-| 设计 | 状态归谁、边界在哪、失败如何收场 | 架构说明、设计说明；插件写 `DESIGN.md` | [架构总览](../architecture/overview.md)、`docs/`、插件目录 |
+| 设计 | 状态归谁、边界在哪、失败如何收场 | 架构说明、设计说明；插件在 README 或按需建立的 `DESIGN.md` 中记录 | [架构总览](../architecture/overview.md)、`docs/`、插件目录 |
 | 实现 | 代码放在哪个职责模块 | 模块文档字符串、`docs/development/` 中的职责说明 | `ddm/`、`plugins/<ID>/` |
-| 验证 | 哪些检查通过、哪些仍需人工 | 验证命令与结果；专项索引；插件验收清单 | [验证指南](../development/testing.md)、`dev/checks/`、插件 `ACCEPTANCE.md` |
+| 验证 | 哪些检查通过、哪些仍需人工 | 验证命令与结果；专项索引；插件在 README 或按需建立的 `ACCEPTANCE.md` 中记录验收步骤 | [验证指南](../development/testing.md)、`dev/checks/`、插件目录 |
 | 变更记录 | 这一版实际改了什么 | 未发布记录；插件增量记录 | [UNRELEASED](../releases/UNRELEASED.md)、插件 `docs/changes/` |
 | 发布 | 版本、源码 SHA、产物、兼容范围 | 发布说明、标签、网站下载数据 | [发布记录](../releases/README.md)、插件 `docs/releases/`、网站 `docs/data/` |
 | 网站同步 | 用户看到的信息是否与已发布产物一致 | 版本、下载地址、SHA-256、插件目录 | 网站仓库 `docs/data/*.json`，由同步工具生成 |
@@ -42,9 +42,9 @@
 | --- | --- | --- | --- | --- |
 | 入口 | 第一眼看到什么 | 根 `README.md`、`CONTRIBUTING.md`、`docs/README.md` | 根 `README.md`、`CONTRIBUTING.md`、`docs/README.md` | 根 `README.md`、`CONTRIBUTING.md`、`development/README.md` |
 | 规范 | 共同遵守的规则 | `docs/standards/` | `docs/standards/` | `development/` |
-| 架构 | 系统如何组成、边界在哪 | `docs/architecture/` | 插件目录说明与各插件 `DESIGN.md` | `WEBSITE.md`、`development/content-sync.md` |
+| 架构 | 系统如何组成、边界在哪 | `docs/architecture/` | 插件 README 与按需建立的 `DESIGN.md` | `WEBSITE.md`、`development/content-sync.md` |
 | 开发指南 | 环境、测试、构建、排障 | `docs/development/` | `docs/development/` | `development/`、`WEBSITE.md` |
-| 设计与参考 | 功能说明、接口、文件清单与参考项目索引 | `docs/*.md`、`docs/references/`、`docs/repository-map.md` | 各插件 `README.md`、`FEATURES.md`、`PARITY.md` | 发布后的 `docs/` 页面（面向用户） |
+| 设计与参考 | 功能说明、接口、文件清单与参考项目索引 | `docs/*.md`、`docs/references/`、`docs/repository-map.md` | 各插件 README 与按需建立的 `FEATURES.md`、`PARITY.md` | 发布后的 `docs/` 页面（面向用户） |
 | 记录 | 版本、变更、验收、故障 | `docs/releases/`、`docs/bug-cases.md` | `docs/changes/`、`docs/releases/` | `docs/data/` 与 PR 记录 |
 | 归档 | 不再更新的历史 | `docs/archive/` | `docs/archive/` | `MIGRATION.md` 与 Git 历史 |
 
@@ -144,7 +144,7 @@
 - 本体版本以 `ddm/version.py` 为准；插件版本以各插件 `plugin.json` 为准；网站下载数据以 `docs/data/*.json` 为准。
 - 文档中出现的版本必须能指回上述来源之一；不凭印象写“最新版”。
 - 本体的公开插件接口在 [插件接口](../plugins.md) 中说明；新增能力要写“旧宿主是否可用”和最低版本。
-- 插件 README 要写最低本体版本、依赖的其他插件、安装与更新方式；发布说明要与 GitHub Release 正文一致。
+- 插件 README 要写已知的宿主接口要求、依赖的其他插件、安装与更新方式；清单声明 `min_app_version` 时同步写明最低本体版本。发布说明要与 GitHub Release 正文一致。
 - 网站只展示已发布资产：下载地址来自 GitHub Releases，SHA-256 来自公开附件；本机重新打包的哈希不能替代。
 - 编写新版本 Release 正文时，参照同一产品上一次正式发布的 `docs/releases/RELEASE-*.md` 和 GitHub Release 正文的结构；逐项核对本次实际包含的改动、兼容范围、验证和限制，不沿用旧版事实。
 - 拟纳入本体版本的修改及时记入 `docs/releases/UNRELEASED.md`；发布前以正式标签至候选提交的实际差异准备本机临时审核单和 `RELEASE-v<版本>.md` 草稿，完成候选验证后展示给维护者人工验收修改并确认正文。通过前不创建标签或 Release；发布成功后删除临时审核单，并把上一版本的本机产物移入 `results/archive/`。具体步骤见[发布约定](../releases/README.md#发布约定)。
@@ -214,13 +214,16 @@
 
 插件文档集：
 
-| 文件 | 何时必须有 | 内容 |
+| 文件 | 使用时机 | 内容 |
 | --- | --- | --- |
-| `plugins/<ID>/README.md` | 始终 | 功能、最低本体版本、依赖、安装更新、已知限制 |
-| `plugins/<ID>/DESIGN.md` | 有独立界面或后台流程 | 状态归属、线程/进程、失败与恢复 |
-| `plugins/<ID>/FEATURES.md` | 功能多于一项 | 功能清单与验收口径 |
-| `plugins/<ID>/ACCEPTANCE.md` | 涉及真实直播、录制或账号 | 人工验收步骤、预期结果、未覆盖范围 |
+| `plugins/<ID>/README.md` | 始终 | 功能、宿主接口要求或清单声明的最低本体版本、依赖、安装更新、已知限制 |
+| `plugins/<ID>/DESIGN.md` | 复杂状态或线程关系需要长期独立说明时 | 状态归属、线程/进程、失败与恢复 |
+| `plugins/<ID>/FEATURES.md` | 功能清单放在 README 中不便维护时 | 功能清单与验收口径 |
+| `plugins/<ID>/ACCEPTANCE.md` | 人工验收步骤需跨版本反复执行时 | 人工验收步骤、预期结果、未覆盖范围 |
+| `plugins/<ID>/PARITY.md` | 参考实现的对照需长期维护时 | 对照项、差异与保留原因 |
 | `docs/changes/<ID>.md` | 始终 | 待发布条目、验收证据、提交/PR、发布注意 |
+
+单个 README 能清楚承载当前功能、设计和验收方法时，无需为插件另建专题页；独立页建立后从 README 链接。
 
 发布说明骨架：
 
@@ -243,7 +246,7 @@
 
 - 本规范生效前的文档保留原路径与原名；新增检查只要求长期维护文档补元信息，不要求历史记录改写。
 - `docs/NOTICE.md`、各仓库 `NOTICE.md`、`LICENSE` 按法务原文保留，不受排版和元信息约束。
-- 插件 `docs/releases/` 与 `sources.json` 是哈希固定的发布存档，只追加、不改写。
+- 插件 `docs/releases/` 与 `sources.json` 保存带来源和哈希的发布记录；同版本公开正文修订须经维护者明确授权，先留存旧正文与来源，再同步更新公开正文、仓库说明和校验值。
 - 网站 `docs/` 是公开站点的内容源码，构建产物在 `docs/.vitepress/dist/`；开发文档放在仓库根目录 `development/`，不混入站点页面。
 - 后续若迁移目录，先保留旧路径的薄索引或一次性提交全部链接更新，并在提交说明中列出验证命令。
 
