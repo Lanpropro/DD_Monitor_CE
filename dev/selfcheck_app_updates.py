@@ -221,6 +221,18 @@ class AppUpdatesTests(unittest.TestCase):
         host.open_settings.assert_called_with('plugins')
         notice.track_history.assert_called_with((center, center.add.return_value))
 
+    def test_update_notice_is_persistent_by_default_and_can_be_timed(self):
+        from ddm.config import DEFAULT_SETTINGS
+        self.assertTrue(DEFAULT_SETTINGS['notice_persist_updates'])
+        host = self.host
+        host._available_update = {'version': '9.0'}
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=True)
+            host.settings['notice_persist_updates'] = False
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=False)
+
     def test_failure_is_silent_during_close(self):
         output = io.StringIO()
         with redirect_stderr(output):

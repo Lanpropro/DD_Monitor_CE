@@ -433,6 +433,7 @@ def check_download_reopen(app, root):
             release.set()
             window._close_settings_host()
             window.close()
+            window.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             app.processEvents()
     print('PASS: same download/progress and prepared update after closing/reopening normal and hosted settings')
@@ -450,6 +451,8 @@ def check_download_reopen(app, root):
     window.close()
     settle(app, page)
     assert interrupted.wait(2) and page.stopping, 'Application exit must stop a hidden update task'
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def main():
@@ -457,7 +460,8 @@ def main():
     app.setStyleSheet(theme.qss())
     check_remove_prompt(app)
     ui_thread = threading.get_ident()
-    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
+    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary), \
+            patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'host-plugins')):
         root = Path(temporary)
         check_store_browser(app, root)
         check_plugin_page_boundaries(app, root)
@@ -683,6 +687,8 @@ def main():
                 assert window._closing and window._update_plan == str(plan_path)
                 assert not window._restart_requested and save.called
                 finish.assert_called_once()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         # 下载取消后等待工作线程退出，避免销毁仍运行的 QThread。
         standalone = OnlinePage()
         started = threading.Event()
