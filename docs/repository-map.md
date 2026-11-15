@@ -1,6 +1,6 @@
 # 仓库文件分类清单
 
-> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-14 ｜ 读者：维护者
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：维护者
 
 ## 本页用法
 
@@ -719,10 +719,9 @@
 | `Video_reference/` | 宣传片参考视频和音乐 | 已忽略；保留 |
 | `raw/` | 原始录制素材目录，未核验具体来源与保留价值 | 现有规则判定为忽略；保留 |
 | `results/promo-final/` | 最终宣传成片与封面 | 已忽略；保留 |
-| `results/*promo*` | 宣传片归档和校验记录 | 已忽略；保留 |
-| `results/` 其他内容 | 软件/插件发布包、发布校验及测试产物，不能整目录归为宣传资料 | 已忽略（除 .gitignore）；保留 |
+| `results/` 其他内容 | 本体历史 ZIP、最新本体的正式附件与一个解压入口、各插件最新正式 ZIP；具体边界见[本机工作区维护](development/workspace-maintenance.md) | 已忽略（除 .gitignore）；非最终资料移入 `work/` |
 | `work/` | 混合临时目录：构建、依赖、Git 工作树、测试截图及宣传资料 | 已忽略；不整体清理 |
-| `docs/local/HANDOFF-*.md`、`docs/HANDOFF-*.md`、`PROJECT_STATE.md` | 本机交接及状态记录，涉及多个历史任务 | 已忽略；保留当前交接 |
+| `docs/local/archive/handoffs/`、`PROJECT_STATE.md` | 历史交接归档与当前交接入口 | 已忽略；不进入 `results/` 或发布包 |
 | `docs/local/idea.md` | 本机需求建议 | 已忽略；保留 |
 | `docs/VIDEO-*.md`、`docs/PROMO-*.md` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
 | `dev/*promo*`、`dev/*highlight*`、`dev/*videotogether*`、`dev/test_video_*.py` | 宣传片专项脚本与校验工具；不含 selfcheck_video_* 软件测试 | 已忽略；保留 |

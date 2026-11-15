@@ -13,6 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RepositoryMapTests(unittest.TestCase):
+    def test_final_artifacts_and_handoffs_are_not_tracked(self):
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")
+        self.assertEqual([path for path in tracked if path.startswith("results/")],
+                         ["results/.gitignore"])
+        self.assertFalse([path for path in tracked if path.startswith("docs/HANDOFF-")])
+
     def test_all_tracked_auxiliary_files_are_documented(self):
         tracked = subprocess.check_output(
             ["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")

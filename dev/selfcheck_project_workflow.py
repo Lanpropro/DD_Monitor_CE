@@ -109,10 +109,11 @@ class ProjectWorkflowTests(unittest.TestCase):
             self.assertIn(text, source)
         self.assertFalse((ROOT / 'dev/restart-client.ps1').exists())
 
-    def test_old_release_folders_are_archived_after_verification(self):
+    def test_results_keep_only_final_deliverables(self):
         source = (ROOT / 'docs/development/workspace-maintenance.md').read_text(encoding='utf-8')
-        for text in ('最新正式版本', '旧版发布目录归档为同名 ZIP',
-                     '核对文件清单及内容一致后再删除原目录', '解压到 `work/`'):
+        for text in ('同一版本号只保留最终修订', '一个可直接运行的解压入口',
+                     '每个插件 ID 最新正式版本的 ZIP', '宣传片最终成片',
+                     '除此之外', 'ZIP 外的运行配置和日志'):
             self.assertIn(text, source)
 
     def test_pr_template_documents_target_validation_and_dependencies(self):
