@@ -110,6 +110,26 @@ for name in ('_start_startup_tiles', 'start_all', 'apply_quality_policy', 'start
 
 
 class StreamPlaybackTests(unittest.TestCase):
+    def test_chzzk_uses_overseas_proxy_and_stops_relay(self):
+        from ddm.player import TilePlayer
+        from ddm.follow_folders import PLATFORM_NAMES
+        from ddm.auto_quality import OVERSEAS_PLATFORMS
+        self.assertIn('chzzk', OVERSEAS_PLATFORMS)
+        self.assertEqual(PLATFORM_NAMES['chzzk'], 'CHZZK')
+        player = Mock(decode_mode='auto', silent=False, diagnostic_room='chzzk:' + 'a' * 32)
+        relay = Mock(url='http://127.0.0.1:12345/fixture.m3u8')
+        headers = {'User-Agent': 'fixture', 'Referer': 'https://chzzk.naver.com/'}
+        with patch('ddm.hls_proxy.HlsProxy', return_value=relay) as factory, \
+                patch('ddm.global_danmaku.request_proxy', return_value='http://127.0.0.1:7890'):
+            TilePlayer._play_media(player, 'https://cdn.test/live.m3u8', 'chzzk', headers, [])
+        self.assertEqual(factory.call_args.args[:3],
+                         ('https://cdn.test/live.m3u8', headers, 'http://127.0.0.1:7890'))
+        self.assertEqual(player._media, relay.url)
+        self.assertEqual((player._buffer_limit, player._picture_limit), (20, 20))
+        TilePlayer._stop_media(player)
+        relay.stop.assert_called_once()
+        self.assertIsNone(player._hls_proxy)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

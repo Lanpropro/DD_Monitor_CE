@@ -52,9 +52,10 @@ def check_window(app):
             patch.object(TilePlayer, "play"):
         window = MainWindow([], [], state=state, layout_id="dm_pair")
         try:
-            for kind in ("youtube", "twitch"):
+            for kind in ("chzzk", "youtube", "twitch"):
                 platform = window.plugins.platforms[kind]
-                rid = kind + (":AbCd_123-45" if kind == "youtube" else ":test")
+                rid = kind + (":" + "a" * 32 if kind == "chzzk" else
+                              ":AbCd_123-45" if kind == "youtube" else ":test")
                 tile = window.wall.tiles[0]
                 window._stop_tile(tile)
                 tile.set_room({"room_id": rid, "platform": kind, "live": True, "uname": kind})
