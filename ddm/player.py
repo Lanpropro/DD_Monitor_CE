@@ -15,6 +15,7 @@ from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
 from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
+from .live_buffering import BUFFERED_PROFILES, RefillWatch, cache_options
 
 _runtime = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
 _dll_directory = None
@@ -98,6 +99,7 @@ class TilePlayer(QObject):
         self._play_request = None
         self._decoder_error = False
         self._source_read_error = False
+        self._refill_watch = RefillWatch()
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         self._last_picture = None
@@ -216,6 +218,7 @@ class TilePlayer(QObject):
         self.paused = False
         self._decoder_error = False
         self._source_read_error = False
+        self._refill_watch.reset()
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         overseas = profile in ("twitch", "youtube")
@@ -249,6 +252,8 @@ class TilePlayer(QObject):
         self._set("http-header-fields", [f"{name}: {value}" for name, value in request_headers.items()
                                          if value and "\n" not in str(value) and "\r" not in str(value)])
         self._set("hwdec", HWDEC[self.decode_mode])
+        for name, value in cache_options(profile, silent=self.silent).items():
+            self._set(name, value)
         self._set("pause", False)
         self._set("aid", "no" if self.silent or "audio=no" in options else "auto")
         self._ensure_audio_settings()
@@ -530,7 +535,13 @@ class TilePlayer(QObject):
             self._set_state("error")
             return
         self._stall_ticks += 2 if ended else 1
-        if self._stall_ticks >= self._buffer_limit:
+        limit = self._buffer_limit
+        if (self.stream_profile in BUFFERED_PROFILES and not ended
+                and self._prop("paused-for-cache", False) and not self.silent
+                and not self._source_read_error and not self.source_failure):
+            cache = self._prop("demuxer-cache-state", {}) or {}
+            limit = self._refill_watch.wait_limit(limit, cache.get("cache-end"))
+        if self._stall_ticks >= limit:
             self._set_state("error")
         elif self._stall_ticks >= 2:
             self._set_state("buffering")
