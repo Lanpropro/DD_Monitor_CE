@@ -172,6 +172,7 @@ https://cdn.test/audio.m3u8
                for key in ("high", "low", "hevc", "audio")}
     streams.update(best=streams["high"], worst=streams["low"])
     for kind, platform in manager.platforms.items():
+        module = sys.modules[type(platform).__mro__[1].__module__]
         rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         with patch.object(module, "Streamlink", return_value=session), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(rid, live=True)), \
@@ -191,6 +192,7 @@ https://cdn.test/audio.m3u8
 
     # 高延迟代理可连续两次断开 TLS；第三次成功不能变成整格取流失败。
     for kind, platform in manager.platforms.items():
+        module = sys.modules[type(platform).__mro__[1].__module__]
         rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         original_streamlink = module.Streamlink
         sessions = []
@@ -364,13 +366,14 @@ def check_window(app, records):
                 with patch("ddm.app.StatsPoller") as stats:
                     MainWindow.refresh_stats(window)
                     stats.assert_not_called()
+            active_plugins = list(window.plugins.enabled)
             window.plugins.enabled = set()
             window._sync_platform_rooms()
             hidden = window.current_state()
             assert not window.sidebar.rooms() and all(not tile.room.get("room_id") for tile in window.wall.tiles)
             assert window._danmaku is None and clients[-1].stopped
             assert set(hidden["suspended_platform_rooms"]) == {"twitch", "youtube"}
-            hidden["plugins_enabled"] = ["global_live"]
+            hidden["plugins_enabled"] = active_plugins
             rooms, wall = config.build_rooms(hidden)
             with patch("ddm.app.MainWindow.sync_danmaku"):
                 restored = MainWindow(rooms, wall, state=hidden, layout_id="dm_pair")
@@ -396,7 +399,8 @@ def main():
     manager = plugins.PluginManager(enabled=["global_live"])
     manager.load()
     assert set(manager.platforms) == {"twitch", "youtube", "chzzk"}
-    assert set(manager._platform_owner.values()) == {"global_live"} and len(manager.plugins) == 1
+    assert set(manager._platform_owner.values()) in ({"global_live"}, {"twitch_live", "youtube_live", "chzzk_live"})
+    assert len(manager.plugins) == len(set(manager._platform_owner.values()))
     records = check_metadata(manager)
     check_quality(manager)
     pixmap = QPixmap(32, 32)
