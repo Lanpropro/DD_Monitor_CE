@@ -16,6 +16,8 @@ LOCAL_ONLY = (
     "dev/mock_portrait.py", "dev/portrait_mock.html", "console.log*",
     "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
     "plugins_user/domestic_live/*", "plugins_user/global_live/*",
+    "plugins_user/huya_live/*", "plugins_user/douyu_live/*", "plugins_user/douyin_live/*",
+    "plugins_user/twitch_live/*", "plugins_user/youtube_live/*", "plugins_user/chzzk_live/*",
     "plugins_user/huya_watch/*", "plugins_user/_danmaku_log/*",
     "work/test-artifacts/*",
 )

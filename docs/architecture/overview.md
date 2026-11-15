@@ -257,3 +257,5 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 - [开发文档规范](../standards/documentation.md)
 - [验证指南](../development/testing.md)
 - [插件接口](../plugins.md)
+
+`plugin_replacements.py`负责组合包向独立平台包的声明迁移、设置继承与装载优先级；`plugin_types.PluginContext`只暴露平台是否已接管的查询。平台协议、缓存与互动请求仍属于插件，不在迁移层复制。

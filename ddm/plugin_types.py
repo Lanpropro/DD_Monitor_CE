@@ -259,6 +259,10 @@ class PluginContext:
     def platform(self, kind: str) -> Platform | None:
         return self._manager.platforms.get(str(kind))
 
+    def platform_replaced(self, kind: str) -> bool:
+        """Installed replacement owns this kind, including when explicitly disabled."""
+        return str(kind) in getattr(self._manager, '_platform_replacements', {}).get(self.name, ())
+
     def log(self, message: str) -> None:
         print(f"[插件 {self.name}] {message}", file=sys.stderr, flush=True)
 

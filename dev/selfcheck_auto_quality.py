@@ -146,11 +146,12 @@ def check_window(app):
                         assert preview.auto_quality is None
                     finally:
                         preview.release()
+            active_plugins = list(window.plugins.enabled)
             window.plugins.enabled = set()
             window._sync_platform_rooms()
             hidden = window.current_state()
             assert hidden["suspended_platform_rooms"]["twitch"]["wall"][0]["slot"]["quality"] == AUTO_QUALITY
-            hidden["plugins_enabled"] = ["global_live"]
+            hidden["plugins_enabled"] = active_plugins
             rooms, slots = config.build_rooms(hidden)
             restored = MainWindow(rooms, slots, state=hidden, layout_id="dm_pair")
             try:

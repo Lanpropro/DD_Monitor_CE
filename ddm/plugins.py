@@ -143,7 +143,10 @@ class PluginManager:
             if old in self.plugin_settings:
                 previous = self.plugin_settings.pop(old)
                 self.plugin_settings[new] = {**previous, **self.plugin_settings.get(new, {})}
-        for entry in sorted(os.listdir(self.plugins_dir)):
+        from .plugin_replacements import prepare
+        for entry in prepare(self, read_manifest):
+            if entry in self._replaced_plugins:
+                continue
             if entry.startswith((".", "_")) or entry in RETIRED_BUNDLED_PLUGINS:
                 continue
             if entry in RENAMED_PLUGINS and os.path.isfile(os.path.join(
@@ -155,6 +158,9 @@ class PluginManager:
                 continue
             if self.enabled is not None and entry not in self.enabled:
                 self.skipped.append((entry, "配置里没有启用"))
+                continue
+            if entry in self._blocked_replacements:
+                self.skipped.append((entry, "请先更新旧组合插件，或安装该组合的全部独立平台插件"))
                 continue
             try:
                 manifest = read_manifest(folder, entry)
@@ -181,6 +187,9 @@ class PluginManager:
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
                 context._active = False
+                for kind in [kind for kind, owner in self._platform_owner.items() if owner == entry]:
+                    self.platforms.pop(kind, None)
+                    self._platform_owner.pop(kind, None)
                 self._remove_tile_owner(entry)
                 context._clear_workspace_controls()
                 try:
