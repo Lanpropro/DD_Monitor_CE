@@ -97,6 +97,7 @@ class TilePlayer(QObject):
         self._decode_tried: set[str] = set()
         self._play_request = None
         self._decoder_error = False
+        self._source_read_error = False
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         self._last_picture = None
@@ -127,6 +128,9 @@ class TilePlayer(QObject):
             setattr(self.player, name.replace("-", "_"), value)
 
     def _log(self, level, prefix, message):
+        if (self.stream_profile == "douyu" and level in ("error", "fatal")
+                and prefix == "curl" and "transfer failed" in message):
+            self._source_read_error = True
         if level in ("error", "fatal") and self.stream_profile in ("huya", "douyu"):
             status = re.search(r"HTTP(?:/\d(?:\.\d)?| error)?\s+([45]\d\d)", message, re.I)
             if status and not self.source_failure:
@@ -206,6 +210,7 @@ class TilePlayer(QObject):
         self.source_failure = ""
         self.paused = False
         self._decoder_error = False
+        self._source_read_error = False
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         overseas = profile in ("twitch", "youtube")
@@ -425,7 +430,7 @@ class TilePlayer(QObject):
 
     def _recover_decoder(self, *, frozen=False) -> bool:
         if (self.silent or self.paused or self._released or self._play_request is None
-                or self.decode_mode == "none"):
+                or self.decode_mode == "none" or self._source_read_error):
             return False
         if self._hls_proxy is not None and self._hls_proxy.refresh_required.is_set():
             return False
