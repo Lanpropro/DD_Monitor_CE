@@ -23,6 +23,55 @@
 下文较长的功能段落保存了当时的命令、环境和结论，按改动范围查阅即可。2026-11-15 维护者反馈外观页仍无法使用滚轮；相关旧回归结果仅证明各自隔离场景通过，不能作为该问题已解决的证据，见[BUG-072](../bug-cases.md#2026-11-15-外观页滚轮反馈)。
 
 
+## 执行分类
+
+| 套件 | 依赖与行为 | 命令 |
+| --- | --- | --- |
+| `repository` | Python 标准库和 Git；不导入 Qt，不读取账号，不联网 | `python dev/run_checks.py` |
+| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 180` |
+| `offline` | 开发依赖；离屏 Qt、替身接口或本机 HTTP/WebSocket 服务，不访问真实直播 | `python dev/run_checks.py --suite offline` |
+| `native` | Windows、开发依赖、libmpv；部分项目需 FFmpeg，会创建原生窗口 | `python dev/run_checks.py --suite native` |
+| `live` | Windows、运行库和网络；显式指定公开开播房间，只读接收 | 使用下方单项命令 |
+
+`offline` 是已核对隔离条件的回归子集，`native` 也是明确列出的原生检查子集；均不表示仓库全部相关测试。其余历史脚本按功能列入[完整索引](../../dev/checks/README.md)，需要先检查脚本依赖、测试数据和隔离条件，再单独运行或加入套件。不能根据文件名中的 `live` 判断它是否使用真实网络。
+
+离屏进程会阻止 Python 层的外部 DNS 查询和 socket 连接，只允许回环地址；即使脚本捕获该异常，最终结果仍失败。Qt WebEngine、原生库和子进程仍需逐项审查。套件脚本不能使用 `os._exit` 绕过清理；具体纳入标准与本机归档见[工作区维护](workspace-maintenance.md)。
+
+## 单项与真实直播
+
+Windows x64 的 CI 功能检查会先构建仅供测试使用的原生栈记录器。访问冲突时，
+Python faulthandler 栈之外还会输出 `NATIVE_ACCESS_VIOLATION`、模块偏移和可解析符号；
+这是第一时间的异常记录，异常可能被原调用方处理，是否失败仍以原始退出码和断言为准。
+记录器返回 `EXCEPTION_CONTINUE_SEARCH`，不修改运行结果、垃圾回收参数或重试测试。
+没有 PDB 时符号可能缺失，模块偏移仍可保留；该工具不表示已定位或修复 Qt 异常。
+普通软件启动和无此环境变量的检查不加载它，也不需要 C++ 工具链。
+
+本机需 Visual Studio C++ x64 工具和 Windows SDK，从仓库根执行：
+
+```powershell
+.\dev\checks\build_native_crash.cmd
+$env:DDM_CHECK_NATIVE_STACK_DLL = (Resolve-Path work/check-native-crash.dll).Path
+python dev/selfcheck_check_runner.py CheckRunnerTests.test_native_stack_capture_preserves_exception_and_exit_code
+python dev/run_checks.py --script selfcheck_pane_danmaku
+Remove-Item Env:DDM_CHECK_NATIVE_STACK_DLL
+```
+
+记录器自检仅在隔离子进程生成合成异常，验证带／不带记录器的异常处理及退出码一致；
+不启动 Qt、不操作客户端、不访问账号或直播。新增测试失败时继续保留日志，不能以重跑通过覆盖失败。
+
+```powershell
+python dev/run_checks.py --list
+python dev/run_checks.py --script selfcheck_preview_scroll
+python dev/run_checks.py --script check_live_restore -- 6
+python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backend animator
+```
+
+房间 `6` 仅为命令示例，执行前确认目标正在开播。真实直播检查必须显式选择单项并传入参数，不能隐式批量执行；以上两项不加载个人登录配置、不发送真实弹幕。
+
+Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入口使用当前 Python 的解释器执行子进程，设置 `DDM_NO_SAVE=1`；离屏与原生图形后端按分类选择。每个脚本的退出码和异常保留在日志中；Windows 引导保持 MTA 资源至 Qt 清理结束。
+
+## 常用功能专项
+
 关注栏卡片原生预览滚动回归可从根目录运行 `run.cmd --check-preview-scroll`，依次执行离屏回归与本地 MP4 原生检查（需要 ffmpeg，不联网）。原生项核对连续24次滚动后的 Qt 与 HWND 坐标、播放器核心不变和播放进度继续；可设置 `QT_SCALE_FACTOR=1.5` 复核高 DPI。这是功能回归，真实跳位依据来自专项现场采集，不以本地视频证明用户机器的视觉改善。
 
 直播时长：`run.cmd --check-live-elapsed` 验证先播放后补时间、时间先到但播放器未确认起播、关注栏缓存后入墙、缺失时间及下播重开；确认时间有效后立即计时，继续按悬停规则显示，缺失的补充字段不清空有效时间，确认下播则清除上一场时间。`selfcheck_live_elapsed` 同时进入 smoke／offline 套件。真实客户端已记录到状态回调写入开播时间后计时器仍停止、后续播放回调才启动；隔离回归用于验证这些状态转换，不作为接口或播放性能改善的依据。`run.cmd --diagnose-live-elapsed` 复用现有开发诊断，增加状态／播放回调前后记录及三个布尔值（时间已到、计时器运行、画面已起播），不增加网络请求。人工重启该根入口，打开B站直播并刷新状态，悬停应及时显示时长；移开继续隐藏，下播后清除，再开播使用新时间。已有数据可直接复用，仍需真实用户复验等待是否改善。
@@ -99,53 +148,6 @@ SC 的画面位置与弹幕栏位置分别保存，可关闭同步以独立调�
 “同步画面与弹幕栏的 SC 位置”默认开启，缺少开关字段的旧配置与恢复默认也启用同步；明确保存的关闭选择继续保留。开启时以当前选中预览为准同步另一处，之后拖动和双击同时作用于两处位置；关闭后保持当前两处位置，可继续独立调整。开关与位置一起保存。模拟器专项覆盖默认值、旧配置、明确关闭的持久化、切换、重开、重置与实际显示；外置设置进程覆盖开关及两处值的保存回传。
 
 播放控制按钮依赖拆分回归：`run.cmd --check-playback-controls`。该入口使用离屏 Qt，验证公共按钮导入不加载播放器、旧导出身份、鼠标/键盘/禁用、音量边界及声道提示、刷新动画显隐与父对象销毁、深浅主题和多缩放绘制，再运行共用组件专项；不读取账号或播放真实媒体。普通 `run.cmd` 人工复查时，核对格子暂停/恢复、刷新、静音/滚轮音量/声道、弹幕开关、录制按钮、侧栏收展及全屏控件，预期行为和外观保持原样。
-
-## 执行分类
-
-| 套件 | 依赖与行为 | 命令 |
-| --- | --- | --- |
-| `repository` | Python 标准库和 Git；不导入 Qt，不读取账号，不联网 | `python dev/run_checks.py` |
-| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 180` |
-| `offline` | 开发依赖；离屏 Qt、替身接口或本机 HTTP/WebSocket 服务，不访问真实直播 | `python dev/run_checks.py --suite offline` |
-| `native` | Windows、开发依赖、libmpv；部分项目需 FFmpeg，会创建原生窗口 | `python dev/run_checks.py --suite native` |
-| `live` | Windows、运行库和网络；显式指定公开开播房间，只读接收 | 使用下方单项命令 |
-
-`offline` 是已核对隔离条件的回归子集，`native` 也是明确列出的原生检查子集；均不表示仓库全部相关测试。其余历史脚本按功能列入[完整索引](../../dev/checks/README.md)，需要先检查脚本依赖、测试数据和隔离条件，再单独运行或加入套件。不能根据文件名中的 `live` 判断它是否使用真实网络。
-
-离屏进程会阻止 Python 层的外部 DNS 查询和 socket 连接，只允许回环地址；即使脚本捕获该异常，最终结果仍失败。Qt WebEngine、原生库和子进程仍需逐项审查。套件脚本不能使用 `os._exit` 绕过清理；具体纳入标准与本机归档见[工作区维护](workspace-maintenance.md)。
-
-## 单项与真实直播
-
-Windows x64 的 CI 功能检查会先构建仅供测试使用的原生栈记录器。访问冲突时，
-Python faulthandler 栈之外还会输出 `NATIVE_ACCESS_VIOLATION`、模块偏移和可解析符号；
-这是第一时间的异常记录，异常可能被原调用方处理，是否失败仍以原始退出码和断言为准。
-记录器返回 `EXCEPTION_CONTINUE_SEARCH`，不修改运行结果、垃圾回收参数或重试测试。
-没有 PDB 时符号可能缺失，模块偏移仍可保留；该工具不表示已定位或修复 Qt 异常。
-普通软件启动和无此环境变量的检查不加载它，也不需要 C++ 工具链。
-
-本机需 Visual Studio C++ x64 工具和 Windows SDK，从仓库根执行：
-
-```powershell
-.\dev\checks\build_native_crash.cmd
-$env:DDM_CHECK_NATIVE_STACK_DLL = (Resolve-Path work/check-native-crash.dll).Path
-python dev/selfcheck_check_runner.py CheckRunnerTests.test_native_stack_capture_preserves_exception_and_exit_code
-python dev/run_checks.py --script selfcheck_pane_danmaku
-Remove-Item Env:DDM_CHECK_NATIVE_STACK_DLL
-```
-
-记录器自检仅在隔离子进程生成合成异常，验证带／不带记录器的异常处理及退出码一致；
-不启动 Qt、不操作客户端、不访问账号或直播。新增测试失败时继续保留日志，不能以重跑通过覆盖失败。
-
-```powershell
-python dev/run_checks.py --list
-python dev/run_checks.py --script selfcheck_preview_scroll
-python dev/run_checks.py --script check_live_restore -- 6
-python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backend animator
-```
-
-房间 `6` 仅为命令示例，执行前确认目标正在开播。真实直播检查必须显式选择单项并传入参数，不能隐式批量执行；以上两项不加载个人登录配置、不发送真实弹幕。
-
-Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入口使用当前 Python 的解释器执行子进程，设置 `DDM_NO_SAVE=1`；离屏与原生图形后端按分类选择。每个脚本的退出码和异常保留在日志中；Windows 引导保持 MTA 资源至 Qt 清理结束。
 
 ## 结果与新增检查
 
