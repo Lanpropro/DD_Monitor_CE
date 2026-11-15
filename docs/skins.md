@@ -133,9 +133,9 @@ plugin = Plugin()
 
 多个美化插件同时启用时沿用现有规则：按插件 ID 排序的最后一个优先，不将多个包混合。建议只启用一个。个人覆盖仍在其上应用。
 
-### 逐项测试顺序
+### 专业美化历史测试清单
 
-测试包由 `dev/selfcheck_skins.py --make-demo` 生成到 `work/appearance-delivery/skin_parts_demo.zip`，所有素材均为测试生成，不使用真实账号或用户背景。它是普通插件，不能在旧版本软件上使用新版分区接口。
+以下步骤属于已撤下的专业美化入口，不能作为当前外观页的人工验收清单。测试包由 `dev/selfcheck_skins.py --make-demo` 生成到 `work/appearance-delivery/skin_parts_demo.zip`，所有素材均为测试生成，不使用真实账号或用户背景。它是普通插件，不能在旧版本软件上使用新版分区接口。
 
 | 顺序 | 操作 | 预期 |
 | --- | --- | --- |

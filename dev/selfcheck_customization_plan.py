@@ -29,6 +29,8 @@ def main():
     design = (ROOT / "docs/room-presets-design.md").read_text(encoding="utf-8")
     assert "首版已实现，计划纳入 0.4" in design
     assert "0.4 发布仍受组合预设和皮肤" not in design
+    skin_doc = (ROOT / "docs/skins.md").read_text(encoding="utf-8")
+    assert "专业美化历史测试清单" in skin_doc
     assert "现有的“布局预设”弹层" in design and "直播间组合" in design
     for field in ("layout.ratios", "layout.danmaku_cell", "slots", "room_id", "volume", "muted", "audio_channel"):
         assert f"`{field}`" in design, field
