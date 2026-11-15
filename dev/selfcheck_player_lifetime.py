@@ -372,6 +372,22 @@ class SourceRecoveryTests(unittest.TestCase):
         self.assertEqual(player.state, 'error')
         self.assertEqual(player.source_failure, 'LIVE_EOF')
 
+    def test_observed_corrupt_input_at_stream_join_does_not_trigger_cpu_fallback(self):
+        for message in ('h264: mmco: unref short failure',
+                        'h264: number of reference frames exceeds max (probably corrupt input)',
+                        'h264: Invalid NAL unit size (97832 > 32688)',
+                        'h264: missing picture in access unit with size 32763',
+                        'h264: Error splitting the input into NAL units'):
+            with self.subTest(message=message):
+                player = self.player()
+                player._log('error', 'ffmpeg/video', message)
+                with patch.object(player, '_prop', return_value=None), patch.object(player, '_play_media') as reload:
+                    self.assertFalse(player._recover_decoder())
+                    reload.assert_not_called()
+                    # A later, independent hardware failure must still work.
+                    player._log('error', 'vd', 'hardware decoder failed')
+                    self.assertTrue(player._recover_decoder())
+
     def test_decoder_failure_without_transport_error_still_falls_back(self):
         player = self.player()
         player._log('error', 'ffmpeg/video', 'hardware decoder failed')

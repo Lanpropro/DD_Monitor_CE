@@ -135,7 +135,12 @@ class TilePlayer(QObject):
             status = re.search(r"HTTP(?:/\d(?:\.\d)?| error)?\s+([45]\d\d)", message, re.I)
             if status and not self.source_failure:
                 self.source_failure = "HTTP_" + status[1]
-        if level in ("error", "fatal") and prefix.startswith(("vd", "ffmpeg/video")):
+        corrupt_input = (self.stream_profile == "douyu" and prefix == "ffmpeg/video" and
+                         any(text in message for text in (
+                             "mmco: unref short failure", "probably corrupt input", "Invalid NAL unit size",
+                             "missing picture in access unit", "Error splitting the input into NAL units")))
+        if (level in ("error", "fatal") and prefix.startswith(("vd", "ffmpeg/video"))
+                and not corrupt_input):
             self._decoder_error = True
 
     def _transport_diagnostic(self, session, room, **event):
