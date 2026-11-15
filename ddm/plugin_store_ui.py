@@ -269,7 +269,7 @@ class PluginStorePage(OnlinePage):
             existing = installed.get(offer['id'])
             if offer['id'] in pending:
                 button.setText('待重启')
-                note = '新版本已下载，保存并重启后生效'
+                note = '新版本已下载，点击“重启以应用”后生效'
                 allowed = False
             elif existing:
                 try:
@@ -390,5 +390,5 @@ class PluginStorePage(OnlinePage):
         self.update_dots()  # Keep the cards and their scroll position while changing the completed action.
         self._filter_offers(reset_scroll=False)
         self.offersChanged.emit(self.offers)
-        self.status.setText('安装包已校验，保存并重启后生效。')
-        show_result(self.window(), '插件已安装，保存并重启后生效')
+        self.status.setText('安装包已校验，点击“重启以应用”后生效。')
+        show_result(self.window(), '插件已安装，点击“重启以应用”后生效')

@@ -76,6 +76,7 @@ def check_store_scroll(app, root):
                 store._installed((offers[1]['id'], False))
                 app.processEvents()
                 assert bar.value() == before, 'Install completion moved scroll'
+                assert '重启以应用' in store.status.text()
             page = dialog.plugin_page
             plugin_id = entries[0]['id']
             card = page.cards.itemAt(0).widget()
