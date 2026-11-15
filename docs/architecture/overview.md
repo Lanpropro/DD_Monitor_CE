@@ -250,6 +250,40 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。
 
+头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。播放恢复调度集中在 `ddm/playback_recovery.py`，独立持有重连与冻结恢复状态及定时器；主窗口负责播放器操作、界面和插件事件，并保留原有内部入口的委托。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
+
+开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
+
+未决问题的显式专项入口由 `ddm/diagnostic_session.py` 统一安装；通知、弹幕数值运动和原生拖放采集分别位于 `notice_diagnostics.py`、`danmaku_diagnostics.py`、`drag_diagnostics.py`，原 `dev/diagnose_*` 保留兼容入口。独立诊断工具只在点击专项启动按钮后启动主软件，生成包时仅收集白名单已有日志，不自动采集或上传。
+
+直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
+
+房间头像、封面和横幅的加载协调及界面回填集中在 `ddm/room_images.py`；主窗口保留原入口和调用时加载器构造器，继续持有线程引用及退出等待。缓存读写与下载仍由 `ddm/images.py` 实现，图片协调器不负责账号头像和播放器。
+
+录制开关、即时回放范围与额度、录制前画质锁定/恢复及录制计时集中在 `ddm/capture_control.py`；主窗口保留原方法入口，继续持有会话、待开始任务、画质记录和退出流程。FFmpeg 执行仍在 `ddm/recording.py`，录制源解析及通知入口保留在主窗口。
+
+画面墙右键的格子类型、多个弹幕栏及来源绑定由 `ddm/pane_danmaku.py` 管理，关联跟随画面换位，并随布局与直播间组合保存。`ddm/pane_source_picker.py` 管理信号图标左侧的头像来源条、从右向左展开／收起、溢出滚动和缓存头像更新。
+
+弹幕连接共享、按需订阅及连接/SC 快照线程退役集中在 `ddm/danmaku_lifecycle.py`。主窗口保留旧入口与回调、按调用时构造器创建线程，继续拥有 Qt 对象、连接状态和退出等待；消息分发、账号凭据与 SC 展示策略保持原归属。
+
+播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
+
+多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
+
+矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
+
+播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
+
+省略标签与工具条图标按钮分别在 `ddm/ui/labels.py`、`ddm/ui/toolbar.py` 维护，`ddm.ui` 按需导入；`widgets` 在原定义位置兼容导出同一类，保留原 Qt 子类加载顺序，`_repolish` 从共享辅助模块兼容导出。基础控件不依赖画面墙、播放器或主窗口，Qt 父子归属与信号行为沿用原实现。
+
+`ddm/widgets.py` 仅保留兼容导出，项目内部直接导入职责模块。弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片/文件夹/列表在 `ddm/sidebar_item.py`、`sidebar_thumbnail.py`、`sidebar_folders.py`、`sidebar_list.py`，开播动画在 `live_alert.py`，`sidebar_cards.py` 仅作兼容导出，侧栏协调在 `ddm/sidebar_widgets.py`，单格播放UI在 `ddm/tile_widgets.py`，画面墙与分区几何在 `ddm/wall_widgets.py`，布局选择在 `ddm/layout_picker.py`；共有常量和绘制辅助在 `ddm/widget_support.py`。旧类、常量和辅助函数仍是同一对象。布局选择与格子到画面墙的类型判断按需导入，避免模块导入循环；Qt父子关系、信号和播放器/连接/账号的状态所有权沿用原实现。
+
+侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
+
+网页登录职责：`ddm/account_browser.py`只管理本应用临时浏览器与回环控制连接；`ddm/browser_account_worker.py`处理取消、身份确认和关注读取；`ddm/browser_account_dialog.py`负责交互、加密保存和会话接线。平台接口解析留在独立插件，OAuth仍由原模块负责。浏览器只在用户发起登录且保存会话不可用时启动，结束或取消后释放，不读取个人浏览器资料。
+
+`plugin_replacements.py`负责组合包向独立平台包的声明迁移、设置继承与装载优先级；`plugin_types.PluginContext`只暴露平台是否已接管的查询。平台协议、缓存与互动请求仍属于插件，不在迁移层复制。
+
 ## 相关文档
 
 - [架构文档索引](README.md)
@@ -257,5 +291,3 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 - [开发文档规范](../standards/documentation.md)
 - [验证指南](../development/testing.md)
 - [插件接口](../plugins.md)
-
-`plugin_replacements.py`负责组合包向独立平台包的声明迁移、设置继承与装载优先级；`plugin_types.PluginContext`只暴露平台是否已接管的查询。平台协议、缓存与互动请求仍属于插件，不在迁移层复制。
