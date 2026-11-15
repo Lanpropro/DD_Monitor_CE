@@ -155,7 +155,7 @@ def check_metadata(manager):
 
 
 def check_quality(manager):
-    module = sys.modules[type(manager.platforms["twitch"]).__mro__[1].__module__]
+    module = sys.modules[manager.platforms["twitch"].play_url.__func__.__module__]
     session = module.Streamlink()
     playlist = """#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1080x1920,FRAME-RATE=60
