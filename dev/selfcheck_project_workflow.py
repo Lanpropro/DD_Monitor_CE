@@ -132,6 +132,13 @@ class ProjectWorkflowTests(unittest.TestCase):
                      '按一批候选单独提交删除及引用修正'):
             self.assertIn(text, source)
 
+    def test_validation_guide_uses_existing_check_entry(self):
+        guide = (ROOT / 'docs/development/testing.md').read_text(encoding='utf-8')
+        readme = (ROOT / 'dev/README.md').read_text(encoding='utf-8')
+        self.assertIn('dev\\run-checks.cmd --suite repository', guide)
+        self.assertIn('dev\\run-checks.cmd --script selfcheck_documents', readme)
+        self.assertTrue((ROOT / 'dev/selfcheck_documents.py').is_file())
+
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
         self.assertIn('目标分支为 `develop`', source)

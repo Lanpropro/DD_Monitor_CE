@@ -139,7 +139,6 @@
 - `dev/selfcheck_auto_quality.py`
 - `dev/selfcheck_auto_quality_live.py`
 - `dev/selfcheck_auto_quality_switch_live.py`
-- `dev/selfcheck_avatars.py`
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_cookies.py`

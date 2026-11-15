@@ -41,7 +41,7 @@
 dev\run-checks.cmd
 dev\run-checks.cmd --list
 dev\run-checks.cmd --suite offline
-dev\run-checks.cmd --script selfcheck_emoticon_tabs
+dev\run-checks.cmd --script selfcheck_documents
 python dev/selfcheck_documents.py
 ```
 

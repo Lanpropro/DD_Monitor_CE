@@ -97,7 +97,6 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_mobile_share](../selfcheck_mobile_share.py) | `offline`；手机中文分享、短链接跳转及后台查询，无账号和外网 |
 | [selfcheck_add_room_hints](../selfcheck_add_room_hints.py) | 单项执行前核对 |
 | [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | Windows 原生单项；空配置、禁用插件装载，最大化跟随屏幕，还原保留最大化前的窗口方向 |
-| [selfcheck_avatars](../selfcheck_avatars.py) | 单项执行前核对 |
 | [selfcheck_bili_2k_live](../selfcheck_bili_2k_live.py) | 单项执行前核对 |
 | [selfcheck_bili_plugin_boundary](../selfcheck_bili_plugin_boundary.py) | `offline`、`smoke` |
 | [selfcheck_bili_cookies](../selfcheck_bili_cookies.py) | `offline` |
