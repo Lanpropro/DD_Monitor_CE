@@ -339,55 +339,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [selfcheck_match_sync](../selfcheck_match_sync.py) | 单项执行前核对 |
-| [selfcheck_match_sync_reserve](../selfcheck_match_sync_reserve.py) | 单项执行；合成时钟、假取流、临时插件设置，验证可选缓冲与持续补充，不联网 |
-| [selfcheck_match_sync_admission](../selfcheck_match_sync_admission.py) | 单项执行前核对 |
-| [selfcheck_match_sync_alignment](../selfcheck_match_sync_alignment.py) | 单项执行前核对 |
-| [selfcheck_match_sync_appearance](../selfcheck_match_sync_appearance.py) | 单项执行前核对 |
-| [selfcheck_match_sync_assistance](../selfcheck_match_sync_assistance.py) | 单项执行前核对 |
-| [selfcheck_match_sync_audio_thread](../selfcheck_match_sync_audio_thread.py) | 单项执行前核对 |
-| [selfcheck_match_sync_chat](../selfcheck_match_sync_chat.py) | 单项执行前核对 |
-| [selfcheck_match_sync_comparison](../selfcheck_match_sync_comparison.py) | 单项执行前核对 |
-| [selfcheck_match_sync_control](../selfcheck_match_sync_control.py) | 单项执行前核对 |
-| [selfcheck_match_sync_crop_generation](../selfcheck_match_sync_crop_generation.py) | 单项执行前核对 |
-| [selfcheck_match_sync_crop_style](../selfcheck_match_sync_crop_style.py) | 单项执行前核对 |
-| [selfcheck_match_sync_danmaku_settings](../selfcheck_match_sync_danmaku_settings.py) | 单项执行前核对 |
-| [selfcheck_match_sync_douyu_picture](../selfcheck_match_sync_douyu_picture.py) | 单项执行前核对 |
-| [selfcheck_match_sync_empty](../selfcheck_match_sync_empty.py) | 单项执行前核对 |
-| [selfcheck_match_sync_entry](../selfcheck_match_sync_entry.py) | 单项执行前核对 |
-| [selfcheck_match_sync_exe](../selfcheck_match_sync_exe.py) | 单项执行前核对 |
-| [selfcheck_match_sync_feedback](../selfcheck_match_sync_feedback.py) | 单项执行前核对 |
-| [selfcheck_match_sync_four_compare](../selfcheck_match_sync_four_compare.py) | 单项执行前核对 |
-| [selfcheck_match_sync_fullscreen_cursor](../selfcheck_match_sync_fullscreen_cursor.py) | 单项执行前核对 |
-| [selfcheck_match_sync_health](../selfcheck_match_sync_health.py) | 单项执行前核对 |
 | [selfcheck_match_sync_host_release](../selfcheck_match_sync_host_release.py) | 单项执行前核对 |
-| [selfcheck_match_sync_late_buffer](../selfcheck_match_sync_late_buffer.py) | 单项执行前核对 |
-| [selfcheck_match_sync_live](../selfcheck_match_sync_live.py) | 单项执行前核对 |
-| [selfcheck_match_sync_lock](../selfcheck_match_sync_lock.py) | 单项执行前核对 |
-| [selfcheck_match_sync_main_quality](../selfcheck_match_sync_main_quality.py) | 单项执行前核对 |
-| [selfcheck_match_sync_media](../selfcheck_match_sync_media.py) | 单项执行前核对 |
-| [selfcheck_match_sync_mpv_compat](../selfcheck_match_sync_mpv_compat.py) | 单项执行前核对 |
-| [selfcheck_match_sync_multistream](../selfcheck_match_sync_multistream.py) | 单项执行前核对 |
-| [selfcheck_match_sync_native](../selfcheck_match_sync_native.py) | 单项执行前核对 |
-| [selfcheck_match_sync_offsets](../selfcheck_match_sync_offsets.py) | 单项执行前核对 |
-| [selfcheck_match_sync_overseas](../selfcheck_match_sync_overseas.py) | 单项执行前核对 |
-| [selfcheck_match_sync_playback](../selfcheck_match_sync_playback.py) | 单项执行前核对 |
-| [selfcheck_match_sync_recovery](../selfcheck_match_sync_recovery.py) | 单项执行前核对 |
-| [selfcheck_match_sync_refinement](../selfcheck_match_sync_refinement.py) | 单项执行前核对 |
-| [selfcheck_match_sync_refinement_media](../selfcheck_match_sync_refinement_media.py) | 单项执行前核对 |
-| [selfcheck_match_sync_responsiveness](../selfcheck_match_sync_responsiveness.py) | 单项执行前核对 |
-| [selfcheck_match_sync_retry_rows](../selfcheck_match_sync_retry_rows.py) | 单项执行；使用 Windows 原生后端验证全屏窗口重挂、对照框选与拖动，不联网 |
-| [selfcheck_match_sync_session](../selfcheck_match_sync_session.py) | 单项执行前核对 |
-| [selfcheck_match_sync_shortcuts](../selfcheck_match_sync_shortcuts.py) | 单项执行前核对 |
-| [selfcheck_match_sync_smoothing](../selfcheck_match_sync_smoothing.py) | 单项执行前核对 |
-| [selfcheck_match_sync_startup_clock](../selfcheck_match_sync_startup_clock.py) | 单项执行前核对 |
-| [selfcheck_match_sync_status](../selfcheck_match_sync_status.py) | 单项执行前核对 |
-| [selfcheck_match_sync_timer](../selfcheck_match_sync_timer.py) | 单项执行前核对 |
-| [selfcheck_match_sync_tracking](../selfcheck_match_sync_tracking.py) | 单项执行前核对 |
-| [selfcheck_match_sync_two_stream](../selfcheck_match_sync_two_stream.py) | 单项执行前核对 |
-| [selfcheck_match_sync_ui](../selfcheck_match_sync_ui.py) | 单项执行前核对 |
-| [selfcheck_match_sync_video](../selfcheck_match_sync_video.py) | 单项执行前核对 |
-| [selfcheck_match_sync_volume](../selfcheck_match_sync_volume.py) | 单项执行前核对 |
 
 ## 直播平台
 

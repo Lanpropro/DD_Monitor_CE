@@ -34,7 +34,7 @@
 
 ## 比赛二路插件
 
-插件版本独立于本体。当前正式版本和安装包以[独立插件仓库的发布页](https://github.com/Lanpropro/DD_Monitor_Plugins/releases)为准；本仓库受版本控制的[二路插件 README](../../plugins_user/_match_sync/README.md)保留早期版本的完整说明。2026-11-15 核对的最新正式版为 v1.7.0。
+插件版本独立于本体。当前正式版本、安装包及历史说明以[独立插件仓库](https://github.com/Lanpropro/DD_Monitor_Plugins/releases)为准；分离前的本体内二路插件源码可从本体 Git 历史追溯。2026-11-15 核对的最新正式版为 v1.7.0。
 
 ## 发布约定
 
@@ -46,6 +46,6 @@
 - 每次完成拟纳入本体版本的修改后及时更新 `UNRELEASED.md`，按时间倒序写明变更、提交和状态（待人工验收、已验收等）。准备发布时，用它和 Git 差异生成本机临时审核单 `docs/local/release-drafts/v<版本>.md`，逐项列出相对上一正式版新增、修复、未纳入的内容，以及对应提交、验证范围和待人工验收项。
 - 将临时审核单和 `docs/releases/RELEASE-v<版本>.md` 草稿一同展示给维护者；维护者对实际软件改动人工验收，并审阅、修改或确认发布正文。只有两者明确通过，才把已包含且已验收的条目写入正式说明并继续发布；未纳入条目留在 `UNRELEASED.md`。
 - 发布成功并核对版本标签、源码提交与公开附件后，删除本机临时审核单，从 `UNRELEASED.md` 移走本次已发布条目；正式说明和 Git 历史保留。将上一版本的本机发布 ZIP 移入 `results/archive/`，最新版本在 `results/` 保留正式附件和一个解压入口。
-- 插件发布说明在插件仓库维护；本仓库二路插件源码 README 保留早期版本记录，不在本体发布目录重复存放。
+- 插件发布说明在插件仓库维护；分离前的本体二路源码 README 由 Git 历史追溯，不在本体发布目录重复存放。
 - 版本、标签、源码 commit 和构建产物必须对应；具体命令与验证见[贡献指南](../../CONTRIBUTING.md)
   和[Windows 安装包](../development/windows-installer.md)。

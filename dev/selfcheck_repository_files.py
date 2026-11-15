@@ -71,13 +71,12 @@ class RepositoryFilesTests(unittest.TestCase):
         tracked = subprocess.check_output(
             ['git', 'ls-files', 'plugins_user'], cwd=ROOT, text=True).splitlines()
         self.assertEqual({Path(path).parts[1] for path in tracked},
-                         {'_match_sync', '_template_platform'})
+                         {'_template_platform'})
         doc = (ROOT / 'docs/plugins.md').read_text(encoding='utf-8')
-        for path in ('plugins_user/_match_sync/', 'plugins_user/_template_platform/',
+        for path in ('plugins_user/_template_platform/',
                      'plugins_user/match_sync/', 'plugins_user/.updates/',
                      'plugins_user/domestic_live/'):
             self.assertIn(path, doc)
-        self.assertIn('python dev/build_match_sync.py', doc)
         self.assertIn('DD_Monitor_Plugins', doc)
         build = (ROOT / 'dev/build_release.ps1').read_text(encoding='utf-8')
         self.assertIn("'plugins_user/*'", build)

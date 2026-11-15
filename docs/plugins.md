@@ -75,14 +75,13 @@ HLS 会话可生成含初始化段/断点的冻结 VOD 输入。`snapshot_info(p
 
 | 路径 | 角色与维护位置 | Git 与发布边界 |
 | --- | --- | --- |
-| `plugins_user/_match_sync/` | 比赛二路插件的已跟踪源码，在本仓库维护 | 提交源码；下划线前缀使其不自动装载。`python dev/build_match_sync.py` 单独生成 ZIP，ZIP 顶层为 `match_sync/` |
 | `plugins_user/_template_platform/` | 本仓库维护的平台插件开发模板 | 提交模板；不自动装载。开发新插件时复制到独立源码目录，修改 ID 和清单后再打包安装 |
-| `plugins_user/match_sync/` | 比赛二路的本机安装副本 | Git 忽略；不作为唯一源码。修改应先落实到 `_match_sync` 并测试、提交，再重新打包安装 |
+| `plugins_user/match_sync/` | 比赛二路的本机安装副本 | Git 忽略；现行源码在[独立插件仓库](https://github.com/Lanpropro/DD_Monitor_Plugins/tree/match-sync-v1.7.0/plugins/match_sync)，在该仓库验证、打包和发布 |
 | `plugins_user/domestic_live/`、`global_live/`、旧 `huya_watch/` | 独立仓库 DD_Monitor_Plugins 的本机安装副本 | Git 忽略；源码在独立仓库提交，ZIP 单独发布 |
 | `plugins_user/.updates/`、`_danmaku_log/` | 更新暂存或旧插件保留的数据 | 本机资料，Git 忽略；不作为源码或模板 |
 | 其他 `<插件ID>/` | 用户主动安装的运行时代码 | 不随本体源码提交；新增本机插件目录时核对忽略规则，避免误加入 Git |
 
-本体源码仓库保留上述两类已跟踪开发目录；`dev/build_release.ps1` 生成的便携包排除整个 `plugins_user/*` 并创建空安装目录，EXE 包同样从空安装目录开始。插件 ZIP 由各自发布流程提供，不把开发模板或本机安装副本作为本体内置插件。
+本体源码仓库只保留上述已跟踪的开发模板；分离前的比赛二路 v1.3 源码可从本体 Git 历史追溯，现行开发以独立插件仓库为准。`dev/build_release.ps1` 生成的便携包排除整个 `plugins_user/*` 并创建空安装目录，EXE 包同样从空安装目录开始。插件 ZIP 由各自发布流程提供，不把开发模板或本机安装副本作为本体内置插件。
 
 提交前使用 `git ls-files plugins_user` 检查已跟踪文件；用 `git check-ignore --no-index <安装副本路径>` 检查本机目录是否被忽略。`.gitignore` 只防止普通添加，不会自动备份已忽略的安装副本，也不能替代源码仓库提交。涉及插件修改时先确认所属源码位置，再按[贡献指南](../CONTRIBUTING.md)验证和提交。
 

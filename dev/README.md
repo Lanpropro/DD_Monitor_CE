@@ -12,7 +12,7 @@
 | [build_setup.py](build_setup.py)、[check_setup_install.py](check_setup_install.py) | DDMonitorSetup 安装器构建与隔离生命周期验证，见[卸载范围](../docs/development/windows-installer.md) |
 | [build_program_inventory.py](build_program_inventory.py) | 从历史EXE包生成路径/大小/SHA-256清单，或为最终便携目录生成当前程序清单，见[更新清理](../docs/online-updates.md) |
 | [fetch_mpv.py](fetch_mpv.py) | 获取并校验播放运行库 |
-| [build_match_sync.py](build_match_sync.py)、[check_release_package.py](check_release_package.py) | 插件打包与发布包检查 |
+| [check_release_package.py](check_release_package.py) | 本体发布包检查；插件打包在独立插件仓库执行 |
 | [screens.py](screens.py)、`repro_*.py` | 显示器信息和特定问题复现；日常启动使用根目录 run.cmd |
 
 目录中还可能存在被 Git 忽略的本机预览或宣传脚本；它们不在源码清单和批量套件内。
