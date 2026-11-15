@@ -444,6 +444,7 @@ class LiveBufferingTests(unittest.TestCase):
         player._media = 'fixture'
         player.decode_mode = 'none'
         player._last_time = 39.316
+        player._startup_buffering = False
         player.state = 'playing'
         self.addCleanup(player.release)
         return player
