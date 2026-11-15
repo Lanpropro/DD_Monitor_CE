@@ -133,14 +133,14 @@ def check_metadata(manager):
             else:
                 raise AssertionError("Invalid metadata/VOD must not become an offline live room")
     assert all(record["viewers"] == "" for record in records.values())
-    session = module.Streamlink()
-    parser = module.LiveYouTube(session, youtube.room_url(ROOMS[1]))
-    with patch.object(module.YouTube, "_get_res", return_value=response(text=youtube_page())):
+    session = sys.modules[type(twitch).__mro__[1].__module__].Streamlink()
+    parser = youtube.parser(session, youtube.room_url(ROOMS[1]))
+    with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=youtube_page())):
         assert parser._get_res(parser.url).text
-    with patch.object(module.YouTube, "_get_res", return_value=response(text=fallback)):
+    with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=fallback)):
         assert parser._get_res(parser.url).text
     for page in (youtube_page(False), youtube_page(False, False), "captcha"):
-        with patch.object(module.YouTube, "_get_res", return_value=response(text=page)):
+        with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=page)):
             try:
                 parser._get_res(parser.url)
             except ValueError:
@@ -155,7 +155,7 @@ def check_metadata(manager):
 
 
 def check_quality(manager):
-    module = sys.modules[type(manager.platforms["twitch"]).__module__]
+    module = sys.modules[type(manager.platforms["twitch"]).__mro__[1].__module__]
     session = module.Streamlink()
     playlist = """#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1080x1920,FRAME-RATE=60
