@@ -345,5 +345,77 @@ class PlayerLifetimeTests(unittest.TestCase):
                 self.assertEqual(host.findChildren(QTimer), [])
 
 
+class SourceRecoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def player(self, profile='douyu'):
+        player = TilePlayer(Mock())
+        self.addCleanup(player.release)
+        player.stream_profile = profile
+        player.decode_mode = 'auto'
+        player._play_request = ('https://cdn.test/live.flv', profile, {}, ())
+        player._media = player._play_request[0]
+        return player
+
+    def test_observed_network_then_invalid_nal_does_not_reload_the_same_url_in_cpu_mode(self):
+        player = self.player()
+        props = {'time-pos':57.743,'eof-reached':True,'vo-configured':True}
+        player._log('error', 'curl', 'transfer failed: Failure when receiving data from the peer')
+        player._log('error', 'ffmpeg/video', 'h264: Invalid NAL unit size (97832 > 32688).')
+        with patch.object(player, '_prop', side_effect=lambda name, default=None: props.get(name, default)), \
+                patch.object(player, '_play_media') as reload:
+            player._check()
+            reload.assert_not_called()
+        self.assertEqual(player.decode_mode, 'auto')
+        self.assertEqual(player.state, 'error')
+        self.assertEqual(player.source_failure, 'LIVE_EOF')
+
+    def test_decoder_failure_without_transport_error_still_falls_back(self):
+        player = self.player()
+        player._log('error', 'ffmpeg/video', 'hardware decoder failed')
+        with patch.object(player, '_prop', return_value=None), patch.object(player, '_play_media') as reload:
+            self.assertTrue(player._recover_decoder())
+            reload.assert_called_once_with(*player._play_request)
+        self.assertEqual(player.decode_mode, 'none')
+
+    def test_warnings_and_unrelated_curl_messages_do_not_suppress_fallback(self):
+        for level, prefix, message in (('warn','curl','transfer failed'),
+                                       ('error','other','transfer failed'),
+                                       ('error','curl','unrelated message')):
+            with self.subTest(level=level,prefix=prefix,message=message):
+                player = self.player()
+                player._log(level,prefix,message)
+                player._log('error','ffmpeg/video','decoder failed')
+                with patch.object(player,'_prop',return_value=None),patch.object(player,'_play_media'):
+                    self.assertTrue(player._recover_decoder())
+
+    def test_other_platforms_keep_their_existing_decoder_recovery(self):
+        for profile in ('web','app','douyin','huya'):
+            with self.subTest(profile=profile):
+                player = self.player(profile)
+                player._log('error','curl','transfer failed: Failure when receiving data from the peer')
+                player._log('error','ffmpeg/video','decoder failed')
+                with patch.object(player,'_prop',return_value=None),patch.object(player,'_play_media'):
+                    self.assertTrue(player._recover_decoder())
+
+    def test_new_playback_clears_the_input_error_and_keeps_decoder_fallback_available(self):
+        player = self.player()
+        player._log('error','curl','transfer failed: Failure when receiving data from the peer')
+        with patch.object(player,'bind'),patch.object(player,'_start_pending_media'):
+            player._play_media('https://another.test/live.flv','douyu',{},())
+        player._log('error','ffmpeg/video','decoder failed on new source')
+        with patch.object(player,'_prop',return_value=None),patch.object(player,'_play_media'):
+            self.assertTrue(player._recover_decoder())
+
+    def test_transport_failure_does_not_leak_to_another_player(self):
+        failed, healthy = self.player(), self.player()
+        failed._log('error','curl','transfer failed: Failure when receiving data from the peer')
+        healthy._log('error','ffmpeg/video','decoder failed')
+        with patch.object(healthy,'_prop',return_value=None),patch.object(healthy,'_play_media'):
+            self.assertTrue(healthy._recover_decoder())
+
+
 if __name__ == '__main__':
     unittest.main()

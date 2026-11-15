@@ -26,6 +26,7 @@ if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
 if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-ui-polish" goto uiPolishCheck
+if /i "%~1"=="--check-douyu-source-recovery" goto douyuSourceRecoveryCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
 if /i "%~1"=="--check-live-elapsed" goto liveElapsedCheck
 if /i "%~1"=="--check-functional-modules" goto functionalModulesCheck
@@ -471,4 +472,9 @@ exit /b %MOBILE_EXIT%
 :functionalModulesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_functional_modules
+exit /b %errorlevel%
+
+:douyuSourceRecoveryCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_player_lifetime -- SourceRecoveryTests
 exit /b %errorlevel%
