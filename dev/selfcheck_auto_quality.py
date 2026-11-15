@@ -52,9 +52,10 @@ def check_window(app):
             patch.object(TilePlayer, "play"):
         window = MainWindow([], [], state=state, layout_id="dm_pair")
         try:
-            for kind in ("youtube", "twitch"):
+            for kind in ("chzzk", "youtube", "twitch"):
                 platform = window.plugins.platforms[kind]
-                rid = kind + (":AbCd_123-45" if kind == "youtube" else ":test")
+                rid = kind + (":" + "a" * 32 if kind == "chzzk" else
+                              ":AbCd_123-45" if kind == "youtube" else ":test")
                 tile = window.wall.tiles[0]
                 window._stop_tile(tile)
                 tile.set_room({"room_id": rid, "platform": kind, "live": True, "uname": kind})
@@ -161,7 +162,26 @@ def check_window(app):
     print("PASS: real Qt resolver/signal, automatic intent/current tier, cooldown, stale requests, manual/pause/preview isolation and persistence")
 
 
+def check_chzzk_relay():
+    from ddm.follow_folders import PLATFORM_NAMES
+    assert PLATFORM_NAMES['chzzk'] == 'CHZZK'
+    player = Mock(decode_mode='auto', silent=False, diagnostic_room='chzzk:' + 'a' * 32)
+    relay = Mock(url='http://127.0.0.1:12345/fixture.m3u8')
+    headers = {'User-Agent': 'fixture', 'Referer': 'https://chzzk.naver.com/'}
+    with patch('ddm.hls_proxy.HlsProxy', return_value=relay) as factory, \
+            patch('ddm.global_danmaku.request_proxy', return_value='http://127.0.0.1:7890'):
+        TilePlayer._play_media(player, 'https://cdn.test/live.m3u8', 'chzzk', headers, [])
+    assert factory.call_args.args[:3] == ('https://cdn.test/live.m3u8', headers, 'http://127.0.0.1:7890')
+    assert player._media == relay.url
+    assert (player._buffer_limit, player._picture_limit) == (20, 20)
+    TilePlayer._stop_media(player)
+    relay.stop.assert_called_once()
+    assert player._hls_proxy is None
+    print('PASS: CHZZK uses the existing overseas HLS relay, proxy, buffering and shutdown')
+
+
 if __name__ == "__main__":
     check_policy()
+    check_chzzk_relay()
     app = QApplication([])
     check_window(app)
