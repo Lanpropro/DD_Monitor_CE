@@ -172,7 +172,7 @@ https://cdn.test/audio.m3u8
                for key in ("high", "low", "hevc", "audio")}
     streams.update(best=streams["high"], worst=streams["low"])
     for kind, platform in manager.platforms.items():
-        module = sys.modules[type(platform).__mro__[1].__module__]
+        module = sys.modules[platform.play_url.__func__.__module__]
         rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         with patch.object(module, "Streamlink", return_value=session), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(rid, live=True)), \
@@ -192,7 +192,7 @@ https://cdn.test/audio.m3u8
 
     # 高延迟代理可连续两次断开 TLS；第三次成功不能变成整格取流失败。
     for kind, platform in manager.platforms.items():
-        module = sys.modules[type(platform).__mro__[1].__module__]
+        module = sys.modules[platform.play_url.__func__.__module__]
         rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         original_streamlink = module.Streamlink
         sessions = []
