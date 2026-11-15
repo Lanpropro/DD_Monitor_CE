@@ -707,13 +707,12 @@
 | `dev/preview_*.py`、`dev/run-preview.cmd`、`dev/make_shots.py`、`dev/thumb_sheet.py` | 软件开发预览、截图工具，仍与软件维护相关 | 已忽略；保留 |
 | `dev/mock_portrait2.py`、`docs/portrait-bar.png`、`docs/portrait-current.png`、`docs/portrait-mock.png` | 旧竖屏原型及截图 | 已忽略；保留 |
 | `cache/`、`logs/`、`recordings/`、`__pycache__/` | 软件运行数据、录制与 Python 缓存 | 已忽略；不读取内容、不清理 |
-| `ddm_plugins_dd3l0oxq/` | 空目录，名称疑似插件临时目录；来源未核实 | 不属于已跟踪源码；保留 |
+| `ddm_plugins_dd3l0oxq/` | 名称疑似插件临时目录；当前无法核实目录内容及来源 | 不属于已跟踪源码；保留 |
 
-## 六项既有未跟踪保护项
+## 本机未跟踪保护项
 
 以下只标记现状，不删除、不一并暂存：
 
-- `console.log('ERR'`：疑似误生成文件，未核验内容。
 - `dev/mock_portrait.py`：竖屏开发原型。
 - `dev/portrait_mock.html`：竖屏网页原型。
 - `plugins_user/.updates/`：插件更新暂存。
@@ -727,80 +726,4 @@
 本轮文档移动与四项删除见 [整理审查](archive/repository-cleanup-review.md)，软件和打包读取路径已相应调整。
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。
 
-画面墙边框组件与拖动会话由 `ddm/wall_border.py` 维护：`WallBorderInteraction` 以画面墙为QObject父对象，统一持有悬停、拖动、待处理位置与32ms合并定时器；预览仍是画面墙的直接Qt子控件，格子边框仍归原格子。WallGrid保留布局/比例/格子状态与旧方法及只读诊断别名，不重复保存活动拖动状态。
-
-直播间组合的快照、保存、重命名、删除和恢复由 `ddm/room_preset_control.py` 的 `RoomPresetController` 协调；校验/比较留在 `room_presets.py`，卡片/管理交互留在 `room_presets_ui.py`。主窗口保留旧方法委托，仍是配置集合、活动组合、恢复事务标志、退役格子及播放器/录制服务的唯一状态所有者，控制器不另存副本。
-
-更新协调由 `ddm/app_updates.py` 的 `AppUpdates` 管理：启动软件/插件检查、结果回填、已读筛选、红点及通知；在线协议、任务和页面仍在 `online`/`online_ui`。主窗口唯一持有任务、检查标志、候选版本、启动定时器和通知，任务Qt父对象及连接的旧回调不变，关闭时仍由主窗口中断和等待。旧方法保留薄委托，控制器仅引用宿主。
-
-设置协调由 `ddm/settings_control.py` 的 `SettingsControl` 维护普通/独立设置入口、预览上下文、页面连接与保存应用流程；`settings_process`/`settings_host` 继续维护进程通信和嵌入宿主页。主窗口唯一持有配置、进程、宿主页、更新页及退出状态，旧方法保留薄委托；三个涉及对话框类型的方法由主窗口传入原 `SettingsDialog` 工厂，保留既有替换入口，协调器不反向导入主窗口。
-
-窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
-
-设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
-
-添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。
-
-关注文件夹编辑器、智能文件夹显示副本和标题按钮由 `ddm/sidebar_folders.py` 维护；`sidebar_cards` 和 `widgets` 保留同类兼容导出，侧栏内部直接使用职责模块。显示副本沿用原卡片及同一room对象，预览定时器仍是副本的Qt子对象，模型/关注集合仍归侧栏。
-
-播放请求与应用由 `ddm/stream_playback.py` 的 `StreamPlayback` 维护逐格启动、画质策略、取流回调、播放器接线及失败分支。窗口唯一持有播放器、解析器代次集合、录制/重试和Qt子对象；旧入口委托并传入原解析器/播放器工厂，保留既有替换契约。回调仍经窗口入口动态路由，不反向导入主窗口，不新增定时器或复制状态。
-
-单格编码/解码设置协调由 `ddm/codec_control.py` 的 `CodecControl` 维护继承值、重取流决策、编码保留回写、实际状态和对话框接线。窗口唯一持有codec_overrides所属格子、原解析器/播放器及对话框映射，旧工厂由主窗口传入，Qt父对象和迟到结果检查保持；设置页控件、协议和解码实现不迁移。
-
-关注文件夹协调由 `ddm/sidebar_folder_control.py` 的 `SidebarFolderControl` 维护创建/归类/默认/智能副本、标题拖动和分组条目；筛选由 `ddm/sidebar_filter.py` 的 `SidebarFilter` 维护搜索、折叠/开播过滤及可见条目。Sidebar唯一持有文件夹、归属、卡片/标题缓存、选择和拖动状态，旧方法继续委托；对话框/标题/副本的旧工厂由Sidebar传入，Qt父对象及动画参数不变，不新增计时器或复制状态。`follow_folders`继续维护纯数据规则，`sidebar_folders`继续维护控件本体。
-
-关注栏多选由 `ddm/sidebar_selection.py` 的 `SidebarSelection` 维护批量选择、Ctrl/Shift选择、拖动分组与删除信号；顺序由 `ddm/sidebar_sort.py` 的 `SidebarSort` 维护过滤落点换算、组内换位、置顶、文件夹排序及常看缓存协调。Sidebar唯一持有选择/锚点、卡片顺序、配置和WatchHistory，旧Qt入口保留薄委托；排序菜单的QActionGroup仍归菜单，实际卡片/定时器归属不变。计分模型仍在watch_history，拖放会话仍在sidebar_drag。
-
-关注栏账号展示/菜单协调由 `ddm/sidebar_account_control.py` 的 `SidebarAccountControl` 维护，登录/退出仍向宿主既有信号派发；原菜单/账号行工厂由Sidebar传入，延迟登录保留Sidebar的Qt上下文。横竖布局、借用控件、账号形状和收起/展开由 `ddm/sidebar_presentation.py` 的 `SidebarPresentation` 维护，Sidebar仍唯一持有所有控件/布局/状态。控件身份、父子迁移、滚动约束及收起异常收尾沿用原行为，Qt虚方法和旧入口留在Sidebar。
-
-Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命中/拖动展示由 `ddm/sidebar_interaction.py` 维护；布局选择器协调复用SidebarPresentation。Sidebar保留组装、Qt事件和旧委托，卡片/预览计时器/拖放会话仍由原Qt宿主持有。
-
-播放格职责：`tile_widgets.py` 保留 Qt 宿主、组装与事件；`tile_state.py` 维护媒体状态/画质/音频展示，`tile_controls.py` 协调控制条交互，`tile_presentation.py` 排列浮层与原生遮罩，`tile_context_menu.py` 构建运行时菜单。状态、信号、定时器与子控件仍只由 Tile 持有。
-
-主窗口协调：`app_accounts.py` 账号与关注导入；`app_shortcuts.py` 快捷键绑定；`fullscreen_control.py` 全屏业务；`app_notices.py` 用户通知。播放状态、房间管理、录制源刷新、弹幕消息和设置应用分别归并至原有 StreamPlayback、RoomPlacement、CaptureControl、DanmakuLifecycle、SettingsControl。MainWindow 保留组装、Qt 事件、状态快照与关闭收尾；旧方法继续薄委托，异步任务/Qt 父对象/共享映射仍归窗口。
-
-SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过期和排序；`super_chat_api.py` 为 B 站快照协议/工作线程；`super_chat_presentation.py` 为布局、预览、头像和绘制；`super_chat_widgets.py` 为弹幕面板卡片，`video_super_chat.py` 为画面 SC 浮层。`super_chat.py` 保留旧导出，滚动画面弹幕继续由 VideoDanmaku 负责。
-
-小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
-
-在线界面职责：`online_tasks.py` 工作线程与页面关闭后的退役清理；`plugin_store_ui.py` 插件商店与详情；`app_update_ui.py` 软件更新页；`update_notice.py` 更新提示与标记；`result_notice.py` 用户结果通知；`update_offers.py` 版本提示数据。`online_ui.py` 保留旧导出和已有任务/通知替换入口，退役集合只保留一份。
-
-B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili_workers.py` 持有六种 Qt 取流/查询工作线程。工作线程在调用时读取原 API 模块，未复制凭据或函数引用，旧类导出与测试替换入口保持。
-
-画面墙职责：`wall_geometry.py` 自动列数计算；`wall_layout.py` 格子几何、预设/角点比例、边框比例应用与缩放收敛；`wall_presentation.py` 全屏/小窗/侧栏动画期间的原生呈现。WallGrid 保留容器、格子与弹幕分区接线、Qt 事件，所有比例/定时器状态仍归 WallGrid，拖边会话继续归 WallBorderInteraction。
-
-录制职责：`recording_process.py` 为 Windows 后台进程/Job Object；`recording_output.py` 为 FFmpeg 参数与容器/路径；`recording_session.py` 为每路会话数据与分段簿记；`recording_replay.py` 为租约、回放保留和导出。RecordingManager 保留编码器/取流/子进程轮询与关闭协调；会话、租约、导出和定时器仍只有一份。
-
-插件职责：`plugin_types.py` 为公开协议/平台数据/上下文；`plugin_manifest.py` 为目录身份和元数据验证；`plugin_packages.py` 为安装、移除和目录清单。PluginManager 继续管理装载、事件分发与注册，凭据、控件、工作区和通知仍复用既有独立模块。旧插件 API 导出和单例注册表不变。
-
-皮肤编辑职责：`skin_controls.py` 为共享素材控件/文件名显示；`skin_part_settings.py` 为分区外观编辑与预览；`skin_settings.py` 保留全局背景/遮罩控件和旧导出。分区对话框按需构造全局控件，避免互相提前导入，皮肤素材/预览/应用继续复用原有独立模块。
-
-弹幕呈现职责：`danmaku_format.py` 为富文本/勋章格式；`danmaku_document.py` 为文档、表情和有界历史；`danmaku_scrolling.py` 为跟随及滚动位置；面板保留 Qt 控件和事件。`video_danmaku_raster.py` 为异步光栅资源，`video_danmaku_surface.py` 为原生/Quick 表面接线；VideoDanmaku 继续负责弹幕准入、轨道与时钟，SC 画笔归 video_super_chat，旧静态入口保留。
-
-其他边界：`image_workers.py` 为图片缓存/下载工作线程，路径和缓存代次仍由 images API 持有；`account_workers.py` 为关注账号解析线程；`live_danmaku_protocol.py` 为三站只读弹幕编解码，连接/重连仍由 LiveDanmakuClient 负责；`add_room_dialog.py` 为添加房间，`room_dialogs.py` 为关注导入，文件夹动作归 `room_folder_controls.py`；`skin_assets.py` 为素材验证/导入，`skin_background.py` 为背景表面，SkinController 仍在 skins；`settings_worker.py` 为独立设置进程界面，SettingsProcess 保留宿主 QProcess 传输和公共协议入口。
-
-登录边界：`bili_login_worker.py`、`oauth_worker.py`、`platform_follow_worker.py` 分别持有扫码、OAuth、平台关注协议工作线程；原 login/oauth_login/platform_login 保留具体登录界面及旧工厂。`platform_profiles.py` 统一持有浏览器 profile 注册表与退出清理，原模块只是同一字典的兼容引用。
-
-房间细分：`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。
-
-SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_chat_animation.py` 为运行时展开/折叠期限，`super_chat_avatar.py` 为头像资源与绘制，`super_chat_preview.py` 为设置预览与位置编辑。原 super_chat_presentation 保留兼容导出，项目内部按实际职责导入，QObject/定时器父对象不变。
-
-关注栏呈现细分：`sidebar_orientation.py` 管横竖布局与借用控件，`sidebar_collapse.py` 管收起/展开协调，`sidebar_layout_picker.py` 管布局选择器；账号形状/显隐归既有 SidebarAccountControl，焦点交互归 SidebarInteraction。SidebarPresentation 保留兼容委托及外观行同步，控件、动画、计时器、状态全部仍归 Sidebar。
-
-响应采集细分：`responsiveness_probe.py` 为通用心跳、调用计时、进程计数和有界堆栈；`folder_motion_capture.py` 为文件夹动画证据；`theme_capture.py` 为主题及其动画证据。responsiveness 保留通用安装协调与旧导出，旧监测替换点在调用时解析；原 Probe/采样线程、上限、输出字段和隐私规则不变。
-
-在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
-
-### 诊断中心与崩溃证据
-
-- `ddm/settings_diagnostics.py`：设置内诊断表单、采集状态及手动导出反馈。
-- `ddm/diagnostic_export.py`：QProcess 导出/现场采集协调、临时请求与取消清理；复用独立工具后端。
-- `ddm/native_diagnostics.py`：Qt导入前安装原生采集、组件状态与转储开关。
-- `ddm/qt_lifecycle.py`：关键对象生命周期的有界记录，不持有QObject。
-- `tools/native_diagnostics/capture.cpp`：原生未处理异常通知DLL和独立栈/可选转储进程；`dev/build_native_diagnostics.cmd` 构建。
-- `tools/diagnostics/CommandLine.cs`：固定JSON请求的无界面入口；WinForms和设置页共用 `Collector.cs`。
-- `dev/native_diagnostics_fixture.cpp`、`dev/selfcheck_native_diagnostics.py`：隔离受控崩溃、正常退出、栈与转储回归。
-- `dev/selfcheck_settings_diagnostics.py`：临时安装目录中的设置页、实际导出、取消及生命周期回归。
-
-
-画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。
+逐模块职责与状态归属见[详细模块职责](architecture/overview.md#10-详细模块职责)。
