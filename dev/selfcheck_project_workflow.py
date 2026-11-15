@@ -125,6 +125,13 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertIn('人工验收前不得发布', release)
         self.assertIn('才可创建版本标签和 GitHub Release', contributing)
 
+    def test_cleanup_rules_require_usage_and_replacement_review(self):
+        source = (ROOT / 'docs/standards/documentation.md').read_text(encoding='utf-8')
+        for text in ('dev/checks/suites.json', 'dev/checks/README.md',
+                     '无断言或未进入套件只表示需要复核', '替代检查须覆盖原脚本的具体行为和验证层次',
+                     '按一批候选单独提交删除及引用修正'):
+            self.assertIn(text, source)
+
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')
         self.assertIn('目标分支为 `develop`', source)
