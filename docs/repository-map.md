@@ -810,7 +810,7 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 响应采集细分：`responsiveness_probe.py` 为通用心跳、调用计时、进程计数和有界堆栈；`folder_motion_capture.py` 为文件夹动画证据；`theme_capture.py` 为主题及其动画证据。responsiveness 保留通用安装协调与旧导出，旧监测替换点在调用时解析；原 Probe/采样线程、上限、输出字段和隐私规则不变。
 
-在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 为插件目录、兼容性和持久缓存；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，目录字典只有一份，缓存状态仍由调用者传入。
+在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
 
 ### 诊断中心与崩溃证据
 

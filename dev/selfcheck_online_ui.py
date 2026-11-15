@@ -24,8 +24,12 @@ from ddm.plugins import PluginManager, read_manifest
 
 def check_store_scroll(app, root):
     from types import SimpleNamespace
+    plugins = {'bili_live': ('B站直播互动', '文字与表情'),
+               'domestic_live': ('国内直播平台', '国内平台'),
+               'global_live': ('海外直播平台', '海外平台'),
+               'match_sync': ('比赛二路同步', '比赛画面对齐')}
     entries = [dict(id=key, name=name, description=description, version='1.0', enabled=True,
-                    status='已加载', reason='') for key, (name, description) in online.KNOWN_PLUGINS.items()]
+                    status='已加载', reason='') for key, (name, description) in plugins.items()]
     manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
                               plugins_dir=str(root / 'scroll-plugins'), _removed=set())
     offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))

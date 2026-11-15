@@ -400,7 +400,6 @@ class FunctionalModulesTests(unittest.TestCase):
                 (app_release_api, ('app_release', 'release_notes')), (verified_download, ('download',))):
             for name in names:
                 self.assertIs(getattr(online, name), getattr(module, name))
-        self.assertIs(online.KNOWN_PLUGINS, plugin_catalog_api.KNOWN_PLUGINS)
         for module in ('release_repository', 'plugin_catalog_api', 'app_release_api', 'verified_download'):
             self.child('import sys; import ddm.'+module+'; '
                 "assert not {'PySide6','ddm.online','ddm.app'}.intersection(sys.modules)")

@@ -53,11 +53,22 @@ def main():
         assert entry['min_app_version'] == '0.4'
         assert entry['sha256'] == hashlib.sha256(archive.read_bytes()).hexdigest()
         assert entry['size'] == archive.stat().st_size
-        with patch.object(online, 'latest_manifest', return_value=data), \
-                patch.object(online, 'releases', return_value=[]):
+        from selfcheck_online import asset
+        def download(offer, destination, client):
+            Path(destination).write_bytes(archive.read_bytes())
+            return str(destination)
+        with patch.object(online, 'releases', return_value=[{
+                'assets': [asset(archive.name, archive.read_bytes())]}]), \
+                patch.object(online, 'download', side_effect=download):
             offers = online.plugin_catalog(None, '0.3')
             assert not offers[0]['available'] and '0.4' in offers[0]['reason']
             assert online.plugin_catalog(None, '0.4')[0]['available']
+        # New IDs can still generate compatibility catalogs for older hosts.
+        community = Path(temporary) / 'community_tool-1.0.zip'
+        with zipfile.ZipFile(community, 'w') as package:
+            package.writestr('community_tool/plugin.json', json.dumps({
+                'id': 'community_tool', 'name': '社区工具', 'description': 'new ID', 'version': '1.0'}))
+        assert build([community], 'community-tool-v1.0')['plugins'][0]['id'] == 'community_tool'
     source = (Path(__file__).resolve().parents[1] / 'dev/build_release.ps1').read_text(encoding='utf-8')
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
