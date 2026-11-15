@@ -203,7 +203,7 @@ StreamSource(room_id, url, quality, channel, headers, platform, uname, title)
 `headers` 是拉这个地址**必须**带的请求头。B 站 app 通道的地址不能带 Referer、
 web 通道必须带，弄反了 CDN 直接 403 —— 所以别自己猜，直接用这里给的。
 
-录像的写法（不用二次取流、不用碰播放器）：
+录像的写法（复用已解析的地址与请求头，不用访问播放器对象）：
 
 ```python
 import subprocess

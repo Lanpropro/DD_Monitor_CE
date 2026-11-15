@@ -1,6 +1,6 @@
 # 架构总览
 
-> 类型：架构 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：贡献者、维护者
+> 类型：架构 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：贡献者、维护者
 
 本页说明软件本体如何组成：有哪些进程、代码分几层、状态由谁持有、一次播放或一次设置保存经过哪些模块。
 文件级清单见[仓库文件分类清单](../repository-map.md)，单条功能的交互细节见对应设计文档。
@@ -112,14 +112,14 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
 | 通知与提示 | `notification_center.py`、`result_notice.py`、`user_notice.py`、`notice_diagnostics.py` | 通知生命周期；不持有账号内容 |
 | 图像与缓存 | `images.py`、`image_cache.py`、`room_images.py`、`avatar_widgets.py`、`folder_icons.py` | 下载、缓存与裁切；界面只消费结果 |
 | 画中画 | `picture_in_picture*.py`、`pip_*.py` | 复用已有播放格；不复制整套主界面 |
-| 诊断与采集 | `*_diagnostics.py`、`responsiveness*.py`、`on_demand_diagnostics.py`、`diagnostic_*.py` | 默认关闭、按需采集、有界记录；不改变播放行为 |
+| 诊断与采集 | `*_diagnostics.py`、`responsiveness*.py`、`on_demand_diagnostics.py`、`diagnostic_*.py` | 轻量记录按入口启用，完整专项按需启动；有界记录，采集开销与路径变化见专项说明 |
 | 数据与文件 | `config.py`、`data_paths.py`、`image_cache.py`、`file_ops.py` | 数据根、迁移与原子替换 |
 
 ## 6. 状态所有权与生命周期规则
 
 - **单一状态来源**：房间、排列、每个格子的音量/静音/画质归 `MainWindow` 与格子对象；拆分出的控制器
   只持有自己的会话状态，不复制宿主状态。
-- **Qt 父子关系**：谁创建谁持有；跨模块传递的 QObject 不长期保存引用，线程和定时器在宿主退出前停止。
+- **Qt 父子关系**：明确 QObject 的持有者、父对象及销毁边界；控制器可引用仍有效的宿主，迟到回调不得访问已销毁对象。线程和定时器在宿主退出前停止。
 - **异步回调**：取流、图片、状态轮询都可能在窗口关闭后到达；回调进入界面前检查 `_closing` 或所属对象是否仍有效。
 - **播放器生命周期**：`TilePlayer` 由格子宿主创建和释放；换台、清格、布局变化时优先复用播放器核心，
   只有解码或宿主身份变化才重建。原生视频子窗口的几何由 `video_surface.py` 跟随 Qt 遮罩。
@@ -130,20 +130,20 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
 
 **播放**：`StreamPlayback` 解析房间与流地址（B 站内置，其他平台经插件）→ 取流线程返回结果 →
 `MainWindow` 选择/复用 `TilePlayer` → libmpv 原生窗口嵌入格子 → `video_surface` 与浮层跟随几何 →
-状态回传格子与侧栏。失败进入重试/冻结恢复，录制使用同一流地址，不二次取流。
+状态回传格子与侧栏。失败进入重试/冻结恢复；录制起始可复用已解析的流地址，画质锁定或录制重连可能重新解析来源。FFmpeg 录制使用独立连接，不共享播放器的下载连接。
 
-**弹幕**：`DanmakuLifecycle` 按房间复用连接（blivedm 协议）→ 过滤与屏蔽 → 弹幕面板或画面弹幕渲染 →
+**弹幕**：`DanmakuLifecycle` 按房间复用连接（B 站使用 blivedm，其他平台由插件的 `danmaku_client` 提供）→ 过滤与屏蔽 → 弹幕面板或画面弹幕渲染 →
 Super Chat 单独存储与展示。发送能力由插件实现，本体只调用接口。
 
 **录制**：`CaptureControl` 决定开始/停止、即时回放范围和画质锁定 → `RecordingManager` 启动 FFmpeg
-子进程并记录会话与片段 → 完成后交给回放/插件服务。录制失败不能阻塞播放与退出。
+子进程并记录会话与片段 → 完成后交给回放/插件服务。录制会话与播放器分别管理，退出时由宿主协调收尾。
 
 **设置**：设置窗口在独立进程渲染，宿主传入配置快照；保存时只回传变化字段，宿主应用并写配置。
 宿主页（外观、插件、更新）仍由主进程提供，通过原生窗口容器嵌入。环境变量 `DDM_SETTINGS_PROCESS=0`
 可关闭独立进程，便于隔离排查。
 
 **插件**：`PluginManager` 扫描 `plugins_user/<ID>/plugin.py`，注册事件、平台、格子菜单、发送和皮肤能力；
-装载/卸载在 GUI 线程，异常被隔离在插件边界内。插件凭据以快照和代次传递，事件不携带明文密钥。
+装载/卸载在 GUI 线程，普通 Python 回调异常由管理器捕获；同进程的阻塞或原生库故障不受此机制隔离。插件凭据以快照和代次传递，账号事件不携带明文密钥。
 
 **更新**：检查（`release_repository` / `online`）→ 下载并校验 SHA-256（`verified_download`）→ 暂存 →
 退出后由更新助手替换 → 失败保留原程序。插件更新与本体更新相互独立。
@@ -155,7 +155,7 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 | --- | --- | --- |
 | 平台与互动插件 | `docs/plugins.md`、`plugins_user/_template_platform` | 只依赖公开宿主 API；不导入宿主内部模块 |
 | 皮肤与分区美化 | `ddm/skin_parts.py`、`docs/skins.md` | 使用声明式外观槽；不替换宿主控件 |
-| 诊断采集 | `ddm/diagnostic_session.py`、`dev/checks/` | 默认关闭、有界、脱敏，不改变正常路径 |
+| 诊断采集 | `ddm/diagnostic_session.py`、`dev/checks/` | 普通入口保留轻量日志，完整采集按需、有界、脱敏；方法与开销见[卡顿采集](../development/responsiveness-capture.md) |
 | 布局与直播间组合 | `ddm/layouts.py`、`room_presets.py` | 保存结构要有版本兼容和旧配置回退 |
 
 ## 9. 修改时先看哪里

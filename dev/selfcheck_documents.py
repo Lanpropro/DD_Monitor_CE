@@ -211,6 +211,11 @@ class DocumentStructureTests(unittest.TestCase):
                 self.assertTrue(headings & NAV_HEADINGS,
                                 "long document needs a reading guide or table of contents")
 
+    def test_unreleased_notes_do_not_include_private_planning(self):
+        notes = read(DOCS / "releases/UNRELEASED.md")
+        self.assertNotIn("docs/local/", notes)
+        self.assertNotIn("应迁入", notes)
+
     def test_plugin_reference_covers_public_events(self):
         constants = {}
         for name in ("plugins.py", "plugin_credentials.py"):
