@@ -482,6 +482,7 @@
 ### 历史记录
 
 - `docs/archive/BUG-STATUS-2026-10-02.md`
+- `docs/archive/douyu-playback-202611.md`
 - `docs/archive/README.md`
 - `docs/archive/appearance-implementation-202610.md`
 - `docs/archive/skins-implementation-202610.md`
@@ -503,6 +504,7 @@
 
 - `docs/development/README.md`
 - `docs/development/testing.md`
+- `docs/development/douyu-diagnostics.md`
 - `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`

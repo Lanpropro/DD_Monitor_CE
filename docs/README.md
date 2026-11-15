@@ -40,6 +40,7 @@
 | [Windows 安装包与卸载范围](development/windows-installer.md) | 安装模式、数据目录、UAC、更新替换 |
 | [本机工作区维护](development/workspace-maintenance.md) | 目录归属、`results/` 正式产物与旧版归档、检查纳入标准 |
 | [久用卡顿的真实采集](development/responsiveness-capture.md) | BUG-070 的采集字段、步骤与证据边界 |
+| [斗鱼播放诊断](development/douyu-diagnostics.md) | 直连与深度采集、CDN 对照和真实复验 |
 
 ### 功能与设计
 
