@@ -488,6 +488,7 @@
 - `docs/archive/resize-performance-202611.md`
 - `docs/archive/responsiveness-capture-202611.md`
 - `docs/archive/ui-components-202611.md`
+- `docs/archive/workspace-maintenance-202610.md`
 - `docs/archive/customization-plan-202610.md`
 - `docs/archive/docs-organization-20261114.md`
 - `docs/archive/bili-shadowreplay-learning.md`

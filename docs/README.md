@@ -38,7 +38,7 @@
 | [验证指南](development/testing.md) | 套件分类、环境变量、单项命令、按功能的验证记录 |
 | [共用界面组件](development/ui-components.md) | 统一入口、组件目录和调用方式 |
 | [Windows 安装包与卸载范围](development/windows-installer.md) | 安装模式、数据目录、UAC、更新替换 |
-| [本机工作区维护](development/workspace-maintenance.md) | 目录归属、旧运行库归档、检查纳入标准 |
+| [本机工作区维护](development/workspace-maintenance.md) | 目录归属、`results/` 正式产物与旧版归档、检查纳入标准 |
 | [久用卡顿的真实采集](development/responsiveness-capture.md) | BUG-070 的采集字段、步骤与证据边界 |
 
 ### 功能与设计

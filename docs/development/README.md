@@ -41,7 +41,7 @@ git diff --check
 | --- | --- |
 | [Windows 安装包与卸载范围](windows-installer.md) | 安装模式、数据目录、UAC、更新替换边界 |
 | [在线更新与插件商店](../online-updates.md) | 检查、下载校验、暂存替换、插件目录 |
-| [本机工作区维护](workspace-maintenance.md) | 目录归属、旧运行库、归档与检查纳入标准 |
+| [本机工作区维护](workspace-maintenance.md) | 目录归属、`results/` 归档与检查纳入标准；旧运行库过程见历史记录 |
 | [发布记录](../releases/README.md) | 历史版本说明、未发布记录与发布约定 |
 
 发布使用根目录已提交的完整源码构建，不从开发目录挑选文件；打包与验收命令见贡献指南和安装包文档。
