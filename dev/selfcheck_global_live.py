@@ -133,7 +133,7 @@ def check_metadata(manager):
             else:
                 raise AssertionError("Invalid metadata/VOD must not become an offline live room")
     assert all(record["viewers"] == "" for record in records.values())
-    session = sys.modules[type(twitch).__mro__[1].__module__].Streamlink()
+    session = sys.modules[twitch.play_url.__func__.__module__].Streamlink()
     parser = youtube.parser(session, youtube.room_url(ROOMS[1]))
     with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=youtube_page())):
         assert parser._get_res(parser.url).text
