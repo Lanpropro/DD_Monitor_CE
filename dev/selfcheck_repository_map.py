@@ -40,8 +40,12 @@ class RepositoryMapTests(unittest.TestCase):
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",
-                     "docs/development/liveaquarium-learning.md",
-                     "docs/development/bili-shadowreplay-learning.md",
+                     "docs/references/README.md",
+                     "docs/archive/appearance-implementation-202610.md",
+                     "docs/archive/skins-implementation-202610.md",
+                     "docs/archive/resize-performance-202611.md",
+                     "docs/archive/liveaquarium-learning.md",
+                     "docs/archive/bili-shadowreplay-learning.md",
                      "docs/archive/pr11-pr12-integration-testing.md",
                      "docs/archive/repository-integration-20261019.md",
                      "docs/archive/README.md", "dev/benchmarks/README.md",
@@ -65,7 +69,7 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 73)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 74)])
         douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：暂缓定位。', douyu_case)
         for evidence in ('暂时无法复现', '6657', '6979222', 'hwdec=no',

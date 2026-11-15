@@ -40,9 +40,6 @@
 | [Windows 安装包与卸载范围](development/windows-installer.md) | 安装模式、数据目录、UAC、更新替换 |
 | [本机工作区维护](development/workspace-maintenance.md) | 目录归属、旧运行库归档、检查纳入标准 |
 | [久用卡顿的真实采集](development/responsiveness-capture.md) | BUG-070 的采集字段、步骤与证据边界 |
-| [BiliBili ShadowReplay 参考](development/bili-shadowreplay-learning.md) | 录制、回看与切片 UI 的参考结论 |
-| [直播水族馆参考](development/liveaquarium-learning.md) | 合成与调度的参考结论 |
-| [比赛二路 OCR 评估](development/match-sync-ocr-evaluation.md) | 已评估方案与结论 |
 
 ### 功能与设计
 
@@ -54,12 +51,13 @@
 | [直播间组合预设](room-presets-design.md) | 保存范围、恢复规则与旧配置兼容 |
 | [窗口缩放性能](resize-performance.md) | 交互阶段、几何更新与验收口径 |
 | [头像与封面缓存](image-cache.md) | 占用统计、清理规则与新旧图替换 |
-| [外观与自定义布局计划](customization-plan.md) | 阶段状态、已实现范围和后续规划 |
+| [自由布局编辑器计划](customization-plan.md) | 尚未实现的布局结构编辑范围与待定规则 |
 
 ### 参考
 
 | 文档 | 内容 |
 | --- | --- |
+| [参考项目与学习记录](references/README.md) | 用户指定的学习对象、研究程度、结论及后续去向 |
 | [插件接口](plugins.md) | 宿主公开契约、事件、平台、发送、菜单、皮肤与录制服务 |
 | [在线更新与插件商店](online-updates.md) | 检查、下载校验、暂存替换、目录缓存与发布 |
 | [仓库文件分类清单](repository-map.md) | 已跟踪文件、目录归属与本机资料边界 |
@@ -70,7 +68,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [版本记录索引](releases/README.md) | 已发布的本体与二路插件说明、发布约定 |
+| [版本记录索引](releases/README.md) | 本体版本说明、二路插件发布入口与发布约定 |
 | [下一版本开发记录](releases/UNRELEASED.md) | 待发布条目、验收证据与待办 |
 | [历史记录索引](archive/README.md) | 早期问题、PR 测试与仓库整理过程 |
 

@@ -4,7 +4,7 @@
 
 DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本。
 
-- 原项目作者：智明神君
+- 原项目作者：执明神君
 - 原项目地址：https://gitee.com/zhimingshenjun/DD_Monitor_latest
 - 原项目许可：GNU Lesser General Public License v2.1（见项目根目录 `LICENSE`，从原仓库原样保留）
 
@@ -37,7 +37,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
   版权与许可见 `ddm/assets/licenses/source-han-sans-LICENSE.txt`，
   固定来源与 SHA256 见 `ddm/assets/licenses/source-han-sans-SOURCE.json`。
 - `blivedm/`：B 站直播弹幕协议库，上游 https://github.com/xfgryujk/blivedm 。
-  这份是从原仓库带过来的，**仓库里没有附带它的许可文件**；如果以后要对外分发，需要补上上游的许可。
+  2026-11-15 查询的[上游 `LICENSE`](https://github.com/xfgryujk/blivedm/blob/dev/LICENSE)为 MIT；本仓库尚未附带与现有源码对应的许可原文，需核对引入来源并补齐。
 - libmpv：随包提供 shinchiro 的 Windows x64 构建；固定版本、下载地址、DLL 和
   压缩包校验值见 `ddm/assets/licenses/libmpv-SOURCE.json`。构建包含 GPL 组件；
   mpv 的版权说明及 GPL/LGPL 文本随包保留于 `mpv-license/`（源码中位于
@@ -51,10 +51,6 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
   `ffmpeg-license/README.txt` 记录具体构建版本与对应源码地址，
   `ffmpeg-license/LICENSE` 为其许可证；该 GPLv3 构建未纳入本仓库源码。
 
-## 还没做的
-
-- 原项目的热榜、悬浮窗没有搬过来；录制已由 `ddm/recording.py` 实现。
-
 ## 关于分发
 
 虎牙插件使用 [Streamlink](https://github.com/streamlink/streamlink) 8.6.1
@@ -62,9 +58,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
 冻结打包使用 collect-all 保留其包内资源与许可文件。此接入不是虎牙官方 SDK，
 不读取登录凭据，不处理付费、登录限制或 DRM 内容；平台页面变化可能影响可用性。
 
-原项目以 LGPL-2.1 发布，允许修改与再分发，但需要保留许可、提供对应源码。
-如果你打算把这套改动对外分享，建议先看 `docs/给原作者的授权咨询.md`（给原作者的说明草稿），
-确认署名方式与许可选择；如果只是本地自用，这一条可以先不管。
+原项目许可证与本仓库采用的许可证见根目录 `LICENSE`；第三方代码与素材按上方列出的各自来源和许可记录核对。
 
 Vulkan Runtime 1.4.363.0 来自 LunarG 官方可分发组件，使用 MIT / Apache-2.0 许可证。
 发布包在 libmpv 同目录附带 x64 vulkan-1.dll 和 VulkanRT-License.txt，来源与 SHA256 见 ddm/assets/licenses/vulkan-SOURCE.json。

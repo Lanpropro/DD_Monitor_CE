@@ -482,7 +482,14 @@
 
 - `docs/archive/BUG-STATUS-2026-10-02.md`
 - `docs/archive/README.md`
+- `docs/archive/appearance-implementation-202610.md`
+- `docs/archive/skins-implementation-202610.md`
+- `docs/archive/resize-performance-202611.md`
+- `docs/archive/customization-plan-202610.md`
 - `docs/archive/docs-organization-20261114.md`
+- `docs/archive/bili-shadowreplay-learning.md`
+- `docs/archive/liveaquarium-learning.md`
+- `docs/archive/match-sync-ocr-evaluation.md`
 - `docs/archive/pr11-pr12-integration-testing.md`
 - `docs/archive/pr6-pr7-layout-testing.md`
 - `docs/archive/repository-cleanup-review.md`
@@ -491,8 +498,6 @@
 ### 开发指南
 
 - `docs/development/README.md`
-- `docs/development/liveaquarium-learning.md`
-- `docs/development/bili-shadowreplay-learning.md`
 - `docs/development/testing.md`
 - `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
@@ -515,10 +520,6 @@
 - `dev/build_match_sync.py`
 - `dev/benchmark_match_sync_ocr.ps1`
 - `dev/selfcheck_match_sync_reserve.py`
-- `docs/development/match-sync-ocr-evaluation.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.9.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.10.md`
-- `docs/releases/PLUGIN-match-sync-v1.3.md`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/fetch_mpv.py`
@@ -553,15 +554,6 @@
 ### 版本说明
 
 - `docs/releases/README.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.1.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.2.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.3.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.4.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.5.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.6.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.7.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.8.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.md`
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
 - `docs/releases/RELEASE-v0.3.1.md`
@@ -589,6 +581,7 @@
 
 - `docs/NOTICE.md`
 - `docs/README.md`
+- `docs/references/README.md`
 - `docs/appearance-design.md`
 - `docs/bug-cases.md`
 - `docs/customization-plan.md`

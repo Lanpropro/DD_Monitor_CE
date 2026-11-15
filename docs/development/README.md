@@ -56,13 +56,3 @@ git diff --check
 
 采集工具只验证"采到了什么"，不能证明故障已定位或性能已改善；结论按[开发文档规范](../standards/documentation.md)
 的证据分层书写。
-
-## 设计参考
-
-| 文档 | 内容 |
-| --- | --- |
-| [BiliBili ShadowReplay 参考](bili-shadowreplay-learning.md) | 录制、回看与切片 UI 的取舍 |
-| [直播水族馆参考](liveaquarium-learning.md) | 合成与调度方式 |
-| [比赛二路 OCR 评估](match-sync-ocr-evaluation.md) | 已评估方案与结论 |
-
-参考文档记录的是当时的学习结论，不代表本项目已采用相同实现。

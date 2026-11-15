@@ -44,7 +44,7 @@
 | 规范 | 共同遵守的规则 | `docs/standards/` | `docs/standards/` | `development/` |
 | 架构 | 系统如何组成、边界在哪 | `docs/architecture/` | 插件目录说明与各插件 `DESIGN.md` | `WEBSITE.md`、`development/content-sync.md` |
 | 开发指南 | 环境、测试、构建、排障 | `docs/development/` | `docs/development/` | `development/`、`WEBSITE.md` |
-| 设计与参考 | 功能说明、接口、文件清单 | `docs/*.md`、`docs/repository-map.md` | 各插件 `README.md`、`FEATURES.md`、`PARITY.md` | 发布后的 `docs/` 页面（面向用户） |
+| 设计与参考 | 功能说明、接口、文件清单与参考项目索引 | `docs/*.md`、`docs/references/`、`docs/repository-map.md` | 各插件 `README.md`、`FEATURES.md`、`PARITY.md` | 发布后的 `docs/` 页面（面向用户） |
 | 记录 | 版本、变更、验收、故障 | `docs/releases/`、`docs/bug-cases.md` | `docs/changes/`、`docs/releases/` | `docs/data/` 与 PR 记录 |
 | 归档 | 不再更新的历史 | `docs/archive/` | `docs/archive/` | `MIGRATION.md` 与 Git 历史 |
 

@@ -29,7 +29,7 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
 
 | 进程 | 启动方式 | 职责 | 退出 |
 | --- | --- | --- | --- |
-| 主界面进程 | `run.cmd` → `pythonw main.py`，或打包后的 `DD监控室CE.exe` | Qt 主窗口、播放器、弹幕、录制、插件、更新 | 关闭窗口或托盘退出 |
+| 主界面进程 | 源码版 `run.cmd` 当前经 `dev/diagnose_drag_windows.py` 启动 `main.py`；打包版使用 `DD监控室CE.exe` | Qt 主窗口、播放器、弹幕、录制、插件、更新 | 关闭窗口或托盘退出 |
 | 独立设置进程 | `main.py --settings-worker`（`DDM_SETTINGS_PROCESS=1` 时预热/打开） | 承载常规、弹幕、录制、通知、快捷键页面 | 设置窗口关闭或主程序退出 |
 | 插件工作进程 | `main.py --plugin-worker <目录> <模块>` | 插件自己的后台任务，不构造宿主界面 | 插件自行管理 |
 | 更新助手 | `main.py --apply-update <计划>` / `--apply-update-elevated` | 等待主程序退出、替换文件、必要时请求 UAC | 完成或失败后退出 |
@@ -58,6 +58,7 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
   其余实现按功能留在职责模块；新增代码不把功能实现堆进 `app.py`、`dialogs.py`、`widgets.py`。
 - 职责模块不反向导入 `ddm/app.py`、`ddm/dialogs.py`、`ddm/widgets.py`；需要宿主能力时通过构造参数、
   回调或 signal 传入，避免反向依赖和导入循环。
+- 这是新增和迁移代码的依赖目标。当前 `danmaku_blocking.py` 仍在方法内导入 `SettingsDialog`，若干诊断模块仍导入 `MainWindow`；整理这些既有入口时应逐项核对生命周期，不把目标规则写成已全部实现。
 - 判断标准：把这段代码删掉后，宿主还能不能正常工作？只有“接线/编排/生命周期”必须留在宿主；
   按钮绘制、协议解析、数据校验、文件格式等都应回到职责模块。
 - 历史兼容入口逐步迁移，不要求一次改完。

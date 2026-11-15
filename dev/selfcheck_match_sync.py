@@ -186,10 +186,10 @@ def package_and_ui_checks(app):
         manager.load()
         assert len(manager.plugins) == 1
         assert manager.catalog()[0]["version"] == "1.3"
-        notes = (REPO / "docs/releases/PLUGIN-match-sync-v1.3.md").read_text(encoding="utf-8")
+        source_readme = (REPO / "plugins_user/_match_sync/README.md").read_text(encoding="utf-8")
         installed_readme = (Path(root) / "plugins/match_sync/README.md").read_text(encoding="utf-8")
-        assert notes.startswith("# 比赛二路同步 v1.3\n")
-        assert installed_readme.endswith(notes.replace("# 比赛二路同步 v1.3", "## 1.3 更新说明"))
+        assert "## 1.3 更新说明\n" in source_readme
+        assert installed_readme == source_readme
         assert manager.plugin_settings == {}, "Loading the plugin must not write defaults"
         plugin = manager.plugins[0]
         manager.emit(plugins.EVENT_STREAM_RESOLVED,

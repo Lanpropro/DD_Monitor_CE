@@ -1,6 +1,6 @@
 # 插件接口
 
-> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-12 ｜ 读者：插件作者
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：插件作者
 
 ## 本页导航
 
@@ -137,7 +137,7 @@ plugins_user/
 登录浏览器按平台隔离并仅在主动导入时加载；Windows 登录 Cookie 用 DPAPI 加密保存于
 `utils/accounts/<platform>.bin`，不会进入普通插件设置，也不传给取流及弹幕接口。
 关闭导入窗口或软件会取消分页并等待当前有超时的请求收尾。
-国内插件目前试用斗鱼关注导入，需要新版宿主；其他平台尚未提供此能力。
+当前独立插件源码中，虎牙、斗鱼、抖音、Twitch 和 YouTube 均提供关注读取入口；实际可用范围取决于安装的插件版本及平台登录状态。抖音未识别房间按上述补充流程处理。
 
 支持登录的平台另提供 `account_info(session, cancelled)`，返回 `uid/uname/face`。
 可提供 `account_login_url` 指向独立官方登录页，登录与关注导入均使用此页面；
@@ -263,7 +263,7 @@ class MyPlugin(api.Plugin):
 `banner_url` 提供图片地址；紧凑卡片和主播相关通知优先使用它，缺失或下载失败时裁切直播封面。
 虎牙、斗鱼等传统直播平台始终使用封面；平台标识沿用现有 Logo。
 平台请求必须有超时；本体分别处理平台与 B 站房间，不会把前缀房间号传给
-B 站取流、在线人数或弹幕接口。当前跨平台悬停预览和弹幕尚未接入。
+B 站取流、在线人数或弹幕接口。宿主通过平台可选的 `preview_url` 和 `danmaku_client` 接入悬停预览与弹幕；具体能力由已安装插件提供。
 
 卡片基本资料与格子位置随配置保存，启动时状态为待刷新，后台恢复播放。
 禁用或删除插件后保留关注与位置，在格子提示启用插件。
@@ -379,14 +379,14 @@ context.notify("【示例主播（房间 120）】发送失败：登录失效，
 
 ## bili_live 配套安装
 
-`function/plugin-tile-extensions` 提供上述接口；配套插件源码在
-[DD_Monitor_Plugins](https://github.com/Lanpropro/DD_Monitor_Plugins) 的本地
-`codex/bili-live` 分支。使用插件管理器安装 `dist/bili_live-1.0.zip`，在插件页点击「重启以应用」。
+上述接口由本体提供；配套插件源码在
+[DD_Monitor_Plugins 的 `plugins/bili_live/` 发布源码](https://github.com/Lanpropro/DD_Monitor_Plugins/tree/bili-live-v1.1/plugins/bili_live)。
+从软件插件商店或该仓库的[正式 Releases](https://github.com/Lanpropro/DD_Monitor_Plugins/releases) 安装与本体兼容的 `bili_live` 包，在插件页按提示重启。
 继续在本体账号界面登录 B 站，各数字房间格子自动显示输入、表情、礼物和发送控件。
 禁用/移除插件同样在重启后生效；登录持久化、播放和接收弹幕仍由本体负责。
 插件在装载前检查必要公开接口，旧版本本体会报告兼容性要求。
 
-该 ZIP 当前是本地产物，网站没有对应下载条目。
+具体安装包版本以正式 Release 和包内 `plugin.json` 为准。
 
 ### 控件居中与宽度预算
 
