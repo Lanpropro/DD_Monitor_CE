@@ -64,6 +64,7 @@ def check_metadata(manager):
             ("https://www.youtube.com/@测试频道/streams", "@测试频道")):
         assert youtube.normalize(link) == "youtube:" + raw
     invalid = {
+        "chzzk": ["https://chzzk.naver.com/video/123", "chzzk:invalid"],
         "twitch": ["https://twitch.tv/videos/123", "https://player.twitch.tv/?channel=a&channel=b",
                    "https://twitch.tv/directory", "twitch:../test"],
         "youtube": ["https://youtube.com/watch?v=" + VIDEO + "&v=" + VIDEO,
@@ -79,7 +80,7 @@ def check_metadata(manager):
             else:
                 raise AssertionError(link)
         assert not platform.matches("123")
-        icon = QIcon(str(REPO / "assets/platforms" / (kind + ".ico")))
+        icon = QIcon(str(REPO / "assets/platforms" / ("generic.svg" if kind == "chzzk" else kind + ".ico")))
         assert not icon.pixmap(20, 20).isNull()
     assert youtube.room_url(ROOMS[1]).endswith("/live")
     with patch.object(module.requests, "get", side_effect=[module.requests.ConnectionError(), response()]) as get:
@@ -171,7 +172,7 @@ https://cdn.test/audio.m3u8
                for key in ("high", "low", "hevc", "audio")}
     streams.update(best=streams["high"], worst=streams["low"])
     for kind, platform in manager.platforms.items():
-        rid = ROOMS[0] if kind == "twitch" else ROOMS[1]
+        rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         with patch.object(module, "Streamlink", return_value=session), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(rid, live=True)), \
                 patch.object(platform.parser, "streams", return_value=streams):
@@ -190,7 +191,7 @@ https://cdn.test/audio.m3u8
 
     # 高延迟代理可连续两次断开 TLS；第三次成功不能变成整格取流失败。
     for kind, platform in manager.platforms.items():
-        rid = ROOMS[0] if kind == "twitch" else ROOMS[1]
+        rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         original_streamlink = module.Streamlink
         sessions = []
         def create(options):
@@ -409,7 +410,7 @@ def main():
     app = QApplication([])
     manager = plugins.PluginManager(enabled=["global_live"])
     manager.load()
-    assert set(manager.platforms) == {"twitch", "youtube"}
+    assert set(manager.platforms) == {"twitch", "youtube", "chzzk"}
     assert set(manager._platform_owner.values()) == {"global_live"} and len(manager.plugins) == 1
     records = check_metadata(manager)
     check_quality(manager)
@@ -425,6 +426,9 @@ def main():
                 assert not images._load_one(record[key], directory).isNull()
                 assert get.call_args.kwargs["headers"]["Referer"] == manager.platforms[record["platform"]].origin
     for platform in manager.platforms.values():
+        if platform.kind == "chzzk":
+            assert platform.danmaku_client("chzzk:" + "a" * 32) is None
+            continue
         asyncio.run(check_protocol(platform))
         for mode in ("setup", "reconnect"):
             client = platform.danmaku_client(ROOMS[0] if platform.kind == "twitch" else ROOMS[1])

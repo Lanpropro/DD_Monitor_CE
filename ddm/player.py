@@ -12,7 +12,7 @@ from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 
 from .audio_output import audio_filters, linear_volume
 from .audio_normalization import LiveVolumeNormalizer, normalize_curve
-from .auto_quality import AutoQuality
+from .auto_quality import AutoQuality, OVERSEAS_PLATFORMS
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
 from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
@@ -216,7 +216,7 @@ class TilePlayer(QObject):
         self._decoder_error = False
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
-        overseas = profile in ("twitch", "youtube")
+        overseas = profile in OVERSEAS_PLATFORMS
         hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas
         self._picture_limit = 20 if overseas else 8 if hls and profile != "douyu" else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas else 6
