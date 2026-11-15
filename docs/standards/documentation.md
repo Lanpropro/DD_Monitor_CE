@@ -84,7 +84,7 @@
 
 - 长期文档使用小写英文加连字符：`image-cache.md`、`windows-installer.md`。
 - 文件名不使用空格、中文或下划线；已有历史文件保持原名，不为改名制造链接断点。
-- 发布说明使用 `RELEASE-v<本体版本>.md`、`RELEASE-<插件ID>-v<插件版本>.md`；本体仓库不再保存重复的插件版本说明副本，早期二路版本正文保留在 `plugins_user/_match_sync/README.md`，插件日常增量记录使用插件仓库的 `docs/changes/<ID>.md`。
+- 发布说明使用 `RELEASE-v<本体版本>.md`、独立热修复使用 `RELEASE-v<本体版本>-hotfix.N.md`、插件使用 `RELEASE-<插件ID>-v<插件版本>.md`；本体仓库不再保存重复的插件版本说明副本，早期二路版本正文保留在 `plugins_user/_match_sync/README.md`，插件日常增量记录使用插件仓库的 `docs/changes/<ID>.md`。
 - 带日期的记录使用 `<主题>-<YYYYMMDD>.md`，日期是记录日期，不是计划日期。
 - 图片与素材放在被引用文档附近的 `assets/` 或既有资源目录；正文使用相对路径，不嵌入本机绝对路径。
 - 跨仓库引用使用完整 GitHub URL；不使用 `../DD_Monitor_Plugins/...` 这类只在本机成立的路径。

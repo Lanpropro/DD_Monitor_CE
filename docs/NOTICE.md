@@ -1,7 +1,5 @@
 # 来源与许可说明
 
-> 类型：声明 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：用户、维护者
-
 ## 这是什么
 
 DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本。
