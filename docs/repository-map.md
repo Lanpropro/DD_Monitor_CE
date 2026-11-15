@@ -487,6 +487,7 @@
 - `docs/archive/skins-implementation-202610.md`
 - `docs/archive/resize-performance-202611.md`
 - `docs/archive/responsiveness-capture-202611.md`
+- `docs/archive/ui-components-202611.md`
 - `docs/archive/customization-plan-202610.md`
 - `docs/archive/docs-organization-20261114.md`
 - `docs/archive/bili-shadowreplay-learning.md`
@@ -509,6 +510,7 @@
 
 - `docs/architecture/README.md`
 - `docs/architecture/overview.md`
+- `docs/architecture/ui-boundaries.md`
 - `docs/standards/documentation.md`
 
 ### 性能基准

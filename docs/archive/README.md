@@ -17,6 +17,7 @@
 | [2026-10 皮肤与美化实施记录](skins-implementation-202610.md) | 首版外观页、已撤下的专业美化编辑器及当时的测试步骤 |
 | [2026-10—11 窗口缩放实施记录](resize-performance-202611.md) | 旧方案、开发分工、真实采集与逐批验证结果；现行行为另见缩放文档 |
 | [2026-11 卡顿调查与采集记录](responsiveness-capture-202611.md) | 当时的专项重启步骤、实播采样及实施过程；现行采集方法见开发指南 |
+| [2026-11 界面组件实施记录](ui-components-202611.md) | 旧界面约定、模块拆分过程和逐项验收；现行控件入口见开发指南 |
 | [比赛二路 OCR 评估](match-sync-ocr-evaluation.md) | 2026-10-23 的合成样本试验与暂不接入的结论 |
 | [ShadowReplay 设计参考](bili-shadowreplay-learning.md) | 2026-11 的录播切片研究及本地 HLS 实施决定 |
 | [直播水族馆设计参考](liveaquarium-learning.md) | 2026-11 的合成与调度研究，已明确停止在候选方案阶段 |
