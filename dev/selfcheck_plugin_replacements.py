@@ -21,6 +21,52 @@ plugin=Bundle()
 
 
 class ReplacementTests(unittest.TestCase):
+    def test_store_install_migrates_settings_on_main_thread_and_preserves_disable(self):
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+        from unittest.mock import patch
+        import zipfile
+        from PySide6.QtWidgets import QApplication
+        from ddm import plugin_updates
+        from ddm.online_ui import PluginStorePage
+        app = QApplication.instance() or QApplication([])
+        self.provider('single_alpha', 'alpha')
+        archive = self.root / 'provider.zip'
+        with zipfile.ZipFile(archive, 'w') as package:
+            for name in ('plugin.py', 'plugin.json'):
+                package.write(self.root / 'single_alpha' / name, 'single_alpha/' + name)
+        target = self.root / 'installed'
+        target.mkdir()
+        manager = PluginManager(plugins_dir=str(target), enabled=['bundle'])
+        manager.plugin_settings = {'bundle': {'logo': False}}
+        saved_on = []
+        manager._save_settings = lambda: saved_on.append(threading.get_ident())
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            installed = worker.submit(plugin_updates.install, manager, str(archive),
+                {'id': 'single_alpha', 'version': '1.0'}).result(timeout=10)
+        self.assertEqual(manager.plugin_settings, {'bundle': {'logo': False}})
+        self.assertEqual(manager.enabled, {'bundle'})
+        self.assertEqual(saved_on, [])
+        with patch('ddm.online.load_plugin_cache', return_value=None), patch('ddm.online_ui.show_result'):
+            page = PluginStorePage(manager)
+            try:
+                page._installed((installed, True))
+                self.assertEqual(manager.plugin_settings['single_alpha'], {'logo': False})
+                self.assertIn('single_alpha', manager.enabled)
+                self.assertEqual(saved_on, [threading.get_ident()])
+            finally:
+                page.close()
+                app.processEvents()
+        manager.enabled.remove('single_alpha')
+        restarted = PluginManager(plugins_dir=str(target), enabled=list(manager.enabled))
+        restarted.plugin_settings = manager.plugin_settings
+        try:
+            restarted.load()
+            self.assertNotIn('alpha', restarted.platforms)
+            self.assertNotIn('single_alpha', restarted.enabled)
+        finally:
+            restarted.unload()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

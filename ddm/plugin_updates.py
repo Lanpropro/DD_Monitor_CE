@@ -108,7 +108,4 @@ def install(manager, archive, offer):
             raise ValueError('安装包 ID 或版本与商店记录不一致')
         check_compatibility(manifest)
     # 文件安装可在线程内执行，启用选择及其 UI 配置保存由主线程提交。
-    installed = PluginManager(plugins_dir=manager.plugins_dir).install_zip(archive)
-    from .plugin_replacements import inherit_settings
-    inherit_settings(manager, installed, manifest)
-    return installed
+    return PluginManager(plugins_dir=manager.plugins_dir).install_zip(archive)
