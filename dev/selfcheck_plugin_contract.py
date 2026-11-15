@@ -1,11 +1,16 @@
 """插件装载、事件、平台注册与卸载契约；只使用临时插件和内存设置。"""
 from pathlib import Path
+import json
+import re
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ddm import plugins as api
+from ddm import plugin_updates
 
 
 SOURCE = '''from ddm.plugins import Plugin, Platform
@@ -28,6 +33,49 @@ plugin = Demo()
 
 
 class PluginContractTests(unittest.TestCase):
+    def test_documented_recording_example_preserves_all_headers(self):
+        reference = (Path(__file__).resolve().parents[1] / 'docs/plugins.md').read_text(encoding='utf-8')
+        example = next(block for block in re.findall(r'```python\n(.*?)```', reference, re.S)
+                       if block.startswith('import subprocess\n'))
+        namespace = {'api': api}
+        exec(compile(example, 'docs/plugins.md', 'exec'), namespace)
+        source = api.StreamSource('smoke:42', 'https://example.test/live',
+                                  headers={'Referer': 'https://example.test/', 'User-Agent': 'fixture'})
+        with patch('subprocess.Popen') as launch:
+            namespace['on_event'](None, api.EVENT_STARTED, {})
+            launch.assert_not_called()
+            namespace['on_event'](None, api.EVENT_STREAM_RESOLVED, {'source': source})
+        launch.assert_called_once()
+        arguments = launch.call_args.args[0]
+        self.assertEqual(arguments.count('-headers'), 1)
+        self.assertEqual(arguments[arguments.index('-headers') + 1],
+                         'Referer: https://example.test/\r\nUser-Agent: fixture\r\n')
+        self.assertEqual(arguments[-1], 'smoke_42.flv')
+
+    def test_manual_import_and_loading_do_not_enforce_store_version_gate(self):
+        with tempfile.TemporaryDirectory(prefix='ddm-contract-') as directory:
+            root = Path(directory)
+            manifest = dict(id='version_probe', name='版本契约', description='fixture',
+                            version='1.0', min_app_version='999.0')
+            archive = root / 'plugin.zip'
+            with zipfile.ZipFile(archive, 'w') as package:
+                package.writestr('version_probe/plugin.json', json.dumps(manifest))
+                package.writestr('version_probe/plugin.py', SOURCE)
+            manager = api.PluginManager(plugins_dir=str(root / 'installed'))
+            try:
+                manager.install_zip(str(archive))
+                self.assertNotIn('ddm_plugin_version_probe', sys.modules)
+                self.assertEqual(manager.catalog()[0]['status'], '待重启')
+                with self.assertRaises(ValueError):
+                    manager.install_zip(str(archive))
+                with self.assertRaisesRegex(ValueError, '999.0'):
+                    plugin_updates.check_compatibility(manifest)
+                manager.load()
+                self.assertEqual(len(manager.plugins), 1)
+                self.assertIn('smoke', manager.platforms)
+            finally:
+                manager.unload()
+
     def test_temporary_plugin_load_event_registration_and_unload(self):
         with tempfile.TemporaryDirectory(prefix='ddm-contract-') as directory:
             root = Path(directory)

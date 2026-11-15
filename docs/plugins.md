@@ -1,6 +1,6 @@
 # 插件接口
 
-> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：插件作者
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：插件作者
 
 ## 本页导航
 
@@ -17,6 +17,7 @@
 ## 独立浏览器账号与关注（配套开发接口）
 
 平台可选提供`browser_login_url`、`browser_cookie_domains`、`browser_account_info(session, cancelled)`与`browser_follow_rooms(session, cancelled)`。
+以下浏览器登录选择仅适用于已提供上述能力的平台；未提供`browser_login_url`的插件继续使用原有OAuth或网页登录入口。宿主提供可选接口不代表当前安装的海外插件已经接入。
 宿主账号窗口在首次登录且本机已配置该平台的OAuth客户端时优先使用官方授权；未配置时提供无需开发者客户端的网页登录。已有OAuth或网页登录会话沿用原流程，网页登录页也保留OAuth高级入口。客户端配置损坏时仍可选择网页登录；离线检查不读取本机客户端配置。旧宿主忽略这些可选字段，继续使用原有OAuth能力。
 YouTube和Twitch导入页提供“重新读取”，重新请求当前账号的关注；窗口内切换平台继续保留上次列表及勾选。YouTube订阅接口不返回开播状态，频道以`live_known=False`导入，由正常状态刷新流程补齐。
 浏览器由`account_browser.py`以临时独立资料目录启动，支持本机Chrome或Edge。用户在普通窗口登录并关闭后，才通过同一临时资料目录的后台浏览器读取指定平台域的Cookie，不在登录页面启用调试，也不使用日常浏览器资料。HTTP(S)代理从当前进程传入登录浏览器，回环控制连接始终直连。完成或取消后释放本次进程与资料目录，持久登录仅沿用AccountStore的DPAPI存储。
@@ -30,7 +31,7 @@ YouTube和Twitch导入页提供“重新读取”，重新请求当前账号的�
 `sources()` 返回来源 ID、房间、会话 ID、状态和开始时间，不返回流 URL 或凭据。
 
 `control(source_id, action, session_id=...)` 支持 `record`、`stop`、`buffer`、
-`stop_buffer`、`save_replay`，沿用本体画质/设置流程。会话已变化时拒绝旧操作。
+`stop_buffer`、`save_replay`，沿用本体画质/设置流程。传入 `session_id` 时会核对当前会话，变化后拒绝旧操作；省略时不做会话代次校验。
 `open_settings()` 打开本体录制设置。
 
 `register_backend(RecordingSessionSubclass, enabled=True)` 将本体后续新建的录制/缓存会话交给插件，
@@ -104,13 +105,15 @@ plugins_user/
 ```
 
 - `id` 必须与目录名一致；`name`、`description`、`version` 必须是非空字符串。设置页优先从清单读取卡片信息，启动时才导入 `plugin.py`、查找 `plugin` 实例并调用 `on_load`。
+- 可选的 `min_app_version` 声明最低本体版本。插件商店及在线更新按它检查兼容性，缺省按 `0.3` 处理；手动导入 ZIP 和启动装载不执行这一版本门槛检查。使用新增接口的插件仍应在 `on_load` 检查必要方法，给出兼容要求或降级路径，不能只依赖版本号。
 - 旧插件没有 `plugin.json` 仍可从磁盘加载；新 ZIP 包必须有清单。装载不会覆盖同 ID 的已有插件，也不会当场执行代码，重启后生效。
 - 以 `_` 或 `.` 开头的目录会被**跳过**（给模板和插件自己的数据用）。
 - 装载失败的插件只会被跳过并在 stderr 打印原因，不会影响程序启动。
 
 可在「设置 → 插件」点击「装载插件…」选择 ZIP，查看插件卡片、当前加载状态，并切换启用状态或删除插件。安装和删除文件是即时操作；已加载插件在本次进程中仍运行，重启后才会停止。关闭设置窗口不会撤销文件操作。启用选择自动保存，在下次启动时生效。
+手动导入只新增尚不存在的插件 ID；同 ID 的在线升级由商店暂存后重启应用，见[在线更新](online-updates.md#发布插件)。插件页的「删除」会删除整个插件目录、该插件的待应用更新和插件配置段，包括目录内未登记的自建数据；需要保留的内容应先备份。这与主软件卸载时按文件清单清理的范围不同。
 插件安装、删除或启用选择改变后，插件页标题旁会显示「重启以应用」；点击前会等待尚未完成的设置保存，再正常收尾录制、插件与播放器并重新启动。仅更改启用选择并改回原样时，该按钮隐藏；文件已变更时仍需重启。源码运行和打包 EXE 均沿用当前程序入口。通用热重载暂不支持：现有插件可持有界面信号、线程和本机资源，接口尚不能保证彻底卸载。
-也可直接在 `utils/config.json` 的 `plugins_enabled` 写入插件目录名数组，
+也可直接在当前数据目录 `utils/config.json` 的 `plugins_enabled` 写入插件目录名数组，
 不写或写 `null` 表示全部启用。
 
 国内和海外直播扩展的源码及安装包在独立仓库
@@ -176,17 +179,20 @@ plugin = MyPlugin()
 | 事件 | payload | 用途 |
 | --- | --- | --- |
 | `app.started` | — | 界面已就绪 |
-| `app.closing` | — | 要退出了，收尾放这里 |
+| `app.closing` | — | 本体录制已收尾，即将卸载插件 |
 | `stream.resolved` | `source`（`StreamSource`）、`tile` | **录像**用的就是它 |
 | `stream.failed` | `tile`、`reason`（在 `_on_resolve_failed` 里） | 取流失败 |
 | `tile.playing` | `tile`、`room` | 这一路真的播起来了 |
+| `tile.stopped` | `tile`、`room` | 格子播放已停止或正在换流，不等于房间下播 |
 | `room.live` / `room.offline` | `tile`、`room` | 开播 / 下播 |
 | `danmaku.message` | `room_id`、`message` | 弹幕、礼物、上舰、SC |
 | `danmaku.status` | `room_id`、`status` | 弹幕连接状态文字 |
+| `tile.added` / `tile.removed` | `tile`、`room` | 房间加入或移出画面墙，可能复用已有空格子 |
+| `account.changed` | `platform`、`generation` | 账号身份变化，凭据另读快照 |
+| `account.credentials_updated` | `platform`、`generation`、`fields` | 同一账号凭据字段变化，不含字段值 |
+| `settings.changed` | — | 保留的事件名，当前宿主没有派发入口 |
 
-| `tile.added` / `tile.removed` | `tile` | 格子增删 |
-
-普通弹幕事件可提供字符串 `uid`（兼容 `user_id` / `author_id`）及 `uname`。本体在进入展示与 `danmaku.message` 订阅前按全局词条及平台用户规则过滤，并补充来源 `platform`、`room_id`；已屏蔽消息不向插件派发。平台由宿主房间标识确定，用户ID只在所属平台内比较，支持非数字ID；无ID时快捷屏蔽明确使用昵称。国内和海外内置协议适配均保留可用发送者ID，无需发送控件或账号登录即可屏蔽。
+普通弹幕事件可提供字符串 `uid`（兼容 `user_id` / `author_id`）及 `uname`。本体在进入展示与 `danmaku.message` 订阅前按全局词条及平台用户规则过滤，并补充来源 `platform`、`room_id`；已屏蔽消息不向插件派发。平台由宿主房间标识确定，用户ID只在所属平台内比较，支持非数字ID；无ID时快捷屏蔽明确使用昵称。独立国内、海外插件的协议适配保留可用发送者ID，无需发送控件或账号登录即可屏蔽。
 
 `StreamSource` 就是这一路的取流结果：
 
@@ -200,16 +206,23 @@ web 通道必须带，弄反了 CDN 直接 403 —— 所以别自己猜，直�
 录像的写法（不用二次取流、不用碰播放器）：
 
 ```python
+import subprocess
+
+
 def on_event(self, event, payload):
     if event != api.EVENT_STREAM_RESOLVED:
         return
     source = payload["source"]
     args = ["ffmpeg"]
-    for name, value in source.headers.items():
-        args += ["-headers", f"{name}: {value}\r\n"]
-    args += ["-i", source.url, "-c", "copy", f"{source.room_id}.flv"]
+    if source.headers:
+        args += ["-headers", "".join(f"{name}: {value}\r\n"
+                                    for name, value in source.headers.items())]
+    filename = source.room_id.replace(":", "_") + ".flv"
+    args += ["-i", source.url, "-c", "copy", filename]
     subprocess.Popen(args)
 ```
+
+此例只展示取流参数；插件须保存子进程句柄，在停止或 `on_unload` 中收尾，并自行处理失败和重连。需要本体统一管理录制、缓存和退出时，使用前面的录制服务。
 
 ## 二、平台（让本体认识 B 站以外的站）
 
@@ -298,24 +311,24 @@ def tile_actions(self, tile):
     return [("开始录制", lambda: start(tile.room))]
 ```
 
-返回 `(显示文字, 回调)` 的列表。回调里的异常只会打印到 stderr，不会冒到界面线程。
+返回 `(显示文字, 回调)` 的列表。回调在界面线程同步执行，普通 Python 异常由本体捕获并打印到 stderr。
 本体的菜单项和插件的项之间会自动加分隔线。
 
 ## 五、插件自己的配置
 
 ```python
-context.setting("token", "")            # 读
-context.set_setting("token", "abc")     # 写，并通知本体落盘
+context.setting("show_badge", True)           # 读
+context.set_setting("show_badge", False)     # 写，并通知本体落盘
 ```
 
-存在 `utils/config.json` 的 `plugins.<目录名>` 段下。
+存在当前数据目录 `utils/config.json` 的 `plugins.<目录名>` 段下，由本体的保存回调落盘。源码版或便携版默认在程序旁，安装版及迁移后的目录见前面的目录约定。
 
 ## 边界与保证
 
-- **插件异常不会拖垮本体**：`on_load`、`on_event`、`tile_actions`、菜单回调都被包住。
-  坏插件只坏它自己。
-- **装载顺序**：按目录名排序。同一个平台被两个插件注册会报错。
-- **卸载**：关窗时先发 `app.closing`，再调 `on_unload()`，然后才存配置、放播放器。
+- **回调与线程**：生命周期、界面注册、配置读写、凭据和录制桥接在 GUI 线程使用；事件在派发线程同步执行，管理器不自动创建后台线程。平台的 `room_info`、`rooms_status`、取流及关注读取由宿主工作线程调用，`matches`、`normalize` 等同步查询应快速返回。耗时任务由插件自行管理；`notify`、`request_login` 是下文明确允许工作线程调用的接口。
+- **普通异常隔离**：`on_load`、`on_event`、`tile_actions`、菜单回调中的普通 Python 异常由本体捕获。此机制不能隔离主线程阻塞、原生库崩溃或插件进程权限。
+- **装载顺序**：清单声明 `replaces` 的插件先装载，两组内部各按目录名排序。同一个平台被两个插件注册会报错。
+- **卸载**：实际退出时先收尾本体录制，再发 `app.closing`、调 `on_unload()`，然后存配置、释放播放器；隐藏到托盘不卸载插件。
   插件起的线程要在这里停掉，否则 Qt 退出时会崩。
 - **插件不是沙箱**：它拿到的是真实窗口对象和进程权限。这是刻意的取舍 ——
   录像、抓别的平台这类事本来就需要完整的网络和文件访问。
