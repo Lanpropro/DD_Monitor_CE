@@ -28,7 +28,7 @@ REQUIRED = (
     ".gitattributes",
     "dev/README.md", "dev/run_checks.py", "dev/checks/suites.json", "dev/checks/bootstrap.py",
     "dev/checks/README.md", "docs/development/testing.md",
-    "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py",
+    "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py", "blivedm/LICENSE",
     "dev/build_release.ps1", "dev/build_windows_version.py",
     "dev/pyi_rth_pyside6_paths.py", "dev/selfcheck_video_danmaku.py",
     "docs/overview1_Landscape_mode.png", "docs/overview2_Landscape_mode.png",

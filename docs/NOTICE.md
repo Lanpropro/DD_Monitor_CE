@@ -1,5 +1,7 @@
 # 来源与许可说明
 
+> 类型：声明 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：用户、维护者
+
 ## 这是什么
 
 DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本。
@@ -37,7 +39,7 @@ DD 监控室 CE 是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_la
   版权与许可见 `ddm/assets/licenses/source-han-sans-LICENSE.txt`，
   固定来源与 SHA256 见 `ddm/assets/licenses/source-han-sans-SOURCE.json`。
 - `blivedm/`：B 站直播弹幕协议库，上游 https://github.com/xfgryujk/blivedm 。
-  2026-11-15 查询的[上游 `LICENSE`](https://github.com/xfgryujk/blivedm/blob/dev/LICENSE)为 MIT；本仓库尚未附带与现有源码对应的许可原文，需核对引入来源并补齐。
+  2026-11-15 核对的[上游 `LICENSE`](https://github.com/xfgryujk/blivedm/blob/dev/LICENSE)为 MIT；原文保存在 `blivedm/LICENSE`。本仓库的首次引入提交为 `134575c0`，具体对应的上游源码提交尚未追溯。
 - libmpv：随包提供 shinchiro 的 Windows x64 构建；固定版本、下载地址、DLL 和
   压缩包校验值见 `ddm/assets/licenses/libmpv-SOURCE.json`。构建包含 GPL 组件；
   mpv 的版权说明及 GPL/LGPL 文本随包保留于 `mpv-license/`（源码中位于
