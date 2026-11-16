@@ -89,7 +89,6 @@
 | [selfcheck_bili_plugin_boundary](../selfcheck_bili_plugin_boundary.py) | `offline`、`smoke` |
 | [selfcheck_bili_cookies](../selfcheck_bili_cookies.py) | `offline` |
 | [selfcheck_cover_cache](../selfcheck_cover_cache.py) | 单项执行前核对 |
-| [selfcheck_delete](../selfcheck_delete.py) | 单项执行前核对 |
 | [selfcheck_drag_scroll](../selfcheck_drag_scroll.py) | 单项执行前核对 |
 | [selfcheck_drag_wheel](../selfcheck_drag_wheel.py) | `native`；合成视频与 60 次应用内拖放，报告 UI 心跳与抓起耗时；`--physical` 需交互桌面 |
 | [selfcheck_drag_lifecycle](../selfcheck_drag_lifecycle.py) | `offline` / `smoke`；首次快照准备在显示后完成、拖动中不补做；按视觉帧合并拖影、静止不重复移动、落点合并及拖放/取消恢复 |
@@ -115,7 +114,7 @@
 | [selfcheck_live_alert](../selfcheck_live_alert.py) | 单项执行前核对 |
 | [selfcheck_live_alert_sort](../selfcheck_live_alert_sort.py) | 单项执行前核对 |
 | [selfcheck_localization](../selfcheck_localization.py) | 单项执行前核对 |
-| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke`；包含开播提醒满墙后的目标选择、替换、取消、空格优先与去重 |
+| [selfcheck_main_notices](../selfcheck_main_notices.py) | `offline`、`smoke`；包含开播提醒满墙后的目标选择、替换、取消、空格优先与去重，以及多选删除关注后的房间状态和无新窗口回归 |
 | [selfcheck_notification_center](../selfcheck_notification_center.py) | `smoke`、`offline` |
 | [selfcheck_offline_badges](../selfcheck_offline_badges.py) | 单项执行前核对 |
 | [selfcheck_orientation_work](../selfcheck_orientation_work.py) | 单项执行前核对 |
@@ -175,7 +174,7 @@
 | [selfcheck_douyu_quality_order](../selfcheck_douyu_quality_order.py) | 离线替身；斗鱼 2K 菜单顺序和原生取流档位映射 |
 | [selfcheck_fullscreen_quality](../selfcheck_fullscreen_quality.py) | 离屏纯画质／取流逻辑；隔离原生呈现，窗口生命周期另见下项 |
 | [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | `native`，包含于根 `run.cmd --check-fullscreen-layers`；固定屏幕外且不接受焦点，验证进入先绘制重建底栏再显示全屏 HWND、退出先画好恢复的底栏再撤下全屏、共享弹幕及浮动 SC 转移、留言保留、零画面墙重排、原位置恢复、快捷键与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
-| [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke` |
+| [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke`；十六分几何，以及九分／十六分／两分切换后的原房间、空位数量与提示 |
 | [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
 | [selfcheck_layout_none](../selfcheck_layout_none.py) | 单项执行前核对 |
@@ -195,7 +194,6 @@
 | [selfcheck_resize_widgets](../selfcheck_resize_widgets.py) | `native` |
 | [selfcheck_pane_danmaku](../selfcheck_pane_danmaku.py) | `smoke` / `offline`；画面墙右键直接转换、顶部头像展开选择／收起／滚动／动效中断／缓存更新、多个弹幕栏、独立关联与共享连接、换位／换台／清空、空主画面启动及关闭后的来源复位、录制保护、重启及组合恢复、横竖屏所有格位；`--native` 加本地静音 MP4 核心／HWND／进度检查，根 `run.cmd --check-wall-panes` 统一执行 |
 | [selfcheck_room_presets](../selfcheck_room_presets.py) | `offline` |
-| [selfcheck_slots](../selfcheck_slots.py) | 单项执行前核对 |
 | [selfcheck_tile_fullscreen](../selfcheck_tile_fullscreen.py) | 单项执行前核对 |
 | [selfcheck_window_resize](../selfcheck_window_resize.py) | `native` |
 | [selfcheck_window_move_restore](../selfcheck_window_move_restore.py) | `native`；原生标题栏消息委托、无鼠标接管/替代窗口、同屏移动不隐藏且不重排、等尺寸最大化原生还原及双击；功能回归不代替真实鼠标与视觉验收 |
