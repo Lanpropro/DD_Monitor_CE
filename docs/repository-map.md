@@ -371,6 +371,9 @@
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
+- `dev/selfcheck_update_preview.py`
+- `dev/update_preview.py`
+- `dev/update_preview_server.py`
 - `dev/selfcheck_user_notice.py`
 - `dev/accept_live_translate.py`
 - `dev/selfcheck_live_translate_acceptance.py`
