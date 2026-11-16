@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QRect, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
-HOST_PAGES = {1: 'appearance', 7: 'plugins', 8: 'updates'}
+HOST_PAGES = {1: 'appearance', 3: 'recording', 7: 'plugins', 8: 'updates'}
 
 
 def _save_trace(stage, started=None):

@@ -291,6 +291,15 @@ class Plugin:
         """本体播报事件。只读，别在这里改 ``payload`` 里的对象。"""
 
     # ---- 界面 ----
+    def recording_settings(self, parent):
+        """Optional recording-page widget, parent-owned; persist through plugin APIs.
+
+        Called lazily in the host process, also for the isolated settings shell.
+        Return None when no recording settings are available. Widgets must stop
+        using plugin services on unload; the host owns their Qt lifetime.
+        """
+        return None
+
     def tile_actions(self, tile) -> list:
         """往这个格子的右键菜单加项。
 

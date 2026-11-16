@@ -116,7 +116,7 @@ def child(action):
                                      (1, 0, 8, 1, 8) if action == 'embed-scroll' else
                                      (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
                                      (1, 0, 1, 7, 1) if action == 'embed-appearance' else
-                                     (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
+                                     (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 3, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action in ('focus', 'zorder'):
@@ -248,7 +248,15 @@ def check_worker(app, action):
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
     client.autoSaveRequested.connect(lambda message: saves.append(message['changes']))
-    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else client._send({'kind': 'host-flushed'}) if message['kind'] == 'host-flush' else None)
+    def host_request(message):
+        if message['kind'] == 'host-page':
+            pages.append(message['index'])
+        elif message['kind'] == 'host-flush':
+            client._send({'kind': 'host-flushed'})
+        elif message['kind'] == 'host-save':
+            saves.append(message['changes'])
+            client._send({'kind': 'host-saved'})
+    client.hostRequest.connect(host_request)
     client.failed.connect(failures.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
     with patch.object(settings_process, 'worker_command', return_value=command), \
@@ -290,7 +298,9 @@ def check_worker(app, action):
                     assert combined['tray_pause_playback'] is False
                 assert 'appearance_mode' not in combined
                 assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
-            assert pages == ([{'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]] if clean else [])
+            expected = ([3, {'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]]
+                        if clean else [] if action in ('cancel', 'tray-cancel') else [3])
+            assert pages == expected, (pages, expected)
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
                 assert maximum < 0.15, maximum
@@ -830,7 +840,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([1, 0, 8, 1, 8] if action == 'embed-scroll' else [7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == ([1, 0, 8, 1, 8] if action == 'embed-scroll' else [7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 3, 8, 5, 1, 0])
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 if action == 'embed-coordinates':
                     assert len({tuple(message['size']) for message in shells}) == len(shells)
@@ -1146,4 +1156,20 @@ def main():
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    if sys.argv[1:]:
+        raise SystemExit(main())
+    # Native settings surfaces must be created and retired inside Qt's loop.
+    app = QApplication.instance() or QApplication([])
+    app.setQuitOnLastWindowClosed(False)
+    result = [1]
+    def run_checks():
+        try:
+            result[0] = main()
+        except BaseException:
+            import traceback
+            traceback.print_exc()
+        finally:
+            app.quit()
+    QTimer.singleShot(0, run_checks)
+    app.exec()
+    raise SystemExit(result[0])

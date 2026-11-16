@@ -124,7 +124,7 @@ class SettingsHost(QObject):
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
-        for index in (1, 8):
+        for index in (1, 3, 8):
             page = self.dialog._loaded_pages.get(index)
             if page is not None:
                 values.update(page.values())

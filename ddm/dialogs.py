@@ -89,7 +89,7 @@ class SettingsDialog(SettingsWindow):
             9: lambda: DiagnosticsPage(settings, self),
             1: lambda: AppearanceSettingsPage(settings, skin_controller=getattr(parent, 'skin_controller', None)),
             2: lambda: DanmakuSettingsPage(settings),
-            3: lambda: RecordingSettingsPage(settings),
+            3: lambda: self._recording_settings_page(settings),
             4: lambda: NotificationSettingsPage(settings),
             5: lambda: ShortcutSettingsPage(shortcuts),
             6: lambda: TraySettingsPage(settings),
@@ -141,6 +141,21 @@ class SettingsDialog(SettingsWindow):
         if preview:
             return
         self._update_save_button()
+
+    def _recording_settings_page(self, settings):
+        page = RecordingSettingsPage(settings)
+        if self._plugin_manager is not None:
+            from .settings_layout import SettingsSection
+            position = 1
+            for plugin in self._plugin_manager.plugins:
+                widget = plugin.recording_settings(page)
+                if widget is not None:
+                    card = SettingsSection(plugin.name)
+                    card.grid.addWidget(widget, 0, 0, 1, 2)
+                    page.sections.entries.insert(position, ('plugin_' + plugin.context.name, card, True))
+                    position += 1
+            page.sections._arrange()
+        return page
 
     def _update_window_heading(self, index):
         title = self.PAGES[index][1] if 0 <= index < len(self.PAGES) else ''
