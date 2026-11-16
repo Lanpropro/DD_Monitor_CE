@@ -400,6 +400,32 @@ class SidebarFolderControlTests(unittest.TestCase):
         self.assertFalse(navigation.live_button.isChecked())
         self.assertFalse(self.items['huya:fixture'].filtered_out)
 
+    def test_hidden_portrait_avatars_sync_only_when_strip_is_shown(self):
+        strip = self.sidebar._head_strip
+        self.assertEqual(strip._avatars, {})
+        self.sidebar.set_all_folders_collapsed(True)
+        self.sidebar.set_all_folders_collapsed(False)
+        self.assertEqual(strip._avatars, {}, 'Opening left-side folders must not build the hidden portrait strip')
+        self.sidebar.set_side('top')
+        self.assertTrue(self.sidebar._head_scroll.isHidden())
+        self.assertEqual(strip._avatars, {})
+        self.sidebar.set_collapsed(True, animate=False)
+        self.assertEqual(set(strip._avatars), {'1001', 'huya:fixture', '1003'})
+        self.sidebar.live_only = True
+        self.sidebar.refresh_filter()
+        self.assertEqual(set(strip._avatars), {'1001', '1003'})
+        self.sidebar.set_collapsed(False, animate=False)
+        with patch.object(strip, 'set_rooms', wraps=strip.set_rooms) as sync:
+            self.sidebar.apply_filter('xm')
+            sync.assert_not_called()
+        self.sidebar.set_collapsed(True, animate=False)
+        self.assertEqual(set(strip._avatars), {'1001'})
+        self.sidebar.set_side('left')
+        with patch.object(strip, 'set_rooms', wraps=strip.set_rooms) as sync:
+            self.sidebar.apply_filter('')
+            self.sidebar.refresh_strip()
+            sync.assert_not_called()
+
     def test_invalid_drop_keeps_folder_order_and_clears_indicator(self):
         folder = self.sidebar.create_folder('First')
         before = [f['id'] for f in self.sidebar.folders]

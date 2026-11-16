@@ -218,6 +218,7 @@
 - `dev/selfcheck_folder_blank_menu.py`
 - `dev/selfcheck_folder_card_drag.py`
 - `dev/selfcheck_folder_card_size.py`
+- `dev/selfcheck_folder_stress.py`
 - `dev/selfcheck_folder_drag.py`
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
@@ -450,6 +451,7 @@
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
 - `dev/selfcheck_update_preview.py`
+- `dev/folder_stress_preview.py`
 - `dev/update_preview.py`
 - `dev/update_preview_server.py`
 - `dev/selfcheck_user_notice.py`
@@ -763,7 +765,7 @@
 
 单格编码/解码设置协调由 `ddm/codec_control.py` 的 `CodecControl` 维护继承值、重取流决策、编码保留回写、实际状态和对话框接线。窗口唯一持有codec_overrides所属格子、原解析器/播放器及对话框映射，旧工厂由主窗口传入，Qt父对象和迟到结果检查保持；设置页控件、协议和解码实现不迁移。
 
-关注文件夹协调由 `ddm/sidebar_folder_control.py` 的 `SidebarFolderControl` 维护创建/归类/默认/智能副本、标题拖动和分组条目；筛选由 `ddm/sidebar_filter.py` 的 `SidebarFilter` 维护搜索、折叠/开播过滤及可见条目。Sidebar唯一持有文件夹、归属、卡片/标题缓存、选择和拖动状态，旧方法继续委托；对话框/标题/副本的旧工厂由Sidebar传入，Qt父对象及动画参数不变，不新增计时器或复制状态。`follow_folders`继续维护纯数据规则，`sidebar_folders`继续维护控件本体。 批量展开／折叠与实际折叠判断仍归该控制器；收起策略沿用常规设置保存／热应用链，恢复模式的先前收起ID集合仅由Sidebar持有，不持久化第二份文件夹模型；Sidebar唯一持有临时搜索自动展开策略，普通持久化状态仍使用原文件夹collapsed字段，不复制状态；按钮和可配置快捷键均调用同一批量入口。
+关注文件夹协调由 `ddm/sidebar_folder_control.py` 的 `SidebarFolderControl` 维护创建/归类/默认/智能副本、标题拖动和分组条目；筛选由 `ddm/sidebar_filter.py` 的 `SidebarFilter` 维护搜索、折叠/开播过滤及可见条目。Sidebar唯一持有文件夹、归属、卡片/标题缓存、选择和拖动状态，旧方法继续委托；对话框/标题/副本的旧工厂由Sidebar传入，Qt父对象及动画参数不变，不新增计时器或复制状态。`follow_folders`继续维护纯数据规则，`sidebar_folders`继续维护控件本体。 批量展开／折叠与实际折叠判断仍归该控制器；顶部头像条实际显示时才补同步，隐藏时不创建或重建整排头像；封面仍使用既有屏外dirty延后裁切；收起策略沿用常规设置保存／热应用链，恢复模式的先前收起ID集合仅由Sidebar持有，不持久化第二份文件夹模型；Sidebar唯一持有临时搜索自动展开策略，普通持久化状态仍使用原文件夹collapsed字段，不复制状态；按钮和可配置快捷键均调用同一批量入口。
 
 关注栏多选由 `ddm/sidebar_selection.py` 的 `SidebarSelection` 维护批量选择、Ctrl/Shift选择、拖动分组与删除信号；顺序由 `ddm/sidebar_sort.py` 的 `SidebarSort` 维护过滤落点换算、组内换位、置顶、文件夹排序及常看缓存协调。Sidebar唯一持有选择/锚点、卡片顺序、配置和WatchHistory，旧Qt入口保留薄委托；排序菜单的QActionGroup仍归菜单，实际卡片/定时器归属不变。计分模型仍在watch_history，拖放会话仍在sidebar_drag。
 
