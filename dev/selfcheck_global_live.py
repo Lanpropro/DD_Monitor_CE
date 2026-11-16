@@ -80,7 +80,9 @@ def check_metadata(manager):
             else:
                 raise AssertionError(link)
         assert not platform.matches("123")
-        icon = QIcon(str(REPO / "assets/platforms" / ("generic.svg" if kind == "chzzk" else kind + ".ico")))
+        icon_path = REPO / "assets/platforms" / (kind + ".ico")
+        assert icon_path.is_file(), f"Missing bundled platform icon: {kind}"
+        icon = QIcon(str(icon_path))
         assert not icon.pixmap(20, 20).isNull()
     assert youtube.room_url(ROOMS[1]).endswith("/live")
     with patch.object(module.requests, "get", side_effect=[module.requests.ConnectionError(), response()]) as get:
@@ -394,8 +396,26 @@ def check_window(app, records):
     print("PASS: real Qt add/drop, icon-only badges, portrait, chat/block words, no audience/browser, suspend/restore")
 
 
+def check_platform_icons():
+    from ddm.widgets import NavItem
+    for kind in ("twitch", "youtube", "chzzk"):
+        path = REPO / "assets/platforms" / (kind + ".ico")
+        assert path.is_file(), f"Missing bundled platform icon: {kind}"
+        expected = QIcon(str(path)).pixmap(20, 20)
+        assert not expected.isNull()
+        item = NavItem({"room_id": kind + ":fixture", "platform": kind, "uname": "fixture"}, 0)
+        try:
+            assert item.platform_badge.icon.pixmap(20, 20).toImage() == expected.toImage(), kind
+            assert item.platform_badge.toolTip() == {"twitch": "Twitch", "youtube": "YouTube", "chzzk": "CHZZK"}[kind]
+        finally:
+            item.close()
+            item.deleteLater()
+    print("PASS: bundled platform icons reach real sidebar cards without generic fallback")
+
+
 def main():
     app = QApplication([])
+    check_platform_icons()
     manager = plugins.PluginManager(enabled=["global_live"])
     manager.load()
     assert set(manager.platforms) == {"twitch", "youtube", "chzzk"}
