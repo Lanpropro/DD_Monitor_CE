@@ -1,6 +1,6 @@
 # 仓库文件分类清单
 
-> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：维护者
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：维护者
 
 ## 本页用法
 
@@ -406,6 +406,8 @@
 
 - `docs/archive/BUG-STATUS-2026-10-02.md`
 - `docs/archive/douyu-playback-202611.md`
+- `docs/archive/window-interaction-investigations-202610.md`
+- `docs/archive/testing-isolation-202611.md`
 - `docs/archive/README.md`
 - `docs/archive/appearance-implementation-202610.md`
 - `docs/archive/skins-implementation-202610.md`

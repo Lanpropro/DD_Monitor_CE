@@ -72,6 +72,8 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 74)])
         douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：暂缓定位。', douyu_case)
+        self.assertIn('(archive/douyu-playback-202611.md#2026-11-02-起播停顿与线路对照原-bug-案例)', douyu_case)
+        douyu_history = (ROOT / 'docs/archive/douyu-playback-202611.md').read_text(encoding='utf-8')
         for evidence in ('暂时无法复现', '6657', '6979222', 'hwdec=no',
                          'Packet corrupt', '2018d1d', '不是播放故障修复',
                          '普通开发入口和诊断入口均已复现', '12:53:22', 'ReadTimeout',
@@ -80,7 +82,7 @@ class RepositoryMapTests(unittest.TestCase):
                          '14:43:42', 'not JSON serializable', '这修复的是采集器',
                          'c88cff8d', '2350ms', 'douyu-control.json',
                          '1a0f6b2802cb', 'AES256-GCM-SHA384', '不禁用证书或主机名校验'):
-            self.assertIn(evidence, douyu_case)
+            self.assertIn(evidence, douyu_history)
         long_run = content.split('### BUG-070：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：待定位。', long_run)
         self.assertIn('不构成长时间使用性能的验收', long_run)
@@ -94,8 +96,11 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertIn('具体启动方式未另行说明', speed_case)
         tile_swap = next(line for line in content.splitlines() if line.startswith('| BUG-067 |'))
         self.assertEqual(tile_swap.split('|')[3].strip(), '已修复待验收')
-        for feature in ('等大', '共享', '坐标', '旧清单'):
+        for feature in ('等大', '共享', '坐标'):
             self.assertIn(feature, tile_swap)
+        self.assertIn('(archive/window-interaction-investigations-202610.md#格子换位与共享弹幕位置)', tile_swap)
+        window_history = (ROOT / 'docs/archive/window-interaction-investigations-202610.md').read_text(encoding='utf-8')
+        self.assertIn('旧清单', window_history)
         cross_screen = next(line for line in content.splitlines() if line.startswith('| BUG-066 |'))
         self.assertEqual(cross_screen.split('|')[3].strip(), '已验收')
         for feature in ('画面黑屏', '只有弹幕', '关注栏完好', '基本确认修复'):
@@ -111,6 +116,29 @@ class RepositoryMapTests(unittest.TestCase):
         for private in ('C:\\Users\\Lan', 'F:\\CodexAppManager', 'SESSDATA=', 'bili_jct='):
             self.assertNotIn(private, content)
         self.assertIn('(bug-cases.md)', (ROOT / 'docs/README.md').read_text(encoding='utf-8'))
+
+    def test_archived_records_keep_original_states_and_failures(self):
+        current = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
+        history = (ROOT / 'docs/archive/window-interaction-investigations-202610.md').read_text(encoding='utf-8')
+        for number, state, commit in ((30, '已修复待验收', 'c203c11d'),
+                                      (31, '已修复待验收', '5f3f71e3'),
+                                      (54, '已修复待验收', 'b70f4feb'),
+                                      (63, '已验收', 'bd537cdb'),
+                                      (65, '已修复待验收', 'bd537cdb')):
+            with self.subTest(case=number):
+                prefix = f'| BUG-{number:03d} |'
+                row = next(line for line in current.splitlines() if line.startswith(prefix))
+                old = next(line for line in history.splitlines() if line.startswith(prefix))
+                self.assertEqual(row.split('|')[3].strip(), state)
+                self.assertIn(commit, row)
+                self.assertEqual(old.split('|')[3].strip(), '已实现待合并')
+        verification = (ROOT / 'docs/archive/testing-isolation-202611.md').read_text(encoding='utf-8')
+        for evidence in ('旧120秒', '74个', '第8个', '3221225477', '不解释或修复产品Qt原生崩溃'):
+            self.assertIn(evidence, verification)
+        guide = (ROOT / 'docs/development/testing.md').read_text(encoding='utf-8')
+        self.assertIn('(../archive/testing-isolation-202611.md#ci-总超时的旧失败)', guide)
+        self.assertIn('(../archive/testing-isolation-202611.md#关注栏展示专项的原生退出)', guide)
+        self.assertIn('(../archive/testing-isolation-202611.md#画中画选择器的原生退出)', guide)
 
     def test_current_notes_source_and_portable_layouts(self):
         # Exercise the real UI method with label doubles; no QApplication,
