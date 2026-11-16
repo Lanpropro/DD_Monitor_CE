@@ -53,13 +53,11 @@ class AppUpdatePage(OnlinePage):
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
         actions.addWidget(self.check)
-        actions.addWidget(self.action)
-        actions.addStretch(1)
+        from .update_progress_ui import UpdateProgress
+        self.download_progress = UpdateProgress(self, button=self.action)
+        actions.addWidget(self.download_progress, 1)
         layout.addLayout(actions)
         layout.addWidget(self.status)
-        from .update_progress_ui import UpdateProgress
-        self.download_progress = UpdateProgress(self)
-        layout.addWidget(self.download_progress)
         self.notes_title = QLabel('当前版本 ' + version.VERSION + ' 更新说明')
         layout.addWidget(self.notes_title)
         self.notes = QTextBrowser()
