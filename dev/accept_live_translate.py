@@ -1,4 +1,4 @@
-"""Open the production host with a separate translation-only acceptance profile."""
+"""Open the production host with a separate translation acceptance profile."""
 import argparse
 import hashlib
 import json
@@ -78,8 +78,9 @@ def main():
         window._poll_timer.stop()
         window._stats_timer.stop()
         app.processEvents()
-        assert len(window.plugins.plugins) == 1 and not window.plugins.skipped
-        assert window.plugins.plugins[0] is plugin
+        loaded = {item.context.name for item in window.plugins.plugins}
+        assert loaded == set(state['plugins_enabled']) and not window.plugins.skipped
+        assert plugin.context.name == 'live_translate'
         assert plugin.panel.isVisible()
         assert plugin.session.worker is None and plugin.session.audio is None
         assert str(data) in config.CONFIG_PATH

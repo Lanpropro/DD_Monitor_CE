@@ -57,6 +57,19 @@ class AcceptanceIsolationTests(unittest.TestCase):
             acceptance.prepare(self.candidate)
         self.assertEqual(installed.read_text(encoding='utf-8'), 'preserve local changes')
 
+    def test_saved_profile_keeps_enabled_platforms_and_translation_settings(self):
+        data, _state = acceptance.prepare(self.candidate)
+        saved = {
+            'version': 1, 'rooms': ['youtube:@fixture'],
+            'plugins_enabled': ['live_translate', 'global_live'],
+            'plugins': {'live_translate': {'options': {'target_language': '繁体中文'}}},
+        }
+        path = data / 'utils/config.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(saved), encoding='utf-8')
+        _data, state = acceptance.prepare(self.candidate)
+        self.assertEqual(state, saved)
+
     def test_wrong_package_digest_is_refused_before_install(self):
         self.package.write_bytes(b'changed package')
         with self.assertRaises(ValueError):
