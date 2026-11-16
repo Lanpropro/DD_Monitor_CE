@@ -60,6 +60,14 @@ class AppUpdates:
                 if offer:
                     downloads.start(offer)
 
+    def download_notice_updates(self):
+        host = self.host
+        if host._closing:
+            return
+        host._show_update_notice()
+        if host._update_notice is not None:
+            host._update_notice._open()
+
     def restart_updates(self, page):
         """Reuse the settings save handshake before closing an open settings session."""
         host = self.host
@@ -207,7 +215,7 @@ class AppUpdates:
         if host._update_notice is None:
             host._update_notice = UpdateNotice(host)
             host._update_notice.activated.connect(lambda: host.open_settings(
-                "updates" if host._unread_app_update() else "plugins"))
+                "updates" if "app" in host._update_notice._update_rows else "plugins"))
             host._update_notice.updateRequested.connect(self.start_notice_update)
         host._update_notice.show_offer(app_offer or {'version': ''},
             persistent=host.settings.get('notice_persist_updates', True))
@@ -231,8 +239,10 @@ class AppUpdates:
                 host._update_notice.set_transfer(key, state)
         center = host.sidebar.notification_button.center
         entry = center.add(' · '.join(parts), kind='update',
-            callback=host._show_update_notice,
-            action='继续更新', key=('update', update_identity(app_offer) if app_offer else '',
+            callback=self.download_notice_updates,
+            action='下载更新',
+            secondary_callback=lambda page='updates' if app_offer else 'plugins': host.open_settings(page),
+            secondary_action='查看设置详情', key=('update', update_identity(app_offer) if app_offer else '',
                 tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
         host._update_notice.track_history((center, entry))
 

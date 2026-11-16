@@ -20,7 +20,7 @@ runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QPushButton, QWidget, QLineEdit
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QPushButton, QWidget, QLineEdit
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -833,22 +833,31 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual([entry.message for entry in center.entries], ['主播甲开播了', '录制已完成'])
         with patch.object(window, '_unread_app_update', return_value={'version': '0.5'}), \
                 patch.object(window, '_unread_plugin_updates', return_value=[]), \
-                patch.object(window, 'open_settings') as settings:
+                patch.object(window, 'open_settings') as settings, \
+                patch.object(window.app_updates, 'start_notice_update') as start, \
+                patch.object(sys, 'frozen', True, create=True):
             window._show_update_notice()
             window._show_update_notice()
             self.assertEqual(len(center.entries), 3)
             self.assertEqual(center.entries[-1].message, '软件有新版 v0.5')
             notice = window._update_notice
-            self.assertEqual(center.entries[-1].action, '继续更新')
+            self.assertEqual(center.entries[-1].action, '下载更新')
             center.entries[-1].callback()
             self.assertIs(window._update_notice, notice)
             self.assertTrue(notice.isVisible())
             self.assertEqual(len(center.entries), 3)
             settings.assert_not_called()
+            start.assert_called_once_with('app')
+            self.assertEqual(center.entries[-1].secondary_action, '查看设置详情')
+            center.entries[-1].secondary_callback()
+            settings.assert_called_once_with('updates')
 
     def test_closed_update_notice_can_resume_from_history_without_duplicate_or_lost_progress(self):
         window = self.window([])
         center = window.sidebar.notification_button.center
+        start = self.stack.enter_context(patch.object(window.app_updates, 'start_notice_update'))
+        restart = self.stack.enter_context(patch.object(window.app_updates, 'restart_updates'))
+        self.stack.enter_context(patch.object(sys, 'frozen', True, create=True))
         page = window._get_update_page({})
         offer = {'version': '9.0', 'size': 100}
         window._available_update = offer
@@ -857,7 +866,7 @@ class MainNoticesTests(unittest.TestCase):
         page._transfer_progress(state)
         notice = window._update_notice
         entry = center.entries[-1]
-        self.assertEqual(entry.action, '继续更新')
+        self.assertEqual(entry.action, '下载更新')
         self.assertTrue(entry.unread)
         notice.findChild(QPushButton, 'NoticeClose').click()
         self.app.processEvents()
@@ -867,7 +876,8 @@ class MainNoticesTests(unittest.TestCase):
         center.show()
         self.app.processEvents()
         row = center.rows[entry]
-        self.assertEqual(row.action.text(), '继续更新')
+        self.assertEqual(row.action.text(), '下载更新')
+        self.assertEqual(row.secondary_action.text(), '查看设置详情')
         with patch.object(window, 'open_settings') as settings:
             row.action.click()
         self.app.processEvents()
@@ -878,7 +888,16 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(center.entries, [entry])
         self.assertEqual(notice._update_rows['app'][1].bar.value(), 25)
         self.assertEqual(page.download_state, state)
+        start.assert_not_called()
+        with patch.object(window, 'open_settings') as settings:
+            center.show()
+            self.app.processEvents()
+            center.rows[entry].secondary_action.click()
+        settings.assert_called_once_with('updates')
+        self.assertFalse(center.isVisible())
+        start.assert_not_called()
         for phase, text in (('failed', '重试'), ('ready', '重启以应用')):
+            start.reset_mock()
             current = dict(state, phase=phase, percent=100 if phase == 'ready' else 25,
                            error='等待服务器传输数据超时，请稍后重试')
             page._transfer_progress(current)
@@ -894,10 +913,59 @@ class MainNoticesTests(unittest.TestCase):
             self.assertEqual(notice._update_rows['app'][2].property('phase'), phase)
             self.assertEqual(page.download_state, current)
             self.assertEqual(center.entries, [entry])
+            if phase == 'failed':
+                start.assert_called_once_with('app')
+            else:
+                start.assert_not_called()
+            restart.assert_not_called()
         center.show()
         self.app.processEvents()
         center.rows[entry].remove_button.click()
         self.assertNotIn(entry, center.entries)
+
+    def test_plugin_history_download_and_settings_buttons_have_separate_actions(self):
+        window = self.window([])
+        center = window.sidebar.notification_button.center
+        offer = dict(id='fixture', name='测试插件', version='2.0', available=True)
+        with patch.object(window, '_unread_app_update', return_value=None), \
+                patch.object(window, '_unread_plugin_updates', return_value=[offer]), \
+                patch.object(window.app_updates, 'start_notice_update') as start, \
+                patch.object(window.app_updates, 'restart_updates') as restart, \
+                patch.object(window, 'open_settings') as settings:
+            window._show_update_notice()
+            entry = center.entries[-1]
+            window._update_notice.findChild(QPushButton, 'NoticeClose').click()
+            center.show()
+            self.app.processEvents()
+            row = center.rows[entry]
+            self.assertEqual(row.action.text(), '下载更新')
+            self.assertEqual(row.secondary_action.text(), '查看设置详情')
+            self.assertLessEqual(abs(row.action.geometry().center().y()
+                                     - row.secondary_action.geometry().center().y()), 1)
+            self.assertFalse(row.action.geometry().intersects(row.secondary_action.geometry()))
+            timestamp = row.findChild(QLabel, 'NoticeDescription')
+            for button in (row.action, row.secondary_action):
+                self.assertTrue(row.rect().contains(button.geometry()))
+                self.assertFalse(timestamp.geometry().intersects(button.geometry()))
+                self.assertGreaterEqual(button.width(), button.fontMetrics().horizontalAdvance(button.text()) + 16)
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                center.grab().save(str(Path(directory) / 'history-two-actions.png'))
+            row.action.click()
+            start.assert_called_once_with('fixture')
+            settings.assert_not_called()
+            restart.assert_not_called()
+            self.assertFalse(center.isVisible())
+            self.assertTrue(window._update_notice.isVisible())
+            center.show()
+            self.app.processEvents()
+            center.rows[entry].secondary_action.click()
+            settings.assert_called_once_with('plugins')
+            self.assertEqual(start.call_count, 1)
+            restart.assert_not_called()
+            self.assertFalse(center.isVisible())
+            self.assertEqual(center.entries, [entry])
 
     def test_single_line_notice_keeps_heading_message_and_action_visible(self):
         owner = QWidget()

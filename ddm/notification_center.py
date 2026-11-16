@@ -45,6 +45,8 @@ class NoticeEntry:
     rooms: tuple = ()
     key: object = None
     file_path: str = ''
+    secondary_callback: object = None
+    secondary_action: str = '查看详情'
 
 
 class NoticeMessage(QTextEdit):
@@ -157,6 +159,11 @@ class NoticeRow(QFrame):
             self.action.setObjectName('PrimaryButton')
             self.action.clicked.connect(self.activate)
             footer.addWidget(self.action)
+        if entry.secondary_callback is not None:
+            self.secondary_action = QPushButton(entry.secondary_action)
+            self.secondary_action.setObjectName('IconButton')
+            self.secondary_action.clicked.connect(self.activate_secondary)
+            footer.addWidget(self.secondary_action)
         layout.addLayout(footer)
         self._paper = None
         self._progress = 0.0
@@ -172,6 +179,10 @@ class NoticeRow(QFrame):
     def activate(self):
         self.window().hide()
         self.entry.callback()
+
+    def activate_secondary(self):
+        self.window().hide()
+        self.entry.secondary_callback()
 
     def set_room_artwork(self, room_id, pixmap, kind):
         from .room_artwork import style_room_notice
@@ -281,7 +292,7 @@ class NotificationCenter(QFrame):
         self._sync()
 
     def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False,
-            file_path=None):
+            file_path=None, secondary_callback=None, secondary_action='查看详情'):
         if key is not None:
             if key in self._seen_keys:
                 entry = next((entry for entry in self.entries if entry.key == key), None)
@@ -290,6 +301,7 @@ class NotificationCenter(QFrame):
                 if entry is not None:
                     entry.message, entry.kind = str(message), kind
                     entry.callback, entry.action = callback, action
+                    entry.secondary_callback, entry.secondary_action = secondary_callback, secondary_action
                     entry.time = datetime.now().strftime('%H:%M:%S')
                     entry.unread = not self.isVisible()
                     entry.rooms = tuple(dict(room) for room in rooms[:3])
@@ -305,7 +317,7 @@ class NotificationCenter(QFrame):
                     return entry
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
                             callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key,
-                            str(file_path or ''))
+                            str(file_path or ''), secondary_callback, secondary_action)
         self.entries.append(entry)
         if key is not None:
             self._seen_keys.add(key)

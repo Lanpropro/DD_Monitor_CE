@@ -94,7 +94,10 @@ class UpdateNotice(QFrame):
         self.action = QPushButton('查看更新')
         self.action.setObjectName('PrimaryButton')
         self.action.clicked.connect(self._open)
-        layout.addWidget(self.action, 0, Qt.AlignRight)
+        self.actions = QHBoxLayout()
+        self.actions.addStretch(1)
+        self.actions.addWidget(self.action)
+        layout.addLayout(self.actions)
         self.settings_action = None
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -306,7 +309,7 @@ class UpdateNotice(QFrame):
             self.settings_action = QPushButton('前往设置', self)
             self.settings_action.setObjectName('IconButton')
             self.settings_action.clicked.connect(self._open_settings)
-            self.layout().addWidget(self.settings_action, 0, Qt.AlignRight)
+            self.actions.addWidget(self.settings_action)
         keys = {entry['key'] for entry in entries}
         for key in set(self._update_rows) - keys:
             widget, _, _ = self._update_rows.pop(key)

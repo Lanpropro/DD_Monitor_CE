@@ -4,9 +4,9 @@
 
 更新界面布局验收：运行根 `run.cmd --preview-updates`，在软件更新页检查下载前、下载中、完成和失败重试的控件起点保持靠左。插件页在已安装及商店中展开左列详情，右列卡片的位置和高度应保持；只有左列后续卡片下移，收起后恢复。原操作按钮整组显示在详情下方，顺序和对齐保持，不再重复出现左右两端按钮；缩窄窗口后单列排列、筛选和排序继续可用。自动回归 `selfcheck_update_download_progress` 覆盖这些几何约束，不能替代真实窗口观感验收。
 
-更新失败与通知菜单验收：从根 `run.cmd --preview-updates` 选择“断流失败后重试”或“校验失败后重试”，软件更新页和通知中应直接显示中文失败原因、已下载／总大小及重试按钮，无需悬停；重试开始后旧失败提示消失。关闭左上角浮层，打开通知菜单，点击“继续更新”应恢复同一通知、进度和失败／待重启状态，不启动重复下载；在菜单中显式删除仍会删除该条记录。现有布局样式已获维护者认可，这批失败说明与历史入口行为待人工验收。
+更新失败与通知菜单验收：从根 `run.cmd --preview-updates` 选择“断流失败后重试”或“校验失败后重试”，软件更新页和通知中应直接显示中文失败原因、已下载／总大小及重试按钮，无需悬停；重试开始后旧失败提示消失。关闭左上角浮层，打开通知菜单，更新记录应横向显示“下载更新”和“查看设置详情”：前者直接下载或失败重试，恢复同一任务，下载中不重复启动、就绪时不自动重启；后者只打开对应的软件更新或插件设置页；在菜单中显式删除仍会删除该条记录。现有布局样式已获维护者认可，浮层底部“全部下载”和“前往设置”应在同一行。最新双按钮入口与横向排列待人工验收。
 
-本批自动验证：失败反馈专项17项、通知关闭／恢复2项、完整更新界面及本机HTTP预览通过。通知全套另有 `test_default_banner_invalidates_old_cache_and_updates_visible_notices` 和 `test_selected_removal_and_undo_keep_other_players_and_slot_sound` 两项因 Qt `QWidgetItem` 缺少 `unpolish` 失败，根 `selfcheck_general_settings` 也在主窗口构造时出现同类 Qt 异常，未再次运行。原始日志保留；未删除断言或修改主题实现，不据此宣称通知全套或常规设置全部通过。
+本批自动验证：更新专项18项、通知双按钮及关闭／恢复3项、完整更新界面及本机HTTP预览通过。通知全套另有 `test_default_banner_invalidates_old_cache_and_updates_visible_notices` 和 `test_selected_removal_and_undo_keep_other_players_and_slot_sound` 两项因 Qt `QWidgetItem` 缺少 `unpolish` 失败，根 `selfcheck_general_settings` 也在主窗口构造时出现同类 Qt 异常，未再次运行。原始日志保留；未删除断言或修改主题实现，不据此宣称通知全套或常规设置全部通过。
 
 ## 导读
 
