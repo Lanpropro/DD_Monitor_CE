@@ -27,6 +27,7 @@ from .online_tasks import (_retired_online_tasks, _release_online_task, _wait_on
 
 
 from .plugin_store_ui import (PluginBrowserToolbar, PluginDetailsDialog, PluginStorePage)
+from .plugin_details_ui import PluginDetailsPanel
 
 
 from .app_update_ui import (AppUpdatePage)
