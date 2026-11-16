@@ -113,7 +113,7 @@ class Platform:
         raise NotImplementedError
 
     def play_url_for_codec(self, room_id: str, quality: int = 250,
-                           *, codec: str = "avc") -> tuple:
+                           *, codec: str = "avc", cancelled=None) -> tuple:
         """Strict selection: (url, quality, channel, headers, actual_codec).
 
         Implementations must identify the requested codec from source metadata;
@@ -122,7 +122,10 @@ class Platform:
         """
         if codec != "avc":
             raise StreamCodecUnavailable("旧版平台插件不支持选择 HEVC 直播源")
-        result = self.play_url(room_id, quality)
+        import inspect
+        options = ({'cancelled': cancelled} if cancelled is not None and
+                   'cancelled' in inspect.signature(self.play_url).parameters else {})
+        result = self.play_url(room_id, quality, **options)
         return (*result[:3], dict(result[3]) if len(result) > 3 else {}, "")
 
     def room_quality_options(self, room_id: str) -> list[dict]:
@@ -167,6 +170,20 @@ class PluginContext:
     # ---- 注册 ----
     def register_platform(self, platform: Platform) -> None:
         self._manager.register_platform(self.name, platform)
+
+    def ffmpeg_executable(self) -> str:
+        """The same bundled executable used by recording; no user configuration access."""
+        from .recording_output import ffmpeg_path
+        return ffmpeg_path()
+
+    def retain_media_source(self, factory, prepared) -> str:
+        """Transfer a ready private reader to playback; factory creates recording readers."""
+        from .media_sources import retain
+        return retain(factory, prepared, self)
+
+    def _clear_media_sources(self):
+        from .media_sources import revoke
+        revoke(self)
 
     def register_danmaku_sender(self, sender: DanmakuSender) -> None:
         self._manager.register_danmaku_sender(self.name, sender)

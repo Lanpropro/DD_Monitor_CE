@@ -18,6 +18,7 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 set "DIAG_ARG=%~1"
+if /i "%~1"=="--check-media-sources" goto mediaSourcesCheck
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
@@ -483,4 +484,9 @@ exit /b %errorlevel%
 :liveBufferingCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_player_lifetime -- LiveBufferingTests
+exit /b %errorlevel%
+
+:mediaSourcesCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_media_sources
 exit /b %errorlevel%

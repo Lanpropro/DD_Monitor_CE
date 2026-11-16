@@ -238,7 +238,11 @@ class TilePlayer(QObject):
         if not any(name.lower() == "user-agent" for name in request_headers):
             request_headers["User-Agent"] = UA
         playback_url = url
-        if overseas or profile == "huya":
+        from .media_sources import take
+        retained = take(url)
+        if retained is not None:
+            self._hls_proxy = retained
+        elif overseas or profile == "huya":
             from .global_danmaku import request_proxy
             from .hls_proxy import HlsProxy, FLV_HANDOFF_HEADER, take_flv_response
             session, room = self.play_session, self.diagnostic_room

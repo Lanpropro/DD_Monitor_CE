@@ -181,6 +181,7 @@ class PluginManager:
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
                 context._active = False
+                context._clear_media_sources()
                 self._remove_tile_owner(entry)
                 context._clear_workspace_controls()
                 try:
@@ -217,6 +218,7 @@ class PluginManager:
         self._unloaded = True
         for context in tuple(self._contexts):
             context._active = False
+            context._clear_media_sources()
         for tile in tuple(self._tiles):
             self.detach_tile(tile)
         self._tile_providers.clear()
