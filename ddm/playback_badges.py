@@ -159,6 +159,41 @@ class TimeBadge(BadgeSurface):
         painter.setFont(_badge_font())
         painter.drawText(self.rect(), int(Qt.AlignCenter), self.text)
 
+class PauseIndicator(BadgeSurface):
+    """Static pause glyph above the native video, with no visible status text."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAccessibleName("已暂停")
+        self.setFixedSize(48, 48)
+        self._mask_path = continuous_path(QRectF(self.rect()), 24)
+        self.hide()
+
+    def start(self):
+        self.show()
+        self.raise_()
+
+    def stop(self):
+        self.hide()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self.testAttribute(Qt.WA_NativeWindow):
+            self.setAttribute(Qt.WA_NativeWindow, True)
+        self.update()
+
+    def paint_badge(self, painter):
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setOpacity(205 / 255)
+        painter.fillPath(self.badge_path, theme.overlay_color('#1b1e24', '#F7F9FC'))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.overlay_color('#eef1f5', '#202630'))
+        for x in (17, 27):
+            painter.drawRoundedRect(QRectF(x, 15, 4, 18), 1.5, 1.5)
+
+
 class LoadingLabel(QLabel):
     """保留布局和字体信息，由浮层统一绘制到带 Alpha 的画布。"""
 

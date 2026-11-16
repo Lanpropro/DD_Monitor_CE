@@ -103,6 +103,42 @@ assert not any(name in sys.modules for name in (
         QTest.mouseClick(danmaku, Qt.LeftButton)
         self.assertTrue(danmaku.isChecked())
 
+    def test_settings_gear_is_monochrome_and_keeps_click_behavior(self):
+        from ddm.playback_controls import DanmakuSettingsButton
+        button = DanmakuSettingsButton(self.owner)
+        self.owner.layout().addWidget(button)
+        self.owner.show()
+        clicked = []
+        button.clicked.connect(lambda: clicked.append(True))
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.assertEqual(clicked, [True])
+        self.assertEqual(button.text(), '')
+        self.assertEqual(button.accessibleName(), '弹幕观看设置')
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            image = QImage(button.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            button.render(image)
+            self.assertFalse(image.isNull())
+
+    def test_tile_uses_pause_glyph_and_settings_button_in_host(self):
+        from ddm.tile_widgets import Tile
+        from ddm.playback_badges import PauseIndicator
+        from ddm.playback_controls import DanmakuSettingsButton
+        tile = Tile({'room_id': 'fixture', 'live': False}, self.owner)
+        self.owner.layout().addWidget(tile)
+        self.owner.show()
+        self.assertIsInstance(tile.pause_overlay, PauseIndicator)
+        self.assertIsInstance(tile.danmaku_settings_button, DanmakuSettingsButton)
+        tile._player_active = True
+        tile.set_paused(True)
+        self.assertFalse(tile.pause_overlay.isHidden())
+        tile.set_paused(False)
+        self.assertTrue(tile.pause_overlay.isHidden())
+        with patch.object(tile.danmaku_settings_menu, 'open_at') as opened:
+            QTest.mouseClick(tile.danmaku_settings_button, Qt.LeftButton)
+        opened.assert_called_once()
+
     def test_refresh_animation_hides_resumes_and_dies_with_owner(self):
         button = ui.RefreshButton(self.owner)
         self.owner.layout().addWidget(button)

@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QMovie, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
-from ddm.playback_badges import StreamBadge, TimeBadge, TitleBadge, LoadingIndicator
+from ddm.playback_badges import StreamBadge, TimeBadge, TitleBadge, LoadingIndicator, PauseIndicator
 
 
 class PlaybackBadgeTests(unittest.TestCase):
@@ -82,6 +82,28 @@ class PlaybackBadgeTests(unittest.TestCase):
             self.assertTrue(badge.isHidden())
             if icon:
                 self.assertEqual(badge._movie.state(), QMovie.NotRunning)
+
+    def test_pause_indicator_is_static_accessible_and_mouse_transparent(self):
+        from PySide6.QtWidgets import QLabel
+        badge = PauseIndicator(self.owner)
+        self.assertEqual(badge.accessibleName(), '已暂停')
+        self.assertTrue(badge.testAttribute(Qt.WA_TransparentForMouseEvents))
+        self.assertEqual(badge.findChildren(QLabel), [])
+        badge.start()
+        self.assertFalse(badge.isHidden())
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            for dpi in (1, 1.5, 2):
+                image = QImage(round(48 * dpi), round(48 * dpi), QImage.Format_ARGB32_Premultiplied)
+                image.setDevicePixelRatio(dpi)
+                image.fill(Qt.transparent)
+                painter = QPainter(image)
+                badge._render_badge(painter)
+                painter.end()
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+                self.assertGreater(image.pixelColor(round(18 * dpi), round(24 * dpi)).alpha(), 0)
+        badge.stop()
+        self.assertTrue(badge.isHidden())
 
     def test_loading_uniform_scale_keeps_animation_and_restores_normal_size(self):
         for icon in (True, False):

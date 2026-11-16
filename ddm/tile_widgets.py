@@ -23,9 +23,9 @@ from .config import (
 from .corner_geometry import continuous_path
 from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
-from .playback_badges import LoadingIndicator, StreamBadge, TimeBadge, TitleBadge
+from .playback_badges import LoadingIndicator, PauseIndicator, StreamBadge, TimeBadge, TitleBadge
 from .playback_controls import (
-    DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, TileButton, VolumeButton,
+    DanmakuSettingsButton, DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, TileButton, VolumeButton,
     VolumePopup
 )
 from .sidebar_drag import ROOM_MIME
@@ -188,9 +188,7 @@ class Tile(QFrame):
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
         self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
                                        else "开启画面弹幕（默认 B）")
-        self.danmaku_settings_button = TileButton("⚙")
-        self.danmaku_settings_button.setObjectName("TileCtrl")
-        self.danmaku_settings_button.setFixedSize(26, 26)
+        self.danmaku_settings_button = DanmakuSettingsButton()
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
         self.danmaku_settings_menu = VideoDanmakuSettings(self)
         self.danmaku_settings_menu.settingsChanged.connect(self._change_video_danmaku_settings)
@@ -301,7 +299,7 @@ class Tile(QFrame):
         self.paused = False
         self._player_active = False
         self.spinner = LoadingIndicator(self)
-        self.pause_overlay = LoadingIndicator(self, text="已暂停", icon=False)
+        self.pause_overlay = PauseIndicator(self)
         self.pause_overlay.setObjectName("PauseOverlay")
         #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
         self._overlay_ready = True

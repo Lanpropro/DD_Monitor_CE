@@ -268,13 +268,13 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 弹幕连接共享、按需订阅及连接/SC 快照线程退役集中在 `ddm/danmaku_lifecycle.py`。主窗口保留旧入口与回调、按调用时构造器创建线程，继续拥有 Qt 对象、连接状态和退出等待；消息分发、账号凭据与 SC 展示策略保持原归属。
 
-播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
+播放状态浮标（LIVE/时长/标题/加载提示/暂停图标）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`PauseIndicator` 是静态透明图形，保留 Tile 原有状态驱动与鼠标穿透。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；加载动画生命周期不变。
 
 多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/features/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
 
 矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
 
-播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
+播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`DanmakuSettingsButton` 按主题颜色绘制线条齿轮，避免 emoji 字体产生彩色图案。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
 
 省略标签与工具条图标按钮分别在 `ddm/ui/labels.py`、`ddm/ui/toolbar.py` 维护，`ddm.ui` 按需导入；`widgets` 在原定义位置兼容导出同一类，保留原 Qt 子类加载顺序，`_repolish` 从共享辅助模块兼容导出。基础控件不依赖画面墙、播放器或主窗口，Qt 父子归属与信号行为沿用原实现。
 

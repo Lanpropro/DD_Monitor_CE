@@ -251,6 +251,37 @@ class SidebarToggleButton(QPushButton):
                          QPointF(center.x(), tip_y))
 
 
+class DanmakuSettingsButton(TileButton):
+    """Monochrome outline gear; never rendered through an emoji font."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("TileCtrl")
+        self.setFixedSize(26, 26)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAccessibleName("弹幕观看设置")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(QRectF(self.rect()).center())
+        painter.setPen(QPen(_icon_color(self), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        path = QPainterPath()
+        for index in range(32):
+            angle = math.radians(index * 360 / 32 - 90)
+            radius = 8 if index % 4 in (1, 2) else 6.3
+            point = QPointF(radius * math.cos(angle), radius * math.sin(angle))
+            if index == 0:
+                path.moveTo(point)
+            else:
+                path.lineTo(point)
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.drawEllipse(QPointF(0, 0), 2.6, 2.6)
+
+
 class PauseButton(TileButton):
     """暂停 / 继续：最常见的 ⏸ / ▶ 图形按钮。"""
 
