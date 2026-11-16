@@ -119,6 +119,42 @@ class UpdateDownloadTests(unittest.TestCase):
             archive.writestr(key + '/plugin.py', "raise RuntimeError('must not execute')")
         return path
 
+    def test_notice_download_and_settings_footer_share_one_horizontal_row(self):
+        notice = UpdateNotice(self.host)
+        notice.set_updates([dict(key='first', title='插件一'), dict(key='second', title='插件二')])
+        notice.show_offer({'version': '9.0'}, persistent=True)
+        requested, opened = [], []
+        notice.updateRequested.connect(requested.append)
+        notice.activated.connect(lambda: opened.append(True))
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            notice._resize_to_content()
+            self.app.processEvents()
+            self.assertTrue(notice.action.isVisible())
+            self.assertTrue(notice.settings_action.isVisible())
+            self.assertEqual(notice.action.text(), '全部下载')
+            self.assertLess(notice.action.geometry().right(), notice.settings_action.x())
+            self.assertLessEqual(abs(notice.action.geometry().center().y() - notice.settings_action.geometry().center().y()), 1)
+            self.assertTrue(notice.rect().contains(notice.action.geometry()))
+            self.assertTrue(notice.rect().contains(notice.settings_action.geometry()))
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                notice.grab().save(str(Path(directory) / f'notice-actions-{mode}.png'))
+        notice.action.click()
+        self.assertEqual(requested, ['first', 'second'])
+        self.assertFalse(opened)
+        notice.settings_action.click()
+        self.assertEqual(opened, [True])
+        self.assertEqual(requested, ['first', 'second'])
+        notice.set_updates([dict(key='first', title='插件一')])
+        notice.show_offer({'version': '9.0'}, persistent=True)
+        self.assertTrue(notice.action.isHidden())
+        self.assertTrue(notice.settings_action.isVisible())
+        notice.dismiss(animate=False)
+        notice.deleteLater()
+        theme.apply('dark')
+
     def test_update_errors_explain_transport_http_storage_and_package_failures(self):
         cases = [
             (online.requests.exceptions.ChunkedEncodingError('IncompleteRead(131072 bytes read)'), '文件未接收完整'),
