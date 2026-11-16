@@ -195,7 +195,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_fullscreen_switch](../selfcheck_fullscreen_switch.py) | `native`，包含于根 `run.cmd --check-fullscreen-layers`；固定屏幕外且不接受焦点，验证进入先绘制重建底栏再显示全屏 HWND、退出先画好恢复的底栏再撤下全屏、共享弹幕及浮动 SC 转移、留言保留、零画面墙重排、原位置恢复、快捷键与 HWND 连续性；非 Windows 后端跳过，不是实际性能证据 |
 | [selfcheck_layout_16](../selfcheck_layout_16.py) | `offline`、`smoke`；十六分几何，以及九分／十六分／两分切换后的原房间、空位数量与提示 |
 | [selfcheck_window_layout](../selfcheck_window_layout.py) | `smoke` / `offline`；方向记忆/显式选择、布局扩缩与音频位置、异常恢复根布局、窗口限位、Qt父对象及原生子窗口身份；隐藏合成控件，无媒体/账户/桌面输入 |
-| [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline` |
+| [selfcheck_layout_growth_empty](../selfcheck_layout_growth_empty.py) | `offline`；使用空临时插件目录，布局增长不扫描本机安装副本 |
 | [selfcheck_layout_live_priority](../selfcheck_layout_live_priority.py) | 单项执行前核对 |
 | [selfcheck_layout_none](../selfcheck_layout_none.py) | 单项执行前核对 |
 | [selfcheck_layout_playback](../selfcheck_layout_playback.py) | 单项执行前核对 |
