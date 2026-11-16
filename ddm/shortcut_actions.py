@@ -4,6 +4,7 @@ SHORTCUT_ACTIONS = [
     ("restore", "退出全屏", "Esc"),
     ("close_tile", "关闭鼠标所在格子的直播（保留空格）", "Del"),
     ("danmaku_input", "显示播放栏／聚焦鼠标所在格子的弹幕输入框", "Return"),
+    ("toggle_folders", "展开／折叠全部关注文件夹", "Ctrl+Shift+F"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),
     ("audio_cycle", "声音轮询按键", "E"),
     ("record", "开始／停止鼠标所在格子的录制", "R"),

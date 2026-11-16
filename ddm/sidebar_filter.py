@@ -15,6 +15,7 @@ class SidebarFilter:
             return
         host.clear_sort_selection()
         host.filter_text = wanted
+        host._search_expands_folders = True
         host.refresh_filter()
 
     def refresh_filter(self) -> None:
@@ -33,8 +34,7 @@ class SidebarFilter:
             host.rooms(), host.folders, host._folder_pending)
         for item in host._items:
             folder = host.get_folder(host.folder_for(str(item.room.get("room_id"))))
-            folded = folder and folder["collapsed"] and (
-                not words or folder["id"] in host._folders_folded_by_drag)
+            folded = host.folder_control.is_folded(folder)
             item.set_filtered_out(bool(folded) or not host.matches(item, words))
             if folded:
                 host._sort_selected_ids.discard(str(item.room.get("room_id")))

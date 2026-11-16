@@ -36,6 +36,7 @@ class AppShortcuts(QObject):
             shortcut = QShortcut(QKeySequence(sequence), host._fullscreen_tile or host)
             shortcut.setContext(Qt.WindowShortcut)
             shortcut.setAutoRepeat(False)
+            shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
             shortcut.setProperty("danmakuInput", sequence in (
                 host.shortcuts.get("danmaku_input"),
                 "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
@@ -82,7 +83,7 @@ class AppShortcuts(QObject):
             if sequence in ("Up", "Down"):
                 shortcut.setEnabled(not editing and (host._fullscreen_tile is not None
                                     or sequence in host.shortcuts.values()))
-            elif shortcut.property("danmakuInput"):
+            elif shortcut.property("danmakuInput") or shortcut.property('folderToggle'):
                 shortcut.setEnabled(not editing)
 
     def tile_under_cursor(self):
@@ -111,7 +112,11 @@ class AppShortcuts(QObject):
         shortcuts = host.shortcuts
         volume_up = shortcuts.get('pip_volume_up', 'Up')
         volume_down = shortcuts.get('pip_volume_down', 'Down')
-        if pressed in (volume_up, volume_down) and host._fullscreen_tile is not None:
+        if pressed and pressed == shortcuts.get('toggle_folders'):
+            if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
+                return False
+            host.sidebar.toggle_all_folders()
+        elif pressed in (volume_up, volume_down) and host._fullscreen_tile is not None:
             if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
                 return False
             tile = host._fullscreen_tile

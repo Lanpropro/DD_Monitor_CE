@@ -14,6 +14,7 @@ from .ui import SettingsSurface, ToggleSwitch, page_header as _page_head
 _SHORTCUT_TITLES = {
     'focus': '全屏查看', 'restore': '退出全屏', 'close_tile': '关闭直播格',
     'danmaku_input': '弹幕输入', 'mute': '静音', 'audio_cycle': '声音轮询',
+    'toggle_folders': '全部关注文件夹',
     'record': '录制', 'video_danmaku': '画面弹幕', 'solo': '单路声音',
     'volume_up': '滚轮增大音量', 'volume_down': '滚轮减小音量',
     'pip_volume_up': '画中画增大音量', 'pip_volume_down': '画中画减小音量',
@@ -46,7 +47,7 @@ class ShortcutSettingsPage(QWidget):
 
         self.sections = SettingsColumns()
         groups = (
-            ('home', '首页快捷键', ('focus', 'restore', 'close_tile', 'danmaku_input')),
+            ('home', '首页快捷键', ('focus', 'restore', 'close_tile', 'danmaku_input', 'toggle_folders')),
             ('general', '常规快捷键', ('mute', 'audio_cycle', 'record', 'video_danmaku', 'solo')),
             ('wheel', '滚轮快捷键', ('volume_up', 'volume_down')),
             ('pip', '画中画快捷键', ('pip_volume_up', 'pip_volume_down')),
@@ -112,9 +113,10 @@ class ShortcutSettingsPage(QWidget):
             reset_button.clicked.connect(lambda checked=False, key=key: self._reset_one(key))
             row.addWidget(reset_button)
             enabled = ToggleSwitch('启用 ' + label.text())
-            enabled.setChecked(True)
+            enabled.setChecked(bool(shortcuts.get(key, default)))
             self._row_toggles[key] = enabled
             enabled.toggled.connect(lambda checked, key=key: self._edits[key].setEnabled(checked))
+            edit.setEnabled(enabled.isChecked())
             row.addWidget(enabled, 0, Qt.AlignVCenter)
             box.addLayout(row)
         reset = QPushButton('重置本板块快捷键')
@@ -125,6 +127,7 @@ class ShortcutSettingsPage(QWidget):
         return card
 
     def _reset_one(self, key):
+        self._row_toggles[key].setChecked(True)
         edit = self._edits[key]
         if isinstance(edit, QLineEdit):
             edit.setText(self._defaults[key])
@@ -144,5 +147,5 @@ class ShortcutSettingsPage(QWidget):
         for key, _label, default in SHORTCUT_ACTIONS:
             edit = self._edits[key]
             text = edit.text() if isinstance(edit, QLineEdit) else edit.keySequence().toString()
-            result[key] = text or default
+            result[key] = (text or default) if self._row_toggles[key].isChecked() else ''
         return result

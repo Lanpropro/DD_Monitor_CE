@@ -3,6 +3,8 @@ from contextlib import ExitStack
 import os
 from pathlib import Path
 import sys
+import tempfile
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 os.environ['DDM_NO_SAVE'] = '1'
@@ -10,11 +12,111 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget
 from ddm.app import MainWindow
 from ddm.dialogs import SHORTCUT_ACTIONS, ShortcutSettingsPage
 from ddm.widgets import VolumeButton
 from ddm.plugins import TileControl
+
+
+def check_folder_shortcut(app):
+    from ddm import config
+    from ddm.app_shortcuts import AppShortcuts
+    from ddm.dialogs import SettingsDialog
+    defaults = {key: default for key, _label, default in SHORTCUT_ACTIONS}
+    assert ('toggle_folders', '展开／折叠全部关注文件夹', 'Ctrl+Shift+F') in SHORTCUT_ACTIONS
+    page = ShortcutSettingsPage({})
+    assert page.values()['toggle_folders'] == 'Ctrl+Shift+F'
+    assert page.values()['focus'] == 'F' and page.values()['audio_cycle'] == 'E'
+    home = next(card for key, card, _wide in page.sections.entries if key == 'home')
+    assert home.isAncestorOf(page._edits['toggle_folders'])
+    page._edits['toggle_folders'].setKeySequence(QKeySequence('Ctrl+Shift+G'))
+    assert page.values()['toggle_folders'] == 'Ctrl+Shift+G'
+    page._row_toggles['toggle_folders'].setChecked(False)
+    assert page.values()['toggle_folders'] == ''
+    assert not page._edits['toggle_folders'].isEnabled()
+    saved = page.values()
+    reopened = ShortcutSettingsPage(saved)
+    assert reopened.values()['toggle_folders'] == ''
+    assert not reopened._row_toggles['toggle_folders'].isChecked()
+    reopened._reset_one('toggle_folders')
+    assert reopened._row_toggles['toggle_folders'].isChecked()
+    assert reopened.values()['toggle_folders'] == 'Ctrl+Shift+F'
+    page.reset()
+    assert page.values() == defaults
+    # The lazy settings dialog must retain an explicit disabled value before visiting the page.
+    with tempfile.TemporaryDirectory(prefix='ddm-folder-shortcuts-') as temporary, \
+            patch.object(config, 'REPO', temporary):
+        dialog = SettingsDialog({}, saved, preview=True)
+        try:
+            assert dialog.shortcuts()['toggle_folders'] == ''
+            assert dialog.shortcuts()['focus'] == 'F'
+            assert dialog.shortcut_page.values()['toggle_folders'] == ''
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+    host = QWidget()
+    host.shortcuts = dict(defaults)
+    host._fullscreen_tile = None
+    host.wall = SimpleNamespace(tiles=[])
+    host.sidebar = SimpleNamespace(toggle_all_folders=Mock())
+    control = AppShortcuts(host)
+    host._sync_input_shortcuts = control.sync_input_shortcuts
+    host._handle_shortcut = control.handle_shortcut
+    layout = QVBoxLayout(host)
+    button = QPushButton('Focus target', host)
+    layout.addWidget(button)
+    editors = [QLineEdit(host), QPlainTextEdit(host), QTextEdit(host)]
+    for editor in editors:
+        layout.addWidget(editor)
+    host.show()
+    host.activateWindow()
+    button.setFocus()
+    control.refresh_shortcuts()
+    app.processEvents()
+    try:
+        assert control.handle_shortcut('Ctrl+Shift+F')
+        host.sidebar.toggle_all_folders.assert_called_once_with()
+        host.sidebar.toggle_all_folders.reset_mock()
+        QTest.keyClick(button, Qt.Key_F, Qt.ControlModifier | Qt.ShiftModifier)
+        host.sidebar.toggle_all_folders.assert_called_once_with()
+        host.shortcuts['toggle_folders'] = 'K'
+        control.refresh_shortcuts()
+        app.processEvents()
+        host.sidebar.toggle_all_folders.reset_mock()
+        assert not control.handle_shortcut('Ctrl+Shift+F')
+        QTest.keyClick(button, Qt.Key_K)
+        host.sidebar.toggle_all_folders.assert_called_once_with()
+        host.sidebar.toggle_all_folders.reset_mock()
+        for editor in editors:
+            editor.setFocus()
+            app.processEvents()
+            assert app.focusWidget() is editor
+            assert not control.handle_shortcut('K')
+            folder_key = next(item for item in host._window_shortcuts if item.property('folderToggle'))
+            assert not folder_key.isEnabled()
+            QTest.keyClick(editor, Qt.Key_K)
+            text = editor.text() if isinstance(editor, QLineEdit) else editor.toPlainText()
+            assert text == 'k', text
+            host.sidebar.toggle_all_folders.assert_not_called()
+        button.setFocus()
+        app.processEvents()
+        assert folder_key.isEnabled()
+        host.shortcuts['toggle_folders'] = ''
+        control.refresh_shortcuts()
+        app.processEvents()
+        assert not control.handle_shortcut('K')
+        assert not control.handle_shortcut('')
+        assert not any(item.property('folderToggle') for item in host._window_shortcuts)
+        QTest.keyClick(button, Qt.Key_K)
+        host.sidebar.toggle_all_folders.assert_not_called()
+    finally:
+        host.close()
+        host.deleteLater()
+        page.deleteLater()
+        reopened.deleteLater()
+        app.processEvents()
+    print('PASS: configurable folder shortcut, disabled/reopened/reset values, direct dispatch and editor guards')
 
 
 def check_hover_shortcuts(app, window):
@@ -248,6 +350,9 @@ def check_corner_empty_slots(app):
 
 def main():
     app = QApplication([])
+    if '--folders-only' in sys.argv:
+        check_folder_shortcut(app)
+        return
     room = {'room_id': '1001', 'uname': '测试', 'live': True,
             'muted': True, 'volume': 42, 'audio_channel': 0}
     with ExitStack() as stack:

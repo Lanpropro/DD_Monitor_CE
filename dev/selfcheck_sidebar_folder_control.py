@@ -10,7 +10,8 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from shiboken6 import isValid
 from ddm import config, images, motion
@@ -204,6 +205,113 @@ class SidebarFolderControlTests(unittest.TestCase):
         self.assertEqual(self.sidebar._folder_drag_previous, {})
         self.assertEqual(self.sidebar._folders_folded_by_drag, set())
         self.assertTrue(box.folder_drop_indicator.isHidden())
+        self.assertEqual(changes, [True])
+
+    def test_bulk_folder_state_refreshes_once_preserves_members_and_round_trips(self):
+        normal = self.sidebar.create_folder('Music')
+        self.sidebar.move_to_folder(['1001', 'huya:fixture'], normal)
+        smart = self.sidebar.create_folder('Live copies', rule={
+            'status': 'live', 'display': 'copy', 'sources': [normal]})
+        before = self.sidebar.folder_state()
+        assignments = {rid: self.sidebar.folder_for(rid) for rid in self.items}
+        changes = []
+        self.sidebar.foldersChanged.connect(lambda: changes.append(True))
+        with patch.object(self.sidebar, '_refresh_folders', wraps=self.sidebar._refresh_folders) as refresh:
+            self.sidebar.set_all_folders_collapsed(True)
+            refresh.assert_called_once()
+        self.assertTrue(all(folder['collapsed'] for folder in self.sidebar.folders))
+        self.assertEqual(changes, [True])
+        self.assertEqual(self.sidebar.visible_items(), [])
+        self.assertFalse(any(getattr(entry, 'original', None) is self.items['1001']
+                             for entry in self.sidebar.folder_entries()))
+        saved = self.sidebar.folder_state()
+        self.sidebar.set_all_folders_collapsed(True)
+        self.assertEqual(changes, [True], 'An unchanged command must not save again')
+        self.sidebar.set_all_folders_collapsed(False)
+        self.assertEqual(changes, [True, True])
+        self.assertEqual(self.sidebar.folder_state(), before)
+        self.assertEqual(assignments, {rid: self.sidebar.folder_for(rid) for rid in self.items})
+        copies = [entry for entry in self.sidebar.folder_entries()
+                  if getattr(entry, 'original', None) is self.items['1001']]
+        self.assertEqual(len(copies), 1)
+        self.assertIs(copies[0], self.sidebar._smart_cards[(smart, '1001')])
+        self.sidebar.set_folders(saved)
+        self.assertEqual(self.sidebar.folder_state(), saved)
+        self.assertTrue(all(folder['collapsed'] for folder in self.sidebar.folders))
+
+    def test_bulk_expand_and_collapse_preserve_live_and_search_filters(self):
+        normal = self.sidebar.create_folder('Music')
+        self.sidebar.move_to_folder(['1001', 'huya:fixture'], normal)
+        smart = self.sidebar.create_folder('Copies', rule={
+            'status': 'any', 'display': 'copy', 'sources': [normal]})
+        self.sidebar.live_only = True
+        self.sidebar.set_all_folders_collapsed(True)
+        self.sidebar.set_all_folders_collapsed(False)
+        self.assertTrue(self.sidebar.live_only)
+        self.assertEqual({str(item.room['room_id']) for item in self.sidebar.visible_items()},
+                         {'1001', '1003'})
+        self.assertTrue(self.items['huya:fixture'].filtered_out)
+        offline_copy = self.sidebar._smart_cards[(smart, 'huya:fixture')]
+        self.assertNotIn(offline_copy, self.sidebar.folder_entries())
+        self.assertTrue(offline_copy.isHidden())
+        self.sidebar.apply_filter('xm')
+        self.assertEqual(self.sidebar.visible_items(), [self.items['1001']])
+        self.sidebar.set_all_folders_collapsed(True)
+        self.assertEqual(self.sidebar.filter_text, 'xm')
+        self.assertTrue(self.sidebar.live_only)
+        self.assertEqual(self.sidebar.visible_items(), [])
+        self.assertFalse(any(getattr(entry, 'original', None) is self.items['1001']
+                             for entry in self.sidebar.folder_entries()))
+        self.sidebar.set_all_folders_collapsed(False)
+        self.assertEqual(self.sidebar.filter_text, 'xm')
+        self.assertEqual(self.sidebar.visible_items(), [self.items['1001']])
+        self.assertTrue(any(getattr(entry, 'original', None) is self.items['1001']
+                            for entry in self.sidebar.folder_entries()))
+        self.sidebar.set_all_folders_collapsed(True)
+        self.sidebar.apply_filter('other')
+        self.assertTrue(all(folder['collapsed'] for folder in self.sidebar.folders))
+        self.assertEqual(self.sidebar.visible_items(), [self.items['1003']],
+                         'A new search still temporarily exposes matching folded rooms')
+
+    def test_bulk_toolbar_button_toggles_mixed_state_without_changing_filters(self):
+        normal = self.sidebar.create_folder('Music')
+        self.sidebar.move_to_folder(['1001'], normal)
+        self.sidebar.resize(320, 720)
+        self.sidebar.show()
+        self.sidebar.live_only = True
+        self.sidebar.refresh_filter()
+        self.sidebar.toggle_folder(normal)
+        button = self.sidebar.navigation.folder_toggle_button
+        self.app.processEvents()
+        self.assertTrue(button.isVisible())
+        self.assertIn('全部展开', button.toolTip())
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.app.processEvents()
+        self.assertTrue(all(not folder['collapsed'] for folder in self.sidebar.folders))
+        self.assertIn('全部折叠', button.toolTip())
+        self.assertTrue(self.sidebar.live_only)
+        self.assertTrue(self.items['huya:fixture'].filtered_out)
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.app.processEvents()
+        self.assertTrue(all(folder['collapsed'] for folder in self.sidebar.folders))
+        self.assertIn('全部展开', button.toolTip())
+        self.assertEqual(self.sidebar.visible_items(), [])
+
+    def test_bulk_commands_during_folder_drag_do_not_replace_restore_state(self):
+        first = self.sidebar.create_folder('First')
+        self.sidebar.create_folder('Second')
+        self.sidebar.toggle_folder(first)
+        previous = {folder['id']: folder['collapsed'] for folder in self.sidebar.folders}
+        changes = []
+        self.sidebar.foldersChanged.connect(lambda: changes.append(True))
+        self.sidebar.start_folder_drag()
+        self.sidebar.set_all_folders_collapsed(False)
+        self.sidebar.toggle_all_folders()
+        self.assertEqual(self.sidebar._folder_drag_previous, previous)
+        self.assertTrue(all(folder['collapsed'] for folder in self.sidebar.folders))
+        self.assertEqual(changes, [])
+        self.sidebar.end_folder_drag()
+        self.assertEqual({folder['id']: folder['collapsed'] for folder in self.sidebar.folders}, previous)
         self.assertEqual(changes, [True])
 
     def test_invalid_drop_keeps_folder_order_and_clears_indicator(self):

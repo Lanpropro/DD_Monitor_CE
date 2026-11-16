@@ -50,7 +50,7 @@ class SettingsDialog(SettingsWindow):
         self._initial_settings = {key: settings.get(key, default) for key, default in DEFAULT_SETTINGS.items()
                                   if not key.startswith('video_danmaku_')
                                   and key not in ('skin_parts', 'danmaku_retention_version')}
-        self._initial_shortcuts = {key: shortcuts.get(key) or default for key, _label, default in SHORTCUT_ACTIONS}
+        self._initial_shortcuts = {key: shortcuts.get(key, default) for key, _label, default in SHORTCUT_ACTIONS}
         self._plugin_manager = plugin_manager
         self._preview_only = preview
         self._update_page_factory = update_page_factory
