@@ -40,6 +40,7 @@
 ```powershell
 dev\run-checks.cmd
 dev\run-checks.cmd --list
+dev\run-checks.cmd --script selfcheck_documents
 dev\run-checks.cmd --suite offline
 dev\run-checks.cmd --script selfcheck_emoticon_tabs
 ```

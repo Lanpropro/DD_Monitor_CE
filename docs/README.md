@@ -1,17 +1,21 @@
 # 项目说明文档
 
+> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：用户、贡献者、维护者
+
 项目说明集中在本目录；根目录保留仓库入口 README、贡献指南 CONTRIBUTING.md、许可证 LICENSE、Agent 规则 AGENTS.md 和当前本机交接入口 PROJECT_STATE.md。
 插件及资源子目录的 README 是就近说明，继续随对应组件存放。
 
 | 分类 | 入口 |
 | --- | --- |
 | 软件介绍 | [功能、截图与下载](../README.md) |
+| 文档规范 | [全流程、分层、元信息、证据与归档规则](standards/documentation.md) |
 | 开发与贡献 | [分支、提交、PR、验证和发布流程](../CONTRIBUTING.md) |
 | Bug 案例库 | [按模块归纳的故障、根因、验证与验收记录](bug-cases.md) |
 | 开发验证 | [测试套件与执行条件](development/testing.md)、[开发工具导航](../dev/README.md)、[全部专项检查](../dev/checks/README.md) |
 | 本机工作区 | [目录归属、旧运行库归档与检查纳入标准](development/workspace-maintenance.md) |
 | 图片缓存 | [头像与封面饼图、选择清理与自动替换](image-cache.md) |
 | 设计参考 | [直播水族馆：合成与调度](development/liveaquarium-learning.md)、[BiliBili ShadowReplay：录制、回看与切片 UI](development/bili-shadowreplay-learning.md) |
+| 历史评估 | [二路计时器 OCR 评估](development/match-sync-ocr-evaluation.md)，保留当时结论与未覆盖范围 |
 | 界面组件 | [共用组件目录、统一导入和调用示例](development/ui-components.md) |
 | 本次整合 | [2026-10-19 仓库与 PR 整合记录](archive/repository-integration-20261019.md) |
 | 插件 | [插件说明](plugins.md) |
@@ -23,6 +27,7 @@
 | 安装与卸载 | [Windows 安装包、卸载范围与验证](development/windows-installer.md) |
 | 更新机制 | [在线更新](online-updates.md) |
 | 下一次更新 | [未发布的修复、验收证据与待办](releases/UNRELEASED.md) |
+| 版本记录索引 | [本体版本、旧插件说明与发布约定](releases/README.md) |
 | 版本记录 | [0.7.1](releases/RELEASE-v0.7.1.md)、[0.7](releases/RELEASE-v0.7.md)、[0.6](releases/RELEASE-v0.6.md)、[0.5](releases/RELEASE-v0.5.md)、[0.4](releases/RELEASE-v0.4.md)、[0.3.1](releases/RELEASE-v0.3.1.md)、[0.3](releases/RELEASE-v0.3.md)、[0.2](releases/RELEASE-v0.2.md)、[0.1](releases/RELEASE-v0.1.md) |
 | 功能补充 | [B 站醒目留言显示](releases/RELEASE-v0.5.2-super-chat.md)、待合入基于 v0.5.2 的醒目留言支持 |
 | 第三方来源 | [NOTICE](NOTICE.md)、[许可证](../LICENSE) |
@@ -34,3 +39,15 @@
 本机交接文档与随手建议放在 `docs/local/`，被 Git 忽略；原先已位于 docs 的历史交接及宣传文档保留原路径。
 当前 PROJECT_STATE.md 继续放根目录，供交接流程定位。
 宣传工程和原始素材不属于说明文档，本轮未移动或删除。
+
+## 文档维护
+
+新增或更新文档按[开发文档规范](standards/documentation.md)维护元信息、状态、索引和链接。现有技术专题作为现行实现的补充，历史发布与未决证据保留原意；规范入库不代表功能已人工验收或发布。
+
+提交前从仓库根目录执行：
+
+```powershell
+dev\run-checks.cmd --script selfcheck_documents
+dev\run-checks.cmd --suite repository
+git diff --check
+```
