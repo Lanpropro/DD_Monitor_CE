@@ -345,5 +345,226 @@ class PlayerLifetimeTests(unittest.TestCase):
                 self.assertEqual(host.findChildren(QTimer), [])
 
 
+class SourceRecoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def player(self, profile='douyu'):
+        player = TilePlayer(Mock())
+        self.addCleanup(player.release)
+        player.stream_profile = profile
+        player.decode_mode = 'auto'
+        player._play_request = ('https://cdn.test/live.flv', profile, {}, ())
+        player._media = player._play_request[0]
+        return player
+
+    def test_observed_network_then_invalid_nal_does_not_reload_the_same_url_in_cpu_mode(self):
+        player = self.player()
+        props = {'time-pos':57.743,'eof-reached':True,'vo-configured':True}
+        player._log('error', 'curl', 'transfer failed: Failure when receiving data from the peer')
+        player._log('error', 'ffmpeg/video', 'h264: Invalid NAL unit size (97832 > 32688).')
+        with patch.object(player, '_prop', side_effect=lambda name, default=None: props.get(name, default)), \
+                patch.object(player, '_play_media') as reload:
+            player._check()
+            reload.assert_not_called()
+        self.assertEqual(player.decode_mode, 'auto')
+        self.assertEqual(player.state, 'error')
+        self.assertEqual(player.source_failure, 'LIVE_EOF')
+
+    def test_observed_corrupt_input_at_stream_join_does_not_trigger_cpu_fallback(self):
+        for message in ('h264: mmco: unref short failure',
+                        'h264: number of reference frames exceeds max (probably corrupt input)',
+                        'h264: Invalid NAL unit size (97832 > 32688)',
+                        'h264: missing picture in access unit with size 32763',
+                        'h264: Error splitting the input into NAL units'):
+            with self.subTest(message=message):
+                player = self.player()
+                player._log('error', 'ffmpeg/video', message)
+                with patch.object(player, '_prop', return_value=None), patch.object(player, '_play_media') as reload:
+                    self.assertFalse(player._recover_decoder())
+                    reload.assert_not_called()
+                    # A later, independent hardware failure must still work.
+                    player._log('error', 'vd', 'hardware decoder failed')
+                    self.assertTrue(player._recover_decoder())
+
+    def test_decoder_failure_without_transport_error_still_falls_back(self):
+        player = self.player()
+        player._log('error', 'ffmpeg/video', 'hardware decoder failed')
+        with patch.object(player, '_prop', return_value=None), patch.object(player, '_play_media') as reload:
+            self.assertTrue(player._recover_decoder())
+            reload.assert_called_once_with(*player._play_request)
+        self.assertEqual(player.decode_mode, 'none')
+
+    def test_warnings_and_unrelated_curl_messages_do_not_suppress_fallback(self):
+        for level, prefix, message in (('warn','curl','transfer failed'),
+                                       ('error','other','transfer failed'),
+                                       ('error','curl','unrelated message')):
+            with self.subTest(level=level,prefix=prefix,message=message):
+                player = self.player()
+                player._log(level,prefix,message)
+                player._log('error','ffmpeg/video','decoder failed')
+                with patch.object(player,'_prop',return_value=None),patch.object(player,'_play_media'):
+                    self.assertTrue(player._recover_decoder())
+
+    def test_other_platforms_keep_their_existing_decoder_recovery(self):
+        for profile in ('web','app','douyin','huya'):
+            with self.subTest(profile=profile):
+                player = self.player(profile)
+                player._log('error','curl','transfer failed: Failure when receiving data from the peer')
+                player._log('error','ffmpeg/video','decoder failed')
+                with patch.object(player,'_prop',return_value=None),patch.object(player,'_play_media'):
+                    self.assertTrue(player._recover_decoder())
+
+    def test_new_playback_clears_the_input_error_and_keeps_decoder_fallback_available(self):
+        player = self.player()
+        player._log('error','curl','transfer failed: Failure when receiving data from the peer')
+        with patch.object(player,'bind'),patch.object(player,'_start_pending_media'):
+            player._play_media('https://another.test/live.flv','douyu',{},())
+        player._log('error','ffmpeg/video','decoder failed on new source')
+        with patch.object(player,'_prop',return_value=None),patch.object(player,'_play_media'):
+            self.assertTrue(player._recover_decoder())
+
+    def test_transport_failure_does_not_leak_to_another_player(self):
+        failed, healthy = self.player(), self.player()
+        failed._log('error','curl','transfer failed: Failure when receiving data from the peer')
+        healthy._log('error','ffmpeg/video','decoder failed')
+        with patch.object(healthy,'_prop',return_value=None),patch.object(healthy,'_play_media'):
+            self.assertTrue(healthy._recover_decoder())
+
+
+class LiveBufferingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def player(self, profile='douyin', *, silent=False):
+        player = TilePlayer(Mock(), silent=silent)
+        player.stream_profile = profile
+        player._media = 'fixture'
+        player.decode_mode = 'none'
+        player._last_time = 39.316
+        player._startup_buffering = False
+        player.state = 'playing'
+        self.addCleanup(player.release)
+        return player
+
+    def check(self, player, props):
+        with patch.object(player, '_prop', side_effect=lambda key, default=None: props.get(key, default)):
+            player._check()
+
+    def test_live_refill_can_recover_past_nine_seconds_without_an_error(self):
+        # Actual 23:00 capture: clock stopped while the minimum A/V cache grew,
+        # then resumed on the same stream. Fixture replay checks policy only.
+        for profile in ('douyu', 'douyin'):
+            with self.subTest(profile=profile):
+                player = self.player(profile)
+                changes = Mock()
+                player.stateChanged.connect(changes)
+                props = {'time-pos': 39.316, 'paused-for-cache': True, 'vo-configured': True}
+                for end in (39.316, 39.38, 39.444, 39.508, 39.593, 39.636, 39.743, 39.871):
+                    props['demuxer-cache-state'] = {'cache-end': end}
+                    self.check(player, props)
+                self.assertNotIn(unittest.mock.call('error'), changes.call_args_list)
+                props.update({'time-pos': 39.699, 'paused-for-cache': False})
+                self.check(player, props)
+                self.assertEqual(player.state, 'playing')
+                self.assertEqual(player._stall_ticks, 0)
+
+    def test_audio_bytes_alone_do_not_extend_a_stalled_video(self):
+        player = self.player()
+        props = {'time-pos': 39.316, 'paused-for-cache': True, 'vo-configured': True,
+                 'demuxer-cache-state': {'cache-end': 39.316, 'fw-bytes': 0}}
+        for index in range(7):
+            props['demuxer-cache-state']['fw-bytes'] = index * 100000
+            self.check(player, props)
+        self.assertEqual(player.state, 'error')
+
+    def test_slow_refill_has_a_finite_total_wait(self):
+        player = self.player()
+        props = {'time-pos': 39.316, 'paused-for-cache': True}
+        for index in range(20):
+            props['demuxer-cache-state'] = {'cache-end': 39.316 + index / 100}
+            self.check(player, props)
+        self.assertEqual(player.state, 'error')
+
+    def test_real_eof_and_transfer_error_do_not_wait_for_refill(self):
+        for profile in ('douyu', 'douyin'):
+            with self.subTest(profile=profile):
+                player = self.player(profile)
+                player._source_read_error = True
+                props = {'time-pos': 39.316, 'paused-for-cache': True}
+                for index in range(6):
+                    props['demuxer-cache-state'] = {'cache-end': 40 + index}
+                    self.check(player, props)
+                self.assertEqual(player.state, 'error')
+        player = self.player('douyu')
+        self.check(player, {'time-pos': 39.316, 'eof-reached': True})
+        self.assertEqual(player.state, 'error')
+        self.assertEqual(player.source_failure, 'LIVE_EOF')
+
+    def test_bili_and_preview_stall_limits_are_unchanged(self):
+        for profile, silent in (('app', False), ('douyu', True), ('douyin', True)):
+            with self.subTest(profile=profile, silent=silent):
+                player = self.player(profile, silent=silent)
+                props = {'time-pos': 39.316, 'paused-for-cache': True}
+                for index in range(6):
+                    props['demuxer-cache-state'] = {'cache-end': 40 + index}
+                    self.check(player, props)
+                self.assertEqual(player.state, 'error')
+
+    def test_cache_policy_is_scoped_and_reset_when_the_core_is_reused(self):
+        for silent in (False, True):
+            with self.subTest(silent=silent):
+                player = self.player(silent=silent)
+                core = player.player = Mock()
+                with patch.object(player, 'bind'), patch.object(player, '_start_pending_media'):
+                    for profile in ('douyu', 'douyin', 'app', 'huya', 'youtube'):
+                        player._play_media('https://fixture.invalid/live.flv', profile, {}, ())
+                        protected = not silent and profile in ('douyu', 'douyin')
+                        self.assertEqual(core.demuxer_max_bytes, '64MiB' if protected else '16MiB')
+                        self.assertEqual(core.cache_pause_initial, protected)
+                        self.assertEqual(core.cache_pause_wait, 3 if protected else 1)
+
+    def test_new_media_discards_previous_refill_progress(self):
+        player = self.player()
+        props = {'time-pos': 39.316, 'paused-for-cache': True}
+        for index in range(5):
+            props['demuxer-cache-state'] = {'cache-end': 40 + index}
+            self.check(player, props)
+        with patch.object(player, 'bind'), patch.object(player, '_start_pending_media'):
+            player._play_media('https://fixture.invalid/new.flv', 'douyin', {}, ())
+        player._last_time = 39.316
+        props.pop('demuxer-cache-state')
+        for _ in range(6):
+            self.check(player, props)
+        self.assertEqual(player.state, 'error')
+
+
+    def test_refill_progress_is_owned_by_each_player(self):
+        filling, stopped = self.player(), self.player()
+        props = {'time-pos': 39.316, 'paused-for-cache': True}
+        for index in range(8):
+            props['demuxer-cache-state'] = {'cache-end': 40 + index}
+            self.check(filling, props)
+            self.check(stopped, {'time-pos': 39.316, 'paused-for-cache': True})
+        self.assertEqual(filling.state, 'buffering')
+        self.assertEqual(stopped.state, 'error')
+
+    def test_actual_mpv_accepts_and_resets_the_live_cache_options(self):
+        from ddm.player import EMBEDDED_OPTIONS, mpv
+        player = self.player()
+        player.player = mpv.MPV(vo='null', ao='null', **EMBEDDED_OPTIONS)
+        with patch.object(player, 'bind'), patch.object(player, '_start_pending_media'):
+            player._play_media('https://fixture.invalid/live.flv', 'douyin', {}, ())
+            self.assertEqual(player._prop('demuxer-max-bytes'), 64 * 1024 * 1024)
+            self.assertTrue(player._prop('cache-pause-initial'))
+            self.assertEqual(player._prop('cache-pause-wait'), 3)
+            player._play_media('https://fixture.invalid/bili.flv', 'app', {}, ())
+            self.assertEqual(player._prop('demuxer-max-bytes'), 16 * 1024 * 1024)
+            self.assertFalse(player._prop('cache-pause-initial'))
+            self.assertEqual(player._prop('cache-pause-wait'), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

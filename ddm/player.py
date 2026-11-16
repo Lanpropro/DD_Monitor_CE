@@ -16,6 +16,7 @@ from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
 from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
+from .live_buffering import BUFFERED_PROFILES, RefillWatch, cache_options
 
 _runtime = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
 _dll_directory = None
@@ -101,6 +102,8 @@ class TilePlayer(QObject):
         self._decode_tried: set[str] = set()
         self._play_request = None
         self._decoder_error = False
+        self._source_read_error = False
+        self._refill_watch = RefillWatch()
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         self._last_picture = None
@@ -132,11 +135,19 @@ class TilePlayer(QObject):
             setattr(self.player, name.replace("-", "_"), value)
 
     def _log(self, level, prefix, message):
+        if (self.stream_profile == "douyu" and level in ("error", "fatal")
+                and prefix == "curl" and "transfer failed" in message):
+            self._source_read_error = True
         if level in ("error", "fatal") and self.stream_profile in ("huya", "douyu"):
             status = re.search(r"HTTP(?:/\d(?:\.\d)?| error)?\s+([45]\d\d)", message, re.I)
             if status and not self.source_failure:
                 self.source_failure = "HTTP_" + status[1]
-        if level in ("error", "fatal") and prefix.startswith(("vd", "ffmpeg/video")):
+        corrupt_input = (self.stream_profile == "douyu" and prefix == "ffmpeg/video" and
+                         any(text in message for text in (
+                             "mmco: unref short failure", "probably corrupt input", "Invalid NAL unit size",
+                             "missing picture in access unit", "Error splitting the input into NAL units")))
+        if (level in ("error", "fatal") and prefix.startswith(("vd", "ffmpeg/video"))
+                and not corrupt_input):
             self._decoder_error = True
 
     def _transport_diagnostic(self, session, room, **event):
@@ -214,6 +225,8 @@ class TilePlayer(QObject):
         self.source_failure = ""
         self.paused = False
         self._decoder_error = False
+        self._source_read_error = False
+        self._refill_watch.reset()
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         overseas = profile in ("twitch", "youtube")
@@ -247,6 +260,8 @@ class TilePlayer(QObject):
         self._set("http-header-fields", [f"{name}: {value}" for name, value in request_headers.items()
                                          if value and "\n" not in str(value) and "\r" not in str(value)])
         self._set("hwdec", HWDEC[self.decode_mode])
+        for name, value in cache_options(profile, silent=self.silent).items():
+            self._set(name, value)
         self._set("pause", False)
         self._set("aid", "no" if self.silent or "audio=no" in options else "auto")
         self._ensure_audio_settings()
@@ -438,7 +453,7 @@ class TilePlayer(QObject):
 
     def _recover_decoder(self, *, frozen=False) -> bool:
         if (self.silent or self.paused or self._released or self._play_request is None
-                or self.decode_mode == "none"):
+                or self.decode_mode == "none" or self._source_read_error):
             return False
         if self._hls_proxy is not None and self._hls_proxy.refresh_required.is_set():
             return False
@@ -537,6 +552,11 @@ class TilePlayer(QObject):
         limit = self._buffer_limit
         if self.stream_profile == "douyin" and self._startup_buffering:
             limit = self.DOUYIN_STARTUP_BUFFER_TICKS
+        if (self.stream_profile in BUFFERED_PROFILES and not ended
+                and self._prop("paused-for-cache", False) and not self.silent
+                and not self._source_read_error and not self.source_failure):
+            cache = self._prop("demuxer-cache-state", {}) or {}
+            limit = self._refill_watch.wait_limit(limit, cache.get("cache-end"))
         if self._stall_ticks >= limit:
             self._set_state("error")
         elif self._stall_ticks >= 2:
