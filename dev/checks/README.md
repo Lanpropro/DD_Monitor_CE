@@ -51,7 +51,8 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_dialog_modules](../selfcheck_dialog_modules.py) | `smoke` / `offline`；独立设置页/房间对话框模块、旧导出及共享快捷键身份、Qt类加载顺序、编解码/插件页旧工厂；离屏，无账号/媒体/网络/工作进程 |
 | [selfcheck_sidebar_presentation](../selfcheck_sidebar_presentation.py) | `smoke` / `offline`；账号菜单工厂/平台绑定/延迟与销毁、动作路由、横竖父对象往返、滚动/密度、收起提交/异常收尾及Qt销毁；隐藏真实控件、假账号，无浏览器/媒体/外网/系统鼠标 |
 | [selfcheck_sidebar_order](../selfcheck_sidebar_order.py) | `smoke` / `offline`；多选/过滤/批量删除、整组移动/置顶/文件夹边界、常看缓存、菜单Qt归属及刷新顺序；隐藏合成控件、临时数据，无账号/媒体/外网 |
-| [selfcheck_sidebar_folder_control](../selfcheck_sidebar_folder_control.py) | `smoke` / `offline`；一键展开/折叠、单次刷新/保存、直播中/搜索过滤、智能副本、按钮、拖拽恢复、快照；文件夹/筛选状态唯一归属、默认切换/移动/搜索、旧工厂、智能副本、标题拖动与Qt销毁；隐藏真实控件、临时数据，无账号/网络/播放器 |
+| [selfcheck_folder_stress](../selfcheck_folder_stress.py) | 独立 `run.cmd --check-folder-stress`；真实Qt合成规模报告、屏外封面恢复及真实bulk采集路由；不设耗时通过阈值，不进入默认smoke |
+| [selfcheck_sidebar_folder_control](../selfcheck_sidebar_folder_control.py) | `smoke` / `offline`；一键展开/折叠、单次刷新/保存、直播中/搜索过滤、智能副本、按钮、拖拽恢复、快照；两种收起模式/当前会话恢复、图标过滤、隐藏头像延后补同步；文件夹/筛选状态唯一归属、默认切换/移动/搜索、旧工厂、智能副本、标题拖动与Qt销毁；隐藏真实控件、临时数据，无账号/网络/播放器 |
 | [selfcheck_functional_modules](../selfcheck_functional_modules.py) | `smoke` / `offline`；职责模块的独立依赖、唯一宿主、工厂及Qt生命周期，逐用例进程、临时数据，无真实媒体/账号 |
 | [selfcheck_widget_modules](../selfcheck_widget_modules.py) | `smoke` / `offline`；独立职责模块导入、主窗口不依赖兼容入口、旧类与常量身份、完整Qt子类加载顺序；文件夹独立导入、共享卡片数据/操作、预览计时器隐藏及销毁清理；隐藏合成控件，无账号或媒体 |
 | [selfcheck_widget_lifetime](../selfcheck_widget_lifetime.py) | `offline` / `smoke`；真实 Qt 菜单进退、操作与异常收尾、背景主题槽销毁回收；离屏，无媒体／账号／外网；面板删除后跳过排队滚动恢复，避免访问已删除文本控件 |
@@ -248,6 +249,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、画面／弹幕栏独立位置与实际对照、设置重开及重置、全屏恢复、紧凑控件及外置单位、共用大小和透明度、画面自动等比缩放与手动大小叠加／预览及实时重排、小画面弹幕缩放曲线单调及大画面不变、正文留白与背景混色；合成消息、隔离数据 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline`；含后台尺寸重绘、最终像素／进度、两个尺寸缓存、旧结果丢弃与 GUI 事件交付；主窗口路由、设置和连接取消保留全部断言，在独立进程运行，隔离此前栅格／Quick夹具 |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline`；含按格独立设置、全局隔离、SC 范围、全屏、换格、空格及重启恢复 |
+| [selfcheck_caption_interaction](../selfcheck_caption_interaction.py) | 单项执行前核对；字幕交互与位置预览功能检查，原生视频／输入层级待人工验收 |
 | [selfcheck_video_caption](../selfcheck_video_caption.py) | `smoke` / `offline`；独立字幕样式边界、逐行背景、PiP 隐藏、播放栏安全区域及插件接口生命周期 |
 | [selfcheck_live_translate_acceptance](../selfcheck_live_translate_acceptance.py) | `offline`；根入口验收配置与插件副本隔离、摘要验证、已有改动拒绝覆盖，不加载模型或真实账号 |
 | [selfcheck_danmaku_color](../selfcheck_danmaku_color.py) | `offline`；根入口 `run.cmd --check-danmaku-color` 另验 Windows Quick RGB 纹理；合成文字，无直播连接 |

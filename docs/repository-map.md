@@ -1,6 +1,6 @@
 # 仓库文件分类清单
 
-> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：维护者
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-17 ｜ 读者：维护者
 
 ## 本页用法
 
@@ -117,6 +117,7 @@
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
 - `dev/selfcheck_button_focus.py`
+- `dev/selfcheck_caption_interaction.py`
 - `dev/selfcheck_check_runner.py`
 - `dev/selfcheck_close_release.py`
 - `dev/selfcheck_completion_motion.py`
@@ -186,6 +187,7 @@
 - `dev/selfcheck_folder_blank_menu.py`
 - `dev/selfcheck_folder_card_drag.py`
 - `dev/selfcheck_folder_card_size.py`
+- `dev/selfcheck_folder_stress.py`
 - `dev/selfcheck_folder_drag.py`
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
@@ -375,6 +377,7 @@
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
 - `dev/selfcheck_update_preview.py`
+- `dev/folder_stress_preview.py`
 - `dev/update_preview.py`
 - `dev/update_preview_server.py`
 - `dev/selfcheck_user_notice.py`

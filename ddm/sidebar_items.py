@@ -31,7 +31,7 @@ class SidebarItems:
         """把当前关注列表（连已经下载好的头像）同步到顶部横栏。"""
         host = self.host
         strip = getattr(host, "_head_strip", None)
-        if strip is None:
+        if strip is None or host._head_scroll.isHidden():
             return
         rooms = []
         faces = {}

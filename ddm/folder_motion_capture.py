@@ -16,6 +16,7 @@ class FolderMotionCapture:
         self.timer.setInterval(16)
         self.timer.timeout.connect(self.frame)
         self.toggle = sidebar.toggle_folder
+        self.bulk = sidebar.folder_control.set_all_folders_collapsed
         self.relayout = sidebar.list_box.relayout
         self.evidence = None
         if extended:
@@ -23,6 +24,7 @@ class FolderMotionCapture:
             self.evidence = SidebarEvidence(sidebar, probe)
             self.timer.setInterval(100)
         sidebar.toggle_folder = self.toggle_folder
+        sidebar.folder_control.set_all_folders_collapsed = self.set_all_folders_collapsed
         sidebar.list_box.relayout = self.layout
         if extended:
             self.snapshot(action='startup')
@@ -78,6 +80,24 @@ class FolderMotionCapture:
         self.frame()
         if self.record is not None:
             self.timer.start()
+        return result
+
+    def set_all_folders_collapsed(self, collapsed):
+        """Hook the controller so toolbar and shortcut calls share real bulk evidence."""
+        if self.probe.stopped.is_set():
+            return self.bulk(collapsed)
+        self.snapshot(action='collapse-all' if collapsed else 'expand-all')
+        started = time.perf_counter()
+        try:
+            result = self.bulk(collapsed)
+        except BaseException:
+            self.finish('error')
+            raise
+        if self.record is not None:
+            self.record['toggle_ms'] = round((time.perf_counter() - started) * 1000, 3)
+            known = set(self.entries)
+            self.entries += [entry for entry in self.sidebar._smart_cards.values() if entry not in known]
+            self.frame()
         return result
 
     def layout(self, *args, **kwargs):
