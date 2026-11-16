@@ -192,6 +192,7 @@ class PluginManager:
                     self.platforms.pop(kind, None)
                     self._platform_owner.pop(kind, None)
                 context._clear_tile_captions()
+                context._clear_media_sources()
                 self._remove_tile_owner(entry)
                 context._clear_workspace_controls()
                 try:
@@ -228,6 +229,7 @@ class PluginManager:
         self._unloaded = True
         for context in tuple(self._contexts):
             context._active = False
+            context._clear_media_sources()
         for tile in tuple(self._tiles):
             self.detach_tile(tile)
         self._tile_providers.clear()

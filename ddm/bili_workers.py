@@ -70,7 +70,9 @@ class StreamResolver(QThread):
                 raise api.Cancelled()
             try:
                 if callable(hook):
-                    result = hook(self.room_id, self.quality, codec=codec)
+                    arguments = ({'cancelled': self.is_cancelled} if
+                                 'cancelled' in inspect.signature(hook).parameters else {})
+                    result = hook(self.room_id, self.quality, codec=codec, **arguments)
                     if not isinstance(result, (tuple, list)) or len(result) != 5:
                         raise ValueError("平台编码接口必须返回五项取流结果")
                     actual_codec = result[4]
@@ -116,8 +118,13 @@ class StreamResolver(QThread):
             return
         try:
             if self.platform is not None:
-                result = (self.platform.preview_url(self.room_id) if self.preview
-                          else self._platform_play_url())
+                if self.preview:
+                    hook = self.platform.preview_url
+                    arguments = ({'cancelled': self.is_cancelled} if
+                                 'cancelled' in inspect.signature(hook).parameters else {})
+                    result = hook(self.room_id, **arguments)
+                else:
+                    result = self._platform_play_url()
                 url, current, profile = result[:3]
                 headers = dict(result[3]) if len(result) > 3 else {}
                 current = int(current)
@@ -133,6 +140,8 @@ class StreamResolver(QThread):
             else:
                 raise ValueError("请启用对应的平台插件并重启")
             if self._cancelled:
+                from .media_sources import discard
+                discard(url)
                 return
             options = ([] if self.preview else
                        self.platform.room_quality_options(self.room_id) if self.platform
@@ -184,6 +193,8 @@ class StreamResolver(QThread):
                 self.failed.emit(self.room_id, str(error))
             return
         if self._cancelled:
+            from .media_sources import discard
+            discard(url)
             return
         self.headers = headers
         if self.platform is None:

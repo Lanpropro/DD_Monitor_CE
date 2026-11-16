@@ -1,5 +1,9 @@
 # 插件接口
 
+`context.retain_media_source(factory, prepared)` 将插件已准备的二进制媒体读取器交给播放器，返回随机路径的本机回环 HTTP 地址。读取器实现 `read(size)`、幂等 `close()`，可选 `network_speed()`；`factory(cancelled)` 为录制等额外消费者创建独立读取器，不共享消费位置。插件负责协议、分片和复用，宿主负责 HTTP 交付及停止生命周期。播放器切档、停止或插件卸载时关闭读取器；取消后未使用的地址也会清理。该接口不读取账号配置。
+
+`context.ffmpeg_executable()` 返回宿主录制功能所用的 FFmpeg 路径。平台的 `play_url`、`preview_url` 可声明 `cancelled` 回调，后台取流器会传入取消状态；旧签名保持兼容。回归入口为根 `run.cmd --check-media-sources`。
+
 > 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：插件作者
 
 ## 本页导航

@@ -245,6 +245,7 @@
 - `dev/selfcheck_live_platforms.py`
 - `dev/selfcheck_localization.py`
 - `dev/selfcheck_main_notices.py`
+- `dev/selfcheck_media_sources.py`
 - `dev/selfcheck_notification_center.py`
 - `dev/selfcheck_match_sync_host_release.py`
 - `dev/selfcheck_menu_motion.py`
