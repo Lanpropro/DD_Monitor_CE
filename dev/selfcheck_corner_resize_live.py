@@ -1,4 +1,4 @@
-"""真实 VLC 本地视频：拖动、全屏几何恢复与换位不重启播放器，不联网。"""
+"""libmpv 本地视频：拖动、全屏几何恢复与换位不重启播放器，不联网。"""
 from contextlib import ExitStack
 import os
 from pathlib import Path
@@ -11,14 +11,12 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DDM_NO_SAVE", "1")
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(ROOT / "libvlc.dll"))
 os.environ.setdefault("QT_QPA_PLATFORM", "windows" if "--native" in sys.argv else "offscreen")
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
-import vlc
-from ddm import layouts, theme
+from ddm import config, images, layouts, theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.recording import ffmpeg_path
@@ -26,6 +24,7 @@ from selfcheck_corner_resize import drag, border_for, CORNER_KEYS
 from selfcheck_corner_drag_updates import begin, move_to, release_at
 from selfcheck_pane_borders import point_on, resize as resize_border
 from selfcheck_resize_preview_cleanup import assert_clean
+from selfcheck_mpv import progress, ready
 
 
 def settle(app, seconds=0.3):
@@ -41,14 +40,20 @@ def main():
     rooms = [{"room_id": str(1000 + i), "uname": f"Local fixture {i}", "live": False,
               "muted": True, "volume": 40} for i in range(6)]
     with ExitStack() as stack:
+        directory = stack.enter_context(tempfile.TemporaryDirectory(prefix="ddm-corner-check-"))
+        stack.enter_context(patch("ddm.plugins.DEFAULT_PLUGINS_DIR", directory))
+        stack.enter_context(patch.object(config, "DATA_ROOT", directory))
+        stack.enter_context(patch.object(config, "CONFIG_PATH", str(Path(directory) / "config.json")))
+        stack.enter_context(patch.object(images, "REPO", directory))
         for method in ("start_tile", "refresh_status", "refresh_stats", "refresh_account",
                        "sync_danmaku", "load_avatars_for", "load_room_avatars",
-                       "load_cached_covers", "load_cached_avatars"):
+                       "load_cached_covers", "load_cached_avatars", "_check_startup_update"):
             stack.enter_context(patch.object(MainWindow, method))
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="corner",
                             state={"plugins_enabled": [], "settings": {
                                 "recording_enabled": False, "recording_replay_enabled": False,
-                                "preview_on_hover": False, "auto_update": False}})
+                                "preview_on_hover": False, "auto_update": False,
+                                "danmaku_enabled": False, "close_behavior": "exit"}})
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         if "--native" in sys.argv:
             window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
@@ -75,15 +80,15 @@ def main():
                     players.append(player)
                     player.play(str(path))
                     tile.set_video_active(True)
-                settle(app, 2)
-                assert all(player.player.is_playing() for player in players), "本地视频必须实际播放"
+                for player in players:
+                    ready(app, player)
                 if "--native" in sys.argv:
                     window.raise_()
                     window.activateWindow()
                     settle(app, .1)
                 identities = [(player.player, player._media, int(player.video_widget.winId()))
                               for player in players]
-                initial_time = [player.player.get_time() for player in players]
+                initial_time = [player._prop("time-pos", 0) for player in players]
                 # Named combinations can restore/reorder the same six native players without reconnecting.
                 from copy import deepcopy
                 combination = window.save_room_preset("六路本地视频")
@@ -106,7 +111,7 @@ def main():
                     point = border.mapToGlobal(point_on(border, ["right"]))
                     hit = user32.WindowFromPoint(wintypes.POINT(point.x(), point.y()))
                     assert hit == int(border.winId()), (
-                        f"VLC must not intercept border mouse hits: hit={hit}, border={int(border.winId())}, "
+                        f"Native video must not intercept border mouse hits: hit={hit}, border={int(border.winId())}, "
                         f"point={point}, wall={window.wall.geometry()}")
                     move_to(border, point)
                     settle(app, .05)
@@ -126,7 +131,7 @@ def main():
                             str(ROOT / "work/single-divider-hover-native.png"))
                 resize_border(app, border, ["right", "bottom"], QPoint(-32, -32))
                 settle(app)
-                # 持续拖动只更新轮廓，VLC 原生窗口在松手前保持原几何和句柄。
+                # 持续拖动只更新轮廓，原生视频窗口在松手前保持原几何和句柄。
                 for target, axis in ((Qt.Horizontal, QPoint(1, 0)),
                                      (Qt.Vertical, QPoint(0, 1)),
                                      ("right", QPoint(0, 1)),
@@ -151,7 +156,7 @@ def main():
                         assert all(int(tile.video.winId()) == identity[2]
                                    for tile, identity in zip(window.wall.tiles, identities))
                         if "--native" in sys.argv:
-                            assert_clean(app, window.wall, ("VLC", target, frame))
+                            assert_clean(app, window.wall, ("libmpv", target, frame))
                         if "--native" in sys.argv and target == Qt.Horizontal and frame == 0:
                             settle(app, .1)
                             preview = window.wall._border_preview
@@ -180,7 +185,7 @@ def main():
                     assert not window.wall._border_preview.isVisible()
                     if "--native" in sys.argv:
                         window.wall._set_hover_border()
-                        assert_clean(app, window.wall, ("VLC", target, "release"))
+                        assert_clean(app, window.wall, ("libmpv", target, "release"))
                     handle, point = border_for(window.wall, CORNER_KEYS[target])
                     QTest.mouseDClick(handle, Qt.LeftButton, pos=point)
                     settle(app, .05)
@@ -234,12 +239,12 @@ def main():
                            for player in players)
                 for player, identity, before in zip(players, identities, initial_time):
                     assert (player.player, player._media, int(player.video_widget.winId())) == identity
-                    assert player.player.is_playing() and player.player.get_time() > before
-                    stats = vlc.MediaStats()
-                    assert player._media.get_stats(stats) and stats.decoded_video > 0
+                    assert player.state == "playing" and player._prop("time-pos", 0) > before
+                    stats = progress(player)
+                    assert stats.decoded_video > 0
                     if app.platformName() == "windows":
-                        assert stats.displayed_pictures > 0, "Windows 原生输出必须显示视频帧"
-                    print(f"VLC time={player.player.get_time()}ms, decoded={stats.decoded_video}, "
+                        assert player._prop("vo-configured", False), "Windows 原生视频输出必须已配置"
+                    print(f"libmpv time={player._prop('time-pos', 0)}s, decoded={stats.decoded_video}, "
                           f"displayed={stats.displayed_pictures}", flush=True)
                 window.start_tile.assert_not_called()
                 window.wall._set_hover_border()
@@ -250,7 +255,7 @@ def main():
                     for rect in window.wall._divider_rects.values():
                         assert image.pixelColor(rect.center()) == theme.qcolor(theme.BG)
                 window.grab().save(str(ROOT / "work/corner-resize-application.png"))
-                print(f"PASS: {app.platformName()}, six real VLC players, drag/resize/fullscreen "
+                print(f"PASS: {app.platformName()}, six libmpv players, drag/resize/fullscreen "
                       "geometry/hot swap/all presets, stable handles and continuous media")
             finally:
                 window.close()

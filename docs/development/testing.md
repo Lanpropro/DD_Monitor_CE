@@ -135,6 +135,26 @@ python dev/run_checks.py --script check_live_danmaku_motion -- --room 6 --backen
 
 Windows 也可将 `python dev/run_checks.py` 换为 `dev\run-checks.cmd`。入口使用当前 Python 的解释器执行子进程，设置 `DDM_NO_SAVE=1`；离屏与原生图形后端按分类选择。每个脚本的退出码和异常保留在日志中；Windows 引导保持 MTA 资源至 Qt 清理结束。
 
+## 本地视频专项
+
+下列工具保留独有操作场景，播放接口已迁移到 libmpv；仍为单项，不自动加入批量套件。先准备不含个人信息、颜色丰富且时长不少于一分钟的测试视频，画质工具另需低分辨率版本；示例文件路径需替换。
+
+```powershell
+$env:QT_QPA_PLATFORM='windows'
+$env:DDM_CHECK_MODE='offline'
+python dev/checks/bootstrap.py dev/check_preview_live.py --source C:/test/video.mp4 --output work/preview-local
+python dev/checks/bootstrap.py dev/selfcheck_native_control_hit.py C:/test/video.mp4
+python dev/checks/bootstrap.py dev/selfcheck_corner_resize_live.py
+python dev/checks/bootstrap.py dev/repro_d3d_quality.py C:/test/low.mp4 C:/test/video.mp4 none added --expect-fixed
+```
+
+- 预览工具通过当前悬停控制器创建播放器，核对预览可见、静音和 libmpv 抓帧像素。必须显式选择本地视频或公开房间号，不再默认读取个人配置或 Cookie；真实直播分支需移除 `DDM_CHECK_MODE=offline` 后单独执行。
+- 原生命中工具固定测试控件的悬停显示状态，避免屏外鼠标位置触发自动隐藏；四种布局中仍核对 Win32 命中及画质、重载、关闭信号，不移动系统鼠标。
+- 六路拖动工具自行生成 FFmpeg 测试视频，检查拖动轮廓、全屏、换位、组合和全部布局预设后的播放器核心、媒体 URL、HWND 与播放进度。上述 Windows 模式将窗口放在屏幕外；另加 `--native` 会显示并激活窗口、移动鼠标和采样屏幕，留给人工执行。
+- 画质工具支持 `added`、`saved`、`expand_drag` 场景，第三个参数可选 `d3d11va` 等现行解码方式；`--expect-fixed` 才启用其行为断言。快照中的 `time` 仍以毫秒输出，`size` 使用当前媒体宽高。临时配置、图片缓存和插件目录与用户数据隔离，退出前释放播放器并清理临时数据。
+
+这些验证使用合成媒体，只证明对应功能与当前播放接口可运行；真实直播、屏幕观感、听感和性能仍从根 `run.cmd` 人工验收。失败时保留原日志，不放宽断言或将异常退出记为通过。
+
 ## 结果与新增检查
 
 画面内 SC 原生透明层回归：
