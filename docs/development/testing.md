@@ -6,7 +6,7 @@
 
 更新失败与通知菜单验收：从根 `run.cmd --preview-updates` 选择“断流失败后重试”或“校验失败后重试”，软件更新页和通知中应直接显示中文失败原因、已下载／总大小及重试按钮，无需悬停；重试开始后旧失败提示消失。关闭左上角浮层，打开通知菜单，点击“继续更新”应恢复同一通知、进度和失败／待重启状态，不启动重复下载；在菜单中显式删除仍会删除该条记录。现有布局样式已获维护者认可，这批失败说明与历史入口行为待人工验收。
 
-本批自动验证：失败反馈专项17项、通知关闭／恢复2项、完整更新界面及本机HTTP预览通过。通知全套另有 `test_default_banner_invalidates_old_cache_and_updates_visible_notices` 和 `test_selected_removal_and_undo_keep_other_players_and_slot_sound` 两项因 Qt `QWidgetItem` 缺少 `unpolish` 失败，原始日志保留；未删除断言或修改主题实现，不据此宣称通知全套通过。
+本批自动验证：失败反馈专项17项、通知关闭／恢复2项、完整更新界面及本机HTTP预览通过。通知全套另有 `test_default_banner_invalidates_old_cache_and_updates_visible_notices` 和 `test_selected_removal_and_undo_keep_other_players_and_slot_sound` 两项因 Qt `QWidgetItem` 缺少 `unpolish` 失败，根 `selfcheck_general_settings` 也在主窗口构造时出现同类 Qt 异常，未再次运行。原始日志保留；未删除断言或修改主题实现，不据此宣称通知全套或常规设置全部通过。
 
 ## 导读
 
