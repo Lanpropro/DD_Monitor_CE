@@ -632,7 +632,8 @@
 | `results/promo-final/` | 最终宣传成片与封面 | 已忽略；保留 |
 | `results/` 其他内容 | `archive/` 保存本体旧版本 ZIP；最新本体的正式附件与一个解压入口、各插件最新正式 ZIP 的边界见[本机工作区维护](development/workspace-maintenance.md) | 已忽略（除 .gitignore）；非最终资料移入 `work/` |
 | `work/` | 混合临时目录：构建、依赖、Git 工作树、测试截图及宣传资料 | 已忽略；不整体清理 |
-| `docs/local/archive/handoffs/`、`PROJECT_STATE.md` | 历史交接归档与当前交接入口 | 已忽略；不进入 `results/` 或发布包 |
+| `work/README.md`、`work/records/` | 本机工作资料索引与顶层文字记录分类，保留原文件名及待验收／未合入状态 | 已忽略；迁移清单与原件备份保存在本机，不执行旧 PR 或发布脚本 |
+| `docs/local/archive/handoffs/`、`PROJECT_STATE.md` | 按阶段保留的历史交接、未决线索与根目录当前工作区摘要 | 已忽略；不进入 `results/` 或发布包 |
 | `docs/local/README.md`、`docs/local/idea.md` | 本机资料索引与需求建议 | 已忽略；待办、诊断、验收及历史资料按目录收口 |
 | `docs/local/archive/promo/` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
 | `dev/*promo*`、`dev/*highlight*`、`dev/*videotogether*`、`dev/test_video_*.py` | 宣传片专项脚本与校验工具；不含 selfcheck_video_* 软件测试 | 已忽略；保留 |

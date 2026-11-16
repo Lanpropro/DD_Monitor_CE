@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ONLY = (
-    "HANDOFF-*.md", "docs/HANDOFF-*.md", "docs/local/*", "videos/*",
+    "PROJECT_STATE.md", "HANDOFF-*.md", "docs/HANDOFF-*.md", "docs/local/*", "videos/*",
     "docs/VIDEO-*.md", "docs/PROMO-*.md", "dev/*promo*",
     "dev/*highlight*", "dev/*videotogether*", "dev/test_video_*.py",
     "dev/preview_*.py", "dev/watch_layout_preview.py", "dev/run-preview.cmd", "dev/make_shots.py",
@@ -19,7 +19,7 @@ LOCAL_ONLY = (
     "plugins_user/huya_live/*", "plugins_user/douyu_live/*", "plugins_user/douyin_live/*",
     "plugins_user/twitch_live/*", "plugins_user/youtube_live/*", "plugins_user/chzzk_live/*",
     "plugins_user/huya_watch/*", "plugins_user/_danmaku_log/*",
-    "work/test-artifacts/*",
+    "work/test-artifacts/*", "work/records/*",
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
