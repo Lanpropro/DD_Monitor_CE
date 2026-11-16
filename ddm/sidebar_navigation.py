@@ -24,7 +24,7 @@ PATHS = {
     'expand': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m4-12 3 3-3 3"/>',
     'folders_expand': '<path d="m6 4 6 5 6-5M6 14l6 5 6-5"/>',
     'folders_collapse': '<path d="m6 9 6-5 6 5M6 19l6-5 6 5"/>',
-    'filter_all': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    'filter_all': '<path d="M6 3h12"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="m10 11 6 3-6 3Z"/>',
     'filter_live': '<path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
     'close': '<path d="m6 6 12 12M18 6 6 18"/>',

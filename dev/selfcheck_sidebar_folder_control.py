@@ -423,6 +423,9 @@ class SidebarFolderControlTests(unittest.TestCase):
         navigation = self.sidebar.navigation
         self.assertEqual(navigation.all_button.text(), '')
         self.assertEqual(navigation.live_button.text(), '')
+        from ddm.sidebar_navigation import PATHS
+        self.assertNotEqual(PATHS[navigation.all_button.kind], PATHS['functions'],
+                            'All followed rooms must be distinct from the function center')
         from ddm import theme
         icon = navigation.live_button.grab().toImage()
         self.assertEqual(icon.pixelColor(icon.width() // 2, icon.height() // 2), theme.qcolor(theme.PINK))
