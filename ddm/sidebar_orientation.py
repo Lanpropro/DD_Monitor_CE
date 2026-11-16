@@ -420,6 +420,8 @@ class SidebarOrientation:
         # 展开时收起头排（用户要求展开后不显示头像排，那点高度留给卡片）；
         # 收起时它顶掉搜索框的位置，一行摆满关注头像
         host._head_scroll.setVisible(host.collapsed)
+        if host.collapsed:
+            host.refresh_strip()
         # 账号头像：展开时在卡片条右边那一块里，收起时回到第一行最右端
         host._place_account(not host.collapsed)
         host._bar_right.setVisible(not host.collapsed)

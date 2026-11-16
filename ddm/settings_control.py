@@ -288,6 +288,7 @@ class SettingsControl:
         """关注列表样式与悬停预览开关。"""
         host = self.host
         before = host.sidebar.card_mode
+        host.sidebar.set_folder_collapse_mode(host.settings.get('folder_collapse_mode', 'all'))
         host.sidebar.show_platform_logos = bool(host.settings.get("sidebar_platform_logos", True))
         host.sidebar._sync_count()
         host.sidebar.set_compact_background(

@@ -22,6 +22,10 @@ PATHS = {
     'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
     'collapse': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m7-12-3 3 3 3"/>',
     'expand': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m4-12 3 3-3 3"/>',
+    'folders_expand': '<path d="m6 4 6 5 6-5M6 14l6 5 6-5"/>',
+    'folders_collapse': '<path d="m6 9 6-5 6 5M6 19l6-5 6 5"/>',
+    'filter_all': '<path d="M6 3h12"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="m10 11 6 3-6 3Z"/>',
+    'filter_live': '<path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
     'close': '<path d="m6 6 12 12M18 6 6 18"/>',
 }
@@ -65,7 +69,9 @@ class NavigationButton(QPushButton):
         svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
                f'fill="{fill}" stroke="{color.name()}" stroke-opacity="{color.alphaF()}" '
                'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
-               + PATHS[self.kind] + '</svg>')
+               + PATHS[self.kind]
+               + (f'<circle cx="12" cy="12" r="3" fill="{theme.PINK}" stroke="none"/>'
+                  if self.kind == 'filter_live' else '') + '</svg>')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width()/2, self.height()/2)
@@ -149,16 +155,20 @@ class SidebarNavigation(QObject):
         filters = QHBoxLayout(self.filters)
         filters.setContentsMargins(0, 0, 0, 0)
         filters.setSpacing(5)
-        self.all_button = QPushButton('全部', self.filters)
-        self.live_button = QPushButton('直播中', self.filters)
+        self.all_button = NavigationButton('全部直播间', 'filter_all', self.filters)
+        self.live_button = NavigationButton('仅显示直播中', 'filter_live', self.filters)
         for button in (self.all_button, self.live_button):
-            button.setObjectName('SidebarFilter')
+            button.setFixedSize(26, 26)
             button.setCheckable(True)
             button.setCursor(Qt.PointingHandCursor)
             filters.addWidget(button)
         self.all_button.clicked.connect(lambda: self.set_live_only(False))
         self.live_button.clicked.connect(lambda: self.set_live_only(True))
         filters.addStretch(1)
+        self.folder_toggle_button = NavigationButton('全部折叠文件夹', 'folders_collapse', self.filters)
+        self.folder_toggle_button.setFixedSize(26, 26)
+        self.folder_toggle_button.clicked.connect(sidebar.toggle_all_folders)
+        filters.addWidget(self.folder_toggle_button)
         self.density_button = NavigationButton('切换卡片／列表', 'list', self.filters)
         self.density_button.setFixedSize(26, 26)
         self.density_button.clicked.connect(self.toggle_density)
@@ -252,7 +262,19 @@ class SidebarNavigation(QObject):
     def sync_count(self):
         sidebar = self.sidebar
         self.count.setText(str(len(sidebar._items)))
-        self.live_button.setText(f'直播中 {sum(bool(i.room.get("live")) for i in sidebar._items)}')
+        expand = sidebar.folder_control.bulk_action_is_expand()
+        previous = sidebar.folder_collapse_mode == 'previous' and bool(sidebar._bulk_fold_previous)
+        label = ('全部展开文件夹' if expand else
+                 '恢复展开前收起的文件夹' if previous else '全部折叠文件夹')
+        self.folder_toggle_button.setText(label)
+        self.folder_toggle_button.setAccessibleName(label)
+        self.folder_toggle_button.setToolTip(label + '（保留当前筛选）')
+        self.folder_toggle_button.kind = 'folders_expand' if expand else 'folders_collapse'
+        self.folder_toggle_button.setEnabled(not sidebar._folder_drag_previous)
+        self.folder_toggle_button.update()
+        live_count = sum(bool(i.room.get('live')) for i in sidebar._items)
+        self.all_button.setToolTip(f'全部直播间（{len(sidebar._items)}）')
+        self.live_button.setToolTip(f'仅显示直播中（{live_count}）')
         self.all_button.setChecked(not sidebar.live_only)
         self.live_button.setChecked(sidebar.live_only)
         self.density_button.setToolTip('切换为列表' if sidebar.card_mode else '切换为封面卡片')
@@ -292,6 +314,11 @@ class SidebarNavigation(QObject):
         action.setChecked(sidebar.select_mode)
         action.triggered.connect(sidebar.set_select_mode)
         menu.addAction('刷新关注状态').triggered.connect(sidebar.refresh_button.click)
+        menu.addSeparator()
+        menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
+        fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
+                              else '全部折叠文件夹')
+        fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
         menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())

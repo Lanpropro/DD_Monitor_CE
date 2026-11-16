@@ -52,6 +52,9 @@ if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
 if /i "%~1"=="--check-sidebar-folders" goto sidebarFoldersCheck
+if /i "%~1"=="--check-folder-expansion" goto folderExpansionCheck
+if /i "%~1"=="--preview-folder-stress" goto folderStressPreview
+if /i "%~1"=="--check-folder-stress" goto folderStressCheck
 if /i "%~1"=="--check-sidebar-order" goto sidebarOrderCheck
 if /i "%~1"=="--check-sidebar-presentation" goto sidebarPresentationCheck
 if /i "%~1"=="--check-update-install" goto updateInstallCheck
@@ -263,6 +266,39 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_folder_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_card_drag
+exit /b %errorlevel%
+
+:folderStressPreview
+for %%A in (%*) do if /i "%%~A"=="--smoke" goto folderStressSmoke
+start "" "%PY%" "%PROJ%dev\folder_stress_preview.py" %*
+exit /b 0
+
+:folderStressSmoke
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\folder_stress_preview.py" %*
+exit /b %errorlevel%
+
+:folderStressCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_folder_stress.py"
+exit /b %errorlevel%
+
+:folderExpansionCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_folder_control
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_NO_SAVE=1"
+set "QT_QPA_PLATFORM=offscreen"
+set "DDM_CHECK_MODE=offline"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_cycle_shortcut.py" --folders-only
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_general_settings.py" --folder-mode-only
 exit /b %errorlevel%
 
 :sidebarFoldersCheck

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog
-from .ui import SettingsSlider, SettingsValueLabel, StepperControl, page_header as _page_head
+from .ui import SegmentedControl, SelectControl, SettingsSlider, SettingsValueLabel, StepperControl, page_header as _page_head
 from .settings_layout import SettingsSection, section_grid
 from .bili import BILI_CODECS
 
@@ -270,6 +270,25 @@ class GeneralSettingsPage(QWidget):
             ('codecs', '编解码', (11,), False),
             ('normalization', '音量均衡', (3, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
+        following = self.sections.section('following').grid
+        collapse_label = QLabel('全部展开后的收起方式')
+        collapse_label.setWordWrap(True)
+        collapse_value = settings.get('folder_collapse_mode', 'all')
+        self.folder_collapse_mode = SegmentedControl(
+            [('all', '全部收起'), ('previous', '恢复原状')],
+            collapse_value if collapse_value in ('all', 'previous') else 'all')
+        self.folder_collapse_mode.setAccessibleName(collapse_label.text())
+        self.folder_collapse_mode.buttons['all'].setToolTip('收起全部文件夹')
+        self.folder_collapse_mode.buttons['previous'].setToolTip(
+            '仅恢复本次全部展开前已收起的文件夹；没有可恢复记录时收起全部，切换选项保留本次记录')
+        collapse_label.setBuddy(self.folder_collapse_mode.buttons['all'])
+        collapse_row = following.rowCount()
+        following.addWidget(collapse_label, collapse_row, 0)
+        following.addWidget(self.folder_collapse_mode, collapse_row, 1, Qt.AlignRight)
+        collapse_hint = QLabel('恢复原状：仅收起本次全部展开前已收起的文件夹；无记录时收起全部。')
+        collapse_hint.setObjectName('SettingsHint')
+        collapse_hint.setWordWrap(True)
+        following.addWidget(collapse_hint, collapse_row + 1, 0, 1, 2)
         for key in ('playback', 'following', 'codecs'):
             self.sections.section(key).setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections._arrange()
@@ -293,6 +312,7 @@ class GeneralSettingsPage(QWidget):
             self._checks[key].setChecked(bool(config_module.DEFAULT_SETTINGS[key]))
         self.compact_threshold_spin.setValue(
             config_module.DEFAULT_SETTINGS["sidebar_compact_threshold"])
+        self.folder_collapse_mode.setValue(config_module.DEFAULT_SETTINGS['folder_collapse_mode'])
         self.codec_editor.set_values(codec_settings(config_module.DEFAULT_SETTINGS))
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
 
@@ -303,6 +323,7 @@ class GeneralSettingsPage(QWidget):
             "default_volume": int(self.volume_slider.value()),
             "volume_normalization_curve": self.normalization_editor.values(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
+            "folder_collapse_mode": self.folder_collapse_mode.value(),
             **self.codec_editor.values(),
         }
         for key, _label in self.ITEMS:

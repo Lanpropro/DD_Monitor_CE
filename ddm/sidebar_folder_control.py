@@ -52,6 +52,7 @@ class SidebarFolderControl:
 
     def set_folders(self, folders: list) -> None:
         host = self.host
+        host._bulk_fold_previous = None
         host.folders = follow_folders.normalize_folders(folders, host.sort_mode)
         host._refresh_folders(notify=False)
 
@@ -122,6 +123,54 @@ class SidebarFolderControl:
                 folder["collapsed"] = not folder["collapsed"]
                 host._refresh_folders(animate=animate and motion.enabled())
                 return
+
+    def is_folded(self, folder) -> bool:
+        host = self.host
+        return bool(folder and folder['collapsed'] and (
+            not host.filter_text or not host._search_expands_folders
+            or folder['id'] in host._folders_folded_by_drag))
+
+    def set_folder_collapse_mode(self, mode: str) -> None:
+        host = self.host
+        mode = mode if mode in ('all', 'previous') else 'all'
+        if host.folder_collapse_mode == mode:
+            return
+        host.folder_collapse_mode = mode
+        host._sync_count()
+
+    def bulk_action_is_expand(self) -> bool:
+        host = self.host
+        if host.folder_collapse_mode == 'previous' and host._bulk_fold_previous is not None:
+            return False
+        return any(self.is_folded(folder) for folder in host.folders)
+
+    def set_all_folders_collapsed(self, collapsed: bool) -> None:
+        host = self.host
+        if host._folder_drag_previous:
+            return
+        if collapsed and host.folder_collapse_mode == 'previous' and host._bulk_fold_previous:
+            target = {folder['id']: folder['collapsed'] or folder['id'] in host._bulk_fold_previous
+                      for folder in host.folders}
+            host._bulk_fold_previous = None
+        else:
+            if collapsed:
+                host._bulk_fold_previous = None
+            elif host._bulk_fold_previous is None:
+                host._bulk_fold_previous = {folder['id'] for folder in host.folders if folder['collapsed']} or None
+            target = {folder['id']: collapsed for folder in host.folders}
+        changed = any(folder['collapsed'] != target[folder['id']] for folder in host.folders)
+        search_expands = not collapsed if host.filter_text else True
+        if not changed and host._search_expands_folders == search_expands:
+            host._sync_count()
+            return
+        host._search_expands_folders = search_expands
+        host._folders_folded_by_drag.clear()
+        for folder in host.folders:
+            folder['collapsed'] = target[folder['id']]
+        host._refresh_folders(notify=changed)
+
+    def toggle_all_folders(self) -> None:
+        self.set_all_folders_collapsed(not self.bulk_action_is_expand())
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
         host = self.host
@@ -243,6 +292,10 @@ class SidebarFolderControl:
         revealing = {item for item in host._items if item.filtered_out} if animate else ()
         ids = {folder["id"] for folder in host.folders}
         host._folders_folded_by_drag.intersection_update(ids)
+        if host._bulk_fold_previous is not None:
+            host._bulk_fold_previous.intersection_update(ids)
+            if not host._bulk_fold_previous:
+                host._bulk_fold_previous = None
         for folder_id in list(host._folder_buttons):
             if folder_id not in ids:
                 button = host._folder_buttons.pop(folder_id)
@@ -298,7 +351,7 @@ class SidebarFolderControl:
                              if folder["sort"] in ("live", "offline") else index)
                     return (not item.is_pinned, value, index)
                 members.sort(key=copy_key)
-                folded = folder["collapsed"] and (not host.filter_text or folder["id"] in host._folders_folded_by_drag)
+                folded = self.is_folded(folder)
                 displayed = []
                 if not folded:
                     for item in members:
@@ -308,8 +361,7 @@ class SidebarFolderControl:
                             host._smart_cards[key] = SmartFolderCard(item, host.list_box)
                         displayed.append(host._smart_cards[key])
                 members = displayed
-            arrow = "▸" if folder["collapsed"] and (
-                not host.filter_text or folder["id"] in host._folders_folded_by_drag) else "▾"
+            arrow = "▸" if self.is_folded(folder) else "▾"
             title = f"{arrow} {folder['name']} · {count}"
             button.setToolTip(title + ("\n智能文件夹：拖动标题排序；右键编辑规则和排序" if folder["type"] == "smart"
                                       else "\n点击展开/收起；拖动标题排序；拖入卡片归类；右键管理"))

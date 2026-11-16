@@ -24,6 +24,75 @@ def close_window(window):
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+def check_folder_collapse_mode(app):
+    from ddm.ui import SegmentedControl
+    from ddm.settings_autosave_apply import apply_changes
+    assert config.DEFAULT_SETTINGS['folder_collapse_mode'] == 'all'
+    for initial, expected in (({}, 'all'), ({'folder_collapse_mode': 'previous'}, 'previous'),
+                              ({'folder_collapse_mode': 'unknown'}, 'all')):
+        page = GeneralSettingsPage(initial)
+        combo = page.folder_collapse_mode
+        assert isinstance(combo, SegmentedControl)
+        assert page.sections.section('following').isAncestorOf(combo)
+        assert combo.accessibleName() == '全部展开后的收起方式'
+        assert list(combo.buttons) == ['all', 'previous']
+        from PySide6.QtWidgets import QComboBox
+        assert not combo.findChildren(QComboBox), 'Collapse modes are inline choices, not a dropdown'
+        label = next(label for label in page.findChildren(QLabel) if label.text() == combo.accessibleName())
+        grid = page.sections.section('following').grid
+        assert grid.getItemPosition(grid.indexOf(label))[0] == grid.getItemPosition(grid.indexOf(combo))[0]
+        assert [button.text() for button in combo.buttons.values()] == ['全部收起', '恢复原状']
+        assert page.values()['folder_collapse_mode'] == expected
+        combo.buttons['previous'].click()
+        assert page.values()['folder_collapse_mode'] == 'previous'
+        assert any('仅收起本次全部展开前已收起的文件夹' in label.text()
+                   for label in page.findChildren(QLabel))
+        page.reset()
+        assert page.values()['folder_collapse_mode'] == 'all'
+        page.deleteLater()
+    # The generic settings delta includes the segment buttons without worker-specific state.
+    dialog = SettingsDialog({'folder_collapse_mode': 'all'}, {}, preview=True)
+    try:
+        requests = []
+        dialog.auto_save.requested.connect(requests.append)
+        dialog.auto_save.start()
+        combo = dialog.general_page.folder_collapse_mode
+        combo.buttons['previous'].click()
+        dialog.auto_save.flush()
+        assert requests[-1]['settings'] == {'folder_collapse_mode': 'previous'}
+        assert dialog.settings()['folder_collapse_mode'] == 'previous'
+    finally:
+        dialog.auto_save.stop()
+        dialog.close()
+        dialog.deleteLater()
+    with tempfile.TemporaryDirectory(prefix='ddm-folder-mode-') as directory:
+        path = str(Path(directory) / 'config.json')
+        with patch.object(config, 'CONFIG_PATH', path), patch.dict(os.environ, {'DDM_NO_SAVE': ''}):
+            config.save({'version': 'fixture', 'settings': {'folder_collapse_mode': 'previous'}},
+                        raise_errors=True)
+            assert config.load()['settings']['folder_collapse_mode'] == 'previous'
+    with patch('ddm.app.QTimer.singleShot', lambda *args: None), \
+            patch.object(app_module, 'StatusPoller', SilentPoller), \
+            patch.object(app_module, 'StatsPoller', SilentPoller), \
+            patch.object(config, 'save') as saved:
+        window = app_module.MainWindow([], [], layout_id='1x1', state={'plugins_enabled': [],
+            'settings': {'folder_collapse_mode': 'previous', 'auto_update': False,
+                         'close_behavior': 'exit'}})
+        try:
+            assert window.sidebar.folder_collapse_mode == 'previous', 'Apply the persisted choice at startup'
+            window._remote_settings_saved({'settings': {'folder_collapse_mode': 'all'}})
+            assert window.sidebar.folder_collapse_mode == 'all'
+            assert window.current_state()['settings']['folder_collapse_mode'] == 'all'
+            assert saved.call_args.args[0]['settings']['folder_collapse_mode'] == 'all'
+            apply_changes(window, {'settings': {'folder_collapse_mode': 'previous'}})
+            assert window.sidebar.folder_collapse_mode == 'previous'
+            assert saved.call_args.args[0]['settings']['folder_collapse_mode'] == 'previous'
+        finally:
+            close_window(window)
+            app.processEvents()
+    print('PASS: folder collapse choice, following section, reset, autosave delta, temporary persistence, startup and remote apply')
+
+
 def check_volume_page_lifetime():
     """The volume signal must not retain its parent page until cyclic GC."""
     gc_was_enabled = gc.isenabled()
@@ -274,6 +343,9 @@ def check_codecs(app):
 
 def main():
     app = QApplication([])
+    if '--folder-mode-only' in sys.argv:
+        check_folder_collapse_mode(app)
+        return
     assert config.DEFAULT_VOLUME == config.DEFAULT_SETTINGS['default_volume'] == 40
     assert GeneralSettingsPage({}).values()['default_volume'] == 40
     assert config.DEFAULT_SETTINGS['volume_normalization'] is False

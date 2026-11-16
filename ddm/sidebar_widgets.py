@@ -157,6 +157,9 @@ class Sidebar(QFrame):
         self._card_entry_timer = QTimer(self)
         self._card_entry_timer.setSingleShot(True)
         self._card_entry_timer.timeout.connect(self._reveal_added_rooms)
+        self.folder_collapse_mode = 'all'
+        self._bulk_fold_previous: set[str] | None = None
+        self._search_expands_folders = True
         self._folders_folded_by_drag: set[str] = set()
         self._folder_drag_previous: dict[str, bool] = {}
         self._folder_buttons: dict[str, FollowFolderButton] = {}
@@ -509,6 +512,15 @@ class Sidebar(QFrame):
 
     def toggle_folder(self, folder_id: str, *, animate=False) -> None:
         return self.folder_control.toggle_folder(folder_id, animate=animate)
+
+    def set_folder_collapse_mode(self, mode: str) -> None:
+        self.folder_control.set_folder_collapse_mode(mode)
+
+    def set_all_folders_collapsed(self, collapsed: bool) -> None:
+        self.folder_control.set_all_folders_collapsed(collapsed)
+
+    def toggle_all_folders(self) -> None:
+        self.folder_control.toggle_all_folders()
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
         return self.folder_control.move_to_folder(room_ids, folder_id)
