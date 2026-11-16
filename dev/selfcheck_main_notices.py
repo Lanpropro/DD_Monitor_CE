@@ -2035,8 +2035,12 @@ class MainNoticesTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    faulthandler.dump_traceback_later(60, repeat=True)
-    try:
-        unittest.main(verbosity=2)
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(MainNoticesTests, __file__))
+    else:
+        faulthandler.dump_traceback_later(60, repeat=True)
+        try:
+            unittest.main(verbosity=2)
+        finally:
+            faulthandler.cancel_dump_traceback_later()
