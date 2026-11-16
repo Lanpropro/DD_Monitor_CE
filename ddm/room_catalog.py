@@ -62,7 +62,7 @@ class RoomCatalog:
         hints = [hint for p in host.plugins.platforms.values()
                  if (hint := getattr(p, "room_input_hint", ""))]
         if hints:
-            dialog.hint.setText("支持 B 站房间号；" + "；".join(hints))
+            dialog.hint.setText(dialog.hint.text() + "；" + "；".join(hints))
         if dialog.exec() != AddRoomDialog.Accepted:
             return
         host._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
@@ -71,13 +71,14 @@ class RoomCatalog:
         from PySide6.QtWidgets import QMessageBox
         host = self.host
         InfoResolver = resolver_type
-        from .room_input import is_bili_short_url
+        from .room_input import bili_profile_uid, is_bili_short_url
         short_link = is_bili_short_url(room_id)
+        profile_link = bool(bili_profile_uid(room_id))
         if any(str(room.get("room_id")) == room_id for room in host.sidebar.rooms()):
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = host.plugins.platform_for(room_id)
-        if ":" in room_id and not short_link:
+        if ":" in room_id and not (short_link or profile_link):
             if platform is None:
                 QMessageBox.warning(host, "添加直播间", "请启用对应的平台插件并重启")
                 return
@@ -94,9 +95,11 @@ class RoomCatalog:
         print(f"正在查询房间 {room_id} ...")
         resolver = InfoResolver(room_id, host)
         resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id))
-        if short_link:
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                host, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
+        if short_link or profile_link:
+            resolver.failed.connect(lambda _rid, r=resolver: QMessageBox.warning(
+                host, "添加直播间", (getattr(r, 'error_message', '') or
+                ('个人主页直播间查询失败，请稍后重试' if profile_link else
+                 '分享链接解析失败，请确认是直播间链接并检查网络后重试')))
                 if not host._closing else None)
         else:
             resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))
