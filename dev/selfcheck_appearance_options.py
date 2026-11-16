@@ -39,6 +39,45 @@ def dispose(widget):
 
 
 class AppearanceOptionsTests(unittest.TestCase):
+    def test_scroll_capture_is_bounded_and_does_not_consume_wheel_or_record_text(self):
+        import ctypes
+        from ctypes import wintypes
+        import json
+        from PySide6.QtWidgets import QScrollArea, QLineEdit
+        from ddm.settings_scroll_diagnostics import SettingsScrollCapture, install
+        with patch.dict(os.environ, DDM_SETTINGS_SCROLL_CAPTURE='0'):
+            install()
+            self.assertIsNone(getattr(APP, '_settings_scroll_capture', None))
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'wheel.jsonl'
+            capture = SettingsScrollCapture(APP, path)
+            area = QScrollArea()
+            editor = QLineEdit('private draft')
+            area.setWidget(editor)
+            event = QWheelEvent(QPointF(), QPointF(), QPoint(), QPoint(0, -120),
+                                Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+            try:
+                self.assertFalse(capture.eventFilter(editor, event))
+                if sys.platform == 'win32':
+                    message = wintypes.MSG()
+                    message.message = 0x20A
+                    message.wParam = (0xff88 << 16)
+                    self.assertEqual(capture.nativeEventFilter(b'windows_generic_MSG',
+                                                              ctypes.addressof(message)), (False, 0))
+                for _ in range(1300):
+                    capture.eventFilter(editor, event)
+                records = [json.loads(line) for line in path.read_text().splitlines()]
+                self.assertEqual(len(records), 1200)
+                self.assertEqual(records[1]['areas'][0]['kind'], 'QScrollArea')
+                self.assertNotIn('private draft', path.read_text())
+                if sys.platform == 'win32':
+                    self.assertEqual(records[2]['delta'], -120)
+            finally:
+                APP.removeEventFilter(capture)
+                APP.removeNativeEventFilter(capture)
+                capture.deleteLater()
+                dispose(area)
+
     def tearDown(self):
         theme.configure_appearance({**config.DEFAULT_SETTINGS})
         theme.set_skin_active(False)

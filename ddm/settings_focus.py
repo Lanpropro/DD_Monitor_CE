@@ -9,6 +9,8 @@ class SettingsInputFocus(QObject):
     def __init__(self, root):
         super().__init__(root)
         QApplication.instance().installEventFilter(self)
+        from .settings_scroll_diagnostics import install
+        install()
 
     def eventFilter(self, watched, event):
         root = self.parent()

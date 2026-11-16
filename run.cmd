@@ -47,6 +47,7 @@ if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
 if /i "%~1"=="--check-settings-control" goto settingsControlCheck
+if /i "%~1"=="--check-settings-scroll" goto settingsScrollCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
@@ -67,6 +68,7 @@ if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 if /i "%~1"=="--diagnose-douyu" goto douyu
 if /i "%~1"=="--diagnose-douyu-deep" goto douyuDeep
 if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
+if /i "%~1"=="--diagnose-settings-scroll" set "DDM_SETTINGS_SCROLL_CAPTURE=1"
 if /i "%~1"=="--diagnose-control-swap" set "DDM_CONTROL_SWAP_CAPTURE=1"
 if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
 if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
@@ -304,6 +306,13 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_layout_growth_empty
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_layout_16
+exit /b %errorlevel%
+
+:settingsScrollCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_appearance_options.py" AppearanceOptionsTests.test_scroll_capture_is_bounded_and_does_not_consume_wheel_or_record_text AppearanceOptionsTests.test_wheel_changes_only_horizontal_sliders_and_chains_nested_lists AppearanceOptionsTests.test_appearance_page_wheel_moves_its_outer_scroll_area
 exit /b %errorlevel%
 
 :settingsControlCheck
