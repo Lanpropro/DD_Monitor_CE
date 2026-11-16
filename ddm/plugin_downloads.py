@@ -4,6 +4,7 @@ import tempfile
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 from . import online, plugin_updates
+from .update_errors import error_message
 from .online_tasks import (_retired_online_tasks, _release_online_task,
                            _wait_online_tasks_on_exit)
 
@@ -68,7 +69,7 @@ class PluginDownloads(QObject):
                 self.manager.enabled.add(plugin_id)
                 self.manager.save_plugin_settings()
         except (OSError, ValueError) as error:
-            self._failed((task, str(error)))
+            self._failed((task, error_message(error)))
             return
         self.states[plugin_id] = dict(self.states[plugin_id], phase='ready', percent=100)
         self.installed.emit(result)

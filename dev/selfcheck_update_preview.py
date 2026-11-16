@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
 from ddm import online
+from ddm.update_errors import error_message
 from update_preview_server import PreviewServer
 
 
@@ -39,8 +40,10 @@ class PreviewTests(unittest.TestCase):
         target = self.root / 'retry.zip'
         self.server.scenario(2)
         self.server.delay = .001
-        with self.assertRaises(online.requests.exceptions.ChunkedEncodingError):
+        with self.assertRaises(online.requests.exceptions.ChunkedEncodingError) as failure:
             online.download(offer, target, self.client)
+        self.assertIn('文件未接收完整', error_message(failure.exception))
+        self.assertNotIn('IncompleteRead', error_message(failure.exception))
         self.assertFalse(target.exists())
         self.assertFalse(target.with_suffix('.zip.part').exists())
         online.download(offer, target, self.client)

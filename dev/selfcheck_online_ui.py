@@ -639,7 +639,7 @@ def main():
                     patch.object(online, 'download') as download:
                 automatic.check.click()
                 settle(app, automatic)
-                assert 'offline' in automatic.status.text() and automatic.auto.isEnabled()
+                assert '文件读写失败' in automatic.status.text() and automatic.auto.isEnabled()
                 assert automatic.action.text() == '请先检查更新' and automatic.check.isEnabled()
                 assert '当前版本说明' in automatic.notes.toPlainText(), 'network failure must preserve current notes'
                 download.assert_not_called()
@@ -652,7 +652,7 @@ def main():
                 with patch.object(online, 'download', side_effect=OSError('download failed')):
                     automatic.action.click()
                     settle(app, automatic)
-                    assert 'download failed' in automatic.status.text()
+                    assert '文件读写失败' in automatic.status.text()
                     assert automatic.action.isEnabled() and automatic.action.text() == '下载更新'
                     assert not automatic.plan_path
                 automatic.action.click()

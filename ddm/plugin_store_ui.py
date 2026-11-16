@@ -166,7 +166,7 @@ class PluginStorePage(OnlinePage):
         self.busyChanged.emit(bool(self.jobs))
         state = self.downloads.states[plugin_id]
         if state['phase'] == 'failed':
-            self.status.setText('下载失败：' + state['error'] + '。可点击更新重试。')
+            self.status.setText('下载失败：' + state['error'])
 
     def stop(self):
         if self.stopping:

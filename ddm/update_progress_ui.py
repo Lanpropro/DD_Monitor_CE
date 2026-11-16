@@ -1,7 +1,7 @@
 """Update byte details beside the settings library progress bar."""
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QVBoxLayout, QLabel, QSizePolicy, QWidget
 from . import theme
 from .download_progress import progress_text
 from .ui import ElidedLabel, SettingsProgressBar
@@ -25,20 +25,31 @@ class UpdateProgress(QWidget):
         self.details.setTextFormat(Qt.PlainText)
         self.details.setObjectName('SettingsHint')
         layout.addWidget(self.details)
+        self.failure = QLabel(self)
+        self.failure.setTextFormat(Qt.PlainText)
+        self.failure.setObjectName('SettingsHint')
+        self.failure.setWordWrap(True)
+        self.failure.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.failure.hide()
         if button is not None:
             idle = QWidget(self)
             actions = QHBoxLayout(idle)
             actions.setContentsMargins(0, 0, 0, 0)
-            if alignment == Qt.AlignRight:
-                actions.addStretch(1)
-            actions.addWidget(button)
             if alignment == Qt.AlignLeft:
-                actions.addStretch(1)
+                actions.addWidget(button)
+            feedback = QWidget(idle)
+            feedback_layout = QVBoxLayout(feedback)
+            feedback_layout.setContentsMargins(0, 0, 0, 0)
+            feedback_layout.addWidget(self.failure)
+            actions.addWidget(feedback, 1)
+            if alignment == Qt.AlignRight:
+                actions.addWidget(button)
             self.stack.addWidget(idle)
             self.stack.addWidget(self.track)
             self.setMinimumHeight(theme.CONTROL_HEIGHT)
         else:
             self.stack.addWidget(self.track)
+            self.stack.addWidget(self.failure)
             self.hide()
 
     def set_state(self, state):
@@ -47,6 +58,11 @@ class UpdateProgress(QWidget):
         self.details.setText(text)
         self.details.setToolTip(text)
         self.bar.setAccessibleDescription(text)
+        failed = state.get('phase') == 'failed'
+        self.failure.setText(text if failed else '')
+        self.failure.setVisible(failed)
+        if self.button is None:
+            self.stack.setCurrentIndex(1 if failed else 0)
         active = state.get('phase') in ('downloading', 'verifying')
         if self.button is not None:
             self.stack.setCurrentIndex(1 if active else 0)
