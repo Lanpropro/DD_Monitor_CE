@@ -6,7 +6,7 @@
 
 更新失败与通知菜单验收：从根 `run.cmd --preview-updates` 选择“断流失败后重试”或“校验失败后重试”，软件更新页和通知中应直接显示中文失败原因、已下载／总大小及重试按钮，无需悬停；重试开始后旧失败提示消失。关闭左上角浮层，打开通知菜单，更新记录应横向显示“下载更新”和“查看设置详情”：前者直接下载或失败重试，恢复同一任务，下载中不重复启动、就绪时不自动重启；后者只打开对应的软件更新或插件设置页；在菜单中显式删除仍会删除该条记录。现有布局样式已获维护者认可，浮层底部“全部下载”和“前往设置”应在同一行。最新双按钮入口与横向排列待人工验收。
 
-本批自动验证：更新专项18项、通知双按钮及关闭／恢复3项、完整更新界面及本机HTTP预览通过。通知全套另有 `test_default_banner_invalidates_old_cache_and_updates_visible_notices` 和 `test_selected_removal_and_undo_keep_other_players_and_slot_sound` 两项因 Qt `QWidgetItem` 缺少 `unpolish` 失败，根 `selfcheck_general_settings` 也在主窗口构造时出现同类 Qt 异常，未再次运行。原始日志保留；未删除断言或修改主题实现，不据此宣称通知全套或常规设置全部通过。
+本批自动验证：功能工作树更新专项18项、通知双按钮及关闭／恢复3项、本机HTTP预览通过；根目录更新专项18项及软件通知2项通过，插件菜单专项在创建通知行时出现同类 Qt `QWidgetItem` / `unpolish` 异常，失败日志保留，未再次运行。此前完整更新界面通过。通知全套另有 `test_default_banner_invalidates_old_cache_and_updates_visible_notices` 和 `test_selected_removal_and_undo_keep_other_players_and_slot_sound` 两项因 Qt `QWidgetItem` 缺少 `unpolish` 失败，根 `selfcheck_general_settings` 也在主窗口构造时出现同类 Qt 异常，未再次运行。原始日志保留；未删除断言或修改主题实现，不据此宣称通知全套或常规设置全部通过。
 
 ## 导读
 
