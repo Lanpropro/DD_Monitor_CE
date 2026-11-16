@@ -49,7 +49,7 @@ class AddRoomDialog(AnimatedDialog):
         folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
-        self.hint = QLabel("支持 B 站房间号")
+        self.hint = QLabel("支持 B 站房间号、直播间链接及个人主页链接")
         self.hint.setObjectName("AppSubtitle")
         self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
@@ -75,7 +75,7 @@ class AddRoomDialog(AnimatedDialog):
 
     def accept(self) -> None:
         text = self.edit.text().strip()
-        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
+        from .room_input import bili_profile_uid, bili_room_id, extract_room_input, is_bili_short_url
         try:
             text = extract_room_input(text)
         except ValueError as error:
@@ -93,9 +93,9 @@ class AddRoomDialog(AnimatedDialog):
                 self.room_id = room_id
                 super().accept()
                 return
-        # Short links are expanded later by the existing background info query.
-        room_id = text if is_bili_short_url(text) else bili_room_id(text)
-        if not room_id and '://' not in text:
+        # Short/profile URLs are resolved by the existing background info query.
+        room_id = text if is_bili_short_url(text) or bili_profile_uid(text) else bili_room_id(text)
+        if not room_id and '://' not in text and '/' not in text:
             digits = re.findall(r"\d+", text)
             room_id = digits[0] if len(digits) == 1 else ""
         if not room_id:

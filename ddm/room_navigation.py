@@ -36,8 +36,10 @@ class RoomNavigation:
     def normalize_room_input(self, text: str) -> str | None:
         from PySide6.QtWidgets import QDialog
         host = self.host
-        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
+        from .room_input import bili_profile_uid, bili_room_id, extract_room_input, is_bili_short_url
         text = extract_room_input(text)
+        if bili_profile_uid(text):
+            return text  # Account lookup belongs to InfoResolver's worker thread.
         platform = host.plugins.platform_for(text)
         if platform is not None:
             profile = getattr(platform, "profile_sec_uid", None)
