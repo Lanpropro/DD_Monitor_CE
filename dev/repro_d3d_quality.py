@@ -5,8 +5,11 @@
 取流接口替换成本地文件，播放器、格子和操作接线保持本体实现。
 """
 import json
+from contextlib import ExitStack
 import os
+from pathlib import Path
 import sys
+import tempfile
 import time
 from unittest.mock import patch
 
@@ -18,7 +21,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 os.environ.setdefault("DDM_NO_SAVE", "1")
 
-from ddm import bili, theme  # noqa: E402
+from ddm import bili, config, images, theme  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
 
 
@@ -48,19 +51,28 @@ def main():
     def resolve(_room, quality=250, **_kwargs):
         return original if quality == 10000 else low, quality, "web", {}
 
-    state = {"settings": {"decode_mode": mode, "auto_quality": False,
+    state = {"plugins_enabled": [], "settings": {"decode_mode": mode, "auto_quality": False,
                           "preview_on_hover": False, "recording_enabled": False,
-                          "recording_replay_enabled": False}}
-    with patch.object(bili, "play_url", resolve), \
+                          "recording_replay_enabled": False, "close_behavior": "exit",
+                          "danmaku_enabled": False, "auto_update": False}}
+    with tempfile.TemporaryDirectory(prefix="ddm-quality-repro-") as directory, ExitStack() as stack, \
+            patch("ddm.plugins.DEFAULT_PLUGINS_DIR", directory), \
+            patch.object(config, "DATA_ROOT", directory), \
+            patch.object(config, "CONFIG_PATH", str(Path(directory) / "config.json")), \
+            patch.object(images, "REPO", directory), \
+            patch.object(bili, "play_url", resolve), \
             patch.object(bili, "room_quality_options", return_value=[]), \
             patch.object(MainWindow, "refresh_status"), \
             patch.object(MainWindow, "refresh_stats"), \
             patch.object(MainWindow, "sync_danmaku"):
+        stack.enter_context(patch.object(MainWindow, "refresh_account"))
+        stack.enter_context(patch.object(MainWindow, "_check_startup_update"))
         window = MainWindow([room(i, 250 if i == 5 and not saved else 10000)
                              for i in range(1, 7)],
                             [room(i) for i in range(1, 6 if saved else 5)],
                             layout_id="2x2" if expanded else "3x2", state=state)
         window.setGeometry(-9000, -9000, 1600, 900)
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.show()
         settle(3)
         assert len(window.players) == (5 if saved else 4), "Initial players did not start"
@@ -79,8 +91,8 @@ def main():
 
         def snapshot(stage):
             states = [{"slot": index + 1, "state": player.state,
-                       "time": player.player.get_time(),
-                       "size": player.player.video_get_size(0),
+                       "time": player._prop("time-pos", 0) * 1000,
+                       "size": (player._prop("width", 0), player._prop("height", 0)),
                        "quality": tile.quality, "player_quality": player.actual_quality,
                        "paused": tile.paused}
                       for index, tile in enumerate(window.wall.tiles)
@@ -137,8 +149,8 @@ def main():
             assert not target.room.get("room_id") and target not in window.players
         window.close()
         print("REPRO_END", flush=True)
-        # 保留 Qt 局部对象到进程退出，避免诊断脚本在析构阶段干扰结果。
-        os._exit(0)
+    # 临时数据清理后保留 Qt 局部对象到进程退出，避免析构阶段干扰诊断结果。
+    os._exit(0)
 
 
 if __name__ == "__main__":

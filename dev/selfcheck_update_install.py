@@ -239,16 +239,25 @@ def main():
         (install / updater.RESULT).write_text(json.dumps(result), encoding='utf-8')
         updater.clean_previous(install)
         assert not Path(next_plan).parent.exists()
-        # 实际从 main.py 进入助手，损坏计划也写出结果；不初始化 Qt/VLC。
+        # 实际从 main.py 进入助手，损坏计划也写出结果；不导入 Qt 或播放运行库。
         bootstrap_stage = root / 'bootstrap'
         bootstrap_stage.mkdir()
         bootstrap = bootstrap_stage / 'update-plan.json'
         bootstrap.write_text(json.dumps({'root': str(install), 'stage': str(bootstrap_stage),
             'parent_pid': child.pid, 'old_exe': 'missing.exe', 'new_exe': 'new.exe', 'files': ['missing.dll']}), encoding='utf-8')
-        environment = dict(os.environ, PYTHON_VLC_LIB_PATH='definitely-missing-vlc.dll')
-        helper = subprocess.run([sys.executable, 'main.py', '--apply-update', str(bootstrap)],
-                                capture_output=True, env=environment, timeout=10)
+        helper_code = """
+import runpy, sys
+sys.argv = ['main.py', '--apply-update', sys.argv[1]]
+try:
+    runpy.run_path('main.py', run_name='__main__')
+finally:
+    assert not {'PySide6', 'mpv', 'vlc', 'ddm.player'}.intersection(sys.modules)
+    print('PASS: update helper bypassed GUI and media imports', flush=True)
+"""
+        helper = subprocess.run([sys.executable, '-c', helper_code, str(bootstrap)],
+                                capture_output=True, timeout=10)
         assert helper.returncode == 1
+        assert b'PASS: update helper bypassed GUI and media imports' in helper.stdout, helper.stderr
         assert not json.loads((install / updater.RESULT).read_text(encoding='utf-8'))['ok']
     for stage in stages:
         if stage.exists():

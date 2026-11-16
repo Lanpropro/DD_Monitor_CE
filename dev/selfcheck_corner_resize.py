@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DDM_NO_SAVE", "1")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("PYTHON_VLC_LIB_PATH", str(ROOT / "libvlc.dll"))
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent

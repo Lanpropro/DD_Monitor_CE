@@ -14,6 +14,7 @@
 | [fetch_mpv.py](fetch_mpv.py) | 获取并校验播放运行库 |
 | [check_release_package.py](check_release_package.py) | 本体发布包检查；插件打包在独立插件仓库执行 |
 | [screens.py](screens.py)、`repro_*.py` | 显示器信息和特定问题复现；日常启动使用根目录 run.cmd |
+| [repro_d3d_quality.py](repro_d3d_quality.py) | 本地视频画质／暂停／音量／重载／关闭链路；使用当前 libmpv 属性、临时配置与空插件目录，带 `--expect-fixed` 执行行为断言，见[本地视频专项](../docs/development/testing.md#本地视频专项) |
 
 目录中还可能存在被 Git 忽略的本机预览或宣传脚本；它们不在源码清单和批量套件内。
 

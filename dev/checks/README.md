@@ -44,7 +44,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_control_physical_edges](../selfcheck_control_physical_edges.py) | 单项执行前核对 |
 | [selfcheck_light_refinements](../selfcheck_light_refinements.py) | 单项执行前核对 |
 | [selfcheck_menu_motion](../selfcheck_menu_motion.py) | 单项执行前核对 |
-| [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | 单项执行前核对 |
+| [selfcheck_native_control_hit](../selfcheck_native_control_hit.py) | Windows 屏外单项；可传本地视频，检查 libmpv 起播／重载、全屏往返后的原生命中和按钮信号；固定测试悬停状态，不移动系统鼠标 |
 | [selfcheck_sidebar_text_theme](../selfcheck_sidebar_text_theme.py) | `offline` |
 | [selfcheck_skins](../selfcheck_skins.py) | 单项执行前核对 |
 | [selfcheck_wall_border](../selfcheck_wall_border.py) | `smoke` / `offline`；单一拖动状态、预览与提交、取消/换布局/隐藏清理、父对象销毁和旧入口兼容；合成格子、无媒体/账号/外网 |
@@ -171,7 +171,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [check_live_restore](../check_live_restore.py) | `live` |
 | [selfcheck_corner_drag_updates](../selfcheck_corner_drag_updates.py) | 单项执行前核对 |
 | [selfcheck_corner_resize](../selfcheck_corner_resize.py) | 单项执行前核对 |
-| [selfcheck_corner_resize_live](../selfcheck_corner_resize_live.py) | 单项执行前核对 |
+| [selfcheck_corner_resize_live](../selfcheck_corner_resize_live.py) | 本地六路 libmpv 单项；需 FFmpeg，检查拖动／换位／全部预设与播放器、媒体及 HWND 保持；默认离屏，Windows 屏外运行见验证指南；`--native` 会激活窗口并采样屏幕，需单独人工执行 |
 | [selfcheck_corner_small_resize](../selfcheck_corner_small_resize.py) | 单项执行前核对 |
 | [selfcheck_corner_state](../selfcheck_corner_state.py) | 单项执行前核对 |
 | [selfcheck_feedback_layout](../selfcheck_feedback_layout.py) | 单项执行前核对 |
@@ -296,7 +296,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [check_preview_live](../check_preview_live.py) | 单项执行前核对 |
+| [check_preview_live](../check_preview_live.py) | 单项；显式房间号或 `--source` 本地视频二选一，libmpv 预览抓帧与静音断言，临时数据与空插件目录，不读取本机账号；本地分支不联网 |
 | [selfcheck_audio_audit](../selfcheck_audio_audit.py) | 音量漂移、均衡开关与声道滤镜共存；替身内核、离屏 |
 | [selfcheck_audio_cycle_shortcut](../selfcheck_audio_cycle_shortcut.py) | 单项执行前核对 |
 | [selfcheck_audio_hotplug](../selfcheck_audio_hotplug.py) | 单项执行前核对 |
