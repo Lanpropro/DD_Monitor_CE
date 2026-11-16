@@ -136,7 +136,6 @@ class SidebarFolderControl:
         if host.folder_collapse_mode == mode:
             return
         host.folder_collapse_mode = mode
-        host._bulk_fold_previous = None
         host._sync_count()
 
     def bulk_action_is_expand(self) -> bool:
@@ -149,14 +148,14 @@ class SidebarFolderControl:
         host = self.host
         if host._folder_drag_previous:
             return
-        if collapsed and host.folder_collapse_mode == 'previous':
-            if host._bulk_fold_previous is None:
-                return
+        if collapsed and host.folder_collapse_mode == 'previous' and host._bulk_fold_previous:
             target = {folder['id']: folder['collapsed'] or folder['id'] in host._bulk_fold_previous
                       for folder in host.folders}
             host._bulk_fold_previous = None
         else:
-            if not collapsed and host.folder_collapse_mode == 'previous' and host._bulk_fold_previous is None:
+            if collapsed:
+                host._bulk_fold_previous = None
+            elif host._bulk_fold_previous is None:
                 host._bulk_fold_previous = {folder['id'] for folder in host.folders if folder['collapsed']} or None
             target = {folder['id']: collapsed for folder in host.folders}
         changed = any(folder['collapsed'] != target[folder['id']] for folder in host.folders)

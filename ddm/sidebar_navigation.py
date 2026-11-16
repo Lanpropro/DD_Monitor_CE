@@ -263,15 +263,14 @@ class SidebarNavigation(QObject):
         sidebar = self.sidebar
         self.count.setText(str(len(sidebar._items)))
         expand = sidebar.folder_control.bulk_action_is_expand()
-        previous = sidebar.folder_collapse_mode == 'previous'
+        previous = sidebar.folder_collapse_mode == 'previous' and bool(sidebar._bulk_fold_previous)
         label = ('全部展开文件夹' if expand else
                  '恢复展开前收起的文件夹' if previous else '全部折叠文件夹')
         self.folder_toggle_button.setText(label)
         self.folder_toggle_button.setAccessibleName(label)
         self.folder_toggle_button.setToolTip(label + '（保留当前筛选）')
         self.folder_toggle_button.kind = 'folders_expand' if expand else 'folders_collapse'
-        self.folder_toggle_button.setEnabled(not sidebar._folder_drag_previous and (
-            expand or not previous or sidebar._bulk_fold_previous is not None))
+        self.folder_toggle_button.setEnabled(not sidebar._folder_drag_previous)
         self.folder_toggle_button.update()
         live_count = sum(bool(i.room.get('live')) for i in sidebar._items)
         self.all_button.setToolTip(f'全部直播间（{len(sidebar._items)}）')
@@ -317,9 +316,8 @@ class SidebarNavigation(QObject):
         menu.addAction('刷新关注状态').triggered.connect(sidebar.refresh_button.click)
         menu.addSeparator()
         menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
-        fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous'
+        fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
                               else '全部折叠文件夹')
-        fold.setEnabled(sidebar.folder_collapse_mode != 'previous' or sidebar._bulk_fold_previous is not None)
         fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
         menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
