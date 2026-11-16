@@ -56,6 +56,7 @@ if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
 if /i "%~1"=="--check-sidebar-folders" goto sidebarFoldersCheck
+if /i "%~1"=="--check-folder-expansion" goto folderExpansionCheck
 if /i "%~1"=="--check-sidebar-order" goto sidebarOrderCheck
 if /i "%~1"=="--check-sidebar-presentation" goto sidebarPresentationCheck
 if /i "%~1"=="--check-update-install" goto updateInstallCheck
@@ -268,6 +269,16 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_folder_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_card_drag
+exit /b %errorlevel%
+
+:folderExpansionCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_folder_control
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_NO_SAVE=1"
+set "QT_QPA_PLATFORM=offscreen"
+set "DDM_CHECK_MODE=offline"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_cycle_shortcut.py" --folders-only
 exit /b %errorlevel%
 
 :sidebarFoldersCheck

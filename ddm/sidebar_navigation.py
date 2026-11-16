@@ -22,6 +22,8 @@ PATHS = {
     'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
     'collapse': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m7-12-3 3 3 3"/>',
     'expand': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m4-12 3 3-3 3"/>',
+    'folders_expand': '<path d="m6 4 6 5 6-5M6 14l6 5 6-5"/>',
+    'folders_collapse': '<path d="m6 9 6-5 6 5M6 19l6-5 6 5"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
     'close': '<path d="m6 6 12 12M18 6 6 18"/>',
 }
@@ -159,6 +161,10 @@ class SidebarNavigation(QObject):
         self.all_button.clicked.connect(lambda: self.set_live_only(False))
         self.live_button.clicked.connect(lambda: self.set_live_only(True))
         filters.addStretch(1)
+        self.folder_toggle_button = NavigationButton('全部折叠文件夹', 'folders_collapse', self.filters)
+        self.folder_toggle_button.setFixedSize(26, 26)
+        self.folder_toggle_button.clicked.connect(sidebar.toggle_all_folders)
+        filters.addWidget(self.folder_toggle_button)
         self.density_button = NavigationButton('切换卡片／列表', 'list', self.filters)
         self.density_button.setFixedSize(26, 26)
         self.density_button.clicked.connect(self.toggle_density)
@@ -252,6 +258,14 @@ class SidebarNavigation(QObject):
     def sync_count(self):
         sidebar = self.sidebar
         self.count.setText(str(len(sidebar._items)))
+        expand = any(sidebar.folder_control.is_folded(folder) for folder in sidebar.folders)
+        label = '全部展开文件夹' if expand else '全部折叠文件夹'
+        self.folder_toggle_button.setText(label)
+        self.folder_toggle_button.setAccessibleName(label)
+        self.folder_toggle_button.setToolTip(label + '（保留当前筛选）')
+        self.folder_toggle_button.kind = 'folders_expand' if expand else 'folders_collapse'
+        self.folder_toggle_button.setEnabled(not sidebar._folder_drag_previous)
+        self.folder_toggle_button.update()
         self.live_button.setText(f'直播中 {sum(bool(i.room.get("live")) for i in sidebar._items)}')
         self.all_button.setChecked(not sidebar.live_only)
         self.live_button.setChecked(sidebar.live_only)
@@ -292,6 +306,9 @@ class SidebarNavigation(QObject):
         action.setChecked(sidebar.select_mode)
         action.triggered.connect(sidebar.set_select_mode)
         menu.addAction('刷新关注状态').triggered.connect(sidebar.refresh_button.click)
+        menu.addSeparator()
+        menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
+        menu.addAction('全部折叠文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
         menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
