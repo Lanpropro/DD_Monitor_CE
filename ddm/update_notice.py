@@ -240,7 +240,7 @@ class UpdateNotice(QFrame):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._open()
+            self._open_settings()
             event.accept()
         else:
             super().mouseReleaseEvent(event)

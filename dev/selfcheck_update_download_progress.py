@@ -16,7 +16,8 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 from shiboken6 import isValid
 from ddm import config, motion, online, theme, update_install
@@ -154,6 +155,41 @@ class UpdateDownloadTests(unittest.TestCase):
         notice.dismiss(animate=False)
         notice.deleteLater()
         theme.apply('dark')
+
+    def test_pointer_click_settings_edges_and_card_never_downloads(self):
+        notice = UpdateNotice(self.host)
+        notice.set_updates([dict(key='first', title='插件一'), dict(key='second', title='插件二')])
+        requested, opened = [], []
+        notice.updateRequested.connect(requested.append)
+        notice.activated.connect(lambda: opened.append(True))
+        for target in ('settings_center', 'settings_corner', 'button_gap', 'description'):
+            notice.show_offer({'version': '9.0'}, persistent=True)
+            self.app.processEvents()
+            button = notice.settings_action
+            if target == 'settings_center':
+                point = button.mapTo(notice, button.rect().center())
+            elif target == 'settings_corner':
+                point = button.mapTo(notice, QPoint(1, 1))
+            elif target == 'button_gap':
+                point = QPoint(button.x() - 3, button.geometry().center().y())
+            else:
+                point = notice.description.mapTo(notice, notice.description.rect().center())
+            requested.clear()
+            opened.clear()
+            QTest.mouseClick(notice.windowHandle(), Qt.LeftButton, pos=point)
+            self.app.processEvents()
+            self.assertEqual(requested, [], target)
+            self.assertEqual(opened, [True], target)
+        notice.show_offer({'version': '9.0'}, persistent=True)
+        self.app.processEvents()
+        opened.clear()
+        point = notice.action.mapTo(notice, notice.action.rect().center())
+        QTest.mouseClick(notice.windowHandle(), Qt.LeftButton, pos=point)
+        self.app.processEvents()
+        self.assertEqual(requested, ['first', 'second'])
+        self.assertEqual(opened, [])
+        notice.dismiss(animate=False)
+        notice.deleteLater()
 
     def test_update_errors_explain_transport_http_storage_and_package_failures(self):
         cases = [
