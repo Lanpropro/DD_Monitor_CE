@@ -27,6 +27,15 @@ def child(action):
     original = dialogs.SettingsDialog
 
     class AutomatedDialog(original):
+        def nativeEvent(self, event_type, message):
+            if action == 'embed-scroll':
+                import ctypes
+                from ctypes import wintypes
+                if wintypes.MSG.from_address(int(message)).message == 0x8051:
+                    QTimer.singleShot(0, self, self.step)
+                    return True, 0
+            return super().nativeEvent(event_type, message)
+
         def showEvent(self, event):
             super().showEvent(event)
             QTimer.singleShot(40, self.exercise)
@@ -104,6 +113,7 @@ def child(action):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
                 self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
+                                     (1, 0, 8, 1, 8) if action == 'embed-scroll' else
                                      (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
                                      (1, 0, 1, 7, 1) if action == 'embed-appearance' else
                                      (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
@@ -178,7 +188,8 @@ def child(action):
                     'glass': self._native_glass,
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
-                QTimer.singleShot(50, self.step)
+                if action != 'embed-scroll':
+                    QTimer.singleShot(50, self.step)
             QTimer.singleShot(200, self, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
@@ -742,6 +753,28 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     assert session.stack.property('settings_glass_enabled')
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
+                    if action == 'embed-scroll':
+                        from ctypes import wintypes
+                        from PySide6.QtCore import QPoint
+                        page = session.dialog._loaded_pages[message['index']]
+                        page.scroll.widget().setMinimumHeight(1400)
+                        app.processEvents()
+                        bar = page.scroll.verticalScrollBar()
+                        assert bar.maximum() > 0
+                        rect = wintypes.RECT()
+                        assert user32.GetWindowRect(handle, ctypes.byref(rect))
+                        # Inject only into isolated fixture HWNDs, never desktop input.
+                        local = page.scroll.viewport().mapTo(session.stack, QPoint(8, 8))
+                        scale = session.stack.devicePixelRatioF()
+                        x, y = rect.left + round(local.x() * scale), rect.top + round(local.y() * scale)
+                        point = (y & 0xffff) << 16 | (x & 0xffff)
+                        for receiver in (int(session.stack.winId()), message['hwnd']):
+                            for _ in range(3):
+                                bar.setValue(0)
+                                user32.PostMessageW(ctypes.c_void_p(receiver), 0x20A, 0xff880000, point)
+                                wait(app, lambda: bar.value() > 0, timeout=3)
+                        bar.setValue(0)  # Preserve the existing top-of-page rendering assertions.
+                        app.processEvents()
                     if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
                         if action == 'embed-coordinates':
                             from PySide6.QtCore import QEvent
@@ -774,6 +807,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         page.plan_path = str(Path(temporary) / 'synthetic-update-plan.json')
                         page._busy(False)
                         page.action.click()
+                if action == 'embed-scroll':
+                    # Acknowledge this step only after both process endpoints pass.
+                    user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
             client.received.connect(observed)
         try:
             client.open(window.settings, window.shortcuts)
@@ -794,7 +830,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == ([1, 0, 8, 1, 8] if action == 'embed-scroll' else [7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 if action == 'embed-coordinates':
                     assert len({tuple(message['size']) for message in shells}) == len(shells)
@@ -1054,6 +1090,11 @@ def main():
         check_theme_sync(app)
         return 0
     check_nonblocking_online_close(app)
+    if sys.argv[1:] == ['--scroll-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-scroll')
+        print('PASS: repeated native wheels in host and worker reach both embedded pages after switching')
+        return 0
     if sys.argv[1:] == ['--coordinates-native']:
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-coordinates')

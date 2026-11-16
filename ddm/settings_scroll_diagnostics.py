@@ -65,5 +65,7 @@ def install():
     app = QApplication.instance()
     if getattr(app, '_settings_scroll_capture', None) is None:
         from . import config
-        path = Path(config.data_root()) / 'logs' / f'settings-scroll-{os.getpid()}.jsonl'
+        root = os.environ.get('DDM_DIAGNOSTIC_APP_ROOT') or config.data_root()
+        directory = os.environ.get('DDM_DIAGNOSTIC_LOG_DIR') or str(Path(root) / 'logs')
+        path = Path(directory) / f'settings-scroll-{os.getpid()}.jsonl'
         app._settings_scroll_capture = SettingsScrollCapture(app, path)

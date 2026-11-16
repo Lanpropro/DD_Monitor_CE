@@ -166,6 +166,10 @@ def run_worker():
                     raise RuntimeError('The platform cannot embed the host settings page')
                 self.host_container = QWidget.createWindowContainer(self.foreign, self.stack)
                 self.host_container.setFocusPolicy(Qt.StrongFocus)
+                if app.platformName() == 'windows':
+                    from .settings_wheel import EmbeddedSettingsWheel
+                    self.wheel_bridge = EmbeddedSettingsWheel(self.host_container,
+                        lambda values: send({'kind': 'host-wheel', 'wheel': values}))
                 self.stack.addWidget(self.host_container)
                 attached = True
             if self.nav.currentRow() in host_api.HOST_PAGES:

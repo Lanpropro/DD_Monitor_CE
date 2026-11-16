@@ -84,11 +84,18 @@ class SettingsHost(QObject):
                 # layered repaints use child coordinates from the first frame.
                 self.embedded_parent = QWindow.fromWinId(message['parent_hwnd'])
                 self.stack.windowHandle().setParent(self.embedded_parent)
+                from .settings_wheel import EmbeddedSettingsWheel, deliver
+                self.wheel_bridge = EmbeddedSettingsWheel(
+                    self.stack, lambda values: deliver(self.stack, values))
                 self.embedded = True
             self.dialog.nav.setCurrentRow(message['index'])
             self.stack.finish_transition()
             self.client._send({'kind': 'host-ready', 'hwnd': int(self.stack.winId())})
             self.sync()
+        elif kind == 'host-wheel':
+            if self.embedded:
+                from .settings_wheel import deliver
+                deliver(self.stack, message['wheel'])
         elif kind == 'host-reset':
             self.dialog._reset_current()
             self.sync()

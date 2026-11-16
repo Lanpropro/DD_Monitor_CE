@@ -39,6 +39,68 @@ def dispose(widget):
 
 
 class AppearanceOptionsTests(unittest.TestCase):
+    def test_embedded_native_wheels_reach_appearance_and_update_pages_repeatedly(self):
+        if sys.platform != 'win32':
+            self.skipTest('Windows native messages')
+        import ctypes
+        from ctypes import wintypes
+        from ddm.settings_appearance import AppearanceSettingsPage
+        from ddm.app_update_ui import AppUpdatePage
+        from ddm.settings_wheel import EmbeddedSettingsWheel, deliver
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(config, 'REPO', temporary), patch.object(config, 'DATA_ROOT', temporary):
+            for page_type in (AppearanceSettingsPage, AppUpdatePage):
+                window = SettingsWindow()
+                window.resize(620, 280)
+                page = page_type(deepcopy(config.DEFAULT_SETTINGS))
+                window.body_layout.addWidget(page)
+                received = []
+                bridge = EmbeddedSettingsWheel(page, lambda values: received.append(values))
+                window.show()
+                settle()
+                get_bounds = None
+                try:
+                    scroll = page.scroll
+                    bar = scroll.verticalScrollBar()
+                    self.assertGreater(bar.maximum(), 0)
+                    # Native wheel landing on the foreign container never became a
+                    # QWheelEvent in the captured failure; deliver via each endpoint.
+                    local = scroll.viewport().mapTo(page, QPoint(8, 8))
+                    # Offscreen Qt has no HWND; supply native bounds at an offset
+                    # monitor origin and verify the same physical-to-local conversion.
+                    def bounds(hwnd, output):
+                        rect = ctypes.cast(output, ctypes.POINTER(wintypes.RECT)).contents
+                        rect.left, rect.top = -12000, -10000
+                        return True
+                    get_bounds = patch.object(ctypes.windll.user32, 'GetWindowRect', side_effect=bounds)
+                    get_bounds.start()
+                    native = (QPointF(-12000, -10000) + QPointF(local) * page.devicePixelRatioF()).toPoint()
+                    message = wintypes.MSG()
+                    message.message = 0x20A
+                    message.wParam = 0xff88 << 16
+                    message.lParam = ((native.y() & 0xffff) << 16) | (native.x() & 0xffff)
+                    for _ in range(6):
+                        bar.setValue(0)
+                        self.assertEqual(bridge.nativeEventFilter(b'windows_generic_MSG',
+                            ctypes.addressof(message)), (True, 0))
+                        self.assertEqual(len(received), 1)
+                        deliver(page, received.pop())  # Same payload delivered by host-wheel IPC.
+                        settle()
+                        self.assertGreater(bar.value(), 0, page_type.__name__)
+                    message.message = 0x200
+                    self.assertEqual(bridge.nativeEventFilter(b'windows_generic_MSG',
+                        ctypes.addressof(message)), (False, 0))
+                    window.hide()
+                    message.message = 0x20A
+                    self.assertEqual(bridge.nativeEventFilter(b'windows_generic_MSG',
+                        ctypes.addressof(message)), (False, 0))
+                    self.assertEqual(received, [])
+                finally:
+                    if get_bounds is not None:
+                        get_bounds.stop()
+                    bridge.stop()
+                    dispose(window)
+
     def test_scroll_capture_is_bounded_and_does_not_consume_wheel_or_record_text(self):
         import ctypes
         from ctypes import wintypes
@@ -49,6 +111,19 @@ class AppearanceOptionsTests(unittest.TestCase):
             install()
             self.assertIsNone(getattr(APP, '_settings_scroll_capture', None))
         with tempfile.TemporaryDirectory() as temporary:
+            # The worker changes config.REPO to a disposable directory; retain
+            # evidence in the host's log root or the explicit diagnostic session.
+            for directory in ('', str(Path(temporary) / 'session')):
+                with patch.dict(os.environ, DDM_SETTINGS_SCROLL_CAPTURE='1',
+                                DDM_DIAGNOSTIC_APP_ROOT=temporary,
+                                DDM_DIAGNOSTIC_LOG_DIR=directory), \
+                        patch('ddm.settings_scroll_diagnostics.SettingsScrollCapture') as factory:
+                    try:
+                        install()
+                        expected = Path(directory) if directory else Path(temporary) / 'logs'
+                        factory.assert_called_once_with(APP, expected / f'settings-scroll-{os.getpid()}.jsonl')
+                    finally:
+                        del APP._settings_scroll_capture
             path = Path(temporary) / 'wheel.jsonl'
             capture = SettingsScrollCapture(APP, path)
             area = QScrollArea()

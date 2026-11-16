@@ -209,7 +209,7 @@ class SettingsProcess(QObject):
                         self.saved.emit(message['changes'])
                 self.closed.emit()
                 _save_trace('host.result.applied', started)
-            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden', 'host-retry', 'host-flush') and not self.closing:
+            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden', 'host-retry', 'host-flush', 'host-wheel') and not self.closing:
                 started = _save_trace('host.save.received') if kind == 'host-save' else None
                 self.hostRequest.emit(message)
                 if started is not None:
