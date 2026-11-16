@@ -46,6 +46,7 @@ if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
 if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
 if /i "%~1"=="--check-update-progress" goto updateProgressCheck
+if /i "%~1"=="--preview-updates" goto updatePreview
 if /i "%~1"=="--check-settings-control" goto settingsControlCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
@@ -311,6 +312,18 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
+exit /b %errorlevel%
+
+:updatePreview
+if /i "%~2"=="--smoke" (
+    set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+    goto updatePreviewSmoke
+)
+start "" "%PY%" "%PROJ%dev\update_preview.py"
+exit /b 0
+
+:updatePreviewSmoke
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_preview
 exit /b %errorlevel%
 
 :updateProgressCheck

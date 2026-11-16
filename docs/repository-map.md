@@ -449,6 +449,9 @@
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
+- `dev/selfcheck_update_preview.py`
+- `dev/update_preview.py`
+- `dev/update_preview_server.py`
 - `dev/selfcheck_user_notice.py`
 - `dev/selfcheck_video_danmaku.py`
 - `dev/selfcheck_danmaku_color.py`
