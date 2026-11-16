@@ -79,7 +79,7 @@
 
 | 位置 | 内容 |
 | --- | --- |
-| [本机资料索引](local/README.md) | 待办、诊断、验收、交接与历史资料分类保存，全部被 Git 忽略 |
+| `docs/local/README.md` | 待办、诊断、验收、交接与历史资料分类保存，全部被 Git 忽略；从本机打开 |
 | 根目录 `PROJECT_STATE.md` | 当前交接入口，被 Git 忽略 |
 | `docs/local/archive/promo/`、`docs/local/archive/prototypes/` | 历史宣传记录与竖屏原型图片，被 Git 忽略 |
 

@@ -6,6 +6,7 @@ import ast
 from datetime import date
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import unquote
@@ -86,7 +87,43 @@ def metadata(path):
     return {name: value.strip() for name, value in match.groupdict().items()}
 
 
+def local_link_error(source, target):
+    target = target.strip()
+    if not target or "://" in target or target.startswith("mailto:"):
+        return None
+    destination = resolve(source, target) or source
+    if not destination.exists():
+        return f"missing link target: {target}"
+    if "#" in target and destination.suffix.lower() == ".md":
+        fragment = unquote(target.split("#", 1)[1])
+        if fragment and fragment not in anchors(destination):
+            return f"missing anchor: {target}"
+    return None
+
+
 class DocumentStructureTests(unittest.TestCase):
+    def test_link_validation_checks_same_page_and_duplicate_anchors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            page = Path(directory) / "page.md"
+            page.write_text("# Page\n\n## 重复标题\n\n## 重复标题\n", encoding="utf-8")
+            for fragment in ("#page", "#重复标题", "#重复标题-1", "#%E9%87%8D%E5%A4%8D%E6%A0%87%E9%A2%98"):
+                with self.subTest(fragment=fragment):
+                    self.assertIsNone(local_link_error(page, fragment))
+            self.assertIn("missing anchor", local_link_error(page, "#missing"))
+            self.assertIn("missing anchor", local_link_error(page, "#重复标题-2"))
+
+    def test_link_validation_rejects_missing_local_material_and_other_page_anchors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".gitignore").write_text("work/\n", encoding="utf-8")
+            page = root / "page.md"
+            page.write_text("# Page\n", encoding="utf-8")
+            other = root / "other.md"
+            other.write_text("# Other\n", encoding="utf-8")
+            self.assertIsNone(local_link_error(page, "other.md#other"))
+            self.assertIn("missing anchor", local_link_error(page, "other.md#page"))
+            self.assertIn("missing link target", local_link_error(page, "work/candidate.md"))
+
     def test_maintained_documents_have_valid_metadata(self):
         for path in maintained_documents():
             relative = path.relative_to(ROOT).as_posix()
@@ -145,24 +182,8 @@ class DocumentStructureTests(unittest.TestCase):
             if not path.is_file():
                 continue
             for target in links(read(path)):
-                target = target.strip()
-                if not target or target.startswith("#") or "://" in target or target.startswith("mailto:"):
-                    continue
-                destination = resolve(path, target)
-                if destination is None:
-                    continue
                 with self.subTest(document=relative, target=target):
-                    if not destination.exists():
-                        ignored = subprocess.run(
-                            ["git", "check-ignore", "--", str(destination)],
-                            cwd=ROOT, capture_output=True)
-                        self.assertEqual(ignored.returncode, 0,
-                                         f"missing link target: {target}")
-                        continue
-                    if "#" in target and destination.suffix.lower() == ".md":
-                        fragment = unquote(target.split("#", 1)[1])
-                        self.assertIn(fragment, anchors(destination),
-                                      f"missing anchor: {target}")
+                    self.assertIsNone(local_link_error(path, target))
 
     def test_release_index_covers_every_note(self):
         index = read(DOCS / "releases/README.md")
