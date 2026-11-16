@@ -1,4 +1,4 @@
-"""Windows 原生鼠标命中检查；可传入本地视频，验证多路 VLC 播放。"""
+"""Windows 原生鼠标命中检查；可传入本地视频，验证多路 libmpv 播放。"""
 import ctypes
 from ctypes import wintypes
 import os
@@ -6,6 +6,7 @@ import sys
 import time
 from unittest.mock import patch
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMenu
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -13,6 +14,7 @@ sys.path.insert(0, REPO)
 from ddm import theme  # noqa: E402
 from ddm.widgets import WallGrid  # noqa: E402
 from ddm.player import TilePlayer  # noqa: E402
+from selfcheck_mpv import ready
 
 
 def settle(app, seconds):
@@ -52,15 +54,24 @@ def main():
             hwnd = child
         raise AssertionError("Native window recursion did not stop")
 
+    def show_controls(tile):
+        # 屏外窗口不移动系统鼠标；固定悬停显示状态，单独检查原生窗口命中。
+        tile.set_controls_visible(True)
+        tile._control_hover_timer.stop()
+        tile._controls_hide_timer.stop()
+        app.processEvents()
+        assert tile.controls.isVisible(), "Controls must be visible before hit testing"
+
     for layout, count in (("2x2", 4), ("3x2", 6), ("3x3", 9),
                           ("portrait_main6", 7)):
         wall = WallGrid([{"room_id": str(i + 1), "uname": str(i), "live": True,
                           "quality": 250} for i in range(count)], layout_id=layout)
         wall.setGeometry(-9000, -9000, 1200, 800)
+        wall.setAttribute(Qt.WA_ShowWithoutActivating)
         wall.show()
         settle(app, 0.2)
         for tile in wall.tiles:
-            tile.set_controls_visible(True)
+            show_controls(tile)
         players = []
         try:
             if len(sys.argv) > 1:
@@ -68,19 +79,20 @@ def main():
                     player = TilePlayer(tile.video, silent=True)
                     player.play(sys.argv[1])
                     players.append(player)
-                settle(app, 2)
-                assert all(p.player.get_time() > 0 for p in players), "Video did not start"
+                for player in players:
+                    ready(app, player)
                 # 保持浮层已显示，模拟所有播放器重建视频窗口。
                 for player in players:
                     player.play(sys.argv[1])
-                settle(app, 1)
-                assert all(p.player.get_time() > 0 for p in players), "Restart did not finish"
+                for player in players:
+                    ready(app, player)
             wall.set_fullscreen_tile(wall.tiles[-1])
             settle(app, 0.1)
             wall.set_fullscreen_tile(None)
             settle(app, 0.1)
             settle(app, 0.1)
             for index, tile in enumerate(wall.tiles):
+                show_controls(tile)
                 controls = int(tile.controls.winId())
                 for button in (tile.quality_button, tile.reload_button, tile.close_button):
                     target = hit(tile, button)
