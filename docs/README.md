@@ -1,6 +1,6 @@
 # 文档中心
 
-> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：用户、贡献者、维护者
+> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：用户、贡献者、维护者
 
 这里是 DD监控室CE 的文档入口。根目录新增的文档只保留 README、贡献指南、许可证和 Agent 规则；
 专题文档、开发记录和历史资料都从本页进入。
@@ -44,15 +44,17 @@
 
 ### 功能与设计
 
+专题集中在 [功能与设计索引](features/README.md)。
+
 | 文档 | 内容 |
 | --- | --- |
-| [深浅色模式与文件夹图标](appearance-design.md) | 主题、图标、外观交互与验证要求 |
-| [皮肤与美化包](skins.md) | 分区美化、背景、插件包格式与优先级 |
-| [多画面画中画](picture-in-picture.md) | 选流、组合、换位、比例与窗口交互 |
-| [直播间组合预设](room-presets-design.md) | 保存范围、恢复规则与旧配置兼容 |
-| [窗口缩放性能](resize-performance.md) | 交互阶段、几何更新与验收口径 |
-| [头像与封面缓存](image-cache.md) | 占用统计、清理规则与新旧图替换 |
-| [自由布局编辑器计划](customization-plan.md) | 尚未实现的布局结构编辑范围与待定规则 |
+| [深浅色模式与文件夹图标](features/appearance-design.md) | 主题、图标、外观交互与验证要求 |
+| [皮肤与美化包](features/skins.md) | 分区美化、背景、插件包格式与优先级 |
+| [多画面画中画](features/picture-in-picture.md) | 选流、组合、换位、比例与窗口交互 |
+| [直播间组合预设](features/room-presets-design.md) | 保存范围、恢复规则与旧配置兼容 |
+| [窗口缩放性能](features/resize-performance.md) | 交互阶段、几何更新与验收口径 |
+| [头像与封面缓存](features/image-cache.md) | 占用统计、清理规则与新旧图替换 |
+| [自由布局编辑器计划](features/customization-plan.md) | 尚未实现的布局结构编辑范围与待定规则 |
 
 ### 参考
 
@@ -77,9 +79,9 @@
 
 | 位置 | 内容 |
 | --- | --- |
-| `docs/local/` | 本机诊断记录和随手笔记，被 Git 忽略；历史交接归入 `docs/local/archive/handoffs/` |
+| [本机资料索引](local/README.md) | 待办、诊断、验收、交接与历史资料分类保存，全部被 Git 忽略 |
 | 根目录 `PROJECT_STATE.md` | 当前交接入口，被 Git 忽略 |
-| `docs/VIDEO-*.md`、`docs/PROMO-*.md` | 宣传过程资料，被 Git 忽略 |
+| `docs/local/archive/promo/`、`docs/local/archive/prototypes/` | 历史宣传记录与竖屏原型图片，被 Git 忽略 |
 
 这些内容只在维护者本机保留，不作为公开文档，也不进入发布包。
 

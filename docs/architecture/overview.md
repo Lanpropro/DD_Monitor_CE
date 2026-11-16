@@ -154,7 +154,7 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 | 扩展 | 入口 | 约束 |
 | --- | --- | --- |
 | 平台与互动插件 | `docs/plugins.md`、`plugins_user/_template_platform` | 只依赖公开宿主 API；不导入宿主内部模块 |
-| 皮肤与分区美化 | `ddm/skin_parts.py`、`docs/skins.md` | 使用声明式外观槽；不替换宿主控件 |
+| 皮肤与分区美化 | `ddm/skin_parts.py`、`docs/features/skins.md` | 使用声明式外观槽；不替换宿主控件 |
 | 诊断采集 | `ddm/diagnostic_session.py`、`dev/checks/` | 普通入口保留轻量日志，完整采集按需、有界、脱敏；方法与开销见[卡顿采集](../development/responsiveness-capture.md) |
 | 布局与直播间组合 | `ddm/layouts.py`、`room_presets.py` | 保存结构要有版本兼容和旧配置回退 |
 
@@ -162,13 +162,13 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 
 | 想改的内容 | 先读 | 首先改 |
 | --- | --- | --- |
-| 窗口/布局/全屏 | [窗口缩放性能](../resize-performance.md)、`docs/development/ui-components.md` | `window_layout.py`、`wall_layout.py` |
+| 窗口/布局/全屏 | [窗口缩放性能](../features/resize-performance.md)、`docs/development/ui-components.md` | `window_layout.py`、`wall_layout.py` |
 | 播放/取流/解码 | `docs/bug-cases.md` 中播放类案例、`stream_playback.py` 文档字符串 | `stream_playback.py`、`player.py` |
 | 弹幕/SC | `docs/development/testing.md` 对应小节 | `danmaku_*` 或 `super_chat_*` |
 | 设置页 | `docs/development/ui-components.md`、`settings_control.py` | `settings_*.py` |
 | 录制/回放 | `docs/plugins.md` 录制服务章节 | `capture_control.py`、`recording*.py` |
 | 插件接口 | `docs/plugins.md`、`plugin_types.py` | 先加能力检查，再改宿主 |
-| 外观/主题 | `docs/appearance-design.md`、`docs/skins.md` | `theme.py`、`skin_*` |
+| 外观/主题 | `docs/features/appearance-design.md`、`docs/features/skins.md` | `theme.py`、`skin_*` |
 
 ## 10. 详细模块职责
 
@@ -268,7 +268,7 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
-多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
+多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/features/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
 
 矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
 

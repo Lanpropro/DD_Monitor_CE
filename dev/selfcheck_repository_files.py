@@ -12,7 +12,7 @@ LOCAL_ONLY = (
     "dev/*highlight*", "dev/*videotogether*", "dev/test_video_*.py",
     "dev/preview_*.py", "dev/watch_layout_preview.py", "dev/run-preview.cmd", "dev/make_shots.py",
     "dev/thumb_sheet.py", "dev/mock_portrait2.py",
-    "docs/portrait-bar.png", "docs/portrait-current.png", "docs/portrait-mock.png",
+    "docs/local/archive/prototypes/portrait-bar.png", "docs/local/archive/prototypes/portrait-current.png", "docs/local/archive/prototypes/portrait-mock.png",
     "dev/mock_portrait.py", "dev/portrait_mock.html", "console.log*",
     "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
     "plugins_user/domestic_live/*", "plugins_user/global_live/*",
@@ -31,8 +31,8 @@ REQUIRED = (
     "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py", "blivedm/LICENSE",
     "dev/build_release.ps1", "dev/build_windows_version.py",
     "dev/pyi_rth_pyside6_paths.py", "dev/selfcheck_video_danmaku.py",
-    "docs/overview1_Landscape_mode.png", "docs/overview2_Landscape_mode.png",
-    "docs/overview1_Portrait_Mode.png", "README.md",
+    "docs/assets/screenshots/overview1_Landscape_mode.png", "docs/assets/screenshots/overview2_Landscape_mode.png",
+    "docs/assets/screenshots/overview1_Portrait_Mode.png", "README.md",
 )
 
 
@@ -43,7 +43,7 @@ class RepositoryFilesTests(unittest.TestCase):
         tracked = subprocess.check_output(['git', 'ls-files', 'website-prototype'], cwd=ROOT)
         self.assertFalse(tracked)
         self.assertFalse((ROOT / 'docs/archive/website-screenshots').exists())
-        self.assertEqual(len(list((ROOT / 'docs').glob('overview*.png'))), 7)
+        self.assertEqual(len(list((ROOT / 'docs/assets/screenshots').glob('overview*.png'))), 7)
 
     def test_local_material_is_not_in_source_manifest(self):
         tracked = subprocess.check_output(

@@ -20,14 +20,14 @@
 
 本体支持 B 站，通过独立插件接入虎牙、斗鱼、抖音、Twitch 和 YouTube。软件免费使用，无付费解锁功能。
 
-![DD监控室CE 横屏画面墙](docs/overview4_Landscape_mode.png)
+![DD监控室CE 横屏画面墙](docs/assets/screenshots/overview4_Landscape_mode.png)
 
 <details>
 <summary>查看弹幕布局与竖屏布局</summary>
 
-![弹幕布局](docs/overview5_Landscape_mode.png)
+![弹幕布局](docs/assets/screenshots/overview5_Landscape_mode.png)
 
-![竖屏布局](docs/overview2_Portrait_Mode.png)
+![竖屏布局](docs/assets/screenshots/overview2_Portrait_Mode.png)
 
 </details>
 
@@ -79,7 +79,7 @@
 
 ## 文档
 
-[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/skins.md) · [直播间组合](docs/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
+[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/features/skins.md) · [直播间组合](docs/features/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
 
 ## 贡献者
 

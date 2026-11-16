@@ -2,7 +2,7 @@
 
 > 类型：设计 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-15 ｜ 读者：贡献者、外观维护者
 
-本页记录当前主题与文件夹图标的交互和维护边界。2026 年 10 月的实施过程、当时的性能测量及旧 Qt／VLC 环境说明已移入[历史外观实施记录](archive/appearance-implementation-202610.md)。背景媒体、分区美化和皮肤包格式见[皮肤与美化包](skins.md)。
+本页记录当前主题与文件夹图标的交互和维护边界。2026 年 10 月的实施过程、当时的性能测量及旧 Qt／VLC 环境说明已移入[历史外观实施记录](../archive/appearance-implementation-202610.md)。背景媒体、分区美化和皮肤包格式见[皮肤与美化包](skins.md)。
 
 ## 深浅色模式
 
@@ -26,4 +26,4 @@
 
 - 主题变更检查 `ddm/theme.py`、`ddm/theme_transition.py`、自绘控件与局部样式；文件夹图标变更检查 `ddm/folder_icons.py` 和关注栏保存流程。
 - 运行 `python dev/run_checks.py --script selfcheck_theme_palette`、`python dev/run_checks.py --script selfcheck_theme_wave` 与 `python dev/run_checks.py --script selfcheck_folder_icons`，核对配色、过渡和图标保存回归。
-- 从根目录 `run.cmd` 人工检查深浅切换、系统模式、横竖屏、文件夹图标保存与重启恢复，以及多路播放时的音画连续性。外观页滚轮仍待修复，见[BUG-072](bug-cases.md#2026-11-15-外观页滚轮反馈)。
+- 从根目录 `run.cmd` 人工检查深浅切换、系统模式、横竖屏、文件夹图标保存与重启恢复，以及多路播放时的音画连续性。外观页滚轮仍待修复，见[BUG-072](../bug-cases.md#2026-11-15-外观页滚轮反馈)。

@@ -29,8 +29,8 @@
 
 ## 已跟踪的其他文件：逐项标注
 
-- `docs/image-cache.md`
-- `docs/picture-in-picture.md`
+- `docs/features/image-cache.md`
+- `docs/features/picture-in-picture.md`
 - `docs/development/ui-components.md`
 
 ### 独立诊断工具
@@ -400,7 +400,7 @@
 ### 其他已跟踪文件
 
 - `results/.gitignore`
-- `docs/overview3_Landscape_mode.png`
+- `docs/assets/screenshots/overview3_Landscape_mode.png`
 
 ### 历史记录
 
@@ -512,22 +512,23 @@
 
 - `docs/NOTICE.md`
 - `docs/README.md`
+- `docs/features/README.md`
 - `docs/references/README.md`
-- `docs/appearance-design.md`
+- `docs/features/appearance-design.md`
 - `docs/bug-cases.md`
-- `docs/customization-plan.md`
+- `docs/features/customization-plan.md`
 - `docs/online-updates.md`
-- `docs/overview1_Landscape_mode.png`
-- `docs/overview1_Portrait_Mode.png`
-- `docs/overview2_Landscape_mode.png`
-- `docs/overview2_Portrait_Mode.png`
-- `docs/overview4_Landscape_mode.png`
-- `docs/overview5_Landscape_mode.png`
+- `docs/assets/screenshots/overview1_Landscape_mode.png`
+- `docs/assets/screenshots/overview1_Portrait_Mode.png`
+- `docs/assets/screenshots/overview2_Landscape_mode.png`
+- `docs/assets/screenshots/overview2_Portrait_Mode.png`
+- `docs/assets/screenshots/overview4_Landscape_mode.png`
+- `docs/assets/screenshots/overview5_Landscape_mode.png`
 - `docs/plugins.md`
 - `docs/repository-map.md`
-- `docs/resize-performance.md`
-- `docs/room-presets-design.md`
-- `docs/skins.md`
+- `docs/features/resize-performance.md`
+- `docs/features/room-presets-design.md`
+- `docs/features/skins.md`
 
 ### Flutter 移动端
 
@@ -632,11 +633,11 @@
 | `results/` 其他内容 | `archive/` 保存本体旧版本 ZIP；最新本体的正式附件与一个解压入口、各插件最新正式 ZIP 的边界见[本机工作区维护](development/workspace-maintenance.md) | 已忽略（除 .gitignore）；非最终资料移入 `work/` |
 | `work/` | 混合临时目录：构建、依赖、Git 工作树、测试截图及宣传资料 | 已忽略；不整体清理 |
 | `docs/local/archive/handoffs/`、`PROJECT_STATE.md` | 历史交接归档与当前交接入口 | 已忽略；不进入 `results/` 或发布包 |
-| `docs/local/idea.md` | 本机需求建议 | 已忽略；保留 |
-| `docs/VIDEO-*.md`、`docs/PROMO-*.md` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
+| `docs/local/README.md`、`docs/local/idea.md` | 本机资料索引与需求建议 | 已忽略；待办、诊断、验收及历史资料按目录收口 |
+| `docs/local/archive/promo/` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
 | `dev/*promo*`、`dev/*highlight*`、`dev/*videotogether*`、`dev/test_video_*.py` | 宣传片专项脚本与校验工具；不含 selfcheck_video_* 软件测试 | 已忽略；保留 |
 | `dev/preview_*.py`、`dev/run-preview.cmd`、`dev/make_shots.py`、`dev/thumb_sheet.py` | 软件开发预览、截图工具，仍与软件维护相关 | 已忽略；保留 |
-| `dev/mock_portrait2.py`、`docs/portrait-bar.png`、`docs/portrait-current.png`、`docs/portrait-mock.png` | 旧竖屏原型及截图 | 已忽略；保留 |
+| `dev/mock_portrait2.py`、`docs/local/archive/prototypes/portrait-bar.png`、`docs/local/archive/prototypes/portrait-current.png`、`docs/local/archive/prototypes/portrait-mock.png` | 旧竖屏原型及截图 | 已忽略；保留 |
 | `cache/`、`logs/`、`recordings/`、`__pycache__/` | 软件运行数据、录制与 Python 缓存 | 已忽略；不读取内容、不清理 |
 | `ddm_plugins_dd3l0oxq/` | 名称疑似插件临时目录；当前无法核实目录内容及来源 | 不属于已跟踪源码；保留 |
 

@@ -23,6 +23,6 @@
 
 - 架构变化（新增进程、改变依赖方向、迁移状态所有权）与代码同批更新本目录。
 - 不在这里复制完整文件清单；文件归属以[仓库文件分类清单](../repository-map.md)为准。
-- 单功能的交互与验收写在对应设计文档（如[画中画](../picture-in-picture.md)、[直播间组合](../room-presets-design.md)），
+- 单功能的交互与验收写在对应设计文档（如[画中画](../features/picture-in-picture.md)、[直播间组合](../features/room-presets-design.md)），
   架构页只保留结构与边界。
 - 修改后运行 `dev\run-checks.cmd --script selfcheck_documents` 与 `dev\run-checks.cmd --suite repository`；其他系统使用 Python 3.10 及以上版本运行相同脚本。

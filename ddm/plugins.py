@@ -18,7 +18,7 @@
    本体只在需要时调用。各家平台差异太大，塞进本体不划算。
 
 5. **皮肤美化**（``Plugin.skin`` / 清单 ``skin``）—— 背景、分区样式及按钮图标；
-   v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/skins.md。
+   v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/features/skins.md。
 
 运行时插件放 ``plugins_user/<插件ID>/plugin.py``，里面必须有一个名为 ``plugin`` 的
 ``Plugin`` 实例；开发模板见 ``plugins_user/_template_platform/plugin.py``，源码与安装副本边界见

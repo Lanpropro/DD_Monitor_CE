@@ -275,7 +275,7 @@ class Plugin:
     #: 一句话说明，插件列表里展示
     description = ""
     version = ""
-    skin = None  # Optional declarative skin v1/v2; see docs/skins.md.
+    skin = None  # Optional declarative skin v1/v2; see docs/features/skins.md.
 
     def __init__(self) -> None:
         self.context: PluginContext | None = None

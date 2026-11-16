@@ -71,7 +71,7 @@ def tracked_documents():
 
 
 def maintained_documents():
-    folders = {DOCS, DOCS / "development", DOCS / "architecture", DOCS / "standards"}
+    folders = {DOCS, DOCS / "development", DOCS / "architecture", DOCS / "standards", DOCS / "features"}
     paths = [path for path in tracked_documents()
              if path.parent in folders and path.name != "NOTICE.md"]
     paths.extend([DOCS / "releases/README.md", DOCS / "archive/README.md"])
@@ -133,7 +133,7 @@ class DocumentStructureTests(unittest.TestCase):
         required = {path for path in tracked_documents()
                     if path.parent == DOCS and path.name != "README.md"}
         required |= {DOCS / folder / "README.md"
-                     for folder in ("development", "architecture", "standards")
+                     for folder in ("development", "architecture", "standards", "features")
                      if (DOCS / folder / "README.md").is_file()}
         required |= {DOCS / "releases/README.md", DOCS / "archive/README.md"}
         missing = sorted(path.relative_to(ROOT).as_posix() for path in required - direct)
@@ -181,7 +181,7 @@ class DocumentStructureTests(unittest.TestCase):
                       "current VERSION must have a release note before publishing")
 
     def test_new_documents_follow_file_naming(self):
-        folders = {DOCS, DOCS / "development", DOCS / "architecture", DOCS / "standards"}
+        folders = {DOCS, DOCS / "development", DOCS / "architecture", DOCS / "standards", DOCS / "features"}
         for path in tracked_documents():
             if path.name in ("README.md", "NOTICE.md") or path.parent not in folders:
                 continue

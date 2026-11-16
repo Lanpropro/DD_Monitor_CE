@@ -29,9 +29,9 @@ git diff --check
 | 改动 | 必读 | 最低验证 |
 | --- | --- | --- |
 | 设置、通知、快捷键 | [验证指南](testing.md)对应小节 | `selfcheck_main_notices`、设置专项 |
-| 界面控件、主题、外观 | [共用界面组件](ui-components.md)、[外观设计](../appearance-design.md) | 组件/外观专项，高 DPI 人工检查 |
-| 播放、解码、原生窗口 | [验证指南](testing.md)、[窗口缩放性能](../resize-performance.md) | `--suite native`，真实直播人工验收 |
-| 弹幕、SC、画中画 | [验证指南](testing.md)、[多画面画中画](../picture-in-picture.md) | 对应离屏/原生专项 |
+| 界面控件、主题、外观 | [共用界面组件](ui-components.md)、[外观设计](../features/appearance-design.md) | 组件/外观专项，高 DPI 人工检查 |
+| 播放、解码、原生窗口 | [验证指南](testing.md)、[窗口缩放性能](../features/resize-performance.md) | `--suite native`，真实直播人工验收 |
+| 弹幕、SC、画中画 | [验证指南](testing.md)、[多画面画中画](../features/picture-in-picture.md) | 对应离屏/原生专项 |
 | 录制、回放、退出 | [插件接口](../plugins.md#录制服务-v1配套开发接口)、[验证指南](testing.md) | 录制与退出专项，核对生成文件 |
 | 安装、更新、发布 | [Windows 安装包](windows-installer.md)、[在线更新](../online-updates.md) | 发布元数据与安装器专项 |
 | 卡顿、错位等未决问题 | [久用卡顿采集](responsiveness-capture.md) | 先采集证据，再做针对性修改 |

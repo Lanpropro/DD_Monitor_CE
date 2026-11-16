@@ -139,7 +139,7 @@
 
 ## 布局、拖放与原生窗口
 
-来源：[历史反馈](archive/BUG-STATUS-2026-10-02.md)、[布局试用记录](archive/pr6-pr7-layout-testing.md)、[缩放方案](resize-performance.md)、[v0.2](releases/RELEASE-v0.2.md)、[v0.3.1](releases/RELEASE-v0.3.1.md)。
+来源：[历史反馈](archive/BUG-STATUS-2026-10-02.md)、[布局试用记录](archive/pr6-pr7-layout-testing.md)、[缩放方案](features/resize-performance.md)、[v0.2](releases/RELEASE-v0.2.md)、[v0.3.1](releases/RELEASE-v0.3.1.md)。
 
 | 编号 | 现象 / 触发条件 | 状态 | 处理与验证边界 |
 | --- | --- | --- | --- |
@@ -196,7 +196,7 @@
 
 ## 录制、插件、同步与测试诊断
 
-来源：[v0.3](releases/RELEASE-v0.3.md)、[v0.3.1](releases/RELEASE-v0.3.1.md)、[缩放验证边界](resize-performance.md)、[PR 整合记录](archive/repository-integration-20261019.md)；插件与本体分开确认版本。
+来源：[v0.3](releases/RELEASE-v0.3.md)、[v0.3.1](releases/RELEASE-v0.3.1.md)、[缩放验证边界](features/resize-performance.md)、[PR 整合记录](archive/repository-integration-20261019.md)；插件与本体分开确认版本。
 
 | 编号 | 现象 / 触发条件 | 状态 | 处理与验证边界 |
 | --- | --- | --- | --- |
