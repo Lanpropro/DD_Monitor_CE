@@ -1,5 +1,6 @@
 """Public plugin contracts, platform values and per-plugin context."""
 import sys
+import weakref
 from dataclasses import dataclass, field
 from .plugin_credentials import CredentialSnapshot
 
@@ -165,6 +166,7 @@ class PluginContext:
         self.name = name
         self._active = not manager._unloaded
         self._recording = None
+        self._caption_edits = weakref.WeakKeyDictionary()
         manager._contexts.add(self)
 
     # ---- 注册 ----
@@ -191,7 +193,8 @@ class PluginContext:
     def register_tile_control(self, control_id, factory, *, priority=0) -> None:
         self._manager.register_tile_control(self.name, control_id, factory, priority=priority)
 
-    def set_tile_caption(self, tile, original, translated="", *, style=None, visible=True) -> bool:
+    def set_tile_caption(self, tile, original, translated="", *, style=None, visible=True,
+                         on_style_changed=None) -> bool:
         """Show a caption owned by this context on a supported tile."""
         if not self._active:
             raise RuntimeError('Plugin context is inactive')
@@ -199,11 +202,36 @@ class PluginContext:
         if not callable(setter):
             return False
         setter(original, translated, style=style, visible=visible)
+        previous = self._manager._caption_owners.get(tile)
+        if previous is not None and previous is not self:
+            previous._disconnect_caption_handler(tile)
         self._manager._caption_owners[tile] = self
+        caption = getattr(tile, 'video_caption', None)
+        current = self._caption_edits.get(tile)
+        if current is not None and current[0] != on_style_changed:
+            self._disconnect_caption_handler(tile)
+        if caption is not None and callable(on_style_changed) and tile not in self._caption_edits:
+            reference = weakref.ref(tile)
+            def changed(value):
+                target = reference()
+                if self._active and target is not None and self._manager._caption_owners.get(target) is self:
+                    on_style_changed(target, dict(value))
+            caption.styleChanged.connect(changed)
+            self._caption_edits[tile] = (on_style_changed, changed)
         return True
+
+    def _disconnect_caption_handler(self, tile):
+        value = self._caption_edits.pop(tile, None)
+        caption = getattr(tile, 'video_caption', None)
+        if value is not None and caption is not None:
+            try:
+                caption.styleChanged.disconnect(value[1])
+            except (RuntimeError, TypeError):
+                pass
 
     def clear_tile_caption(self, tile) -> bool:
         """Allow an inactive owner to finish cleanup without clearing another owner."""
+        self._disconnect_caption_handler(tile)
         if self._manager._caption_owners.get(tile) is not self:
             return False
         self._manager._caption_owners.pop(tile, None)
@@ -214,12 +242,35 @@ class PluginContext:
         return True
 
     def _clear_tile_captions(self):
+        for tile in tuple(self._caption_edits):
+            self._disconnect_caption_handler(tile)
         for tile, owner in tuple(self._manager._caption_owners.items()):
             if owner is self:
                 try:
                     self.clear_tile_caption(tile)
                 except RuntimeError:
                     pass  # A destroyed Qt tile no longer has a caption to clear.
+
+    def create_caption_preview(self, parent=None):
+        """Return the host caption placement editor without opening a video window."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        from .caption_preview import CaptionPlacementPreview
+        return CaptionPlacementPreview(parent)
+
+    def room_presentation(self, tile):
+        """Snapshot the same cached room avatar used by the PiP picker; no I/O."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        room = dict(getattr(tile, 'room', None) or {})
+        result = {'room_id': str(room.get('room_id') or ''),
+                  'name': str(room.get('uname') or room.get('room_id') or ''), 'pixmap': None}
+        sidebar = getattr(self.window, 'sidebar', None)
+        for item in sidebar.items() if sidebar is not None else ():
+            if str(item.room.get('room_id')) == result['room_id']:
+                result['pixmap'] = item.thumb.face_pixmap()
+                break
+        return result
 
     def register_workspace_control(self, control_id, widget, *, priority=0) -> bool:
         """Place a QToolButton in the host workspace group; False for headless hosts."""

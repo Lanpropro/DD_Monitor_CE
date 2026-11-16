@@ -366,11 +366,20 @@ context.set_tile_caption(
     style={"mode": "both", "lines": 2, "opacity": 65,
            "width": 80, "height": 18, "font_size": 24},
     visible=True,
+    on_style_changed=lambda tile, style: save_caption_preferences(tile, style),
 )
 context.clear_tile_caption(tile)
 ```
 
 `mode` 支持 `both`、`original`、`translation`；`lines` 为 1–4；`opacity` 为 0–100；`width` 为视频宽度的 20%–100%；`height` 为可用高度的 8%–45%；`font_size` 为 10–64 px。字体过大时宿主按当前字幕框高度安全截断。黑色背景按每行实际文字宽度绘制，不覆盖整个字幕框。
+
+样式另支持 `x`、`y`（0–100，分别表示字幕框在剩余横向／纵向可移动空间中的位置，默认 50／100）及 `locked`（默认 False）。未锁定时拖动文字区域移动、拖动右下角缩放，双击恢复位置与大小；右键可锁定、切换原文／译文、调整字号或复位。锁定后鼠标穿透，插件应在自己的面板或格子菜单提供解锁入口。位置随视频大小及播放栏安全区域归一化，不保存绝对屏幕坐标。
+
+`on_style_changed` 是可选的 GUI 线程回调 `(tile, style_dict)`，只在用户完成手势或点击快捷操作时触发，正文不进入样式。插件自行保存偏好并在下一次写字幕时带回；宿主不复制插件设置。回调随所有者接管、清除或卸载断开，旧所有者不能收到新字幕编辑。旧宿主可能不接受此关键字，可省略它回退到静态覆盖层。
+
+`context.create_caption_preview(parent)` 返回使用同一渲染器和手势的嵌入式设置预览，提供 `set_style(dict)` 和 `styleChanged(dict)`；预览始终可操作，保留传入的真实锁定偏好，不创建 native 浮窗。`context.room_presentation(tile)` 返回房间 ID、名称及与画中画选择器相同的缓存头像 `pixmap`，无网络或截图操作；插件可用它构建房间多选界面。
+
+职责边界：`video_caption.py` 拥有当前字幕与样式、绘制和 native 层级；`caption_geometry.py` 计算归一化安全位置；`caption_interaction.py` 处理编辑手势与快捷菜单；`caption_preview.py` 复用真实渲染组件并桥接预览参数；`plugin_types.py` 维护回调所有权与公开预览／房间展示入口。预览与实际字幕通过映射交换值，不共享可变控件状态。
 
 字幕使用宿主的独立覆盖层，位于视频、弹幕和醒目留言之上；全屏显示，画中画隐藏。播放栏显示或收起时，字幕安全区域随可用画面高度调整。字幕不会进入 `VideoDanmaku` 的弹幕轨道，真实弹幕仍可经过字幕区域；清除字幕不会停止插件任务。
 

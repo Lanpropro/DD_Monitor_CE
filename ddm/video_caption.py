@@ -2,12 +2,14 @@
 from dataclasses import dataclass
 import sys
 
-from PySide6.QtCore import QEvent, QRect, QRectF, QPointF, QTimer, Qt
+from PySide6.QtCore import QEvent, QRect, QRectF, QPointF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QTextLayout, QTextOption
 from PySide6.QtWidgets import QApplication
 
 from . import theme
 from .badge_surface import BadgeSurface
+from .caption_geometry import caption_rect
+from .caption_interaction import CaptionInteraction
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,9 @@ class CaptionStyle:
     width: int = 80
     height: int = 18
     font_size: int = 24
+    x: int = 50
+    y: int = 100
+    locked: bool = False
 
     @classmethod
     def from_value(cls, value=None):
@@ -34,6 +39,9 @@ class CaptionStyle:
             width=_bounded_int(data, "width", 80, 20, 100),
             height=_bounded_int(data, "height", 18, 8, 45),
             font_size=_bounded_int(data, "font_size", 24, 10, 64),
+            x=_bounded_int(data, "x", 50, 0, 100),
+            y=_bounded_int(data, "y", 100, 0, 100),
+            locked=bool(data.get('locked', False)),
         )
 
     def as_dict(self):
@@ -44,6 +52,9 @@ class CaptionStyle:
             "width": self.width,
             "height": self.height,
             "font_size": self.font_size,
+            "x": self.x,
+            "y": self.y,
+            "locked": self.locked,
         }
 
 
@@ -56,13 +67,16 @@ def _bounded_int(data, key, default, low, high):
 
 
 class VideoCaption(BadgeSurface):
-    """Fixed caption surface; it never enters the scrolling danmaku list."""
+    """Editable caption surface; it never enters the scrolling danmaku list."""
+
+    styleChanged = Signal(dict)
 
     GAP = 12
 
-    def __init__(self, owner):
+    def __init__(self, owner, *, embedded=False):
         super().__init__(owner)
         self._owner = owner
+        self._embedded = embedded
         self._original = ""
         self._translated = ""
         self._style = CaptionStyle()
@@ -72,25 +86,30 @@ class VideoCaption(BadgeSurface):
         self._follow_timer.setSingleShot(True)
         self._follow_timer.timeout.connect(self.sync_geometry)
         self.setObjectName("VideoCaption")
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         if self.qt_composited:
             self.setWindowFlags(
                 Qt.Tool | Qt.FramelessWindowHint
-                | Qt.WindowTransparentForInput | Qt.WindowDoesNotAcceptFocus
+                | Qt.WindowDoesNotAcceptFocus
             )
+        self._interaction = CaptionInteraction(self)
         self.hide()
 
     @property
     def qt_composited(self):
-        return sys.platform == "win32" and QApplication.platformName() == "windows"
+        return not self._embedded and sys.platform == "win32" and QApplication.platformName() == "windows"
 
     def set_caption(self, original, translated="", *, style=None, visible=True):
         self._original = str(original or "")
         self._translated = str(translated or "")
+        previous_lock = self._style.locked
         self._style = CaptionStyle.from_value(style)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, self._style.locked)
+        if self.qt_composited and previous_lock != self._style.locked:
+            self.setWindowFlag(Qt.WindowTransparentForInput, self._style.locked)
         self._visible_requested = bool(visible)
         self._follow_owner()
         self.sync_geometry()
@@ -171,6 +190,10 @@ class VideoCaption(BadgeSurface):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setRenderHint(QPainter.TextAntialiasing, True)
+        if self.qt_composited and not self._style.locked:
+            # Windows layered hit testing ignores alpha-zero pixels. Keep the
+            # editable box hittable between text rows and its resize handle.
+            painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
         box = self.rect().adjusted(1, 1, -1, -1)
         if box.width() < 8 or box.height() < 8:
             painter.restore()
@@ -221,10 +244,12 @@ class VideoCaption(BadgeSurface):
             painter.setPen(QColor("#E8F0FA" if key == "original" else "#FFFFFF"))
             line.draw(painter, QPointF(x, y))
         painter.restore()
+        self._interaction.paint(painter)
 
     def _layered_render_key(self):
         return (self._original, self._translated, self._style.as_dict(),
-                self.width(), self.height(), self.devicePixelRatioF())
+                self.width(), self.height(), self.devicePixelRatioF(),
+                self._interaction.hovered, bool(self._interaction.gesture))
 
     def _follow_owner(self):
         owner = self._owner
@@ -251,7 +276,7 @@ class VideoCaption(BadgeSurface):
         return super().eventFilter(watched, event)
 
     def showEvent(self, event):
-        if sys.platform == "win32" and QApplication.platformName() == "windows":
+        if self.qt_composited:
             self.setAttribute(Qt.WA_NativeWindow, True)
         self._follow_owner()
         super().showEvent(event)
@@ -287,16 +312,7 @@ class VideoCaption(BadgeSurface):
         if area is None:
             self.hide()
             return
-        box_width = max(1, round(area.width() * self._style.width / 100))
-        box_height = max(1, round(area.height() * self._style.height / 100))
-        box_width = min(box_width, area.width())
-        box_height = min(box_height, area.height())
-        local = QRect(
-            area.x() + max(0, (area.width() - box_width) // 2),
-            area.y() + max(0, area.height() - box_height),
-            box_width,
-            box_height,
-        )
+        local = caption_rect(area, self._style)
         if self.qt_composited:
             self.setGeometry(QRect(owner.mapToGlobal(local.topLeft()), local.size()))
         else:
