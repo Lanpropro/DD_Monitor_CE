@@ -151,7 +151,7 @@ def check_store_browser(app, root):
             button = page.buttons['browser_000']
             details = page.show_details(offers[0])
             app.processEvents()
-            assert '完整更新说明 59' in details.document.toPlainText()
+            assert '完整更新说明 59' in details.document.text()
             with patch.object(page, 'install_offer') as install:
                 details.action.click()
                 install.assert_called_once_with(offers[0])
@@ -165,8 +165,12 @@ def check_store_browser(app, root):
             page.jobs.clear()
             page._busy(False)
             page.show_offers([dict(offers[0], version='1.2')])
-            assert not details.action.isEnabled() and details.action.text() == '目录已更新'
-            details.reject()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            from shiboken6 import isValid
+            assert not isValid(details), 'Rebuilding a card must retire its owned details'
+            details = page._details['browser_000']
+            assert details.offer['version'] == '1.2' and not details.isWindow()
+            details.close()
             page.show_offers(offers[:1])
             app.processEvents()
             assert page.count.text() == '1 / 1 个插件'
@@ -259,8 +263,8 @@ def check_installed_browser(app, root):
             browser.sort.setCurrentIndex(2)
             assert page.cards.itemAt(0).widget() is page._installed_cards['installed_02']
             details = page._show_installed_details('installed_00')
-            assert entries[0]['reason'] in details.document.toPlainText()
-            assert '完整更新记录末尾' in details.document.toPlainText()
+            assert entries[0]['reason'] in details.document.text()
+            assert '完整更新记录末尾' in details.document.text()
             with patch.object(store, 'install_offer') as install:
                 details.action.click()
                 install.assert_called_once_with(offers[0])
@@ -269,10 +273,10 @@ def check_installed_browser(app, root):
             assert not details.action.isEnabled() and details.action.text() == '下载中…'
             store.jobs.clear()
             store._busy(False)
-            details.reject()
+            details.close()
             offline = page._show_installed_details('installed_15')
             assert not offline.action.isEnabled() and offline.action.text() == '暂无更新'
-            offline.reject()
+            offline.close()
             browser.search.setText('没有匹配的插件')
             assert page.empty.isVisible() and browser.count.text() == '0 / 16 个插件'
             hidden_card = page._installed_cards['installed_00']
@@ -539,8 +543,10 @@ def main():
             details.action.click()
             settle(app, page)
             assert page.buttons['global_live'].text() == '待重启'
+            details = dialog.plugin_page._details['global_live']
+            assert not details.isWindow() and dialog.plugin_page._detail_buttons['global_live'].isChecked()
             assert details.action.text() == '待重启' and not details.action.isEnabled()
-            details.reject()
+            details.close()
             assert read_manifest(str(root / 'plugins' / 'global_live'), 'global_live')['version'] == '1.0'
             assert not dialog.plugin_page.checks['global_live'].isChecked()
             assert manager.enabled == set()

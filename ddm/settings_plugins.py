@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
-from .ui import SettingsSurface, ElidedLabel, page_header as _page_head
+from .ui import SettingsSurface, DisclosureButton, ElidedLabel, page_header as _page_head
 
 
 class PluginRemovePrompt(AnimatedDialog):
@@ -50,6 +50,8 @@ class PluginSettingsPage(QWidget):
         self.card_details = {}
         self.update_buttons = {}
         self._installed_progress = {}
+        self._detail_buttons = {}
+        self._details = {}
         self._installed_entries = {}
         self._installed_cards = {}
         self._installed_authors = {}
@@ -126,10 +128,14 @@ class PluginSettingsPage(QWidget):
             self.store_page.open_catalog()
 
     def _store_installed(self, plugin_id):
+        expanded = [key for key, button in self._detail_buttons.items() if button.isChecked()]
         previous = {key: check.isChecked() for key, check in self.checks.items()}
         self.checks = {}
         self.card_details = {}
         self.update_buttons = {}
+        self._installed_progress = {}
+        self._detail_buttons = {}
+        self._details = {}
         while self.cards.count():
             self.cards.takeAt(0)
         for card in self._installed_cards.values():
@@ -147,6 +153,9 @@ class PluginSettingsPage(QWidget):
         self._files_changed = True
         self._show_update_notes(self.store_page.offers)
         self.changed.emit()
+        for key in expanded:
+            if key in self._detail_buttons:
+                self._detail_buttons[key].setChecked(True)
 
     def _show_update_notes(self, offers):
         metadata = {offer['id']: offer for offer in offers}
@@ -223,13 +232,27 @@ class PluginSettingsPage(QWidget):
         self.changed.emit()
 
     def _show_installed_details(self, plugin_id):
-        from .online_ui import PluginDetailsDialog
-        entry = dict(self._installed_entries[plugin_id], enabled=self.checks[plugin_id].isChecked())
-        offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), entry)
-        dialog = PluginDetailsDialog(self, offer, installed_entry=entry)
-        dialog.setWindowModality(Qt.WindowModal)
-        dialog.open()
-        return dialog
+        self._detail_buttons[plugin_id].setChecked(True)
+        return self._details[plugin_id]
+
+    def _toggle_details(self, plugin_id, expanded):
+        button = self._detail_buttons[plugin_id]
+        button.setText('收起' if expanded else '详情')
+        if expanded and plugin_id not in self._details:
+            from .plugin_details_ui import PluginDetailsPanel
+            entry = dict(self._installed_entries[plugin_id], enabled=self.checks[plugin_id].isChecked())
+            offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), entry)
+            card = self._installed_cards[plugin_id]
+            panel = PluginDetailsPanel(self, offer, installed_entry=entry, parent=card)
+            panel.collapsed.connect(lambda: button.setChecked(False))
+            card.layout().addWidget(panel)
+            self._details[plugin_id] = panel
+        panel = self._details.get(plugin_id)
+        if panel is not None:
+            if expanded:
+                panel.refresh_action()
+            panel.setVisible(expanded)
+            panel.updateGeometry()
 
     def _update_plugin(self, plugin_id):
         offer = next((offer for offer in self.store_page.offers if offer['id'] == plugin_id), None)
@@ -245,6 +268,7 @@ class PluginSettingsPage(QWidget):
         self._installed_cards[entry['id']] = card
         body = QVBoxLayout(card)
         body.setSizeConstraint(QLayout.SetMinimumSize)
+        body.setAlignment(Qt.AlignTop)
         body.setContentsMargins(14, 10, 14, 10)
         body.setSpacing(12)
         summary = QVBoxLayout()
@@ -271,10 +295,12 @@ class PluginSettingsPage(QWidget):
         remove = QPushButton("删除")
         remove.setObjectName("IconButton")
         remove.clicked.connect(lambda: self._remove(entry["id"], card))
-        details = QPushButton('详情', card)
+        details = DisclosureButton(card)
+        details.setText('详情')
         details.setObjectName('PluginDetailsButton')
         details.setAccessibleName('查看 ' + entry['name'] + ' 的详情')
-        details.clicked.connect(lambda: self._show_installed_details(entry['id']))
+        details.toggled.connect(lambda checked: self._toggle_details(entry['id'], checked))
+        self._detail_buttons[entry['id']] = details
         description = ElidedLabel(' '.join((entry["description"] or "暂无说明").split()))
         description.setObjectName('SettingsHint')
         description.setTextFormat(Qt.PlainText)
@@ -326,6 +352,9 @@ class PluginSettingsPage(QWidget):
         self._installed_entries.pop(plugin_id, None)
         self._installed_cards.pop(plugin_id, None)
         self._installed_authors.pop(plugin_id, None)
+        self._installed_progress.pop(plugin_id, None)
+        self._detail_buttons.pop(plugin_id, None)
+        self._details.pop(plugin_id, None)
         self.cards.removeWidget(card)
         card.deleteLater()
         self.store_page.show_offers(self.store_page.offers)

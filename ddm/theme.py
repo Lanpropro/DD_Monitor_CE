@@ -363,7 +363,7 @@ def _light_style(widget):
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
         'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
-        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
+        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[updateReady="true"] {color: palette(window-text);} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
         'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;}' + TILE_FULLSCREEN_STYLE,
         'TileVideo': '#TileVideo {background: #FFFFFF;}',
@@ -560,6 +560,7 @@ def qss(palette_roles=False) -> str:
     hint_text = '#F1F2F5' if _light and not palette_roles else TEXT2
     volume_dark = qcolor(_DARK['BG'])
     volume_light = qcolor(_LIGHT['BG'])
+    success_red, success_green, success_blue = _rgb(SUCCESS)
     style = f"""
 QPushButton#AppearanceChoice {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
@@ -1137,6 +1138,15 @@ QPushButton#IconButton:pressed {{
 }}
 QPushButton#PrimaryButton:pressed {{
     background: {style_mix("ACCENT", "#000000", 0.16)};
+}}
+#IconButton[updateReady="true"], #PrimaryButton[updateReady="true"],
+#IconButton[updateReady="true"]:disabled, #PrimaryButton[updateReady="true"]:disabled {{
+    background: rgba({success_red}, {success_green}, {success_blue}, 0.18);
+    border: 1px solid {SUCCESS};
+    color: {TEXT1};
+}}
+#IconButton[updateReady="true"]:enabled:hover, #PrimaryButton[updateReady="true"]:enabled:hover {{
+    background: rgba({success_red}, {success_green}, {success_blue}, 0.28);
 }}
 #GhostButton {{
     background: transparent;
