@@ -1,4 +1,4 @@
-"""验证十六分菜单入口、网格几何和切换时保留原格子。"""
+"""验证空位数量、提示、十六分几何和切换时保留原格子。"""
 import os
 from pathlib import Path
 import sys
@@ -31,7 +31,27 @@ def main():
     assert all(not a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:])
     wall.close()
     picker.close()
-    print("PASS: sixteen-way menu, grid geometry and existing tiles preserved")
+
+    rooms = [{"room_id": rid, "uname": rid, "live": False} for rid in ("1001", "1002")]
+    occupied_wall = WallGrid(rooms, layout_id="3x3")
+    occupied_wall.resize(1280, 800)
+    occupied_wall.show()
+    original_rooms = list(occupied_wall.tiles[:2])
+    try:
+        for layout, count in (("3x3", 9), ("4x4", 16), ("1x2", 2)):
+            occupied_wall.set_layout(layout)
+            app.processEvents()
+            assert len(occupied_wall.tiles) == count, layout
+            assert len(occupied_wall.visible_tiles()) == count, layout
+            assert occupied_wall.tiles[:2] == original_rooms, layout
+            assert [tile.room.get("room_id") for tile in occupied_wall.tiles[:2]] == ["1001", "1002"]
+            empty = occupied_wall.tiles[2:]
+            assert len(empty) == count - 2, layout
+            assert all(not tile.room.get("room_id") for tile in empty), layout
+            assert all(tile.cover.text() == "拖入直播间" for tile in empty), layout
+    finally:
+        occupied_wall.close()
+    print("PASS: sixteen-way geometry, existing rooms, empty slots and drop hints across layout switches")
 
 
 if __name__ == "__main__":

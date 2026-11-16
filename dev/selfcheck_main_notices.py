@@ -1546,6 +1546,28 @@ class MainNoticesTests(unittest.TestCase):
             QTest.keyClick(window, Qt.Key_Delete)
             clear.assert_not_called()
 
+    def test_batch_delete_removes_selected_follows_without_new_windows(self):
+        rooms = [{'room_id': rid, 'uname': rid, 'live': False} for rid in ('1001', '1002', '1003')]
+        window = self.window(rooms)
+        remaining_tile = next(tile for tile in window.wall.tiles if tile.room.get('room_id') == '1003')
+        count = len(window.wall.tiles)
+        visible_windows = {widget for widget in QApplication.topLevelWidgets() if widget.isVisible()}
+        window.sidebar.set_select_mode(True)
+        for item in window.sidebar.items():
+            if item.room.get('room_id') in ('1001', '1002'):
+                item.check.click()
+        self.assertEqual(window.sidebar.batch_label.text(), '已选 2 个')
+        window.sidebar.delete_button.click()
+        self.app.processEvents()
+        self.assertEqual([room['room_id'] for room in window.sidebar.rooms()], ['1003'])
+        self.assertFalse(window.sidebar.select_mode)
+        self.assertEqual(len(window.wall.tiles), count)
+        self.assertIn(remaining_tile, window.wall.tiles)
+        self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles if tile.room.get('room_id')], ['1003'])
+        self.assertTrue({widget for widget in QApplication.topLevelWidgets() if widget.isVisible()} <= visible_windows)
+        saved = window.current_state()
+        self.assertEqual([room['room_id'] for room in saved['wall'] if room.get('room_id')], ['1003'])
+
     def test_clear_wall_removes_immediately_without_confirmation_and_empty_wall_is_a_noop(self):
         window = self.window([{'room_id': '1001', 'live': False}])
         tile = window.wall.tiles[0]
