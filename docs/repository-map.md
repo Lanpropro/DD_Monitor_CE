@@ -149,7 +149,6 @@
 - `dev/selfcheck_sc_simulator.py`
 - `dev/sc_simulator.py`
 - `dev/run-sc-simulator.cmd`
-- `dev/selfcheck_delete.py`
 - `dev/selfcheck_domestic_follows.py`
 - `dev/selfcheck_douyin_account_import.py`
 - `dev/selfcheck_display_transition.py`
@@ -345,7 +344,6 @@
 - `dev/selfcheck_sidebar_performance.py`
 - `dev/selfcheck_sidebar_text_theme.py`
 - `dev/selfcheck_skins.py`
-- `dev/selfcheck_slots.py`
 - `dev/selfcheck_smart_folder_sources.py`
 - `dev/selfcheck_smart_folders.py`
 - `dev/selfcheck_smooth_edges.py`
