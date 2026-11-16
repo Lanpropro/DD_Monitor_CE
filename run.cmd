@@ -274,6 +274,8 @@ set "DDM_NO_SAVE=1"
 set "QT_QPA_PLATFORM=offscreen"
 set "DDM_CHECK_MODE=offline"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_cycle_shortcut.py" --folders-only
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_general_settings.py" --folder-mode-only
 exit /b %errorlevel%
 
 :sidebarFoldersCheck

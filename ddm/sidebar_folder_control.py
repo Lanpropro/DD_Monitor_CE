@@ -52,6 +52,7 @@ class SidebarFolderControl:
 
     def set_folders(self, folders: list) -> None:
         host = self.host
+        host._bulk_fold_previous = None
         host.folders = follow_folders.normalize_folders(folders, host.sort_mode)
         host._refresh_folders(notify=False)
 
@@ -129,23 +130,48 @@ class SidebarFolderControl:
             not host.filter_text or not host._search_expands_folders
             or folder['id'] in host._folders_folded_by_drag))
 
+    def set_folder_collapse_mode(self, mode: str) -> None:
+        host = self.host
+        mode = mode if mode in ('all', 'previous') else 'all'
+        if host.folder_collapse_mode == mode:
+            return
+        host.folder_collapse_mode = mode
+        host._bulk_fold_previous = None
+        host._sync_count()
+
+    def bulk_action_is_expand(self) -> bool:
+        host = self.host
+        if host.folder_collapse_mode == 'previous' and host._bulk_fold_previous is not None:
+            return False
+        return any(self.is_folded(folder) for folder in host.folders)
+
     def set_all_folders_collapsed(self, collapsed: bool) -> None:
         host = self.host
         if host._folder_drag_previous:
             return
-        changed = any(folder['collapsed'] != collapsed for folder in host.folders)
+        if collapsed and host.folder_collapse_mode == 'previous':
+            if host._bulk_fold_previous is None:
+                return
+            target = {folder['id']: folder['collapsed'] or folder['id'] in host._bulk_fold_previous
+                      for folder in host.folders}
+            host._bulk_fold_previous = None
+        else:
+            if not collapsed and host.folder_collapse_mode == 'previous' and host._bulk_fold_previous is None:
+                host._bulk_fold_previous = {folder['id'] for folder in host.folders if folder['collapsed']} or None
+            target = {folder['id']: collapsed for folder in host.folders}
+        changed = any(folder['collapsed'] != target[folder['id']] for folder in host.folders)
         search_expands = not collapsed if host.filter_text else True
         if not changed and host._search_expands_folders == search_expands:
+            host._sync_count()
             return
         host._search_expands_folders = search_expands
         host._folders_folded_by_drag.clear()
         for folder in host.folders:
-            folder['collapsed'] = collapsed
+            folder['collapsed'] = target[folder['id']]
         host._refresh_folders(notify=changed)
 
     def toggle_all_folders(self) -> None:
-        collapsed = not any(self.is_folded(folder) for folder in self.host.folders)
-        self.set_all_folders_collapsed(collapsed)
+        self.set_all_folders_collapsed(not self.bulk_action_is_expand())
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
         host = self.host
@@ -267,6 +293,10 @@ class SidebarFolderControl:
         revealing = {item for item in host._items if item.filtered_out} if animate else ()
         ids = {folder["id"] for folder in host.folders}
         host._folders_folded_by_drag.intersection_update(ids)
+        if host._bulk_fold_previous is not None:
+            host._bulk_fold_previous.intersection_update(ids)
+            if not host._bulk_fold_previous:
+                host._bulk_fold_previous = None
         for folder_id in list(host._folder_buttons):
             if folder_id not in ids:
                 button = host._folder_buttons.pop(folder_id)
