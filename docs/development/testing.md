@@ -39,6 +39,8 @@ SC 自动缩放：设置 → 弹幕中的“SC 随画面缩放”默认关闭，
 
 文档结构与共享规则通过 `dev\run-checks.cmd --script selfcheck_documents` 检查，并纳入 `repository` 套件；该检查不判断技术结论或人工验收是否成立。
 
+布局空位与多选删除回归使用现有检查：`selfcheck_layout_16` 断言九分、十六分和两分切换后的房间保留、空位数量及“拖入直播间”提示；`selfcheck_main_notices` 的 `MainNoticesTests.test_batch_delete_removes_selected_follows_without_new_windows` 验证批量删除关注后无额外可见顶层窗口，未选房间、空位及保存状态保持正确。旧打印脚本的退役依据见[清理记录](../archive/repository-cleanup-review.md#2026-11-16退役两份打印脚本)。这些隔离检查不代替真实播放或性能验收。
+
 所有命令均从仓库根目录执行。默认入口只运行仓库检查，不遍历所有专项脚本。
 
 日常功能和人工验收统一使用根目录 `run.cmd`。特殊项目可隔离测试，完成后必须集成回根目录并在该入口复测；自动回归仍使用合成数据、临时配置和离屏窗口。开发入口与冻结包统一使用 PySide6 6.11.2。
