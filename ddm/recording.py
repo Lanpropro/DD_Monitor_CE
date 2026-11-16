@@ -26,7 +26,7 @@ from .encoders import (
     segment_format,
 )
 
-SEGMENT_SECONDS = 10
+from .recording_output import (SEGMENT_SECONDS, ffmpeg_path, safe_name, output_path, input_args, segment_extension_for, segment_args)
 CHECK_MS = 2000
 
 #: 纯缓存的会话多久裁一次分段。ffmpeg 每 SEGMENT_SECONDS 秒落一个文件，
@@ -34,297 +34,11 @@ CHECK_MS = 2000
 #: `.ddm-parts`，分段一多那一趟并不便宜）。
 PRUNE_SECONDS = 30
 
-#: FFmpeg 子进程的创建标志（Windows）。
-#:   CREATE_NO_WINDOW          —— 别弹控制台窗口
-#:   BELOW_NORMAL_PRIORITY_CLASS —— **把录制的优先级压到「低于正常」**：
-#:        录制是后台活，用户在打游戏时它不该跟游戏抢 CPU。压一级之后 Windows 会
-#:        优先满足前台进程，录制慢一点无所谓（-c copy 下本身几乎不吃 CPU，
-#:        真正会抢的是磁盘 IO 和网络，优先级能让调度偏向游戏）。
-#: 进程起来之后还会再调一次 `_adopt_process()`：把 CPU 和**磁盘 IO** 一起压到
-#: 更低的后台模式，并挂进 Job Object 兜住孤儿进程。
-_FFMPEG_FLAGS = 0
-if os.name == "nt":                                    # pragma: no cover - 平台分支
-    _FFMPEG_FLAGS = subprocess.CREATE_NO_WINDOW | 0x00004000
-
-# --------------------------------------------------------------- Windows 后台化
-#
-# `BELOW_NORMAL_PRIORITY_CLASS` 只压 CPU；磁盘 IO 优先级还是「正常」，录制写盘
-# 照样和前台程序平起平坐。`PROCESS_MODE_BACKGROUND_BEGIN`（后台模式）会把 CPU
-# 和 IO 优先级一起降到最低，正是「别影响我打游戏」要的效果。
-# 它不能和别的优先级类一起作为**创建标志**传给 CreateProcess，所以在进程起来
-# 之后再单独设。
-
-_PROCESS_MODE_BACKGROUND_BEGIN = 0x00100000
-_PROCESS_SET_INFORMATION = 0x0200
-_PROCESS_SET_QUOTA = 0x0100
-_PROCESS_TERMINATE = 0x0001
-_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-
-_kernel32 = None
-_job_handle = None
-if os.name == "nt":                                    # pragma: no cover - 平台分支
-    try:
-        _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        # 64 位下句柄是 64 位；不声明 restype，ctypes 会按 int32 截断，句柄就废了。
-        _kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-        _kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
-        _kernel32.SetInformationJobObject.restype = ctypes.c_int
-        _kernel32.SetInformationJobObject.argtypes = [
-            ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
-        _kernel32.OpenProcess.restype = ctypes.c_void_p
-        _kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-        _kernel32.AssignProcessToJobObject.restype = ctypes.c_int
-        _kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        _kernel32.SetPriorityClass.restype = ctypes.c_int
-        _kernel32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        _kernel32.CloseHandle.restype = ctypes.c_int
-        _kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    except OSError:                                    # pragma: no cover
-        _kernel32 = None
+from .recording_process import _FFMPEG_FLAGS, _adopt_process, _ensure_job
 
 
-class _BasicLimitInformation(ctypes.Structure):
-    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
-                ("PerJobUserTimeLimit", ctypes.c_int64),
-                ("LimitFlags", ctypes.c_uint32),
-                ("MinimumWorkingSetSize", ctypes.c_size_t),
-                ("MaximumWorkingSetSize", ctypes.c_size_t),
-                ("ActiveProcessLimit", ctypes.c_uint32),
-                ("Affinity", ctypes.c_size_t),
-                ("PriorityClass", ctypes.c_uint32),
-                ("SchedulingClass", ctypes.c_uint32)]
-
-
-class _IoCounters(ctypes.Structure):
-    _fields_ = [("ReadOperationCount", ctypes.c_uint64),
-                ("WriteOperationCount", ctypes.c_uint64),
-                ("OtherOperationCount", ctypes.c_uint64),
-                ("ReadTransferCount", ctypes.c_uint64),
-                ("WriteTransferCount", ctypes.c_uint64),
-                ("OtherTransferCount", ctypes.c_uint64)]
-
-
-class _ExtendedLimitInformation(ctypes.Structure):
-    _fields_ = [("BasicLimitInformation", _BasicLimitInformation),
-                ("IoInfo", _IoCounters),
-                ("ProcessMemoryLimit", ctypes.c_size_t),
-                ("JobMemoryLimit", ctypes.c_size_t),
-                ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-
-def _ensure_job():
-    """建一个「句柄一关就杀光里面进程」的 Job Object，并一直持有句柄。
-
-    句柄**故意不关**：主进程无论怎么退出（正常关闭、崩溃、被任务管理器强杀），
-    Windows 都会关掉这个句柄，内核随即杀掉 Job 里剩下的 ffmpeg。没有这层兜底时，
-    主进程被强杀就会留下孤儿 ffmpeg 继续录 —— 用户实测过「软件已经关了，后台
-    还在录，一路攒到 4.3 GB」。
-    """
-    global _job_handle
-    if _job_handle is not None or _kernel32 is None:
-        return _job_handle
-    try:
-        job = _kernel32.CreateJobObjectW(None, None)
-        if not job:
-            return None
-        info = _ExtendedLimitInformation()
-        info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        ok = _kernel32.SetInformationJobObject(
-            ctypes.c_void_p(job), _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-            ctypes.byref(info), ctypes.sizeof(info))
-        if not ok:
-            _kernel32.CloseHandle(ctypes.c_void_p(job))
-            return None
-        _job_handle = job
-    except OSError:                                    # pragma: no cover
-        return None
-    return _job_handle
-
-
-def _adopt_process(process: subprocess.Popen) -> None:
-    """把刚起来的 ffmpeg 收进 Job，并把它的 CPU / IO 优先级压到「后台」。
-
-    全是尽力而为：收不进 Job（例如本进程已经在一个不允许嵌套的 Job 里）不影响
-    录制，只是少了退出时的兜底。
-    """
-    if _kernel32 is None:
-        return
-    access = _PROCESS_SET_INFORMATION | _PROCESS_SET_QUOTA | _PROCESS_TERMINATE
-    raw = _kernel32.OpenProcess(access, False, process.pid)
-    if not raw:
-        return
-    handle = ctypes.c_void_p(raw)
-    try:
-        _kernel32.SetPriorityClass(handle, _PROCESS_MODE_BACKGROUND_BEGIN)
-        job = _ensure_job()
-        if job:
-            _kernel32.AssignProcessToJobObject(ctypes.c_void_p(job), handle)
-    except OSError:                                    # pragma: no cover
-        pass
-    finally:
-        _kernel32.CloseHandle(handle)
-
-
-def ffmpeg_path(settings: dict | None = None) -> str:
-    """发布包优先用自带的 FFmpeg；源码运行可从 PATH 找。"""
-    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-    adjacent = Path(config.REPO) / name
-    return str(adjacent) if adjacent.is_file() else (shutil.which(name) or "")
-
-
-def safe_name(name: str) -> str:
-    value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")
-    return value[:80] or "直播"
-
-
-def output_path(folder: Path, name: str, extension: str) -> Path:
-    base = (safe_name(name) + "_" + time.strftime("%Y-%m-%d_%H-%M-%S")
-            + f"_{time.time_ns() % 1_000_000_000:09d}")
-    result = folder / f"{base}.{extension}"
-    index = 2
-    while result.exists():
-        result = folder / f"{base}_{index}.{extension}"
-        index += 1
-    return result
-
-
-def input_args(url: str, headers: dict) -> list[str]:
-    args = ["-hide_banner", "-loglevel", "warning"]
-    if url.lower().startswith(("http://", "https://")):
-        # 断流时先让 ffmpeg 自己接回去：URL 还有效的话能自愈，比整段重启便宜
-        # —— 重启会新开一个分段文件，也会在「最近 N 分钟」里多一个接缝。
-        # URL 过期（B 站流的 expires 到了）时重连也救不回来，那时仍走外层重取流。
-        args += ["-reconnect", "1", "-reconnect_streamed", "1",
-                 "-reconnect_delay_max", "5"]
-    if headers:
-        # 取流器传来的 app/web 请求头必须原样使用，不自行补 Referer。
-        args += ["-headers", "".join(f"{key}: {value}\r\n"
-                                       for key, value in headers.items())]
-    return args + ["-i", url]
-
-
-def segment_extension_for(settings: dict, video_codec: str) -> str:
-    """按实际输出编码选择能容纳它的格式。"""
-    extension = str(settings.get("recording_format") or "mp4")
-    if extension not in ("mkv", "mov", "ts"):
-        extension = "mp4"
-    output_codec = "avc" if settings.get("recording_codec", "copy") == "h264" else video_codec
-    return segment_extension(extension, output_codec)
-
-
-def segment_args(settings: dict, pattern: Path, video_codec: str = "", *,
-                 encoder: tuple[str, list[str], str] | None = None,
-                 segment_seconds: int = SEGMENT_SECONDS) -> list[str]:
-    args = ["-map", "0:v:0", "-map", "0:a?", "-sn", "-dn"]
-    if settings.get("recording_codec", "copy") == "h264":
-        name, extra, family = encoder if encoder is not None else resolve_encoder(
-            settings.get("recording_encoder", "auto"), ffmpeg_path(settings))
-        fps = max(1, int(settings.get("recording_fps", 30)))
-        bitrate = max(500, int(settings.get("recording_bitrate", 6000)))
-        # GOP 参数按编码器族生成：-sc_threshold 是 x264 独有的，塞给硬件编码器
-        # 会让 FFmpeg 直接启动失败。
-        args += ["-c:v", name, *extra, "-pix_fmt", "yuv420p", "-b:v", f"{bitrate}k",
-                 "-r", str(fps), *gop_args(family, fps, segment_seconds),
-                 "-c:a", "aac", "-b:a", "160k"]
-    else:
-        args += ["-c", "copy"]
-    fmt = segment_format(segment_extension_for(settings, video_codec))
-    return args + ["-f", "segment", "-segment_time", str(segment_seconds),
-                   "-reset_timestamps", "1", "-segment_format", fmt, str(pattern)]
-
-
-class _Session:
-    supports_replay = True
-
-    def __init__(self, tile, settings: dict, recording: bool, folder: Path,
-                 video_codec: str = ""):
-        self.tile = tile
-        self.session_id = uuid.uuid4().hex
-        self.created_at = time.time()
-        self.room = dict(tile.room)
-        self.settings = dict(settings)
-        self.recording = recording
-        self.folder = folder
-        self.name = str(tile.room.get("uname") or "直播")
-        self.room_id = str(tile.room.get("room_id") or "")
-        #: 这一路流的视频编码（avc / hevc / av1），由 start() 从格子上取。分段容器
-        #: 要靠它挑（AV1 装不进 MOV）；取不到就是空串，而 segment_extension 对认不出
-        #: 的编码原样返回，所以老路径行为不变。
-        self.video_codec = video_codec
-        self.extension = segment_extension_for(settings, self.video_codec)
-        self.parts: list[Path] = []
-        self.replay_parts: list[Path] = []
-        self.process: subprocess.Popen | None = None
-        self.active_pattern: Path | None = None
-        self.url = ""
-        self.chunk = 0
-        self.stopping = False
-        self.save_cache_on_stop = False
-        self.next_url = ""
-        self.next_headers: dict = {}
-        self.next_video_codec: str | None = None
-        self.encoder: tuple[str, list[str], str] | None = None
-        self.encoder_future: Future | None = None
-        self.log_path: Path | None = None
-        self.warned = False
-        self.retry_count = 0
-        self.retry_at = 0.0
-        self.started_at = 0.0
-        self.output_started_at = 0.0
-        self.rotating = False
-        self.resolver = None
-        self.refreshing = False
-        self.pruned_at = 0.0        # 上次裁分段的时间；纯缓存会话用（见 _prune_cache）
-        self.segment_seconds = SEGMENT_SECONDS
-
-    def recording_message(self, event, path=None):
-        return {'start': f'{self.name} 开始录制',
-                'resume': f'{self.name} 取到新流，继续录制',
-                'saved': f'已保存录制：{path}'}[event]
-
-    def parts_directory(self) -> Path:
-        return self.folder / ".ddm-parts"
-
-    def segment_options(self, pattern: Path) -> list[str]:
-        return segment_args(self.settings, pattern, self.video_codec,
-                            encoder=self.encoder, segment_seconds=self.segment_seconds)
-
-    def update_review(self) -> None:
-        """Optional recording backend hook; only publish completed segments."""
-
-    def save_recording(self, parts: list[Path]) -> Path | None:
-        """Return a durable recording path when the backend already saved it."""
-        return None
-
-    def review_info(self) -> dict | None:
-        return None
-
-    def export_input(self, parts: list[Path], playlist: Path) -> list[str]:
-        playlist.write_text("".join("file '" + str(p).replace("'", "'\\''") + "'\n"
-                                    for p in parts), encoding="utf-8")
-        return ["-f", "concat", "-safe", "0", "-i", str(playlist)]
-
-    def snapshot_info(self, parts: list[Path]) -> dict:
-        return {}
-
-    def finished_parts(self) -> list[Path]:
-        result = list(self.parts)
-        if self.active_pattern is not None:
-            current = sorted(self.active_pattern.parent.glob(
-                self.active_pattern.name.replace("%05d", "*")))
-            # 最后一个分段仍可能在写，不能交给 concat/回放。
-            result.extend(current[:-1] if self.process and self.process.poll() is None
-                          else current)
-        return [path for path in result if path.exists() and path.stat().st_size > 0]
-
-    def close_chunk(self) -> None:
-        if self.active_pattern is not None:
-            self.parts.extend(sorted(self.active_pattern.parent.glob(
-                self.active_pattern.name.replace("%05d", "*"))))
-            self.active_pattern = None
-        self.process = None
+from .recording_session import (_Session)
+from .recording_replay import RecordingReplay
 
 
 # Supported session base for recording plugins; retain the historical import.
@@ -340,6 +54,7 @@ class RecordingManager(QObject):
 
     def __init__(self, settings: dict, parent=None, *, source_resolver=None):
         super().__init__(parent)
+        self.replay_control = RecordingReplay(self)
         self.settings = settings
         self.source_resolver = source_resolver
         self.session_factory = RecordingSession
@@ -542,12 +257,7 @@ class RecordingManager(QObject):
 
     def _export_replay(self, session: _Session, parts: list[Path]) -> bool:
         """单独存一份「最近 N 分钟」（即时回放），完整录制照旧另外导出。"""
-        if not session.supports_replay or not parts:
-            return False
-        count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                          * 60 / session.segment_seconds)
-        recent = parts[-count:]
-        return self._export(session, recent, full=False)
+        return self.replay_control.export_replay(session, parts)
 
     def on_resolved(self, tile) -> None:
         session = self.sessions.get(tile)
@@ -748,27 +458,16 @@ class RecordingManager(QObject):
 
     def pin_parts(self, parts: list[Path]) -> str:
         """Keep completed segments alive while a plugin prepares a local snapshot."""
-        token = uuid.uuid4().hex
-        self._part_leases[token] = tuple(parts)
-        return token
+        return self.replay_control.pin_parts(parts)
 
     def release_parts(self, token: str) -> None:
-        self._part_leases.pop(token, None)
-        self._cleanup_parts()
+        return self.replay_control.release_parts(token)
 
     def _protected_parts(self) -> set[Path]:
-        protected = {part for _process, _result, parts, _full in self.exports
-                     for part in parts}
-        protected.update(part for parts in self._part_leases.values() for part in parts)
-        return protected
+        return self.replay_control.protected_parts()
 
     def _cleanup_parts(self) -> None:
-        protected = self._protected_parts()
-        protected.update(part for session in self.sessions.values()
-                         for part in session.replay_parts)
-        for part in self._delete_after_exports - protected:
-            part.unlink(missing_ok=True)
-            self._delete_after_exports.discard(part)
+        return self.replay_control.cleanup_parts()
 
     def _check_space(self, session: _Session) -> None:
         try:
@@ -789,99 +488,19 @@ class RecordingManager(QObject):
         被跳过的那些轮次不影响正确性 —— 会话结束时 `_finalize()` 要么
         `_discard_cache()` 全清、要么 `_export()` 按需取样，都不看目录里的存量。
         """
-        now = time.monotonic()
-        if now - session.pruned_at < PRUNE_SECONDS:
-            return
-        session.pruned_at = now
-        completed = session.finished_parts()
-        keep = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                         * 60 / session.segment_seconds) + 2
-        protected = self._protected_parts()
-        for part in completed[:-keep]:
-            if part in protected:
-                continue
-            part.unlink(missing_ok=True)
-            if part in session.parts:
-                session.parts.remove(part)
+        return self.replay_control.prune_cache(session, prune_seconds=PRUNE_SECONDS)
 
     def _discard_cache(self, session: _Session) -> None:
-        self._delete_after_exports.update(session.finished_parts())
-        self._cleanup_parts()
+        return self.replay_control.discard_cache(session)
 
     def _prune_recording_replay(self, session: _Session) -> None:
-        keep = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                         * 60 / session.segment_seconds) + 2
-        session.replay_parts = session.replay_parts[-keep:]
-        self._cleanup_parts()
+        return self.replay_control.prune_recording_replay(session)
 
     def save_replay(self, tile) -> bool:
-        if not self.supports_replay:
-            self._say("当前为切片素材模式；请在录像页选择时间范围生成切片")
-            return False
-        if not bool(self.settings.get("recording_replay_enabled", True)):
-            self._say("即时回放已在「设置 → 录制」里关闭")
-            return False
-        session = self.sessions.get(tile)
-        if session is None:
-            self._say("请先开启录制或即时回放缓存")
-            return False
-        if not session.supports_replay:
-            self._say("这路录制为切片素材；请在录像页生成切片", session.room)
-            return False
-        count = math.ceil(max(1, int(session.settings.get("recording_replay_minutes", 3)))
-                          * 60 / session.segment_seconds)
-        parts = (session.replay_parts + session.finished_parts())[-count:]
-        if not parts:
-            self._say("缓存还没有完成一个分段，请稍后再保存")
-            return False
-        return self._export(session, parts, full=False)
+        return self.replay_control.save_replay(tile)
 
     def _export(self, session: _Session, parts: list[Path], *, full: bool) -> bool:
-        if not parts:
-            self._say(f"{session.name} 没有可导出的录制分段", session.room)
-            return False
-        try:
-            if full:
-                saved = session.save_recording(parts)
-                if saved is not None:
-                    self._say(session.recording_message("saved", saved), session.room)
-                    return True
-            primary = session.folder  # 当前录制固定使用启动时选定的目录
-            needed = sum(part.stat().st_size for part in parts)
-            reserve = max(256, int(session.settings.get("recording_min_free_mb", 2048)))
-            folder = primary if full else primary / "replays"
-            folder.mkdir(parents=True, exist_ok=True)
-            if shutil.disk_usage(folder).free < needed + reserve * 1024 * 1024:
-                self._say("导出空间不足；原始分段保留，清理磁盘后可手动恢复")
-                return False
-            name = session.name
-            if getattr(session, 'catalog_metadata', False):
-                platform = str(session.room.get('platform') or ('bilibili' if session.room_id.isdigit() else session.room_id.partition(':')[0]) or '直播')
-                name = '_'.join([session.name[:24], platform[:12], str(session.room.get('title') or '直播')[:24], session.room_id[:18]])
-            result = output_path(folder, name + ("_回放" if not full else ""),
-                                 session.extension)
-            playlist = result.with_suffix(".concat.txt")
-            command = [ffmpeg_path(session.settings), "-y", "-hide_banner", "-loglevel",
-                       "warning", *session.export_input(parts, playlist), "-c", "copy"]
-            if session.extension in ("mp4", "mov"):
-                command += ["-movflags", "+faststart"]
-            command += [str(result)]
-            log = result.with_suffix(".ffmpeg.log")
-            with log.open("wb") as handle:
-                process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                           stdout=subprocess.DEVNULL, stderr=handle,
-                                           creationflags=_FFMPEG_FLAGS)
-            _adopt_process(process)         # 导出同样是后台活，别跟游戏抢盘
-            self.exports.append((process, result, parts, full))
-            self._export_rooms[result] = dict(session.room)
-            if getattr(session, 'catalog_metadata', False):
-                self._export_info[result] = {'room': dict(session.room), 'title': session.room.get('title') or session.name,
-                    'created_at': session.created_at, 'kind': 'recording' if full else 'replay'}
-            self._say(f"正在导出{'录制' if full else '即时回放'}：{result}", session.room)
-            return True
-        except OSError as error:
-            self._say(f"导出失败：{error}；原始分段保留", session.room)
-            return False
+        return self.replay_control.export(session, parts, full=full, output_name=output_path, ffmpeg_binary=ffmpeg_path, adopt_process=_adopt_process, creation_flags=_FFMPEG_FLAGS)
 
     def shutdown(self) -> None:
         self.timer.stop()

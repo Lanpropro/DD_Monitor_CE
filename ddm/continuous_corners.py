@@ -189,7 +189,10 @@ def _color(value, palette):
         return QApplication.palette().color(roles[match[1].replace('-','')])
     color = theme.qcolor(value)
     if value.startswith('rgba('):
-        color.setAlpha(int(float(value[5:-1].split(',')[-1])*255))
+        alpha = float(value[5:-1].split(',')[-1].strip())
+        # CSS uses 0..1, while a few generated legacy rules use the Qt
+        # 0..255 form. Do not multiply an already byte-sized alpha again.
+        color.setAlpha(round(alpha * 255) if alpha <= 1 else round(alpha))
     return color
 
 
@@ -312,9 +315,9 @@ class SurfaceFilter(QObject):
                 self.cache.clear()
             else:
                 self.cache.pop(widget, None)
-        elif kind == QEvent.Paint:
+        elif kind == QEvent.Paint and not widget.property('customControlSurface'):
             values = self.values(widget)
-            if any(key.endswith('radius') for key in values):
+            if not widget.property('tileButton') and any(key.endswith('radius') for key in values):
                 painter = QPainter(widget)
                 _paint(painter, widget.rect(), values, widget.palette())
                 painter.end()
@@ -331,7 +334,8 @@ class SurfaceFilter(QObject):
                 _paint(painter, rect, self.values(widget, 'indicator'), widget.palette())
                 painter.end()
             view = widget.parentWidget()
-            if isinstance(view, QAbstractItemView) and widget is view.viewport():
+            if (isinstance(view, QAbstractItemView) and widget is view.viewport()
+                    and not view.property('customItemSurface')):
                 hovered = view.indexAt(widget.mapFromGlobal(QCursor.pos()))
                 indexes = view.selectionModel().selectedIndexes()
                 if hovered.isValid() and hovered not in indexes:

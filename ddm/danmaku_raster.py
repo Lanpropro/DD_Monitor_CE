@@ -2,16 +2,18 @@
 import math
 
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, Qt, QUrl, Signal
-from PySide6.QtGui import (QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath,
+from PySide6.QtGui import (QColor, QFont, QFontMetrics, QFontMetricsF, QImage, QPainter, QPainterPath,
                           QPen, QTextCharFormat, QTextCursor, QTextDocument)
 
 from .danmaku_content import content_html
 from .corner_geometry import continuous_path
+from . import theme
 
 
 class CommentRaster:
     def __init__(self, font, outline, scale, limit, images):
-        self.font, self.outline = QFont(font), outline
+        self.font, self.outline = theme.danmaku_font(str(font.family())), outline
+        self.font.setPixelSize(font.pixelSize())
         self.scale, self.limit = scale, limit
         self._images = {url: QImage(image) for url, image in images.items()}
 
@@ -86,15 +88,24 @@ class CommentRaster:
         font = self.font
         metrics = QFontMetrics(font)
         text = metrics.elidedText(text, Qt.ElideRight, self.limit)
-        path = QPainterPath()
-        path.addText(0, 0, font, text)
-        bounds = path.boundingRect()
+        runs = theme.danmaku_font_runs(text, font)
+        paths = []
+        advance = 0.0
+        bounds = QRectF()
+        descent = 0
+        for run_text, run_font in runs:
+            path = QPainterPath()
+            path.addText(advance, 0, run_font, run_text)
+            paths.append((advance, run_text, run_font, path))
+            bounds = path.boundingRect() if bounds.isNull() else bounds.united(path.boundingRect())
+            advance += QFontMetricsF(run_font).horizontalAdvance(run_text)
+            descent = max(descent, QFontMetrics(run_font).descent())
         left = min(0, bounds.left())
         top = min(-metrics.ascent(), bounds.top())
         outline = self.outline
         pad = (9 if self_sent else 4) + math.ceil(outline)
-        width = max(metrics.horizontalAdvance(text), bounds.right()) - left + pad * 2
-        height = max(metrics.descent(), bounds.bottom()) - top + pad * 2
+        width = max(advance, bounds.right()) - left + pad * 2
+        height = max(descent, bounds.bottom()) - top + pad * 2
         # 字形四周留出边距，避免默认字体的下沿、英文下伸部被裁切。
         scale = self.scale
         image = QImage(math.ceil(width * scale), math.ceil(height * scale), QImage.Format_ARGB32_Premultiplied)
@@ -105,13 +116,15 @@ class CommentRaster:
         if outline:
             painter.save()
             painter.translate(pad - left, pad - top)
-            painter.strokePath(path, QPen(Qt.black, outline * 2, Qt.SolidLine,
-                                         Qt.RoundCap, Qt.RoundJoin))
+            for _, _, _, path in paths:
+                painter.strokePath(path, QPen(Qt.black, outline * 2, Qt.SolidLine,
+                                             Qt.RoundCap, Qt.RoundJoin))
             painter.restore()
-        # drawText keeps Qt's font fallback and colour Unicode emoji glyphs.
+        # Draw each glyph run with a font that contains the codepoint.
         painter.setPen(color)
-        painter.setFont(font)
-        painter.drawText(QPointF(pad - left, pad - top), text)
+        for x, run_text, run_font, _ in paths:
+            painter.setFont(run_font)
+            painter.drawText(QPointF(pad - left + x, pad - top), run_text)
         if self_sent:
             self._draw_self_sent_box(painter, image)
         painter.end()

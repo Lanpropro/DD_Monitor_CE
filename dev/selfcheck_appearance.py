@@ -62,7 +62,7 @@ def main():
         assert theme.TEXT1 == '#202630' and theme.TILE_BG == '#101114'
         assert '浅色' in window.sidebar.appearance_button.toolTip()
         assert '切换为深色' in window.sidebar.appearance_button.toolTip()
-        with patch('ddm.widgets.QMenu', side_effect=AssertionError('Toggle must not open a menu')), \
+        with patch('ddm.sidebar_widgets.QMenu', side_effect=AssertionError('Toggle must not open a menu')), \
                 patch.object(window, 'open_settings', return_value=False) as open_settings:
             window.sidebar.appearance_button.click()
             assert theme.mode() == window.settings['appearance_mode'] == 'dark'

@@ -34,7 +34,7 @@ class Player:
     def release(self):
         pass
 
-    def set_volume_normalization(self, enabled):
+    def set_volume_normalization(self, enabled, curve=None):
         pass
 
 

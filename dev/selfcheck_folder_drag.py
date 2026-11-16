@@ -51,7 +51,7 @@ def main():
         before = order()
         previous = {folder["id"]: folder["collapsed"] for folder in sidebar.folders}
 
-        with patch("ddm.widgets.QDrag", side_effect=AssertionError("No native sidebar drag")), \
+        with patch("ddm.tile_widgets.QDrag", side_effect=AssertionError("No native sidebar drag")), \
                 patch.object(motion, "enabled", return_value=animate):
             QApplication.sendEvent(source, move)
             session = sidebar.drag_session
@@ -89,7 +89,7 @@ def main():
 
     # 低于拖动阈值的操作仍是点击，不会抢走展开/收起。
     first_header = sidebar._folder_buttons[first]
-    with patch("ddm.widgets.QDrag") as drag:
+    with patch("ddm.tile_widgets.QDrag") as drag:
         QTest.mouseClick(first_header, Qt.LeftButton)
         assert sidebar.get_folder(first)["collapsed"]
         QTest.mouseClick(first_header, Qt.LeftButton)

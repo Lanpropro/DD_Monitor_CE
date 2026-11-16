@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
-from ddm import app as module, config, motion, theme, theme_transition, widgets
+from ddm import app as module, config, motion, theme, theme_transition, widgets, sidebar_cards
 from ddm.skins import import_asset
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
@@ -72,7 +72,7 @@ def main():
                         patch.object(QWidget, 'setStyleSheet', styled), \
                         patch.object(theme_transition, 'ui_snapshot', snapshot), \
                         patch.object(theme, 'apply', applied), \
-                        patch.object(widgets, 'folder_icon', side_effect=AssertionError('Default folder icon must be reused')):
+                        patch.object(sidebar_cards, 'folder_icon', side_effect=AssertionError('Default folder icon must be reused')):
                     started = time.perf_counter()
                     window.set_appearance(mode)
                     record['prepare_ms'] = round((time.perf_counter()-started)*1000, 2)

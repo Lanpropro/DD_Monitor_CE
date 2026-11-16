@@ -94,6 +94,8 @@ class CredentialTests(unittest.TestCase):
                 _render_account=lambda: None, refresh_account=lambda: None,
                 stop_danmaku=lambda: None, sync_danmaku=lambda: None,
                 _clear_platform_account=lambda k: None)
+            from ddm.app_accounts import AppAccounts
+            window.account_control = AppAccounts(window)
             with patch('ddm.config.save'):
                 MainWindow._on_login(window, 'new-session')
                 self.assertEqual(seen[-1][1].values['SESSDATA'], 'new-session')

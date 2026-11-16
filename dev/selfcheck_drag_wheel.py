@@ -136,7 +136,7 @@ def main():
                 started = time.perf_counter()
                 ticks.append(started)
                 timer.start()
-                with patch('ddm.widgets.QDrag',side_effect=AssertionError('Native drag was called')):
+                with patch('ddm.tile_widgets.QDrag',side_effect=AssertionError('Native drag was called')):
                     for cycle in range(60):
                         item = sidebar.items()[0]
                         QTest.mousePress(item,Qt.LeftButton,pos=QPoint(5,5))

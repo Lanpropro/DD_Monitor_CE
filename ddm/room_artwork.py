@@ -116,7 +116,7 @@ def style_room_notice(widget, artwork):
 
 
 def add_platform_logos(layout, rooms, parent):
-    from .widgets import BRAND_ASSETS_DIR
+    from .widget_support import BRAND_ASSETS_DIR
     seen = set()
     for room in rooms[:3]:
         platform = room_platform(room)

@@ -9,6 +9,7 @@ from . import config, image_cache, theme
 from .ui import ActionButton, HintLabel, TitleLabel
 
 LABELS = {'avatars': '主播头像', 'covers': '直播间封面'}
+_live_tasks = set()
 
 
 def cache_colors():
@@ -101,6 +102,7 @@ class CachePie(QWidget):
 class _Signals(QObject):
     completed = Signal(object)
     failed = Signal(str)
+    finished = Signal()
 
 
 class _Task(QRunnable):
@@ -114,6 +116,12 @@ class _Task(QRunnable):
             self.signals.completed.emit(self.operation())
         except Exception as error:
             self.signals.failed.emit(str(error))
+        finally:
+            self.signals.finished.emit()
+
+
+def _forget_task(task):
+    _live_tasks.discard(task)
 
 
 class ImageCachePanel(QWidget):
@@ -203,6 +211,8 @@ class ImageCachePanel(QWidget):
         self._task = _Task(operation)
         self._task.signals.completed.connect(self._completed)
         self._task.signals.failed.connect(self._failed)
+        _live_tasks.add(self._task)
+        self._task.signals.finished.connect(lambda task=self._task: _forget_task(task))
         self._selection_changed()
         QThreadPool.globalInstance().start(self._task)
 

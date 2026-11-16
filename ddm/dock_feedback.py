@@ -1,6 +1,6 @@
 """Dock icon feedback without moving buttons or changing their click targets."""
 from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QToolButton
 
 from . import motion, theme
@@ -152,7 +152,8 @@ class DockFeedback(QObject):
             painter = QPainter(watched)
             watched.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, watched)
             size = watched.iconSize()
-            pixmap = watched.icon().pixmap(size, QIcon.Normal if watched.isEnabled() else QIcon.Disabled,
+            pixmap = watched.icon().pixmap(size, watched.devicePixelRatioF(),
+                                          QIcon.Normal if watched.isEnabled() else QIcon.Disabled,
                                           QIcon.On if watched.isChecked() else QIcon.Off)
             tinted = QPixmap(pixmap.size())
             tinted.setDevicePixelRatio(pixmap.devicePixelRatioF())
@@ -163,11 +164,18 @@ class DockFeedback(QObject):
             tint.fillRect(tinted.rect(), icon_color(watched))
             tint.end()
             width, height = size.width(), size.height()
+            painter.save()
             painter.translate(watched.width()/2, watched.height()/2)
             self.transform(painter)
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
             painter.drawPixmap(QRectF(-width/2, -height/2, width, height),
                                tinted, QRectF(tinted.rect()))
+            painter.restore()
+            if watched.property('workspaceRunning'):
+                painter.setRenderHint(QPainter.Antialiasing)
+                painter.setPen(QPen(theme.qcolor(theme.SIDEBAR), 1.5))
+                painter.setBrush(theme.qcolor(theme.SUCCESS))
+                painter.drawEllipse(QRectF(watched.width() - 10, 3, 7, 7))
             painter.end()
             return True
         return False

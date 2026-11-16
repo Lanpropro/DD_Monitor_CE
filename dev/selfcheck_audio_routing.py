@@ -6,14 +6,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtTest import QTest
 
 from ddm.player import EMBEDDED_OPTIONS, TilePlayer, mpv
+from ddm.audio_normalization import preset_curve
 
 
 def check_normalization(widget, root, ffmpeg):
@@ -35,11 +39,23 @@ def check_normalization(widget, root, ffmpeg):
         try:
             player.set_volume(volume)
             player.set_muted(muted)
-            player.set_volume_normalization(True)
+            # Short response times keep this synthetic regression compact; not a listening preset.
+            curve = dict(preset_curve(), attack=.2, hold=.3, release=.5, max_boost_db=6.)
+            player.set_volume_normalization(True, curve)
             player.set_audio_channel(channel)
-            player.set_volume_normalization(enabled)
-            with player.player.prepare_and_wait_for_event('end-file', timeout=15):
-                player.player.play(str(source))
+            player.set_volume_normalization(enabled, curve)
+            if enabled:
+                # PCM output is otherwise unpaced; run the actual Qt-owned controller in real time.
+                player.player.command('af', 'add', 'lavfi=[arealtime]')
+            finished = threading.Event()
+            @player.player.event_callback('end-file')
+            def end_file(event):
+                finished.set()
+            player.player.play(str(source))
+            deadline = time.monotonic() + 18
+            while not finished.is_set() and time.monotonic() < deadline:
+                QTest.qWait(20)
+            assert finished.is_set(), 'PCM verification must finish'
         finally:
             player.release()
         raw = subprocess.check_output([ffmpeg, '-v', 'error', '-i', str(output),
@@ -68,6 +84,31 @@ def check_normalization(widget, root, ffmpeg):
         results.append({'case': name, 'quiet_rms': quiet.tolist(), 'loud_rms': loud.tolist(), 'pass': True})
         print(name, 'PASS', quiet, loud, flush=True)
     return results
+
+
+def check_live_measurement(widget, root, ffmpeg):
+    """Paced libmpv null output verifies gain rises without feeding back into its meter."""
+    source = root / 'quiet.wav'
+    subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i',
+        'aevalsrc=0.05*sin(2*PI*440*t):s=48000:d=4', '-ac', '2', str(source)],
+        check=True, capture_output=True)
+    player = TilePlayer(widget)
+    player.player = mpv.MPV(vo='null', vid='no', ao='null', **EMBEDDED_OPTIONS)
+    try:
+        player.set_volume_normalization(True, dict(preset_curve(), hold=.3, release=.5))
+        player.player.play(str(source))
+        QTest.qWait(450)
+        first = float(player.player._get_property('af-metadata/ddm_meter')['lavfi.r128.M'])
+        QTest.qWait(1600)
+        last = float(player.player._get_property('af-metadata/ddm_meter')['lavfi.r128.M'])
+        gain = player._normalizer.response.gain
+        assert gain > 2.8, 'Quiet live audio must receive the configured positive gain'
+        assert abs(last - first) < .1, 'Measurement must not include its own gain compensation'
+        print('live-meter PASS', gain, first, last, flush=True)
+        return {'case': 'live-meter', 'gain_db': gain, 'loudness_before': first,
+                'loudness_after': last, 'pass': True}
+    finally:
+        player.release()
 
 
 def main():
@@ -122,6 +163,7 @@ def main():
             records.append({"case": name, "rms": rms.tolist(), "pass": True})
             print(name, "PASS", flush=True)
         records.extend(check_normalization(widget, root, ffmpeg))
+        records.append(check_live_measurement(widget, root, ffmpeg))
     if args.output:
         args.output.write_text(json.dumps(records, indent=2), encoding="utf-8")
     widget.close()

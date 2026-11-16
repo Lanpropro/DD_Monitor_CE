@@ -9,6 +9,7 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QWidget
 from selfcheck_corner_resize import QApplication, QEvent, QTest, WallGrid, theme
 
+from ddm import tile_widgets
 from ddm import widgets
 
 
@@ -143,6 +144,39 @@ def check_decoration_pass(wall):
     tile.set_recording_available(True)
 
 
+def check_interactive_decorations(app, wall):
+    tile = wall.tiles[0]
+    app.processEvents()
+    # Preserve the final native-text and stacking repairs while coalescing
+    # intermediate size changes. Geometry and Quick masks remain immediate.
+    native_text = tile.volume_label
+    assert native_text.testAttribute(Qt.WA_NativeWindow) and native_text.isVisible()
+    with patch.object(tile, 'raise_overlays', wraps=tile.raise_overlays) as raises, \
+            patch.object(tile, '_update_quick_danmaku_mask', wraps=tile._update_quick_danmaku_mask) as mask, \
+            patch.object(native_text, 'repaint', wraps=native_text.repaint) as repaint, \
+            patch.object(native_text, 'update', wraps=native_text.update) as update:
+        tile.set_interactive_resize(True)
+        for _ in range(5):
+            tile.resize(tile.width() + 2, tile.height() + 1)
+            tile._refresh_moved_overlays()
+        raises.assert_not_called()
+        repaint.assert_not_called()
+        assert update.call_count == 5 and mask.call_count >= 5
+        assert tile._resize_raise_pending and tile._move_repaint_pending
+        assert tile.video_danmaku.geometry() == tile.video.geometry()
+        tile.set_interactive_resize(False)
+        raises.assert_called_once()
+        assert tile._move_repaint_timer.isActive()
+        app.processEvents()
+        assert repaint.call_count >= 1
+        assert not tile._resize_raise_pending and not tile._move_repaint_pending
+        # Ordinary tile movement still performs the original forced repaint.
+        before = repaint.call_count
+        tile._refresh_moved_overlays()
+        assert repaint.call_count == before + 1
+    wall._relayout_corner()
+
+
 def check_covers(app, wall):
     tile, playing = wall.tiles[:2]
     source = QPixmap(320, 180)
@@ -152,7 +186,7 @@ def check_covers(app, wall):
     playing.set_video_active(True)
     app.processEvents()
     QTest.qWait(20)
-    with patch.object(widgets, 'rounded_pixmap', wraps=widgets.rounded_pixmap) as render:
+    with patch.object(tile_widgets, 'rounded_pixmap', wraps=tile_widgets.rounded_pixmap) as render:
         wall.set_interactive_resize(True)
         for step in range(12):
             wall.resize(2700 + step, 1200 + step)
@@ -339,6 +373,7 @@ def main():
                 assert render.call_count == 1, '高亮变化必须上传新图像'
         check_masks(app, wall)
         check_decoration_pass(wall)
+        check_interactive_decorations(app, wall)
         check_covers(app, wall)
         check_reshow(app, wall)
         check_cancellation(app, wall)

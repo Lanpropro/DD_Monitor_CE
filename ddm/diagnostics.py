@@ -86,11 +86,15 @@ class _StreamMirror:
             return len(text)
         self._local.writing = True
         try:
+            lines = []
             with self._lock:
                 self._buffer += text
                 while "\n" in self._buffer:
                     line, self._buffer = self._buffer.split("\n", 1)
-                    self._emit(line)
+                    lines.append(line)
+            # A handler error can write back to stderr while holding its lock.
+            for line in lines:
+                self._emit(line)
         finally:
             self._local.writing = False
         return len(text)

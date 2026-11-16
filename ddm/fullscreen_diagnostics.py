@@ -208,7 +208,7 @@ class FullscreenCapture(QObject):
 def install(path, *, profile_calls=False):
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
-    from .widgets import WallGrid
+    from .wall_widgets import WallGrid
     from .video_danmaku import VideoDanmaku
     from .fullscreen_presentation import FullscreenPresentation
     from . import window_fullscreen

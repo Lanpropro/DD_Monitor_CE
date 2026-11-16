@@ -57,7 +57,7 @@ def check_protocols():
     for value in (0, -1, 127, 128, -32769, 2 ** 40):
         assert dm.tars_fields(dm.tars_int(0, value))[0] == value
     assert dm.tars_fields(tars_string(3, "长文本" * 100))[3] == "长文本" * 100
-    assert dm.huya_events(huya_fixture()) == (7, [{"kind": "danmaku", "uname": "测试用户", "text": "直播测试"}])
+    assert dm.huya_events(huya_fixture()) == (7, [{"kind": "danmaku", "uid": "1234567890123", "uname": "测试用户", "text": "直播测试"}])
     assert dm.huya_events(dm.tars_int(0, 2) + dm.tars_bytes(1, b"\x0c")) == (2, [])
     assert dm.huya_events(dm.tars_int(0, 6)) == (6, [])
     # 未知 TARS 列表/字典、扩展标签仍能跳过，不能把频道号当昵称。
@@ -114,7 +114,7 @@ async def check_tcp(platform):
                         await asyncio.sleep(.01)
                         writer.write(packet[5:])
                     elif message["type"] == "joingroup":
-                        writer.write(dm.douyu_packet("type@=chatmsg/nn@=用户/txt@=真实 TCP 分片测试/"))
+                        writer.write(dm.douyu_packet("type@=chatmsg/uid@=42/nn@=用户/txt@=真实 TCP 分片测试/"))
                     await writer.drain()
         finally:
             writer.close()
@@ -131,6 +131,7 @@ async def check_tcp(platform):
             try:
                 await asyncio.wait_for(done.wait(), 2)
                 assert statuses == ["已连接"] and received[0]["text"] == "真实 TCP 分片测试"
+                assert received[0]["uid"] == "42"
                 assert [x["type"] for x in sent] == ["loginreq", "mrkl", "joingroup"]
                 assert sent[0]["roomid"] == "456" and sent[-1]["rid"] == "456" and sent[-1]["gid"] == "-9999"
             finally:

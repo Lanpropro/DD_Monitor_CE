@@ -1,7 +1,7 @@
 """Present the existing tile as an owned window without resizing the playback wall."""
 from PySide6.QtCore import QEvent, QObject, QRect, Qt
 
-from .widgets import _repolish
+from .widget_support import _repolish
 
 
 class FullscreenPresentation(QObject):

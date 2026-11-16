@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
-from PySide6.QtGui import QAction, QFocusEvent, QMouseEvent
+from PySide6.QtGui import QAction, QFocusEvent, QMouseEvent, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
@@ -511,6 +511,23 @@ class WorkspaceControlTests(unittest.TestCase):
                 self.assertEqual(image.pixelColor(round(button.width()/2*scale), round(3*scale)).name(),
                                  theme.qcolor(getattr(theme, background)).name())
 
+    def test_running_badge_survives_final_dock_tint_and_selected_surface(self):
+        self.addCleanup(theme.apply, theme.mode())
+        button, _action = self.add('running', '运行状态')
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            self.host.setStyleSheet(theme.qss())
+            for selected in (True, False):
+                self.sidebar.navigation.activate(button if selected else self.sidebar.navigation.follow_button)
+                for running in (True, False):
+                    button.setProperty('workspaceRunning', running)
+                    button.update()
+                    settle()
+                    image = button.grab().toImage()
+                    scale = image.devicePixelRatio()
+                    pixel = image.pixelColor(round((button.width() - 6.5) * scale), round(6.5 * scale))
+                    self.assertEqual(pixel == theme.qcolor(theme.SUCCESS), running, (mode, selected))
+
     def test_24_plugins_do_not_reduce_follow_height(self):
         panel = self.sidebar.workspace_controls
         before = self.sidebar.scroll.height()
@@ -552,15 +569,19 @@ class WorkspaceControlTests(unittest.TestCase):
         action.setEnabled(False)
         self.assertFalse(panel._rows[('workspace-test', 'first')][1].isEnabled())
 
-    def test_pin_limit_and_empty_pins_survive_reload(self):
+    def test_all_pins_and_empty_pins_survive_reload(self):
         panel = self.sidebar.workspace_controls
         for i in range(6):
             self.add(str(i), f'工具{i}', i)
         panel.toggle_pin(('workspace-test', '2'))
         panel.toggle_pin(('workspace-test', '3'))
         panel.toggle_pin(('workspace-test', '4'))
-        self.assertEqual(len(panel.pinned()), 4)
+        panel.toggle_pin(('workspace-test', '5'))
+        self.assertEqual(len(panel.pinned()), 6)
         saved = panel.pin_state()
+        panel.restore_pins(saved)
+        self.assertEqual(panel.pin_state(), saved)
+        self.assertEqual(len(panel.pinned()), 6)
         self.context.unregister_workspace_control('2')
         self.assertIn(['workspace-test', '2'], panel.pin_state())
         self.add('2', '工具2', 2)
@@ -572,6 +593,43 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual(panel.pin_state(), [])
         self.assertFalse(panel.isVisible())
         self.assertTrue(panel.launcher.isVisible())
+
+    def test_many_pins_scroll_without_hiding_global_tools(self):
+        panel = self.sidebar.workspace_controls
+        follow_height = self.sidebar.scroll.height()
+        controls = [self.add(str(i), f'工具{i}', i) for i in range(24)]
+        panel.restore_pins([])
+        for i in range(24):
+            pin = panel._rows[('workspace-test', str(i))][2]
+            self.assertTrue(pin.isEnabled())
+            pin.click()
+        settle()
+        self.assertEqual(len(panel.pinned()), 24)
+        self.assertEqual(self.sidebar.scroll.height(), follow_height)
+        self.assert_global_buttons()
+        scroll = self.sidebar.navigation.pin_scroll
+        self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
+        scroll.verticalScrollBar().setValue(0)
+        point = scroll.viewport().rect().center()
+        APP.sendEvent(scroll.viewport(), QWheelEvent(point, scroll.viewport().mapToGlobal(point),
+            QPoint(), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+        settle()
+        self.assertGreater(scroll.verticalScrollBar().value(), 0)
+        last, action = controls[-1]
+        scroll.ensureWidgetVisible(last, 0, 0)
+        settle()
+        self.assertGreater(scroll.verticalScrollBar().value(), 0)
+        self.assertTrue(scroll.viewport().rect().contains(last.mapTo(scroll.viewport(), last.rect().center())))
+        QTest.mouseClick(last, Qt.LeftButton)
+        self.assertTrue(action.isChecked())
+        saved = panel.pin_state()
+        self.sidebar.set_side('top')
+        settle()
+        self.sidebar.set_side('left')
+        settle()
+        self.assertEqual(panel.pin_state(), saved)
+        self.assertEqual(len(panel.pinned()), 24)
+        self.assert_global_buttons()
 
     def test_collapse_portrait_restore_and_selection_keep_global_access(self):
         panel = self.sidebar.workspace_controls

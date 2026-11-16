@@ -188,12 +188,12 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(self.rows()[-1]['reason'], 'limit')
 
     def test_install_preserves_return_errors_and_nested_exit(self):
-        from ddm import app, widgets, window_fullscreen, video_danmaku
+        from ddm import app, wall_widgets, window_fullscreen, video_danmaku
         for detailed in (False, True):
             captured_wall = type('CapturedWall', (Wall,), {})
             captured_window = type('CapturedWindow', (Window,), {'wall_type': captured_wall})
             captured_video = type('CapturedVideo', (video_danmaku.VideoDanmaku,), {})
-            with patch.object(app, 'MainWindow', captured_window), patch.object(widgets, 'WallGrid', captured_wall), \
+            with patch.object(app, 'MainWindow', captured_window), patch.object(wall_widgets, 'WallGrid', captured_wall), \
                     patch.object(video_danmaku, 'VideoDanmaku', captured_video), \
                     patch.object(window_fullscreen, 'enter'), patch.object(window_fullscreen, 'exit'):
                 probe = diag.install(self.path, profile_calls=detailed)

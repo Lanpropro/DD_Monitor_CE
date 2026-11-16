@@ -219,12 +219,15 @@ if (-not $SourceOnly) {
         --collect-all streamlink `
         --collect-all pypinyin `
         --collect-all av `
+        --collect-submodules ddm.ui `
         --hidden-import numpy `
         --hidden-import mpv `
         --copy-metadata python-mpv `
         --hidden-import ddm.live_danmaku `
         --hidden-import ddm.global_danmaku `
         --hidden-import ddm.ui.color_dialog `
+        --hidden-import ddm.ui.stepper `
+        --hidden-import ddm.widgets `
         --add-data ((Join-Path $repo "ddm\assets") + ";ddm\assets") `
         (Join-Path $repo "main.py")
         $freezeExit = $LASTEXITCODE

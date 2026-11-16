@@ -163,6 +163,8 @@ class StreamInfoTests(unittest.TestCase):
         window.players = {first: Mock(), second: Mock()}
         window.players[first].stream_info.return_value = {'host': 'first.test'}
         window.players[second].stream_info.return_value = {'host': 'second.test'}
+        from ddm.codec_control import CodecControl
+        window.codec_control = CodecControl(window)
         window._stream_info_snapshot = lambda tile: MainWindow._stream_info_snapshot(window, tile)
         MainWindow._open_tile_stream_info(window, first)
         MainWindow._open_tile_stream_info(window, second)

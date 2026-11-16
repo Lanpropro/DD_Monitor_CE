@@ -11,6 +11,7 @@ from typing import ClassVar
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 
 from .audio_output import audio_filters, linear_volume
+from .audio_normalization import LiveVolumeNormalizer, normalize_curve
 from .auto_quality import AutoQuality
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
@@ -46,6 +47,7 @@ class TilePlayer(QObject):
 
     PICTURE_POLL_MS = 1000
     FROZEN_TICKS = 2
+    DOUYIN_STARTUP_BUFFER_TICKS = 10
     PROFILE_HEADERS: ClassVar = {
         "app": {"User-Agent": APP_UA},
         "web": {"User-Agent": UA, "Referer": "https://live.bilibili.com/"},
@@ -70,6 +72,8 @@ class TilePlayer(QObject):
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
         self.volume_normalization = False
+        self.normalization_curve = normalize_curve()
+        self._normalizer = LiveVolumeNormalizer(self)
         self.paused = False
         self.state = "idle"
         self.url = ""
@@ -103,6 +107,7 @@ class TilePlayer(QObject):
         self._last_time = None
         self._frozen_ticks = 0
         self._stall_ticks = 0
+        self._startup_buffering = True
         self._picture_limit = self.FROZEN_TICKS
         self._buffer_limit = 6
         self._watch = QTimer(self)
@@ -194,7 +199,10 @@ class TilePlayer(QObject):
             self._decode_key = key
             self.decode_mode = "none" if self.silent else requested
             self._decode_tried = {self.decode_mode}
+        first_play = self._play_request is None
         self._play_request = (url, profile, dict(headers or {}), options)
+        if first_play:
+            self._startup_buffering = True
         self._play_media(url, profile, headers, options)
 
     def _play_media(self, url, profile, headers, options) -> None:
@@ -259,6 +267,7 @@ class TilePlayer(QObject):
             self._set("pause", self.paused)
 
     def _stop_media(self):
+        self._normalizer.timer.stop()
         if self.player is not None:
             self.player.command("stop")
         if self._hls_proxy is not None:
@@ -283,6 +292,7 @@ class TilePlayer(QObject):
         self._set_state("idle")
 
     def _destroy_core(self):
+        self._normalizer.timer.stop()
         if self.player is not None:
             # terminate() destroys the native output; avoid reconfiguring it first.
             self.player.command("stop")
@@ -311,14 +321,17 @@ class TilePlayer(QObject):
         self.audio_channel = int(channel)
         self._apply_audio_filters()
 
-    def set_volume_normalization(self, enabled: bool) -> None:
+    def set_volume_normalization(self, enabled: bool, curve=None) -> None:
         enabled = bool(enabled) and not self.silent
-        if self.volume_normalization != enabled:
+        curve = normalize_curve(curve)
+        if self.volume_normalization != enabled or self.normalization_curve != curve:
             self.volume_normalization = enabled
+            self.normalization_curve = curve
             self._apply_audio_filters()
 
     def _apply_audio_filters(self) -> None:
         self._set("af", ",".join(audio_filters(self.audio_channel, self.volume_normalization)))
+        self._normalizer.reset()
 
     def reapply_audio_channel(self) -> None:
         self.set_audio_channel(self.audio_channel)
@@ -512,6 +525,7 @@ class TilePlayer(QObject):
             self._set_state("error")
             return
         if advanced and not ended and self._prop("vo-configured", False):
+            self._startup_buffering = False
             self._stall_ticks = 0
             if self.state != "frozen":
                 self._set_state("playing")
@@ -520,7 +534,10 @@ class TilePlayer(QObject):
             self._set_state("error")
             return
         self._stall_ticks += 2 if ended else 1
-        if self._stall_ticks >= self._buffer_limit:
+        limit = self._buffer_limit
+        if self.stream_profile == "douyin" and self._startup_buffering:
+            limit = self.DOUYIN_STARTUP_BUFFER_TICKS
+        if self._stall_ticks >= limit:
             self._set_state("error")
         elif self._stall_ticks >= 2:
             self._set_state("buffering")
