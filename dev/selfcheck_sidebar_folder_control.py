@@ -386,6 +386,9 @@ class SidebarFolderControlTests(unittest.TestCase):
         navigation = self.sidebar.navigation
         self.assertEqual(navigation.all_button.text(), '')
         self.assertEqual(navigation.live_button.text(), '')
+        from ddm import theme
+        icon = navigation.live_button.grab().toImage()
+        self.assertEqual(icon.pixelColor(icon.width() // 2, icon.height() // 2), theme.qcolor(theme.PINK))
         self.assertEqual(navigation.all_button.accessibleName(), '全部直播间')
         self.assertIn('3', navigation.all_button.toolTip())
         QTest.mouseClick(navigation.live_button, Qt.LeftButton)
