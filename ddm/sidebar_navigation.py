@@ -25,7 +25,7 @@ PATHS = {
     'folders_expand': '<path d="m6 4 6 5 6-5M6 14l6 5 6-5"/>',
     'folders_collapse': '<path d="m6 9 6-5 6 5M6 19l6-5 6 5"/>',
     'filter_all': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
-    'filter_live': '<circle cx="12" cy="12" r="2"/><path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
+    'filter_live': '<path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
     'close': '<path d="m6 6 12 12M18 6 6 18"/>',
 }
@@ -69,7 +69,9 @@ class NavigationButton(QPushButton):
         svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
                f'fill="{fill}" stroke="{color.name()}" stroke-opacity="{color.alphaF()}" '
                'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
-               + PATHS[self.kind] + '</svg>')
+               + PATHS[self.kind]
+               + (f'<circle cx="12" cy="12" r="3" fill="{theme.PINK}" stroke="none"/>'
+                  if self.kind == 'filter_live' else '') + '</svg>')
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width()/2, self.height()/2)

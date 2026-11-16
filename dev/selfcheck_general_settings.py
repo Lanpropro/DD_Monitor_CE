@@ -25,33 +25,39 @@ def close_window(window):
 
 
 def check_folder_collapse_mode(app):
-    from ddm.ui import SelectControl
+    from ddm.ui import SegmentedControl
     from ddm.settings_autosave_apply import apply_changes
     assert config.DEFAULT_SETTINGS['folder_collapse_mode'] == 'all'
     for initial, expected in (({}, 'all'), ({'folder_collapse_mode': 'previous'}, 'previous'),
                               ({'folder_collapse_mode': 'unknown'}, 'all')):
         page = GeneralSettingsPage(initial)
         combo = page.folder_collapse_mode
-        assert isinstance(combo, SelectControl)
+        assert isinstance(combo, SegmentedControl)
         assert page.sections.section('following').isAncestorOf(combo)
         assert combo.accessibleName() == '全部展开后的收起方式'
-        assert [combo.itemData(index) for index in range(combo.count())] == ['all', 'previous']
+        assert list(combo.buttons) == ['all', 'previous']
+        from PySide6.QtWidgets import QComboBox
+        assert not combo.findChildren(QComboBox), 'Collapse modes are inline choices, not a dropdown'
+        label = next(label for label in page.findChildren(QLabel) if label.text() == combo.accessibleName())
+        grid = page.sections.section('following').grid
+        assert grid.getItemPosition(grid.indexOf(label))[0] == grid.getItemPosition(grid.indexOf(combo))[0]
+        assert [button.text() for button in combo.buttons.values()] == ['全部收起', '恢复原状']
         assert page.values()['folder_collapse_mode'] == expected
-        combo.setCurrentIndex(combo.findData('previous'))
+        combo.buttons['previous'].click()
         assert page.values()['folder_collapse_mode'] == 'previous'
-        assert any('恢复本次全部展开前的收起状态' in label.text()
+        assert any('仅收起本次全部展开前已收起的文件夹' in label.text()
                    for label in page.findChildren(QLabel))
         page.reset()
         assert page.values()['folder_collapse_mode'] == 'all'
         page.deleteLater()
-    # The generic settings delta includes the dropdown without worker-specific state.
+    # The generic settings delta includes the segment buttons without worker-specific state.
     dialog = SettingsDialog({'folder_collapse_mode': 'all'}, {}, preview=True)
     try:
         requests = []
         dialog.auto_save.requested.connect(requests.append)
         dialog.auto_save.start()
         combo = dialog.general_page.folder_collapse_mode
-        combo.setCurrentIndex(combo.findData('previous'))
+        combo.buttons['previous'].click()
         dialog.auto_save.flush()
         assert requests[-1]['settings'] == {'folder_collapse_mode': 'previous'}
         assert dialog.settings()['folder_collapse_mode'] == 'previous'
