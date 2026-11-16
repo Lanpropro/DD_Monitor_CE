@@ -15,7 +15,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 from shiboken6 import isValid
 from ddm import config, motion, online, theme, update_install
@@ -223,7 +223,7 @@ class UpdateDownloadTests(unittest.TestCase):
         self.assertIn('更新说明第29', panel.document.text())
         self.assertEqual(store.scroll.horizontalScrollBar().maximum(), 0)
         with patch.object(store, 'install_offer') as install:
-            panel.action.click()
+            store.buttons[key].click()
             install.assert_called_once_with(offer)
         panel.close()
         self.assertFalse(store._detail_buttons[key].isChecked())
@@ -253,7 +253,7 @@ class UpdateDownloadTests(unittest.TestCase):
             theme.apply('dark')
             self.wait_for(lambda: panel.document.height() >= panel.document.heightForWidth(panel.document.width()))
             card = page._installed_cards[key]
-            actions = card.layout().itemAt(1)
+            actions = card.layout().itemAt(card.layout().count() - 1)
             self.assertLessEqual(actions.geometry().height(), actions.sizeHint().height() + 1)
             self.assertGreaterEqual(panel.document.height(), panel.document.heightForWidth(panel.document.width()))
             self.assertEqual(page.installed_scroll.horizontalScrollBar().maximum(), 0)
@@ -268,6 +268,72 @@ class UpdateDownloadTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         theme.configure_appearance({'appearance_font_size': 13})
         theme.apply('dark')
+
+    def test_app_update_action_keeps_its_left_anchor_through_transfer_states(self):
+        page = self.host._get_update_page({})
+        page.resize(1200, 700)
+        page.show()
+        self.app.processEvents()
+        anchor = page.action.mapTo(page, QPoint()).x()
+        check_right = page.check.mapTo(page, page.check.rect().topRight()).x()
+        self.assertLess(anchor - check_right, 24)
+        state = dict(received=1024, total=4096, speed=1024, percent=25, phase='downloading')
+        for phase in ('downloading', 'verifying', 'ready', 'failed'):
+            page._transfer_progress(dict(state, phase=phase, error='test disconnect'))
+            self.app.processEvents()
+            control = page.download_progress.bar if phase in ('downloading', 'verifying') else page.action
+            self.assertEqual(control.mapTo(page, QPoint()).x(), anchor)
+        page.close()
+
+    def test_plugin_expansion_moves_only_its_column_and_keeps_one_footer(self):
+        from ddm.settings_plugins import PluginSettingsPage
+        self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        keys = [f'column_{n}' for n in range(8)]
+        for key in keys:
+            self.manager.install_zip(str(self.package(key, '1.0')))
+        offers = [dict(id=key, name=key, version='2.0', available=True,
+                       description='插件说明', notes='更新内容\n' * 12) for key in keys]
+        page = PluginSettingsPage(self.manager)
+        store = page.store_page
+        store.offers = offers
+        store.show_offers(offers)
+        page._show_update_notes(offers)
+        page.resize(2600, 650)
+        page.show()
+        for tab in (0, 1):
+            page.tabs.setCurrentIndex(tab)
+            cards = page._installed_cards if tab == 0 else store._offer_cards
+            owner = page if tab == 0 else store
+            self.app.processEvents()
+            self.wait_for(lambda: cards[keys[1]].x() > cards[keys[0]].x())
+            before = {key: card.geometry() for key, card in cards.items()}
+            owner._detail_buttons[keys[0]].setChecked(True)
+            self.wait_for(lambda: cards[keys[2]].y() > before[keys[2]].y())
+            for key in keys[1::2]:
+                self.assertEqual(cards[key].geometry(), before[key], key)
+            card = cards[keys[0]]
+            panel = owner._details[keys[0]]
+            footer = card.layout().itemAt(card.layout().count() - 1)
+            self.assertGreaterEqual(footer.geometry().top(), panel.geometry().bottom())
+            self.assertEqual(panel.findChildren(QPushButton), [], 'Details must reuse the original card controls')
+            toggle = owner._detail_buttons[keys[0]]
+            action = page.update_buttons[keys[0]] if tab == 0 else store.buttons[keys[0]]
+            self.assertTrue(card.isAncestorOf(action))
+            self.assertLessEqual(abs(action.mapTo(card, action.rect().center()).y() - toggle.mapTo(card, toggle.rect().center()).y()), 1)
+            self.assertLess(action.mapTo(card, QPoint()).x(), toggle.mapTo(card, QPoint()).x())
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                page.grab().save(str(Path(directory) / f'independent-columns-{tab}.png'))
+            owner._detail_buttons[keys[0]].setChecked(False)
+            self.wait_for(lambda: cards[keys[2]].geometry() == before[keys[2]])
+        page.resize(680, 650)
+        self.wait_for(lambda: store._offer_cards[keys[0]].x() == store._offer_cards[keys[1]].x())
+        self.assertEqual(store.scroll.horizontalScrollBar().maximum(), 0)
+        page.store_page.stop()
+        page.close()
+        page.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_plugin_cards_keep_text_inside_at_large_font_and_narrow_width(self):
         from ddm.settings_plugins import PluginSettingsPage

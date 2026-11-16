@@ -148,11 +148,11 @@ def check_store_browser(app, root):
             app.processEvents()
             assert '完整更新说明 59' in details.document.text()
             with patch.object(page, 'install_offer') as install:
-                details.action.click()
+                page.buttons['browser_000'].click()
                 install.assert_called_once_with(offers[0])
             page.jobs.append(SimpleNamespace(key='browser_000', percent=35))
             page._busy(True)
-            assert not details.action.isEnabled() and details.action.text() == '下载中…'
+            assert not page.buttons['browser_000'].isEnabled() and page.buttons['browser_000'].text() == '下载中…'
             page.search.setText('没有这样的插件')
             assert page.empty.isVisible() and page.count.text() == '0 / 64 个插件'
             assert page.buttons['browser_000'] is button, 'Filtering must retain the active installation control'
@@ -261,16 +261,16 @@ def check_installed_browser(app, root):
             assert entries[0]['reason'] in details.document.text()
             assert '完整更新记录末尾' in details.document.text()
             with patch.object(store, 'install_offer') as install:
-                details.action.click()
+                page.update_buttons['installed_00'].click()
                 install.assert_called_once_with(offers[0])
             store.jobs.append(SimpleNamespace(key='installed_00', percent=45))
             store._busy(True)
-            assert not details.action.isEnabled() and details.action.text() == '下载中…'
+            assert not page.update_buttons['installed_00'].isEnabled() and page.update_buttons['installed_00'].text() == '下载中…'
             store.jobs.clear()
             store._busy(False)
             details.close()
             offline = page._show_installed_details('installed_15')
-            assert not offline.action.isEnabled() and offline.action.text() == '暂无更新'
+            assert not page.update_buttons['installed_15'].isVisible(), 'No duplicate update control when this plugin has no update'
             offline.close()
             browser.search.setText('没有匹配的插件')
             assert page.empty.isVisible() and browser.count.text() == '0 / 16 个插件'
@@ -530,13 +530,13 @@ def main():
             settle(app, page)
             assert page.buttons['global_live'].text() == '更新'
             details = dialog.plugin_page._show_installed_details('global_live')
-            assert details.action.text() == '更新' and details.action.isEnabled()
-            details.action.click()
+            assert dialog.plugin_page.update_buttons['global_live'].text() == '更新' and dialog.plugin_page.update_buttons['global_live'].isEnabled()
+            dialog.plugin_page.update_buttons['global_live'].click()
             settle(app, page)
             assert page.buttons['global_live'].text() == '待重启'
             details = dialog.plugin_page._details['global_live']
             assert not details.isWindow() and dialog.plugin_page._detail_buttons['global_live'].isChecked()
-            assert details.action.text() == '待重启' and not details.action.isEnabled()
+            assert dialog.plugin_page.update_buttons['global_live'].text() == '待重启' and not dialog.plugin_page.update_buttons['global_live'].isEnabled()
             details.close()
             assert read_manifest(str(root / 'plugins' / 'global_live'), 'global_live')['version'] == '1.0'
             assert not dialog.plugin_page.checks['global_live'].isChecked()
