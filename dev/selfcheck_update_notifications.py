@@ -77,7 +77,7 @@ def main():
                 self.reject()
                 return self.result()
         with patch.object(app_module, 'SettingsDialog', InspectDialog):
-            QTest.mouseClick(notice.action, Qt.LeftButton)
+            QTest.mouseClick(notice.settings_action, Qt.LeftButton)
         assert opened == [(SettingsDialog.PAGE_INDEX['updates'], offer, True)] and not notice.isVisible()
         assert not notice.timer.isActive() and window.settings['auto_update']
         assert window.sidebar.settings_button._update_dot.isHidden()
@@ -91,7 +91,7 @@ def main():
             assert notice.isVisible() and '热修复' in notice.title.text()
             assert not window.sidebar.settings_button._update_dot.isHidden()
             with patch.object(app_module, 'SettingsDialog', InspectDialog):
-                QTest.mouseClick(notice.action, Qt.LeftButton)
+                QTest.mouseClick(notice.settings_action, Qt.LeftButton)
             assert window.settings['seen_update_versions']['app'] == update_identity(hotfix)
             assert window.settings['seen_update_entry_versions']['app'] == update_identity(hotfix)
             window._startup_update_ready((None, hotfix))
@@ -165,7 +165,7 @@ def main():
                     self.reject()
                     return self.result()
             with patch.object(app_module, 'SettingsDialog', PluginInspectDialog):
-                plugin_notice.action.click()
+                plugin_notice.settings_action.click()
             assert plugin_opened == [(SettingsDialog.PAGE_INDEX['plugins'], 1)] and not plugin_notice.isVisible()
             assert plugins_window.sidebar.settings_button._update_dot.isHidden()
             assert plugins_window.settings['seen_update_versions']['domestic_live'] == '2.0'

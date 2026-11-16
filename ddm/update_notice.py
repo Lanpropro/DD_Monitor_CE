@@ -1,7 +1,7 @@
 """Update indicators and update notification presentation."""
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QStyledItemDelegate, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .update_version import release_label
@@ -45,6 +45,7 @@ class UpdateNavDelegate(QStyledItemDelegate):
 class UpdateNotice(QFrame):
     """不抢焦点的悬浮更新提醒，十秒后自动收起。"""
     activated = Signal()
+    updateRequested = Signal(str)
 
     def __init__(self, parent):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
@@ -52,6 +53,7 @@ class UpdateNotice(QFrame):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('UpdateNotice')
         self._history_entries = set()
+        self._update_rows = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
@@ -88,10 +90,12 @@ class UpdateNotice(QFrame):
         close.clicked.connect(lambda: self.dismiss(handled=True))
         self.heading.addWidget(close, 0, Qt.AlignTop)
         layout.addLayout(self.heading)
+        self.updates_scroll = None
         self.action = QPushButton('查看更新')
         self.action.setObjectName('PrimaryButton')
         self.action.clicked.connect(self._open)
         layout.addWidget(self.action, 0, Qt.AlignRight)
+        self.settings_action = None
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(10_000)
@@ -175,6 +179,12 @@ class UpdateNotice(QFrame):
         self.ensurePolished()
         width = min(420, max(80, self.parentWidget().width() - 32))
         self.setFixedWidth(width)
+        if self._update_rows:
+            available = max(80, width - 48)
+            rows_height = self.updates.totalHeightForWidth(available)
+            if rows_height < 0:
+                rows_height = self.updates.totalSizeHint().height()
+            self.updates_scroll.setFixedHeight(min(rows_height, max(100, self.parentWidget().height() // 2)))
         self.layout().invalidate()
         height = self.layout().totalHeightForWidth(width)
         if height < 0:
@@ -266,8 +276,93 @@ class UpdateNotice(QFrame):
             self.hide()
 
     def _open(self):
+        if self._update_rows:
+            for key, (_, _, button) in self._update_rows.items():
+                if button.isEnabled() and button.property('phase') != 'ready':
+                    self.updateRequested.emit(key)
+            return
         self.dismiss(animate=False, handled=True)
         self.activated.emit()
+
+    def _open_settings(self):
+        self.dismiss(animate=False, handled=True)
+        self.activated.emit()
+
+    def set_updates(self, entries):
+        from .update_progress_ui import UpdateProgress
+        if self.updates_scroll is None:
+            self.updates_container = QWidget(self)
+            self.updates = QVBoxLayout(self.updates_container)
+            self.updates.setContentsMargins(0, 0, 0, 0)
+            self.updates.setSpacing(10)
+            self.updates_scroll = QScrollArea(self)
+            self.updates_scroll.setFrameShape(QFrame.NoFrame)
+            self.updates_scroll.setWidgetResizable(True)
+            self.updates_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.updates_scroll.setWidget(self.updates_container)
+            self.layout().insertWidget(1, self.updates_scroll)
+            self.settings_action = QPushButton('前往设置', self)
+            self.settings_action.setObjectName('IconButton')
+            self.settings_action.clicked.connect(self._open_settings)
+            self.layout().addWidget(self.settings_action, 0, Qt.AlignRight)
+        keys = {entry['key'] for entry in entries}
+        for key in set(self._update_rows) - keys:
+            widget, _, _ = self._update_rows.pop(key)
+            self.updates.removeWidget(widget)
+            widget.deleteLater()
+        for entry in entries:
+            key = entry['key']
+            if key not in self._update_rows:
+                widget = QWidget(self)
+                body = QVBoxLayout(widget)
+                body.setContentsMargins(0, 0, 0, 0)
+                heading = QHBoxLayout()
+                title = QLabel(entry['title'], widget)
+                title.setObjectName('UpdateItemTitle')
+                title.setTextFormat(Qt.PlainText)
+                title.setWordWrap(True)
+                heading.addWidget(title, 1)
+                button = QPushButton('下载更新', widget)
+                button.setObjectName('IconButton')
+                button.clicked.connect(lambda checked=False, k=key: self.updateRequested.emit(k))
+                heading.addWidget(button)
+                body.addLayout(heading)
+                progress = UpdateProgress(widget)
+                body.addWidget(progress)
+                self.updates.addWidget(widget)
+                self._update_rows[key] = widget, progress, button
+            button = self._update_rows[key][2]
+            self._update_rows[key][0].findChild(QLabel, 'UpdateItemTitle').setText(entry['title'])
+            button.setEnabled(entry.get('enabled', True))
+            button.setToolTip(entry.get('hint', ''))
+        self.action.setText('全部下载')
+        self.action.setVisible(len(entries) > 1)
+        self.settings_action.show()
+        self.updates_scroll.setVisible(bool(entries))
+        self.description.setText('可直接下载，也可前往设置查看说明。下载完成后确认重启。')
+        self._resize_to_content()
+        self.reposition()
+
+    def set_transfer(self, key, state):
+        if key not in self._update_rows:
+            return
+        _, progress, button = self._update_rows[key]
+        progress.set_state(state)
+        phase = state['phase']
+        button.setProperty('phase', phase)
+        button.setText({'downloading': '下载中…', 'verifying': '校验中…',
+                        'ready': '重启以应用', 'failed': '重试'}.get(phase, '下载更新'))
+        button.setEnabled(phase in ('ready', 'failed'))
+        downloading = any(row[2].property('phase') in ('downloading', 'verifying')
+                          for row in self._update_rows.values())
+        for _, _, action in self._update_rows.values():
+            if action.property('phase') == 'ready':
+                action.setEnabled(not downloading)
+                action.setToolTip('其他更新完成后可重启' if downloading else '')
+        if phase in ('downloading', 'verifying'):
+            self.timer.stop()
+        self._resize_to_content()
+        self.reposition()
 
 
 def _notifications_hidden(parent):
