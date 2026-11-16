@@ -153,16 +153,18 @@ class VideoCaption(BadgeSurface):
         return {"original": original_lines, "translation": translation_lines}
 
     def _font(self, height, line_budget):
-        content_height = max(1, height - 2 * self._padding())
+        content_height = max(1, height - 2 * self._padding() - (4 if line_budget > 1 else 0))
         size = min(self._style.font_size,
                    int(content_height / max(1, line_budget) / 1.35))
-        size = max(8, min(64, size))
+        size = max(3 if self._embedded else 8, min(64, size))
         font = QFont(theme.danmaku_font_family())
         font.setPixelSize(size)
         font.setWeight(QFont.Normal)
         return font
 
     def _padding(self):
+        if self._embedded:
+            return 2
         return max(6, round(self.width() * 0.018))
 
     def _layout(self, text, font, width, budget):

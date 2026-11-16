@@ -87,7 +87,7 @@ class CaptionInteraction(QObject):
         return False
 
     def paint(self, painter):
-        if self.caption._style.locked or not (self.hovered or self.gesture):
+        if self.caption._style.locked or not (self.hovered or self.gesture or self.caption._embedded):
             return
         painter.setPen(QPen(QColor('#A8C9EF'), 1, Qt.DashLine))
         painter.setBrush(Qt.NoBrush)

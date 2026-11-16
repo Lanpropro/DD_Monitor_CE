@@ -2,6 +2,7 @@
 import unittest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
+from PySide6.QtGui import QFontMetricsF
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.caption_geometry import caption_rect
 from ddm.caption_preview import CaptionPlacementPreview
@@ -100,6 +101,18 @@ class CaptionInteractionChecks(unittest.TestCase):
         other.clear_tile_caption(self.owner)
         self.caption.styleChanged.emit({'x': 50})
         self.assertEqual(len(second), 1)
+
+    def test_small_preview_keeps_both_lines_inside_the_caption_box(self):
+        preview = CaptionPlacementPreview()
+        preview.resize(400, 170)
+        preview.show()
+        APP.processEvents()
+        caption = preview.caption
+        font = caption._font(caption.height(), 2)
+        height = QFontMetricsF(font).height() * 2 + 4 + caption._padding() * 2
+        self.assertLessEqual(height, caption.height() + 1)
+        preview.close()
+        preview.deleteLater()
 
 
 if __name__ == '__main__':
