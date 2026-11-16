@@ -19,7 +19,13 @@ def prepare(manager, manifest_reader):
     manifests = {}
     entries = []
     for folder in sorted(Path(manager.plugins_dir).iterdir()):
-        if folder.name.startswith(('.', '_')) or not (folder / 'plugin.py').is_file():
+        if folder.name.startswith(('.', '_')):
+            continue
+        try:
+            if not (folder / 'plugin.py').is_file():
+                continue
+        except OSError as error:
+            manager.skipped.append((folder.name, f'无法读取插件目录：{error}'))
             continue
         entries.append(folder.name)
         try:

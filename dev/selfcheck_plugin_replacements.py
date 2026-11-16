@@ -21,6 +21,24 @@ plugin=Bundle()
 
 
 class ReplacementTests(unittest.TestCase):
+    def test_unreadable_plugin_entry_does_not_abort_loading_other_plugins(self):
+        from unittest.mock import patch
+        self.make('unreadable', 'raise AssertionError("must not execute")')
+        original = Path.is_file
+        blocked = self.root / 'unreadable' / 'plugin.py'
+
+        def is_file(path):
+            if path == blocked:
+                raise PermissionError(5, 'Access is denied', str(path))
+            return original(path)
+
+        with patch.object(Path, 'is_file', is_file):
+            manager = self.manager(['bundle', 'unreadable'], {'unreadable': {'keep': True}})
+        self.assertEqual(set(manager.platforms), {'alpha', 'beta'})
+        self.assertIn('Access is denied', dict(manager.skipped)['unreadable'])
+        self.assertIn('unreadable', manager.enabled)
+        self.assertEqual(manager.plugin_settings['unreadable'], {'keep': True})
+
     def test_store_install_migrates_settings_on_main_thread_and_preserves_disable(self):
         from concurrent.futures import ThreadPoolExecutor
         import threading
