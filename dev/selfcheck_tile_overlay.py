@@ -140,7 +140,7 @@ def main() -> None:
                     next(action for action in self.actions()
                          if action.text() == "流畅").trigger()
 
-            with patch("ddm.widgets.QMenu", TestQualityMenu), \
+            with patch("ddm.tile_widgets.QMenu", TestQualityMenu), \
                     patch.object(window, "start_tile", return_value=None):
                 tile.set_controls_visible(True)
                 QTest.mouseClick(tile.quality_button, Qt.LeftButton)

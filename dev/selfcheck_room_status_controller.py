@@ -184,6 +184,70 @@ class RoomStatusTests(unittest.TestCase):
         host.room_status.status_failed('fixture')
         host.sidebar.count_label.setText.assert_called_once_with('状态刷新失败 · 点击重试')
 
+    def test_unchanged_live_status_skips_sidebar_resort_and_sync_work(self):
+        room = {'room_id': '1001', 'live': True, 'live_known': True}
+        item = Mock(room=room, set_title=Mock(), set_uname=Mock())
+        item.set_live = Mock(side_effect=lambda value: room.update(live=value))
+        item_was_live = room['live']
+        host = Host(rooms=[room])
+        host.sidebar._items = [item]
+        host.sidebar._folder_pending = set()
+        host.sidebar.resort = Mock()
+        host._sync_replay_scope = Mock()
+        host.sync_danmaku = Mock()
+        host._load_room_banners = Mock()
+        host._startup_status_complete = True
+        host.settings = {}
+        host.hover_preview = SimpleNamespace(_room_id=lambda: '', cancel=Mock())
+        host._status_avatar_loader = None
+        host._aside_cover_loader = None
+        host._start_avatar_loader = Mock()
+        host.room_status.apply_status({'1001': {
+            'live': item_was_live, 'title': '', 'uname': '', 'live_known': True,
+        }})
+        host.sidebar.resort.assert_not_called()
+        host._sync_replay_scope.assert_not_called()
+        host.sync_danmaku.assert_not_called()
+        host.room_status.apply_status({'1001': {
+            'live': False, 'title': '', 'uname': '', 'live_known': True,
+        }})
+        host.sidebar.resort.assert_called_once_with()
+        host._sync_replay_scope.assert_called_once_with()
+        host.sync_danmaku.assert_called_once_with()
+
+    def test_wall_only_live_status_change_keeps_sync_work(self):
+        sidebar_room = {'room_id': '1001', 'live': True, 'live_known': True}
+        wall_room = {'room_id': '2002', 'live': True, 'live_known': True}
+        item = Mock(room=sidebar_room, set_title=Mock(), set_uname=Mock())
+        tile = Mock(room=wall_room, _status_text='直播中',
+                    set_live=Mock(side_effect=lambda value, *_: wall_room.update(live=value)),
+                    set_uname_title=Mock(), set_status=Mock(),
+                    start_elapsed_timer=Mock())
+        host = Host(rooms=[sidebar_room], tiles=[tile])
+        host.sidebar._items = [item]
+        host.sidebar._folder_pending = set()
+        host.sidebar.resort = Mock()
+        host._sync_replay_scope = Mock()
+        host.sync_danmaku = Mock()
+        host._offline_tile = Mock()
+        host.players = {}
+        host._resolvers = {}
+        host._retry_timers = {}
+        host.plugins.emit = Mock()
+        host._load_room_banners = Mock()
+        host._startup_status_complete = True
+        host.settings = {}
+        host.hover_preview = SimpleNamespace(_room_id=lambda: '', cancel=Mock())
+        host._status_avatar_loader = None
+        host._aside_cover_loader = None
+        host._start_avatar_loader = Mock()
+        host.room_status.apply_status({'2002': {
+            'live': False, 'viewers': '', 'title': '', 'uname': '', 'live_known': True,
+        }})
+        host.sidebar.resort.assert_called_once_with()
+        host._sync_replay_scope.assert_called_once_with()
+        host.sync_danmaku.assert_called_once_with()
+
 
 if __name__ == '__main__':
     unittest.main()

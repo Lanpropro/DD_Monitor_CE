@@ -126,6 +126,8 @@ def main():
                 assert resolved[0]['title'] == 'Verified fixture'
             dispose(app, dialog)
         # 正常错误仍显示原提示；只有验证分类打开浏览器，并保留添加目标文件夹。
+        from ddm.room_placement import RoomPlacement
+        owner.room_placement = RoomPlacement(owner)
         with patch('ddm.profile_room.ProfileRoomDialog') as factory, patch('ddm.app.QMessageBox.warning') as warning:
             factory.return_value.exec.return_value = QDialog.Accepted
             factory.return_value.room_id = 'douyin:123'

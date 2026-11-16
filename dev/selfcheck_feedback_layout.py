@@ -36,11 +36,13 @@ def main():
         page.tabs.setCurrentIndex(1)
         app.processEvents()
         store = page.store_page.cards.itemAt(0).widget()
-        assert installed_top == store.mapTo(page, QPoint()).y(), (installed_top, store.mapTo(page, QPoint()).y())
-        assert installed.size() == store.size(), (size, store.size())
+        store_top = store.mapTo(page, QPoint()).y()
+        assert store_top > installed_top, (installed_top, store_top)
+        assert installed.width() == store.width(), (size, store.size())
         assert installed.layout().contentsMargins() == store.layout().contentsMargins()
-        assert installed.layout().spacing() == store.layout().spacing() == 6
-        assert page.cards.spacing() == page.store_page.cards.spacing() == 10
+        assert installed.layout().spacing() == store.layout().spacing() == 12
+        assert page.cards.horizontalSpacing() == page.store_page.cards.horizontalSpacing() == 12
+        assert page.cards.verticalSpacing() == page.store_page.cards.verticalSpacing() == 12
         assert installed.findChild(QLabel, "PluginName").font() == store.findChild(QLabel, "PluginName").font()
         page.store_page.stop()
         owner.close()

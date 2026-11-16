@@ -53,6 +53,7 @@ def main():
                     muted=i % 2 == 0, audio_channel=(0, 3, 4)[i % 3]) for i in range(6)]
     with tempfile.TemporaryDirectory(prefix='ddm-combinations-') as temporary, ExitStack() as stack:
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'state.json')))
+        stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'plugins')))
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account', 'sync_danmaku',
                        'load_avatars_for', 'load_room_avatars', 'load_cached_covers', 'load_cached_avatars',
                        '_check_startup_update', '_check_startup_plugins'):
@@ -60,6 +61,7 @@ def main():
         window = MainWindow(deepcopy(fixture), deepcopy(fixture), layout_id='corner',
                             state={'plugins_enabled': [], 'settings': {'auto_update': False,
                                    'preview_on_hover': False, 'recording_replay_enabled': False}})
+        assert window.room_preset_control.host is window
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.setGeometry(-10000, -10000, 1600, 1000)
         window.show()

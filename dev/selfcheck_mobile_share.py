@@ -78,6 +78,8 @@ class MobileShareTests(unittest.TestCase):
 
     def test_dialog_validation_does_not_make_network_requests(self):
         owner = SimpleNamespace(plugins=SimpleNamespace(platform_for=lambda _: None))
+        from ddm.room_placement import RoomPlacement
+        owner.room_placement = RoomPlacement(owner)
         resolver = lambda text: MainWindow._normalize_room_input(owner, text)
         with patch('ddm.room_input.requests.get') as get:
             for normalize in (None, resolver):
@@ -94,6 +96,8 @@ class MobileShareTests(unittest.TestCase):
         plugin = SimpleNamespace(normalize=Mock(return_value='huya:room'))
         lookup = Mock(return_value=plugin)
         owner = SimpleNamespace(plugins=SimpleNamespace(platform_for=lookup))
+        from ddm.room_placement import RoomPlacement
+        owner.room_placement = RoomPlacement(owner)
         self.assertEqual(MainWindow._normalize_room_input(owner, '【中文标题】 https://www.huya.com/room'), 'huya:room')
         lookup.assert_called_once_with('https://www.huya.com/room')
         plugin.normalize.assert_called_once_with('https://www.huya.com/room')
@@ -155,6 +159,8 @@ class MobileShareTests(unittest.TestCase):
         owner = SimpleNamespace(sidebar=SimpleNamespace(rooms=lambda: []),
             plugins=SimpleNamespace(platform_for=lambda _: None), _closing=False,
             _platform_info_running=set(), _on_room_added=Mock())
+        from ddm.room_placement import RoomPlacement
+        owner.room_placement = RoomPlacement(owner)
         with patch('ddm.app.InfoResolver', Pending):
             MainWindow._add_room_id(owner, SHORT, folder_id='my-folder')
         self.assertEqual(len(owner._platform_info_running), 1)

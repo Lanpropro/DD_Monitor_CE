@@ -7,7 +7,7 @@ import time
 from unittest.mock import Mock, patch
 
 os.environ['DDM_NO_SAVE'] = '1'
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+os.environ.setdefault('QT_QPA_PLATFORM', 'windows' if '--native' in sys.argv else 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QObject, QPoint, QPointF, Signal, Qt, qVersion
 from PySide6.QtGui import QCursor, QWheelEvent
@@ -71,7 +71,7 @@ def check_drag_preview(app):
         pointer, buttons = [QPoint()], [Qt.NoButton]
         with patch('ddm.preview.StreamResolver', wraps=Resolver) as resolve, \
                 patch('ddm.preview.TilePlayer', side_effect=create_player), \
-                patch('ddm.widgets.TilePlayer', side_effect=create_player), \
+                patch('ddm.sidebar_thumbnail.TilePlayer', side_effect=create_player), \
                 patch.object(QCursor, 'pos', side_effect=lambda: pointer[0]), \
                 patch.object(QApplication, 'mouseButtons', side_effect=lambda: buttons[0]):
             host.show()
@@ -119,10 +119,146 @@ def check_drag_preview(app):
     print('PASS: drag suppresses queued/new previews, defers teardown and resumes at current pointer')
 
 
+def check_inline_scroll(app, native=False):
+    import contextlib
+    import ctypes
+    from ctypes import wintypes
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix='ddm-preview-scroll-') as directory, contextlib.ExitStack() as stack:
+        source = str(Path(directory) / 'preview.mp4')
+        if native:
+            subprocess.run(['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+                            '-i', 'testsrc2=s=320x180:r=30', '-t', '15', '-c:v', 'libx264',
+                            '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', source], check=True, timeout=30)
+        else:
+            stack.enter_context(patch('ddm.sidebar_thumbnail.TilePlayer', Player))
+        stack.enter_context(patch('ddm.preview.StreamResolver', Resolver))
+        pointer = [QPoint(-30000, -30000)]
+        stack.enter_context(patch.object(QCursor, 'pos', side_effect=lambda: pointer[0]))
+        host = QWidget()
+        host.setGeometry(-18000, 0, 1100, 800)
+        rooms = [dict(room_id=str(i), uname='Fixture', live=True) for i in range(12)]
+        sidebar = Sidebar(rooms, host, card_mode=True, auto_compact=False)
+        sidebar.setGeometry(0, 0, sidebar.width(), 700)
+        preview = HoverPreview(sidebar, host)
+        host.show()
+        settle(app)
+        try:
+            item = sidebar.items()[3]
+            pointer[0] = item.mapToGlobal(QPoint(30, item.height() // 2))
+            home_pointer = QPoint(pointer[0])
+            preview.on_hover(item.room)
+            preview._begin_resolve()
+            preview._show_now()
+            preview._resolve_delay.stop()
+            preview._delay.stop()
+            preview._resolver.resolved.emit(item.room['room_id'], source, 80, 'web', [])
+            video, player = item.thumb.video, item.thumb._player
+            generation = preview._generation
+            home_mask = video.mask()
+            if native:
+                end = time.monotonic() + 12
+                while time.monotonic() < end and not player._prop('vo-configured', False):
+                    settle(app, .05)
+                assert player._prop('vo-configured', False), 'Local preview never opened video output'
+                core, hwnd = player.player, int(video.winId())
+                position = player._prop('time-pos', 0)
+                get_rect = ctypes.windll.user32.GetWindowRect
+                get_rect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+            bar = sidebar.scroll.verticalScrollBar()
+            for value in [40, 0] * 12:
+                bar.setValue(value)
+                settle(app, .01)
+                assert video.isVisible() and preview._generation == generation, 'Small scroll restarted preview'
+                if native:
+                    expected = item.thumb.mapToGlobal(video.pos())
+                    assert video.mapToGlobal(QPoint()) == expected, 'Native preview stayed at the old card position'
+                    area = wintypes.RECT()
+                    assert get_rect(hwnd, ctypes.byref(area))
+                    dpr = video.devicePixelRatioF()
+                    assert abs(area.left - expected.x() * dpr) <= 1
+                    assert abs(area.top - expected.y() * dpr) <= 1, 'HWND diverged from its card'
+                    assert player.player is core and int(video.winId()) == hwnd
+                    assert not item.thumb.testAttribute(Qt.WA_NativeWindow), 'Preview promoted the card to native'
+            if native:
+                settle(app, .15)
+                assert player._prop('time-pos', 0) > position, 'Scrolling interrupted local playback'
+            # Keep hovering the exposed half at the top of the viewport.
+            half_scroll = item.thumb.mapTo(sidebar.list_box, QPoint()).y() + video.height() // 2
+            pointer[0] = sidebar.scroll.viewport().mapToGlobal(QPoint(40, video.height() // 4))
+            bar.setValue(half_scroll)
+            settle(app, .02)
+            assert video.isVisible(), 'Partially visible hovered preview was cancelled'
+            expected_clip = video.rect().intersected(
+                sidebar.scroll.viewport().rect().translated(
+                    item.thumb.mapFromGlobal(sidebar.scroll.viewport().mapToGlobal(QPoint()))))
+            assert video.mask().boundingRect() == expected_clip, 'Preview was not clipped to the scroll viewport'
+            if native:
+                gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
+                gdi32.CreateRectRgn.restype = wintypes.HANDLE
+                gdi32.DeleteObject.argtypes = [wintypes.HANDLE]
+                user32.GetWindowRgn.argtypes = [wintypes.HWND, wintypes.HANDLE]
+                gdi32.PtInRegion.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_int]
+                region = gdi32.CreateRectRgn(0, 0, 0, 0)
+                try:
+                    assert user32.GetWindowRgn(hwnd, region) > 0
+                    assert not gdi32.PtInRegion(region, 20, 2), 'HWND still draws above the viewport'
+                    assert gdi32.PtInRegion(region, 20, int((video.height()-2)*video.devicePixelRatioF()))
+                finally:
+                    gdi32.DeleteObject(region)
+                outputs = []
+                callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+                user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+                user32.EnumChildWindows.argtypes = [wintypes.HWND, callback_type, wintypes.LPARAM]
+                user32.MapWindowPoints.argtypes = [wintypes.HWND, wintypes.HWND,
+                                                  ctypes.POINTER(wintypes.POINT), wintypes.UINT]
+                def collect_output(child, _unused):
+                    name = ctypes.create_unicode_buffer(128)
+                    user32.GetClassNameW(child, name, len(name))
+                    if name.value.lower().startswith('mpv'):
+                        outputs.append(child)
+                    return True
+                user32.EnumChildWindows(hwnd, callback_type(collect_output), 0)
+                assert outputs, 'Local preview has no native mpv output to check'
+                for child in outputs:
+                    region = gdi32.CreateRectRgn(0, 0, 0, 0)
+                    point = wintypes.POINT(20, 2)
+                    user32.MapWindowPoints(hwnd, child, ctypes.byref(point), 1)
+                    try:
+                        assert user32.GetWindowRgn(child, region) > 0
+                        assert not gdi32.PtInRegion(region, point.x, point.y), 'mpv child escapes the viewport mask'
+                    finally:
+                        gdi32.DeleteObject(region)
+            pointer[0] = home_pointer
+            bar.setValue(0)
+            assert video.mask() == home_mask, 'Returning preview did not restore its viewport clip'
+            original_stop = player.stop
+            def stop_after_hide(*args, **kwargs):
+                assert video.isHidden(), 'Preview stayed visible during synchronous player shutdown'
+                return original_stop(*args, **kwargs)
+            with patch.object(player, 'stop', side_effect=stop_after_hide), \
+                    patch.object(item.thumb, 'sync_preview_position', wraps=item.thumb.sync_preview_position) as sync:
+                bar.setValue(180)
+                assert not sync.called, 'Scroll-away moved the doomed native video before hiding it'
+            assert not video.isVisible(), 'Inline preview survived scrolling away from the pointer'
+            assert not preview._grace.isActive(), 'Scroll-away incorrectly retained the mouse-leave grace'
+            print('PASS: inline scroll alignment, stable playback and immediate ownership release; native=', native)
+        finally:
+            preview.stop()
+            host.close()
+            settle(app)
+
+
 def main():
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    if '--native' in sys.argv:
+        check_inline_scroll(app, native=True)
+        return
+    check_inline_scroll(app)
     check_drag_preview(app)
     host = QWidget()
     host.setAttribute(Qt.WA_ShowWithoutActivating)

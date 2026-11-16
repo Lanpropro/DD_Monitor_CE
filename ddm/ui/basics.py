@@ -1,5 +1,5 @@
 """Shared settings controls using the application's existing QSS roles."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout
 
 
@@ -7,6 +7,23 @@ class ActionButton(QPushButton):
     def __init__(self, text='', parent=None):
         super().__init__(text, parent)
         self.setObjectName('IconButton')
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMouseTracking(True)
+        self.setAttribute(Qt.WA_Hover, True)
+
+    def enterEvent(self, event):
+        self.setProperty('hovered', True)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setProperty('hovered', False)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+        super().leaveEvent(event)
 
 
 class TitleLabel(QLabel):

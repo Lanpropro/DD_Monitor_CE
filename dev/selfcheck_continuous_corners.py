@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -89,6 +90,12 @@ class ContinuousCornersTests(unittest.TestCase):
         self.assertEqual(button.size(),before)
         self.assertEqual(button.grab().toImage().pixelColor(button.width()//2,4),QColor('#227744'))
 
+    def test_rgba_alpha_accepts_css_and_legacy_byte_forms(self):
+        for value, expected in (('rgba(12, 19, 30, 0.82)', 209),
+                                ('rgba(12, 19, 30, 209)', 209),
+                                ('rgba(12, 19, 30, 230)', 230)):
+            self.assertEqual(corners._color(value, None).alpha(), expected)
+
     def test_identical_native_rules_keep_distinct_local_colors(self):
         widgets = []
         for color in ('#123456','#227744'):
@@ -146,6 +153,17 @@ class ContinuousCornersTests(unittest.TestCase):
         action.trigger()
         self.assertEqual(calls,['open'])
         self.assertIn('border-radius',corners._filter.values(menu,'item',{'selected':True}))
+
+    def test_switch_drawing_is_not_overlaid_by_the_checkbox_indicator(self):
+        from ddm.settings_notifications import NotificationSwitch
+        switch = NotificationSwitch('Enable', self.host)
+        self.box.addWidget(switch)
+        switch.setChecked(True)
+        self.show()
+        painted = switch.grab().toImage()
+        with patch.object(corners, '_paint'):
+            owned_only = switch.grab().toImage()
+        self.assertEqual(painted, owned_only, 'The switch must own its complete surface, without an extra checkbox indicator')
 
 
 if __name__ == '__main__':

@@ -37,6 +37,9 @@ def child(action):
                 def report(mode):
                     print(settings_process.PREFIX + json.dumps({'kind': 'theme-state',
                         'mode': mode, 'light': theme.is_light(),
+                        'visible': self.isVisible(), 'hwnd': int(self.winId()),
+                        'accent': theme.ACCENT, 'font': theme.FONT_FAMILY, 'font_size': theme.FONT_CONTROL,
+                        'columns': self.general_page.sections.columns,
                         'volume': self.general_page.volume_slider.value()}), flush=True)
                 if not getattr(self, '_theme_report_connected', False):
                     self._theme_report_connected = True
@@ -59,8 +62,7 @@ def child(action):
                     page.super_chat_position_sync.click()
                     assert page.super_chat_placement.position_sync
                 assert page.super_chat_placement.preview_context['panel']['size'] == [800, 450]
-                assert page.super_chat_collapse_delay.suffix() == ''
-                assert page.super_chat_collapse_unit.text() == '秒'
+                assert page.super_chat_collapse_delay.suffix() == ' 秒'
                 page.super_chat_opacity.setValue(45)
                 assert page.super_chat_placement.opacity == 45
                 assert 'sc_preview_frame' not in self.settings()
@@ -71,6 +73,9 @@ def child(action):
                     QTimer.singleShot(10, self.exercise)
                     return
                 assert {check.text() for check in self.plugin_checks.values()} == {'显示海外平台 Logo', '显示国内平台 Logo'}
+                card = self.general_page.sections.section('extensions')
+                assert all(card.isAncestorOf(check) for check in self.plugin_checks.values())
+                assert self.general_page.plugin_controls() == self.plugin_checks
                 assert not self.general_page._checks['sidebar_platform_logos'].isVisible()
                 assert not any(check.isChecked() for check in self.plugin_checks.values())
                 self.plugin_checks['global_live_show_platform_logo'].setChecked(True)
@@ -99,6 +104,8 @@ def child(action):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
                 self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
+                                     (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
+                                     (1, 0, 1, 7, 1) if action == 'embed-appearance' else
                                      (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
@@ -113,6 +120,8 @@ def child(action):
             self.general_page.volume_slider.setValue(17)
             self.general_page._checks['preview_on_hover'].setChecked(False)
             self.general_page._checks['volume_normalization'].setChecked(True)
+            from ddm.audio_normalization import preset_curve
+            self.general_page.normalization_editor.set_curve(preset_curve('netflix'))
             if action.startswith('tray-'):
                 self.nav.setCurrentRow(self.PAGE_INDEX['tray'])
                 page = self._loaded_pages[self.PAGE_INDEX['tray']]
@@ -136,12 +145,18 @@ def child(action):
                     self.reject()
                 return
             self.nav.setCurrentRow(index)
+            if action == 'embed-coordinates':
+                self.move(self.x() + 9, self.y() + 7)
+                self.resize(self.width() + 8, self.height() + 4)
             def observed():
+                if self.host_container is None or not self.host_surface_ready:
+                    QTimer.singleShot(25, self, observed)
+                    return
                 assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
                 extra = {}
-                if action == 'embed-footer':
+                if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
                     import ctypes
                     from ctypes import wintypes
                     from PySide6.QtCore import QPoint
@@ -149,27 +164,35 @@ def child(action):
                     origin = wintypes.POINT()
                     ctypes.windll.user32.ClientToScreen(ctypes.c_void_p(int(self.winId())), ctypes.byref(origin))
                     scale = self.devicePixelRatioF()
-                    buttons = [self.confirm_button, next(button for button in self.findChildren(QPushButton) if button.text() == '取消')]
-                    extra['footer_top'] = min(origin.y + round(button.mapTo(self, QPoint()).y() * scale) for button in buttons)
-                    extra['footer_visible'] = all(button.isVisible() and self.rect().contains(button.geometry()) for button in buttons)
+                    extra['header_bottom'] = origin.y + round((self.window_header.y() + self.window_header.height()) * scale)
+                    extra['client_bottom'] = origin.y + round(self.height() * scale)
+                    extra['scale'] = scale
                     start = self.host_container.mapTo(self, QPoint())
+                    extra['container_geometry'] = list(self.host_container.geometry().getRect())
+                    extra['stack_geometry'] = list(self.stack.geometry().getRect())
+                    extra['foreign_geometry'] = [self.foreign.x(), self.foreign.y(), self.foreign.width(), self.foreign.height()]
                     extra['content_rect'] = [origin.x + round(start.x() * scale), origin.y + round(start.y() * scale),
                                              round(self.host_container.width() * scale), round(self.host_container.height() * scale)]
                 print(settings_process.PREFIX + json.dumps({
                     'kind': 'shell', 'index': index, 'hwnd': int(self.winId()),
+                    'glass': self._native_glass,
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
                 QTimer.singleShot(50, self.step)
-            QTimer.singleShot(200, observed)
+            QTimer.singleShot(200, self, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
-    if action.startswith('embed-') or action == 'zorder':
+    if action.startswith('embed-') or action in ('zorder', 'theme'):
         def background_activate(dialog):
             from PySide6.QtCore import Qt
             dialog.setAttribute(Qt.WA_ShowWithoutActivating)
             dialog.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
             dialog.setGeometry(-10000, -10000, 720 if action == 'embed-footer' else 980,
                                650 if action == 'embed-footer' else 720)
+            if action == 'embed-coordinates':
+                # Expose the layered child at the captured user's positive screen origin.
+                # Off-screen windows never flush their backing store and missed this bug.
+                dialog.setGeometry(670, 291, 1200, 800)
             dialog.show()
         settings_process._activate_dialog = background_activate
     if action == 'zorder':
@@ -210,9 +233,11 @@ def check_worker(app, action):
     timer.timeout.connect(lambda: ticks.append(time.perf_counter()))
     timer.start()
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
-    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else None)
+    client.autoSaveRequested.connect(lambda message: saves.append(message['changes']))
+    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else client._send({'kind': 'host-flushed'}) if message['kind'] == 'host-flush' else None)
     client.failed.connect(failures.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
     with patch.object(settings_process, 'worker_command', return_value=command), \
@@ -233,23 +258,27 @@ def check_worker(app, action):
             assert not failures and not client.visible
             assert sum(m['kind'] == 'painted' for m in messages) == 1
             clean = action.startswith(('clean-', 'revert-'))
-            assert bool(saves) == (not clean and action not in ('cancel', 'tray-cancel'))
+            assert bool(saves) == (not clean)
             if saves:
-                assert saves[0]['settings']['default_volume'] == 17
+                combined = {}
+                for saved in saves:
+                    combined.update(saved.get('settings', {}))
+                assert combined['default_volume'] == 17
                 if action == 'preview-save':
-                    assert saves[0]['settings']['super_chat_position'] == [0.0, .6]
-                    assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
-                    assert saves[0]['settings']['super_chat_position_sync'] is False
+                    assert combined['super_chat_position'] == [0.0, .6]
+                    assert combined['super_chat_panel_position'] == [1.0, .2]
+                    assert combined['super_chat_position_sync'] is False
                 if action == 'preview-sync-save':
-                    assert saves[0]['settings']['super_chat_position'] == [1.0, .2]
-                    assert saves[0]['settings']['super_chat_panel_position'] == [1.0, .2]
-                    assert saves[0]['settings'].get('super_chat_position_sync', True) is True
-                assert saves[0]['settings']['volume_normalization'] is True
+                    assert combined['super_chat_position'] == [1.0, .2]
+                    assert combined['super_chat_panel_position'] == [1.0, .2]
+                    assert combined.get('super_chat_position_sync', True) is True
+                assert combined['volume_normalization'] is True
+                assert combined['volume_normalization_curve']['preset'] == 'netflix'
                 if action == 'tray-save':
-                    assert saves[0]['settings']['close_behavior'] == 'tray'
-                    assert saves[0]['settings']['tray_pause_playback'] is False
-                assert 'appearance_mode' not in saves[0]['settings']
-                assert 'seen_update_versions' not in saves[0]['settings'], 'Worker must not clear host update history'
+                    assert combined['close_behavior'] == 'tray'
+                    assert combined['tray_pause_playback'] is False
+                assert 'appearance_mode' not in combined
+                assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
             assert pages == ([{'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]] if clean else [])
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
@@ -273,23 +302,31 @@ def check_theme_sync(app):
     from ddm import theme
     messages = []
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     client.received.connect(messages.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', 'theme'])
     with patch.object(settings_process, 'worker_command', return_value=command), \
             patch.object(settings_process, '_allow_foreground'):
         try:
             theme.apply('dark')
-            client.open(dict(config.DEFAULT_SETTINGS, appearance_mode='dark'), {})
+            client.open(dict(config.DEFAULT_SETTINGS, appearance_mode='dark', appearance_accent='#8866ee',
+                             appearance_font='Segoe UI', appearance_font_size=17, settings_card_layout='vertical'), {})
             theme.apply('light')  # Also sync a change while startup is still pending.
             wait(app, lambda: any(m['kind'] == 'theme-state' for m in messages))
             row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
             assert row['mode'] == 'light' and row['light'] and row['volume'] == 17, row
+            assert 'Segoe UI' in row['font'] and row['accent'].lower() != '#007ba8' and row['columns'] == 1, row
+            assert row['font_size'] == 17, row
+            hwnd = row['hwnd']
+            assert row['visible'], row
             messages.clear()
             for mode in ('dark', 'light'):
                 theme.apply(mode)
                 wait(app, lambda: any(m['kind'] == 'theme-state' and m['mode'] == mode for m in messages))
                 row = next(m for m in reversed(messages) if m['kind'] == 'theme-state')
                 assert row['light'] == (mode == 'light') and row['volume'] == 17, row
+                assert 'Segoe UI' in row['font'] and row['columns'] == 1, row
+                assert row['visible'] and row['hwnd'] == hwnd, row
                 messages.clear()
             client._send({'kind': 'host-cancel'})
             wait(app, lambda: not client.visible)
@@ -443,6 +480,7 @@ def check_native_focus(app):
 
 def check_failure(app):
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     failures = []
     client.failed.connect(failures.append)
     with patch.object(settings_process, 'worker_command', return_value=(str(ROOT / 'missing-worker.exe'), [])):
@@ -461,6 +499,7 @@ def check_failure(app):
     wait(app, lambda: client.process.state() == QProcess.NotRunning)
     # No synchronous waits even when a worker never completes its handshake.
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     failures = []
     client.failed.connect(failures.append)
     command = (getattr(sys, '_base_executable', sys.executable), ['-c', 'import time; time.sleep(5)'])
@@ -478,6 +517,7 @@ def check_windowed_worker(app):
     if sys.platform != 'win32' or not executable.exists():
         return
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     command = (str(executable), [str(ROOT / 'main.py'), '--settings-worker'])
     with patch.object(settings_process, 'worker_command', return_value=command):
         try:
@@ -490,6 +530,7 @@ def check_windowed_worker(app):
 
 def check_finish_without_event_loop(app):
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     command = (getattr(sys, '_base_executable', sys.executable), ['-c', 'import time; time.sleep(30)'])
     with patch.object(settings_process, 'worker_command', return_value=command):
         try:
@@ -508,6 +549,7 @@ def check_finish_without_event_loop(app):
 
 def check_close_during_edit(app):
     client = settings_process.SettingsProcess()
+    client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
     messages, saves = [], []
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
@@ -526,11 +568,13 @@ def check_close_during_edit(app):
 
 def check_host_adapter():
     from ddm.app import MainWindow
+    from ddm.settings_control import SettingsControl
     applied = []
     host = SimpleNamespace(shortcuts={'keep': 'K'}, plugins=SimpleNamespace(
         enabled={'fixture'}, _platform_owner={}, _removed=set()),
         _apply_settings_dialog=lambda dialog, before: applied.append(
             (dialog.settings(), dialog.shortcuts(), dialog.enabled_plugins())))
+    host.settings_control = SettingsControl(host)
     MainWindow._remote_settings_saved(host, {'settings': {'default_volume': 17}, 'shortcuts': {'edit': 'E'}})
     assert applied == [({'default_volume': 17}, {'keep': 'K', 'edit': 'E'}, {'fixture'})]
     MainWindow._remote_settings_saved(host, {'settings': {}, 'shortcuts': {}})
@@ -548,7 +592,9 @@ def check_host_save_validation():
     from ddm.dialogs import SettingsDialog
     from ddm.settings_host import SettingsHost
     default_dialog = SettingsDialog(config.DEFAULT_SETTINGS, {}, preview=True)
-    assert default_dialog.width() == 720 and default_dialog.height() == 650
+    available = default_dialog.screen().availableGeometry()
+    assert default_dialog.width() == max(760, min(1200, available.width() - 48))
+    assert default_dialog.height() == max(520, min(800, available.height() - 72))
     default_dialog.deleteLater()
     dialog = Mock()
     dialog.confirm_button.isEnabled.return_value = True
@@ -603,6 +649,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
             window = host.MainWindow([], [], layout_id='1x1', state={
                 'plugins_enabled': [], 'settings': {'seen_update_versions': {'app': '0.5.1'},
                                                    'close_behavior': 'exit',
+                                                   'settings_glass_enabled': action == 'embed-appearance',
                                                    'appearance_mode': 'light' if action == 'embed-cancel' else 'dark',
                                                    'sidebar_platform_logos': not action.startswith('logos-')}})
         plugin_saves = {}
@@ -651,6 +698,12 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 extension = ContributedChecks(window)
                 app.installEventFilter(extension)
                 stack.callback(app.removeEventFilter, extension)
+        if action in ('embed-appearance', 'embed-coordinates'):
+            from PySide6.QtCore import Qt
+            window.setAttribute(Qt.WA_ShowWithoutActivating)
+            window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            window.setGeometry(-14000, -12000, 1100, 800)
+            window.show()
         client = window._get_settings_process()
         initial_volume = window.settings['default_volume']
         messages = []
@@ -659,7 +712,11 @@ def check_host_application(app, action='save', *, installed_controls=False):
         stack.enter_context(patch.object(settings_process, 'worker_command', return_value=command))
         if action.startswith('embed-'):
             errors = []
-            stack.enter_context(patch.object(sys, 'excepthook', lambda _kind, error, _tb: errors.append(error)))
+            def report_error(kind, error, trace):
+                import traceback
+                traceback.print_exception(kind, error, trace)
+                errors.append(error)
+            stack.enter_context(patch.object(sys, 'excepthook', report_error))
             from ddm.dialogs import SettingsDialog
             stack.enter_context(patch.object(SettingsDialog, 'exec', side_effect=AssertionError('Settings reopened')))
             if action == 'embed-install':
@@ -677,22 +734,36 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert user32.GetAncestor(handle, 2) == message['hwnd'], 'Host page is not inside worker shell'
                 assert user32.GetDpiForWindow(handle) == user32.GetDpiForWindow(ctypes.c_void_p(message['hwnd']))
                 assert session.stack.isVisible()
-                assert session.stack.width() > 400 and session.stack.height() > 300
+                assert int(session.stack.windowHandle().parent().winId()) == message['hwnd'], 'Host Qt must retain the worker parent across repaints'
+                assert session.stack.width() > 400 and session.stack.height() > 300, (session.stack.width(), session.stack.height(), message)
                 assert message['embedded']
+                if action == 'embed-appearance':
+                    assert message['glass'], 'Worker must use live composition blur while host pages are embedded'
+                    assert session.stack.property('settings_glass_enabled')
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
-                    if action == 'embed-footer':
+                    if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
+                        if action == 'embed-coordinates':
+                            from PySide6.QtCore import QEvent
+                            assert session.stack.windowHandle().isExposed()
+                            handle_window = session.stack.windowHandle()
+                            assert not handle_window.isTopLevel()
+                            assert handle_window.geometry() == session.stack.geometry(), 'Qt must retain child coordinates before a layered flush'
+                            session.stack.repaint()
+                            QCoreApplication.sendPostedEvents(None, QEvent.UpdateRequest)
                         from ctypes import wintypes
                         rect = wintypes.RECT()
                         assert user32.GetWindowRect(handle, ctypes.byref(rect))
-                        assert message['footer_visible'], message
                         x, y, width, height = message['content_rect']
                         assert all(abs(actual - expected) <= 2 for actual, expected in zip(
                             (rect.left, rect.top, rect.right, rect.bottom), (x, y, x + width, y + height))), ('Host must fit the content area', (rect.left, rect.top, rect.right, rect.bottom), message)
-                        assert rect.bottom <= message['footer_top'], ('Embedded page covers save/cancel', (rect.left, rect.top, rect.right, rect.bottom), message)
+                        assert rect.top >= message['header_bottom'], message
+                        assert 0 <= message['client_bottom'] - rect.bottom <= 40 * message['scale'], ('Content must use the former footer space', message)
                     image = session.stack.grab().toImage()
                     actual = image.pixelColor(1, 1)
-                    assert actual == theme.qcolor(theme.BG), (message['index'], actual.name(), theme.BG, actual.alpha())
+                    assert actual.alpha() == 0, (message['index'], actual.name(), actual.alpha())
+                    assert max(image.pixelColor(x, y).alpha() for x in range(0, min(96, image.width()), 2)
+                               for y in range(0, min(48, image.height()), 2)) > 200, 'Embedded text must still render'
                     output = ROOT / 'work/test-artifacts/host/settings-pages'
                     output.mkdir(parents=True, exist_ok=True)
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
@@ -717,26 +788,29 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert window.settings['default_volume'] == 17 and not errors
                 return
             if action.startswith('logos-'):
-                assert plugin_saves == ({'domestic_live': False, 'global_live': True} if action == 'logos-save' else {})
-                assert window.settings['sidebar_platform_logos'] is (action == 'logos-save')
-                assert window.settings['default_volume'] == (17 if action == 'logos-save' else initial_volume)
+                assert plugin_saves == {'domestic_live': False, 'global_live': True}
+                assert window.settings['sidebar_platform_logos'] is True
+                assert window.settings['default_volume'] == 17
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
-                assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
+                if action == 'embed-coordinates':
+                    assert len({tuple(message['size']) for message in shells}) == len(shells)
+                else:
+                    assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
-                assert window.settings['default_volume'] == (17 if action == 'embed-save' else initial_volume)
-                assert window.settings['auto_update'] is (action == 'embed-save')
+                assert window.settings['default_volume'] == 17
+                assert window.settings['auto_update'] is (action not in ('embed-footer', 'embed-appearance'))
                 assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
-                if action == 'embed-footer':
+                if action in ('embed-footer', 'embed-coordinates'):
                     process_pid = client.process.processId()
                     messages.clear()
                     client.open(window.settings, window.shortcuts)
                     wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
                     assert client.process.processId() == process_pid, 'Reopen must reuse the worker'
-                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == [7, 0, 7]
+                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8])
                     assert getattr(window, '_settings_host', None) is None
                 assert not errors, errors
                 return
@@ -980,10 +1054,20 @@ def main():
         check_theme_sync(app)
         return 0
     check_nonblocking_online_close(app)
+    if sys.argv[1:] == ['--coordinates-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-coordinates')
+        print('PASS: exposed host repaints and all host page switches preserve native coordinates')
+        return 0
+    if sys.argv[1:] == ['--appearance-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-appearance')
+        print('PASS: appearance entry and reentry keep the host inside the worker viewport')
+        return 0
     if sys.argv[1:] == ['--footer-native']:
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-footer')
-        print('PASS: first plugin entry, page switching and reopen keep the native content above save/cancel')
+        print('PASS: first plugin entry, page switching and reopen keep native content inside the header and client bounds')
         return 0
     if sys.argv[1:] == ['--native-zorder']:
         assert app.platformName() == 'windows'
@@ -997,7 +1081,7 @@ def main():
         check_host_application(app, 'embed-save')
         check_host_application(app, 'embed-cancel')
         check_host_application(app, 'embed-install')
-        print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, save/cancel and cleanup')
+        print('PASS: same worker HWND after 10s and all page switches, native embedding/DPI, autosave/close and cleanup')
         return 0
     if sys.argv[1:] == ['--installed-logo-controls']:
         check_host_application(app, 'logos-save', installed_controls=True)

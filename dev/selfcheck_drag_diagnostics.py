@@ -32,6 +32,7 @@ class DragDiagnosticsTests(unittest.TestCase):
         fixture.setUp()
         try:
             with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                stack.enter_context(patch.dict(os.environ, {'DDM_LIVE_ELAPSED_CAPTURE': '1'}))
                 # Restore every temporary hook so this test cannot affect later checks.
                 stack.enter_context(patch.object(drag_module, 'widget_at', drag_module.widget_at))
                 for cls, names in ((TilePlayer, ('bind', 'stop', 'release', '_destroy_core')),
@@ -42,7 +43,8 @@ class DragDiagnosticsTests(unittest.TestCase):
                                    (motion, ('lifted_drag',)),
                                    (SidebarDrag, ('start', 'finish', 'cancel', '_move_ghost', '_tick')),
                                    (diag.MainWindow, ('showEvent', '_on_layout_changed',
-                                                     '_stop_tile', '_clear_tile_room', '_on_room_dropped'))):
+                                                     '_stop_tile', '_clear_tile_room', '_on_room_dropped',
+                                                     '_on_status_updated', '_on_player_state'))):
                     for name in names:
                         stack.enter_context(patch.object(cls, name, getattr(cls, name)))
                 drag_exec = stack.enter_context(patch.object(QDrag, 'exec', return_value=Qt.IgnoreAction))
@@ -52,6 +54,9 @@ class DragDiagnosticsTests(unittest.TestCase):
                 recorder.install()
                 window = fixture.window([{'room_id': '1'}])
                 window.settings['close_behavior'] = 'exit'
+                window._on_status_updated({'1': dict(live=True, title='', uname='', viewers='',
+                                                      live_start_ts=1700000000)})
+                window._on_player_state(window.wall.tiles[0], 'playing')
                 state = [0, 3, 0]
                 def apartment(kind, qualifier):
                     kind._obj.value, qualifier._obj.value = state[1:]
@@ -111,6 +116,11 @@ class DragDiagnosticsTests(unittest.TestCase):
                     self.assertIsNone(window.sidebar.drag_session._diagnostic_probe)
                     rows = [json.loads(line) for line in path.read_text().splitlines()]
                     phases = [row['phase'] for row in rows]
+                    self.assertIn('_on_player_state:after', phases)
+                    elapsed = next(row for row in rows if row['phase'] == '_on_status_updated:after')
+                    self.assertTrue(elapsed['tiles'][0]['liveStartAvailable'])
+                    self.assertTrue(elapsed['tiles'][0]['elapsedTimerActive'])
+                    self.assertIsInstance(elapsed['tiles'][0]['videoActive'], bool)
                     self.assertIn('com:baseline', phases)
                     self.assertIn('com:changed', phases)
                     self.assertIn('drag:before', phases)

@@ -48,6 +48,7 @@ class HlsProxy:
         self._lock = threading.Lock()
         self._responses = set()
         self._samples = deque(maxlen=12)
+        self.playback_diagnostic = None  # One opt-in numeric observer, detached when capture ends.
         self._idle_sessions = []
         self.refresh_required = threading.Event()
         self.live_ended = threading.Event()
@@ -103,6 +104,18 @@ class HlsProxy:
                 outcome = 'closed'
                 def observe(event, **values):
                     nonlocal observer
+                    capture = relay.playback_diagnostic
+                    if capture is not None:
+                        numeric = {key: value for key, value in values.items()
+                                   if key in ('status', 'elapsed_ms', 'read_ms', 'write_ms', 'bytes')
+                                   and isinstance(value, (int, float))}
+                        if event == 'chunk':
+                            numeric['bytes'] = len(values.get('data', b''))
+                        try:
+                            capture(event, **numeric)
+                        except Exception:
+                            if relay.playback_diagnostic is capture:
+                                relay.playback_diagnostic = None
                     if observer is not None:
                         try:
                             observer(event, **values)
@@ -120,9 +133,9 @@ class HlsProxy:
                     observed_start = time.perf_counter()
                     if stream_observer is not None:
                         observer = stream_observer(url)
-                        observe('request', range=request_headers.get('Range'),
-                                user_agent_present=bool(request_headers.get('User-Agent')),
-                                referer_present=bool(request_headers.get('Referer')))
+                    observe('request', range=request_headers.get('Range'),
+                            user_agent_present=bool(request_headers.get('User-Agent')),
+                            referer_present=bool(request_headers.get('Referer')))
                     initial = None
                     with relay._lock:
                         if url == source and relay._initial_response is not None:

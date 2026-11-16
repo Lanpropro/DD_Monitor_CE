@@ -10,6 +10,11 @@ from .corner_geometry import continuous_path
 THEME_WAVE_MS = 360
 THEME_WAVE_EASING = QEasingCurve(QEasingCurve.BezierSpline)
 THEME_WAVE_EASING.addCubicBezierSegment(QPointF(.23, 1), QPointF(.32, 1), QPointF(1, 1))
+CONTROL_FEEDBACK_MS = 160
+SWITCH_TRANSITION_MS = 250
+# BewlyCat Radio.vue: thumb transform uses the emphasized easing token.
+SWITCH_TRANSITION_EASING = QEasingCurve(QEasingCurve.BezierSpline)
+SWITCH_TRANSITION_EASING.addCubicBezierSegment(QPointF(.34, 1.3), QPointF(.64, 1), QPointF(1, 1))
 
 
 def enabled() -> bool:

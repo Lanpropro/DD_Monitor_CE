@@ -64,8 +64,9 @@ def main() -> None:
     settle(app, 0.8)
 
     # 先切竖屏，再明确走一遍用户会操作到的「展开横栏」状态。
-    window.resize(900, 1000)
+    window.resize(900, 1400)
     settle(app, 0.6)
+    assert window.orientation == "portrait", "夹紧最小宽度后也必须确实进入竖屏，避免仅测横屏状态"
     window.sidebar.set_collapsed(True, animate=False)
     settle(app, 0.2)
     window.sidebar.set_collapsed(False, animate=False)

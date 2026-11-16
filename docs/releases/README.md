@@ -8,6 +8,8 @@
 
 ## 本体版本
 
+- [RELEASE-v0.7.3](RELEASE-v0.7.3.md)
+
 - [RELEASE-v0.1](RELEASE-v0.1.md)
 - [RELEASE-v0.2](RELEASE-v0.2.md)
 - [RELEASE-v0.3.1](RELEASE-v0.3.1.md)

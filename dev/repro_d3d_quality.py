@@ -93,7 +93,7 @@ def main():
 
         snapshot("BEFORE_QUALITY")
         target.set_controls_visible(True)
-        with patch("ddm.widgets.QMenu", OriginalMenu), \
+        with patch("ddm.tile_widgets.QMenu", OriginalMenu), \
                 patch.object(window, "start_tile", wraps=window.start_tile) as start:
             QTest.mouseClick(target.quality_button, Qt.LeftButton)
             print("QUALITY", "signals", spy.count(), "start_requests", start.call_count,

@@ -131,7 +131,18 @@ def main():
         assert proxy.network_speed() == (0, 0)  # 清单、密钥和小响应不充当测速
         large = segment.replace(segment.split("/")[-2],
             base64.urlsafe_b64encode((base + "/large.ts").encode()).decode())
+        capture_events = []
+        proxy.playback_diagnostic = lambda event, **values: capture_events.append((event, values))
         assert len(requests.get(large, timeout=3).content) == 65536
+        assert any(event == 'response' and fields['status'] == 200 for event, fields in capture_events)
+        assert sum(fields.get('bytes', 0) for event, fields in capture_events if event == 'chunk') == 65536
+        assert all(isinstance(value, (int, float)) for _, fields in capture_events for value in fields.values())
+        assert 'signature' not in str(capture_events) and 'transport stream' not in str(capture_events)
+        def broken_capture(*args, **kwargs):
+            raise RuntimeError('fixture observer failure')
+        proxy.playback_diagnostic = broken_capture
+        assert requests.get(segment, timeout=3).content == b'transport stream'
+        assert proxy.playback_diagnostic is None
         speed, count = proxy.network_speed()
         assert count == 1 and 0 < speed < 65536 * 8 / .14  # 首包及载荷等待都计入，不能高估网速
         with proxy._lock:

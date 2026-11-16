@@ -120,7 +120,7 @@ def install(probe):
     from .player import TilePlayer, mpv
     from .preview import HoverPreview
     from .video_surface import VideoSurface
-    from .widgets import Sidebar
+    from .sidebar_widgets import Sidebar
 
     events = StartupEvents(probe)
     application_type = app_module.QApplication
