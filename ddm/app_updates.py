@@ -231,8 +231,8 @@ class AppUpdates:
                 host._update_notice.set_transfer(key, state)
         center = host.sidebar.notification_button.center
         entry = center.add(' · '.join(parts), kind='update',
-            callback=lambda: host.open_settings('updates' if host._unread_app_update() else 'plugins'),
-            action='查看更新', key=('update', update_identity(app_offer) if app_offer else '',
+            callback=host._show_update_notice,
+            action='继续更新', key=('update', update_identity(app_offer) if app_offer else '',
                 tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
         host._update_notice.track_history((center, entry))
 

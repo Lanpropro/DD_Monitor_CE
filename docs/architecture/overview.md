@@ -210,7 +210,7 @@ SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过
 
 小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
 
-在线界面职责：`online_tasks.py` 工作线程与页面关闭后的退役清理；`plugin_downloads.py` 由主窗口持有插件下载／安装任务和状态，设置关闭后继续；`download_progress.py` 采样字节和速度，`update_progress_ui.py` 在通知、更新页和插件卡片显示进度及完成反馈，`ui/progress.py` 提供主题进度条。`plugin_store_ui.py` 插件商店；`plugin_details_ui.py` 卡片内详情展开和文本自适应高度，由卡片拥有并随外层列表滚动，复用原卡片底部操作组；`plugin_card_layout.py` 按筛选后顺序将卡片分入等宽独立列，分别计算高度，展开只推动本列；`app_update_ui.py` 软件更新页；`update_notice.py` 更新提示与标记；`result_notice.py` 用户结果通知；`update_offers.py` 版本提示数据。`online_ui.py` 保留旧导出和已有任务/通知替换入口，退役集合只保留一份。
+在线界面职责：`online_tasks.py` 工作线程与页面关闭后的退役清理；`plugin_downloads.py` 由主窗口持有插件下载／安装任务和状态，设置关闭后继续；`download_progress.py` 采样字节和速度，`update_progress_ui.py` 在通知、更新页和插件卡片显示进度及完成反馈，`ui/progress.py` 提供主题进度条。`plugin_store_ui.py` 插件商店；`plugin_details_ui.py` 卡片内详情展开和文本自适应高度，由卡片拥有并随外层列表滚动，复用原卡片底部操作组；`plugin_card_layout.py` 按筛选后顺序将卡片分入等宽独立列，分别计算高度，展开只推动本列；`app_update_ui.py` 软件更新页；`update_notice.py` 更新提示与标记；`result_notice.py` 用户结果通知；`update_offers.py` 版本提示数据。`update_errors.py` 将在线任务异常分类为可读失败原因，`update_progress_ui.py` 在原操作行显示换行反馈；关闭更新浮层仅标已读，通知中心保留恢复同一任务的入口。`online_ui.py` 保留旧导出和已有任务/通知替换入口，退役集合只保留一份。
 
 B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili_workers.py` 持有六种 Qt 取流/查询工作线程。`room_input.py` 提取分享文本及房间／个人主页身份，`bili_profile.py` 通过无账号公开接口将 UID 查询为真实房间号；查询只在现有 `InfoResolver` 工作线程执行，不持有配置或界面状态。工作线程在调用时读取原 API 模块，未复制凭据或函数引用，旧类导出与测试替换入口保持。
 

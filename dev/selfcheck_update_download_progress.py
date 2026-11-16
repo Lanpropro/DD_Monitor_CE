@@ -1,5 +1,6 @@
 """Offline regression: notification/settings share byte progress and update tasks."""
 from contextlib import ExitStack
+import errno
 import json
 import os
 from pathlib import Path
@@ -26,6 +27,7 @@ from ddm.plugins import PluginManager
 from ddm.settings_control import SettingsControl
 from ddm.update_notice import UpdateNotice
 from ddm.update_progress_ui import UpdateProgress
+from ddm.update_errors import error_message
 
 
 class Session:
@@ -116,6 +118,66 @@ class UpdateDownloadTests(unittest.TestCase):
                 id=key, name=key, description='Test', version=version, min_app_version='0.3')))
             archive.writestr(key + '/plugin.py', "raise RuntimeError('must not execute')")
         return path
+
+    def test_update_errors_explain_transport_http_storage_and_package_failures(self):
+        cases = [
+            (online.requests.exceptions.ChunkedEncodingError('IncompleteRead(131072 bytes read)'), '文件未接收完整'),
+            (online.requests.ConnectTimeout('private URL'), '连接服务器超时'),
+            (online.requests.ReadTimeout('private URL'), '传输数据超时'),
+            (online.requests.exceptions.ProxyError('private proxy'), '代理服务器'),
+            (online.requests.exceptions.SSLError('private certificate'), '安全连接验证失败'),
+            (online.requests.ConnectionError('private host'), '无法连接服务器'),
+            (OSError(errno.ENOSPC, 'private path'), '磁盘空间不足'),
+            (PermissionError(errno.EACCES, 'private path'), '无法写入更新文件'),
+            (zipfile.BadZipFile('private archive path'), '更新包损坏'),
+            (ValueError('安装包完整性校验失败，请重新下载'), '完整性校验失败'),
+            (online.requests.HTTPError('GitHub 查询额度暂时用尽，请稍后重试或打开发布页面'), '查询额度'),
+            (RuntimeError('private raw exception'), '更新操作未能完成')]
+        for status, phrase in ((403, '拒绝访问'), (404, '找不到此更新包'),
+                               (429, '请求次数'), (503, 'HTTP 503')):
+            response = online.requests.Response()
+            response.status_code = status
+            cases.append((online.requests.HTTPError('private signed URL', response=response), phrase))
+        for error, expected in cases:
+            with self.subTest(error=type(error).__name__, expected=expected):
+                message = error_message(error)
+                self.assertIn(expected, message)
+                self.assertNotIn('private', message)
+                self.assertNotIn('IncompleteRead', message)
+
+    def test_failed_reason_is_readable_without_hover_and_clears_on_retry(self):
+        surface = QWidget()
+        surface.resize(510, 160)
+        layout = QVBoxLayout(surface)
+        progress = UpdateProgress(surface, button=QPushButton('下载更新'))
+        layout.addWidget(progress)
+        surface.show()
+        message = error_message(online.requests.exceptions.ChunkedEncodingError('IncompleteRead(...)'))
+        state = dict(received=131072, total=12 * 1024 * 1024, percent=1,
+                     phase='failed', error=message)
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            progress.set_state(state)
+            self.app.processEvents()
+            self.assertTrue(progress.failure.isVisible())
+            self.assertIn('文件未接收完整', progress.failure.text())
+            self.assertIn('128.00 KB / 12.00 MB', progress.failure.text())
+            self.assertGreaterEqual(progress.failure.height(), progress.failure.heightForWidth(progress.failure.width()))
+            self.assertEqual(progress.button.text(), '重试')
+            self.assertFalse(progress.bar.isVisible())
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                surface.grab().save(str(Path(directory) / f'failure-{mode}.png'))
+        progress.set_state(dict(state, phase='downloading'))
+        self.app.processEvents()
+        self.assertFalse(progress.failure.isVisible())
+        self.assertTrue(progress.bar.isVisible())
+        progress.set_state(dict(state, phase='ready', percent=100))
+        self.assertFalse(progress.failure.isVisible())
+        surface.close()
+        surface.deleteLater()
+        theme.apply('dark')
 
     def test_sampling_reset_and_units(self):
         now = [0.0]
@@ -401,7 +463,7 @@ class UpdateDownloadTests(unittest.TestCase):
                 if cancelled():
                     raise InterruptedError('cancelled')
             if len(calls) == 1:
-                raise OSError('test connection lost')
+                raise online.requests.exceptions.ChunkedEncodingError('test connection lost')
             progress(4096, 4096)
             return str(archive)
 
@@ -423,7 +485,10 @@ class UpdateDownloadTests(unittest.TestCase):
                 gate.set()
                 self.wait_for(lambda: not downloads.jobs)
                 self.assertEqual(notice._update_rows[key][2].text(), '重试')
-                self.assertIn('test connection lost', notice._update_rows[key][1].details.toolTip())
+                self.assertIn('文件未接收完整', notice._update_rows[key][1].failure.text())
+                self.assertTrue(notice._update_rows[key][1].failure.isVisible())
+                reason = notice._update_rows[key][1].failure
+                self.assertGreaterEqual(reason.height(), reason.heightForWidth(reason.width()))
                 notice._update_rows[key][2].click()
                 self.wait_for(lambda: not downloads.jobs)
                 self.assertEqual(calls, [key, key])
@@ -569,15 +634,18 @@ class UpdateDownloadTests(unittest.TestCase):
 
     def test_preparation_error_is_visible_and_does_not_offer_restart(self):
         page = self.host._get_update_page({})
+        page.resize(1000, 600)
+        page.show()
         page._release_ready(dict(version='9.0', size=100))
         with patch.object(sys, 'frozen', True, create=True), patch.object(online, 'session', return_value=Session()), \
                 patch.object(online, 'download', return_value='test.zip'), \
-                patch.object(update_install, 'prepare', side_effect=ValueError('invalid update archive')):
+                patch.object(update_install, 'prepare', side_effect=ValueError('更新包版本与发布记录不一致')):
             page.download_update()
             self.wait_for(lambda: not page.jobs)
             self.assertEqual(page.download_state['phase'], 'failed')
-            self.assertIn('invalid update archive', page.download_progress.details.toolTip())
-            self.assertIn('invalid update archive', page.status.text())
+            self.assertIn('更新包版本与发布记录不一致', page.download_progress.failure.text())
+            self.assertTrue(page.download_progress.failure.isVisible())
+            self.assertIn('更新包版本与发布记录不一致', page.status.text())
             self.assertEqual(page.plan_path, '')
             self.assertEqual(self.host._update_notice._update_rows['app'][2].text(), '重试')
 

@@ -39,7 +39,7 @@ def progress_text(state):
     size = byte_text(state.get('received', 0)) + ' / ' + byte_text(state.get('total', 0))
     phase = state.get('phase')
     if phase == 'failed':
-        return size + ' · 下载失败：' + state['error'] + '。可重试。'
+        return size + ' · 下载失败：' + state['error']
     if phase == 'ready':
         return size + ' · 已就绪，重启后应用'
     if phase == 'verifying':

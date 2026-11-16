@@ -2,6 +2,7 @@
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from .download_progress import DownloadSample
+from .update_errors import error_message
 
 
 _retired_online_tasks = set()
@@ -56,7 +57,7 @@ class OnlineTask(QThread):
                 self.succeeded.emit((self, result))
         except Exception as error:
             if not self.isInterruptionRequested():
-                self.failed.emit((self, str(error)))
+                self.failed.emit((self, error_message(error)))
 
 
 class OnlinePage(QWidget):
@@ -98,7 +99,7 @@ class OnlinePage(QWidget):
             try:
                 task.callback(result)
             except Exception as error:
-                self._failed((task, str(error)))
+                self._failed((task, error_message(error)))
 
     def _failed(self, payload):
         if not self.stopping:
