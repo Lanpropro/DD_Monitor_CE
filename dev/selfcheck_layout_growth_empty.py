@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+import tempfile
 import time
 from unittest.mock import patch
 
@@ -22,7 +23,9 @@ def main():
     state = {"plugins_enabled": [], "settings": {"auto_quality": False,
              "recording_enabled": False, "recording_replay_enabled": False,
              "danmaku_enabled": False, "preview_on_hover": False}}
-    with patch("ddm.app.QTimer.singleShot"), patch.object(MainWindow, "sync_danmaku"), \
+    with tempfile.TemporaryDirectory(prefix="ddm-layout-plugins-") as plugins_dir, \
+            patch("ddm.plugins.DEFAULT_PLUGINS_DIR", plugins_dir), \
+            patch("ddm.app.QTimer.singleShot"), patch.object(MainWindow, "sync_danmaku"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"), \
             patch.object(MainWindow, "start_tile") as start:
         for layout in ("2x2", "dm_main3", "portrait_main2", "resize"):
