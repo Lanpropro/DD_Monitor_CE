@@ -310,7 +310,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_audio_hotplug](../selfcheck_audio_hotplug.py) | 单项执行前核对 |
 | [selfcheck_audio_owner](../selfcheck_audio_owner.py) | 单项执行前核对 |
 | [selfcheck_codec_control](../selfcheck_codec_control.py) | `offline` / `smoke`；全局继承/单格覆盖、重连延迟、原编码保留、旧对话框工厂/接线/状态及Qt销毁；不启动线程/媒体，不读账号 |
-| [selfcheck_stream_playback](../selfcheck_stream_playback.py) | `offline` / `smoke`；取流替换/迟到结果、暂停/关闭、播放器身份与动态接线、画质/登录失败及Qt父对象销毁；临时替身，不启动线程/媒体或联网 |
+| [selfcheck_stream_playback](../selfcheck_stream_playback.py) | `offline` / `smoke`；取流替换/迟到结果、暂停/关闭、播放器身份与动态接线、画质/登录失败、重连加载反馈及Qt父对象销毁；临时替身，不启动线程/媒体或联网 |
 | [selfcheck_media_sources](../selfcheck_media_sources.py) | `smoke`；私有媒体读取器的回环交付、独立消费者、取消/卸载及不阻塞界面；仅本机HTTP夹具，不读取账号或访问外网 |
 | [selfcheck_playback_recovery](../selfcheck_playback_recovery.py) | `offline` / `smoke`；退避、冻结、稳定播放、关闭收尾、主窗口兼容/插件事件、故障证据优先级及原因保留；临时替身 |
 | [selfcheck_playback_feedback](../selfcheck_playback_feedback.py) | `offline`；真实格子的故障提示居中、尺寸与恢复/换台/下播清理、协调器错误接线，无媒体/账号。`--native-feedback` 使用 Windows 屏外窗口检查浮层上传，不激活窗口、不移动鼠标 |

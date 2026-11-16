@@ -20,6 +20,8 @@ class TileState:
             controls.set_room(host.room)
         host.codec_probe_note = ""
         host.codec_reconnect_pending = False
+        host.reload_button.set_refreshing(False)
+        host.reload_button.setToolTip('重新连接这一路')
         host.video_danmaku.clear()
         host.clear_translation_caption()
         host.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位

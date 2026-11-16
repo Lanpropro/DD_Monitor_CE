@@ -67,6 +67,9 @@ class Tile(QObject):
         self.video = QObject(self)
         self.set_status, self.set_buffering, self.set_live = Mock(), Mock(), Mock()
         self.set_actual_quality, self.set_quality_options = Mock(), Mock()
+        self.reload_button, self.quality_button = Mock(), Mock()
+        self._quality_text = Mock(return_value='自动 · 720p')
+        self._layout_controls = Mock()
         self.isHidden = Mock(return_value=False)
 
     def set_paused(self, value):
@@ -209,6 +212,29 @@ class StreamPlaybackTests(unittest.TestCase):
                 pending.failed.emit('1001', 'fixture failure')
         self.host._play_on.assert_not_called()
         self.host.refresh_status.assert_not_called()
+
+    def test_resolving_feedback_stays_until_current_request_finishes(self):
+        self.host._play_on = Mock()
+        self.host.start_tile(self.tile)
+        first = self.host._resolvers[self.tile]
+        self.tile.reload_button.set_refreshing.assert_called_with(True)
+        self.tile.quality_button.setText.assert_called_with('获取画质…')
+        self.host.start_tile(self.tile)
+        second = self.host._resolvers[self.tile]
+        first.finished.emit()
+        self.tile.reload_button.set_refreshing.assert_called_with(True)
+        second.resolved.emit('1001', 'fixture:stream', 250, 'web', [])
+        self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.tile.quality_button.setText.assert_called_with('自动 · 720p')
+
+    def test_resolving_failure_and_unexpected_finish_clear_feedback(self):
+        self.host.start_tile(self.tile)
+        current = self.host._resolvers[self.tile]
+        current.failed.emit('1001', 'fixture failure')
+        self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.host.start_tile(self.tile)
+        self.host._resolvers[self.tile].finished.emit()
+        self.tile.reload_button.set_refreshing.assert_called_with(False)
 
     def test_resolved_pause_then_normal_result_uses_old_factory_and_headers(self):
         self.host._play_on = Mock()
