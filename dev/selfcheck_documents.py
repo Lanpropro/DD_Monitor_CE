@@ -3,7 +3,7 @@
 只读取 Git 已跟踪的 Markdown；不导入 Qt、不读取账号、不联网。
 """
 import ast
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 import re
 import subprocess
 import tempfile
@@ -24,6 +24,11 @@ METADATA = re.compile(
     r"｜ 更新：(?P<updated>\d{4}-\d{2}-\d{2}) ｜ 读者：(?P<readers>.+)$",
     re.MULTILINE,
 )
+
+
+def latest_calendar_date(now):
+    """Date-only metadata may be written ahead of a UTC CI runner."""
+    return now.astimezone(timezone(timedelta(hours=14))).date()
 
 
 def tracked(pattern="*.md"):
@@ -124,6 +129,16 @@ class DocumentStructureTests(unittest.TestCase):
             self.assertIn("missing anchor", local_link_error(page, "other.md#page"))
             self.assertIn("missing link target", local_link_error(page, "work/candidate.md"))
 
+    def test_metadata_calendar_accepts_timezone_boundary_but_rejects_future_dates(self):
+        for hour, minute, expected in ((9, 59, date(2026, 11, 16)),
+                                       (10, 0, date(2026, 11, 17)),
+                                       (17, 0, date(2026, 11, 17))):
+            instant = datetime(2026, 11, 16, hour, minute, tzinfo=timezone.utc)
+            with self.subTest(instant=instant):
+                latest = latest_calendar_date(instant)
+                self.assertEqual(latest, expected)
+                self.assertGreater(expected + timedelta(days=1), latest)
+
     def test_maintained_documents_have_valid_metadata(self):
         for path in maintained_documents():
             relative = path.relative_to(ROOT).as_posix()
@@ -138,7 +153,7 @@ class DocumentStructureTests(unittest.TestCase):
                 self.assertTrue(
                     version in ("全部版本", "不适用") or re.fullmatch(r"\d+\.\d+(\.x)?", version),
                     f"unexpected 适用版本: {version}")
-                self.assertLessEqual(date.fromisoformat(data["updated"]), date.today())
+                self.assertLessEqual(date.fromisoformat(data["updated"]), latest_calendar_date(datetime.now(timezone.utc)))
                 self.assertTrue(data["readers"])
 
     def test_every_tracked_document_is_reachable_from_the_index(self):

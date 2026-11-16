@@ -1,14 +1,18 @@
 """Plugin catalog browsing, details and install/update actions."""
 from pathlib import Path
-import tempfile
 import time
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from .plugin_card_layout import PluginCardLayout
 from . import config, online, plugin_updates, theme, version
-from .ui import SettingsSurface, ActionButton, AnimatedDialog, ElidedLabel, page_header
+from .ui import SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot
 from .update_offers import plugin_update_offers
 from .online_tasks import OnlinePage
+from .plugin_details_ui import PluginDetailsPanel
+
+# Compatibility export; details are now embedded widgets.
+PluginDetailsDialog = PluginDetailsPanel
 
 
 class PluginBrowserToolbar(QWidget):
@@ -41,78 +45,6 @@ class PluginBrowserToolbar(QWidget):
         layout.addLayout(filters)
 
 
-class PluginDetailsDialog(AnimatedDialog):
-    def __init__(self, page, offer, *, installed_entry=None):
-        super().__init__(page.window())
-        self.page, self.plugin_id = page, offer['id']
-        self.offer = dict(offer)
-        self.installed_entry = installed_entry
-        self.setWindowTitle('插件详情')
-        self.setAttribute(Qt.WA_DeleteOnClose)
-        self.resize(560, 440)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        author = str(offer.get('author') or '').strip().lstrip('@')
-        entry = installed_entry if installed_entry is not None else offer
-        subtitle = 'v' + str(entry.get('version') or '—') + (' · @' + author if author else '')
-        layout.addLayout(page_header(entry['name'], subtitle))
-        self.document = QTextBrowser(self)
-        self.document.setObjectName('UpdateNotes')
-        self.document.setOpenExternalLinks(False)
-        parts = [entry.get('description') or '暂无说明']
-        if installed_entry is not None:
-            parts.extend(('插件 ID：' + entry['id'], '状态：' + entry.get('status', ''),
-                          '本次选择：' + ('启用' if entry['enabled'] else '禁用') + '（保存后生效）'))
-            if entry.get('reason'):
-                parts.append(entry['reason'])
-        if offer.get('min_app_version'):
-            parts.append('需要主程序版本：' + offer['min_app_version'] + ' 或更高')
-        if offer.get('reason'):
-            parts.append(offer['reason'])
-        parts.extend(('更新日志 · v' + str(offer.get('version') or '—'),
-                      offer.get('notes') or '暂无更新日志'))
-        self.document.setPlainText('\n\n'.join(parts))
-        layout.addWidget(self.document, 1)
-        footer = QHBoxLayout()
-        close = ActionButton('关闭', self)
-        close.clicked.connect(self.reject)
-        footer.addWidget(close)
-        footer.addStretch()
-        self.action = ActionButton(parent=self)
-        self.action.setAutoDefault(False)
-        self.action.clicked.connect(self.install)
-        footer.addWidget(self.action)
-        layout.addLayout(footer)
-        store = page.store_page if installed_entry is not None else page
-        store.controlsChanged.connect(self.refresh_action)
-        if installed_entry is not None:
-            page.changed.connect(self.refresh_action)
-        self.refresh_action()
-
-    def refresh_action(self):
-        store = self.page.store_page if self.installed_entry is not None else self.page
-        buttons = self.page.update_buttons if self.installed_entry is not None else store.buttons
-        button = buttons.get(self.plugin_id)
-        if self.installed_entry is not None and (button is None or button.isHidden()):
-            self.action.setText('暂无更新' if self.plugin_id in self.page.checks else '插件已删除')
-            self.action.setEnabled(False)
-            return
-        current = next((offer for offer in store._display_offers if offer['id'] == self.plugin_id), {})
-        if any(current.get(key) != self.offer.get(key) for key in ('version', 'sha256', 'url')):
-            self.action.setText('目录已更新')
-            self.action.setEnabled(False)
-            self.action.setToolTip('请关闭并重新打开详情，查看最新版本')
-            return
-        self.action.setText(button.text() if button else '暂不可安装')
-        self.action.setEnabled(bool(button and button.isEnabled() and not store.stopping))
-
-    def install(self):
-        buttons = self.page.update_buttons if self.installed_entry is not None else self.page.buttons
-        button = buttons.get(self.plugin_id)
-        if button is not None:
-            button.click()
-
-
 class PluginStorePage(OnlinePage):
     installed = Signal(str)
     offersChanged = Signal(object)
@@ -121,9 +53,17 @@ class PluginStorePage(OnlinePage):
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.manager = manager
+        from .plugin_downloads import PluginDownloads
+        self.downloads = PluginDownloads(manager, self)
+        self._owns_downloads = True
+        self.downloads.changed.connect(self._download_changed)
+        self.downloads.installed.connect(self._installed)
+        self._progress_widgets = {}
         self.offers = []
         self.buttons = {}
         self._offer_cards = {}
+        self._detail_buttons = {}
+        self._details = {}
         self._display_offers = []
         self._installed_ids = set()
         self._update_ids = set()
@@ -149,11 +89,7 @@ class PluginStorePage(OnlinePage):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 4, 12)
-        self.cards = QGridLayout()
-        self.cards.setHorizontalSpacing(12)
-        self.cards.setVerticalSpacing(12)
-        self.cards.setColumnStretch(0, 1)
-        self.cards.setColumnStretch(1, 1)
+        self.cards = PluginCardLayout()
         content_layout.addLayout(self.cards)
         self.empty = QLabel('没有符合条件的插件，请尝试其他关键词或筛选条件。', content)
         self.empty.setObjectName('SettingsHint')
@@ -166,6 +102,7 @@ class PluginStorePage(OnlinePage):
         self.filter.currentIndexChanged.connect(self._filter_offers)
         self.sort.currentIndexChanged.connect(self._filter_offers)
         self._filter_offers()
+        self.scroll.viewport().installEventFilter(self)
         self.busyChanged.connect(self._busy)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(online.CATALOG_CHECK_SECONDS * 1000)
@@ -199,9 +136,46 @@ class PluginStorePage(OnlinePage):
         for plugin_id, button in self.buttons.items():
             task = running.get(plugin_id)
             button.setEnabled(bool(button.property('storeEnabled')) and not reading and task is None)
-            button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
+            button.setText(('校验/解压中' if task.percent >= 100 else '下载中…')
                            if task else button.property('storeText'))
+            state = self.downloads.states.get(plugin_id)
+            progress = self._progress_widgets.get(plugin_id)
+            if state and progress:
+                progress.set_state(state)
         self.controlsChanged.emit()
+
+    @property
+    def jobs(self):
+        downloads = getattr(self, 'downloads', None)
+        return self._jobs + downloads.jobs if downloads and downloads.jobs else self._jobs
+
+    def set_downloads(self, downloads):
+        self.downloads.changed.disconnect(self._download_changed)
+        self.downloads.installed.disconnect(self._installed)
+        self.downloads.deleteLater()
+        self.downloads = downloads
+        self._owns_downloads = False
+        downloads.changed.connect(self._download_changed)
+        downloads.installed.connect(self._installed)
+        self._busy(bool(self.jobs))
+
+    def _download_changed(self, plugin_id):
+        if self.stopping:
+            return
+        self._busy(bool(self.jobs))
+        self.busyChanged.emit(bool(self.jobs))
+        state = self.downloads.states[plugin_id]
+        if state['phase'] == 'failed':
+            self.status.setText('下载失败：' + state['error'])
+
+    def stop(self):
+        if self.stopping:
+            return
+        self.downloads.changed.disconnect(self._download_changed)
+        self.downloads.installed.disconnect(self._installed)
+        if self._owns_downloads:
+            self.downloads.stop()
+        super().stop()
 
     def _progress(self, percent):
         if self.stopping:
@@ -232,12 +206,16 @@ class PluginStorePage(OnlinePage):
         self.offersChanged.emit(self.offers)
 
     def show_offers(self, offers):
+        expanded = [key for key, button in self._detail_buttons.items() if button.isChecked()]
         while self.cards.count():
             self.cards.takeAt(0)
         for card in self._offer_cards.values():
             card.deleteLater()
         self.buttons = {}
+        self._progress_widgets = {}
         self._offer_cards = {}
+        self._detail_buttons = {}
+        self._details = {}
         self._display_offers = [dict(offer) for offer in offers]
         installed = {entry['id']: entry for entry in self.manager.catalog()} if self.manager else {}
         self._installed_ids = set(installed)
@@ -246,12 +224,15 @@ class PluginStorePage(OnlinePage):
         for offer in offers:
             card = SettingsSurface()
             card.setObjectName('PluginCard')
-            body = QHBoxLayout(card)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+            body = QVBoxLayout(card)
+            body.setSizeConstraint(QLayout.SetMinimumSize)
+            body.setAlignment(Qt.AlignTop)
             body.setContentsMargins(14, 10, 14, 10)
             body.setSpacing(12)
             summary = QVBoxLayout()
             summary.setSpacing(4)
-            body.addLayout(summary, 1)
+            body.addLayout(summary)
             title = ElidedLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else ''))
             title.setObjectName('PluginName')
             title.setTextFormat(Qt.PlainText)
@@ -292,10 +273,12 @@ class PluginStorePage(OnlinePage):
             hint.setTextFormat(Qt.PlainText)
             hint.setToolTip(note)
             footer = QHBoxLayout()
-            details = ActionButton('详情', card)
+            details = DisclosureButton(card)
+            details.setText('详情')
             details.setObjectName('PluginDetailsButton')
             details.setAccessibleName('查看 ' + offer['name'] + ' 的详情')
-            details.clicked.connect(lambda _checked=False, entry=offer: self.show_details(entry))
+            details.toggled.connect(lambda checked, entry=offer: self._toggle_details(entry, checked))
+            self._detail_buttons[offer['id']] = details
             footer.addWidget(hint, 1)
             author = str(offer.get('author') or '').strip().lstrip('@')
             if author:
@@ -307,15 +290,21 @@ class PluginStorePage(OnlinePage):
                 credit.setStyleSheet(f'color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px;')
                 footer.addWidget(credit, 0, Qt.AlignRight | Qt.AlignBottom)
             summary.addLayout(footer)
-            actions = QVBoxLayout()
-            actions.setSpacing(2)
-            actions.addWidget(button)
+            from .update_progress_ui import UpdateProgress
+            progress = UpdateProgress(card, button=button)
+            self._progress_widgets[offer['id']] = progress
+            actions = QHBoxLayout()
+            actions.setSpacing(8)
+            actions.addWidget(progress, 1)
             actions.addWidget(details)
             body.addLayout(actions)
             self._offer_cards[offer['id']] = card
             self.cards.addWidget(card)
         self._filter_offers()
         self.update_dots()
+        for key in expanded:
+            if key in self._detail_buttons:
+                self._detail_buttons[key].setChecked(True)
 
     def _filter_offers(self, *_args, reset_scroll=True):
         terms = self.search.text().casefold().split()
@@ -338,17 +327,41 @@ class PluginStorePage(OnlinePage):
         position = self.scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
-        for index, offer in enumerate(visible):
-            self.cards.addWidget(self._offer_cards[offer['id']], index // 2, index % 2)
+        minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 220
+        columns = 2 if self.scroll.viewport().width() >= minimum * 2 + self.cards.spacing() else 1
+        self.cards.set_columns(columns)
+        for offer in visible:
+            self.cards.addWidget(self._offer_cards[offer['id']])
         self.count.setText(f'{len(visible)} / {len(self._display_offers)} 个插件')
         self.empty.setVisible(not visible)
         self.scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
 
+    def eventFilter(self, watched, event):
+        if watched is self.scroll.viewport() and event.type() == QEvent.Resize:
+            if event.size().width() != event.oldSize().width():
+                self._filter_offers(reset_scroll=False)
+        return super().eventFilter(watched, event)
+
     def show_details(self, offer):
-        dialog = PluginDetailsDialog(self, offer)
-        dialog.setWindowModality(Qt.WindowModal)
-        dialog.open()
-        return dialog
+        self._detail_buttons[offer['id']].setChecked(True)
+        return self._details[offer['id']]
+
+    def _toggle_details(self, offer, expanded):
+        key = offer['id']
+        button = self._detail_buttons[key]
+        button.setText('收起' if expanded else '详情')
+        if expanded and key not in self._details:
+            card = self._offer_cards[key]
+            panel = PluginDetailsPanel(self, offer, parent=card)
+            panel.collapsed.connect(lambda: button.setChecked(False))
+            card.layout().insertWidget(1, panel)
+            self._details[key] = panel
+        panel = self._details.get(key)
+        if panel is not None:
+            if expanded:
+                panel.refresh_action()
+            panel.setVisible(expanded)
+            panel.updateGeometry()
 
     def update_dots(self):
         unread = {offer['id'] for offer in plugin_update_offers(self.manager, self.offers)
@@ -365,23 +378,13 @@ class PluginStorePage(OnlinePage):
         if button is not None and button.hasFocus():
             button.clearFocus()  # Disabling a focused button otherwise scrolls to the next card.
         self.status.setText('正在下载安装包…')
-        def install(cancelled, progress):
-            with tempfile.TemporaryDirectory(prefix='ddm-plugin-download-') as temporary, online.session() as client:
-                archive = online.download(offer, Path(temporary) / 'plugin.zip', client, cancelled, progress)
-                if cancelled():
-                    raise InterruptedError('安装已取消')
-                new = offer['id'] not in {entry['id'] for entry in self.manager.catalog()}
-                return plugin_updates.install(self.manager, archive, offer), new
-        self.start(install, self._installed, key=offer['id'])
+        self.downloads.start(offer)
 
     def _installed(self, result):
         from .online_ui import show_result
         plugin_id, new = result
         self._installed_ids.add(plugin_id)
         self._update_ids.discard(plugin_id)
-        if new and self.manager.enabled is not None:
-            self.manager.enabled.add(plugin_id)
-            self.manager.save_plugin_settings()
         self.installed.emit(plugin_id)
         button = self.buttons.get(plugin_id)
         if button is not None:

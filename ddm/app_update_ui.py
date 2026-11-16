@@ -15,6 +15,7 @@ from .online_tasks import OnlinePage
 class AppUpdatePage(OnlinePage):
     releaseChecked = Signal(object)
     saveRequested = Signal()
+    transferChanged = Signal(object)
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -22,6 +23,7 @@ class AppUpdatePage(OnlinePage):
         self._checked = False
         self.plan_path = ''
         self.install_requested = False
+        self.download_state = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         self.scroll = QScrollArea(self)
@@ -51,8 +53,9 @@ class AppUpdatePage(OnlinePage):
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
         actions.addWidget(self.check)
-        actions.addWidget(self.action)
-        actions.addStretch(1)
+        from .update_progress_ui import UpdateProgress
+        self.download_progress = UpdateProgress(self, button=self.action, alignment=Qt.AlignLeft)
+        actions.addWidget(self.download_progress, 1)
         layout.addLayout(actions)
         layout.addWidget(self.status)
         self.notes_title = QLabel('当前版本 ' + version.VERSION + ' 更新说明')
@@ -166,7 +169,7 @@ class AppUpdatePage(OnlinePage):
             self.status.setText('发现新版 ' + release_label(offer) + '；源码版请从仓库更新，EXE 版可自动安装。')
 
     def download_update(self):
-        if not getattr(sys, 'frozen', False):
+        if self.jobs or self.stopping or not getattr(sys, 'frozen', False):
             return
         if self.plan_path:
             self.install_requested = True
@@ -175,6 +178,8 @@ class AppUpdatePage(OnlinePage):
         if not self.offer:
             return
         offer = dict(self.offer)
+        self._transfer_progress(dict(received=0, total=offer.get('size', 0), speed=0,
+                                     percent=0, phase='downloading'))
         self.status.setText('正在下载新版软件…')
         def prepare(cancelled, progress):
             with tempfile.TemporaryDirectory(prefix='ddm-app-download-') as temporary, online.session() as client:
@@ -183,9 +188,24 @@ class AppUpdatePage(OnlinePage):
                                               data_root=config.data_root(), expected_revision=offer.get('revision', 0))
         self.start(prepare, self._prepared)
 
+    def _transfer_progress(self, state):
+        self.download_state = dict(state)
+        self.download_progress.set_state(state)
+        self.transferChanged.emit(self.download_state)
+
+    def _progress(self, percent):
+        if not self.stopping:
+            self.status.setText('正在校验并准备更新…' if percent >= 100 else '正在下载更新包…')
+
+    def _failed(self, payload):
+        super()._failed(payload)
+        if self.download_state:
+            self._transfer_progress(dict(self.download_state, phase='failed', error=payload[1]))
+
     def _prepared(self, plan_path):
-        self.plan_path = plan_path
-        self.action.setText('重启并更新')
         plan = json.loads(Path(plan_path).read_text(encoding='utf-8'))
+        self.plan_path = plan_path
+        self._transfer_progress(dict(self.download_state, phase='ready', percent=100))
+        self.action.setText('重启并更新')
         permission = ' 更新程序文件时将请求管理员授权；取消授权会保留原版本。' if plan.get('elevate') else ''
         self.status.setText('下载和校验完成。点击重启并更新，将先保存设置并收尾录制。' + permission)

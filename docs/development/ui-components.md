@@ -30,6 +30,7 @@
 | `DisclosureButton` | 页内展开条，统一焦点、按下、圆角与箭头绘制 | `ddm/ui/disclosure.py`；Qt 持有勾选值，固定控件高度 |
 | `SettingsSurface` | 设置卡片的半透明渐变、高光和静态背景模糊缓存 | `ddm/ui/settings_surface.py`；供分组、通知及插件卡片复用 |
 | `SelectControl` | 选项较多时使用的紧凑下拉，Qt 负责选择模型、弹层定位和键盘操作 | `ddm/ui/select.py`；沿用 `QComboBox` 的数据与信号接口 |
+| `SettingsProgressBar` | 更新下载进度条，沿用主题色、轨道和连续圆角，保留 Qt 数值与可访问性接口 | `ddm/ui/progress.py` |
 
 原有组件通过统一入口导出同一个类/函数对象，仍在原模块维护，不复制实现。原导入路径继续有效。播放器相关组件保留原有宿主、信号、原生窗口和生命周期要求，不是脱离业务上下文的通用播放框架。
 

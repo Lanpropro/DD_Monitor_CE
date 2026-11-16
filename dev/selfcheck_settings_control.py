@@ -63,6 +63,7 @@ class Process(QObject):
 
 class UpdatePage(QObject):
     releaseChecked = Signal(object)
+    transferChanged = Signal(object)
 
     def __init__(self, settings, parent):
         super().__init__(parent)
@@ -90,6 +91,7 @@ class Host(QObject):
         self.poll_interval_ms = lambda: 60000
         self.current_state = lambda: deepcopy(self.state)
         self.settings_control = SettingsControl(self)
+        self.app_updates = SimpleNamespace(app_transfer_changed=Mock(), plugin_downloads=Mock())
 
 
 for name in ('_open_sidebar_settings', '_sc_preview_context', '_get_settings_process',
@@ -236,8 +238,10 @@ class SettingsControlTests(unittest.TestCase):
         class Store(QObject):
             offersChanged = Signal(object)
         store = Store(host)
+        store.set_downloads = Mock()
         store._catalog_ready = Mock()
         dialog.pageCreated.emit(1, SimpleNamespace(store_page=store))
+        store.set_downloads.assert_called_once_with(host.app_updates.plugin_downloads.return_value)
         store._catalog_ready.assert_called_once_with(host._plugin_catalog_offers)
         store.offersChanged.emit([])
         host._set_plugin_updates.assert_called_once_with([])
