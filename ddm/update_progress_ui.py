@@ -8,7 +8,7 @@ from .ui import ElidedLabel, SettingsProgressBar
 
 
 class UpdateProgress(QWidget):
-    def __init__(self, parent=None, *, button=None):
+    def __init__(self, parent=None, *, button=None, alignment=Qt.AlignRight):
         super().__init__(parent)
         self.button = button
         self._idle_icon = button.icon() if button is not None else QIcon()
@@ -29,8 +29,11 @@ class UpdateProgress(QWidget):
             idle = QWidget(self)
             actions = QHBoxLayout(idle)
             actions.setContentsMargins(0, 0, 0, 0)
-            actions.addStretch(1)
+            if alignment == Qt.AlignRight:
+                actions.addStretch(1)
             actions.addWidget(button)
+            if alignment == Qt.AlignLeft:
+                actions.addStretch(1)
             self.stack.addWidget(idle)
             self.stack.addWidget(self.track)
             self.setMinimumHeight(theme.CONTROL_HEIGHT)

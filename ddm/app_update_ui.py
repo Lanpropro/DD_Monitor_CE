@@ -54,7 +54,7 @@ class AppUpdatePage(OnlinePage):
         actions = QHBoxLayout()
         actions.addWidget(self.check)
         from .update_progress_ui import UpdateProgress
-        self.download_progress = UpdateProgress(self, button=self.action)
+        self.download_progress = UpdateProgress(self, button=self.action, alignment=Qt.AlignLeft)
         actions.addWidget(self.download_progress, 1)
         layout.addLayout(actions)
         layout.addWidget(self.status)

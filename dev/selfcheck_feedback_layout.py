@@ -41,8 +41,7 @@ def main():
         assert installed.width() == store.width(), (size, store.size())
         assert installed.layout().contentsMargins() == store.layout().contentsMargins()
         assert installed.layout().spacing() == store.layout().spacing() == 12
-        assert page.cards.horizontalSpacing() == page.store_page.cards.horizontalSpacing() == 12
-        assert page.cards.verticalSpacing() == page.store_page.cards.verticalSpacing() == 12
+        assert page.cards.spacing() == page.store_page.cards.spacing() == 12
         assert installed.findChild(QLabel, "PluginName").font() == store.findChild(QLabel, "PluginName").font()
         page.store_page.stop()
         owner.close()

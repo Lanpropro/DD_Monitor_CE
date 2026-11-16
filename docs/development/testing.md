@@ -10,6 +10,8 @@
 
 `selfcheck_add_room_hints` 的主窗口构造出现 Qt 类型异常；独立进程复核后仍有失败，原始记录保留在本机检查日志。本次只更新其能力文案断言，不将该专项纳入自动套件，也不据此认定 Qt 异常已修复；主页识别的19项回归与文件夹整合结果分别记录。
 
+更新界面布局验收：运行根 `run.cmd --preview-updates`，在软件更新页检查下载前、下载中、完成和失败重试的控件起点保持靠左。插件页在已安装及商店中展开左列详情，右列卡片的位置和高度应保持；只有左列后续卡片下移，收起后恢复。原操作按钮整组显示在详情下方，顺序和对齐保持，不再重复出现左右两端按钮；缩窄窗口后单列排列、筛选和排序继续可用。自动回归 `selfcheck_update_download_progress` 覆盖这些几何约束，不能替代真实窗口观感验收。
+
 ## 导读
 
 实时翻译候选使用根 `run.cmd --accept-live-translate`，从本机 `work/live-translate-acceptance/candidate.json` 指定的已校验源码包及已有模型启动。该入口将数据、插件和设置固定到候选摘要对应的独立目录，不读取日常账号或覆盖安装副本。首次打开设置不下载模型；源码包依赖用户显式准备或选择已有环境。`--accept-live-translate --smoke` 检查实际装载与隔离，未进行实播或推理。宿主字幕回归为 `selfcheck_video_caption`，隔离边界回归为 `selfcheck_live_translate_acceptance`；识别、翻译与全链路检查由插件仓库专项承担。

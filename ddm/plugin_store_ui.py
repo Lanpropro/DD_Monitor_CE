@@ -1,8 +1,9 @@
 """Plugin catalog browsing, details and install/update actions."""
 from pathlib import Path
 import time
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from .plugin_card_layout import PluginCardLayout
 from . import config, online, plugin_updates, theme, version
 from .ui import SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot
@@ -88,11 +89,7 @@ class PluginStorePage(OnlinePage):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 4, 12)
-        self.cards = QGridLayout()
-        self.cards.setHorizontalSpacing(12)
-        self.cards.setVerticalSpacing(12)
-        self.cards.setColumnStretch(0, 1)
-        self.cards.setColumnStretch(1, 1)
+        self.cards = PluginCardLayout()
         content_layout.addLayout(self.cards)
         self.empty = QLabel('没有符合条件的插件，请尝试其他关键词或筛选条件。', content)
         self.empty.setObjectName('SettingsHint')
@@ -105,6 +102,7 @@ class PluginStorePage(OnlinePage):
         self.filter.currentIndexChanged.connect(self._filter_offers)
         self.sort.currentIndexChanged.connect(self._filter_offers)
         self._filter_offers()
+        self.scroll.viewport().installEventFilter(self)
         self.busyChanged.connect(self._busy)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(online.CATALOG_CHECK_SECONDS * 1000)
@@ -330,17 +328,19 @@ class PluginStorePage(OnlinePage):
         while self.cards.count():
             self.cards.takeAt(0)
         minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 220
-        columns = 2 if self.scroll.viewport().width() >= minimum * 2 + self.cards.horizontalSpacing() else 1
-        self.cards.setColumnStretch(1, 1 if columns == 2 else 0)
-        for index, offer in enumerate(visible):
-            self.cards.addWidget(self._offer_cards[offer['id']], index // columns, index % columns)
+        columns = 2 if self.scroll.viewport().width() >= minimum * 2 + self.cards.spacing() else 1
+        self.cards.set_columns(columns)
+        for offer in visible:
+            self.cards.addWidget(self._offer_cards[offer['id']])
         self.count.setText(f'{len(visible)} / {len(self._display_offers)} 个插件')
         self.empty.setVisible(not visible)
         self.scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._filter_offers(reset_scroll=False)
+    def eventFilter(self, watched, event):
+        if watched is self.scroll.viewport() and event.type() == QEvent.Resize:
+            if event.size().width() != event.oldSize().width():
+                self._filter_offers(reset_scroll=False)
+        return super().eventFilter(watched, event)
 
     def show_details(self, offer):
         self._detail_buttons[offer['id']].setChecked(True)
@@ -354,7 +354,7 @@ class PluginStorePage(OnlinePage):
             card = self._offer_cards[key]
             panel = PluginDetailsPanel(self, offer, parent=card)
             panel.collapsed.connect(lambda: button.setChecked(False))
-            card.layout().addWidget(panel)
+            card.layout().insertWidget(1, panel)
             self._details[key] = panel
         panel = self._details.get(key)
         if panel is not None:

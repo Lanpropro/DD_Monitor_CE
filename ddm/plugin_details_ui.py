@@ -1,8 +1,6 @@
 """Card-owned plugin details; the outer plugin list owns scrolling."""
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout
-from .ui import ActionButton
-from .update_progress_ui import UpdateProgress
+from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout
 
 
 class PluginDetailsPanel(QFrame):
@@ -32,16 +30,6 @@ class PluginDetailsPanel(QFrame):
         self._fit_timer.timeout.connect(self._fit_document)
         self.document.installEventFilter(self)
         layout.addWidget(self.document)
-        footer = QHBoxLayout()
-        close = ActionButton('收起详情', self)
-        close.clicked.connect(self.close)
-        footer.addWidget(close)
-        self.action = ActionButton(parent=self)
-        self.action.setAutoDefault(False)
-        self.action.clicked.connect(self.install)
-        self.download_progress = UpdateProgress(self, button=self.action)
-        footer.addWidget(self.download_progress, 1)
-        layout.addLayout(footer)
         store = page.store_page if installed_entry is not None else page
         store.controlsChanged.connect(self.refresh_action)
         if installed_entry is not None:
@@ -75,23 +63,6 @@ class PluginDetailsPanel(QFrame):
         if self.document.text() != text:
             self.document.setText(text)
             self._fit_timer.start(0)
-        state = store.downloads.states.get(self.plugin_id)
-        if state:
-            self.download_progress.set_state(state)
-        buttons = self.page.update_buttons if self.installed_entry is not None else store.buttons
-        button = buttons.get(self.plugin_id)
-        if self.installed_entry is not None and (button is None or button.isHidden()):
-            self.action.setText('暂无更新' if self.plugin_id in self.page.checks else '插件已删除')
-            self.action.setEnabled(False)
-            return
-        self.action.setText(button.text() if button else '暂不可安装')
-        self.action.setEnabled(bool(button and button.isEnabled() and not store.stopping))
-
-    def install(self):
-        buttons = self.page.update_buttons if self.installed_entry is not None else self.page.buttons
-        button = buttons.get(self.plugin_id)
-        if button is not None:
-            button.click()
 
     def closeEvent(self, event):
         self.collapsed.emit()

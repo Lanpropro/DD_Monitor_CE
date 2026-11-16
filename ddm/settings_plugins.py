@@ -1,10 +1,11 @@
 """Settings plugins; owned page implementations with legacy exports in dialogs."""
 import zipfile
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
+from .plugin_card_layout import PluginCardLayout
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
 from .ui import SettingsSurface, DisclosureButton, ElidedLabel, page_header as _page_head
@@ -85,12 +86,8 @@ class PluginSettingsPage(QWidget):
         content = QWidget()
         installed_layout = QVBoxLayout(content)
         installed_layout.setContentsMargins(0, 0, 4, 12)
-        self.cards = QGridLayout()
+        self.cards = PluginCardLayout()
         self.cards.setContentsMargins(0, 0, 0, 0)
-        self.cards.setHorizontalSpacing(12)
-        self.cards.setVerticalSpacing(12)
-        self.cards.setColumnStretch(0, 1)
-        self.cards.setColumnStretch(1, 1)
         installed_layout.addLayout(self.cards)
         self.empty = QLabel('未发现插件。可装载 ZIP 插件包', content)
         self.empty.setObjectName('SettingsHint')
@@ -118,6 +115,7 @@ class PluginSettingsPage(QWidget):
         self.store_page.controlsChanged.connect(self._sync_update_buttons)
         self._show_update_notes(self.store_page.offers)
         layout.addWidget(self.tabs, 1)
+        self.installed_scroll.viewport().installEventFilter(self)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -214,18 +212,20 @@ class PluginSettingsPage(QWidget):
         while self.cards.count():
             self.cards.takeAt(0)
         minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 280
-        columns = 2 if self.installed_scroll.viewport().width() >= minimum * 2 + self.cards.horizontalSpacing() else 1
-        self.cards.setColumnStretch(1, 1 if columns == 2 else 0)
-        for index, entry in enumerate(visible):
-            self.cards.addWidget(self._installed_cards[entry['id']], index // columns, index % columns)
+        columns = 2 if self.installed_scroll.viewport().width() >= minimum * 2 + self.cards.spacing() else 1
+        self.cards.set_columns(columns)
+        for entry in visible:
+            self.cards.addWidget(self._installed_cards[entry['id']])
         self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
         self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
         self.empty.setVisible(not visible)
         self.installed_scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._filter_installed(reset_scroll=False)
+    def eventFilter(self, watched, event):
+        if watched is self.installed_scroll.viewport() and event.type() == QEvent.Resize:
+            if event.size().width() != event.oldSize().width():
+                self._filter_installed(reset_scroll=False)
+        return super().eventFilter(watched, event)
 
     def _installed_selection_changed(self):
         self._filter_installed(reset_scroll=False)
@@ -245,7 +245,7 @@ class PluginSettingsPage(QWidget):
             card = self._installed_cards[plugin_id]
             panel = PluginDetailsPanel(self, offer, installed_entry=entry, parent=card)
             panel.collapsed.connect(lambda: button.setChecked(False))
-            card.layout().addWidget(panel)
+            card.layout().insertWidget(1, panel)
             self._details[plugin_id] = panel
         panel = self._details.get(plugin_id)
         if panel is not None:
@@ -328,8 +328,7 @@ class PluginSettingsPage(QWidget):
         actions.addWidget(remove)
         body.addLayout(actions)
         self.card_details[entry["id"]] = (description, status, entry['description'])
-        index = self.cards.count()
-        self.cards.addWidget(card, index // 2, index % 2)
+        self.cards.addWidget(card)
 
     def _remove(self, plugin_id, card):
         if self.manager is None:
