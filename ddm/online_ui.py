@@ -556,6 +556,11 @@ class PluginStorePage(OnlinePage):
         plugin_id, new = result
         self._installed_ids.add(plugin_id)
         self._update_ids.discard(plugin_id)
+        if new:
+            from .plugins import read_manifest
+            from .plugin_replacements import inherit_settings
+            inherit_settings(self.manager, plugin_id, read_manifest(
+                str(Path(self.manager.plugins_dir) / plugin_id), plugin_id))
         if new and self.manager.enabled is not None:
             self.manager.enabled.add(plugin_id)
             self.manager.save_plugin_settings()

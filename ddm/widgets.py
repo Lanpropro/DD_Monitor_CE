@@ -2143,7 +2143,7 @@ class NavItem(QFrame):
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
         platform = room.get("platform") or str(room.get("room_id", "")).partition(":")[0]
-        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}
+        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube", "chzzk": "CHZZK"}
         label = "B站" if str(room.get("room_id", "")).isdigit() else labels.get(platform, platform)
         if str(room.get("room_id", "")).isdigit():
             platform = "bilibili"

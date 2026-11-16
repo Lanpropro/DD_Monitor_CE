@@ -261,6 +261,7 @@
 | [selfcheck_plugin_notices](../selfcheck_plugin_notices.py) | `offline` |
 | [selfcheck_plugins](../selfcheck_plugins.py) | 单项执行前核对 |
 | [selfcheck_plugin_contract](../selfcheck_plugin_contract.py) | `smoke`；临时插件的装载、事件、平台注册与卸载 |
+| [selfcheck_plugin_replacements](../selfcheck_plugin_replacements.py) | 单项执行；临时安装包和内存设置，迁移、独立禁用、设置继承与失败清理，不读取真实账号 |
 | [selfcheck_release_metadata](../selfcheck_release_metadata.py) | `offline` |
 | [selfcheck_hotfix_updates](../selfcheck_hotfix_updates.py) | `smoke` / `offline`；同版本修订号、hotfix 标签、包校验与回滚；根入口 `run.cmd --check-hotfix-updates` |
 | [selfcheck_update_install](../selfcheck_update_install.py) | 单项执行；临时更新目录验证回滚、目标访问检查、有限重试和失败记录的版本归属；Windows 下只读检查运行中的 Python 映像并使用临时文件句柄验证占用；不操作真实安装。根目录 `run.cmd --check-update-install` 联合执行更新、安装脚本、更新页和设置进程回归 |

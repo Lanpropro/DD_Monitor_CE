@@ -20,6 +20,7 @@ if not exist "%PY%" goto nopy
 set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
+if /i "%~1"=="--check-plugin-replacements" goto pluginReplacementsCheck
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
@@ -284,3 +285,11 @@ call flutter.bat run
 set "MOBILE_EXIT=%ERRORLEVEL%"
 popd
 exit /b %MOBILE_EXIT%
+
+:pluginReplacementsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "QT_QPA_PLATFORM=offscreen"
+set "DDM_CHECK_MODE=offline"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_plugin_replacements.py"
+exit /b %errorlevel%

@@ -69,6 +69,15 @@ def read_manifest(folder: str, expected_id: str) -> dict | None:
     for field in ("name", "description", "version"):
         if not isinstance(data.get(field), str) or not data[field].strip():
             raise ValueError(f"plugin.json 缺少非空字符串 {field}")
+    for key in ('platforms', 'replaces_platforms', 'inherit_settings'):
+        if key in data and (not isinstance(data[key], list) or
+                not all(isinstance(value, str) and value and '\n' not in value for value in data[key]) or
+                len(set(data[key])) != len(data[key])):
+            raise ValueError(f'plugin.json 的 {key} 必须是不重复的非空字符串列表')
+    if 'replaces' in data and (not isinstance(data['replaces'], str) or
+            not PLUGIN_ID.fullmatch(data['replaces']) or data['replaces'] == expected_id or
+            not data.get('platforms')):
+        raise ValueError('plugin.json 的 replaces 必须指向其他插件并声明 platforms')
     if 'skin' in data:
         from types import SimpleNamespace
         from .skins import plugin_skin
@@ -355,6 +364,10 @@ class PluginContext:
     def platform(self, kind: str) -> Platform | None:
         return self._manager.platforms.get(str(kind))
 
+    def platform_replaced(self, kind: str) -> bool:
+        """Installed replacement owns this kind, including when explicitly disabled."""
+        return str(kind) in getattr(self._manager, "_platform_replacements", {}).get(self.name, ())
+
     def log(self, message: str) -> None:
         print(f"[插件 {self.name}] {message}", file=sys.stderr, flush=True)
 
@@ -451,7 +464,10 @@ class PluginManager:
             if old in self.plugin_settings:
                 previous = self.plugin_settings.pop(old)
                 self.plugin_settings[new] = {**previous, **self.plugin_settings.get(new, {})}
-        for entry in sorted(os.listdir(self.plugins_dir)):
+        from .plugin_replacements import prepare
+        for entry in prepare(self, read_manifest):
+            if entry in self._replaced_plugins:
+                continue
             if entry.startswith((".", "_")) or entry in RETIRED_BUNDLED_PLUGINS:
                 continue
             if entry in RENAMED_PLUGINS and os.path.isfile(os.path.join(
@@ -463,6 +479,9 @@ class PluginManager:
                 continue
             if self.enabled is not None and entry not in self.enabled:
                 self.skipped.append((entry, "配置里没有启用"))
+                continue
+            if entry in self._blocked_replacements:
+                self.skipped.append((entry, "请先更新旧组合插件，或安装该组合的全部独立平台插件"))
                 continue
             try:
                 manifest = read_manifest(folder, entry)
@@ -489,6 +508,9 @@ class PluginManager:
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
                 context._active = False
+                for kind in [kind for kind, owner in self._platform_owner.items() if owner == entry]:
+                    self.platforms.pop(kind, None)
+                    self._platform_owner.pop(kind, None)
                 self._remove_tile_owner(entry)
                 context._clear_workspace_controls()
                 try:
@@ -630,6 +652,8 @@ class PluginManager:
                 with open(inventory, 'w', encoding='utf-8-sig') as output:
                     output.write('\n'.join(sorted('/'.join(parts[1:]) for parts in names)) + '\n')
                 replace_directory(os.path.join(staging, plugin_id), target)
+        from .plugin_replacements import inherit_settings
+        inherit_settings(self, plugin_id, read_manifest(target, plugin_id))
         if self.enabled is not None:
             self.enabled.add(plugin_id)
             self.save_plugin_settings()
@@ -670,6 +694,8 @@ class PluginManager:
         skipped = dict(self.skipped)
         entries = []
         for folder in sorted(os.listdir(self.plugins_dir)):
+            if folder in getattr(self, "_replaced_plugins", ()):
+                continue
             if folder.startswith((".", "_")) or folder in RETIRED_BUNDLED_PLUGINS or not os.path.isfile(
                     os.path.join(self.plugins_dir, folder, "plugin.py")):
                 continue
