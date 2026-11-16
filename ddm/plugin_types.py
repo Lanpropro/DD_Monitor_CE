@@ -174,6 +174,36 @@ class PluginContext:
     def register_tile_control(self, control_id, factory, *, priority=0) -> None:
         self._manager.register_tile_control(self.name, control_id, factory, priority=priority)
 
+    def set_tile_caption(self, tile, original, translated="", *, style=None, visible=True) -> bool:
+        """Show a caption owned by this context on a supported tile."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        setter = getattr(tile, 'set_translation_caption', None)
+        if not callable(setter):
+            return False
+        setter(original, translated, style=style, visible=visible)
+        self._manager._caption_owners[tile] = self
+        return True
+
+    def clear_tile_caption(self, tile) -> bool:
+        """Allow an inactive owner to finish cleanup without clearing another owner."""
+        if self._manager._caption_owners.get(tile) is not self:
+            return False
+        self._manager._caption_owners.pop(tile, None)
+        clearer = getattr(tile, 'clear_translation_caption', None)
+        if not callable(clearer):
+            return False
+        clearer()
+        return True
+
+    def _clear_tile_captions(self):
+        for tile, owner in tuple(self._manager._caption_owners.items()):
+            if owner is self:
+                try:
+                    self.clear_tile_caption(tile)
+                except RuntimeError:
+                    pass  # A destroyed Qt tile no longer has a caption to clear.
+
     def register_workspace_control(self, control_id, widget, *, priority=0) -> bool:
         """Place a QToolButton in the host workspace group; False for headless hosts."""
         if not self._active:

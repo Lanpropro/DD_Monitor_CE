@@ -4,6 +4,8 @@
 
 ## 导读
 
+实时翻译候选使用根 `run.cmd --accept-live-translate`，从本机 `work/live-translate-acceptance/candidate.json` 指定的已校验源码包及已有模型启动。该入口将数据、插件和设置固定到候选摘要对应的独立目录，不读取日常账号或覆盖安装副本。首次打开设置不下载模型；源码包依赖用户显式准备或选择已有环境。`--accept-live-translate --smoke` 检查实际装载与隔离，未进行实播或推理。宿主字幕回归为 `selfcheck_video_caption`，隔离边界回归为 `selfcheck_live_translate_acceptance`；识别、翻译与全链路检查由插件仓库专项承担。
+
 本页是验证入口与按功能累积的验证记录，不按版本整体重写。
 
 - 先看[执行分类](#执行分类)和[单项与真实直播](#单项与真实直播)，确认套件、依赖和隔离条件。

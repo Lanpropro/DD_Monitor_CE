@@ -144,6 +144,8 @@ class TilePresentation:
         border = getattr(wall, '_pane_borders', {}).get(host)
         if border is not None and border.isVisible():
             border.raise_()
+        if host.video_caption is not None:
+            host.video_caption.raise_()
 
     def update_quick_danmaku_mask(self) -> None:
         host = self.host
@@ -220,6 +222,8 @@ class TilePresentation:
                        host.controls, host.spinner, host.pause_overlay, host.bottom):
             if widget.isVisible():
                 widget.update() if host._interactive_resize else widget.repaint()
+        if host.video_caption is not None and host.video_caption.isVisible():
+            host.video_caption.update()
         for widget in host.bottom.findChildren(QWidget):
             if widget.isVisible() and widget.testAttribute(Qt.WA_NativeWindow):
                 widget.update() if host._interactive_resize else widget.repaint()
@@ -249,6 +253,8 @@ class TilePresentation:
             host.pause_overlay.move(max(0, (width - host.pause_overlay.width()) // 2),
                                     max(8, (height - host.pause_overlay.height()) // 2))
             host._layout_cover()
+            if host.video_caption is not None:
+                host.video_caption.sync_geometry()
             host.raise_overlays()
             return
         host._update_recording_button(layout=False)
@@ -301,6 +307,8 @@ class TilePresentation:
         host.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         host._layout_time_badge()
         host.video_danmaku.setGeometry(host.video.geometry())
+        if host.video_caption is not None:
+            host.video_caption.sync_geometry()
         host._layout_bottom_controls()
         host._layout_cover()
         if host._interactive_resize:

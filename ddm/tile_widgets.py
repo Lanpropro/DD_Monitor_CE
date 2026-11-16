@@ -31,6 +31,7 @@ from .playback_controls import (
 from .sidebar_drag import ROOM_MIME
 from .ui.labels import ElidedLabel
 from .video_danmaku import VideoDanmaku
+from .video_caption import VideoCaption
 from .video_danmaku_settings import VideoDanmakuSettings
 from .video_surface import VideoCorner, VideoSurface
 from .widget_support import (
@@ -126,6 +127,7 @@ class Tile(QFrame):
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.video_danmaku = VideoDanmaku(self)
+        self.video_caption = None
         self.video_danmaku.actionsRequested.connect(self._show_danmaku_actions)
         self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
@@ -444,6 +446,15 @@ class Tile(QFrame):
         """
         return self.presentation_control.raise_overlays()
 
+    def set_translation_caption(self, original, translated="", *, style=None, visible=True):
+        if self.video_caption is None:
+            self.video_caption = VideoCaption(self)
+        return self.video_caption.set_caption(original, translated, style=style, visible=visible)
+
+    def clear_translation_caption(self):
+        if self.video_caption is not None:
+            self.video_caption.clear_caption()
+
     def _update_quick_danmaku_mask(self) -> None:
         return self.presentation_control.update_quick_danmaku_mask()
 
@@ -601,6 +612,8 @@ class Tile(QFrame):
             parent.update(QRect(event.oldPos(), self.size()))
         # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
         self.video_danmaku.schedule_quick_geometry()
+        if self.video_caption is not None:
+            self.video_caption.sync_geometry()
 
     def _refresh_moved_overlays(self) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
@@ -712,6 +725,7 @@ class Tile(QFrame):
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
+        self.clear_translation_caption()
         self._mask_refresh_timer.stop()
         self._move_repaint_timer.stop()
         super().closeEvent(event)

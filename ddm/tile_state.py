@@ -21,6 +21,7 @@ class TileState:
         host.codec_probe_note = ""
         host.codec_reconnect_pending = False
         host.video_danmaku.clear()
+        host.clear_translation_caption()
         host.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
         host.actual_quality = 0
         host.stream_url = ""

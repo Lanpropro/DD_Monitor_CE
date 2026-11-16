@@ -21,6 +21,7 @@ set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-plugin-replacements" goto pluginReplacementsCheck
+if /i "%~1"=="--accept-live-translate" goto liveTranslateAcceptance
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
@@ -510,4 +511,16 @@ exit /b %errorlevel%
 :liveBufferingCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_player_lifetime -- LiveBufferingTests
+exit /b %errorlevel%
+
+:liveTranslateAcceptance
+if /i "%~2"=="--smoke" goto liveTranslateAcceptanceSmoke
+start "" "%PY%" "%PROJ%dev\accept_live_translate.py"
+exit /b 0
+
+:liveTranslateAcceptanceSmoke
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\accept_live_translate.py" --smoke
 exit /b %errorlevel%

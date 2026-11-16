@@ -248,9 +248,13 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、画面／弹幕栏独立位置与实际对照、设置重开及重置、全屏恢复、紧凑控件及外置单位、共用大小和透明度、画面自动等比缩放与手动大小叠加／预览及实时重排、小画面弹幕缩放曲线单调及大画面不变、正文留白与背景混色；合成消息、隔离数据 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline`；含后台尺寸重绘、最终像素／进度、两个尺寸缓存、旧结果丢弃与 GUI 事件交付；主窗口路由、设置和连接取消保留全部断言，在独立进程运行，隔离此前栅格／Quick夹具 |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline`；含按格独立设置、全局隔离、SC 范围、全屏、换格、空格及重启恢复 |
+| [selfcheck_video_caption](../selfcheck_video_caption.py) | `smoke` / `offline`；独立字幕样式边界、逐行背景、PiP 隐藏、播放栏安全区域及插件接口生命周期 |
+| [selfcheck_live_translate_acceptance](../selfcheck_live_translate_acceptance.py) | `offline`；根入口验收配置与插件副本隔离、摘要验证、已有改动拒绝覆盖，不加载模型或真实账号 |
 | [selfcheck_danmaku_color](../selfcheck_danmaku_color.py) | `offline`；根入口 `run.cmd --check-danmaku-color` 另验 Windows Quick RGB 纹理；合成文字，无直播连接 |
 | [selfcheck_video_danmaku_native](../selfcheck_video_danmaku_native.py) | 单项执行前核对 |
 | [selfcheck_video_danmaku_quick](../selfcheck_video_danmaku_quick.py) | `native` |
+
+实时翻译候选从根 `run.cmd --accept-live-translate` 打开真实本体与插件界面，读取本机 `work/live-translate-acceptance/candidate.json` 中明确记录的源码包、摘要和模型路径；数据保存在该目录的候选摘要子目录。`run.cmd --accept-live-translate --smoke` 仅核对隔离装载，不启动取流、模型或下载。真实直播、声音和长时间资源趋势由维护者另行验收。
 
 ## 插件、更新与发布
 

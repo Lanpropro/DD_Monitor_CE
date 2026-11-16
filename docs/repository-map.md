@@ -372,6 +372,9 @@
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
 - `dev/selfcheck_user_notice.py`
+- `dev/accept_live_translate.py`
+- `dev/selfcheck_live_translate_acceptance.py`
+- `dev/selfcheck_video_caption.py`
 - `dev/selfcheck_video_danmaku.py`
 - `dev/selfcheck_danmaku_color.py`
 - `dev/selfcheck_video_danmaku_controls.py`
@@ -659,3 +662,5 @@
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。
 
 逐模块职责与状态归属见[详细模块职责](architecture/overview.md#10-详细模块职责)。
+
+插件字幕展示由 `video_caption.py` 管理，Tile 持有按需创建的控件；换房清理、播放栏安全区和浮层排列分别接入 `tile_state.py`、`tile_controls.py`、`tile_presentation.py`。公开字幕接口在 `plugin_types.py`，字幕所有者映射唯一保留在 PluginManager，装载失败及卸载通过上下文统一收尾。

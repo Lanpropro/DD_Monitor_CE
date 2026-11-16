@@ -148,6 +148,7 @@ if __name__ == '__main__':
             'selfcheck_general_settings', 'selfcheck_settings_autosave', 'selfcheck_appearance_options', 'selfcheck_settings_control', 'selfcheck_audio_normalization', 'selfcheck_startup_windows',
             'selfcheck_single_instance', 'selfcheck_drag_lifecycle', 'selfcheck_sidebar_hit_test',
             'selfcheck_room_placement', 'selfcheck_room_preset_control', 'selfcheck_window_layout', 'selfcheck_pane_danmaku',
+            'selfcheck_video_caption',
             'selfcheck_picture_in_picture', 'selfcheck_pip_picker',
             'selfcheck_room_status_controller', 'selfcheck_live_elapsed', 'selfcheck_room_images',
             'selfcheck_playback_badges', 'selfcheck_ui_polish', 'selfcheck_card_drop', 'selfcheck_settings_navigation', 'selfcheck_settings_layout', 'selfcheck_playback_controls',

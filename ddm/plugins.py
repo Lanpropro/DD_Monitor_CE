@@ -107,6 +107,7 @@ class PluginManager:
         self._provider_order = 0
         self._credentials = CredentialStore(self.emit)
         self._contexts = weakref.WeakSet()
+        self._caption_owners = weakref.WeakKeyDictionary()
         self._workspace_pages = None
         self._unloaded = False
         self._notices = None
@@ -190,6 +191,7 @@ class PluginManager:
                 for kind in [kind for kind, owner in self._platform_owner.items() if owner == entry]:
                     self.platforms.pop(kind, None)
                     self._platform_owner.pop(kind, None)
+                context._clear_tile_captions()
                 self._remove_tile_owner(entry)
                 context._clear_workspace_controls()
                 try:
@@ -236,6 +238,7 @@ class PluginManager:
                 traceback.print_exc()
         for context in tuple(self._contexts):
             context._clear_workspace_controls()
+            context._clear_tile_captions()
             if context._recording is not None:
                 context._recording.close()
 

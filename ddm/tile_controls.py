@@ -95,6 +95,8 @@ class TileControls:
             host.bottom.setWindowOpacity(1.0 - host._bar_progress)
         host.bottom.setVisible(host._bar_progress < 1.0 or host._bar_target == 0.0)
         host._layout_time_badge()
+        if host.video_caption is not None:
+            host.video_caption.sync_geometry()
         host.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
