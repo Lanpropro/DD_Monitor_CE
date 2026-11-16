@@ -8,6 +8,7 @@
 - `douyin.ico`：抖音直播官网站点图标，来源 https://live.douyin.com/favicon.ico
 - `twitch.ico`：Twitch 官网站点图标，来源 https://www.twitch.tv/favicon.ico
 - `youtube.ico`：YouTube 官网站点图标，来源 https://www.youtube.com/favicon.ico
+- `chzzk.ico`：CHZZK 官网站点图标，来源 https://chzzk.naver.com/favicon.ico ，随程序离线提供，不依赖主播头像请求。
 - `generic.svg`：本项目绘制的通用平台图标，用于尚无专用图标的平台。
 
 官网图标所属商标与权利归各自平台；图标仅用于识别直播来源。
