@@ -811,6 +811,8 @@ class MainWindow(QMainWindow):
             self._settings_process.stop()
         if getattr(self, '_app_update_page', None) is not None:
             self._app_update_page.stop()
+        if getattr(self, '_plugin_downloads', None) is not None:
+            self._plugin_downloads.stop()
         self._watch_history_timer.stop()
         self._startup_update_timer.stop()
         if self._startup_update_task is not None:

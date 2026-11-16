@@ -49,6 +49,7 @@ class PluginSettingsPage(QWidget):
         self.checks = {}
         self.card_details = {}
         self.update_buttons = {}
+        self._installed_progress = {}
         self._installed_entries = {}
         self._installed_cards = {}
         self._installed_authors = {}
@@ -168,8 +169,11 @@ class PluginSettingsPage(QWidget):
             task = running.get(plugin_id)
             button.setVisible(plugin_id in offers or plugin_id in pending)
             button.setEnabled(plugin_id in offers and None not in running and task is None)
-            button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
+            button.setText(('校验/解压中' if task.percent >= 100 else '下载中…')
                            if task else ('待重启' if plugin_id in pending else '更新'))
+            state = self.store_page.downloads.states.get(plugin_id)
+            if state:
+                self._installed_progress[plugin_id].set_state(state)
         self._filter_installed(reset_scroll=False)
 
     def _filter_installed(self, *_args, reset_scroll=True):
@@ -283,6 +287,10 @@ class PluginSettingsPage(QWidget):
         self._installed_authors[entry['id']] = author
         footer.addWidget(author)
         summary.addLayout(footer)
+        from .update_progress_ui import UpdateProgress
+        progress = UpdateProgress(card)
+        summary.addWidget(progress)
+        self._installed_progress[entry['id']] = progress
         self.card_details[entry["id"]] = (description, status, entry['description'])
         index = self.cards.count()
         self.cards.addWidget(card, index // 2, index % 2)

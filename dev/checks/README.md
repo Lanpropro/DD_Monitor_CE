@@ -270,6 +270,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_fixed_exe_entry](../selfcheck_fixed_exe_entry.py) | 单项执行前核对 |
 | [selfcheck_app_updates](../selfcheck_app_updates.py) | `smoke` / `offline`；启动检查去重、宿主任务归属与Qt sender、旧任务/替换任务清理、已读/红点/通知动作及关闭迟到回调；合成响应、无窗口/账号/网络 |
 | [selfcheck_online](../selfcheck_online.py) | 合成响应；发布正文刷新、清单回退、下载校验及插件升级事务 |
+| [selfcheck_update_download_progress](../selfcheck_update_download_progress.py) | `offline`；隔离插件目录和下载替身；字节／速度、重试归零、通知与设置共享任务、关闭重开、失败重试、重启确认及深浅色进度控件，不代表真实网络提速 |
 | [selfcheck_online_ui](../selfcheck_online_ui.py) | 离屏合成数据；64 项商店与 16 项已安装紧凑列表、固定搜索／状态筛选／排序／详情与目录变化、深浅主题及长文本、已安装和商店共用卡片玻璃材质；刷新／页签／保存区边界、列表末尾留白、未保存选择与隐藏条目重建清理；下载期间筛选与滚动、详情更新及待重启、关闭/重开普通及独立设置、后台完成/退出收尾、当前版本正文及更新保存衔接 |
 | [selfcheck_parallel_plugin_downloads](../selfcheck_parallel_plugin_downloads.py) | 单项执行前核对 |
 | [selfcheck_plugin_cache](../selfcheck_plugin_cache.py) | 合成 Release 与临时 ZIP；未知 ID 发现、包内元数据、分页与最高版本、坏包隔离、官方来源/哈希/路径校验、条件查询、旧缓存迁移及离线保留；不读取账号或执行插件代码 |

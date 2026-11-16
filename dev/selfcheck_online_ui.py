@@ -54,11 +54,11 @@ def check_store_scroll(app, root):
         app.processEvents()
         assert bar.maximum() > 500
         task = SimpleNamespace(key=offers[1]['id'], percent=0)
-        def start(operation, callback, key=None):
+        def start(offer):
             store.jobs.append(task)
             store.busyChanged.emit(True)
         try:
-            with patch.object(store, 'start', start), patch('ddm.online_ui.show_result'):
+            with patch.object(store.downloads, 'start', start), patch('ddm.online_ui.show_result'):
                 QTest.mousePress(button, Qt.LeftButton)
                 app.processEvents()
                 before = bar.value()
@@ -156,7 +156,7 @@ def check_store_browser(app, root):
                 install.assert_called_once_with(offers[0])
             page.jobs.append(SimpleNamespace(key='browser_000', percent=35))
             page._busy(True)
-            assert not details.action.isEnabled() and '35%' in details.action.text()
+            assert not details.action.isEnabled() and details.action.text() == '下载中…'
             page.search.setText('没有这样的插件')
             assert page.empty.isVisible() and page.count.text() == '0 / 64 个插件'
             assert page.buttons['browser_000'] is button, 'Filtering must retain the active installation control'
@@ -264,7 +264,7 @@ def check_installed_browser(app, root):
                 install.assert_called_once_with(offers[0])
             store.jobs.append(SimpleNamespace(key='installed_00', percent=45))
             store._busy(True)
-            assert not details.action.isEnabled() and '45%' in details.action.text()
+            assert not details.action.isEnabled() and details.action.text() == '下载中…'
             store.jobs.clear()
             store._busy(False)
             details.reject()
@@ -364,6 +364,7 @@ def check_download_reopen(app, root):
         if hosted:
             window._settings_process = SimpleNamespace(_send=messages.append, stop=lambda: None)
         plan = str(root / 'retained-update-plan.json')
+        Path(plan).write_text('{}', encoding='utf-8')
         offer = {'version': '9.0', 'notes': 'New release'}
 
         def open_dialog():
@@ -405,11 +406,11 @@ def check_download_reopen(app, root):
                 page.action.click()
                 assert started.wait(2)
                 app.processEvents()
-                assert '25%' in page.status.text()
+                assert page.download_progress.bar.value() == 25
                 close_dialog(first)
                 assert not page.stopping and len(page.jobs) == 1, 'Closing settings must keep the download'
                 second = open_dialog()
-                assert second.update_page is page and '25%' in page.status.text()
+                assert second.update_page is page and page.download_progress.bar.value() == 25
                 assert not second.confirm_button.isEnabled(), 'Reopened settings must reflect the busy task'
                 assert not page.action.isEnabled()
                 close_dialog(second)

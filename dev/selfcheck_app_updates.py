@@ -56,10 +56,12 @@ class Task(QObject):
 
 class Notice(QObject):
     activated = Signal()
+    updateRequested = Signal(str)
 
     def __init__(self, parent):
         super().__init__(parent)
         self.title, self.show_offer, self.track_history = Mock(), Mock(), Mock()
+        self.set_updates = Mock()
 
 
 class AppUpdatesTests(unittest.TestCase):
@@ -188,7 +190,7 @@ class AppUpdatesTests(unittest.TestCase):
         self.assertIs(host._unread_app_update(), offer)
         host.settings['seen_update_versions'] = {'app': update_identity(offer)}
         self.assertIsNone(host._unread_app_update())
-        host._plugin_update_offers = [{'id': 'fixture', 'version': '2'}]
+        host._plugin_update_offers = [{'id': 'fixture', 'name': 'Fixture', 'version': '2'}]
         self.assertEqual(len(host._unread_plugin_updates()), 1)
         versions = {'app': update_identity(offer), 'fixture': '2'}
         with patch('ddm.app_updates.config_module.save') as save:
@@ -202,7 +204,7 @@ class AppUpdatesTests(unittest.TestCase):
     def test_notice_reuse_and_actions_resolve_current_unread_target(self):
         host = self.host
         host._available_update = {'version': '9.0', 'revision': 2}
-        host._plugin_update_offers = [{'id': 'fixture', 'version': '2'}]
+        host._plugin_update_offers = [{'id': 'fixture', 'name': 'Fixture', 'version': '2'}]
         with patch.object(online_ui, 'UpdateNotice', Notice):
             host._show_update_notice()
             notice = host._update_notice

@@ -98,6 +98,7 @@ class SettingsControl:
             from .online_ui import AppUpdatePage
             host._app_update_page = AppUpdatePage(settings, host)
             host._app_update_page.releaseChecked.connect(host._set_app_update)
+            host._app_update_page.transferChanged.connect(host.app_updates.app_transfer_changed)
         page = host._app_update_page
         page.auto.setChecked(bool(settings.get('auto_update', False)))
         return page
@@ -122,6 +123,7 @@ class SettingsControl:
                 widget.sync_blocking(host.settings)
                 widget.super_chat_placement.set_preview_context(host._sc_preview_context())
             elif key == 'plugins':
+                widget.store_page.set_downloads(host.app_updates.plugin_downloads())
                 widget.store_page.offersChanged.connect(host._set_plugin_updates)
                 if host._plugin_catalog_offers:
                     widget.store_page._catalog_ready(host._plugin_catalog_offers)
@@ -190,7 +192,10 @@ class SettingsControl:
             codec_dialog.controls.set_defaults(config_module.codec_settings(host.settings))
         if not host.settings.get("auto_update", False):
             host._startup_update_timer.stop()
-            if host._update_notice is not None:
+            update_page = getattr(host, '_app_update_page', None)
+            downloads = getattr(host, '_plugin_downloads', None)
+            if (host._update_notice is not None and not
+                    ((update_page and update_page.download_state) or (downloads and downloads.states))):
                 host._update_notice.dismiss()
         host._sync_fullscreen_audio()
         host.shortcuts = dialog.shortcuts()

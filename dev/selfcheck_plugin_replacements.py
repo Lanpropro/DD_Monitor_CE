@@ -68,7 +68,9 @@ class ReplacementTests(unittest.TestCase):
         with patch('ddm.online.load_plugin_cache', return_value=None), patch('ddm.online_ui.show_result'):
             page = PluginStorePage(manager)
             try:
-                page._installed((installed, True))
+                from types import SimpleNamespace
+                page.downloads.states[installed] = dict(percent=100, received=1, total=1, speed=0)
+                page.downloads._installed((SimpleNamespace(key=installed), (installed, True)))
                 self.assertEqual(manager.plugin_settings['single_alpha'], {'logo': False})
                 self.assertIn('single_alpha', manager.enabled)
                 self.assertEqual(saved_on, [threading.get_ident()])

@@ -1,6 +1,5 @@
 """Plugin catalog browsing, details and install/update actions."""
 from pathlib import Path
-import tempfile
 import time
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
@@ -73,6 +72,9 @@ class PluginDetailsDialog(AnimatedDialog):
                       offer.get('notes') or '暂无更新日志'))
         self.document.setPlainText('\n\n'.join(parts))
         layout.addWidget(self.document, 1)
+        from .update_progress_ui import UpdateProgress
+        self.download_progress = UpdateProgress(self)
+        layout.addWidget(self.download_progress)
         footer = QHBoxLayout()
         close = ActionButton('关闭', self)
         close.clicked.connect(self.reject)
@@ -91,6 +93,9 @@ class PluginDetailsDialog(AnimatedDialog):
 
     def refresh_action(self):
         store = self.page.store_page if self.installed_entry is not None else self.page
+        state = store.downloads.states.get(self.plugin_id)
+        if state:
+            self.download_progress.set_state(state)
         buttons = self.page.update_buttons if self.installed_entry is not None else store.buttons
         button = buttons.get(self.plugin_id)
         if self.installed_entry is not None and (button is None or button.isHidden()):
@@ -121,6 +126,12 @@ class PluginStorePage(OnlinePage):
     def __init__(self, manager, parent=None):
         super().__init__(parent)
         self.manager = manager
+        from .plugin_downloads import PluginDownloads
+        self.downloads = PluginDownloads(manager, self)
+        self._owns_downloads = True
+        self.downloads.changed.connect(self._download_changed)
+        self.downloads.installed.connect(self._installed)
+        self._progress_widgets = {}
         self.offers = []
         self.buttons = {}
         self._offer_cards = {}
@@ -199,9 +210,46 @@ class PluginStorePage(OnlinePage):
         for plugin_id, button in self.buttons.items():
             task = running.get(plugin_id)
             button.setEnabled(bool(button.property('storeEnabled')) and not reading and task is None)
-            button.setText(('校验/解压中' if task.percent >= 100 else f'下载 {task.percent}%')
+            button.setText(('校验/解压中' if task.percent >= 100 else '下载中…')
                            if task else button.property('storeText'))
+            state = self.downloads.states.get(plugin_id)
+            progress = self._progress_widgets.get(plugin_id)
+            if state and progress:
+                progress.set_state(state)
         self.controlsChanged.emit()
+
+    @property
+    def jobs(self):
+        downloads = getattr(self, 'downloads', None)
+        return self._jobs + downloads.jobs if downloads and downloads.jobs else self._jobs
+
+    def set_downloads(self, downloads):
+        self.downloads.changed.disconnect(self._download_changed)
+        self.downloads.installed.disconnect(self._installed)
+        self.downloads.deleteLater()
+        self.downloads = downloads
+        self._owns_downloads = False
+        downloads.changed.connect(self._download_changed)
+        downloads.installed.connect(self._installed)
+        self._busy(bool(self.jobs))
+
+    def _download_changed(self, plugin_id):
+        if self.stopping:
+            return
+        self._busy(bool(self.jobs))
+        self.busyChanged.emit(bool(self.jobs))
+        state = self.downloads.states[plugin_id]
+        if state['phase'] == 'failed':
+            self.status.setText('下载失败：' + state['error'] + '。可点击更新重试。')
+
+    def stop(self):
+        if self.stopping:
+            return
+        self.downloads.changed.disconnect(self._download_changed)
+        self.downloads.installed.disconnect(self._installed)
+        if self._owns_downloads:
+            self.downloads.stop()
+        super().stop()
 
     def _progress(self, percent):
         if self.stopping:
@@ -237,6 +285,7 @@ class PluginStorePage(OnlinePage):
         for card in self._offer_cards.values():
             card.deleteLater()
         self.buttons = {}
+        self._progress_widgets = {}
         self._offer_cards = {}
         self._display_offers = [dict(offer) for offer in offers]
         installed = {entry['id']: entry for entry in self.manager.catalog()} if self.manager else {}
@@ -307,6 +356,10 @@ class PluginStorePage(OnlinePage):
                 credit.setStyleSheet(f'color: {theme.TEXT3}; font-size: {theme.FONT_CAPTION}px;')
                 footer.addWidget(credit, 0, Qt.AlignRight | Qt.AlignBottom)
             summary.addLayout(footer)
+            from .update_progress_ui import UpdateProgress
+            progress = UpdateProgress(card)
+            summary.addWidget(progress)
+            self._progress_widgets[offer['id']] = progress
             actions = QVBoxLayout()
             actions.setSpacing(2)
             actions.addWidget(button)
@@ -365,28 +418,13 @@ class PluginStorePage(OnlinePage):
         if button is not None and button.hasFocus():
             button.clearFocus()  # Disabling a focused button otherwise scrolls to the next card.
         self.status.setText('正在下载安装包…')
-        def install(cancelled, progress):
-            with tempfile.TemporaryDirectory(prefix='ddm-plugin-download-') as temporary, online.session() as client:
-                archive = online.download(offer, Path(temporary) / 'plugin.zip', client, cancelled, progress)
-                if cancelled():
-                    raise InterruptedError('安装已取消')
-                new = offer['id'] not in {entry['id'] for entry in self.manager.catalog()}
-                return plugin_updates.install(self.manager, archive, offer), new
-        self.start(install, self._installed, key=offer['id'])
+        self.downloads.start(offer)
 
     def _installed(self, result):
         from .online_ui import show_result
         plugin_id, new = result
         self._installed_ids.add(plugin_id)
         self._update_ids.discard(plugin_id)
-        if new:
-            from .plugins import read_manifest
-            from .plugin_replacements import inherit_settings
-            inherit_settings(self.manager, plugin_id, read_manifest(
-                str(Path(self.manager.plugins_dir) / plugin_id), plugin_id))
-        if new and self.manager.enabled is not None:
-            self.manager.enabled.add(plugin_id)
-            self.manager.save_plugin_settings()
         self.installed.emit(plugin_id)
         button = self.buttons.get(plugin_id)
         if button is not None:

@@ -1,6 +1,7 @@
 """Online operation workers and settings-page retirement lifecycle."""
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from .download_progress import DownloadSample
 
 
 _retired_online_tasks = set()
@@ -26,6 +27,7 @@ class OnlineTask(QThread):
     succeeded = Signal(object)
     failed = Signal(object)
     progress = Signal(int)
+    transferProgress = Signal(object)
 
     def __init__(self, operation, callback, parent):
         super().__init__(parent)
@@ -33,11 +35,22 @@ class OnlineTask(QThread):
         self.callback = callback
         self.result = None
         self.result_cleanup = None
+        self.download_state = {}
+
+    def _report_progress(self, received, total):
+        state = self._sample.update(received, total)
+        now = self._sample.clock()
+        # Avoid flooding the GUI event queue for every network chunk.
+        if received == 0 or received >= total or now - self._reported >= .1:
+            self._reported = now
+            self.transferProgress.emit(state)
+            self.progress.emit(state['percent'])
 
     def run(self):
         try:
-            result = self.operation(self.isInterruptionRequested,
-                                    lambda done, total: self.progress.emit(int(done * 100 / max(total, 1))))
+            self._sample = DownloadSample()
+            self._reported = -1
+            result = self.operation(self.isInterruptionRequested, self._report_progress)
             self.result = result
             if not self.isInterruptionRequested():
                 self.succeeded.emit((self, result))
@@ -52,11 +65,15 @@ class OnlinePage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName('SettingsPage')
-        self.jobs = []
+        self._jobs = []
         self.stopping = False
         self.status = QLabel('')
         self.status.setWordWrap(True)
         self.status.setObjectName('SettingsHint')
+
+    @property
+    def jobs(self):
+        return self._jobs
 
     def start(self, operation, callback, *, key=None):
         from .online_ui import OnlineTask
@@ -66,10 +83,11 @@ class OnlinePage(QWidget):
         task = OnlineTask(operation, callback, self)
         task.key = key
         task.percent = 0
-        self.jobs.append(task)
+        self._jobs.append(task)
         task.succeeded.connect(self._succeeded)
         task.failed.connect(self._failed)
         task.progress.connect(self._progress)
+        task.transferProgress.connect(self._transfer_progress)
         task.finished.connect(self._finished)
         self.busyChanged.emit(True)
         task.start()
@@ -80,7 +98,7 @@ class OnlinePage(QWidget):
             try:
                 task.callback(result)
             except Exception as error:
-                self.status.setText(str(error))
+                self._failed((task, str(error)))
 
     def _failed(self, payload):
         if not self.stopping:
@@ -90,12 +108,15 @@ class OnlinePage(QWidget):
         if not self.stopping:
             self.status.setText(f'正在下载并校验… {percent}%')
 
+    def _transfer_progress(self, state):
+        self.sender().download_state = state
+
     def _finished(self):
         if self.stopping:
             return
         task = self.sender()
         if task in self.jobs:
-            self.jobs.remove(task)
+            self._jobs.remove(task)
         task.deleteLater()
         self.busyChanged.emit(bool(self.jobs))
 
@@ -105,12 +126,13 @@ class OnlinePage(QWidget):
         if not getattr(app, '_online_task_cleanup_connected', False):
             app.aboutToQuit.connect(_wait_online_tasks_on_exit)
             app._online_task_cleanup_connected = True
-        tasks, self.jobs = self.jobs, []
+        tasks, self._jobs = self._jobs, []
         for task in tasks:
             task.requestInterruption()
             task.succeeded.disconnect(self._succeeded)
             task.failed.disconnect(self._failed)
             task.progress.disconnect(self._progress)
+            task.transferProgress.disconnect(self._transfer_progress)
             task.finished.disconnect(self._finished)
             task.callback = None
             task.result_cleanup = result_cleanup

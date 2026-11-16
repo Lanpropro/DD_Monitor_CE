@@ -31,6 +31,7 @@
 | `FontSelectControl` | 共用下拉外观的字体选择 | `ddm/ui/select.py` |
 | `StepperControl` | 将现有 Qt 数值编辑器与加减按钮组合成紧凑控件 | `ddm/ui/stepper.py` |
 | `SettingsSlider`、`SettingsValueLabel` | 设置页定宽滑块和随文字调整宽度的数值标签 | `ddm/ui/slider.py` |
+| `SettingsProgressBar` | 更新下载进度条，沿用主题色、轨道和连续圆角，保留 Qt 数值与可访问性接口 | `ddm/ui/progress.py` |
 
 原有组件通过统一入口导出同一个类/函数对象，仍在原模块维护，不复制实现。原导入路径继续有效。播放器相关组件保留原有宿主、信号、原生窗口和生命周期要求，不是脱离业务上下文的通用播放框架。
 
