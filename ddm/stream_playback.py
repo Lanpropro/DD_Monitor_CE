@@ -13,6 +13,13 @@ class StreamPlayback:
     def __init__(self, host):
         self.host = host
 
+    @staticmethod
+    def _refreshing(tile, active):
+        tile.reload_button.set_refreshing(active)
+        tile.reload_button.setToolTip('正在重新获取直播地址和画质…' if active else '重新连接这一路')
+        tile.quality_button.setText('获取画质…' if active else tile._quality_text())
+        tile._layout_controls()
+
     def start_startup_tiles(self) -> None:
         host = self.host
         if host._closing:
@@ -137,6 +144,7 @@ class StreamPlayback:
             if not current() or int(tile.quality) != quality:
                 return
             host._resolvers.pop(tile, None)
+            self._refreshing(tile, False)
             if tile.paused:
                 tile.codec_reconnect_pending = True
                 return
@@ -163,6 +171,7 @@ class StreamPlayback:
             if not current() or int(tile.quality) != quality:
                 return
             host._resolvers.pop(tile, None)
+            self._refreshing(tile, False)
             tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
             if strict_codec:
                 host._keep_tile_codec(tile, codec, retained_codec,
@@ -179,6 +188,7 @@ class StreamPlayback:
         resolver.finished.connect(resolver.deleteLater)
         host._resolvers_running.add(resolver)
         host._resolvers[tile] = resolver
+        self._refreshing(tile, True)
         resolver.start()
         host._stats_refresh_timer.start()  # 取流优先，多路同时开播时合并人数查询
 
@@ -186,6 +196,7 @@ class StreamPlayback:
         host = self.host
         if host._resolvers.get(tile) is resolver:
             host._resolvers.pop(tile, None)
+            self._refreshing(tile, False)
         host._resolvers_running.discard(resolver)
 
     def play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
@@ -420,6 +431,7 @@ class StreamPlayback:
         if player is not None:
             player.release()
         resolver = host._resolvers.pop(tile, None)
+        self._refreshing(tile, False)
         if resolver is not None:
             # 只作废、不强杀：terminate() 会带走线程本地存储和锁，主线程可能
             # 整个卡死（窗口不动也不退出，用户看到的就是「直接崩了」）
@@ -625,6 +637,7 @@ class StreamPlayback:
         if paused and resolver is not None:
             host._resolvers.pop(tile, None)
             resolver.cancel()
+            self._refreshing(tile, False)
             tile.codec_reconnect_pending = True
             tile.codec_probe_note = "探测已暂停；恢复播放时重新探测，当前流保持暂停。"
         if not paused and getattr(tile, "codec_reconnect_pending", False):
