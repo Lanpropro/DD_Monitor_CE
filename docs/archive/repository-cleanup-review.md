@@ -54,3 +54,14 @@
 实际验证：repository_map 的 4 项、repository_files 的 3 项，及 README、外观设计、发布元数据、二维码刷新、B站画质、文件夹图标、浅色细节共 7 个专项脚本均通过；git diff --check 通过。
 浅色细节在 Qt offscreen 首次运行时窗口位置断言失败，原生 Windows 屏外测试复核通过；未修改该测试断言。
 EXE 文档复制验证实际执行发布脚本中的复制片段，未构建完整安装包；没有运行依赖已有发布包的 check_release_package.py。
+
+## 2026-11-16：退役两份打印脚本
+
+本批在保全原件后移除 `dev/selfcheck_slots.py` 与 `dev/selfcheck_delete.py`。两者仅打印结果、末尾使用 `os._exit(0)`，不参与套件、启动、构建或其他脚本导入；已同步修正专项索引与文件清单。Git 父提交与本机备份保留完整原件。
+
+| 原脚本 | 保留的覆盖与入口 |
+| --- | --- |
+| `selfcheck_slots.py` | `selfcheck_layout_16` 断言九分、十六分、两分的格子与空位数量、房间对象和顺序、可见性及“拖入直播间”提示。旧脚本的自动布局切换属于已从菜单移除的历史入口；不重新引入该功能。 |
+| `selfcheck_delete.py` | `MainNoticesTests.test_batch_delete_removes_selected_follows_without_new_windows` 实际点击多选勾选框与删除按钮，断言只删所选关注、无新可见顶层窗口、未选房间与保存状态正确、格子数量保留。 |
+
+真实画质诊断 `selfcheck_quality.py` 继续保留且不在本轮运行；`check_preview_live.py`、`check_emoticon_live.py` 和 `check_medal_size.py` 虽没有直接使用 assert，仍有实际结果判定和失败退出码，不能按这个筛选条件删除。本机工作树、未合入成果、历史失败与人工验收记录也继续保留。
