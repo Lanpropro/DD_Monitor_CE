@@ -1,5 +1,7 @@
 # Windows 安装包与卸载范围
 
+> 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：贡献者、维护者
+
 新用户使用 `DDMonitorSetup.exe`；已有用户继续使用软件内更新或 EXE 便携包。安装器提供两种模式，默认“仅为我安装”，位于 `%LOCALAPPDATA%\Programs\DDMonitorCE`，无需管理员权限；选择“为所有用户安装”时通过 Windows UAC 请求授权，默认使用 64 位程序目录 `C:\Program Files\DDMonitorCE`。两种模式均支持选择目录和创建快捷方式，修复安装按所选模式查询 HKCU／HKLM 的已有登记。
 
 安装版的程序文件和用户数据分开保存。每个 Windows 用户的数据默认位于 `%LOCALAPPDATA%\DDMonitorCE\data\<安装路径标识>`；`utils`（配置、加密账号、皮肤、文件夹图标）、`plugins_user`、`cache` 和 `logs` 均使用此位置。程序资源、FFmpeg、播放器运行库和更新清单仍从安装目录读取。不同安装路径分别保存数据，其他 Windows 用户不会共用登录状态。安装标识 `.ddm-install.json` 由 Setup 创建并负责卸载，在线更新包不能覆盖或移除它；旧安装通过 `.ddm-uninstall\unins000.dat` 识别。便携版和源码版默认继续在程序旁保存数据。

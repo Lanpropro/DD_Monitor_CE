@@ -56,6 +56,7 @@
 | --- | --- |
 | [selfcheck_check_runner](../selfcheck_check_runner.py) | `repository` |
 | [selfcheck_customization_plan](../selfcheck_customization_plan.py) | `repository` |
+| [selfcheck_documents](../selfcheck_documents.py) | `repository`；元信息、索引、链接与锚点、发布记录；不导入 Qt、不读取账号、不联网 |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
 | [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台消息；字体库info原生过滤、并发回调、warning与fatal保留 |
