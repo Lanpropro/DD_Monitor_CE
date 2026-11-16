@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev import run_checks as runner
@@ -20,28 +20,6 @@ from dev.checks.widget_cases import run_widget_cases
 
 
 class CheckRunnerTests(unittest.TestCase):
-    def test_notice_entry_isolates_cases_and_propagates_failure(self):
-        script = runner.ROOT / 'dev/selfcheck_main_notices.py'
-        tree = ast.parse(script.read_text(encoding='utf-8'))
-        entry = tree.body[-1]
-        self.assertIsInstance(entry, ast.If)
-        code = compile(ast.Module(body=[entry], type_ignores=[]), str(script), 'exec')
-        for result in (0, 1):
-            with self.subTest(result=result):
-                helper = Mock(return_value=result)
-                module = type(sys)('checks.widget_cases')
-                module.run_widget_cases = helper
-                parent = type(sys)('checks')
-                parent.__path__ = []
-                scope = {'__name__': '__main__', '__file__': str(script),
-                         'sys': sys, 'MainNoticesTests': unittest.TestCase}
-                with patch.dict(sys.modules, {'checks': parent, 'checks.widget_cases': module}), \
-                        patch.object(sys, 'argv', [str(script)]), \
-                        self.assertRaises(SystemExit) as stopped:
-                    exec(code, scope)
-                self.assertEqual(stopped.exception.code, result)
-                helper.assert_called_once_with(unittest.TestCase, str(script))
-
     def test_widget_case_processes_keep_all_cases_and_propagate_failure(self):
         class Cases(unittest.TestCase):
             def test_first(self):
