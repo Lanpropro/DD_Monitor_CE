@@ -179,7 +179,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_fullscreen_capture](../selfcheck_fullscreen_capture.py) | 离屏单项；几何事件上限与过滤器回收、采集边界、异步观察者清理、返回／异常及嵌套退出；无账号／外网，不是实际性能证据 |
 | [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、调音量解除静音、上下限、输入隔离及保存 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
-| [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline` |
+| [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline`；浮标状态、主题绘制、加载动画与双行故障反馈恢复、缩放及 Qt 归属 |
 | [selfcheck_playback_controls](../selfcheck_playback_controls.py) | `smoke` / `offline`；独立导入、旧类身份、音量边界与信号、按键交互、刷新显隐与父对象销毁、深浅主题及多缩放绘制；无媒体／账号／外网 |
 | [selfcheck_fullscreen_controls](../selfcheck_fullscreen_controls.py) | `offline`；全屏底栏动画、Qt 透明窗口、输入期间原生像素可见性、窗口跟随及隐藏／恢复回归；原生 Windows 下可用 `python dev/checks/bootstrap.py dev/selfcheck_fullscreen_controls.py --desktop` 检查实际桌面合成，会短暂显示测试窗口 |
 | [selfcheck_fullscreen_cursor](../selfcheck_fullscreen_cursor.py) | 单项执行前核对 |
@@ -309,7 +309,8 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_audio_owner](../selfcheck_audio_owner.py) | 单项执行前核对 |
 | [selfcheck_codec_control](../selfcheck_codec_control.py) | `offline` / `smoke`；全局继承/单格覆盖、重连延迟、原编码保留、旧对话框工厂/接线/状态及Qt销毁；不启动线程/媒体，不读账号 |
 | [selfcheck_stream_playback](../selfcheck_stream_playback.py) | `offline` / `smoke`；取流替换/迟到结果、暂停/关闭、播放器身份与动态接线、画质/登录失败及Qt父对象销毁；临时替身，不启动线程/媒体或联网 |
-| [selfcheck_playback_recovery](../selfcheck_playback_recovery.py) | `offline` / `smoke`；恢复控制器的退避、冻结、稳定播放、关闭收尾及主窗口兼容/插件事件，使用本地替身 |
+| [selfcheck_playback_recovery](../selfcheck_playback_recovery.py) | `offline` / `smoke`；退避、冻结、稳定播放、关闭收尾、主窗口兼容/插件事件、故障证据优先级及原因保留；临时替身 |
+| [selfcheck_playback_feedback](../selfcheck_playback_feedback.py) | `offline`；真实格子的故障提示居中、尺寸与恢复/换台/下播清理、协调器错误接线，无媒体/账号。`--native-feedback` 使用 Windows 屏外窗口检查浮层上传，不激活窗口、不移动鼠标 |
 | [selfcheck_player_lifetime](../selfcheck_player_lifetime.py) | `offline` / `smoke`；构造、重绑、释放参数、音频设备刷新调度及错误反馈、各平台恢复任务去重与定时器回收。单项 Windows 原生用例检查普通格子延迟创建 GPU 输出、本地图片出帧与取消；窗口不激活、不移鼠标，静音且媒体无音轨，不读取账号或联网，不作为真实卡顿性能依据 |
 | [selfcheck_mpv_com_lifetime](../selfcheck_mpv_com_lifetime.py) | `native`；Windows 本地静音 WAV、真实 WASAPI，反复刷新音频设备、终止/释放及预览清理，检查刷新后继续播放及 COM apartment 不变；不执行 OLE 拖动，属于功能回归，不代替真实故障采集 |
 | [selfcheck_audio_routing](../selfcheck_audio_routing.py) | 合成 PCM 验证音量、路由及均衡后的响度差/静音/关闭还原；以实际 Qt 计时与限速输出验证增益控制，需 FFmpeg、libmpv、numpy；不作为真实人声听感证据 |

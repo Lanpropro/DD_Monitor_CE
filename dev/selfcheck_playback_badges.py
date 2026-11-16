@@ -83,6 +83,21 @@ class PlaybackBadgeTests(unittest.TestCase):
             if icon:
                 self.assertEqual(badge._movie.state(), QMovie.NotRunning)
 
+    def test_loading_feedback_can_show_two_lines_and_restore_connection_text(self):
+        badge = LoadingIndicator(self.owner)
+        original = badge.natural_size()
+        badge.start()
+        badge.set_text('断流，10 秒后重连（第 2 次）\n网络连接异常，请检查网络或代理')
+        self.assertGreaterEqual(badge.natural_size().height(), original.height())
+        self.assertGreaterEqual(badge._text.height(), 2 * badge._text.fontMetrics().height())
+        self.assertEqual(badge._movie.state(), QMovie.Running)
+        badge.set_presentation_scale(.6)
+        self.assertEqual(badge.height(), round(badge.natural_size().height() * .6))
+        badge.set_text('连接中…')
+        badge.set_presentation_scale(1)
+        self.assertEqual(badge.natural_size(), original)
+        badge.stop()
+
     def test_pause_indicator_is_static_accessible_and_mouse_transparent(self):
         from PySide6.QtWidgets import QLabel
         badge = PauseIndicator(self.owner)

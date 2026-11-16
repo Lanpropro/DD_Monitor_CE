@@ -254,6 +254,8 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。播放恢复调度集中在 `ddm/playback_recovery.py`，独立持有重连与冻结恢复状态及定时器；主窗口负责播放器操作、界面和插件事件，并保留原有内部入口的委托。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
 
+播放失败的原因文案由纯函数模块 `playback_feedback.py` 按已观察到的连接／源／解码证据生成；未确定时不推断原因，原始异常不进入界面。`PlaybackRecovery.failure_details` 唯一持有每格最近失败原因，成功、清格及关闭时清理；Tile 只保存当前展示的状态与补充文字。`TileState` 和 `TilePresentation` 复用 `LoadingIndicator` 展示居中反馈、适配尺寸，`CodecControl` 及 `StreamPlayback` 提交故障证据，重连与解码策略不由展示层改变。
+
 开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
 
 未决问题的显式专项入口由 `ddm/diagnostic_session.py` 统一安装；通知、弹幕数值运动和原生拖放采集分别位于 `notice_diagnostics.py`、`danmaku_diagnostics.py`、`drag_diagnostics.py`，原 `dev/diagnose_*` 保留兼容入口。独立诊断工具只在点击专项启动按钮后启动主软件，生成包时仅收集白名单已有日志，不自动采集或上传。

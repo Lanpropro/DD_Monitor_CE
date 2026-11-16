@@ -114,7 +114,7 @@ class StreamPlayback:
         else:
             tile.codec_probe_note = ""
             tile.set_paused(False)        # 重新取流就恢复播放状态
-            tile.set_status("连接中…")
+            tile.set_status("连接中…", detail=host.playback_recovery.feedback_detail(tile))
         # 以格子上的画质为准（信号带过来的字典是副本，不能当数据源）
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = host._stream_attempts.get(tile, 0)
@@ -339,6 +339,7 @@ class StreamPlayback:
             return
         tile.set_buffering(False)
         tile.set_status("连接失败")
+        host.playback_recovery.record_failure(tile, reason=reason)
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         host.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
                           room=dict(tile.room or {}))
@@ -384,8 +385,11 @@ class StreamPlayback:
                               room=dict(tile.room or {}))
         elif state == "connecting":
             tile.set_video_active(False)
-            tile.set_status("连接中…")
+            tile.set_status("连接中…", detail=host.playback_recovery.feedback_detail(tile))
         elif state == "buffering":
+            detail = host.playback_recovery.feedback_detail(tile)
+            if detail:
+                tile.set_status("缓冲中，正在等待直播数据…", detail=detail)
             tile.set_buffering(True)         # 卡顿时也显示缓冲动画
         elif state == "frozen":
             player = host.players.get(tile)
@@ -394,6 +398,7 @@ class StreamPlayback:
                     source_url=player.stream_url, reason="STALL")
             host._on_picture_frozen(tile)
         elif state == "error":
+            host.playback_recovery.record_failure(tile)
             host._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()

@@ -90,6 +90,7 @@ class Tile(QFrame):
         self.room = dict(room)
         self._cover_source = room.get("cover")
         self._status_text = ""
+        self._status_detail = ""
         self._interactive_resize = False
         self._resize_raise_pending = False
         self._move_repaint_pending = False
@@ -459,8 +460,8 @@ class Tile(QFrame):
     def set_video_active(self, active: bool) -> None:
         return self.state_control.set_video_active(active)
 
-    def set_status(self, text: str) -> None:
-        return self.state_control.set_status(text)
+    def set_status(self, text: str, *, detail: str = '') -> None:
+        return self.state_control.set_status(text, detail=detail)
 
     def set_offline(self) -> None:
         """下播：画面清成黑的，格子继续留给这个直播间。"""

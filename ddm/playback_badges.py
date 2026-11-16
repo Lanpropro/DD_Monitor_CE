@@ -233,6 +233,14 @@ class LoadingIndicator(BadgeSurface):
         self._content.ensurePolished()
         return self._content.sizeHint()
 
+    def set_text(self, text: str) -> None:
+        if text == self._text.text():
+            return
+        self._text.setText(text)
+        self._content.layout().invalidate()
+        self._sync_size()
+        self.update()
+
     def sizeHint(self) -> QSize:
         natural = self.natural_size()
         return QSize(round(natural.width() * self._presentation_scale),

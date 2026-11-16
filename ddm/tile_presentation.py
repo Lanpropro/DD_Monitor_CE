@@ -202,7 +202,7 @@ class TilePresentation:
             host._cover_cached = QPixmap()
             host.cover.setScaledContents(False)
             host.cover.setPixmap(QPixmap())
-            if host._player_active or getattr(host, "_connecting", False):
+            if host._player_active or getattr(host, "_connecting", False) or host._status_detail:
                 host.cover.setText("")        # 播放中 / 连接中都不显示文字，避免和动画重叠
             else:
                 fallback = host.room.get("uname", "") if host.room.get("live") else "未开播"
@@ -236,6 +236,10 @@ class TilePresentation:
             return
         width, height = host.width(), host.height()
         scale = 1.0
+        if host._status_detail:
+            natural = host.spinner.natural_size()
+            scale = min(1.0, max(1, width - 20) / natural.width(),
+                        max(1, height - TILE_BAR_HEIGHT - 20) / natural.height())
         if host.property('pictureInPicture'):
             natural = host.spinner.natural_size()
             scale = min(.75, max(1, width - 12) / natural.width(), max(1, height - 12) / natural.height())

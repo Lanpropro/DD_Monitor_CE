@@ -2,6 +2,7 @@
 import sys
 
 from PySide6.QtCore import QObject, QTimer
+from .playback_feedback import failure_detail
 
 RETRY_BASE_SECONDS = 5
 RETRY_MAX_SECONDS = 60
@@ -16,6 +17,21 @@ class PlaybackRecovery(QObject):
         self.retry_timers: dict[object, QTimer] = {}
         self.freeze_refreshed: set[object] = set()
         self.freeze_retry_timers: dict[object, QTimer] = {}
+        self.failure_details: dict[object, str] = {}
+
+    def record_failure(self, tile, *, reason=None, decoder_error=False):
+        player = self.host.players.get(tile) if reason is None else None
+        detail = failure_detail(reason=reason or '',
+            source_failure=getattr(player, 'source_failure', ''),
+            transport_error=getattr(player, '_source_read_error', False) is True,
+            decoder_error=decoder_error or getattr(player, '_decoder_error', False) is True)
+        self.failure_details[tile] = detail
+        return detail
+
+    def feedback_detail(self, tile):
+        if self.retry_count.get(tile, 0) >= 2 or tile in self.freeze_refreshed:
+            return self.failure_details.get(tile, failure_detail())
+        return ''
 
     def cancel_retry(self, tile, *, reset_attempts=False):
         timer = self.retry_timers.pop(tile, None)
@@ -26,6 +42,7 @@ class PlaybackRecovery(QObject):
             self.retry_count.pop(tile, None)
 
     def reset_retry_after_playing(self, tile):
+        self.failure_details.pop(tile, None)
         if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")):
             player = self.host.players.get(tile)
             if player is not None:
@@ -35,6 +52,7 @@ class PlaybackRecovery(QObject):
             self.retry_count.pop(tile, None)
 
     def clear_tile(self, tile):
+        self.failure_details.pop(tile, None)
         self.cancel_retry(tile, reset_attempts=True)
         self.clear_freeze(tile)
 
@@ -45,6 +63,7 @@ class PlaybackRecovery(QObject):
             self.clear_freeze(tile)
         self.retry_count.clear()
         self.freeze_refreshed.clear()
+        self.failure_details.clear()
 
     def reset_stable_retry(self, tile, player, generation):
         if (not self.host._closing and self.host.players.get(tile) is player and player.state == "playing"
@@ -57,6 +76,7 @@ class PlaybackRecovery(QObject):
             return
         if tile in self.host._resolvers or tile in self.retry_timers:
             return
+        self.record_failure(tile)
         if tile not in self.freeze_refreshed:
             self.freeze_refreshed.add(tile)
             tile.set_status("画面停止更新，正在自动刷新…")
@@ -67,7 +87,8 @@ class PlaybackRecovery(QObject):
             return
         if tile in self.freeze_retry_timers:
             return
-        tile.set_status(f"画面仍停止更新，{FREEZE_RETRY_SECONDS} 秒后再次刷新…")
+        tile.set_status(f"画面仍停止更新，{FREEZE_RETRY_SECONDS} 秒后再次刷新…",
+                        detail=self.feedback_detail(tile))
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda t=tile: self.retry_frozen_picture(t))
@@ -81,7 +102,7 @@ class PlaybackRecovery(QObject):
             timer.deleteLater()
         if not tile.room.get("room_id") or tile.paused:
             return
-        tile.set_status("画面仍停止更新，正在再次刷新…")
+        tile.set_status("画面仍停止更新，正在再次刷新…", detail=self.feedback_detail(tile))
         print(f"[画面静止] {tile.room.get('uname')} 5 秒后再次刷新",
               file=sys.stderr, flush=True)
         self.host.start_tile(tile)
@@ -93,6 +114,7 @@ class PlaybackRecovery(QObject):
         was_recovering = tile in self.freeze_refreshed
         self.clear_freeze(tile)
         if was_recovering:
+            self.failure_details.pop(tile, None)
             tile.set_status("")
             print(f"[画面恢复] {tile.room.get('uname')} 已恢复更新",
                   file=sys.stderr, flush=True)
@@ -121,7 +143,8 @@ class PlaybackRecovery(QObject):
         if str(tile.room.get("room_id", "")).startswith(("huya:", "douyu:")):
             print(f"[平台诊断] 阶段=recovery_schedule 房间={tile.room['room_id']} 次数={attempt} 等待秒数={delay}",
                   file=sys.stderr, flush=True)
-        tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）")
+        tile.set_status(f"断流，{delay} 秒后重连（第 {attempt} 次）",
+                        detail=self.feedback_detail(tile))
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda t=tile: self.retry_now(t))

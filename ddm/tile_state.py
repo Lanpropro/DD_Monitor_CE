@@ -181,17 +181,24 @@ class TileState:
             host.pause_overlay.stop()
         host.raise_overlays()
 
-    def set_status(self, text: str) -> None:
+    def set_status(self, text: str, *, detail: str = '') -> None:
         host = self.host
         host._status_text = text
+        host._status_detail = detail
         host._connecting = text.startswith("连接中")
         host._sync_status_label()
-        if not host._player_active:
+        if detail:
+            host.spinner.start()
+            host._layout_areas()
+            host._layout_cover()
+        elif not host._player_active:
             if host._connecting:
                 host.spinner.start()
             else:
                 host.spinner.stop()
             host._layout_cover()              # 让封面文字随状态刷新（连接时不显示文字）
+        elif not host._buffering:
+            host.spinner.stop()
 
     def set_offline(self) -> None:
         """下播：画面清成黑的，格子继续留给这个直播间。"""
@@ -226,6 +233,8 @@ class TileState:
         """底栏保留空白布局区域；状态仍用于封面、加载图形及内部判断。"""
         host = self.host
         host.status_label.setText("")
+        host.spinner.set_text(f'{host._status_text}\n{host._status_detail}'
+                              if host._status_detail else '连接中…')
 
     def set_paused(self, paused: bool) -> None:
         host = self.host

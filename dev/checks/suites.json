@@ -102,6 +102,7 @@
       "selfcheck_folder_card_drag",
       "selfcheck_player_lifetime",
       "selfcheck_playback_recovery",
+      "selfcheck_playback_feedback",
       "selfcheck_stream_playback",
       "selfcheck_codec_control",
       "selfcheck_danmaku_connection",

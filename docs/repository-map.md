@@ -205,6 +205,7 @@
 - `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_playback_badges.py`
+- `dev/selfcheck_playback_feedback.py`
 - `dev/selfcheck_playback_controls.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`

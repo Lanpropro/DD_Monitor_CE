@@ -30,6 +30,7 @@ if /i "%~1"=="--check-widget-lifetime" goto widgetLifetimeCheck
 if /i "%~1"=="--check-ui-polish" goto uiPolishCheck
 if /i "%~1"=="--check-douyu-source-recovery" goto douyuSourceRecoveryCheck
 if /i "%~1"=="--check-live-buffering" goto liveBufferingCheck
+if /i "%~1"=="--check-playback-feedback" goto playbackFeedbackCheck
 if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
 if /i "%~1"=="--check-live-elapsed" goto liveElapsedCheck
 if /i "%~1"=="--check-functional-modules" goto functionalModulesCheck
@@ -541,6 +542,21 @@ exit /b %errorlevel%
 :liveBufferingCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_player_lifetime -- LiveBufferingTests
+exit /b %errorlevel%
+
+:playbackFeedbackCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_recovery
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_feedback
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_playback_badges
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_stream_playback
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_playback_feedback.py" --native-feedback
 exit /b %errorlevel%
 
 :liveTranslateAcceptance
