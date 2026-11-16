@@ -213,8 +213,9 @@ class InfoResolver(QThread):
                 result = self.platform.room_info(self.room_id)
                 info = result.as_dict() if result is not None else None
             else:
-                from .room_input import is_bili_short_url, resolve_bili_share
-                room_id = resolve_bili_share(self.room_id) if is_bili_short_url(self.room_id) else self.room_id
+                from .room_input import bili_profile_uid, is_bili_short_url, resolve_bili_share
+                deferred = is_bili_short_url(self.room_id) or bili_profile_uid(self.room_id)
+                room_id = resolve_bili_share(self.room_id) if deferred else self.room_id
                 info = api.room_info(room_id) if room_id.isdigit() else None
         except Exception as error:  # noqa: BLE001
             self.browser_verification = getattr(error, "browser_verification", False) is True

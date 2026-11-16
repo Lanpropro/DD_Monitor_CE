@@ -17,7 +17,7 @@ from ddm.dialogs import AddRoomDialog
 def main():
     app = QApplication([])
     plain = AddRoomDialog()
-    assert plain.hint.text() == '支持 B 站房间号' and plain.hint.wordWrap()
+    assert plain.hint.text() == '支持 B 站房间号、直播间链接及个人主页链接' and plain.hint.wordWrap()
     assert plain.edit.placeholderText() == '输入房间号或链接'
     plain.edit.setText('https://live.bilibili.com/1001')
     plain.accept()
@@ -43,13 +43,13 @@ def main():
             assert hint.startswith('支持 B 站房间号')
             for name in ('虎牙', '斗鱼', '抖音', 'Twitch', 'YouTube'):
                 assert (name in hint) == (name in names), (enabled, hint)
-            assert '个人主页链接' not in hint
+            assert '个人主页链接' in hint
             # 新插件的说明无需修改本体；旧插件没有可选字段也不会导致窗口打不开。
             window.plugins.platforms = {'custom': SimpleNamespace(room_input_hint='自定义链接格式'),
                                         'legacy': SimpleNamespace(label='旧平台')}
             with patch.object(AddRoomDialog, 'exec', new=inspect):
                 window.open_add_room()
-            assert captured[-1] == '支持 B 站房间号；自定义链接格式'
+            assert captured[-1] == '支持 B 站房间号、直播间链接及个人主页链接；自定义链接格式'
         finally:
             window.close()
             app.processEvents()
