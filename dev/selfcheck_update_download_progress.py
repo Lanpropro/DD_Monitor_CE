@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 from shiboken6 import isValid
 from ddm import config, motion, online, theme, update_install
 from ddm.app_updates import AppUpdates
@@ -133,6 +133,84 @@ class UpdateDownloadTests(unittest.TestCase):
         self.assertEqual(reset['percent'], 0)
         self.assertEqual(sample.update(4096, 4096)['phase'], 'verifying')
 
+    def test_download_button_is_replaced_in_place_and_restored(self):
+        surface = QWidget()
+        surface.resize(800, 90)
+        layout = QVBoxLayout(surface)
+        button = QPushButton('下载更新')
+        progress = UpdateProgress(surface, button=button)
+        layout.addWidget(progress)
+        surface.show()
+        self.app.processEvents()
+        original = progress.geometry()
+        button_width, button_height = button.width(), button.height()
+        state = dict(received=50 * 1024 * 1024, total=250 * 1024 * 1024,
+                     speed=10 * 1024 * 1024, percent=20, phase='downloading')
+        progress.set_state(state)
+        self.app.processEvents()
+        self.assertFalse(button.isVisible())
+        self.assertTrue(progress.bar.isVisible())
+        self.assertGreater(progress.bar.width(), button_width)
+        self.assertLess(progress.bar.height(), button_height)
+        self.assertEqual(progress.geometry(), original)
+        self.assertIn('50.00 MB / 250.00 MB', progress.details.text())
+        progress.set_state(dict(state, phase='ready', percent=100))
+        self.app.processEvents()
+        self.assertTrue(button.isVisible())
+        self.assertFalse(progress.bar.isVisible())
+        progress.set_state(dict(state, phase='failed', error='test disconnect'))
+        self.assertEqual(button.text(), '重试')
+        surface.close()
+        surface.deleteLater()
+
+    def test_plugin_cards_keep_text_inside_at_large_font_and_narrow_width(self):
+        from ddm.settings_plugins import PluginSettingsPage
+        self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        key = 'fixture'
+        self.manager.install_zip(str(self.package(key, '1.0')))
+        offer = dict(id=key, name='测试插件一', description='本地样式验收测试包',
+                     version='2.0', available=True, author='ExampleAuthor')
+        state = dict(received=4 * 1024 * 1024, total=8 * 1024 * 1024,
+                     speed=1024 * 1024, percent=50, phase='downloading')
+        for font_size in (13, 20):
+            theme.configure_appearance({'appearance_font': theme.danmaku_font_family(),
+                                        'appearance_font_size': font_size})
+            theme.apply('dark')
+            page = PluginSettingsPage(self.manager)
+            store = page.store_page
+            store.downloads.states[key] = state
+            store.show_offers([offer])
+            page.resize(650, 560)
+            page.show()
+            for tab in (0, 1):
+                page.tabs.setCurrentIndex(tab)
+                page._show_update_notes([offer])
+                self.app.processEvents()
+                card = page._installed_cards[key] if tab == 0 else store._offer_cards[key]
+                progress = page._installed_progress[key] if tab == 0 else store._progress_widgets[key]
+                self.assertTrue(progress.bar.isVisible())
+                self.assertFalse(progress.button.isVisible())
+                self.assertGreaterEqual(card.height(), card.minimumSizeHint().height())
+                for label in card.findChildren(QLabel):
+                    if label.isVisible():
+                        self.assertGreaterEqual(label.height(), label.fontMetrics().height())
+                        self.assertLessEqual(label.mapTo(card, label.rect().topLeft()).y() + label.height(), card.height())
+                self.assertEqual((page.installed_scroll if tab == 0 else store.scroll).horizontalScrollBar().maximum(), 0)
+                directory = os.environ.get('DDM_UPDATE_PREVIEW')
+                if directory:
+                    Path(directory).mkdir(parents=True, exist_ok=True)
+                    card.grab().save(str(Path(directory) / f'plugin-{font_size}-{tab}.png'))
+            store.downloads.states[key] = dict(state, phase='ready', percent=100)
+            store._busy(False)
+            self.app.processEvents()
+            self.assertFalse(store._progress_widgets[key].bar.isVisible())
+            page.store_page.stop()
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        theme.configure_appearance({'appearance_font': theme.danmaku_font_family(), 'appearance_font_size': 13})
+        theme.apply('dark')
+
     def test_notification_plugin_progress_reopen_and_retry(self):
         key = 'fixture'
         archive = self.package(key)
@@ -163,7 +241,7 @@ class UpdateDownloadTests(unittest.TestCase):
                 store.set_downloads(downloads)
                 store.show_offers([offer])
                 self.assertEqual(store._progress_widgets[key].bar.value(), 25)
-                self.assertEqual(notice._update_rows[key][1].details.text(), store._progress_widgets[key].details.text())
+                self.assertEqual(notice._update_rows[key][1].details.toolTip(), store._progress_widgets[key].details.toolTip())
                 self.assertFalse(notice.timer.isActive())
                 store.install_offer(offer)
                 self.assertEqual(calls, [key], 'Two entry points must not start a duplicate transfer')
@@ -173,7 +251,7 @@ class UpdateDownloadTests(unittest.TestCase):
                 gate.set()
                 self.wait_for(lambda: not downloads.jobs)
                 self.assertEqual(notice._update_rows[key][2].text(), '重试')
-                self.assertIn('test connection lost', notice._update_rows[key][1].details.text())
+                self.assertIn('test connection lost', notice._update_rows[key][1].details.toolTip())
                 notice._update_rows[key][2].click()
                 self.wait_for(lambda: not downloads.jobs)
                 self.assertEqual(calls, [key, key])
@@ -326,7 +404,8 @@ class UpdateDownloadTests(unittest.TestCase):
             page.download_update()
             self.wait_for(lambda: not page.jobs)
             self.assertEqual(page.download_state['phase'], 'failed')
-            self.assertIn('invalid update archive', page.download_progress.details.text())
+            self.assertIn('invalid update archive', page.download_progress.details.toolTip())
+            self.assertIn('invalid update archive', page.status.text())
             self.assertEqual(page.plan_path, '')
             self.assertEqual(self.host._update_notice._update_rows['app'][2].text(), '重试')
 

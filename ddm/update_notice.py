@@ -177,7 +177,8 @@ class UpdateNotice(QFrame):
 
     def _resize_to_content(self):
         self.ensurePolished()
-        width = min(420, max(80, self.parentWidget().width() - 32))
+        preferred = max(420, self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 180) if self._update_rows else 420
+        width = min(preferred, max(80, self.parentWidget().width() - 32))
         self.setFixedWidth(width)
         if self._update_rows:
             available = max(80, width - 48)
@@ -316,18 +317,15 @@ class UpdateNotice(QFrame):
                 widget = QWidget(self)
                 body = QVBoxLayout(widget)
                 body.setContentsMargins(0, 0, 0, 0)
-                heading = QHBoxLayout()
                 title = QLabel(entry['title'], widget)
                 title.setObjectName('UpdateItemTitle')
                 title.setTextFormat(Qt.PlainText)
                 title.setWordWrap(True)
-                heading.addWidget(title, 1)
+                body.addWidget(title)
                 button = QPushButton('下载更新', widget)
                 button.setObjectName('IconButton')
                 button.clicked.connect(lambda checked=False, k=key: self.updateRequested.emit(k))
-                heading.addWidget(button)
-                body.addLayout(heading)
-                progress = UpdateProgress(widget)
+                progress = UpdateProgress(widget, button=button)
                 body.addWidget(progress)
                 self.updates.addWidget(widget)
                 self._update_rows[key] = widget, progress, button

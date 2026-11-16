@@ -122,7 +122,8 @@ def check_store_browser(app, root):
             app.processEvents()
             assert page.count.text() == '64 / 64 个插件'
             assert page.scroll.horizontalScrollBar().maximum() == 0
-            assert all(card.height() < 112 for card in page._offer_cards.values())
+            assert all(card.height() >= card.minimumSizeHint().height() for card in page._offer_cards.values()), \
+                'Plugin cards must reserve the complete text and action-row height'
             page.resize(400, 560)
             app.processEvents()
             assert page.scroll.horizontalScrollBar().maximum() == 0, 'Long titles/authors must not widen the plugin list'
@@ -234,7 +235,8 @@ def check_installed_browser(app, root):
             QTest.qWait(180)
             assert browser.count.text() == '16 / 16 个插件'
             assert page.installed_scroll.horizontalScrollBar().maximum() == 0
-            assert all(card.height() < 130 for card in page._installed_cards.values())
+            assert all(card.height() >= card.minimumSizeHint().height() for card in page._installed_cards.values()), \
+                'Installed cards must not squeeze text below its minimum height'
             browser.search.setText('ALICE 完整说明')
             assert browser.count.text() == '1 / 16 个插件'
             browser.search.clear()

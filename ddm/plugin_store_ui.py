@@ -2,7 +2,7 @@
 from pathlib import Path
 import time
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget
 from . import config, online, plugin_updates, theme, version
 from .ui import SettingsSurface, ActionButton, AnimatedDialog, ElidedLabel, page_header
 from .update_notice import set_update_dot
@@ -72,18 +72,16 @@ class PluginDetailsDialog(AnimatedDialog):
                       offer.get('notes') or '暂无更新日志'))
         self.document.setPlainText('\n\n'.join(parts))
         layout.addWidget(self.document, 1)
-        from .update_progress_ui import UpdateProgress
-        self.download_progress = UpdateProgress(self)
-        layout.addWidget(self.download_progress)
         footer = QHBoxLayout()
         close = ActionButton('关闭', self)
         close.clicked.connect(self.reject)
         footer.addWidget(close)
-        footer.addStretch()
         self.action = ActionButton(parent=self)
         self.action.setAutoDefault(False)
         self.action.clicked.connect(self.install)
-        footer.addWidget(self.action)
+        from .update_progress_ui import UpdateProgress
+        self.download_progress = UpdateProgress(self, button=self.action)
+        footer.addWidget(self.download_progress, 1)
         layout.addLayout(footer)
         store = page.store_page if installed_entry is not None else page
         store.controlsChanged.connect(self.refresh_action)
@@ -295,12 +293,14 @@ class PluginStorePage(OnlinePage):
         for offer in offers:
             card = SettingsSurface()
             card.setObjectName('PluginCard')
-            body = QHBoxLayout(card)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+            body = QVBoxLayout(card)
+            body.setSizeConstraint(QLayout.SetMinimumSize)
             body.setContentsMargins(14, 10, 14, 10)
             body.setSpacing(12)
             summary = QVBoxLayout()
             summary.setSpacing(4)
-            body.addLayout(summary, 1)
+            body.addLayout(summary)
             title = ElidedLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else ''))
             title.setObjectName('PluginName')
             title.setTextFormat(Qt.PlainText)
@@ -357,12 +357,11 @@ class PluginStorePage(OnlinePage):
                 footer.addWidget(credit, 0, Qt.AlignRight | Qt.AlignBottom)
             summary.addLayout(footer)
             from .update_progress_ui import UpdateProgress
-            progress = UpdateProgress(card)
-            summary.addWidget(progress)
+            progress = UpdateProgress(card, button=button)
             self._progress_widgets[offer['id']] = progress
-            actions = QVBoxLayout()
-            actions.setSpacing(2)
-            actions.addWidget(button)
+            actions = QHBoxLayout()
+            actions.setSpacing(8)
+            actions.addWidget(progress, 1)
             actions.addWidget(details)
             body.addLayout(actions)
             self._offer_cards[offer['id']] = card
@@ -391,11 +390,18 @@ class PluginStorePage(OnlinePage):
         position = self.scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
+        minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 220
+        columns = 2 if self.scroll.viewport().width() >= minimum * 2 + self.cards.horizontalSpacing() else 1
+        self.cards.setColumnStretch(1, 1 if columns == 2 else 0)
         for index, offer in enumerate(visible):
-            self.cards.addWidget(self._offer_cards[offer['id']], index // 2, index % 2)
+            self.cards.addWidget(self._offer_cards[offer['id']], index // columns, index % columns)
         self.count.setText(f'{len(visible)} / {len(self._display_offers)} 个插件')
         self.empty.setVisible(not visible)
         self.scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._filter_offers(reset_scroll=False)
 
     def show_details(self, offer):
         dialog = PluginDetailsDialog(self, offer)

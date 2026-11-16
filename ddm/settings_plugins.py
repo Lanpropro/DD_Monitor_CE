@@ -3,7 +3,7 @@ import zipfile
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget
+    QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
@@ -204,12 +204,19 @@ class PluginSettingsPage(QWidget):
         position = self.installed_scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
+        minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 280
+        columns = 2 if self.installed_scroll.viewport().width() >= minimum * 2 + self.cards.horizontalSpacing() else 1
+        self.cards.setColumnStretch(1, 1 if columns == 2 else 0)
         for index, entry in enumerate(visible):
-            self.cards.addWidget(self._installed_cards[entry['id']], index // 2, index % 2)
+            self.cards.addWidget(self._installed_cards[entry['id']], index // columns, index % columns)
         self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
         self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
         self.empty.setVisible(not visible)
         self.installed_scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._filter_installed(reset_scroll=False)
 
     def _installed_selection_changed(self):
         self._filter_installed(reset_scroll=False)
@@ -233,43 +240,41 @@ class PluginSettingsPage(QWidget):
     def _add_card(self, entry):
         card = SettingsSurface()
         card.setObjectName("PluginCard")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._installed_entries[entry['id']] = dict(entry)
         self._installed_cards[entry['id']] = card
-        body = QHBoxLayout(card)
+        body = QVBoxLayout(card)
+        body.setSizeConstraint(QLayout.SetMinimumSize)
         body.setContentsMargins(14, 10, 14, 10)
         body.setSpacing(12)
         summary = QVBoxLayout()
         summary.setSpacing(4)
-        body.addLayout(summary, 1)
+        body.addLayout(summary)
         title = ElidedLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
         title.setObjectName("PluginName")
         title.setTextFormat(Qt.PlainText)
         title.setToolTip(entry['name'])
-        summary.addWidget(title)
-        controls = QGridLayout()
-        controls.setSpacing(4)
+        heading = QHBoxLayout()
+        heading.addWidget(title, 1)
+        summary.addLayout(heading)
         check = QCheckBox("启用")
         check.setChecked(entry["enabled"])
         self.checks[entry["id"]] = check
         check.toggled.connect(self._installed_selection_changed)
-        controls.addWidget(check, 0, 0)
+        heading.addWidget(check)
         update = QPushButton("更新")
         update.setObjectName("IconButton")
         update.setMinimumWidth(update.fontMetrics().horizontalAdvance('校验/解压中') + 28)
         update.hide()
         update.clicked.connect(lambda: self._update_plugin(entry["id"]))
         self.update_buttons[entry["id"]] = update
-        controls.addWidget(update, 0, 1)
         remove = QPushButton("删除")
         remove.setObjectName("IconButton")
         remove.clicked.connect(lambda: self._remove(entry["id"], card))
-        controls.addWidget(remove, 1, 1)
         details = QPushButton('详情', card)
         details.setObjectName('PluginDetailsButton')
         details.setAccessibleName('查看 ' + entry['name'] + ' 的详情')
         details.clicked.connect(lambda: self._show_installed_details(entry['id']))
-        controls.addWidget(details, 1, 0)
-        body.addLayout(controls)
         description = ElidedLabel(' '.join((entry["description"] or "暂无说明").split()))
         description.setObjectName('SettingsHint')
         description.setTextFormat(Qt.PlainText)
@@ -288,9 +293,14 @@ class PluginSettingsPage(QWidget):
         footer.addWidget(author)
         summary.addLayout(footer)
         from .update_progress_ui import UpdateProgress
-        progress = UpdateProgress(card)
-        summary.addWidget(progress)
+        progress = UpdateProgress(card, button=update)
         self._installed_progress[entry['id']] = progress
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        actions.addWidget(progress, 1)
+        actions.addWidget(details)
+        actions.addWidget(remove)
+        body.addLayout(actions)
         self.card_details[entry["id"]] = (description, status, entry['description'])
         index = self.cards.count()
         self.cards.addWidget(card, index // 2, index % 2)
