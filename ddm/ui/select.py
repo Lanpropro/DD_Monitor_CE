@@ -34,6 +34,7 @@ class _SelectDelegate(QStyledItemDelegate):
 class SelectControl(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._popup_prepared = False
         self._hint_key = None
         self._hint_width = None
         self._watch_size_model(self.model())
@@ -44,21 +45,34 @@ class SelectControl(QComboBox):
         self.setMinimumContentsLength(8)
         self.setMaxVisibleItems(8)
         self.setCursor(Qt.PointingHandCursor)
+        self.currentTextChanged.connect(self.setToolTip)
+        theme.signals().changed.connect(self.update)
+
+    def _prepare_popup(self):
+        if self._popup_prepared:
+            return
+        self._popup_prepared = True
         view = QListView(self)
         view.setFrameShape(QFrame.NoFrame)
         view.setProperty('customItemSurface', True)
         view.setStyleSheet('QListView {background: transparent; border: none; padding: 4px;}')
         view.viewport().setAutoFillBackground(False)
         view.setItemDelegate(_SelectDelegate(view))
-        self.setView(view)
+        super().setView(view)
         popup = view.window()
         popup.setObjectName('SelectPopup')
         popup.setWindowFlag(Qt.FramelessWindowHint, True)
         popup.setAttribute(Qt.WA_TranslucentBackground)
         popup.setStyleSheet(f'#SelectPopup {{background: palette(tooltip-base); border: 1px solid palette(mid); '
                            f'border-radius: {theme.RADIUS_LG}px; padding: 4px;}}')
-        self.currentTextChanged.connect(self.setToolTip)
-        theme.signals().changed.connect(self.update)
+
+    def view(self):
+        self._prepare_popup()
+        return super().view()
+
+    def setView(self, view):
+        self._prepare_popup()
+        super().setView(view)
 
     def _watch_size_model(self, model):
         self._size_model = model
@@ -110,7 +124,7 @@ class SelectControl(QComboBox):
         painter.setRenderHint(QPainter.Antialiasing)
         if not self.isEnabled():
             painter.setOpacity(.45)
-        opened = self.view().isVisible()
+        opened = self._popup_prepared and super().view().isVisible()
         focused = self.hasFocus() or opened
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if focused else theme.BORDER), 1.5 if focused else 1))

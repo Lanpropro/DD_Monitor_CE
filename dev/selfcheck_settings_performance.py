@@ -16,7 +16,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QStandardItem, QStandardItemModel
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QListView, QSpinBox, QWidget
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_autosave import SettingsAutoSave
@@ -213,6 +213,56 @@ class GalleryPreparationTests(unittest.TestCase):
 
 
 class SettingsPreparationTests(unittest.TestCase):
+    def test_closed_select_defers_custom_popup_during_layout_paint_or_theme_changes(self):
+        from ddm.ui import SelectControl
+        select = SelectControl()
+        select.addItem('Automatic', 'auto')
+        select.addItem('Compatible', 'copy')
+        select.setCurrentIndex(1)
+        events = []
+        select.currentIndexChanged.connect(events.append)
+        try:
+            for mode in ('dark', 'light', 'dark'):
+                theme.apply(mode)
+                select.resize(select.sizeHint())
+                select.minimumSizeHint()
+                select.show()
+                APP.processEvents()
+                self.assertFalse(select.grab().isNull())
+                # Qt may create its own base list when model rows are inserted;
+                # custom view/delegate/styling must wait until requested.
+                self.assertIsNone(select.findChild(QWidget, 'SelectPopup'))
+                self.assertFalse(any(view.property('customItemSurface')
+                                     for view in select.findChildren(QListView)))
+                self.assertEqual(select.currentData(), 'copy')
+                self.assertEqual(select.toolTip(), 'Compatible')
+            self.assertEqual(events, [])
+        finally:
+            select.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_explicit_view_access_prepares_once_and_keeps_selection_and_custom_views(self):
+        from ddm.ui import SelectControl
+        select = SelectControl()
+        select.addItems(['first', 'second'])
+        select.setCurrentIndex(1)
+        events = []
+        select.currentIndexChanged.connect(events.append)
+        try:
+            view = select.view()
+            self.assertIs(select.view(), view)
+            self.assertTrue(view.property('customItemSurface'))
+            self.assertEqual(view.window().objectName(), 'SelectPopup')
+            self.assertEqual(select.currentText(), 'second')
+            custom = QListView(select)
+            select.setView(custom)
+            self.assertIs(select.view(), custom)
+            self.assertEqual(select.currentText(), 'second')
+            self.assertEqual(events, [])
+        finally:
+            select.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_select_reuses_measurements_and_refreshes_for_text_model_and_font_changes(self):
         from ddm.ui import SelectControl
 

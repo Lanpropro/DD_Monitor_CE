@@ -258,6 +258,8 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语及可读�
 
 设置子阶段计时由 `settings_performance.measure` 承接，窗口协调与编辑器在原调用位置传入操作；采集器不提前导入或构建页面，不持有编辑器、参数或返回对象。普通入口直接调用操作，启用时只记录固定阶段名和耗时，保留调用时序及异常语义。
 
+SelectControl由组合框继续持有唯一模型和选中值，关闭时仅绘制控件表面；定制列表、代理及弹窗样式在首次展开或显式view/setView访问时创建，仍由原Qt父子树管理。尺寸缓存、外部自定义view以及字体选择器的搜索接线沿用原入口，不复制选项或选择状态。
+
 在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
 
 ### 诊断中心与崩溃证据
