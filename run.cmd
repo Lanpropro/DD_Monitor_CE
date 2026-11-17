@@ -24,6 +24,7 @@ if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
+if /i "%~1"=="--check-update-settings" goto updateSettingsCheck
 if /i "%~1"=="--check-tray-menu" goto trayMenuCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
@@ -475,6 +476,13 @@ for %%T in (SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_re
 )
 if defined TRAY_CHECK_FAILED exit /b 1
 exit /b 0
+
+:updateSettingsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_settings
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_download_progress -- UpdateDownloadTests.test_app_update_action_keeps_its_left_anchor_through_transfer_states UpdateDownloadTests.test_plugin_expansion_moves_only_its_column_and_keeps_one_footer UpdateDownloadTests.test_plugin_cards_keep_text_inside_at_large_font_and_narrow_width UpdateDownloadTests.test_plugin_columns_resize_filter_sort_and_keep_download_controls
+exit /b %errorlevel%
 
 :settingsControlsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"

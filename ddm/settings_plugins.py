@@ -212,11 +212,9 @@ class PluginSettingsPage(QWidget):
         position = self.installed_scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
-        minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 280
-        columns = 2 if self.installed_scroll.viewport().width() >= minimum * 2 + self.cards.spacing() else 1
-        self.cards.set_columns(columns)
         for entry in visible:
             self.cards.addWidget(self._installed_cards[entry['id']])
+        self.cards.fit_columns(self.installed_scroll.viewport().width() - 4)
         self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
         self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
         self.empty.setVisible(not visible)

@@ -456,6 +456,7 @@
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
+- `dev/selfcheck_update_settings.py`
 - `dev/selfcheck_update_preview.py`
 - `dev/folder_stress_preview.py`
 - `dev/update_preview.py`
