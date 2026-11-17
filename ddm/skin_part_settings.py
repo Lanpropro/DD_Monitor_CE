@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QFileDialog, QFormL
 from .settings_layout import SettingsColumns, SettingsSection
 from .skin_controls import _background_name, SkinAssetDropArea
 from .ui import SelectControl
+from .settings_performance import measure
 
 
 class PartSettings(QDialog):
@@ -48,7 +49,8 @@ class PartSettings(QDialog):
             self.scenes.addItem(text) if embedded else self.scenes.addTab(text)
         if not embedded:
             preview_column.addWidget(self.scenes)
-        self.preview = SkinPreview(self, editable_parts=None if professional else BASIC_PARTS)
+        self.preview = measure('parts.preview', SkinPreview, self,
+                               editable_parts=None if professional else BASIC_PARTS)
         if embedded:
             self.preview.setMinimumSize(320, 280)
             self.preview.setFixedHeight(280)
@@ -116,7 +118,8 @@ class PartSettings(QDialog):
                                   '布局预设背景' if key == 'layout_menu' and not professional else label, key)
         self.part.hide()
         self.part.setCurrentIndex(self.part.findData('background'))
-        self.background_controls = SkinSettings(owner.settings, owner.skin_controller, content)
+        self.background_controls = measure('parts.background-controls', SkinSettings,
+                                           owner.settings, owner.skin_controller, content)
         self.background_controls.parts_button.hide()
         self.background_controls.findChild(QLabel, 'SettingsTitle').hide()
         layout.addWidget(self.background_controls)
@@ -226,7 +229,7 @@ class PartSettings(QDialog):
                 edit.valueChanged.connect(self._update_preview)
             else:
                 edit.textChanged.connect(self._update_preview)
-        self.load_part()
+        measure('parts.initial-selection', self.load_part)
         self._update_background()
 
     def keyPressEvent(self, event):

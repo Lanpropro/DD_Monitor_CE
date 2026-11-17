@@ -30,16 +30,18 @@ def _allow_foreground(pid):
 
 def _activate_dialog(dialog):
     from PySide6.QtWidgets import QApplication
+    from .settings_performance import measure
     if dialog.isMinimized():
-        dialog.showNormal()
+        measure('window.show', dialog.showNormal)
     else:
-        dialog.show()
+        measure('window.show', dialog.show)
     target = QApplication.activeModalWidget() or dialog
-    target.raise_()
-    target.activateWindow()
+    measure('window.raise', target.raise_)
+    measure('window.activate', target.activateWindow)
     if sys.platform == 'win32':
         import ctypes
-        ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(int(target.winId())))
+        measure('window.foreground', ctypes.windll.user32.SetForegroundWindow,
+                ctypes.c_void_p(int(target.winId())))
 
 
 def worker_command():

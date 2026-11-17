@@ -34,6 +34,10 @@
 
 人工复测：重启根 `run.cmd --diagnose-settings-performance`（默认轻量模式），首次打开后立即切外观，再到录制／插件，关闭重开；核对初次等待、外观布局和滚轮，选择已有分区后换图确认其他样式保留。第一批无体感改善、第二／三批略有改善，第四批幅度待复测，不将离屏耗时作为优化结论。首次可见窗口显示、原生嵌入及各页自身首次创建仍有成本，不作零等待承诺。
 
+第四批现场反馈仍差不多、滚轮正常。宿主58332／worker51164的轻量记录中，外观首次创建约427ms、录制约348ms，返回已建页面的绘制约10–15ms；窗口首次Show到Paint约226ms，嵌入约193ms。现有页面总计不足以定位外观内部开销，补充 `settings-stage`：`appearance.theme-editor`、`appearance.material-editor`、`appearance.parts-editor`、`parts.preview`、`parts.background-controls`、`parts.initial-selection`，以及 `window.show/raise/activate/foreground`。
+
+子阶段只在对应操作实际执行时计时，不预导入编辑器或启用cProfile；保留返回值、异常和调用参数语义，日志仍只含固定标签和耗时。嵌套阶段包含子阶段耗时，不能直接相加。当前根性能专项26项，新增阶段透传／异常／隐私回归，并确认开启采集后的宿主实际构建阶段可落盘。下一轮从同一诊断入口首次打开→外观→录制→关闭重开，依据子阶段确认瓶颈后继续修改加载路径；本次新增采集不算性能改善。
+
 扩展验证的既有失败：独立 `selfcheck_theme_palette.py` 在本机离屏／Windows平台均于 `dark: palette QSS changed the existing rendered design` 断言失败；用 `HEAD` 的原事件过滤方法替换后，离屏环境出现同样失败。本批不修改该主题截图契约，也不将其记为通过；目标入口采用实际设置页的主题跟随与按钮悬停检查。用户同期补充的三张内存异常截图已单独保存在本地取证记录，尚无匹配PID或已确认根因。
 
 ## 托盘行为与预览调整

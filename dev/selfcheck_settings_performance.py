@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QWid
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_autosave import SettingsAutoSave
-from ddm.settings_performance import SettingsProbe, install
+from ddm.settings_performance import SettingsProbe, install, measure
 from ddm.settings_window import SettingsWindow
 
 APP = QApplication.instance() or QApplication([])
@@ -332,6 +332,36 @@ class SettingsPreparationTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_stage_timings_preserve_results_arguments_and_exceptions_without_recording_input(self):
+        sentinel = object()
+
+        def construct(value, *, enabled):
+            self.assertEqual(value, 'private-stage-input')
+            self.assertTrue(enabled)
+            return sentinel
+
+        def failed():
+            raise ValueError('stage fixture')
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'capture.jsonl'
+            probe = SettingsProbe(path)
+            try:
+                with patch.object(APP, '_settings_performance', probe, create=True):
+                    self.assertIs(measure('fixture.construct', construct, 'private-stage-input', enabled=True), sentinel)
+                    with self.assertRaisesRegex(ValueError, 'stage fixture'):
+                        measure('fixture.failed', failed)
+                with patch.object(APP, '_settings_performance', None, create=True):
+                    self.assertIs(measure('fixture.disabled', construct, 'private-stage-input', enabled=True), sentinel)
+            finally:
+                probe.stop()
+            content = path.read_text(encoding='utf-8')
+            self.assertNotIn('private-stage-input', content)
+            self.assertNotIn('stage fixture', content)
+            records = [json.loads(line) for line in content.splitlines()]
+            self.assertEqual([r['function'] for r in records if r['phase'] == 'settings-stage'],
+                             ['fixture.construct', 'fixture.failed'])
+
     def test_default_capture_does_not_profile_or_wait_for_disk_writer(self):
         class Example:
             def value(self):

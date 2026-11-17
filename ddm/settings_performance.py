@@ -14,6 +14,19 @@ from PySide6.QtWidgets import QApplication, QWidget
 from .responsiveness_probe import Probe, profile_functions
 
 
+def measure(label, operation, *args, **kwargs):
+    """Time a known construction/display stage without importing its editor early."""
+    probe = getattr(QApplication.instance(), '_settings_performance', None)
+    if probe is None or probe.stopped.is_set():
+        return operation(*args, **kwargs)
+    started = time.perf_counter()
+    try:
+        return operation(*args, **kwargs)
+    finally:
+        probe.write('settings-stage', function=label,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 3))
+
+
 class SettingsProbe(Probe):
     def __init__(self, path, *, profile_calls=False):
         self.records = 0
