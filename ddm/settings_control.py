@@ -54,7 +54,7 @@ class SettingsControl:
             host._settings_process.closed.connect(host._close_settings_host)
             host._settings_process.occlusionChanged.connect(
                 lambda: host.wall._quick_danmaku_layer.show()
-                if host.wall._quick_danmaku_layer is not None else None)
+                if not host._closing and host.wall._quick_danmaku_layer is not None else None)
             host._settings_process.failed.connect(lambda message: host._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=host.open_settings))
         return host._settings_process

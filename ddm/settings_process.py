@@ -241,6 +241,18 @@ class SettingsProcess(QObject):
 
     def stop(self):
         self.closing = True
+        if sys.platform == 'win32' and self.window_hwnd and self.worker_pid:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(self.window_hwnd, ctypes.byref(pid))
+            if pid.value == self.worker_pid:
+                # Hide independently of the JSON pipe while the host is busy
+                # releasing players; never wait for the worker's GUI thread.
+                user32.ShowWindowAsync.argtypes = (wintypes.HWND, ctypes.c_int)
+                user32.ShowWindowAsync(self.window_hwnd, 0)
         self.window_hwnd = 0
         self._set_occlusion(QRect(), force=self.visible)
         self.start_timer.stop()

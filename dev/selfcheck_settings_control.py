@@ -209,6 +209,18 @@ class SettingsControlTests(unittest.TestCase):
             host._settings_host_request(message)
             self.assertEqual(factory.call_count, 1)
 
+    def test_settings_shutdown_does_not_reshow_the_quick_surface(self):
+        host = self.host
+        with patch('ddm.settings_process.SettingsProcess', Process):
+            process = host._get_settings_process()
+        host.wall._quick_danmaku_layer.show.reset_mock()
+        host._closing = True
+        process.occlusionChanged.emit()
+        host.wall._quick_danmaku_layer.show.assert_not_called()
+        host._closing = False
+        process.occlusionChanged.emit()
+        host.wall._quick_danmaku_layer.show.assert_called_once_with()
+
     def test_update_page_is_reused_and_release_signal_keeps_old_target(self):
         host = self.host
         with patch('ddm.online_ui.AppUpdatePage', UpdatePage):

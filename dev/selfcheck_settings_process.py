@@ -113,6 +113,7 @@ def child(action):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
                 self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
+                                     (1,) if action == 'embed-shutdown' else
                                      (1, 0, 8, 1, 8) if action == 'embed-scroll' else
                                      (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
                                      (1, 0, 1, 7, 1) if action == 'embed-appearance' else
@@ -188,7 +189,7 @@ def child(action):
                     'glass': self._native_glass,
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
-                if action != 'embed-scroll':
+                if action not in ('embed-scroll', 'embed-shutdown'):
                     QTimer.singleShot(50, self.step)
             QTimer.singleShot(200, self, observed)
 
@@ -820,15 +821,37 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 if action == 'embed-scroll':
                     # Acknowledge this step only after both process endpoints pass.
                     user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
+                if action == 'embed-shutdown':
+                    from ctypes import wintypes
+                    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+                    shell = message['hwnd']
+                    original_hide = window.hide
+                    def hide_host():
+                        assert client.closing, 'Settings stop must precede the host hide'
+                        assert window._closing
+                        original_hide()
+                    def blocked_host_cleanup():
+                        # Only the worker's own loop is allowed to process the hide.
+                        deadline = time.perf_counter() + .3
+                        while user32.IsWindowVisible(shell) and time.perf_counter() < deadline:
+                            time.sleep(.002)
+                        assert not user32.IsWindowVisible(shell), 'Settings remained visible during host cleanup'
+                    with patch.object(window, 'hide', side_effect=hide_host), \
+                            patch.object(window, '_wait_background', side_effect=blocked_host_cleanup):
+                        window.close()
             client.received.connect(observed)
         try:
             client.open(window.settings, window.shortcuts)
             # Host changes made while the editor is open must survive its save.
             window.settings['skin_mask'] = 29
             window.shortcuts['fullscreen'] = 'Ctrl+F10'
-            wait(app, lambda: window._closing if action == 'embed-install' else
+            wait(app, lambda: window._closing if action in ('embed-install', 'embed-shutdown') else
                  any(message['kind'] == 'result' for message in messages), timeout=25)
             assert window.settings['seen_update_versions'] == {'app': '0.5.1'}
+            if action == 'embed-shutdown':
+                assert client.finish() and not errors, errors
+                assert not window.isVisible() and window._settings_host is None
+                return
             if action == 'embed-install':
                 assert window._update_plan == str(Path(temporary) / 'synthetic-update-plan.json')
                 assert window.settings['default_volume'] == 17 and not errors
@@ -1096,6 +1119,12 @@ def main():
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
+    if sys.argv[1:] == ['--shutdown-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-shutdown')
+        check_finish_without_event_loop(app)
+        print('PASS: settings hide before host cleanup; embedded surfaces and worker finish safely')
+        return 0
     if sys.argv[1:] == ['--theme-sync-only']:
         check_theme_sync(app)
         return 0

@@ -236,7 +236,8 @@ def run_worker():
             kind = message.get('kind')
             if kind == 'quit':
                 if self.dialog is not None:
-                    self.dialog.auto_save.active = False
+                    self.dialog.hide()
+                    self.dialog.auto_save.stop()
                     self.dialog.host_flush_done = True
                     self.dialog.reject()
                 app.quit()

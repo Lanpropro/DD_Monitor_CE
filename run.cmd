@@ -57,6 +57,7 @@ if /i "%~1"=="--preview-updates" goto updatePreview
 if /i "%~1"=="--check-bili-profile" goto biliProfileCheck
 if /i "%~1"=="--check-settings-control" goto settingsControlCheck
 if /i "%~1"=="--check-settings-scroll" goto settingsScrollCheck
+if /i "%~1"=="--check-settings-shutdown" goto settingsShutdownCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
@@ -361,6 +362,15 @@ set "QT_QPA_PLATFORM=offscreen"
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --scroll-native
+exit /b %errorlevel%
+
+:settingsShutdownCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --shutdown-native
 exit /b %errorlevel%
 
 :settingsControlCheck

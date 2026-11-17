@@ -802,13 +802,13 @@ class MainWindow(QMainWindow):
         if self._fullscreen_tile is not None:
             self._exit_fullscreen()
         self._fullscreen_cursor.stop()
-        self.hide()
-        hide_ms = (time.perf_counter() - t0) * 1000
-        # 迟到的取流回调不得访问正在释放的播放器。
+        # 先关闭独立设置界面；迟到回调不得访问正在释放的播放器。
         self._closing = True
-        self._tray.shutdown()
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
+        self.hide()
+        hide_ms = (time.perf_counter() - t0) * 1000
+        self._tray.shutdown()
         if getattr(self, '_app_update_page', None) is not None:
             self._app_update_page.stop()
         if getattr(self, '_plugin_downloads', None) is not None:

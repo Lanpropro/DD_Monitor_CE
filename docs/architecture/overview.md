@@ -182,6 +182,8 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 
 `settings_wheel.py` 负责 Windows 跨进程嵌入边界的纵向滚轮投递：宿主端转交真实子控件，设置子进程端经 `host-wheel` 消息转交宿主，页面滚动和输入控件规则仍归 `SettingsInputFocus`。原生过滤器以对应嵌入 QWidget 为 Qt 父对象，随父对象销毁移除；隐藏区域和弹出菜单不拦截。屏幕物理坐标按嵌入窗口原生边界及当前 DPI 转为页面局部坐标。
 
+退出时 MainWindow 先进入关闭状态并调用 `SettingsProcess.stop()`，再隐藏和收尾。设置进程负责按已报告的工作进程 PID 校验窗口后异步隐藏外壳，工作进程收到退出指令后先隐藏、停止自动保存观察，再按既有顺序解除外部窗口嵌入；SettingsHost 不提前析构仍被子进程引用的页面。关闭期间的遮挡变化不再重新显示 Quick 弹幕窗口，最终 `finish()` 仍负责在主事件循环结束后等待或终止工作进程。
+
 窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
 
 设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
