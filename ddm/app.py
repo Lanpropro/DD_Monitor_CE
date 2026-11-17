@@ -699,8 +699,9 @@ class MainWindow(QMainWindow):
     def _get_update_page(self, settings):
         return self.settings_control.get_update_page(settings)
 
-    def _create_settings_dialog(self, settings=None, shortcuts=None):
-        return self.settings_control.create_settings_dialog(settings, shortcuts, dialog_class=SettingsDialog)
+    def _create_settings_dialog(self, settings=None, shortcuts=None, *, hosted=False):
+        return self.settings_control.create_settings_dialog(
+            settings, shortcuts, dialog_class=SettingsDialog, hosted=hosted)
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""

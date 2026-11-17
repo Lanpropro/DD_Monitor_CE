@@ -267,6 +267,12 @@ class SettingsControlTests(unittest.TestCase):
         dialog.updatesViewed.emit({'alpha': '2'})
         host._remember_updates.assert_called_once_with({'alpha': '2'})
 
+    def test_hidden_host_factory_requests_contribution_only_general_page(self):
+        dialog = self.host._create_settings_dialog({'default_volume': 17}, {}, hosted=True)
+        self.assertIsInstance(dialog, Dialog)
+        self.assertTrue(dialog.options['hosted'])
+        self.assertEqual(dialog.initial_settings['default_volume'], 17)
+
     def test_accept_cancel_and_failure_always_release_dialog(self):
         host = self.host
         for outcome in ('cancel', 'accept', 'error'):
@@ -358,6 +364,18 @@ class SettingsControlTests(unittest.TestCase):
         restyle.assert_called_once_with(card, card.artwork)
         card.update.assert_not_called()
         self.assertFalse(host.settings['notice_banner_enabled'])
+        host.apply_danmaku_settings.assert_not_called()
+        self.save.assert_called_once()
+
+    def test_tray_menu_only_save_is_persisted_without_reapplying_danmaku(self):
+        from ddm.tray_menu import tray_menu_choices
+        host = self.host
+        dialog = host._create_settings_dialog()
+        choices = tray_menu_choices(None)
+        choices[0]['enabled'] = False
+        dialog.settings.return_value = {'tray_context_menu': choices}
+        host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
+        self.assertEqual(host.settings['tray_context_menu'], choices)
         host.apply_danmaku_settings.assert_not_called()
         self.save.assert_called_once()
 

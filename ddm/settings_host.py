@@ -18,7 +18,7 @@ class SettingsHost(QObject):
                        dict(window.plugins._platform_owner), set(window.plugins._removed))
         self.dialog = window._create_settings_dialog(
             {**window.settings, **{key: value for key, value in message['settings'].items()
-                                   if key in DEFAULT_SETTINGS}}, message['shortcuts'])
+                                   if key in DEFAULT_SETTINGS}}, message['shortcuts'], hosted=True)
         self.stack = self.dialog.stack
         from .settings_focus import SettingsInputFocus
         self.stack_input_focus = SettingsInputFocus(self.stack)

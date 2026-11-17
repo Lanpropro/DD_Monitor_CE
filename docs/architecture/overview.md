@@ -210,6 +210,8 @@ Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命�
 
 SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过期和排序；`super_chat_api.py` 为 B 站快照协议/工作线程；`super_chat_presentation.py` 为布局、预览、头像和绘制；`super_chat_widgets.py` 为弹幕面板卡片，`video_super_chat.py` 为画面 SC 浮层。`super_chat.py` 保留旧导出，滚动画面弹幕继续由 VideoDanmaku 负责。
 
+关注栏和菜单拖动共用 `row_motion.py` 的行位移，调用方仍持有动画字典、16ms GUI时钟与生命周期；关注栏保留原字段、150ms OutCubic和薄委托。`tray_menu.py` 清洗托盘菜单选项并绘制设置示意，运行时动作由SystemTray持有，设置页上下独立编辑两份菜单。
+
 托盘入口与隐藏播放由 `system_tray.py` 协调；`tray_preview.py` 仅采集格子几何/类型/标签并绘制布局示意，不取视频帧、不落盘、不持续刷新。`tile_menu.py` 的窄菜单预览和功能列表共用选择状态，界面排序不复制配置。
 
 小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
@@ -245,6 +247,8 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语及可读�
 设置布局准备成本由原职责模块处理：`ui/select.py` 只缓存测得的选项宽度，不缓存选中值，模型信号使宽度失效，字体／DPI／根索引和模型列加入测量条件；替换模型前解除旧模型信号。`settings_layout.py` 增量添加卡片，已有控件与布局项保持原所有权，列数变化时仍统一重排，不增加后台预加载或页面状态副本。
 
 外观图库的项目、选择及导入控件仍归 `skin_gallery.py` 所有；`skin_thumbnails.py` 仅在任务池中读取本地文件并产出 QImage，不访问 QWidget/QListWidgetItem，不创建 QPixmap。图库接收排队结果后按批次和路径更新原项目，刷新／销毁通过取消事件停止旧批次。设置性能日志复用 Probe 的有界记录与采样，QueueListener 只负责后台写盘；退出先停止采样，再排空日志并关闭处理器，详细函数剖析改为显式启用。
+
+独立设置的可见常规编辑器由worker持有，隐藏宿主通过工厂的 `hosted=True` 使用 `settings_host_general.py`，仅维护旧插件Show扩展需要的插入grid、平台显示锚点与GeneralContributions。对话框类型、插件经理和accepted接线不变；其余常规值由对话框初始快照及worker保存协议提供，不另建一套隐藏编辑状态。一般设置入口和预览默认仍使用完整GeneralSettingsPage，MainWindow工厂只作薄参数转交；隐藏页和贡献控件均继续归宿主对话框的Qt父子树管理。
 
 在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
 

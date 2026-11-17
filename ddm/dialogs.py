@@ -39,7 +39,7 @@ class SettingsDialog(SettingsWindow):
     PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
-                 update_page_factory=None):
+                 update_page_factory=None, hosted=False):
         super().__init__(parent)
         self.setProperty('skinPart', 'settings')
         self.set_material(settings)
@@ -80,7 +80,11 @@ class SettingsDialog(SettingsWindow):
         right.setSpacing(14)
         self.stack = SettingsStack()
         self.stack.setObjectName("SettingsStack")
-        self.general_page = GeneralSettingsPage(settings)
+        if hosted:
+            from .settings_host_general import HostedGeneralPage
+            self.general_page = HostedGeneralPage(settings)
+        else:
+            self.general_page = GeneralSettingsPage(settings)
         # Build the expensive controls only when their page is first requested.
         # Keep the public page properties so callers and settings validation
         # still use the same controls and value normalization.

@@ -12,10 +12,10 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool, QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThreadPool, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QStandardItem, QStandardItemModel
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QWidget
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QWidget
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_autosave import SettingsAutoSave
@@ -23,6 +23,60 @@ from ddm.settings_performance import SettingsProbe, install
 from ddm.settings_window import SettingsWindow
 
 APP = QApplication.instance() or QApplication([])
+
+
+class HostedGeneralTests(unittest.TestCase):
+    def test_host_keeps_general_snapshot_without_constructing_duplicate_editors(self):
+        settings = {**config.DEFAULT_SETTINGS, 'default_volume': 17, 'poll_minutes': 23,
+                    'decode_mode': 'software', 'sidebar_platform_logos': False}
+        with patch('ddm.dialogs.GeneralSettingsPage', side_effect=AssertionError('Duplicate general editors')):
+            dialog = SettingsDialog(settings, {'focus': 'G'}, preview=True, hosted=True)
+        try:
+            for key in ('default_volume', 'poll_minutes', 'decode_mode', 'sidebar_platform_logos'):
+                self.assertEqual(dialog.settings()[key], settings[key])
+            self.assertEqual(dialog.shortcuts()['focus'], 'G')
+            self.assertEqual(dialog.general_page.findChildren(QSpinBox), [])
+            self.assertEqual(dialog.general_page.findChildren(QComboBox), [])
+            self.assertEqual(dialog.general_page.plugin_controls(), {})
+        finally:
+            dialog.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_legacy_show_hook_anchor_control_identity_and_accepted_callback_survive(self):
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True, hosted=True)
+        saved = []
+
+        class Extension(QObject):
+            def eventFilter(self, watched, event):
+                if watched is dialog and event.type() == QEvent.Show:
+                    page = dialog.general_page
+                    if page.findChild(QCheckBox, 'fixture_show_platform_logo') is None:
+                        anchor = page._checks['sidebar_platform_logos']
+                        grid = page.layout().itemAt(1).layout()
+                        row = grid.getItemPosition(grid.indexOf(anchor))[0] + 1
+                        check = QCheckBox('Fixture logo', page)
+                        check.setObjectName('fixture_show_platform_logo')
+                        check.setChecked(True)
+                        grid.addWidget(check, row, 0, 1, 2)
+                        dialog.accepted.connect(lambda: saved.append(check.isChecked()))
+                return False
+
+        extension = Extension(APP)
+        APP.installEventFilter(extension)
+        try:
+            QApplication.sendEvent(dialog, QEvent(QEvent.Show))
+            controls = dialog.general_page.plugin_controls()
+            check = controls['fixture_show_platform_logo']
+            check.setChecked(False)
+            QApplication.sendEvent(dialog, QEvent(QEvent.Show))
+            self.assertIs(dialog.general_page.plugin_controls()['fixture_show_platform_logo'], check)
+            dialog.accepted.emit()
+            self.assertEqual(saved, [False])
+        finally:
+            APP.removeEventFilter(extension)
+            extension.deleteLater()
+            dialog.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 class GalleryPreparationTests(unittest.TestCase):

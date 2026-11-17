@@ -704,7 +704,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 from PySide6.QtWidgets import QLabel
                 from PySide6.QtCore import Qt
                 for name, label in (('domestic_live', '显示国内平台 Logo'), ('global_live', '显示海外平台 Logo')):
-                    source = ROOT / 'plugins_user' / name / 'plugin.py'
+                    source = ROOT / 'plugins_user' / name / 'platform_logo.py'
+                    if not source.is_file():
+                        source = source.with_name('plugin.py')
                     tree = ast.parse(source.read_text(encoding='utf-8'))
                     definition = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                                       and node.name == 'PlatformLogoControl')
