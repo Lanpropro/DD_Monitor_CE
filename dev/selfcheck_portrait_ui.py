@@ -61,7 +61,7 @@ class PortraitUiTests(unittest.TestCase):
     def test_compact_header_keeps_essential_access_in_both_collapse_states(self):
         previous = dict(theme._preferences)
         self.addCleanup(theme.configure_appearance, previous)
-        for font_size, width in ((13, 480), (13, 720), (13, 1000), (20, 480), (20, 720), (20, 1000), (13, 480)):
+        for font_size, width in ((13, 360), (13, 450), (13, 480), (13, 720), (13, 1000), (20, 450), (20, 480), (20, 720), (20, 1000), (13, 480)):
             theme.configure_appearance({'appearance_font_size': font_size})
             self.host.setStyleSheet(theme.qss())
             self.portrait(width)
@@ -70,17 +70,29 @@ class PortraitUiTests(unittest.TestCase):
                 settle()
                 self.assertEqual(self.host.width(), width,
                                  (width, self.sidebar.minimumSizeHint(), self.sidebar._bar_row.minimumSizeHint()))
-                self.assertLessEqual(self.sidebar.height(), (60 if collapsed else 210) + max(0, font_size - 13) * 2)
+                self.assertLessEqual(self.sidebar.height(), (100 if collapsed else 250) + max(0, font_size - 13) * 2)
                 self.assertTrue(self.sidebar.navigation.rail.isHidden())
                 for widget in (self.sidebar.notification_button, self.sidebar.account_row,
                                self.sidebar.workspace_controls.launcher, self.sidebar.settings_button,
-                               self.sidebar.toggle_button, self.sidebar.navigation.manage_button):
+                               self.sidebar.toggle_button, self.sidebar.navigation.follow_button,
+                               self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
                     self.assertTrue(widget.isVisible(), (width, collapsed, widget.accessibleName()))
                     self.assertTrue(self.sidebar.rect().contains(widget.mapTo(
                         self.sidebar, widget.rect().bottomRight())), (width, collapsed, widget.geometry()))
                 self.assertEqual(self.sidebar._head_scroll.isVisible(), collapsed)
                 self.assertEqual(self.sidebar.scroll.isVisible(), not collapsed)
                 self.assertFalse(self.sidebar._bar_right.isVisible())
+                self.assertFalse(self.sidebar.tool_row.isVisible())
+                portrait = self.sidebar.presentation_control.orientation.portrait
+                self.assertIs(self.sidebar.search.parentWidget(), portrait.controls)
+                self.assertEqual(self.sidebar.navigation.manage_button.isVisible(), not collapsed)
+                self.assertGreaterEqual(portrait.controls.mapTo(self.sidebar, portrait.controls.rect().topLeft()).y(),
+                                        self.sidebar._bar_row.geometry().bottom())
+                self.assertEqual(self.sidebar._bar_row_box.indexOf(portrait.follow_group), 0)
+                self.assertEqual(self.sidebar._bar_row_box.indexOf(self.sidebar.workspace_controls.launcher), 1)
+                self.assertTrue(all(not button.isVisible() for button in (
+                    self.sidebar.appearance_button, self.sidebar.refresh_button,
+                    self.sidebar.batch_button, self.sidebar.clear_wall_button)))
 
     def test_landscape_restores_control_identity_parents_styles_and_signals(self):
         sidebar = self.sidebar
@@ -88,13 +100,16 @@ class PortraitUiTests(unittest.TestCase):
                     sidebar.picture_in_picture_button, sidebar.notification_button,
                     sidebar.appearance_button, sidebar.settings_button, sidebar.refresh_button,
                     sidebar.navigation.add_button, sidebar.navigation.manage_button,
-                    sidebar.navigation.filters, sidebar.workspace_controls.launcher]
+                    sidebar.navigation.filters, sidebar.workspace_controls.launcher,
+                    sidebar.navigation.follow_button, sidebar.toggle_button]
         baseline = [(widget, widget.parentWidget(), widget.objectName(), widget.size()) for widget in controls]
+        row_counts = []
         clicks = []
         sidebar.settingsRequested.connect(lambda: clicks.append('settings'))
         sidebar.pictureInPictureRequested.connect(lambda: clicks.append('pip'))
         for width in (480, 720, 1000):
             self.portrait(width)
+            row_counts.append(sidebar._bar_row_box.count())
             sidebar.settings_button.click()
             sidebar.picture_in_picture_button.click()
             self.layout.build_arrangement('landscape')
@@ -109,6 +124,7 @@ class PortraitUiTests(unittest.TestCase):
             self.assertEqual(sidebar._layout.indexOf(sidebar.navigation.filters),
                              sidebar._layout.indexOf(sidebar.search) + 1)
         self.assertEqual(clicks, ['settings', 'pip'] * 3)
+        self.assertEqual(row_counts, [row_counts[0]] * 3)
 
     def test_follow_filter_scroll_search_and_overflow_keep_existing_actions(self):
         self.portrait(480)
@@ -133,13 +149,15 @@ class PortraitUiTests(unittest.TestCase):
         called = []
         sidebar.addRoomClicked.connect(lambda: called.append('add'))
         sidebar.pictureInPictureRequested.connect(lambda: called.append('pip'))
+        sidebar.clearWallRequested.connect(lambda: called.append('clear'))
         nav.manage_button.click()
         settle()
         actions = {action.text(): action for action in nav.menu.actions()}
         self.assertTrue({'添加直播间…', '导入关注…', '切换卡片／列表', '布局预设', '画中画'} <= actions.keys())
         actions['添加直播间…'].trigger()
         actions['画中画'].trigger()
-        self.assertEqual(called, ['add', 'pip'])
+        actions['清空画面墙'].trigger()
+        self.assertEqual(called, ['add', 'pip', 'clear'])
         nav.menu.close()
 
     def test_anonymous_and_synthetic_account_keep_the_original_entry(self):
@@ -162,6 +180,35 @@ class PortraitUiTests(unittest.TestCase):
                 sidebar.account_row.clicked.emit()
             execute.assert_called_once()
             menu.deleteLater()
+
+    def test_selection_and_plugin_sync_keep_toolbar_and_follow_rows_separate(self):
+        self.portrait(480)
+        sidebar = self.sidebar
+        portrait = sidebar.presentation_control.orientation.portrait
+        for selected in (True, False):
+            sidebar.set_select_mode(selected)
+            sidebar._sync_appearance_row()
+            settle()
+            self.assertFalse(sidebar.tool_row.isVisible())
+            self.assertEqual(sidebar.batch_bar.isVisible(), selected)
+            self.assertEqual(sidebar.search.isVisible(), not selected)
+            self.assertEqual(sidebar.navigation.filters.isVisible(), not selected)
+            for widget in (sidebar.layout_button, sidebar.picture_in_picture_button,
+                           sidebar.settings_button, sidebar.workspace_controls.launcher):
+                self.assertTrue(widget.isVisible())
+                self.assertIs(widget.parentWidget(), sidebar._bar_row)
+            self.assertEqual(sidebar._bar_row_box.indexOf(sidebar.workspace_controls.launcher), 1)
+        sidebar.set_collapsed(True, animate=False)
+        sidebar._sync_appearance_row()
+        settle()
+        self.assertFalse(sidebar.navigation.filters.isVisible())
+        self.assertFalse(sidebar.appearance_button.isVisible())
+        self.assertTrue(sidebar._head_scroll.isVisible())
+        sidebar.navigation.follow_button.click()
+        settle()
+        self.assertFalse(sidebar.collapsed)
+        self.assertTrue(sidebar.search.hasFocus())
+        self.assertIs(sidebar.batch_bar.parentWidget(), portrait.controls)
 
     def test_orientation_only_repositions_existing_empty_video_surfaces(self):
         from ddm.wall_widgets import WallGrid
