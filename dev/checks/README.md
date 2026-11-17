@@ -94,6 +94,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 
 | 脚本 | 执行分类 |
 | --- | --- |
+| [selfcheck_room_add_entry](../selfcheck_room_add_entry.py) | `offline`；多行验证、去重、收起侧栏入口、空格按钮／右键、指定空位与后台队列，使用临时数据和查询替身 |
 | [selfcheck_add_room_folder](../selfcheck_add_room_folder.py) | 离屏合成数据；添加归类、并发失败提示、网络错误分类与诊断脱敏 |
 | [selfcheck_mobile_share](../selfcheck_mobile_share.py) | `offline`；手机中文分享、短链接跳转及后台查询，无账号和外网 |
 | [selfcheck_add_room_hints](../selfcheck_add_room_hints.py) | 单项执行前核对 |

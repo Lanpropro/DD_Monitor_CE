@@ -53,7 +53,7 @@ class RoomCatalog:
                 return room
         return bili.room_info(room_id) if room_id.isdigit() else None
 
-    def open_add_room(self, *, dialog_type) -> None:
+    def open_add_room(self, *, dialog_type, target_tile=None) -> None:
         host = self.host
         AddRoomDialog = dialog_type
         dialog = AddRoomDialog(host, room_id_resolver=host._normalize_room_input,
@@ -65,7 +65,14 @@ class RoomCatalog:
             dialog.hint.setText("支持 B 站房间号；" + "；".join(hints))
         if dialog.exec() != AddRoomDialog.Accepted:
             return
-        host._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
+        room_ids = getattr(dialog, 'room_ids', []) or [dialog.room_id]
+        if len(room_ids) > 1 or target_tile is not None:
+            from .room_add_batch import RoomAddBatch
+            from .bili import InfoResolver
+            RoomAddBatch(host, room_ids, dialog.folder_id, target_tile=target_tile,
+                         resolver_type=InfoResolver).start()
+        else:
+            host._add_room_id(room_ids[0], folder_id=dialog.folder_id)
 
     def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type) -> None:
         from PySide6.QtWidgets import QMessageBox
@@ -123,9 +130,8 @@ class RoomCatalog:
         QMessageBox.warning(host, "添加直播间", "平台房间获取失败\n\n" + (
             getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
 
-    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles) -> None:
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
         host = self.host
-        MAX_TILES = max_tiles
         if host._closing:
             return
         if host.sidebar.add_room(room):
@@ -133,10 +139,14 @@ class RoomCatalog:
                 host.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
             host.load_avatars_for([room])       # 新加的房间立刻显示头像
             from .online_ui import show_result
-            show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
+            if notify:
+                show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
         status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")
-        if len(host.wall.tiles) < MAX_TILES:
+        if (target_tile in host.wall.tiles and not target_tile.room.get('room_id')
+                and host._tile_of(str(room.get('room_id'))) is None):
+            host.room_placement.drop_room(target_tile, str(room['room_id']), room=room)
+        else:
             host.add_to_wall(room)
         host._refresh_meta()
         host._save_timer.start()
