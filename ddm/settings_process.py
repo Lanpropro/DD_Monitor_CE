@@ -60,6 +60,8 @@ class SettingsProcess(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        from .settings_performance import install
+        install('host')
         self.process = QProcess(self)
         self.process.readyReadStandardOutput.connect(self._read)
         self.process.readyReadStandardError.connect(self._stderr)

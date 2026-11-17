@@ -225,6 +225,7 @@
 - `dev/selfcheck_shortcut_settings.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
+- `dev/selfcheck_settings_performance.py`
 - `dev/selfcheck_settings_control.py`
 - `dev/selfcheck_settings_occlusion.py`
 - `dev/check_settings_process_playback.py`

@@ -58,6 +58,7 @@ if /i "%~1"=="--check-bili-profile" goto biliProfileCheck
 if /i "%~1"=="--check-settings-control" goto settingsControlCheck
 if /i "%~1"=="--check-settings-scroll" goto settingsScrollCheck
 if /i "%~1"=="--check-settings-shutdown" goto settingsShutdownCheck
+if /i "%~1"=="--check-settings-performance" goto settingsPerformanceCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
@@ -82,6 +83,7 @@ if /i "%~1"=="--diagnose-douyu" goto douyu
 if /i "%~1"=="--diagnose-douyu-deep" goto douyuDeep
 if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
 if /i "%~1"=="--diagnose-settings-scroll" set "DDM_SETTINGS_SCROLL_CAPTURE=1"
+if /i "%~1"=="--diagnose-settings-performance" set "DDM_SETTINGS_PERFORMANCE_CAPTURE=1"
 if /i "%~1"=="--diagnose-control-swap" set "DDM_CONTROL_SWAP_CAPTURE=1"
 if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
 if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
@@ -362,6 +364,13 @@ set "QT_QPA_PLATFORM=offscreen"
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --scroll-native
+exit /b %errorlevel%
+
+:settingsPerformanceCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_performance.py"
 exit /b %errorlevel%
 
 :settingsShutdownCheck

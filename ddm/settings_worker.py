@@ -24,6 +24,8 @@ def run_worker():
 
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    from .settings_performance import install
+    performance = install('worker')
     from .localization import install_chinese_translations
     install_chinese_translations(app)
     for icon_path in (Path(config.REPO) / 'assets/favicon.ico', Path(config.REPO) / 'favicon.ico'):
@@ -317,6 +319,11 @@ def run_worker():
             if started is not None:
                 host_api._save_trace('worker.result.sent', started)
             dialog.deleteLater()
+
+    if performance is not None:
+        performance.wrap(RemoteDialog, '_on_page_changed')
+        performance.wrap(RemoteDialog, 'embed_host')
+        performance.wrap(Worker, 'handle')
 
     with tempfile.TemporaryDirectory(prefix='ddm_settings_') as temporary:
         config.REPO = temporary
