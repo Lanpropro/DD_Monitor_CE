@@ -24,6 +24,7 @@ if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-plugin-replacements" goto pluginReplacementsCheck
 if /i "%~1"=="--accept-live-translate" goto liveTranslateAcceptance
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
@@ -460,6 +461,17 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_super_chat.py"
 exit /b %errorlevel%
 
+:danmakuSettingsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_danmaku_blocking
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_super_chat
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sc_simulator
+exit /b %errorlevel%
+
 :streamInfoCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
@@ -587,8 +599,13 @@ exit /b %errorlevel%
 
 :liveTranslateAcceptance
 if /i "%~2"=="--smoke" goto liveTranslateAcceptanceSmoke
-start "" "%PY%" "%PROJ%dev\accept_live_translate.py"
-exit /b 0
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+pushd "%PROJ%"
+if errorlevel 1 exit /b 1
+"%CHECK_PY%" -u "%PROJ%dev\accept_live_translate.py"
+set "ACCEPT_EXIT=%errorlevel%"
+popd
+exit /b %ACCEPT_EXIT%
 
 :liveTranslateAcceptanceSmoke
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"

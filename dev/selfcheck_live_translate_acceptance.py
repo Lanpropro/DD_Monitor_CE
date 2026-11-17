@@ -2,7 +2,10 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -75,6 +78,46 @@ class AcceptanceIsolationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             acceptance.prepare(self.candidate)
         self.assertFalse((self.root / 'work').exists())
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows batch entry')
+class AcceptanceEntryTests(unittest.TestCase):
+    def test_manual_entry_reports_startup_errors_and_uses_its_own_directory(self):
+        self._check_entry(smoke=False, expected_code=17)
+
+    def test_smoke_entry_keeps_offscreen_mode_and_propagates_exit_code(self):
+        self._check_entry(smoke=True, expected_code=19)
+
+    def _check_entry(self, *, smoke, expected_code):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'acceptance root with spaces'
+            dev = root / 'dev'
+            dev.mkdir(parents=True)
+            (dev / 'accept_live_translate.py').write_text(
+                'import json, os, sys\n'
+                'print(json.dumps(dict(cwd=os.getcwd(), args=sys.argv[1:], '
+                'platform=os.environ.get("QT_QPA_PLATFORM"))))\n'
+                'print("fixture startup failure", file=sys.stderr)\n'
+                f'raise SystemExit({expected_code})\n', encoding='utf-8')
+            source = (Path(__file__).resolve().parents[1] / 'run.cmd').read_text(encoding='utf-8')
+            entry = source.split('\n:liveTranslateAcceptance\n', 1)[1].split('\n:mediaSourcesCheck', 1)[0]
+            batch = root / 'entry.cmd'
+            batch.write_text('@echo off\n'
+                             f'set "PY={sys.executable}"\n'
+                             f'set "PROJ={root}{os.sep}"\n'
+                             ':liveTranslateAcceptance\n' + entry, encoding='utf-8')
+            command = [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/c', str(batch), '--accept-live-translate']
+            if smoke:
+                command.append('--smoke')
+            result = subprocess.run(command, cwd=folder, text=True, capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, expected_code, result.stderr)
+            self.assertIn('fixture startup failure', result.stderr)
+            record = json.loads(result.stdout.strip())
+            self.assertEqual(record['args'], ['--smoke'] if smoke else [])
+            if smoke:
+                self.assertEqual(record['platform'], 'offscreen')
+            else:
+                self.assertEqual(Path(record['cwd']), root)
 
 
 if __name__ == '__main__':
