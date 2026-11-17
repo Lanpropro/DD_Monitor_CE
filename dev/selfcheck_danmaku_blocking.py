@@ -162,12 +162,11 @@ class BlockingEditorTests(unittest.TestCase):
         self.assertIn(str(len(removing)), editor.feedback.text())
 
     def test_inline_user_details_fit_the_real_blocking_card_after_selection_changes(self):
-        previous_style = APP.styleSheet()
-        APP.setStyleSheet(theme.qss())
         page = DanmakuSettingsPage({'danmaku_blocked_users': [
             dict(platform='bilibili', uid=str(n), source='message',
                  blocked_at='2026-11-17T01:02:03+00:00', source_text='完整触发文本\n' * 100)
             for n in range(1, 4)]})
+        page.setStyleSheet(theme.qss())
         try:
             page.show()
             editor = page.blocked_users
@@ -204,7 +203,6 @@ class BlockingEditorTests(unittest.TestCase):
         finally:
             page.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-            APP.setStyleSheet(previous_style)
 
     def test_user_list_and_origin_details_wheel_stay_local_at_both_boundaries(self):
         rules = [dict(platform='bilibili', uid=str(n), source='message',
@@ -470,4 +468,10 @@ class BlockingTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        results = [run_widget_cases(case, __file__)
+                   for case in (FilterTests, BlockingEditorTests, BlockingTests)]
+        raise SystemExit(int(any(results)))
+    else:
+        unittest.main()
