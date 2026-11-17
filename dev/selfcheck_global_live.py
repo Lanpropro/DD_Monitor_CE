@@ -22,7 +22,7 @@ from streamlink.stream.hls import HLSStream  # noqa: E402
 from streamlink.stream.hls.m3u8 import parse_m3u8  # noqa: E402
 from ddm import bili, config, global_danmaku as dm, images, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.dialogs import AddRoomDialog  # noqa: E402
+from ddm.room_add_panel import RoomAddPanel  # noqa: E402
 from ddm.widgets import ROOM_MIME  # noqa: E402
 from ddm.auto_quality import AUTO_QUALITY  # noqa: E402
 from selfcheck_live_danmaku import FakeClient  # noqa: E402
@@ -333,11 +333,11 @@ def check_window(app, records):
                             patch.object(platform, "play_url_for_codec", return_value=(
                                 "https://cdn.test/live.m3u8", 10000, kind, {}, "avc")), \
                             patch.object(platform, "danmaku_client", return_value=client):
-                        def accept(dialog):
-                            dialog.edit.setText(platform.room_url(rid))
-                            dialog.accept()
-                            return dialog.result()
-                        with patch.object(AddRoomDialog, "exec", accept):
+                        def accept(dialog, open_editor=RoomAddPanel.open):
+                            open_editor(dialog)
+                            dialog.entry.setPlainText(platform.room_url(rid))
+                            dialog.submit_button.click()
+                        with patch.object(RoomAddPanel, "open", accept):
                             window.open_add_room()
                         settle(app, lambda: any(profile == kind for _, profile in played))
                         item = next(item for item in window.sidebar.items() if item.room["room_id"] == rid)

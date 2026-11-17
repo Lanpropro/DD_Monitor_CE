@@ -212,8 +212,8 @@ class RoomPlacement:
         host._refresh_meta()
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
-    def open_add_room(self, *, dialog_type, target_tile=None) -> None:
-        return self.catalog.open_add_room(dialog_type=dialog_type, target_tile=target_tile)
+    def open_add_room(self, *, dialog_type=None, target_tile=None, resolver_type=None) -> None:
+        return self.catalog.open_add_room(dialog_type=dialog_type, target_tile=target_tile, resolver_type=resolver_type)
 
     def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type, target_tile=None) -> None:
         return self.catalog.add_room_id(room_id, folder_id=folder_id, resolver_type=resolver_type, target_tile=target_tile)

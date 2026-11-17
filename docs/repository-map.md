@@ -123,6 +123,7 @@
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
 - `dev/selfcheck_accounts.py`
+- `dev/selfcheck_room_add_inline.py`
 - `dev/selfcheck_room_add_entry.py`
 - `dev/selfcheck_add_room_folder.py`
 - `dev/selfcheck_add_room_hints.py`
@@ -823,3 +824,5 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 
 画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。
+
+原位添加：`room_add_panel.py` 管嵌入式搜索区添加界面、焦点与定位；展开时直接复用原区域，仅收起时使用主窗口内的展开式面板，保持画面墙布局；`room_add_input.py` 管行号校验和去重；RoomCatalog 持有目标格、查询工厂与完成回调，复用原解析器。

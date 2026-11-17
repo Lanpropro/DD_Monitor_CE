@@ -6,9 +6,10 @@ from PySide6.QtWidgets import QMessageBox
 
 
 class RoomAddBatch(QObject):
-    def __init__(self, host, room_ids, folder_id='', *, target_tile=None, resolver_type):
+    def __init__(self, host, room_ids, folder_id='', *, target_tile=None, resolver_type, on_complete=None):
         super().__init__(host)
         self.host = host
+        self.on_complete = on_complete
         self.pending = deque(dict.fromkeys(room_ids))
         self.folder_id = folder_id
         self.target_tile = target_tile
@@ -37,7 +38,9 @@ class RoomAddBatch(QObject):
             from .online_ui import show_result
             summary = f'已添加 {self.added} 个直播间，已关注 {self.skipped} 个，失败 {len(self.failures)} 个'
             show_result(host, summary)
-            if self.failures:
+            if self.on_complete is not None:
+                self.on_complete(self)
+            elif self.failures:
                 dialog = QMessageBox(QMessageBox.Warning, '添加结果', summary, QMessageBox.Ok, host)
                 dialog.setInformativeText('失败项可复制后重新批量添加；已添加的直播间会保留。')
                 dialog.setDetailedText('\n'.join(f'{rid}：{reason}' for rid, reason in self.failures))

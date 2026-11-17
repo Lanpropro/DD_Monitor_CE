@@ -17,6 +17,7 @@ PATHS = {
     'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
+    'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     'plus': '<path d="M12 5v14M5 12h14"/>',
     'more': '<circle cx="5" cy="12" r=".8"/><circle cx="12" cy="12" r=".8"/><circle cx="19" cy="12" r=".8"/>',
     'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
@@ -302,15 +303,7 @@ class SidebarNavigation(QObject):
         return menu
 
     def open_add_menu(self, _checked=False, *, anchor=None):
-        sidebar = self.sidebar
-        anchor = anchor or self.add_button
-        menu = self._menu(anchor)
-        menu.addAction('添加直播间…').triggered.connect(sidebar.add_button.click)
-        menu.addAction('导入关注…').triggered.connect(sidebar.import_button.click)
-        menu.addSeparator()
-        menu.addAction('新建文件夹…').triggered.connect(sidebar.prompt_folder)
-        menu.popup(anchor.mapToGlobal(QPoint(0, anchor.height()+4)))
-        self.menu = menu
+        self.sidebar.addRoomClicked.emit()
 
     def open_manage_menu(self):
         sidebar = self.sidebar
