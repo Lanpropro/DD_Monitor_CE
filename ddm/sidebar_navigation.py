@@ -156,6 +156,7 @@ class SidebarNavigation(QObject):
             button.setFixedSize(26, 26)
             header.addWidget(button)
         header.addStretch(0)
+        self._header_tail = header.itemAt(header.count() - 1)
         sidebar._layout.insertWidget(1, self.header)
 
         self.filters = QWidget(sidebar)
@@ -401,7 +402,12 @@ class SidebarNavigation(QObject):
             widget.setVisible(not sidebar.collapsed)
         sidebar.toggle_button.show()
         sidebar._layout.removeWidget(add)
-        self.header.layout().setStretch(self.header.layout().count() - 1, 1 if sidebar.collapsed else 0)
+        header = self.header.layout()
+        for control in (self.add_button, self.manage_button, sidebar.toggle_button):
+            header.removeWidget(control)
+            tail = next(index for index in range(header.count()) if header.itemAt(index) is self._header_tail)
+            header.insertWidget(tail, control)
+        header.setStretch(header.count() - 1, 1 if sidebar.collapsed else 0)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(self.header) + 1, add, 0,
                                      Qt.AlignHCenter if sidebar.collapsed else Qt.AlignRight)
         self._sort_tools()
