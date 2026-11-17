@@ -205,6 +205,7 @@
 - `dev/selfcheck_folder_drag.py`
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
+- `dev/selfcheck_follow_import_ui.py`
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_failed_stream_quality.py`
 - `dev/selfcheck_empty_tile_quality.py`
@@ -695,3 +696,5 @@
 添加职责：`room_add_batch.py` 管多行添加的逐条后台查询与结果汇总，复用原识别器和放置规则；窗口持有查询线程与目标格，退出时停止后续队列。
 
 原位添加：`room_add_panel.py` 管统一的展开式添加面板、焦点与定位，不替换搜索或关注区域，保持画面墙布局；`room_add_input.py` 管行号校验和去重；RoomCatalog 持有目标格、查询工厂与完成回调，复用原解析器。
+
+关注导入：`follow_import_ui.py` 只负责紧凑平台栏和双行列表绘制，`room_dialogs.py` 保留勾选、文件夹归类、分批填充和头像请求；`account_dialog.py` 保留平台切换、缓存与任务生命周期。

@@ -64,7 +64,7 @@ def main():
     app.processEvents()
     assert all("已在列表" not in dialog.list.item(i).text() for i in range(3))
     assert [dialog.list.item(i).checkState() for i in range(3)] == [Qt.Checked, Qt.Unchecked, Qt.Unchecked]
-    assert dialog.selected() == [ROOMS[0]] and "已勾选 1 个" in dialog.header.text()
+    assert dialog.selected() == [ROOMS[0]] and "已选 1" in dialog.header.text()
     assert dialog.deselected_existing() == [] and not dialog.folder_changed
     assert [a.text() for a in dialog.folder_button.menu().actions()] == ["未分类", "赛事"]
     assert dialog.folder_id == ""
@@ -87,15 +87,15 @@ def main():
     assert [dialog.list.item(i).isHidden() for i in range(3)] == [True, False, False]
     click_button(dialog, "全选")
     assert dialog.selected() == ROOMS
-    click_button(dialog, "全不选")
+    click_button(dialog, "不选")
     assert dialog.selected() == [ROOMS[0]], "隐藏的勾选不应被搜索结果的批量操作清除"
-    click_button(dialog, "只选直播中")
+    click_button(dialog, "选直播中")
     assert dialog.selected() == [ROOMS[0], ROOMS[2]]
-    assert "当前显示 2 个" in dialog.header.text() and "已勾选 2 个" in dialog.header.text()
+    assert "当前显示 2 个" in dialog.header.toolTip() and "已选 2" in dialog.header.text()
     dialog.search_edit.setText("不存在")
     click_button(dialog, "全选")
     assert all(dialog.list.item(i).isHidden() for i in range(3))
-    assert dialog.selected() == [ROOMS[0], ROOMS[2]] and "当前显示 0 个" in dialog.header.text()
+    assert dialog.selected() == [ROOMS[0], ROOMS[2]] and "当前显示 0 个" in dialog.header.toolTip()
     avatar = QPixmap(32, 32)
     avatar.fill(Qt.red)
     dialog.set_avatar("douyu:1003", avatar)
@@ -105,7 +105,7 @@ def main():
     assert dialog.isVisible() and dialog.result() == QDialog.Rejected, "搜索回车不能直接导入"
     dialog.search_edit.clear()
     assert all(not dialog.list.item(i).isHidden() for i in range(3))
-    click_button(dialog, "全不选")
+    click_button(dialog, "不选")
     assert not dialog.selected()
     select_folder(dialog, "")
     assert dialog.folder_button.text() == "未分类"

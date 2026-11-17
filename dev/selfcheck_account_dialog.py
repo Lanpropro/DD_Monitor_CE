@@ -24,6 +24,15 @@ from ddm.platform_login import PlatformFollowDialog  # noqa: E402
 from dev.selfcheck_platform_follows import ROOMS, wait_for  # noqa: E402
 
 
+def choose_platform(dialog, kind):
+    if dialog.import_follows:
+        picker = dialog.import_bar.platform
+        assert picker.isEnabled()
+        picker.setCurrentIndex(picker.findData(kind))
+    else:
+        QTest.mouseClick(dialog.platform_buttons[kind], Qt.LeftButton)
+
+
 def dispose(app, dialog):
     dialog.reject()
     dialog.deleteLater()
@@ -62,13 +71,13 @@ def main():
             first = dialog.page
             thread = Mock(isRunning=Mock(return_value=True))
             first._thread = thread
-            QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+            choose_platform(dialog, "douyu")
             assert isinstance(dialog.page, PlatformFollowDialog)
             thread.cancel.assert_called_once()
             assert dialog.page.parentWidget() is dialog.pages and not dialog.page.isWindow()
             assert dialog.page._owner is owner and dialog.page.browser.zoomFactor() == .8
             assert len([w for w in app.topLevelWidgets() if w.isVisible() and w is not owner]) == 1
-            QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+            choose_platform(dialog, "bilibili")
             assert isinstance(dialog.page, LoginWindow) and dialog.isVisible()
             dialog.page._on_success("test-session")
             assert dialog.result() == QDialog.Accepted and not dialog.isVisible()
@@ -102,10 +111,10 @@ def main():
                                            platform_kind="douyu")
             dialog.show()
             dialog.page._read()
-            assert not dialog.platform_buttons["bilibili"].isEnabled()
+            assert not dialog.import_bar.platform.isEnabled()
             wait_for(app, lambda: follows_ready(dialog))
             assert dialog.isVisible() and dialog.page.rooms == ROOMS
-            assert all(b.isEnabled() for b in dialog.platform_buttons.values())
+            assert dialog.import_bar.platform.isEnabled()
             dialog.page._check_all(True)
             dialog.page.accept()
             assert dialog.rooms == ROOMS and dialog.result() == QDialog.Accepted
@@ -126,7 +135,7 @@ def main():
                 bili_page = dialog.page
                 bili_page._check_all(True)
                 bili_page.search_edit.setText("live")
-                QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                choose_platform(dialog, "douyu")
                 assert isinstance(dialog.page, PlatformFollowDialog) and not dialog.rooms
                 dialog.page._read()
                 wait_for(app, lambda: follows_ready(dialog))
@@ -141,11 +150,11 @@ def main():
                 browser = dialog._platform_pages["douyu"].browser
                 with patch.object(browser, "load") as browser_load:
                     for _ in range(4):
-                        QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                        choose_platform(dialog, "bilibili")
                         assert dialog.page is bili_page and not douyu_page.isVisible()
                         assert dialog.page.selected() == bili_rooms
                         assert dialog.page.search_edit.text() == "live" and dialog.page.folder_id == ""
-                        QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                        choose_platform(dialog, "douyu")
                         assert dialog.page is douyu_page and not bili_page.isVisible()
                         assert dialog.page.selected() == [ROOMS[1]]
                         assert dialog.page.search_edit.text() == "offline"
@@ -174,13 +183,13 @@ def main():
                 assert dialog.page.rooms == []
                 empty_bili = dialog.page
                 with patch.object(provider, "follow_rooms", return_value=[]) as douyu_read:
-                    QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                    choose_platform(dialog, "douyu")
                     wait_for(app, lambda: follows_ready(dialog))
                     empty_douyu = dialog.page
                     assert empty_douyu.rooms == []
-                    QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                    choose_platform(dialog, "bilibili")
                     assert dialog.page is empty_bili
-                    QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                    choose_platform(dialog, "douyu")
                     assert dialog.page is empty_douyu
                     douyu_read.assert_called_once()
                 dispose(app, dialog)
@@ -266,7 +275,7 @@ def main():
                 if not follows_ready(dialog):
                     QTimer.singleShot(10, confirm_import)
                     return
-                assert dialog.platform_buttons["bilibili"].isVisible()
+                assert dialog.import_bar.platform.isVisible()
                 dialog.page._check_all(True)
                 dialog.page.accept()
             with patch.object(bili, "follow_rooms", return_value=ROOMS), \
