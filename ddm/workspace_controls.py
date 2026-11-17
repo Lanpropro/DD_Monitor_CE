@@ -220,9 +220,7 @@ class WorkspaceControls(QFrame):
         if close_popup:
             self.popup.hide()
         if top and self.sidebar._bar_row_box is not None:
-            box = self.sidebar._bar_row_box
-            self.launcher.setParent(self.sidebar._bar_row)
-            box.insertWidget(max(0, box.indexOf(self.sidebar.toggle_button)), self.launcher)
+            self.sidebar.presentation_control.orientation.portrait.place_launcher()
         elif not top:
             if self.parentWidget() is not navigation.pin_holder:
                 self.setParent(navigation.pin_holder)

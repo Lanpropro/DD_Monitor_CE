@@ -727,11 +727,13 @@ class WorkspaceControlTests(unittest.TestCase):
             settle()
             self.assertTrue(self.sidebar.navigation.rail.isHidden())
             self.assertIs(panel.launcher.parentWidget(), self.sidebar._bar_row)
-            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
-            self.assertTrue(self.sidebar.clear_wall_button.isVisible())
-            self.assertEqual(self.sidebar.clear_wall_button.size(), self.sidebar.settings_button.size())
-            self.assertTrue(self.sidebar.rect().contains(self.sidebar.clear_wall_button.mapTo(
-                self.sidebar, self.sidebar.clear_wall_button.rect().bottomRight())))
+            for button in (self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
+                self.assertIs(button.parentWidget(), self.sidebar._bar_row)
+                self.assertTrue(button.isVisible())
+                self.assertEqual(button.size(), self.sidebar.settings_button.size())
+                self.assertTrue(self.sidebar.rect().contains(button.mapTo(
+                    self.sidebar, button.rect().bottomRight())))
+            self.assertFalse(self.sidebar.clear_wall_button.isVisible())
             for collapsed in (True, False):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 settle()

@@ -372,7 +372,7 @@ class SidebarNavigation(QObject):
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
         self.header.setVisible(left)
-        self.filters.setVisible(not sidebar.collapsed if left else not sidebar.select_mode)
+        self.filters.setVisible(not sidebar.collapsed and (left or not sidebar.select_mode))
         self.folder_toggle_button.setVisible(left)
         self.density_button.setVisible(left)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))

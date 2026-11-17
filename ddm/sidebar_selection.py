@@ -9,7 +9,7 @@ class SidebarSelection:
     def sync_selection_controls(self):
         host = self.host
         host.account_row.setVisible(host._account_row_should_show())
-        host.tool_row.setVisible(host.side == 'top' and not host.select_mode and not host.collapsed)
+        host.tool_row.hide()  # Global actions live in the rail or portrait toolbar.
         host.normal_bar.hide()
         if host.select_mode and host.side == 'top':
             host._bar_right.hide()
