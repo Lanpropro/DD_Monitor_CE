@@ -432,13 +432,17 @@ class UpdateDownloadTests(unittest.TestCase):
         store.offers = offers
         store.show_offers(offers)
         page._show_update_notes(offers)
-        page.resize(2600, 650)
+        page.setProperty('settings_card_layout', 'vertical')
+        page.resize(1000, 650)
         page.show()
         for tab in (0, 1):
             page.tabs.setCurrentIndex(tab)
             cards = page._installed_cards if tab == 0 else store._offer_cards
             owner = page if tab == 0 else store
             self.app.processEvents()
+            self.assertEqual(owner.cards._columns, 2,
+                             (tab, page.width(), (page.installed_scroll if tab == 0 else store.scroll).viewport().width(),
+                              [card.minimumSizeHint().width() for card in cards.values()]))
             self.wait_for(lambda: cards[keys[1]].x() > cards[keys[0]].x())
             before = {key: card.geometry() for key, card in cards.items()}
             owner._detail_buttons[keys[0]].setChecked(True)
@@ -516,6 +520,67 @@ class UpdateDownloadTests(unittest.TestCase):
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         theme.configure_appearance({'appearance_font': theme.danmaku_font_family(), 'appearance_font_size': 13})
         theme.apply('dark')
+
+    def test_plugin_columns_resize_filter_sort_and_keep_download_controls(self):
+        from ddm.settings_plugins import PluginSettingsPage
+        self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        keys = [f'responsive_{n}' for n in range(4)]
+        for key in keys:
+            self.manager.install_zip(str(self.package(key, '1.0')))
+        offers = [dict(id=key, name=f'插件{4-index}', description='布局验收', author='Fixture',
+                       version='2.0', available=True) for index, key in enumerate(keys)]
+        page = PluginSettingsPage(self.manager)
+        try:
+            page.setProperty('settings_card_layout', 'vertical')
+            store = page.store_page
+            store.offers = offers
+            store.show_offers(offers)
+            page._show_update_notes(offers)
+            state = dict(received=128 * 1024 * 1024, total=256 * 1024 * 1024,
+                         speed=12 * 1024 * 1024, percent=50, phase='downloading')
+            store.downloads.states[keys[0]] = state
+            store._busy(False)
+            page._sync_update_buttons()
+            page.show()
+            for tab in (0, 1):
+                page.tabs.setCurrentIndex(tab)
+                owner = page if tab == 0 else store
+                cards = dict(page._installed_cards if tab == 0 else store._offer_cards)
+                buttons = dict(page.update_buttons if tab == 0 else store.buttons)
+                progress = page._installed_progress[keys[0]] if tab == 0 else store._progress_widgets[keys[0]]
+                browser = page.installed_browser if tab == 0 else store.browser
+                scroll = page.installed_scroll if tab == 0 else store.scroll
+                for width, columns in ((1000, 2), (680, 1), (1000, 2)):
+                    page.resize(width, 650)
+                    self.app.processEvents()
+                    self.assertEqual(owner.cards._columns, columns)
+                    self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+                    self.assertEqual(progress.bar.value(), 50)
+                    self.assertTrue(progress.bar.isVisible())
+                    self.assertFalse(progress.button.isVisible())
+                    for key in keys:
+                        current = page._installed_cards if tab == 0 else store._offer_cards
+                        self.assertIs(current[key], cards[key])
+                        self.assertIs((page.update_buttons if tab == 0 else store.buttons)[key], buttons[key])
+                browser.search.setText(keys[0])
+                self.assertEqual(owner.cards.count(), 1)
+                self.assertIs(owner.cards.itemAt(0).widget(), cards[keys[0]])
+                browser.search.clear()
+                browser.sort.setCurrentIndex(1)
+                # Installed packages retain their manifest names; store offers
+                # deliberately use the reverse name order in this fixture.
+                first = keys[0] if tab == 0 else keys[-1]
+                self.assertIs(owner.cards.itemAt(0).widget(), cards[first])
+                browser.filter.setCurrentIndex(3)
+                self.assertEqual(owner.cards.count(), 4)
+                self.assertEqual(progress.bar.value(), 50)
+                self.assertEqual(len(buttons), 4)
+                self.assertEqual(owner.cards._columns, 2)
+        finally:
+            page.store_page.stop()
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_notification_plugin_progress_reopen_and_retry(self):
         key = 'fixture'
