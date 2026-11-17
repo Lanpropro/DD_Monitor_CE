@@ -73,15 +73,16 @@ class PortraitSidebar:
         self.ensure()
         if not host._bar_in_use:
             nav.bottom.removeWidget(host.clear_wall_button)
+            nav.filters.layout().removeWidget(nav.folder_toggle_button)
             for widget in (host._header_row, host.search, host._head_scroll, host.batch_bar,
                            host.notification_button, host.appearance_button, host.layout_button,
                            host.picture_in_picture_button, host.clear_wall_button,
                            host.settings_button, host.account_row, host.toggle_button,
-                           nav.follow_button, nav.filters, nav.add_button, nav.manage_button):
+                           nav.follow_button, nav.filters, nav.folder_toggle_button, nav.add_button, nav.manage_button):
                 self._detach(widget)
             while host._bar_row_box.count():
                 host._bar_row_box.takeAt(0)
-            for widget in (nav.follow_button, host.toggle_button):
+            for widget in (nav.follow_button,):
                 self.follow_box.removeWidget(widget)
                 self.follow_box.addWidget(widget)
             host._bar_row_box.addWidget(self.follow_group)
@@ -94,7 +95,7 @@ class PortraitSidebar:
                 host._bar_row_box.addWidget(widget)
             for widget in (host.search, host._head_scroll, host.batch_bar):
                 self.controls_box.addWidget(widget, 1)
-            for widget in (nav.filters, nav.add_button, nav.manage_button):
+            for widget in (nav.filters, nav.folder_toggle_button, host.toggle_button, nav.add_button, nav.manage_button):
                 self.controls_box.addWidget(widget)
             nav.filters.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             host.search.setMinimumWidth(96)
@@ -135,6 +136,7 @@ class PortraitSidebar:
         follow_controls = not host.collapsed and not host.select_mode
         for widget in (nav.filters, nav.add_button, nav.manage_button):
             widget.setVisible(follow_controls)
+        nav.folder_toggle_button.setProperty('horizontalFolderIcon', True)
         nav.folder_toggle_button.setVisible(follow_controls)
         nav.density_button.hide()
         host.account_row.setVisible(not host.select_mode)
@@ -174,7 +176,7 @@ class PortraitSidebar:
         for row in (host._bar_row, self.controls, host._bar_row2):
             host._layout.removeWidget(row)
             row.hide()
-        for widget in (nav.follow_button, host.toggle_button, nav.filters, nav.add_button,
+        for widget in (nav.follow_button, host.toggle_button, nav.filters, nav.folder_toggle_button, nav.add_button,
                        nav.manage_button, host.clear_wall_button, *host._column_order):
             self._detach(widget)
         for widget in host._column_order:
@@ -189,6 +191,9 @@ class PortraitSidebar:
             button.setParent(host.tool_row)
             host.tool_row.layout().addWidget(button)
             button.setSizePolicy(host._tool_button_policies[button])
+        nav.folder_toggle_button.setParent(nav.filters)
+        nav.filters.layout().insertWidget(nav.filters.layout().indexOf(nav.density_button), nav.folder_toggle_button)
+        nav.folder_toggle_button.setProperty('horizontalFolderIcon', False)
         nav.filters.setParent(host._column)
         nav.filters.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         for button in (nav.add_button, nav.manage_button):
