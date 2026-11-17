@@ -156,18 +156,37 @@ class MoveRestoreTests(unittest.TestCase):
 
     def test_resize_trace_records_native_order_and_nested_layout_work(self):
         from dev.diagnose_window_resize import WindowResizeTrace
+        class Probe:
+            def event(self, event):
+                if event.type() == QEvent.ScreenChangeInternal:
+                    raise RuntimeError('probe')
+                return 42
+        original_event = Probe.event
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'resize.jsonl'
             trace = WindowResizeTrace(path)
             with trace:
+                trace.wrap(Probe, 'event', event_types=(QEvent.ScreenChangeInternal,
+                                                       QEvent.DevicePixelRatioChange))
                 # PySide caches virtual overrides when constructing an object;
                 # install before construction, as the diagnostic launcher does.
                 window = make_window(6, 'corner')
                 try:
                     hwnd = int(window.winId())
                     self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
+                    probe = Probe()
+                    self.assertEqual(probe.event(QEvent(QEvent.Resize)), 42)
+                    self.assertEqual(probe.event(QEvent(QEvent.DevicePixelRatioChange)), 42)
+                    with self.assertRaisesRegex(RuntimeError, 'probe'):
+                        probe.event(QEvent(QEvent.ScreenChangeInternal))
+                    window.move(window.pos() + QPoint(20, 10))
                     window.resize(window.width() + 40, window.height() + 20)
                     QTest.qWait(70)
+                    self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
+                    trace.MAX_CALLS = 2
+                    self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
+                    window.move(window.pos() + QPoint(20, 10))
+                    window.move(window.pos() + QPoint(20, 10))
                     self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
                 finally:
                     window.close()
@@ -175,13 +194,29 @@ class MoveRestoreTests(unittest.TestCase):
                     self.app.processEvents()
             rows = [json.loads(line) for line in path.read_text().splitlines()]
             row = next(row for row in rows if row['source'] == 'native-resize')
+            capped = [row for row in rows if row['source'] == 'native-resize'][1]
+        self.assertTrue(capped['messagesCapped'])
+        self.assertEqual(len(capped['messages']), 2)
+        self.assertLessEqual(len(capped['calls']), 2)
+        self.assertFalse(capped['final']['interactive'])
         self.assertFalse(row['final']['interactive'])
         self.assertFalse(row['final']['wallInteractive'])
         self.assertEqual([x['message'] for x in row['messages'] if x['message'] in (0x0231, 0x0232)],
                          [0x0231, 0x0232])
+        self.assertIn(0x0003, [x['message'] for x in row['messages']])
+        self.assertFalse(row['messagesCapped'])
         self.assertTrue(any(x['method'] == 'WallGrid._flush_resize' for x in row['calls']))
         self.assertTrue(any(x['method'] == 'Tile._layout_areas' for x in row['calls']))
         self.assertTrue(all(x['elapsedMs'] >= x['selfMs'] >= 0 for x in row['calls']))
+        self.assertTrue(all(x['cpuMs'] >= x['selfCpuMs'] >= 0 for x in row['calls']))
+        self.assertIs(Probe.event, original_event)
+        self.assertEqual([x['eventType'] for x in row['calls'] if x['method'] == 'Probe.event'],
+                         [int(QEvent.DevicePixelRatioChange), int(QEvent.ScreenChangeInternal)])
+        screen = self.window.screen()
+        self.assertEqual(row['initial']['screenGeometry'], list(screen.geometry().getRect()))
+        self.assertEqual(row['final']['screenAvailable'], list(screen.availableGeometry().getRect()))
+        self.assertEqual(row['final']['screenScale'], screen.devicePixelRatio())
+        self.assertNotIn('screenName', row['final'])
         self.assertEqual(row['source'], 'native-resize')
         self.assertIn('orientation', row['initial'])
         self.assertIn('sidebarSide', row['final'])
