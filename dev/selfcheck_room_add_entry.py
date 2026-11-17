@@ -106,6 +106,8 @@ class AddRoomEntryTests(unittest.TestCase):
         self.pump()
         button = sidebar.navigation.collapsed_add_button
         self.assertTrue(button.isVisible())
+        self.assertGreater(button.mapTo(sidebar, button.rect().topLeft()).y(),
+                           sidebar.toggle_button.mapTo(sidebar, sidebar.toggle_button.rect().bottomLeft()).y())
         calls = []
         sidebar.addRoomClicked.connect(lambda: calls.append('add'))
         button.click()
@@ -128,7 +130,7 @@ class AddRoomEntryTests(unittest.TestCase):
         sidebar.set_side('left')
         self.pump()
         self.assertTrue(button.isVisible())
-        self.assertIs(button.parentWidget(), sidebar.navigation.rail)
+        self.assertIs(button.parentWidget(), sidebar._column)
         sidebar.set_collapsed(False, animate=False)
         self.assertTrue(button.isHidden())
 
