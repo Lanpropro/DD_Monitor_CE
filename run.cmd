@@ -380,6 +380,10 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_layout_growth_empty
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_layout_16
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit
 exit /b %errorlevel%
 
 :settingsScrollCheck

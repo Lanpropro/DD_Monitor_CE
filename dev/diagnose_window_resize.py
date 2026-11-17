@@ -9,6 +9,9 @@ import time
 
 
 class WindowResizeTrace:
+    MAX_GESTURES = 80
+    MAX_CALLS = 12000
+
     def __init__(self, path):
         self.path = Path(path)
         self.originals = []
@@ -19,13 +22,17 @@ class WindowResizeTrace:
         self.started = 0
         self.gesture = 0
 
-    def begin(self, window):
+    def begin(self, window, source='native-resize'):
         self.flush()
+        if self.gesture >= self.MAX_GESTURES:
+            return False
         self.window = window
+        self.source = source
         self.started = time.perf_counter()
         self.epoch = time.time()
         self.gesture += 1
         self.initial = self.state()
+        return True
 
     def state(self):
         w = self.window
@@ -35,15 +42,20 @@ class WindowResizeTrace:
                     wallInteractive=w.wall._interactive_resize,
                     idleTimer=w._resize_idle_timer.isActive(),
                     wallTimer=w.wall._resize_timer.isActive(),
-                    maximized=w.isMaximized(), scale=w.devicePixelRatioF())
+                    maximized=w.isMaximized(), scale=w.devicePixelRatioF(),
+                    orientation=w.orientation, layout=w.wall.layout_id,
+                    sidebarSide=w.sidebar.side, sidebar=list(w.sidebar.geometry().getRect()),
+                    cards=len(w.sidebar._items), tiles=len(w.wall.tiles),
+                    players=len(w.players))
 
     def flush(self):
         if self.window is None:
             return
-        row = dict(pid=os.getpid(), gesture=self.gesture, time=self.epoch,
+        row = dict(pid=os.getpid(), gesture=self.gesture, time=self.epoch, source=self.source,
                    durationMs=round((time.perf_counter()-self.started)*1000, 3),
                    initial=self.initial, final=self.state(),
-                   calls=self.calls, messages=self.messages)
+                   calls=self.calls, callsCapped=len(self.calls) >= self.MAX_CALLS,
+                   messages=self.messages)
         self.window = None
         self.calls, self.messages = [], []
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -60,6 +72,13 @@ class WindowResizeTrace:
         from ddm.video_danmaku_quick import QuickDanmakuLayer
         from ddm.wall_border import WallPaneBorder
         from ddm.badge_surface import BadgeSurface
+        from ddm.window_layout import WindowLayout
+        from ddm.sidebar_orientation import SidebarOrientation
+        from ddm.sidebar_portrait import PortraitSidebar
+        from ddm.sidebar_navigation import SidebarNavigation
+        from ddm.sidebar_presentation import SidebarPresentation
+        from ddm.sidebar_list import RoomListBox
+        from ddm.workspace_controls import WorkspaceControls
 
         trace = self
         native = MainWindow.nativeEvent
@@ -79,8 +98,15 @@ class WindowResizeTrace:
         self.originals.append((MainWindow, 'nativeEvent', native))
         MainWindow.nativeEvent = native_event
 
-        targets = ((MainWindow, ('_begin_interactive_resize', '_finish_interactive_resize', 'resizeEvent')),
-                   (WallGrid, ('resizeEvent', '_flush_resize', '_relayout_corner', '_relayout_preset')),
+        targets = ((MainWindow, ('_begin_interactive_resize', 'resizeEvent', '_sync_tile_playback')),
+                   (WindowLayout, ('build_arrangement', 'reshape_window')),
+                   (SidebarOrientation, ('set_side', 'detach_from_rows', 'restore_side_children')),
+                   (PortraitSidebar, ('adopt', 'release', 'sync', 'sync_density')),
+                   (SidebarNavigation, ('sync', 'release', '_sort_tools')),
+                   (SidebarPresentation, ('sync_appearance_row', 'sync_top_mode', 'apply_scroll_axis')),
+                   (RoomListBox, ('relayout',)),
+                   (WorkspaceControls, ('sync_layout',)),
+                   (WallGrid, ('resizeEvent', '_flush_resize', '_relayout_corner', '_relayout_preset', 'relayout', 'set_layout')),
                    (Tile, ('_layout_areas', '_round_video', '_refresh_moved_overlays',
                            '_layout_bottom_controls', 'raise_overlays')),
                    (VideoSurface, ('_clip_native_video',)),
@@ -92,14 +118,22 @@ class WindowResizeTrace:
         for owner, names in targets:
             for name in names:
                 self.wrap(owner, name)
+        self.wrap(MainWindow, '_finish_interactive_resize', opens=True)
+        for name in ('apply_orientation', 'on_layout_changed'):
+            self.wrap(WindowLayout, name, opens=True)
         return self
 
-    def wrap(self, owner, name):
+    def wrap(self, owner, name, *, opens=False):
         original = getattr(owner, name)
         trace = self
         @functools.wraps(original)
         def measured(obj, *args, **kwargs):
-            if trace.window is None or len(trace.calls) >= 12000:
+            opened = False
+            if opens and trace.window is None:
+                window = getattr(obj, 'host', obj)
+                if window.isVisible():
+                    opened = trace.begin(window, owner.__name__+'.'+name)
+            if trace.window is None or len(trace.calls) >= trace.MAX_CALLS:
                 return original(obj, *args, **kwargs)
             started = time.perf_counter()
             frame = [0.0]
@@ -111,10 +145,13 @@ class WindowResizeTrace:
                 trace.stack.pop()
                 if trace.stack:
                     trace.stack[-1][0] += elapsed
-                trace.calls.append(dict(method=owner.__name__+'.'+name, instance=id(obj),
-                    atMs=round((started-trace.started)*1000, 3),
-                    elapsedMs=round(elapsed*1000, 3),
-                    selfMs=round(max(0, elapsed-frame[0])*1000, 3)))
+                if len(trace.calls) < trace.MAX_CALLS:
+                    trace.calls.append(dict(method=owner.__name__+'.'+name, instance=id(obj),
+                        atMs=round((started-trace.started)*1000, 3),
+                        elapsedMs=round(elapsed*1000, 3),
+                        selfMs=round(max(0, elapsed-frame[0])*1000, 3)))
+                if opened:
+                    trace.flush()
         self.originals.append((owner, name, original))
         setattr(owner, name, measured)
 

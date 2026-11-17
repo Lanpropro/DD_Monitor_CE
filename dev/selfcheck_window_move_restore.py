@@ -173,7 +173,8 @@ class MoveRestoreTests(unittest.TestCase):
                     window.close()
                     window.deleteLater()
                     self.app.processEvents()
-            row = json.loads(path.read_text())
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            row = next(row for row in rows if row['source'] == 'native-resize')
         self.assertFalse(row['final']['interactive'])
         self.assertFalse(row['final']['wallInteractive'])
         self.assertEqual([x['message'] for x in row['messages'] if x['message'] in (0x0231, 0x0232)],
@@ -181,6 +182,49 @@ class MoveRestoreTests(unittest.TestCase):
         self.assertTrue(any(x['method'] == 'WallGrid._flush_resize' for x in row['calls']))
         self.assertTrue(any(x['method'] == 'Tile._layout_areas' for x in row['calls']))
         self.assertTrue(all(x['elapsedMs'] >= x['selfMs'] >= 0 for x in row['calls']))
+        self.assertEqual(row['source'], 'native-resize')
+        self.assertIn('orientation', row['initial'])
+        self.assertIn('sidebarSide', row['final'])
+
+    def test_resize_trace_covers_menu_orientation_and_restores_wrappers(self):
+        from ddm.window_layout import WindowLayout
+        from dev.diagnose_window_resize import WindowResizeTrace
+        original = WindowLayout.on_layout_changed
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            with trace:
+                window = make_window(6, 'corner')
+                try:
+                    window._on_layout_changed('portrait_main2')
+                    window._on_layout_changed('corner')
+                finally:
+                    window.close()
+                    window.deleteLater()
+                    self.app.processEvents()
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertIs(WindowLayout.on_layout_changed, original)
+        menus = [row for row in rows if row['source'] == 'WindowLayout.on_layout_changed']
+        self.assertEqual(len(menus), 2)
+        self.assertEqual([row['final']['orientation'] for row in menus], ['portrait', 'landscape'])
+        self.assertTrue(any(call['method'] == 'SidebarOrientation.set_side'
+                            for row in menus for call in row['calls']))
+        self.assertTrue(any(call['method'] == 'WindowLayout.apply_orientation'
+                            for row in menus for call in row['calls']))
+        self.assertTrue(all(len(row['calls']) <= trace.MAX_CALLS for row in rows))
+        self.assertNotIn('uname', json.dumps(rows))
+
+    def test_resize_trace_stops_at_session_limit(self):
+        from dev.diagnose_window_resize import WindowResizeTrace
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            trace.MAX_GESTURES = 2
+            for _ in range(4):
+                trace.begin(self.window)
+                trace.flush()
+            rows = path.read_text().splitlines()
+        self.assertEqual(len(rows), 2)
 
     def test_same_size_native_message_still_clears_wall_mode_on_exit(self):
         window = self.window
