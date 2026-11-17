@@ -1,6 +1,6 @@
 """Portrait toolbar and follow strip; borrow the landscape controls and signals."""
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from .ui.toolbar import BarIconButton
 
@@ -37,8 +37,6 @@ class PortraitSidebar:
         self.follow_box = QHBoxLayout(self.follow_group)
         self.follow_box.setContentsMargins(0, 0, 0, 0)
         self.follow_box.setSpacing(2)
-        self.follow_label = QLabel('关注', self.follow_group)
-        self.follow_label.setBuddy(host.navigation.follow_button)
         self.divider = QFrame(host._bar_row)
         self.divider.setObjectName('NavigationDivider')
         self.divider.setFixedSize(2, 18)
@@ -74,22 +72,24 @@ class PortraitSidebar:
         host, nav = self.host, self.host.navigation
         self.ensure()
         if not host._bar_in_use:
+            nav.bottom.removeWidget(host.clear_wall_button)
             for widget in (host._header_row, host.search, host._head_scroll, host.batch_bar,
-                           host.notification_button, host.appearance_button, host.layout_button, host.picture_in_picture_button,
+                           host.notification_button, host.appearance_button, host.layout_button,
+                           host.picture_in_picture_button, host.clear_wall_button,
                            host.settings_button, host.account_row, host.toggle_button,
                            nav.follow_button, nav.filters, nav.add_button, nav.manage_button):
                 self._detach(widget)
             while host._bar_row_box.count():
                 host._bar_row_box.takeAt(0)
-            for widget in (nav.follow_button, self.follow_label, host.toggle_button):
+            for widget in (nav.follow_button, host.toggle_button):
                 self.follow_box.removeWidget(widget)
                 self.follow_box.addWidget(widget)
             host._bar_row_box.addWidget(self.follow_group)
             self.place_launcher()
-            host._bar_row_box.addWidget(self.divider)
-            for widget in (host.layout_button, host.picture_in_picture_button):
-                host._bar_row_box.addWidget(widget)
             host._bar_row_box.addStretch(1)
+            for widget in (host.layout_button, host.picture_in_picture_button, host.clear_wall_button):
+                host._bar_row_box.addWidget(widget)
+            host._bar_row_box.addWidget(self.divider)
             for widget in (host.notification_button, host.appearance_button, host.settings_button, host.account_row):
                 host._bar_row_box.addWidget(widget)
             for widget in (host.search, host._head_scroll, host.batch_bar):
@@ -118,7 +118,7 @@ class PortraitSidebar:
             button.set_navigation_mode(True)
             button.setProperty('dockRail', False)
         nav.follow_button.setProperty('dockRail', True)
-        host._bar_row_box.setSpacing(4 if host.width() < 420 else 6)
+        host._bar_row_box.setSpacing(0 if host.width() < 420 else 6)
         for button in (host.batch_button, host.notification_button, host.appearance_button,
                        host.refresh_button):
             button.setObjectName('NavigationButton')
@@ -126,19 +126,18 @@ class PortraitSidebar:
             button.setFixedSize(34, 34)
             if isinstance(button, BarIconButton):
                 button.set_icon_mode(True)
-        for button in (host.batch_button, host.clear_wall_button, host.refresh_button):
+        for button in (host.batch_button, host.refresh_button):
             button.hide()
-        for button in (nav.follow_button, host.layout_button, host.picture_in_picture_button,
+        for button in (nav.follow_button, host.layout_button, host.picture_in_picture_button, host.clear_wall_button,
                        host.notification_button, host.appearance_button, host.settings_button,
                        host.workspace_controls.launcher, host.toggle_button):
             button.show()
         follow_controls = not host.collapsed and not host.select_mode
         for widget in (nav.filters, nav.add_button, nav.manage_button):
             widget.setVisible(follow_controls)
-        nav.folder_toggle_button.hide()
+        nav.folder_toggle_button.setVisible(follow_controls)
         nav.density_button.hide()
         host.account_row.setVisible(not host.select_mode)
-        self.follow_label.setVisible(host.width() >= 420)
         host.toggle_button.setObjectName('BarToggle')
         host.toggle_button.setFixedSize(22, 22)
         host._bar_row.setFixedHeight(max(34, self.follow_group.sizeHint().height(), host.account_row.height()))
@@ -176,7 +175,7 @@ class PortraitSidebar:
             host._layout.removeWidget(row)
             row.hide()
         for widget in (nav.follow_button, host.toggle_button, nav.filters, nav.add_button,
-                       nav.manage_button, *host._column_order):
+                       nav.manage_button, host.clear_wall_button, *host._column_order):
             self._detach(widget)
         for widget in host._column_order:
             host._layout.addWidget(widget)

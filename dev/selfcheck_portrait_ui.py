@@ -13,7 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QBoxLayout, QMenu, QWidget
+from PySide6.QtWidgets import QApplication, QBoxLayout, QLabel, QMenu, QWidget
 from ddm import motion, theme
 from ddm.widgets import Sidebar
 from ddm.window_layout import WindowLayout
@@ -100,10 +100,20 @@ class PortraitUiTests(unittest.TestCase):
                                self.sidebar.workspace_controls.launcher, self.sidebar.settings_button,
                                self.sidebar.toggle_button, self.sidebar.navigation.follow_button,
                                self.sidebar.appearance_button,
-                               self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
+                               self.sidebar.layout_button, self.sidebar.picture_in_picture_button,
+                               self.sidebar.clear_wall_button):
                     self.assertTrue(widget.isVisible(), (width, collapsed, widget.accessibleName()))
                     self.assertTrue(self.sidebar.rect().contains(widget.mapTo(
                         self.sidebar, widget.rect().bottomRight())), (width, collapsed, widget.geometry()))
+                ordered = [self.sidebar.navigation.follow_button, self.sidebar.toggle_button,
+                           self.sidebar.workspace_controls.launcher, self.sidebar.layout_button,
+                           self.sidebar.picture_in_picture_button, self.sidebar.clear_wall_button,
+                           self.sidebar.notification_button, self.sidebar.appearance_button,
+                           self.sidebar.settings_button, self.sidebar.account_row]
+                for previous_button, next_button in zip(ordered, ordered[1:]):
+                    right = previous_button.mapTo(self.sidebar, previous_button.rect().bottomRight()).x()
+                    left = next_button.mapTo(self.sidebar, next_button.rect().topLeft()).x()
+                    self.assertLess(right, left, (width, previous_button.accessibleName(), next_button.accessibleName()))
                 self.assertEqual(self.sidebar._head_scroll.isVisible(), collapsed)
                 self.assertEqual(self.sidebar.scroll.isVisible(), not collapsed)
                 self.assertFalse(self.sidebar._bar_right.isVisible())
@@ -115,9 +125,15 @@ class PortraitUiTests(unittest.TestCase):
                                         self.sidebar._bar_row.geometry().bottom())
                 self.assertEqual(self.sidebar._bar_row_box.indexOf(portrait.follow_group), 0)
                 self.assertEqual(self.sidebar._bar_row_box.indexOf(self.sidebar.workspace_controls.launcher), 1)
+                self.assertFalse(any(label.text() == '关注' for label in portrait.follow_group.findChildren(QLabel)))
+                self.assertLess(self.sidebar._bar_row_box.indexOf(self.sidebar.workspace_controls.launcher),
+                                self.sidebar._bar_row_box.indexOf(self.sidebar.layout_button))
+                self.assertLess(self.sidebar._bar_row_box.indexOf(self.sidebar.picture_in_picture_button),
+                                self.sidebar._bar_row_box.indexOf(self.sidebar.notification_button))
+                self.assertEqual(self.sidebar.navigation.folder_toggle_button.isVisible(), not collapsed)
+                self.assertFalse(self.sidebar.navigation.density_button.isVisible())
                 self.assertTrue(all(not button.isVisible() for button in (
-                    self.sidebar.refresh_button, self.sidebar.batch_button,
-                    self.sidebar.clear_wall_button)))
+                    self.sidebar.refresh_button, self.sidebar.batch_button)))
 
     def test_landscape_restores_control_identity_parents_styles_and_signals(self):
         sidebar = self.sidebar
@@ -126,7 +142,7 @@ class PortraitUiTests(unittest.TestCase):
                     sidebar.appearance_button, sidebar.settings_button, sidebar.refresh_button,
                     sidebar.navigation.add_button, sidebar.navigation.manage_button,
                     sidebar.navigation.filters, sidebar.workspace_controls.launcher,
-                    sidebar.navigation.follow_button, sidebar.toggle_button]
+                    sidebar.navigation.follow_button, sidebar.toggle_button, sidebar.clear_wall_button]
         baseline = [(widget, widget.parentWidget(), widget.objectName(), widget.size()) for widget in controls]
         row_counts = []
         clicks = []
@@ -178,13 +194,41 @@ class PortraitUiTests(unittest.TestCase):
         nav.manage_button.click()
         settle()
         actions = {action.text(): action for action in nav.menu.actions()}
-        self.assertTrue({'切换卡片／列表', '清空画面墙'} <= actions.keys())
-        self.assertTrue({'添加直播间…', '导入关注…', '新建文件夹…', '布局预设', '画中画', '切换外观'}.isdisjoint(actions))
+        self.assertTrue({'添加直播间…', '导入关注…', '新建文件夹…', '布局预设', '画中画', '切换外观', '切换卡片／列表',
+                         '清空画面墙', '全部展开文件夹', '全部折叠文件夹'}.isdisjoint(actions))
         sidebar.add_button.click()
         sidebar.picture_in_picture_button.click()
-        actions['清空画面墙'].trigger()
+        sidebar.clear_wall_button.click()
         self.assertEqual(called, ['add', 'pip', 'clear'])
         nav.menu.close()
+
+    def test_external_folder_toggle_uses_existing_expand_and_restore_policy(self):
+        self.portrait(450)
+        sidebar, nav = self.sidebar, self.sidebar.navigation
+        first = sidebar.create_folder('之前收起')
+        second = sidebar.create_folder('之前展开')
+        sidebar.get_folder(first)['collapsed'] = True
+        sidebar.get_folder(second)['collapsed'] = False
+        sidebar.set_folder_collapse_mode('previous')
+        sidebar._refresh_folders(notify=False, animate=False)
+        settle()
+        self.assertTrue(nav.folder_toggle_button.isVisible())
+        nav.folder_toggle_button.click()
+        settle()
+        self.assertTrue(all(not folder['collapsed'] for folder in sidebar.folders))
+        self.assertIn('恢复', nav.folder_toggle_button.toolTip())
+        nav.folder_toggle_button.click()
+        settle()
+        self.assertTrue(sidebar.get_folder(first)['collapsed'])
+        self.assertFalse(sidebar.get_folder(second)['collapsed'])
+        sidebar.set_folder_collapse_mode('all')
+        sidebar.set_all_folders_collapsed(False)
+        nav.folder_toggle_button.click()
+        settle()
+        self.assertTrue(all(folder['collapsed'] for folder in sidebar.folders))
+        nav.folder_toggle_button.click()
+        settle()
+        self.assertTrue(all(not folder['collapsed'] for folder in sidebar.folders))
 
     def test_anonymous_and_synthetic_account_keep_the_original_entry(self):
         self.portrait(480)

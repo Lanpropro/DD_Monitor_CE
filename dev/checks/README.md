@@ -14,7 +14,7 @@
 | 脚本 | 执行分类 |
 | --- | --- |
 | [selfcheck_settings_card_layout](../selfcheck_settings_card_layout.py) | `offline`；10项，自动/单列/双列、主窗口方向/宽设置壳、本地工厂/真实工作进程/嵌入上下文、仅高度变化、窗口重挂、旧设置兼容与保存热应用 |
-| [selfcheck_portrait_ui](../selfcheck_portrait_ui.py) | `offline`；7项，深浅色入口/横屏选中底色/菜单去重、分组顶部工具条/独立关注操作行、360至1000宽度/大字号、横向关注条、筛选/多选/收起、功能中心同步和横竖往返控件身份 |
+| [selfcheck_portrait_ui](../selfcheck_portrait_ui.py) | `offline`；8项，外置展开收起/清空、右侧布局/画中画、相邻命中不重叠、深浅色入口/横屏选中底色/菜单去重、分组顶部工具条/独立关注操作行、360至1000宽度/大字号、横向关注条、筛选/多选/收起、功能中心同步和横竖往返控件身份 |
 | [selfcheck_diagnostic_settings_layout](../selfcheck_diagnostic_settings_layout.py) | `offline`；宽窄/大小字号/主题布局、固定操作、局部滚轮、原导出字段及转储隐私默认值 |
 | [selfcheck_extra_cache](../selfcheck_extra_cache.py) | `offline`；临时目录六类统计清理、迟到写入、HTTP请求与导航等待、日志占用和路径链接保护 |
 
