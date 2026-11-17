@@ -1,5 +1,6 @@
 """System tray controls and the remembered window-close choice."""
 from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
     QStyle, QSystemTrayIcon, QVBoxLayout, QWidgetAction,
@@ -70,14 +71,17 @@ class SystemTray(QObject):
         from .tray_preview import TrayLayoutPreview
         self.layout_preview = TrayLayoutPreview(self.menu)
         self.layout_preview.clicked.connect(self._restore_from_preview)
-        preview_action = QWidgetAction(self.menu)
-        preview_action.setDefaultWidget(self.layout_preview)
-        self.menu.addAction(preview_action)
-        self.menu.addSeparator()
+        self.preview_action = QWidgetAction(self.menu)
+        self.preview_action.setDefaultWidget(self.layout_preview)
+        self.menu.addAction(self.preview_action)
         self.toggle_action = self.menu.addAction("显示/隐藏窗口", self.toggle)
         self.pip_action = self.menu.addAction("画中画…", self.open_picture_in_picture)
-        self.menu.addSeparator()
         self.exit_action = self.menu.addAction("退出", self.request_exit)
+        self.menu_actions = dict(layout_preview=self.preview_action, toggle=self.toggle_action,
+                                 pip=self.pip_action, exit=self.exit_action)
+        self.menu_separators = [QAction(self.menu) for _ in range(3)]
+        for separator in self.menu_separators:
+            separator.setSeparator(True)
         self.menu.aboutToShow.connect(self.update_menu)
         self.icon.setContextMenu(self.menu)
         self.icon.activated.connect(self.activate)
@@ -99,6 +103,24 @@ class SystemTray(QObject):
                 and not self.window.isMinimized() and not pip.active):
             self.remember_layout()
         self.layout_preview.set_snapshot(self._layout_snapshot)
+        self._arrange_menu()
+
+    def _arrange_menu(self):
+        from .tray_menu import tray_menu_choices
+        for action in self.menu.actions():
+            self.menu.removeAction(action)
+        groups = dict(layout_preview=0, toggle=1, pip=1, exit=2)
+        previous, separator_index = None, 0
+        for entry in tray_menu_choices(self.window.settings.get('tray_context_menu')):
+            key = entry['id']
+            action = self.menu_actions[key]
+            action.setVisible(entry['enabled'])
+            if entry['enabled']:
+                if previous is not None and groups[key] != previous:
+                    self.menu.addAction(self.menu_separators[separator_index])
+                    separator_index += 1
+                previous = groups[key]
+            self.menu.addAction(action)
 
     def remember_layout(self):
         if not self.window.picture_in_picture.active:

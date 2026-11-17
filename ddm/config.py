@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
     **MATERIAL_DEFAULTS,
     **APPEARANCE_DEFAULTS,
     "tile_context_menu": None,
+    "tray_context_menu": None,
     "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,

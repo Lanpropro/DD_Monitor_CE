@@ -14,6 +14,8 @@
 最近整理：2026-11-15，移除不再使用的旧网站原型截图；2026-11-14 的文档分层调整见[归档记录](archive/docs-organization-20261114.md)。
 以下按当前工作区与 Git 索引盘点，不代表远端仓库状态；未读取真实配置、账号数据或媒体内容。
 
+关注栏和菜单让位共用 `ddm/row_motion.py`，托盘选项及设置预览由 `ddm/tray_menu.py` 管理；菜单专项为 `dev/selfcheck_menu_drag.py`，在现有离屏套件登记。
+
 托盘布局示意模块为 `ddm/tray_preview.py`，窗口与暂停协调沿用 `ddm/system_tray.py`；职责见[架构总览](architecture/overview.md)。
 
 ## 软件本体与插件功能范围
@@ -225,6 +227,7 @@
 - `dev/selfcheck_settings_navigation.py`
 - `dev/selfcheck_settings_layout.py`
 - `dev/selfcheck_shortcut_settings.py`
+- `dev/selfcheck_menu_drag.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
 - `dev/selfcheck_settings_performance.py`

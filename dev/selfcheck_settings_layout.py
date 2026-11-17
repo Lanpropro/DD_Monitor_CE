@@ -497,13 +497,13 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
             self.assertLessEqual(editor.geometry().right(), card.width())
             if direction == QBoxLayout.LeftToRight:
-                self.assertLess(editor.parameters_panel.geometry().right(), editor.items_panel.x())
-                self.assertEqual(editor.parameters_panel.y(), editor.items_panel.y())
+                self.assertLess(editor.parameters_panel.geometry().right(), editor.preview_panel.x())
+                self.assertEqual(editor.parameters_panel.y(), editor.preview_panel.y())
             else:
-                self.assertLess(editor.parameters_panel.geometry().bottom(), editor.items_panel.y())
+                self.assertLess(editor.parameters_panel.geometry().bottom(), editor.preview_panel.y())
             for control in editor.controls.values():
                 self.assertTrue(editor.parameters_panel.isAncestorOf(control))
-            self.assertTrue(editor.items_panel.isAncestorOf(editor.graph))
+            self.assertTrue(editor.preview_panel.isAncestorOf(editor.graph))
             self.assertEqual(page.values()['volume_normalization_curve']['hold'], 4.5)
 
     def test_nested_audio_editor_and_controls_follow_base_colors_in_place(self):
@@ -896,9 +896,11 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertFalse(next(entry for entry in editor.values() if entry['id'] == 'plugins')['enabled'])
         self.assertTrue(self.dialog.auto_save.timer.isActive())
         self.dialog.auto_save.flush()
-        self.assertEqual(requested[-1]['settings'], page.values())
+        self.assertEqual(requested[-1]['settings'], {
+            key: value for key, value in page.values().items() if key != 'tray_context_menu'})
         saved = page.values()
         self.dialog.auto_save.acknowledge()
+
         # Reopen from the saved delta without depending on any real configuration.
         from ddm.dialogs import TraySettingsPage
         reopened = TraySettingsPage(saved)
@@ -911,6 +913,64 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(requested[-1]['settings'], {'tile_context_menu': menu_choices(None)})
         self.assertEqual([entry['id'] for entry in editor.values()], [key for key, _label in MENU_ITEMS])
         self.dialog.auto_save.acknowledge()
+
+    def test_separate_menu_sections_preserve_drafts_and_save_only_tray_edits(self):
+        from ddm.tray_menu import tray_menu_choices
+        from ddm.dialogs import TraySettingsPage
+        page = self.page(6)
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        before = page.values()
+        settle()
+        self.assertTrue(page.tray_menu.isVisible())
+        self.assertTrue(page.tile_menu.isVisible())
+        self.dialog.auto_save.flush()
+        self.assertFalse(requested, 'Opening both menu sections must not save a preference')
+        page.tray_menu.checks['layout_preview'].click()
+        page.tray_menu.move_before('exit', 'pip')
+        expected = page.tray_menu.values()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'tray_context_menu': expected})
+        self.dialog.auto_save.acknowledge()
+        self.assertEqual(page.tile_menu.values(), before['tile_context_menu'])
+        self.assertEqual(page.tray_menu.values(), expected)
+        reopened = TraySettingsPage(page.values())
+        self.assertEqual(reopened.tray_menu.values(), expected)
+        reopened.deleteLater()
+        page.reset()
+        self.assertEqual(page.tray_menu.values(), tray_menu_choices(None))
+        self.assertEqual(page.tile_menu.values(), before['tile_context_menu'])
+
+    def test_both_menu_sections_fit_large_fonts_and_narrow_wide_sizes(self):
+        from ddm.dialogs import TraySettingsPage
+        previous = dict(theme._preferences)
+        self.addCleanup(theme.configure_appearance, previous)
+        for font_size in (13, 20):
+            theme.configure_appearance({'appearance_font_size': font_size})
+            page = TraySettingsPage({})
+            page.setStyleSheet(theme.qss())
+            try:
+                before = page.values()
+                for width in (500, 1600, 500):
+                    page.resize(width, 850)
+                    page.show()
+                    settle()
+                    self.assertLess(page.sections.section('menu').geometry().bottom(),
+                                    page.sections.section('tray_menu').y())
+                    for kind, editor in (('tray_menu', page.tray_menu), ('menu', page.tile_menu)):
+                        self.assertTrue(editor.isVisible())
+                        self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                        card = page.sections.section(kind)
+                        for child in (editor.preview, editor.items):
+                            self.assertTrue(card.rect().contains(child.mapTo(card, child.rect().bottomRight())),
+                                            (font_size, width, kind, child.geometry(), card.rect()))
+                        self.assertEqual(page.values(), before)
+            finally:
+                page.close()
+                page.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                settle()
 
 
 class AppearanceEditorTests(unittest.TestCase):
@@ -956,7 +1016,7 @@ class AppearanceEditorTests(unittest.TestCase):
                 editor = page.parts_editor
                 background = editor.background_controls
                 self.assertEqual(editor.findChildren(SettingsSurface), [editor.editor_card])
-                self.assertTrue(editor.editor_card.isAncestorOf(editor.items))
+                self.assertTrue(editor.editor_card.isAncestorOf(editor.preview))
                 self.assertTrue(editor.editor_card.isAncestorOf(background.choose))
                 self.assertIsInstance(editor.scenes, SelectControl)
                 self.assertIsInstance(background.video_toggle, ToggleSwitch)
