@@ -102,7 +102,8 @@ class SettingsColumns(QWidget):
         from . import theme
         window = self.window()
         mode = window.property('settings_card_layout') if self.respect_preference else 'auto'
-        vertical = mode == 'vertical' or (mode != 'horizontal' and window.height() > window.width())
+        vertical = mode == 'vertical' or (mode != 'horizontal' and
+            (window.property('settings_portrait') or window.height() > window.width()))
         threshold = round(self.BREAKPOINT * max(1, theme.FONT_CONTROL / 13))
         return 2 if not vertical and self.width() >= threshold else 1
 
@@ -121,7 +122,8 @@ class SettingsColumns(QWidget):
         self._layout_window = None
 
     def eventFilter(self, watched, event):
-        if watched is self._layout_window and event.type() == QEvent.Resize:
+        if watched is self._layout_window and (event.type() == QEvent.Resize or
+                (event.type() == QEvent.DynamicPropertyChange and event.propertyName() == b'settings_portrait')):
             if self._column_count() != self.columns:
                 self._arrange()
         return super().eventFilter(watched, event)

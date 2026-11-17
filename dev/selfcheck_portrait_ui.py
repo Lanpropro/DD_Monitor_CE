@@ -75,6 +75,7 @@ class PortraitUiTests(unittest.TestCase):
                 for widget in (self.sidebar.notification_button, self.sidebar.account_row,
                                self.sidebar.workspace_controls.launcher, self.sidebar.settings_button,
                                self.sidebar.toggle_button, self.sidebar.navigation.follow_button,
+                               self.sidebar.appearance_button,
                                self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
                     self.assertTrue(widget.isVisible(), (width, collapsed, widget.accessibleName()))
                     self.assertTrue(self.sidebar.rect().contains(widget.mapTo(
@@ -91,8 +92,8 @@ class PortraitUiTests(unittest.TestCase):
                 self.assertEqual(self.sidebar._bar_row_box.indexOf(portrait.follow_group), 0)
                 self.assertEqual(self.sidebar._bar_row_box.indexOf(self.sidebar.workspace_controls.launcher), 1)
                 self.assertTrue(all(not button.isVisible() for button in (
-                    self.sidebar.appearance_button, self.sidebar.refresh_button,
-                    self.sidebar.batch_button, self.sidebar.clear_wall_button)))
+                    self.sidebar.refresh_button, self.sidebar.batch_button,
+                    self.sidebar.clear_wall_button)))
 
     def test_landscape_restores_control_identity_parents_styles_and_signals(self):
         sidebar = self.sidebar
@@ -153,9 +154,10 @@ class PortraitUiTests(unittest.TestCase):
         nav.manage_button.click()
         settle()
         actions = {action.text(): action for action in nav.menu.actions()}
-        self.assertTrue({'添加直播间…', '导入关注…', '切换卡片／列表', '布局预设', '画中画'} <= actions.keys())
-        actions['添加直播间…'].trigger()
-        actions['画中画'].trigger()
+        self.assertTrue({'切换卡片／列表', '清空画面墙'} <= actions.keys())
+        self.assertTrue({'添加直播间…', '导入关注…', '新建文件夹…', '布局预设', '画中画', '切换外观'}.isdisjoint(actions))
+        sidebar.add_button.click()
+        sidebar.picture_in_picture_button.click()
         actions['清空画面墙'].trigger()
         self.assertEqual(called, ['add', 'pip', 'clear'])
         nav.menu.close()
@@ -202,13 +204,44 @@ class PortraitUiTests(unittest.TestCase):
         sidebar._sync_appearance_row()
         settle()
         self.assertFalse(sidebar.navigation.filters.isVisible())
-        self.assertFalse(sidebar.appearance_button.isVisible())
+        self.assertTrue(sidebar.appearance_button.isVisible())
         self.assertTrue(sidebar._head_scroll.isVisible())
         sidebar.navigation.follow_button.click()
         settle()
         self.assertFalse(sidebar.collapsed)
         self.assertTrue(sidebar.search.hasFocus())
         self.assertIs(sidebar.batch_bar.parentWidget(), portrait.controls)
+
+    def test_theme_entry_and_selected_follow_fill_match_landscape(self):
+        self.portrait(450)
+        sidebar, nav = self.sidebar, self.sidebar.navigation
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            self.host.setStyleSheet(theme.qss())
+            sidebar._sync_top_mode()
+            settle()
+            expected = theme.qcolor(theme.ACCENT if mode == 'light' else theme.TEXT1)
+            self.assertTrue(nav.follow_button.property('dockActive'))
+            self.assertEqual(nav.follow_button.grab().toImage().pixelColor(17, 4), expected)
+            sidebar.workspace_controls.launcher.click()
+            settle()
+            self.assertFalse(nav.follow_button.property('dockActive'))
+            self.assertTrue(sidebar.workspace_controls.launcher.property('dockActive'))
+            self.assertEqual(sidebar.workspace_controls.launcher.grab().toImage().pixelColor(17, 4), expected)
+            sidebar.workspace_controls.popup.hide()
+            settle()
+            self.assertTrue(nav.follow_button.property('dockActive'))
+        clicked = []
+        theme.apply('dark')
+        sidebar.appearanceChanged.connect(lambda mode: (clicked.append(mode), theme.apply(mode)))
+        for collapsed in (True, False):
+            sidebar.set_collapsed(collapsed, animate=False)
+            sidebar._sync_appearance_row()
+            settle()
+            self.assertTrue(sidebar.appearance_button.isVisible())
+            sidebar.appearance_button.click()
+        self.assertEqual(clicked, ['light', 'dark'])
+        theme.apply('dark')
 
     def test_orientation_only_repositions_existing_empty_video_surfaces(self):
         from ddm.wall_widgets import WallGrid

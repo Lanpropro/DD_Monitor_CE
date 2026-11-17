@@ -318,9 +318,6 @@ class SidebarNavigation(QObject):
         sidebar = self.sidebar
         menu = self._menu(self.manage_button)
         if sidebar.side == 'top':
-            menu.addAction('添加直播间…').triggered.connect(sidebar.add_button.click)
-            menu.addAction('导入关注…').triggered.connect(sidebar.import_button.click)
-            menu.addAction('新建文件夹…').triggered.connect(sidebar.prompt_folder)
             menu.addAction('切换卡片／列表').triggered.connect(self.density_button.click)
             menu.addSeparator()
         action = menu.addAction('多选管理')
@@ -338,11 +335,7 @@ class SidebarNavigation(QObject):
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
         if sidebar.side == 'top':
             menu.addSeparator()
-            for text, button in (('布局预设', sidebar.layout_button),
-                                 ('画中画', sidebar.picture_in_picture_button),
-                                 ('切换外观', sidebar.appearance_button),
-                                 ('清空画面墙', sidebar.clear_wall_button)):
-                menu.addAction(text).triggered.connect(button.click)
+            menu.addAction('清空画面墙').triggered.connect(sidebar.clear_wall_button.click)
         menu.popup(self.manage_button.mapToGlobal(QPoint(0, self.manage_button.height()+4)))
         self.menu = menu
 

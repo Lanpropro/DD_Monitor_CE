@@ -112,11 +112,12 @@ class SettingsProcess(QObject):
         self.start_timer.start(10000)
 
     def open(self, settings, shortcuts, sc_preview_context=None):
+        portrait = getattr(self.parent(), 'orientation', '') == 'portrait'
         if self.closing:
             return
         if self.visible:
             _allow_foreground(self.worker_pid)
-            self._send({'kind': 'focus'})
+            self._send({'kind': 'focus', 'portrait': portrait})
             return
         if self.pending is not None:
             return
@@ -125,6 +126,7 @@ class SettingsProcess(QObject):
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
         self.pending['sc_preview_context'] = sc_preview_context or {}
+        self.pending['portrait'] = portrait
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
             self.pending['owner_hwnd'] = int(self.parent().window().winId())

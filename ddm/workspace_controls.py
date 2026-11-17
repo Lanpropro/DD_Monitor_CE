@@ -216,7 +216,7 @@ class WorkspaceControls(QFrame):
         if navigation is None:
             return
         top = self.sidebar.side == 'top'
-        self.launcher.setProperty('dockRail', not top)
+        self.launcher.setProperty('dockRail', True)
         if close_popup:
             self.popup.hide()
         self.sidebar._detach_from_rows(self.launcher)
