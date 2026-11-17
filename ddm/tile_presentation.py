@@ -127,6 +127,12 @@ class TilePresentation:
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
         host = self.host
+        if host._interactive_resize:
+            # Hover/control callbacks can request a restack as well as resize.
+            # Keep clipping live and perform one complete repair on settlement.
+            host._resize_raise_pending = True
+            host._update_quick_danmaku_mask()
+            return
         compact = bool(host.property('pictureInPicture'))
         host.video_danmaku.raise_()
         for corner in host.video_corners:
