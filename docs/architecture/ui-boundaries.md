@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | 弹幕面板、文档、阅读位置与 SC 卡片 | `danmaku_widgets`、`danmaku_document`、`danmaku_scrolling`、`super_chat_widgets` | 面板持有消息、图片加载器和 Qt 子控件；连接与快照由宿主协调 |
 | 账号行与菜单绘制 | `account_widgets` | 登录、账号存储和刷新线程仍归账号业务 |
+| 插件关注侧栏页面 | `sidebar_pages` | 本体持有入口与当前页面；插件持有业务数据、请求和页面关闭清理，注销解除父对象 |
 | 关注卡片、缩略图、文件夹与列表 | `sidebar_item`、`sidebar_thumbnail`、`sidebar_folders`、`sidebar_list` | 卡片、预览播放器和动画仍归原对象；Sidebar 管理集合、排序和拖动会话 |
 | 单格视频、浮层与播放控制 | `tile_widgets`、`playback_controls` | Tile 持有控件、信号与定时器；播放器和取流生命周期由原宿主协调 |
 | 画面墙、分区与边框拖动 | `wall_widgets`、`wall_border` | WallGrid 持有布局与比例；WallBorderInteraction 持有一次拖边会话和合并定时器 |

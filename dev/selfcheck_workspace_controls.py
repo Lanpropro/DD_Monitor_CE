@@ -28,6 +28,66 @@ def settle():
 
 
 class WorkspaceControlTests(unittest.TestCase):
+    def test_sidebar_extension_search_keeps_follow_query_and_header(self):
+        from unittest.mock import Mock
+        self.sidebar.search.setText('示例主播1')
+        widget, query = QWidget(), Mock()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order',widget,title='观看顺序',icon=icon,on_filter=query)
+        pages = self.sidebar.plugin_pages
+        pages.select(('workspace-test','order'))
+        self.sidebar.search.setText('视频')
+        query.assert_called_with('视频')
+        self.assertEqual(self.sidebar.filter_text,'示例主播1')
+        self.assertFalse(self.sidebar.navigation.add_button.isHidden())
+        self.assertEqual(self.sidebar.navigation.title.text(),'关注')
+        pages.select()
+        self.assertEqual(self.sidebar.search.text(),'示例主播1')
+        self.context.unregister_sidebar_page('order')
+        widget.deleteLater()
+
+    def test_sidebar_extension_switches_follow_and_cleans_only_its_owner(self):
+        first, second = QWidget(), QWidget()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order', first, title='观看顺序', icon=icon)
+        pages = self.sidebar.plugin_pages
+        pages.add('other', 'other', second, '其他页面', icon)
+        pages.select(('workspace-test','order'))
+        settle()
+        self.assertTrue(first.isVisible())
+        self.assertTrue(self.sidebar.scroll.isHidden())
+        self.assertFalse(self.sidebar.search.isHidden())
+        self.assertEqual(self.sidebar.navigation.title.text(),'关注')
+        self.sidebar.navigation.all_button.click()
+        self.assertTrue(first.isHidden())
+        self.assertFalse(self.sidebar.scroll.isHidden())
+        self.context._clear_workspace_controls()
+        self.assertNotIn(('workspace-test','order'),pages.entries)
+        self.assertIn(('other','other'),pages.entries)
+        self.assertIsNone(first.parentWidget())
+        pages.remove_owner('other')
+        first.deleteLater()
+        second.deleteLater()
+
+    def test_sidebar_extension_collapsed_and_portrait_restore_follow(self):
+        widget = QWidget()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order',widget,title='观看顺序',icon=icon)
+        pages = self.sidebar.plugin_pages
+        pages.select(('workspace-test','order'))
+        self.sidebar.set_collapsed(True,animate=False)
+        self.assertIsNone(pages.current)
+        self.assertTrue(widget.isHidden())
+        self.sidebar.set_collapsed(False,animate=False)
+        pages.select(('workspace-test','order'))
+        self.sidebar.set_side('top')
+        settle()
+        self.assertIsNone(pages.current)
+        self.assertTrue(widget.isHidden())
+        self.sidebar.set_side('left')
+        self.context.unregister_sidebar_page('order')
+        widget.deleteLater()
+
     def setUp(self):
         self.host = QWidget()
         self.host.setAttribute(Qt.WA_DontShowOnScreen)

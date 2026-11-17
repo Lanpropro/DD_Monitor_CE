@@ -164,6 +164,8 @@ class SidebarNavigation(QObject):
             filters.addWidget(button)
         self.all_button.clicked.connect(lambda: self.set_live_only(False))
         self.live_button.clicked.connect(lambda: self.set_live_only(True))
+        for button in (self.all_button, self.live_button):
+            button.clicked.connect(lambda: sidebar.plugin_pages.select())
         filters.addStretch(1)
         self.folder_toggle_button = NavigationButton('全部折叠文件夹', 'folders_collapse', self.filters)
         self.folder_toggle_button.setFixedSize(26, 26)
@@ -241,6 +243,7 @@ class SidebarNavigation(QObject):
             attach(button).pulse()
 
     def show_follow(self):
+        self.sidebar.plugin_pages.select()
         controls = self.sidebar.workspace_controls
         controls.popup.hide()
         if controls.pages is not None and not controls.pages.close_active():
@@ -278,6 +281,8 @@ class SidebarNavigation(QObject):
         self.all_button.setChecked(not sidebar.live_only)
         self.live_button.setChecked(sidebar.live_only)
         self.density_button.setToolTip('切换为列表' if sidebar.card_mode else '切换为封面卡片')
+        if hasattr(sidebar, 'plugin_pages'):
+            sidebar.plugin_pages.sync()
 
     def set_live_only(self, live_only):
         self.sidebar.live_only = live_only
@@ -328,6 +333,7 @@ class SidebarNavigation(QObject):
     def release(self):
         """Return original controls before the portrait header adopts them."""
         sidebar = self.sidebar
+        sidebar.plugin_pages.select()
         self.icon_drag.cancel()
         self.rail.hide()
         self.header.hide()

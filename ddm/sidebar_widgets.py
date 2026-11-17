@@ -395,6 +395,8 @@ class Sidebar(QFrame):
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
         self.navigation = SidebarNavigation(self, self._outer_layout)
+        from .sidebar_pages import SidebarPages
+        self.plugin_pages = SidebarPages(self)
         self.refresh_filter()
         self._sync_count()
         self._sync_appearance_row()
@@ -445,6 +447,8 @@ class Sidebar(QFrame):
     # ---- 搜索过滤 ----
     def apply_filter(self, text: str) -> None:
         """搜索框一有动静就过滤；批量删除的勾选状态不受影响。"""
+        if hasattr(self, "plugin_pages") and self.plugin_pages.filter(text):
+            return
         return self.filter_control.apply_filter(text)
 
     def refresh_filter(self) -> None:

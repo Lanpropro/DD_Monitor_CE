@@ -288,11 +288,33 @@ class PluginContext:
             controls.remove(self.name, control_id)
 
     def _clear_workspace_controls(self):
+        pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
+        if pages is not None:
+            pages.remove_owner(self.name)
         if self._manager._workspace_pages is not None:
             self._manager._workspace_pages.close_owner(self.name)
         controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
         if controls is not None:
             controls.remove_owner(self.name)
+
+    def register_sidebar_page(self, page_id, widget, *, title, icon, on_filter=None) -> bool:
+        """Add an owner-scoped tab to the expanded follow sidebar; False headlessly.
+
+        Caller owns page shutdown/deletion; the host detaches it on unregister.
+        Portrait/collapsed modes return to the host follow list.
+        """
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
+        if pages is None:
+            return False
+        pages.add(self.name, page_id, widget, title, icon, on_filter)
+        return True
+
+    def unregister_sidebar_page(self, page_id):
+        pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
+        if pages is not None:
+            pages.remove(self.name, page_id)
 
     def show_workspace(self, widget, *, manages_content=False) -> bool:
         """Replace the central content with one embedded page; close the previous page."""
