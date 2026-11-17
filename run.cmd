@@ -66,6 +66,7 @@ if /i "%~1"=="--check-settings-shutdown" goto settingsShutdownCheck
 if /i "%~1"=="--check-settings-performance" goto settingsPerformanceCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
 if /i "%~1"=="--check-window-resize-trace" goto windowResizeTraceCheck
+if /i "%~1"=="--check-cross-screen" goto crossScreenCheck
 if /i "%~1"=="--check-window-state" goto windowStateCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
@@ -401,9 +402,20 @@ if not "%errorlevel%"=="0" exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=windows"
-"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit MoveRestoreTests.test_first_native_size_arms_wall_before_qt_resizes_children MoveRestoreTests.test_dpi_profile_is_opt_in_bounded_and_stops_on_flush
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit MoveRestoreTests.test_first_native_size_arms_wall_before_qt_resizes_children MoveRestoreTests.test_dpi_profile_is_opt_in_bounded_and_stops_on_flush MoveRestoreTests.test_native_video_and_bar_keep_handles_without_promoting_bar_children
 if not "%errorlevel%"=="0" exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_resize_widgets
+exit /b %errorlevel%
+
+:crossScreenCheck
+call "%PROJ%run.cmd" --check-window-resize-trace
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_native_control_hit.py"
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_controls.py"
 exit /b %errorlevel%
 
 :settingsScrollCheck

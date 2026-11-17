@@ -14,6 +14,10 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 class FullscreenBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            # The bar overlaps native video in fullscreen; its Qt children
+            # share this window instead of each requiring a separate HWND.
+            self.setAttribute(Qt.WA_NativeWindow, True)
         self.setProperty('fullscreen', False)
         self._masked_labels = set()
         self._label_mask_pending = False

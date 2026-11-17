@@ -280,6 +280,9 @@ class WindowLayout:
         if (not hasattr(host, "wall") or host._closing
                 or host._fullscreen_tile is not None or host._interactive_resize):
             return
+        # A fully covered native parent need not paint before the first drag.
+        # Native interaction is also an unambiguous end to startup layout.
+        host._startup_layout_pending = False
         host._resize_idle_timer.stop()
         host._interactive_resize = True
 

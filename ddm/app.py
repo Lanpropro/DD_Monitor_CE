@@ -114,6 +114,9 @@ class MainWindow(QMainWindow):
     @qt_lifecycle.construction
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "", state: dict | None = None):
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            # Native video/overlays must not promote ordinary sibling controls.
+            QApplication.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
         super().__init__()
         self.notice_control = AppNotices(self)
         self.fullscreen_control = FullscreenControl(self)

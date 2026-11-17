@@ -24,7 +24,7 @@ class VideoCorner(BadgeSurface):
         self.setAttribute(Qt.WA_NativeWindow)
 
     def refresh_theme(self):
-        self.update()
+        super().refresh_theme()
 
     def _layered_render_key(self):
         return self.right, theme.is_light()

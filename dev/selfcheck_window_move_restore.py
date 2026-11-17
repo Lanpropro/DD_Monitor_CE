@@ -67,6 +67,27 @@ class MoveRestoreTests(unittest.TestCase):
             capture.assert_not_called()
             self.assertEqual(set(QApplication.topLevelWidgets()), windows)
 
+    def test_native_video_and_bar_keep_handles_without_promoting_bar_children(self):
+        window = self.window
+        self.assertFalse(window.sidebar.internalWinId(), 'Sidebar does not need a native sibling window')
+        tile = window.wall.tiles[0]
+        tile.video.winId()  # The same explicit native binding used by TilePlayer.bind.
+        for widget in (tile.video, tile.bottom, tile.controls, tile.stream_badge):
+            self.assertTrue(widget.internalWinId(), type(widget).__name__)
+        for widget in (tile.pause_button, tile.volume_slider, tile.volume_label,
+                       tile.danmaku_button, tile.recording_button):
+            self.assertFalse(widget.internalWinId(), type(widget).__name__)
+        paused = []
+        tile.pauseToggled.connect(paused.append)
+        point = tile.pause_button.mapTo(tile.bottom, tile.pause_button.rect().center())
+        scale = tile.bottom.devicePixelRatioF()
+        packed = round(point.x()*scale) | (round(point.y()*scale) << 16)
+        hwnd = int(tile.bottom.internalWinId())
+        self.user32.SendMessageW(hwnd, 0x0201, 1, packed)
+        self.user32.SendMessageW(hwnd, 0x0202, 0, packed)
+        self.app.processEvents()
+        self.assertEqual(paused, [tile.room], f'bar={tile.bottom.isVisible()} button={tile.pause_button.isVisible()}')
+
     def test_ordinary_move_keeps_real_window_visible_and_does_not_relayout(self):
         window = self.window
         hwnd = int(window.winId())
@@ -149,7 +170,9 @@ class MoveRestoreTests(unittest.TestCase):
         video_handles = [int(tile.video.internalWinId()) for tile in tiles]
         for code in (0x0005, 0x02e0):  # WM_SIZE and cross-screen WM_DPICHANGED
             with self.subTest(message=hex(code)):
+                window._startup_layout_pending = True  # Parent can be covered by native children.
                 self.send(0x0231)
+                self.assertFalse(window._startup_layout_pending)
                 self.assertFalse(window.wall._interactive_resize,
                                  'Pure movement must not activate wall resize')
                 message = wintypes.MSG()

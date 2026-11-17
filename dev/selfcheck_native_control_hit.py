@@ -1,8 +1,12 @@
-"""Windows 原生鼠标命中检查；可传入本地视频，验证多路 libmpv 播放。"""
+"""Windows 原生控件命中回归；默认生成本地视频，也可传入文件。"""
 import ctypes
 from ctypes import wintypes
 import os
+from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from unittest.mock import patch
 
@@ -24,11 +28,12 @@ def settle(app, seconds):
         time.sleep(0.01)
 
 
-def main():
+def main(source=None):
     if os.name != "nt":
         print("Skipped: Windows native window test")
         return
     app = QApplication(sys.argv)
+    app.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
     app.setStyleSheet(theme.qss())
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     user32.ChildWindowFromPointEx.argtypes = [wintypes.HWND, wintypes.POINT, wintypes.UINT]
@@ -74,16 +79,16 @@ def main():
             show_controls(tile)
         players = []
         try:
-            if len(sys.argv) > 1:
+            if source:
                 for tile in wall.tiles:
                     player = TilePlayer(tile.video, silent=True)
-                    player.play(sys.argv[1])
+                    player.play(source)
                     players.append(player)
                 for player in players:
                     ready(app, player)
                 # 保持浮层已显示，模拟所有播放器重建视频窗口。
                 for player in players:
-                    player.play(sys.argv[1])
+                    player.play(source)
                 for player in players:
                     ready(app, player)
             wall.set_fullscreen_tile(wall.tiles[-1])
@@ -128,5 +133,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        main(sys.argv[1])
+    else:
+        with tempfile.TemporaryDirectory(prefix='ddm-native-controls-') as directory:
+            source = str(Path(directory) / 'blue.mp4')
+            subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                            '-f', 'lavfi', '-i', 'color=c=blue:s=320x180:r=30', '-t', '20',
+                            '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', source],
+                           check=True, timeout=30)
+            main(source)
     os._exit(0)
