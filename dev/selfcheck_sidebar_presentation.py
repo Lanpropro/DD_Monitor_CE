@@ -58,6 +58,40 @@ class SidebarPresentationTests(unittest.TestCase):
         navigation.restore_order(['pip', 'clear', 'layout'])
         self.assertEqual(retained, [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())])
 
+    def test_navigation_mode_skips_matching_style_and_refreshes_changed_dock_or_size(self):
+        button = self.sidebar.layout_button
+        button.set_navigation_mode(True)
+        style = button.style()
+        with patch.object(style, 'unpolish', wraps=style.unpolish) as unpolish:
+            for _ in range(4):
+                button.set_navigation_mode(True)
+            unpolish.assert_not_called()
+            button.setProperty('dockRail', False)
+            button.set_navigation_mode(True)
+            self.assertEqual(unpolish.call_count, 1)
+            button.setFixedSize(22, 22)
+            button.set_navigation_mode(True)
+            self.assertEqual(button.size(), QSize(34, 34))
+            self.assertEqual(unpolish.call_count, 2)
+            button.set_navigation_mode(False)
+            self.assertEqual(button.text(), button._label)
+
+    def test_navigation_sync_keeps_matching_fixed_tool_styles(self):
+        navigation = self.sidebar.navigation
+        navigation.sync()
+        button = self.sidebar.notification_button
+        style = button.style()
+        with patch.object(style, 'unpolish', wraps=style.unpolish) as unpolish:
+            navigation.sync()
+            navigation.sync()
+            unpolish.assert_not_called()
+            button.setObjectName('BarIcon')
+            button.setProperty('sidebarCompact', True)
+            navigation.sync()
+            self.assertEqual(button.objectName(), 'NavigationButton')
+            self.assertIs(button.property('sidebarCompact'), False)
+            self.assertGreaterEqual(unpolish.call_count, 1)
+
     def test_sidebar_creation_and_local_server_leave_no_stale_item_bindings(self):
         source = '''
 import tempfile

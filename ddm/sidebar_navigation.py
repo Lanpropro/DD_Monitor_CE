@@ -1,5 +1,5 @@
 """Global tool rail and compact follow controls, using the existing sidebar actions."""
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
@@ -49,6 +49,13 @@ class NavigationButton(QPushButton):
         super().setText('' if self._navigation_mode else text)
 
     def set_navigation_mode(self, enabled):
+        if (enabled and self._navigation_mode and self.objectName() == 'NavigationButton'
+                and getattr(self, '_navigation_dock_rail', None) == self.property('dockRail')
+                and self.minimumSize() == self.maximumSize() == QSize(34, 34)
+                and self.sizePolicy().horizontalPolicy() == QSizePolicy.Fixed
+                and self.sizePolicy().verticalPolicy() == QSizePolicy.Fixed
+                and not self.text()):
+            return
         self._navigation_mode = enabled
         self.setObjectName('NavigationButton' if enabled else 'IconButton')
         self.setMinimumSize(0, 0)
@@ -59,6 +66,7 @@ class NavigationButton(QPushButton):
         super().setText('' if enabled else self._label)
         self.style().unpolish(self)
         self.style().polish(self)
+        self._navigation_dock_rail = self.property('dockRail')
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -397,13 +405,19 @@ class SidebarNavigation(QObject):
             button.set_navigation_mode(True)
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
+            motion_kind = 'notification' if button is sidebar.notification_button else 'appearance'
+            style_changed = (button.property('dockMotion') != motion_kind
+                             or button.property('dockRail') is not True
+                             or button.objectName() != 'NavigationButton'
+                             or button.property('sidebarCompact') is not False)
             attach(button)
-            button.setProperty('dockMotion', 'notification' if button is sidebar.notification_button else 'appearance')
+            button.setProperty('dockMotion', motion_kind)
             button.setProperty('dockRail', True)
             button.setObjectName('NavigationButton')
             button.setProperty('sidebarCompact', False)
-            button.style().unpolish(button)
-            button.style().polish(button)
+            if style_changed:
+                button.style().unpolish(button)
+                button.style().polish(button)
             button.setFixedSize(34, 34)
             button.show()
         for widget in (sidebar._header_row, sidebar.status_row, sidebar.tool_row, sidebar.normal_bar):
