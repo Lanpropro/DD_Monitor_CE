@@ -4,6 +4,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QMenu
 from .caption_geometry import caption_rect, edit_rect, placement_values
+from .caption_toolbar import CaptionToolbar
 
 
 class CaptionInteraction(QObject):
@@ -14,6 +15,7 @@ class CaptionInteraction(QObject):
         self.hovered = False
         caption.setMouseTracking(True)
         caption.installEventFilter(self)
+        self.toolbar = CaptionToolbar(self)
 
     def _resize_handle(self):
         return QRect(self.caption.width() - 18, self.caption.height() - 18, 18, 18)
@@ -51,7 +53,15 @@ class CaptionInteraction(QObject):
         kind = event.type()
         if kind in (QEvent.Enter, QEvent.Leave):
             self.hovered = kind == QEvent.Enter
+            if self.hovered:
+                self.toolbar.reveal()
+            else:
+                self.toolbar.defer_hide()
             caption.update()
+        elif kind in (QEvent.Hide, QEvent.Close):
+            self.toolbar.hide()
+        elif kind in (QEvent.Move, QEvent.Resize):
+            self.toolbar.sync_geometry()
         elif kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
             self.apply(x=50, y=100, width=80, height=18)
             return True

@@ -67,6 +67,37 @@ class CaptionInteractionChecks(unittest.TestCase):
         self.assertTrue(self.caption._style.locked)
         menu.deleteLater()
 
+    def test_icon_toolbar_stays_above_caption_and_actions_update_style(self):
+        caption = self.caption
+        toolbar = caption._interaction.toolbar
+        before = caption.geometry()
+        toolbar.reveal()
+        APP.processEvents()
+        self.assertTrue(toolbar.isVisible())
+        self.assertEqual(caption.geometry(), before)
+        self.assertLessEqual(toolbar.geometry().bottom(), caption.geometry().top())
+        self.assertTrue(all(button.toolTip() and button.accessibleName() and button.text() == ''
+                            for button in toolbar.buttons.values()))
+        toolbar.buttons['larger'].click()
+        self.assertEqual(caption._style.font_size, 26)
+        toolbar.buttons['reset'].click()
+        self.assertEqual((caption._style.x, caption._style.y), (50, 100))
+        toolbar.buttons['lock'].click()
+        self.assertTrue(caption._style.locked)
+        self.assertFalse(toolbar.isVisible())
+        self.assertTrue(caption.testAttribute(Qt.WA_TransparentForMouseEvents))
+
+    def test_toolbar_hides_with_caption_and_preview_remains_embedded(self):
+        toolbar = self.caption._interaction.toolbar
+        toolbar.reveal()
+        self.caption.clear_caption()
+        APP.processEvents()
+        self.assertFalse(toolbar.isVisible())
+        preview = CaptionPlacementPreview()
+        self.assertFalse(preview.caption._interaction.toolbar.isWindow())
+        preview.close()
+        preview.deleteLater()
+
     def test_preview_and_parameters_use_the_actual_renderer_without_native_window(self):
         preview = CaptionPlacementPreview()
         preview.resize(420, 240)

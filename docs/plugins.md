@@ -379,7 +379,9 @@ context.clear_tile_caption(tile)
 
 `context.create_caption_preview(parent)` 返回使用同一渲染器和手势的嵌入式设置预览，提供 `set_style(dict)` 和 `styleChanged(dict)`；预览始终可操作，保留传入的真实锁定偏好，不创建 native 浮窗。`context.room_presentation(tile)` 返回房间 ID、名称及与画中画选择器相同的缓存头像 `pixmap`，无网络或截图操作；插件可用它构建房间多选界面。
 
-职责边界：`video_caption.py` 拥有当前字幕与样式、绘制和 native 层级；`caption_geometry.py` 计算归一化安全位置；`caption_interaction.py` 处理编辑手势与快捷菜单；`caption_preview.py` 复用真实渲染组件并桥接预览参数；`plugin_types.py` 维护回调所有权与公开预览／房间展示入口。预览与实际字幕通过映射交换值，不共享可变控件状态。
+职责边界：`video_caption.py` 拥有当前字幕与样式、绘制和 native 层级；`caption_geometry.py` 计算归一化安全位置；`caption_interaction.py` 处理编辑手势与快捷菜单；`caption_toolbar.py` 提供字幕上方的图标快捷栏，不占用字幕文字区域，不保存第二份样式；`caption_preview.py` 复用真实渲染组件并桥接预览参数；`plugin_types.py` 维护回调所有权与公开预览／房间展示入口。预览与实际字幕通过映射交换值，不共享可变控件状态。
+
+未锁定字幕悬停时显示图标栏，提供显示内容、字号、位置复位和锁定；鼠标离开字幕及工具栏后收起。工具栏跟随字幕并限制在视频安全区域，清除、隐藏和销毁字幕时一并回收。锁定后仍从格子右键或设置页解锁。
 
 字幕使用宿主的独立覆盖层，位于视频、弹幕和醒目留言之上；全屏显示，画中画隐藏。播放栏显示或收起时，字幕安全区域随可用画面高度调整。字幕不会进入 `VideoDanmaku` 的弹幕轨道，真实弹幕仍可经过字幕区域；清除字幕不会停止插件任务。
 

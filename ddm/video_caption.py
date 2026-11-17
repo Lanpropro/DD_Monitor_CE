@@ -107,6 +107,8 @@ class VideoCaption(BadgeSurface):
         self._translated = str(translated or "")
         previous_lock = self._style.locked
         self._style = CaptionStyle.from_value(style)
+        if self._style.locked:
+            self._interaction.toolbar.hide()
         self.setAttribute(Qt.WA_TransparentForMouseEvents, self._style.locked)
         if self.qt_composited and previous_lock != self._style.locked:
             self.setWindowFlag(Qt.WindowTransparentForInput, self._style.locked)
