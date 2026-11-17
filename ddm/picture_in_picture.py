@@ -303,6 +303,7 @@ class PictureInPicture(QObject):
         wall.set_picture_in_picture(tiles, columns, aspects, self.selection.index(self.primary))
         self.floating.set_composition(aspects, columns, composition_primary)
         wall.show()
+        self.host._tray.sync_picture_in_picture()
         if pending[3]:
             QTimer.singleShot(0, self, self._minimize_host)
         self._start_next_tile(serial)
@@ -369,6 +370,7 @@ class PictureInPicture(QObject):
         floating.hide()
         floating.deleteLater()
         wall.show()
+        self.host._tray.sync_picture_in_picture()
         self._sync_overlays()
         self.host.sidebar.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
         self.host._refresh_meta()

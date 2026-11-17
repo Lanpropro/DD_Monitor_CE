@@ -1,8 +1,8 @@
 """System tray controls and the remembered window-close choice."""
-from PySide6.QtCore import QObject, Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QHBoxLayout, QLabel, QMenu, QPushButton,
-    QStyle, QSystemTrayIcon, QVBoxLayout,
+    QStyle, QSystemTrayIcon, QVBoxLayout, QWidgetAction,
 )
 
 from . import config, theme, version
@@ -57,6 +57,8 @@ class SystemTray(QObject):
         self.exit_requested = False
         self.playback_suspended = False
         self._saved_playback = {}
+        self._pip_resumed = set()
+        self._layout_snapshot = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
         icon = window.windowIcon()
@@ -65,13 +67,22 @@ class SystemTray(QObject):
         self.icon = QSystemTrayIcon(icon, window)
         self.icon.setToolTip(f"{version.DISPLAY_NAME}：双击显示或隐藏窗口")
         self.menu = QMenu(window)
+        from .tray_preview import TrayLayoutPreview
+        self.layout_preview = TrayLayoutPreview(self.menu)
+        self.layout_preview.clicked.connect(self._restore_from_preview)
+        preview_action = QWidgetAction(self.menu)
+        preview_action.setDefaultWidget(self.layout_preview)
+        self.menu.addAction(preview_action)
+        self.menu.addSeparator()
         self.toggle_action = self.menu.addAction("显示/隐藏窗口", self.toggle)
+        self.pip_action = self.menu.addAction("画中画…", self.open_picture_in_picture)
         self.menu.addSeparator()
         self.exit_action = self.menu.addAction("退出", self.request_exit)
         self.menu.aboutToShow.connect(self.update_menu)
         self.icon.setContextMenu(self.menu)
         self.icon.activated.connect(self.activate)
         self.icon.messageClicked.connect(self.restore)
+        window.installEventFilter(self)
         self.icon.show()
 
     def available(self):
@@ -81,6 +92,54 @@ class SystemTray(QObject):
     def update_menu(self):
         self.toggle_action.setText("隐藏窗口" if self.window.isVisible()
                                    and not self.window.isMinimized() else "显示窗口")
+        pip = self.window.picture_in_picture
+        self.pip_action.setText('管理画中画…' if pip.active else '画中画…')
+        self.pip_action.setEnabled(not self.window._closing)
+        if self._layout_snapshot is None or (self.window.isVisible()
+                and not self.window.isMinimized() and not pip.active):
+            self.remember_layout()
+        self.layout_preview.set_snapshot(self._layout_snapshot)
+
+    def remember_layout(self):
+        if not self.window.picture_in_picture.active:
+            from .tray_preview import capture_layout
+            self._layout_snapshot = capture_layout(self.window.wall)
+
+    def eventFilter(self, watched, event):
+        if watched is self.window and event.type() == QEvent.WindowStateChange and self.window.isMinimized():
+            self.remember_layout()
+        return False
+
+    def _restore_from_preview(self):
+        self.menu.hide()
+        if self.window.picture_in_picture.active:
+            self.window.picture_in_picture.restore(activate=True)
+        else:
+            self.restore()
+
+    def open_picture_in_picture(self):
+        if not self.window._closing:
+            self.window.picture_in_picture.manage()
+
+    def sync_picture_in_picture(self):
+        """Resume selected panes only while the remaining hidden wall stays held."""
+        if not self.playback_suspended:
+            return
+        host = self.window
+        pip_tiles = host.wall.picture_in_picture_tiles or []
+        for tile in host.wall.tiles:
+            if tile in pip_tiles:
+                if tile in self._pip_resumed:
+                    continue
+                saved = self._saved_playback.get(tile)
+                if saved is not None and saved[0] == str(tile.room.get('room_id') or ''):
+                    self._pip_resumed.add(tile)
+                    tile.set_paused(saved[1])
+                    if (not saved[1] and tile.room.get('live') and tile not in host.players
+                            and tile not in host._resolvers):
+                        host.start_tile(tile)
+            elif self.hold_playback(tile):
+                host._stop_tile(tile)
 
     def activate(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
@@ -95,6 +154,7 @@ class SystemTray(QObject):
     def hide(self):
         if self.icon is None or not self.available() or self.window._closing:
             return
+        self.remember_layout()
         self.window.hover_preview.stop()
         self.window._fullscreen_cursor.stop()
         pip = getattr(self.window, 'picture_in_picture', None)
@@ -117,9 +177,14 @@ class SystemTray(QObject):
         # recording starts, its independent session survives the watching stop.
         if not self.playback_suspended or tile in self.window._pending_capture:
             return False
+        if tile in (self.window.wall.picture_in_picture_tiles or []):
+            return False
         room_id = str(tile.room.get("room_id") or "")
         if not room_id:
             return False
+        if tile in self._pip_resumed:
+            self._saved_playback[tile] = (room_id, tile.paused)
+            self._pip_resumed.discard(tile)
         saved = self._saved_playback.get(tile)
         if saved is None or saved[0] != room_id:
             self._saved_playback[tile] = (room_id, tile.paused)
@@ -134,6 +199,10 @@ class SystemTray(QObject):
             self.window.setWindowState(self.window.windowState() & ~Qt.WindowState.WindowMinimized)
         self.window.show()
         self.playback_suspended = False
+        for tile in self._pip_resumed:
+            if tile in self._saved_playback and tile in self.window.wall.tiles:
+                self._saved_playback[tile] = (str(tile.room.get('room_id') or ''), tile.paused)
+        self._pip_resumed.clear()
         saved, self._saved_playback = self._saved_playback, {}
         for tile, (room_id, paused) in saved.items():
             if tile not in self.window.wall.tiles or room_id != str(tile.room.get("room_id") or ""):

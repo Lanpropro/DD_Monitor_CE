@@ -811,6 +811,10 @@ class SettingsLayoutTests(unittest.TestCase):
             settle()
             self.assertEqual(editor.values(), before)
             self.assertTrue(editor.items.isVisible())
+            self.assertTrue(editor.preview.isVisible())
+            self.assertNotIn('reload', dict(editor.preview.rows()))
+            self.assertIn('reload', dict(editor.items.rows()))
+            self.assertIs(editor.preview.choices, editor._choices)
             self.assertTrue(editor.checks['reload'].isVisible())
 
     def test_tray_cards_and_menu_controls_fit_narrow_wide_and_large_fonts(self):
@@ -826,8 +830,10 @@ class SettingsLayoutTests(unittest.TestCase):
                 self.assertIsInstance(page.close_behavior_combo, SelectControl)
                 self.assertIsInstance(page.pause_playback, ToggleSwitch)
                 self.assertTrue(all(isinstance(check, ToggleSwitch) for check in page.tile_menu.checks.values()))
+                changed = []
+                page.tile_menu.changed.connect(lambda: changed.append(True))
                 before = page.values()
-                for width in (500, 1600):
+                for width in (500, 1600, 500):
                     page.resize(width, 800)
                     page.show()
                     settle()
@@ -835,13 +841,26 @@ class SettingsLayoutTests(unittest.TestCase):
                     expected = 2 if width == 1600 else 1
                     self.assertEqual(page.sections.columns, expected)
                     for widget in (page.close_behavior_combo, page.pause_playback,
-                                   page.tile_menu.items, *page.tile_menu.checks.values()):
+                                   page.tile_menu.items, page.tile_menu.preview, *page.tile_menu.checks.values()):
                         self.assertTrue(page.scroll.widget().rect().contains(
                             widget.mapTo(page.scroll.widget(), widget.rect().topLeft())))
                         self.assertTrue(page.scroll.widget().rect().contains(
                             widget.mapTo(page.scroll.widget(), widget.rect().bottomRight())))
                     self.assertEqual(page.values(), before)
+                    self.assertEqual(changed, [])
                     self.assertEqual(page.findChildren(QScrollArea), [page.scroll])
+                    preview = page.tile_menu.preview
+                    self.assertGreaterEqual(preview.width(), 260)
+                    self.assertLessEqual(preview.width(), 300)
+                    menu_card = page.sections.section('menu')
+                    for widget in (preview, page.tile_menu.items):
+                        bottom = widget.mapTo(menu_card, widget.rect().bottomRight())
+                        self.assertTrue(menu_card.rect().contains(bottom),
+                                        (font_size, width, type(widget).__name__, menu_card.rect(), bottom))
+                    if width == 500:
+                        self.assertLess(preview.geometry().bottom(), page.tile_menu.items.y())
+                    else:
+                        self.assertLess(preview.geometry().right(), page.tile_menu.items.x())
                 page.reset()
                 self.assertEqual(page.values()['close_behavior'], config.DEFAULT_SETTINGS['close_behavior'])
                 self.assertEqual(page.values()['tray_pause_playback'], config.DEFAULT_SETTINGS['tray_pause_playback'])
@@ -872,6 +891,8 @@ class SettingsLayoutTests(unittest.TestCase):
         editor.select_item('plugins')
         editor.move_item(-1)
         self.assertEqual(editor.items.selected, 'plugins')
+        self.assertEqual(editor.preview.selected, 'plugins')
+        self.assertNotIn('plugins', dict(editor.preview.rows()))
         self.assertFalse(next(entry for entry in editor.values() if entry['id'] == 'plugins')['enabled'])
         self.assertTrue(self.dialog.auto_save.timer.isActive())
         self.dialog.auto_save.flush()

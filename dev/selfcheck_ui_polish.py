@@ -244,11 +244,15 @@ class UiPolishTests(unittest.TestCase):
         page.show()
         APP.processEvents()
         self.assertLess(editor.items.x(), editor.checks['volume'].mapTo(editor, QPoint()).x())
+        self.assertTrue(editor.preview.isVisible())
+        self.assertLessEqual(editor.preview.width(), 300)
         for mode in ('dark', 'light'):
             theme.apply(mode)
             APP.processEvents()
             image = editor.items.grab().toImage()
             self.assertGreater(image.pixelColor(editor.items.width()//2, 5).alpha(), 0)
+            preview = editor.preview.grab().toImage()
+            self.assertGreater(preview.pixelColor(editor.preview.width()//2, 5).alpha(), 0)
         rows = dict(editor.items.rows())
         start = rows['volume'].center().toPoint()
         end = QPoint(start.x(), int(rows['quality'].bottom()-1))
@@ -259,6 +263,7 @@ class UiPolishTests(unittest.TestCase):
         editor.checks['quality'].setChecked(False)
         self.assertIn('quality', dict(editor.items.rows()))
         self.assertFalse(editor.checks['quality'].isChecked())
+        self.assertNotIn('quality', dict(editor.preview.rows()))
         choices = page.values()['tile_context_menu']
         self.assertEqual(choices[0], {'id': 'quality', 'enabled': False})
         tile = Tile({'room_id': '1'})
@@ -288,6 +293,48 @@ class UiPolishTests(unittest.TestCase):
         empty_menu = tile.build_menu()
         self.addCleanup(empty_menu.deleteLater)
         self.assertTrue(empty_menu.isEmpty())
+
+    def test_narrow_menu_preview_drag_selection_hidden_rows_and_single_owner(self):
+        from ddm.tile_menu import MENU_GROUPS, TileMenuEditor
+        editor = TileMenuEditor()
+        self.addCleanup(editor.deleteLater)
+        editor.setStyleSheet(theme.qss())
+        editor.resize(800, 650)
+        editor.show()
+        APP.processEvents()
+        changed = []
+        editor.changed.connect(lambda: changed.append(editor.values()))
+        self.assertIs(editor.preview.choices, editor._choices)
+        self.assertIs(editor.items.choices, editor._choices)
+        rows = dict(editor.preview.rows())
+        self.assertGreater(rows['volume'].height(), rows['quality'].height())
+        for (left, before), (right, after) in zip(editor.preview.rows(), editor.preview.rows()[1:]):
+            if MENU_GROUPS[left] != MENU_GROUPS[right]:
+                self.assertGreater(after.top(), before.bottom())
+        start = rows['reload'].center().toPoint()
+        end = rows['quality'].topLeft().toPoint() + QPoint(20, 1)
+        QTest.mousePress(editor.preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(editor.preview, end)
+        QTest.mouseRelease(editor.preview, Qt.LeftButton, pos=end)
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(editor.items.selected, 'reload')
+        self.assertEqual(editor.preview.selected, 'reload')
+        ids = [entry['id'] for entry in editor.values()]
+        self.assertLess(ids.index('reload'), ids.index('quality'))
+        editor.checks['reload'].click()
+        self.assertEqual(len(changed), 2)
+        self.assertNotIn('reload', dict(editor.preview.rows()))
+        self.assertIn('reload', dict(editor.items.rows()))
+        editor.move_item(1)
+        self.assertEqual(len(changed), 3)
+        self.assertFalse(next(entry for entry in editor.values() if entry['id'] == 'reload')['enabled'])
+        editor.set_choices(None)
+        self.assertEqual(len(changed), 4)
+        self.assertEqual(editor.values(), menu_choices(None))
+        editor.set_choices([{'id': key, 'enabled': False} for key, _label in MENU_ITEMS])
+        self.assertEqual(editor.preview.rows(), [])
+        self.assertFalse(editor.preview.grab().isNull())
+        self.assertEqual(len(editor.items.rows()), len(MENU_ITEMS))
 
     def test_menu_and_curves_round_trip_without_touching_real_settings(self):
         settings = {**config.DEFAULT_SETTINGS,
