@@ -39,7 +39,21 @@ class SettingsColumns(QWidget):
 
     def add_section(self, key, widget, *, wide=False):
         self.entries.append((key, widget, wide))
-        self._arrange()
+        if self._column_count() != self.columns:
+            self._arrange()
+            return
+        row, column = 0, 0
+        if len(self.entries) > 1:
+            previous = self.grid.indexOf(self.entries[-2][1])
+            row, column, _rows, span = self.grid.getItemPosition(previous)
+            column += span
+            if column == self.columns:
+                row, column = row + 1, 0
+        if wide and column:
+            row, column = row + 1, 0
+        alignment = Qt.AlignTop if widget.sizePolicy().verticalPolicy() == QSizePolicy.Maximum else Qt.Alignment()
+        self.grid.addWidget(widget, row, column, 1, self.columns if wide else 1, alignment)
+        self.updateGeometry()
 
     def section(self, key):
         return next(widget for name, widget, _wide in self.entries if name == key)

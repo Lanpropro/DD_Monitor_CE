@@ -240,6 +240,8 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语及可读�
 
 设置首次显示专项由 `settings_performance.py` 按需安装，复用 Probe，分别在宿主设置协调器构造和 worker 创建对话框前接线；worker 的覆盖方法在实例化前包装，避免信号仍连接未采集的旧方法。采样线程只读 Python 状态和调用栈，首次绘制过滤器与心跳定时器由 QApplication 持有；退出或应用销毁时停止采样。记录位置沿用宿主诊断目录，不保存控件值或消息负载。
 
+设置布局准备成本由原职责模块处理：`ui/select.py` 只缓存测得的选项宽度，不缓存选中值，模型信号使宽度失效，字体／DPI／根索引和模型列加入测量条件；替换模型前解除旧模型信号。`settings_layout.py` 增量添加卡片，已有控件与布局项保持原所有权，列数变化时仍统一重排，不增加后台预加载或页面状态副本。
+
 在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
 
 ### 诊断中心与崩溃证据

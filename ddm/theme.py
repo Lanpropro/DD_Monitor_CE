@@ -406,26 +406,27 @@ class ThemeSignals(QObject):
             self._repairing_palette = False
 
     def eventFilter(self, widget, event):
-        if event.type() in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
-            hovered = event.type() in (QEvent.Enter, QEvent.HoverEnter)
+        kind = event.type()
+        if kind in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
+            hovered = kind in (QEvent.Enter, QEvent.HoverEnter)
             if widget.property('hovered') != hovered:
                 widget.setProperty('hovered', hovered)
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
                 widget.update()
-        if event.type() == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
+        if kind == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
             widget.setMouseTracking(True)
             widget.setAttribute(Qt.WA_Hover, True)
-        if event.type() == QEvent.Paint and isinstance(widget, QWidget):
+        if kind == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
                 _refresh_widget_palette(widget)
             from .skin_parts import paint_button
             if paint_button(widget):
                 return True
         # Newly opened settings/popups need the same exceptions as existing UI.
-        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+        if kind == QEvent.Polish and isinstance(widget, QWidget):
             refresh_theme_properties(widget)
-        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+        if kind == QEvent.Polish and isinstance(widget, QWidget):
             from .skin_parts import style_for
             extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
             if extra and widget not in _styles:

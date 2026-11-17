@@ -34,6 +34,9 @@ class _SelectDelegate(QStyledItemDelegate):
 class SelectControl(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._hint_key = None
+        self._hint_width = None
+        self._watch_size_model(self.model())
         self.setProperty('customControlSurface', True)
         self.setFixedHeight(theme.CONTROL_HEIGHT)
         self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
@@ -57,10 +60,33 @@ class SelectControl(QComboBox):
         self.currentTextChanged.connect(self.setToolTip)
         theme.signals().changed.connect(self.update)
 
+    def _watch_size_model(self, model):
+        self._size_model = model
+        for name in ('dataChanged', 'rowsInserted', 'rowsRemoved', 'columnsInserted',
+                     'columnsRemoved', 'modelReset', 'layoutChanged'):
+            getattr(model, name).connect(self._invalidate_size_hint)
+
+    def _invalidate_size_hint(self, *_args):
+        self._hint_width = None
+        self.updateGeometry()
+
+    def setModel(self, model):
+        for name in ('dataChanged', 'rowsInserted', 'rowsRemoved', 'columnsInserted',
+                     'columnsRemoved', 'modelReset', 'layoutChanged'):
+            getattr(self._size_model, name).disconnect(self._invalidate_size_hint)
+        super().setModel(model)
+        self._watch_size_model(model)
+        self._invalidate_size_hint()
+
     def sizeHint(self):
-        width = max((self.fontMetrics().horizontalAdvance(self.itemText(index))
-                     for index in range(self.count())), default=80)
-        return QSize(width + 46, theme.CONTROL_HEIGHT)
+        key = (self.font().key(), self.logicalDpiX(), self.logicalDpiY(),
+               self.modelColumn(), self.rootModelIndex())
+        if self._hint_width is None or self._hint_key != key:
+            metrics = self.fontMetrics()
+            self._hint_width = max((metrics.horizontalAdvance(self.itemText(index))
+                                    for index in range(self.count())), default=80) + 46
+            self._hint_key = key
+        return QSize(self._hint_width, theme.CONTROL_HEIGHT)
 
     def minimumSizeHint(self):
         return QSize(min(180, self.sizeHint().width()), theme.CONTROL_HEIGHT)

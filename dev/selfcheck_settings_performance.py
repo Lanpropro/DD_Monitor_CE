@@ -10,8 +10,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtGui import QFont, QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import QApplication, QComboBox, QWidget
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_autosave import SettingsAutoSave
@@ -19,6 +20,125 @@ from ddm.settings_performance import SettingsProbe, install
 from ddm.settings_window import SettingsWindow
 
 APP = QApplication.instance() or QApplication([])
+
+
+class SettingsPreparationTests(unittest.TestCase):
+    def test_select_reuses_measurements_and_refreshes_for_text_model_and_font_changes(self):
+        from ddm.ui import SelectControl
+
+        class CountedSelect(SelectControl):
+            reads = 0
+
+            def itemText(self, index):
+                self.reads += 1
+                return super().itemText(index)
+
+        control = CountedSelect()
+        try:
+            control.addItems(['短', 'some longer option', '字体设置'])
+
+            def expected():
+                metrics = control.fontMetrics()
+                return max((metrics.horizontalAdvance(QComboBox.itemText(control, i))
+                            for i in range(control.count())), default=80) + 46
+
+            def check_refresh():
+                control.reads = 0
+                self.assertEqual(control.sizeHint().width(), expected())
+                for _ in range(8):
+                    self.assertEqual(control.sizeHint().width(), expected())
+                    self.assertEqual(control.minimumSizeHint().width(), min(180, expected()))
+                self.assertEqual(control.reads, control.count())
+
+            check_refresh()
+            control.setItemText(0, 'updated text that must be measured again')
+            check_refresh()
+            control.addItem('new option')
+            check_refresh()
+            control.removeItem(0)
+            check_refresh()
+            font = QFont(control.font())
+            font.setPointSize(font.pointSize() + 6)
+            control.setFont(font)
+            check_refresh()
+            model = QStandardItemModel(control)
+            model.appendRow(QStandardItem('replacement model'))
+            control.setModel(model)
+            check_refresh()
+            model.item(0).setText('replacement model changed')
+            check_refresh()
+            model.setItem(0, 1, QStandardItem('another model column'))
+            control.setModelColumn(1)
+            check_refresh()
+            branch = QStandardItem('nested choices')
+            branch.appendRow([QStandardItem('child'), QStandardItem('nested column choice')])
+            model.appendRow([branch, QStandardItem('branch label')])
+            control.setRootModelIndex(model.index(1, 0))
+            check_refresh()
+            control.setRootModelIndex(model.index(-1, -1))
+            control.clear()
+            check_refresh()
+        finally:
+            control.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_adding_cards_keeps_existing_layout_items_and_responsive_positions(self):
+        from ddm.settings_layout import SettingsColumns
+
+        class CountedColumns(SettingsColumns):
+            arrangements = 0
+
+            def _arrange(self):
+                self.arrangements += 1
+                return super()._arrange()
+
+        columns = CountedColumns()
+        columns.resize(1100, 800)
+        try:
+            columns.add_section('first', QWidget())
+            first = columns.grid.itemAt(0)
+            for name, wide in (('second', False), ('wide', True), ('fourth', False), ('fifth', False)):
+                columns.add_section(name, QWidget(), wide=wide)
+                self.assertIs(columns.grid.itemAt(0), first)
+            self.assertEqual(columns.arrangements, 1)
+            positions = [columns.grid.getItemPosition(i) for i in range(5)]
+            self.assertEqual(positions, [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 2),
+                                         (2, 0, 1, 1), (2, 1, 1, 1)])
+            columns._arrange()
+            self.assertEqual([columns.grid.getItemPosition(i) for i in range(5)], positions)
+            columns.setProperty('settings_card_layout', 'vertical')
+            columns._arrange()
+            self.assertEqual([columns.grid.getItemPosition(i) for i in range(5)],
+                             [(row, 0, 1, 1) for row in range(5)])
+            columns.add_section('sixth', QWidget())
+            self.assertEqual(columns.grid.getItemPosition(5), (5, 0, 1, 1))
+            columns.setProperty('settings_card_layout', 'auto')
+            columns.resize(600, 800)
+            columns._arrange()
+            self.assertEqual(columns.columns, 1)
+        finally:
+            columns.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_irrelevant_events_are_read_once_by_global_settings_filters(self):
+        from ddm.settings_focus import SettingsInputFocus
+
+        class CountedEvent:
+            reads = 0
+
+            def type(self):
+                self.reads += 1
+                return QEvent.User
+
+        widget = QWidget()
+        try:
+            for event_filter in (theme.signals(), SettingsInputFocus(widget)):
+                event = CountedEvent()
+                self.assertFalse(event_filter.eventFilter(widget, event))
+                self.assertEqual(event.reads, 1)
+        finally:
+            widget.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 class CaptureTests(unittest.TestCase):

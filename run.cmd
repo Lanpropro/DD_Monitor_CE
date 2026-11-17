@@ -371,6 +371,12 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_performance.py"
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_ui_components.py" ComponentTests.test_action_button_keeps_hover_feedback_when_entered_programmatically ComponentTests.test_font_selector_preserves_family_api_and_emits_edits ComponentTests.test_font_search_filters_without_committing_and_reopens_at_current_family ComponentTests.test_font_search_keeps_native_keyboard_and_mouse_selection ComponentTests.test_font_popup_caps_list_at_eight_rows_and_stays_on_screen ComponentTests.test_select_popup_keeps_layout_and_native_keyboard_commit_cancel ComponentTests.test_selectors_keep_content_width_in_wide_layouts
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_layout.py" SettingsLayoutTests.test_wide_pages_use_two_columns_and_same_control_objects SettingsLayoutTests.test_narrow_pages_stack_without_horizontal_scroll_and_keep_edits SettingsLayoutTests.test_show_event_plugin_hook_keeps_identity_on_reopen
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_ui_components.py" ComponentTests.test_real_pages_use_shared_controls_and_follow_theme
 exit /b %errorlevel%
 
 :settingsShutdownCheck
