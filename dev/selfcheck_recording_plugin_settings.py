@@ -37,7 +37,7 @@ class RecordingPluginSettingsTests(unittest.TestCase):
             self.assertEqual(calls, [page])
             self.assertIs(page, dialog.recording_page)
             card = page.sections.section('plugin_extra')
-            self.assertEqual(page.sections.entries[1][0], 'plugin_extra')
+            self.assertEqual(page.sections.entries[-1][0], 'plugin_extra')
             self.assertEqual(card.findChildren(QLabel)[-1].text(), 'Extra options')
             page.directory.setText('offline-recording-target')
             values = SettingsHost.values(SimpleNamespace(dialog=dialog))

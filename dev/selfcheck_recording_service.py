@@ -18,6 +18,29 @@ APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_public_backend_selection_and_chat_delivery(self):
+        class DualSession(RecordingSession):
+            pass
+        recorder = RecordingManager({})
+        recorder.timer.stop()
+        service = RecordingService(SimpleNamespace(window=SimpleNamespace(recorder=recorder, capture_control=Mock()), _active=True))
+        service.register_backend(DualSession, enabled=False)
+        service.select_backend(DualSession)
+        self.assertTrue(recorder.supports_replay)
+        tile = Mock(room={'room_id': 'offline'})
+        session = DualSession(tile, {}, True, Path('unused'))
+        session.record_danmaku = Mock()
+        recorder.sessions[tile] = session
+        service.record_danmaku('offline', {'text': 'test'})
+        session.record_danmaku.assert_called_once_with({'text': 'test'})
+        service.record_danmaku('other', {'text': 'ignored'})
+        with self.assertRaisesRegex(RuntimeError, '请先停止'):
+            service.select_backend()
+        recorder.sessions.clear()
+        service.select_backend()
+        self.assertIs(recorder.session_factory, RecordingSession)
+        service.close()
+
     def test_capture_modes_are_exclusive_and_running_captures_block_switch(self):
         class ClipSession(RecordingSession):
             supports_replay = False
