@@ -2,8 +2,8 @@
 from pathlib import Path
 from datetime import datetime
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QImageReader, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QThreadPool, Signal, Slot
+from PySide6.QtGui import QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QListView, QListWidget, QListWidgetItem, QStyle, QStyledItemDelegate
 
 from . import theme
@@ -97,6 +97,7 @@ class _GalleryDelegate(QStyledItemDelegate):
 
 class SkinGallery(QListWidget):
     selected = Signal(str)
+    _thumbnailReady = Signal(int, str, QImage)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -114,6 +115,10 @@ class SkinGallery(QListWidget):
         self.itemActivated.connect(self._activate)
         self._current = ''
         self._loaded = False
+        self._thumbnail_generation = 0
+        self._thumbnail_cancel = None
+        self._thumbnail_items = {}
+        self._thumbnailReady.connect(self._thumbnail_ready, Qt.QueuedConnection)
         self.import_item = QListWidgetItem('导入背景', self)
         self.import_item.setData(Qt.UserRole + 1, '导入')
         self.import_item.setFlags(Qt.ItemIsEnabled)
@@ -138,6 +143,11 @@ class SkinGallery(QListWidget):
         from .skins import IMAGES, VIDEOS
         root = Path(config.data_root())
         folder = root / 'utils/skins'
+        if self._thumbnail_cancel is not None:
+            self._thumbnail_cancel.set()
+        self._thumbnail_generation += 1
+        self._thumbnail_items.clear()
+        thumbnails = []
         # Keep the import widget alive, including its picker/drop connections.
         while self.count() > 1:
             self.takeItem(0)
@@ -151,23 +161,27 @@ class SkinGallery(QListWidget):
             prefix, separator, suffix = name.partition('_')
             if separator and len(prefix) == 32 and all(c in '0123456789abcdef' for c in prefix):
                 name = suffix
-            pixmap = None
-            if path.suffix.lower() in IMAGES:
-                reader = QImageReader(str(path))
-                reader.setAutoTransform(True)
-                size = reader.size()
-                if size.isValid():
-                    reader.setScaledSize(size.scaled(288, 180, Qt.KeepAspectRatio))
-                image = reader.read()
-                if not image.isNull():
-                    pixmap = QPixmap.fromImage(image)
             kind = '视频' if path.suffix.lower() in VIDEOS else '图片'
-            item = self._append_asset(name, path.relative_to(root).as_posix(), kind)
+            relative = path.relative_to(root).as_posix()
+            item = self._append_asset(name, relative, kind)
             imported = datetime.fromtimestamp(path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
             item.setToolTip(f'{name}\n类型：{kind}\n导入时间：{imported}\n位置：{path.resolve()}')
-            item.setData(Qt.UserRole + 2, pixmap)
+            if path.suffix.lower() in IMAGES:
+                self._thumbnail_items[relative] = item
+                thumbnails.append((path, relative))
         self._loaded = True
         self.set_current(self._current)
+        if thumbnails:
+            from .skin_thumbnails import ThumbnailBatch
+            job = ThumbnailBatch(thumbnails, self._thumbnail_generation, self._thumbnailReady)
+            self._thumbnail_cancel = job.cancelled
+            self.destroyed.connect(job.cancelled.set)
+            QThreadPool.globalInstance().start(job)
+
+    @Slot(int, str, QImage)
+    def _thumbnail_ready(self, generation, path, image):
+        if generation == self._thumbnail_generation and path in self._thumbnail_items:
+            self._thumbnail_items[path].setData(Qt.UserRole + 2, QPixmap.fromImage(image))
 
     def set_current(self, path):
         self._current = path

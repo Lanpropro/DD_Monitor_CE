@@ -244,6 +244,8 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语及可读�
 
 设置布局准备成本由原职责模块处理：`ui/select.py` 只缓存测得的选项宽度，不缓存选中值，模型信号使宽度失效，字体／DPI／根索引和模型列加入测量条件；替换模型前解除旧模型信号。`settings_layout.py` 增量添加卡片，已有控件与布局项保持原所有权，列数变化时仍统一重排，不增加后台预加载或页面状态副本。
 
+外观图库的项目、选择及导入控件仍归 `skin_gallery.py` 所有；`skin_thumbnails.py` 仅在任务池中读取本地文件并产出 QImage，不访问 QWidget/QListWidgetItem，不创建 QPixmap。图库接收排队结果后按批次和路径更新原项目，刷新／销毁通过取消事件停止旧批次。设置性能日志复用 Probe 的有界记录与采样，QueueListener 只负责后台写盘；退出先停止采样，再排空日志并关闭处理器，详细函数剖析改为显式启用。
+
 在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
 
 ### 诊断中心与崩溃证据

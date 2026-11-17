@@ -422,6 +422,11 @@ class AppearanceOptionsTests(unittest.TestCase):
             gallery.show()
             settle()
             try:
+                for _ in range(200):
+                    if gallery.item(1).data(Qt.UserRole + 2) is not None:
+                        break
+                    QTest.qWait(10)
+                self.assertIsNotNone(gallery.item(1).data(Qt.UserRole + 2))
                 self.assertEqual(gallery.count(), 4)
                 self.assertEqual(gallery.item(2).data(Qt.UserRole + 1), '视频')
                 self.assertEqual(gallery.visualItemRect(gallery.item(2)).size(), gallery.import_button.size())

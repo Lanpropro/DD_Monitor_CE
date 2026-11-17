@@ -1,17 +1,20 @@
-"""Settings capture contracts only; these are not performance measurements."""
+"""Settings preparation and capture contracts; not performance measurements."""
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtGui import QFont, QStandardItem, QStandardItemModel
+from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool, QTimer, Qt
+from PySide6.QtGui import QColor, QFont, QImage, QStandardItem, QStandardItemModel
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QWidget
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -20,6 +23,85 @@ from ddm.settings_performance import SettingsProbe, install
 from ddm.settings_window import SettingsWindow
 
 APP = QApplication.instance() or QApplication([])
+
+
+class GalleryPreparationTests(unittest.TestCase):
+    def test_thumbnail_decode_does_not_hold_show_or_selection_and_ignores_stale_results(self):
+        from ddm import skin_thumbnails
+        from ddm.skin_gallery import SkinGallery
+        entered, release = threading.Event(), threading.Event()
+        threads = []
+        image = QImage(8, 8, QImage.Format_RGB32)
+        image.fill(QColor('red'))
+
+        def decode(_path):
+            threads.append(threading.get_ident())
+            entered.set()
+            release.wait(3)
+            return image
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(config, 'REPO', temporary), \
+                patch.object(skin_thumbnails, 'read_thumbnail', side_effect=decode):
+            folder = Path(temporary) / 'utils/skins'
+            folder.mkdir(parents=True)
+            image.save(str(folder / 'choice.png'))
+            gallery = SkinGallery()
+            try:
+                gallery.set_current('utils/skins/choice.png')
+                gallery.show()
+                self.assertTrue(entered.wait(1))
+                self.assertNotEqual(threads[0], threading.get_ident())
+                self.assertIsNone(gallery.item(1).data(Qt.UserRole + 2))
+                self.assertEqual(gallery.currentItem().data(Qt.UserRole), 'utils/skins/choice.png')
+                pulses = []
+                QTimer.singleShot(0, lambda: pulses.append(True))
+                QTest.qWait(20)
+                self.assertTrue(pulses)
+                generation = gallery._thumbnail_generation
+                gallery.refresh()
+                blue = QImage(image)
+                blue.fill(QColor('blue'))
+                gallery._thumbnail_ready(generation, 'utils/skins/choice.png', blue)
+                self.assertIsNone(gallery.item(1).data(Qt.UserRole + 2))
+                release.set()
+                until = time.monotonic() + 2
+                while gallery.item(1).data(Qt.UserRole + 2) is None and time.monotonic() < until:
+                    QTest.qWait(10)
+                self.assertEqual(gallery.item(1).data(Qt.UserRole + 2).toImage().pixelColor(0, 0), QColor('red'))
+            finally:
+                release.set()
+                gallery.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                self.assertTrue(QThreadPool.globalInstance().waitForDone(3000))
+
+    def test_destroying_gallery_cancels_blocked_decode_before_result_delivery(self):
+        from ddm import skin_thumbnails
+        from ddm.skin_gallery import SkinGallery
+        entered, release = threading.Event(), threading.Event()
+        image = QImage(8, 8, QImage.Format_RGB32)
+        image.fill(QColor('red'))
+
+        def decode(_path):
+            entered.set()
+            release.wait(3)
+            return image
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(config, 'REPO', temporary), \
+                patch.object(skin_thumbnails, 'read_thumbnail', side_effect=decode):
+            folder = Path(temporary) / 'utils/skins'
+            folder.mkdir(parents=True)
+            image.save(str(folder / 'choice.png'))
+            gallery = SkinGallery()
+            try:
+                gallery.refresh()
+                self.assertTrue(entered.wait(1))
+                cancelled = gallery._thumbnail_cancel
+                gallery.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                self.assertTrue(cancelled.is_set())
+            finally:
+                release.set()
+                self.assertTrue(QThreadPool.globalInstance().waitForDone(3000))
 
 
 class SettingsPreparationTests(unittest.TestCase):
@@ -142,6 +224,37 @@ class SettingsPreparationTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_default_capture_does_not_profile_or_wait_for_disk_writer(self):
+        class Example:
+            def value(self):
+                return 7
+
+        with tempfile.TemporaryDirectory() as temporary:
+            probe = SettingsProbe(Path(temporary) / 'capture.jsonl')
+            entered, release = threading.Event(), threading.Event()
+            original = probe.output_handler.emit
+
+            def slow_write(record):
+                entered.set()
+                release.wait(3)
+                original(record)
+
+            try:
+                with patch.object(probe.output_handler, 'emit', side_effect=slow_write), \
+                        patch('ddm.settings_performance.cProfile.Profile', side_effect=AssertionError('Profiling enabled')):
+                    probe.wrap(Example, 'value')
+                    self.assertEqual(Example().value(), 7)
+                    self.assertTrue(entered.wait(1))
+                    probe.write('still-responsive')
+                    release.set()
+                    probe.stop()
+            finally:
+                release.set()
+                probe.stop()
+            records = [json.loads(line) for line in
+                       (Path(temporary) / 'capture.jsonl').read_text(encoding='utf-8').splitlines()]
+            self.assertEqual([r['phase'] for r in records], ['settings-call', 'still-responsive', 'stop'])
+
     def test_disabled_capture_does_not_install_or_create_logs(self):
         with patch.dict(os.environ, {'DDM_SETTINGS_PERFORMANCE_CAPTURE': '0'}):
             self.assertIsNone(install('worker'))
@@ -160,7 +273,7 @@ class CaptureTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'capture.jsonl'
-            probe = SettingsProbe(path)
+            probe = SettingsProbe(path, profile_calls=True)
             try:
                 for name in ('outer', 'inner', 'failed'):
                     probe.wrap(Example, name)

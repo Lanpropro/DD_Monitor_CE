@@ -5,6 +5,8 @@ import functools
 import os
 from pathlib import Path
 import time
+from logging.handlers import QueueHandler, QueueListener
+from queue import SimpleQueue
 
 from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
@@ -13,14 +15,30 @@ from .responsiveness_probe import Probe, profile_functions
 
 
 class SettingsProbe(Probe):
-    def __init__(self, path):
+    def __init__(self, path, *, profile_calls=False):
         self.records = 0
         self.profile_counts = {}
         self.profiling = False
+        self.profile_calls = profile_calls
         super().__init__(path)
+        # Disk writes must not hold the GUI behind the sampler's log lock.
+        self.output_handler = self.handler
+        self.logger.removeHandler(self.handler)
+        queue = SimpleQueue()
+        self.handler = QueueHandler(queue)
+        self.logger.addHandler(self.handler)
+        self.listener = QueueListener(queue, self.output_handler)
+        self.listener.start()
+
+    def stop(self):
+        if self.stopped.is_set():
+            return
+        super().stop()
+        self.listener.stop()
+        self.output_handler.close()
 
     def write(self, phase, **values):
-        if self.records < 1200:
+        if self.records < 1200 and (not self.stopped.is_set() or phase == 'stop'):
             self.records += 1
             super().write(phase, pid=os.getpid(), **values)
 
@@ -34,7 +52,7 @@ class SettingsProbe(Probe):
             label = f'{cls.__name__}.{name}'
             count = self.profile_counts.get(label, 0)
             # Nested scopes share the outer profile; never replace its profiler.
-            profile = cProfile.Profile() if not self.profiling and count < 20 else None
+            profile = cProfile.Profile() if self.profile_calls and not self.profiling and count < 20 else None
             self.profile_counts[label] = count + 1
             started = time.perf_counter()
             self.active.append(label)
@@ -101,7 +119,8 @@ def install(role):
     from .settings_autosave import SettingsAutoSave
     root = os.environ.get('DDM_DIAGNOSTIC_APP_ROOT') or config.data_root()
     directory = os.environ.get('DDM_DIAGNOSTIC_LOG_DIR') or str(Path(root) / 'logs')
-    probe = SettingsProbe(Path(directory) / f'settings-performance-{os.getpid()}.jsonl')
+    probe = SettingsProbe(Path(directory) / f'settings-performance-{os.getpid()}.jsonl',
+                          profile_calls=os.environ.get('DDM_SETTINGS_PERFORMANCE_PROFILE') == '1')
     app._settings_performance = probe
     for cls, names in (
         (SettingsDialog, ('__init__', '_page', '_on_page_changed')),
@@ -128,5 +147,6 @@ def install(role):
     app.destroyed.connect(probe.stop)
     atexit.register(probe.stop)
     probe.start()
-    probe.write('settings-capture', role=role, profile_limit_per_function=20)
+    probe.write('settings-capture', role=role, profile_calls=probe.profile_calls,
+                profile_limit_per_function=20)
     return probe

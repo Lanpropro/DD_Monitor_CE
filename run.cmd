@@ -378,6 +378,8 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_layout.py" SettingsLayoutTests.test_wide_pages_use_two_columns_and_same_control_objects SettingsLayoutTests.test_narrow_pages_stack_without_horizontal_scroll_and_keep_edits SettingsLayoutTests.test_show_event_plugin_hook_keeps_identity_on_reopen
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_ui_components.py" ComponentTests.test_real_pages_use_shared_controls_and_follow_theme
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_appearance_options.py" AppearanceOptionsTests.test_gallery_covers_thumbnail_and_keeps_import_drop_contract
 exit /b %errorlevel%
 
 :settingsShutdownCheck
