@@ -81,8 +81,7 @@ class PortraitUiTests(unittest.TestCase):
                     self.assertTrue(widget.isVisible(), (width, collapsed, widget.accessibleName()))
                     self.assertTrue(self.sidebar.rect().contains(widget.mapTo(
                         self.sidebar, widget.rect().bottomRight())), (width, collapsed, widget.geometry()))
-                ordered = [self.sidebar.navigation.follow_button, self.sidebar.toggle_button,
-                           self.sidebar.workspace_controls.launcher, self.sidebar.layout_button,
+                ordered = [self.sidebar.navigation.follow_button, self.sidebar.workspace_controls.launcher, self.sidebar.layout_button,
                            self.sidebar.picture_in_picture_button, self.sidebar.clear_wall_button,
                            self.sidebar.notification_button, self.sidebar.appearance_button,
                            self.sidebar.settings_button, self.sidebar.account_row]
@@ -106,6 +105,11 @@ class PortraitUiTests(unittest.TestCase):
                                 self.sidebar._bar_row_box.indexOf(self.sidebar.layout_button))
                 self.assertLess(self.sidebar._bar_row_box.indexOf(self.sidebar.picture_in_picture_button),
                                 self.sidebar._bar_row_box.indexOf(self.sidebar.notification_button))
+                self.assertIs(self.sidebar.toggle_button.parentWidget(), portrait.controls)
+                self.assertEqual(portrait.controls_box.indexOf(self.sidebar.navigation.folder_toggle_button),
+                                 portrait.controls_box.indexOf(self.sidebar.navigation.filters) + 1)
+                self.assertEqual(portrait.controls_box.indexOf(self.sidebar.toggle_button),
+                                 portrait.controls_box.indexOf(self.sidebar.navigation.add_button) - 1)
                 self.assertEqual(self.sidebar.navigation.folder_toggle_button.isVisible(), not collapsed)
                 self.assertFalse(self.sidebar.navigation.density_button.isVisible())
                 self.assertTrue(all(not button.isVisible() for button in (
@@ -118,7 +122,8 @@ class PortraitUiTests(unittest.TestCase):
                     sidebar.appearance_button, sidebar.settings_button, sidebar.refresh_button,
                     sidebar.navigation.add_button, sidebar.navigation.manage_button,
                     sidebar.navigation.filters, sidebar.workspace_controls.launcher,
-                    sidebar.navigation.follow_button, sidebar.toggle_button, sidebar.clear_wall_button]
+                    sidebar.navigation.follow_button, sidebar.toggle_button, sidebar.clear_wall_button,
+                    sidebar.navigation.folder_toggle_button]
         baseline = [(widget, widget.parentWidget(), widget.objectName(), widget.size()) for widget in controls]
         row_counts = []
         clicks = []
@@ -136,6 +141,9 @@ class PortraitUiTests(unittest.TestCase):
                 self.assertIs(widget.parentWidget(), parent, widget.accessibleName())
                 self.assertEqual(widget.objectName(), name)
                 self.assertEqual(widget.size(), size, widget.accessibleName())
+            self.assertFalse(bool(sidebar.navigation.folder_toggle_button.property('horizontalFolderIcon')))
+            self.assertLess(sidebar.navigation.filters.layout().indexOf(sidebar.navigation.folder_toggle_button),
+                            sidebar.navigation.filters.layout().indexOf(sidebar.navigation.density_button))
             self.assertFalse(sidebar.scroll.horizontal_only)
             self.assertTrue(sidebar.navigation.rail.isVisible())
             self.assertEqual(sidebar._layout.indexOf(sidebar.navigation.filters),
@@ -205,6 +213,38 @@ class PortraitUiTests(unittest.TestCase):
         nav.folder_toggle_button.click()
         settle()
         self.assertTrue(all(not folder['collapsed'] for folder in sidebar.folders))
+
+    def test_folder_icon_is_horizontal_and_sidebar_toggle_remains_reachable(self):
+        from ddm.dock_feedback import icon_color
+        def icon_bounds(button):
+            bitmap = button.grab().toImage()
+            color = icon_color(button)
+            pixels = [(x, y) for x in range(bitmap.width()) for y in range(bitmap.height())
+                      if sum(abs(a - b) for a, b in zip(bitmap.pixelColor(x, y).getRgb()[:3], color.getRgb()[:3])) < 80]
+            self.assertTrue(pixels)
+            return max(x for x, _y in pixels) - min(x for x, _y in pixels), max(y for _x, y in pixels) - min(y for _x, y in pixels)
+        self.portrait(450)
+        button = self.sidebar.navigation.folder_toggle_button
+        for folded in (True, False):
+            self.sidebar.set_all_folders_collapsed(folded)
+            settle()
+            width, height = icon_bounds(button)
+            self.assertGreater(width, height)
+        self.sidebar.toggle_button.click()
+        settle()
+        self.assertTrue(self.sidebar.collapsed)
+        self.assertTrue(self.sidebar.toggle_button.isVisible())
+        self.assertTrue(self.sidebar._head_scroll.isVisible())
+        self.assertFalse(button.isVisible())
+        self.sidebar.toggle_button.click()
+        settle()
+        self.assertFalse(self.sidebar.collapsed)
+        self.assertTrue(button.isVisible())
+        self.layout.build_arrangement('landscape')
+        self.host.resize(1200, 850)
+        settle()
+        width, height = icon_bounds(button)
+        self.assertGreater(height, width)
 
     def test_anonymous_and_synthetic_account_keep_the_original_entry(self):
         self.portrait(480)

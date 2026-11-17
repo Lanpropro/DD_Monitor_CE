@@ -76,6 +76,8 @@ class NavigationButton(QPushButton):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width()/2, self.height()/2)
         self._dock_feedback.transform(painter)
+        if self.kind in ('folders_expand', 'folders_collapse') and self.property('horizontalFolderIcon'):
+            painter.rotate(-90)
         QSvgRenderer(QByteArray(svg.encode())).render(
             painter, QRectF(-9, -9, 18, 18))
 
