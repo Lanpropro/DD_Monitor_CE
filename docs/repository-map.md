@@ -58,6 +58,14 @@
 
 ## 已跟踪的其他文件：逐项标注
 
+- `ddm/cache_cleanup.py`：固定缓存类别、HTTP清理请求及历史日志边界。
+- `ddm/cache_cleanup_ui.py`：额外缓存的后台统计、选择与清理反馈。
+- `ddm/sidebar_portrait.py`：借用既有关注控件的竖屏工具栏与横向列表。
+- `dev/selfcheck_settings_card_layout.py`
+- `dev/selfcheck_portrait_ui.py`
+- `dev/selfcheck_diagnostic_settings_layout.py`
+- `dev/selfcheck_extra_cache.py`
+
 ### 文档规范与校验
 
 - `docs/standards/documentation.md`

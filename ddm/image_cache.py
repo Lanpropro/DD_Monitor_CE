@@ -8,6 +8,7 @@ import tempfile
 import time
 
 KINDS = ('avatars', 'covers')
+CACHE_KINDS = (*KINDS, 'emoticons', 'sc-avatars', 'banners')
 EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'}
 
 
@@ -16,15 +17,22 @@ def ticket():
     return f'{time.time_ns():020d}:{time.perf_counter_ns():020d}'
 
 
+def _is_link(path):
+    try:
+        return path.is_symlink() or bool(getattr(path.lstat(), 'st_file_attributes', 0) & 0x400)
+    except FileNotFoundError:
+        return False
+
+
 def _inside(root, path):
     root, path = Path(os.path.abspath(root)), Path(os.path.abspath(path))
     if not path.is_relative_to(root):
         raise ValueError('Image cache path is outside the data directory')
     for part in (path, *path.parents):
+        if _is_link(part):
+            raise ValueError('Image cache links are not supported')
         if part == root:
             break
-        if part.is_symlink() or (hasattr(part, 'is_junction') and part.is_junction()):
-            raise ValueError('Image cache links are not supported')
     return path
 
 
@@ -124,17 +132,18 @@ def _files(root, kind):
         return
     for folder, directories, files in os.walk(directory, followlinks=False):
         directories[:] = [name for name in directories
-                          if not (Path(folder) / name).is_symlink()
-                          and not (hasattr(Path, 'is_junction') and (Path(folder) / name).is_junction())]
+                          if not _is_link(Path(folder) / name)]
         for name in files:
             path = Path(folder) / name
-            if path.suffix.lower() in EXTENSIONS and not path.is_symlink():
+            if path.suffix.lower() in EXTENSIONS and not _is_link(path):
                 yield _inside(root, path)
 
 
-def usage(root):
+def usage(root, kinds=KINDS):
+    if not set(kinds).issubset(CACHE_KINDS):
+        raise ValueError('Unknown image cache category')
     result = {}
-    for kind in KINDS:
+    for kind in kinds:
         size = count = 0
         for path in _files(root, kind):
             try:
@@ -148,8 +157,8 @@ def usage(root):
 
 def clear(root, kinds):
     kinds = set(kinds)
-    if not kinds or not kinds.issubset(KINDS):
-        raise ValueError('Select avatars and/or covers')
+    if not kinds or not kinds.issubset(CACHE_KINDS):
+        raise ValueError('Select a known image cache category')
     for kind in kinds:
         _inside(root, Path(root) / 'cache' / kind)
     size = count = skipped = 0

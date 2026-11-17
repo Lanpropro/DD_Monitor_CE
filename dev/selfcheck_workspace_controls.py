@@ -669,7 +669,9 @@ class WorkspaceControlTests(unittest.TestCase):
             self.assertIs(panel.launcher.parentWidget(), self.sidebar._bar_row)
             self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
             self.assertTrue(self.sidebar.clear_wall_button.isVisible())
-            self.assertEqual(self.sidebar.clear_wall_button.size().width(), 30)
+            self.assertEqual(self.sidebar.clear_wall_button.size(), self.sidebar.settings_button.size())
+            self.assertTrue(self.sidebar.rect().contains(self.sidebar.clear_wall_button.mapTo(
+                self.sidebar, self.sidebar.clear_wall_button.rect().bottomRight())))
             for collapsed in (True, False):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 settle()

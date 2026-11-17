@@ -1,11 +1,12 @@
 """Official plugin offers, compatibility and persistent catalog cache."""
-import os
 from pathlib import Path
 import re
 import json
 import tempfile
 import time
 import requests
+from . import image_cache
+from .cache_cleanup import store_catalog
 from .update_version import version_key
 from .release_repository import PLUGIN_REPOSITORY, releases, asset_info, latest_manifest, manifest_offer
 
@@ -158,6 +159,7 @@ def load_plugin_cache(path):
 
 def cached_plugin_catalog(client, current_version, path, force=False):
     from . import online as api
+    stamp = image_cache.ticket()
     cache = api.load_plugin_cache(path)
     now = time.time()
     if not force and cache and 0 <= now - cache['checked_at'] < api.CATALOG_CHECK_SECONDS:
@@ -166,14 +168,7 @@ def cached_plugin_catalog(client, current_version, path, force=False):
     cache.update(repository=api.PLUGIN_REPOSITORY, offers=offers, checked_at=now)
     path = Path(path)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix='.plugin-catalog-', dir=path.parent)
-        os.close(descriptor)
-        try:
-            Path(temporary).write_text(json.dumps(cache, ensure_ascii=False), encoding='utf-8')
-            os.replace(temporary, path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        store_catalog(path, json.dumps(cache, ensure_ascii=False).encode('utf-8'), stamp)
     except OSError:
         pass
     return offers

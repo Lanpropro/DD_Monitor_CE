@@ -4,111 +4,149 @@ import os
 from pathlib import Path
 import zipfile
 
-from PySide6.QtCore import QStandardPaths, QUrl
+from PySide6.QtCore import QEvent, QStandardPaths, QUrl, Qt
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QPlainTextEdit, QProgressBar,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QBoxLayout, QDialog, QFileDialog,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QPlainTextEdit,
+    QScrollArea, QVBoxLayout, QWidget)
 
 from .diagnostic_export import DiagnosticExport
-from .ui import page_header
+from .ui import ActionButton, SelectControl, SettingsProgressBar, ToggleSwitch, page_header
+from .settings_layout import SettingsColumns, SettingsSection
+
+
+class DiagnosticDescription(QPlainTextEdit):
+    def wheelEvent(self, event):
+        super().wheelEvent(event)
+        event.accept()
 
 
 class DiagnosticsPage(QWidget):
     def __init__(self, settings, parent=None):
         super().__init__(parent)
+        self.setObjectName('SettingsPage')
         self.export = DiagnosticExport(self)
         self.evidence = None
         self.zip_path = None
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
+        outer.setSpacing(14)
+        outer.addLayout(page_header('诊断与反馈', '描述问题、导出记录，检查后手动发送给维护者。'))
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QScrollArea.NoFrame)
         body = QWidget()
         layout = QVBoxLayout(body)
-        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setContentsMargins(0, 0, 6, 0)
         layout.setSpacing(14)
-        layout.addLayout(page_header('诊断与反馈', '收集问题线索，检查后手动发送给维护者。'))
-        self.description = QPlainTextEdit()
-        self.description.setPlaceholderText('刚才做了什么？实际发生了什么？预期是什么？')
+        self.sections = SettingsColumns(body)
+        layout.addWidget(self.sections)
+        issue = SettingsSection('描述问题')
+        self.description = DiagnosticDescription()
+        self.description.setProperty('settingsWheelLocal', True)
+        self.description.setAccessibleName('问题描述')
+        self.description.setPlaceholderText('做了什么、遇到什么、希望是什么？')
         self.description.setMaximumBlockCount(100)
         self.description.setMinimumHeight(100)
         self.description.setMaximumHeight(150)
         self.happened = QLineEdit(datetime.datetime.now().strftime('%Y-%m-%d %H:%M') + ' 左右')
-        self.reproduction = QComboBox()
+        self.happened.setAccessibleName('发生时间')
+        self.reproduction = SelectControl()
+        self.reproduction.setAccessibleName('复现情况')
         self.reproduction.addItems(['尚未确认', '稳定复现', '概率触发'])
-        form = QFormLayout()
-        form.addRow('发生时间', self.happened)
-        form.addRow('复现情况', self.reproduction)
-        form.addRow('问题描述', self.description)
-        layout.addLayout(form)
+        issue.grid.addWidget(QLabel('发生时间'), 0, 0)
+        issue.grid.addWidget(self.happened, 0, 1)
+        issue.grid.addWidget(QLabel('复现情况'), 1, 0)
+        issue.grid.addWidget(self.reproduction, 1, 1)
+        issue.grid.addWidget(self.description, 2, 0, 1, 2)
+        self.sections.add_section('issue', issue)
+
+        attachments = SettingsSection('图片附件（可选）')
         self.images = QListWidget()
-        self.images.setMaximumHeight(80)
+        self.images.setMaximumHeight(100)
         self.images.setAccessibleName('手动选择的图片附件')
-        layout.addWidget(self.images)
+        attachments.grid.addWidget(self.images, 0, 0, 1, 2)
         row = QHBoxLayout()
-        self.add_images = QPushButton('添加图片')
-        self.remove_image = QPushButton('移除选中图片')
+        self.add_images = ActionButton('添加图片')
+        self.remove_image = ActionButton('移除所选')
+        self.remove_image.setAccessibleName('移除选中图片')
         row.addWidget(self.add_images)
         row.addWidget(self.remove_image)
-        row.addStretch()
-        layout.addLayout(row)
+        row.addStretch(1)
+        attachments.grid.addLayout(row, 1, 0, 1, 2)
         self.add_images.clicked.connect(self._images)
         self.remove_image.clicked.connect(lambda: self.images.takeItem(self.images.currentRow()))
-        self._hint(layout, '最多 5 张图片，每张 20MB。图片会移除元数据，画面内容请自行检查。')
-        self._label(layout, '收集范围')
-        self._hint(layout, '版本与系统信息、脱敏配置、插件版本、近期日志、原生崩溃栈及对象生命周期。'
-                   '不读取账号文件，不自动截图或上传。已有记录即使无法复现也可导出；缺少记录不代表正常。')
-        self.dump_enabled = QCheckBox('记录增强崩溃转储（保存设置后生效）')
+        self._hint(attachments.grid, 2, '最多5张，每张20MB。导出会移除元数据，图片内容请自行检查。')
+        self.sections.add_section('attachments', attachments)
+
+        collection = SettingsSection('收集范围')
+        self._hint(collection.grid, 0, '系统与版本、脱敏配置、插件版本、近期日志及已有崩溃记录。无需重新复现也可导出。')
+        self._hint(collection.grid, 1, '不读取账号文件，不自动截图或上传。')
+        self.dump_enabled = ToggleSwitch('记录增强崩溃转储')
         self.dump_enabled.setChecked(bool(settings.get('native_crash_dump', False)))
-        layout.addWidget(self.dump_enabled)
-        self._hint(layout, '用于后续崩溃，不能补回过去的内存。转储可能含账号、播放地址或聊天等进程内存，无法自动脱敏。')
-        self.include_dumps = QCheckBox('本次诊断包包含已有内存转储')
+        self._switch_row(collection.grid, 2, '记录增强崩溃转储', self.dump_enabled)
+        self.dump_enabled.setToolTip('保存设置后用于后续崩溃，无法补回过去的进程内存。')
+        self.include_dumps = ToggleSwitch('本次包含已有内存转储')
         self.include_dumps.setChecked(False)
-        layout.addWidget(self.include_dumps)
-        self._label(layout, '问题仍在时，可补充现场')
-        live = QHBoxLayout()
-        self.folders = QPushButton('抓取文件夹现场')
-        self.drag = QPushButton('记录一次拖放')
-        self.cancel = QPushButton('取消现场采集')
+        self._switch_row(collection.grid, 3, '本次包含已有内存转储', self.include_dumps)
+        self._hint(collection.grid, 4, '内存转储可能含账号、播放地址或聊天，无法自动脱敏；仅主动勾选时打包。')
+        self.sections.add_section('collection', collection)
+
+        live = SettingsSection('补充现场（可选）')
+        self.folders = ActionButton('文件夹现场')
+        self.drag = ActionButton('拖放记录')
+        self.cancel = ActionButton('取消采集')
         self.cancel.setEnabled(False)
-        live.addWidget(self.folders)
-        live.addWidget(self.drag)
-        live.addWidget(self.cancel)
-        layout.addLayout(live)
-        self._hint(layout, '现场采集后可返回主窗口操作。拖放最多等待 60 秒；完成后再导出诊断包。')
+        self.live_actions = QBoxLayout(QBoxLayout.LeftToRight)
+        for button in (self.folders, self.drag, self.cancel):
+            self.live_actions.addWidget(button)
+        live.grid.addLayout(self.live_actions, 0, 0, 1, 2)
+        self._hint(live.grid, 1, '问题仍在时再采集。拖放最多等待60秒，返回主窗口操作后再导出。')
         self.folders.clicked.connect(lambda: self._capture('folders'))
         self.drag.clicked.connect(lambda: self._capture('drag'))
         self.cancel.clicked.connect(self.export.stop)
+        self.sections.add_section('live', live)
+        live.installEventFilter(self)
+
+        destination = SettingsSection('保存位置')
         target = QHBoxLayout()
         self.destination = QLineEdit(QStandardPaths.writableLocation(QStandardPaths.DesktopLocation) or str(Path.home()))
-        self.browse = QPushButton('选择保存位置')
+        self.destination.setAccessibleName('诊断包保存位置')
+        self.browse = ActionButton('浏览…')
+        self.browse.setAccessibleName('选择诊断包保存位置')
         target.addWidget(self.destination, 1)
         target.addWidget(self.browse)
-        layout.addLayout(target)
+        destination.grid.addLayout(target, 0, 0, 1, 2)
         self.browse.clicked.connect(self._browse)
+        self.sections.add_section('destination', destination, wide=True)
         layout.addStretch(1)
-        scroll.setWidget(body)
-        outer.addWidget(scroll, 1)
-        self.progress = QProgressBar()
+        self.scroll.setWidget(body)
+        outer.addWidget(self.scroll, 1)
+
+        progress_row = QHBoxLayout()
+        self.progress = SettingsProgressBar()
+        self.progress.setAccessibleName('诊断采集进度')
         self.progress.setValue(0)
-        self.status = QLabel('准备就绪。无需重新复现，也可以收集已有日志。')
+        self.progress_text = QLabel('0%')
+        self.progress.valueChanged.connect(lambda value: self.progress_text.setText(f'{value}%'))
+        progress_row.addWidget(self.progress, 1)
+        progress_row.addWidget(self.progress_text)
+        outer.addLayout(progress_row)
+        self.status = QLabel('准备就绪，可直接导出已有记录。')
+        self.status.setObjectName('SettingsHint')
         self.status.setWordWrap(True)
-        outer.addWidget(self.progress)
         outer.addWidget(self.status)
-        actions = QHBoxLayout()
-        self.summary = QPushButton('查看摘要')
-        self.open_folder = QPushButton('打开保存位置')
-        self.generate = QPushButton('导出诊断包')
+        self.actions = QBoxLayout(QBoxLayout.LeftToRight)
+        self.summary = ActionButton('查看摘要')
+        self.open_folder = ActionButton('打开保存位置')
+        self.generate = ActionButton('导出诊断包')
         self.generate.setObjectName('PrimaryButton')
         self.summary.setEnabled(False)
         self.open_folder.setEnabled(False)
-        actions.addWidget(self.summary)
-        actions.addWidget(self.open_folder)
-        actions.addStretch()
-        actions.addWidget(self.generate)
-        outer.addLayout(actions)
+        for button in (self.generate, self.summary, self.open_folder):
+            self.actions.addWidget(button)
+        outer.addLayout(self.actions)
         self.generate.clicked.connect(self._generate)
         self.summary.clicked.connect(self._summary)
         self.open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.zip_path).parent))))
@@ -117,25 +155,40 @@ class DiagnosticsPage(QWidget):
         self.export.busyChanged.connect(self._busy)
         self.export.completed.connect(self._completed)
         self.export.captured.connect(self._captured)
-        for button in self.findChildren(QPushButton):
-            if button is not self.generate:
-                button.setObjectName('IconButton')
         dialog = self.window()
         if isinstance(dialog, QDialog):
             dialog.finished.connect(self.export.stop)
 
     @staticmethod
-    def _label(layout, text):
-        label = QLabel(text)
-        label.setObjectName('SectionTitle')
-        layout.addWidget(label)
-
-    @staticmethod
-    def _hint(layout, text):
+    def _hint(grid, row, text):
         label = QLabel(text)
         label.setWordWrap(True)
         label.setObjectName('SettingsHint')
-        layout.addWidget(label)
+        grid.addWidget(label, row, 0, 1, 2)
+
+    @staticmethod
+    def _switch_row(grid, row, text, switch):
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setBuddy(switch)
+        controls = QHBoxLayout()
+        controls.addWidget(label, 1)
+        controls.addWidget(switch)
+        grid.addLayout(controls, row, 0, 1, 2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._arrange_actions(self.actions, (self.generate, self.summary, self.open_folder), self.contentsRect().width())
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Resize and watched is self.sections.section('live'):
+            self._arrange_actions(self.live_actions, (self.folders, self.drag, self.cancel), watched.width() - 36)
+        return super().eventFilter(watched, event)
+
+    @staticmethod
+    def _arrange_actions(layout, buttons, width):
+        needed = sum(button.sizeHint().width() for button in buttons) + max(0, layout.spacing()) * 2
+        layout.setDirection(QBoxLayout.TopToBottom if width < needed else QBoxLayout.LeftToRight)
 
     def values(self):
         return {'native_crash_dump': self.dump_enabled.isChecked()}

@@ -141,6 +141,8 @@ class DiagnosticSettingsTests(unittest.TestCase):
         client = settings_process.SettingsProcess()
         saved, failures = [], []
         client.saved.connect(saved.append)
+        client.autoSaveRequested.connect(lambda message: saved.append(message['changes']))
+        client.autoSaveRequested.connect(lambda message: client._send({'kind': 'auto-saved', 'error': ''}))
         client.failed.connect(failures.append)
         command = (sys.executable, [str(Path(__file__).resolve()), '--diagnostic-worker'])
         with patch.object(config, 'REPO', str(self.root)), \

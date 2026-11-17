@@ -9,6 +9,15 @@
 
 ## 当前回归与历史诊断
 
+本轮设置与竖屏专项均使用临时数据，不连接直播或读取账号：
+
+| 脚本 | 执行分类 |
+| --- | --- |
+| [selfcheck_settings_card_layout](../selfcheck_settings_card_layout.py) | `offline`；自动/单列/双列、仅高度变化、窗口重挂、旧设置兼容与保存热应用 |
+| [selfcheck_portrait_ui](../selfcheck_portrait_ui.py) | `offline`；竖屏入口、横向关注条、筛选、收起和横竖往返控件身份 |
+| [selfcheck_diagnostic_settings_layout](../selfcheck_diagnostic_settings_layout.py) | `offline`；宽窄/大小字号/主题布局、固定操作、局部滚轮、原导出字段及转储隐私默认值 |
+| [selfcheck_extra_cache](../selfcheck_extra_cache.py) | `offline`；临时目录六类统计清理、迟到写入、HTTP请求与导航等待、日志占用和路径链接保护 |
+
 Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编译 `native_crash.cpp`；
 `bootstrap.py` 仅在设置 `DDM_CHECK_NATIVE_STACK_DLL` 时加载。CI 的功能检查启用它，
 将访问冲突的模块、偏移和可解析符号写入原有 stderr 日志，不吞异常、不重试、不改 GC 或断言。

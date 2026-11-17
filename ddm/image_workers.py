@@ -73,13 +73,13 @@ class AvatarLoader(QThread):
             futures = {}
             for key, url in self.items.items():
                 if self.subdir == 'banners':
-                    future = pool.submit(api.load_banner, url)
+                    future = pool.submit(api.load_banner, url, stamp=self._stamp)
                 elif self.subdir == 'covers':
                     future = pool.submit(api.load_cover, url, stamp=self._stamp, room=key)
                 elif self.subdir == 'avatars':
                     future = pool.submit(api.load_pixmap, url, self.subdir, stamp=self._stamp, room=key)
                 else:
-                    future = pool.submit(api.load_pixmap, url, self.subdir)
+                    future = pool.submit(api.load_pixmap, url, self.subdir, stamp=self._stamp)
                 futures[future] = key
             for future in as_completed(futures):
                 key = futures[future]

@@ -26,6 +26,22 @@ def _shared_profile() -> QWebEngineProfile:
     if _profile is None:
         _profile = QWebEngineProfile(PROFILE_NAME)
         _profile.setCachePath(str(Path(config.data_root()) / 'cache' / 'web-login'))
+    from .cache_cleanup import complete_http_clear, http_request
+    root = config.data_root()
+    token = http_request(root)
+    if (token and not getattr(_profile, '_ddm_http_clear_token', '')
+            and not getattr(_profile, '_ddm_active_logins', 0)):
+        profile = _profile
+        profile._ddm_http_clear_token = token
+        def completed():
+            profile.clearHttpCacheCompleted.disconnect(completed)
+            try:
+                complete_http_clear(root, token)
+            except OSError as error:
+                _log(f'无法更新 HTTP 缓存清理标记: {error}')
+            profile._ddm_http_clear_token = ''
+        profile.clearHttpCacheCompleted.connect(completed)
+        profile.clearHttpCache()
     return _profile
 
 
@@ -60,22 +76,44 @@ class WebLoginWindow(QDialog):
         self.status.setObjectName("AppSubtitle")
         top.addWidget(self.status)
         top.addStretch(1)
-        reload_button = QPushButton("刷新页面")
-        reload_button.setObjectName("IconButton")
-        reload_button.clicked.connect(self._reload)
-        top.addWidget(reload_button)
+        self.reload_button = QPushButton("刷新页面")
+        self.reload_button.setObjectName("IconButton")
+        self.reload_button.clicked.connect(self._reload)
+        top.addWidget(self.reload_button)
         layout.addLayout(top)
 
         self.browser = QWebEngineView(self)
-        profile = _shared_profile()
+        self._profile = _shared_profile()
+        self._profile._ddm_active_logins = getattr(self._profile, '_ddm_active_logins', 0) + 1
+        self._profile_released = False
+        self._store = None
+        self._waiting_for_cache = bool(getattr(self._profile, '_ddm_http_clear_token', ''))
+        if self._waiting_for_cache:
+            self.status.setText('正在清理网页登录 HTTP 缓存，完成后打开登录页…')
+            self.reload_button.setEnabled(False)
+            self._profile.clearHttpCacheCompleted.connect(self._start_login)
+        else:
+            self._start_login()
+        layout.addWidget(self.browser, 1)
+
+    def _start_login(self):
+        if self._closing:
+            return
+        if self._waiting_for_cache:
+            self._profile.clearHttpCacheCompleted.disconnect(self._start_login)
+            self._waiting_for_cache = False
+        self.reload_button.setEnabled(True)
+        self.status.setText('登录成功后窗口会自动关闭。')
+        profile = self._profile
         self._store = profile.cookieStore()
         self._store.cookieAdded.connect(self._on_cookie)
         self.browser.setPage(_NoPopupPage(profile, self.browser))
         self.browser.loadFinished.connect(lambda ok: self._store.loadAllCookies())
         self._reload()
-        layout.addWidget(self.browser, 1)
 
     def _reload(self) -> None:
+        if self._waiting_for_cache or self._closing:
+            return
         self.browser.load(QUrl("https://passport.bilibili.com/login"))
 
     def _on_cookie(self, cookie) -> None:
@@ -114,8 +152,15 @@ class WebLoginWindow(QDialog):
     def done(self, result: int) -> None:
         self._closing = True
         self._login_timer.stop()
-        try:
-            self._store.cookieAdded.disconnect(self._on_cookie)
-        except RuntimeError:
-            pass
+        if not self._profile_released:
+            self._profile._ddm_active_logins = max(0, self._profile._ddm_active_logins - 1)
+            self._profile_released = True
+            if self._waiting_for_cache:
+                self._profile.clearHttpCacheCompleted.disconnect(self._start_login)
+                self._waiting_for_cache = False
+            try:
+                if self._store is not None:
+                    self._store.cookieAdded.disconnect(self._on_cookie)
+            except RuntimeError:
+                pass
         super().done(result)

@@ -46,7 +46,7 @@ def normalize(values):
     for key in ('settings_glass_enabled', 'settings_no_shadows', 'settings_segment_motion'):
         if type(result[key]) is not bool:
             result[key] = DEFAULTS[key]
-    if result['settings_card_layout'] not in ('auto', 'vertical'):
+    if result['settings_card_layout'] not in ('auto', 'vertical', 'horizontal'):
         result['settings_card_layout'] = 'auto'
     for key, maximum in (('settings_glass_blur', 40), ('settings_glass_opacity', 100)):
         try:
