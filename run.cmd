@@ -64,6 +64,7 @@ if /i "%~1"=="--check-settings-scroll" goto settingsScrollCheck
 if /i "%~1"=="--check-settings-shutdown" goto settingsShutdownCheck
 if /i "%~1"=="--check-settings-performance" goto settingsPerformanceCheck
 if /i "%~1"=="--check-window-layout" goto windowLayoutCheck
+if /i "%~1"=="--check-window-state" goto windowStateCheck
 if /i "%~1"=="--check-dialog-modules" goto dialogModulesCheck
 if /i "%~1"=="--check-stream-playback" goto streamPlaybackCheck
 if /i "%~1"=="--check-sidebar-folders" goto sidebarFoldersCheck
@@ -371,6 +372,15 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout
+exit /b %errorlevel%
+
+:windowStateCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_startup_windows
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_startup_windows.py" StartupWindowsTests.test_startup_restores_normal_geometry_saved_on_close StartupWindowsTests.test_initial_maximize_keeps_a_smaller_normal_restore_rectangle StartupWindowsTests.test_saved_maximized_state_keeps_normal_size_after_restart StartupWindowsTests.test_invalid_saved_geometry_uses_initial_maximized_default StartupWindowsTests.test_native_maximized_client_is_ready_before_first_paint
 exit /b %errorlevel%
 
 :windowLayoutCheck

@@ -82,6 +82,93 @@ class StartupWindowsTests(unittest.TestCase):
             sidebar.deleteLater()
             self.app.processEvents()
 
+    def test_startup_restores_normal_geometry_saved_on_close(self):
+        state = {'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}}
+        source = MainWindow([], [], layout_id='1x1', state=state)
+        source.setAttribute(Qt.WA_ShowWithoutActivating)
+        source.show()
+        area = source.screen().availableGeometry()
+        source.resize(round(area.width() * .7), round(area.height() * .7))
+        source.move(area.center() - source.rect().center())
+        self.app.processEvents()
+        expected = source.geometry()
+        expected_pos = source.pos()
+        with patch.dict(os.environ, {'DDM_NO_SAVE': ''}):
+            source.close()
+        restored = MainWindow([], [], state=config.load())
+        restored.setAttribute(Qt.WA_ShowWithoutActivating)
+        try:
+            restored.show_initial_maximized()
+            self.app.processEvents()
+            self.assertFalse(restored.isMaximized(), 'Saved normal state must survive startup')
+            self.assertLessEqual(abs(restored.width() - expected.width()), 1)
+            self.assertLessEqual(abs(restored.height() - expected.height()), 1)
+            self.assertLessEqual(abs(restored.x() - expected_pos.x()), 2)
+            self.assertLessEqual(abs(restored.y() - expected_pos.y()), 2)
+            self.assert_wall_filled(restored)
+        finally:
+            restored.close()
+            self.app.processEvents()
+
+    def test_initial_maximize_keeps_a_smaller_normal_restore_rectangle(self):
+        window = MainWindow([], [], layout_id='1x1', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        window.resize(850, 600)
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        expected = window.size()
+        try:
+            window.show_initial_maximized()
+            self.app.processEvents()
+            self.assertTrue(window.isMaximized())
+            window.showNormal()
+            self.app.processEvents()
+            self.assertLessEqual(abs(window.width() - expected.width()), 1)
+            self.assertLessEqual(abs(window.height() - expected.height()), 1)
+        finally:
+            window.close()
+            self.app.processEvents()
+
+    def test_saved_maximized_state_keeps_normal_size_after_restart(self):
+        source = MainWindow([], [], layout_id='1x1', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        source.setAttribute(Qt.WA_ShowWithoutActivating)
+        area = source.screen().availableGeometry()
+        source.resize(min(850, area.width() - 80), min(600, area.height() - 80))
+        source.showMaximized()
+        self.app.processEvents()
+        expected = source.normalGeometry().size()
+        with patch.dict(os.environ, {'DDM_NO_SAVE': ''}):
+            source.close()
+        restored = MainWindow([], [], state=config.load())
+        restored.setAttribute(Qt.WA_ShowWithoutActivating)
+        try:
+            restored.show_initial_maximized()
+            self.app.processEvents()
+            self.assertTrue(restored.isMaximized())
+            restored.showNormal()
+            self.app.processEvents()
+            self.assertLessEqual(abs(restored.width() - expected.width()), 1)
+            self.assertLessEqual(abs(restored.height() - expected.height()), 1)
+            QTest.qWait(350)  # Ordinary restore uses the existing resize settlement timer.
+            self.assert_wall_filled(restored)
+        finally:
+            restored.close()
+            self.app.processEvents()
+
+    def test_invalid_saved_geometry_uses_initial_maximized_default(self):
+        window = MainWindow([], [], layout_id='1x1', state={
+            'geometry': 'invalid', 'plugins_enabled': [],
+            'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        try:
+            self.assertFalse(window._geometry_restored)
+            window.show_initial_maximized()
+            self.app.processEvents()
+            self.assertTrue(window.isMaximized())
+        finally:
+            window.close()
+            self.app.processEvents()
+
     def test_preview_native_window_keeps_other_cards_alien(self):
         window = QWidget(None, Qt.WindowDoesNotAcceptFocus)
         window.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -273,7 +360,7 @@ class StartupWindowsTests(unittest.TestCase):
             self.app.processEvents()
 
     @unittest.skipUnless(sys.platform == 'win32', 'Native Windows visibility order')
-    def test_native_maximized_client_is_ready_before_it_becomes_visible(self):
+    def test_native_maximized_client_is_ready_before_first_paint(self):
         if self.app.platformName() != 'windows':
             self.skipTest('Requires Windows Qt on an isolated desktop')
         import ctypes
@@ -285,7 +372,7 @@ class StartupWindowsTests(unittest.TestCase):
 
             def nativeEventFilter(self, kind, message):
                 msg = wintypes.MSG.from_address(int(message))
-                if msg.message == 0x47 and msg.hWnd == window.internalWinId():
+                if msg.message == 0x000f and msg.hWnd == window.internalWinId():  # WM_PAINT
                     user32 = ctypes.windll.user32
                     if user32.IsWindowVisible(wintypes.HWND(msg.hWnd)):
                         bounds = wintypes.RECT()
@@ -303,10 +390,14 @@ class StartupWindowsTests(unittest.TestCase):
             self.app.processEvents()
             self.assertTrue(capture.frames)
             self.assertTrue(self.shows.native_sizes)
-            self.assertTrue(all(size == window.size() for size in self.shows.native_sizes))
+            # Window-position messages may precede Qt's size handling. Validate
+            # the actual native paint frames while preserving normal geometry.
             for native, logical in capture.frames:
                 self.assertTrue(all(abs(a-b) <= 1 for a,b in zip(native,logical)), capture.frames)
             self.assert_wall_filled(window)
+            self.assertTrue(self.shows.frames)
+            for bounds, area in self.shows.frames:
+                self.assertEqual(bounds, area, 'A visible startup frame used stale pane geometry')
         finally:
             self.app.removeNativeEventFilter(capture)
             window.close()

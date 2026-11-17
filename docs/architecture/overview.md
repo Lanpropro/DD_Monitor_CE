@@ -5,6 +5,8 @@
 本页说明软件本体如何组成：有哪些进程、代码分几层、状态由谁持有、一次播放或一次设置保存经过哪些模块。
 文件级清单见[仓库文件分类清单](../repository-map.md)，单条功能的交互细节见对应设计文档。
 
+主窗口仍以既有geometry字段保存Qt几何与最大化状态。MainWindow的_restore_ui记录restoreGeometry是否成功，WindowLayout据此选择按已恢复状态显示，或在新配置／恢复失败时默认最大化；不以预填满屏几何覆盖普通还原矩形。瞬时恢复标记由主窗口持有，不另存一套尺寸或增加配置格式。
+
 检查进程的生命周期证据由 `ddm/check_diagnostics.py` 持有：纯标准库入口在测试导入 Qt 前安装，设置测试子进程继承目录并登记自己的 PID 与角色；脚本入口仍由 `dev/checks/bootstrap.py` 管理。致命栈复用 `native_diagnostics.py` 的外部 watcher，Qt 对象及测试断言仍归原模块管理，不由采集器持有。普通软件启动不启用此测试采集；测试转储明确开启后不被设置快照的默认关闭值覆盖。
 
 侧栏控件仍由Sidebar唯一持有。工具排序由SidebarNavigation协调，横竖迁移沿用SidebarOrientation的移交入口；移动前从当前父控件的实际布局及子布局显式移除，避免当前Qt绑定对隐式删除的QWidgetItem保留过期包装。控件和信号不重建；顺序不变时保留原布局项。

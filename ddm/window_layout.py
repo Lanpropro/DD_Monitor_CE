@@ -327,20 +327,9 @@ class WindowLayout:
             host.wall.set_interactive_resize(False)
 
     def show_initial_maximized(self) -> None:
-        # Windows can expose a maximized HWND before Qt receives its final
-        # resize event. Size the hidden tree first, including the native caption.
         host = self.host
-        bounds = host.screen().availableGeometry()
-        if sys.platform == "win32" and QApplication.platformName() == "windows":
-            import ctypes
-            scale = host.screen().devicePixelRatio()
-            caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
+        if getattr(host, '_geometry_restored', False):
+            host.show()
         else:
-            host.winId()
-            margins = host.windowHandle().frameMargins()
-            caption = max(0, margins.top() - margins.bottom())
-        host.setGeometry(bounds.adjusted(0, caption, 0, 0))
-        host.layout().activate()
-        host._resize_dirty = True
-        host._finish_interactive_resize()
-        host.showMaximized()
+            # Let Qt maximize without overwriting the normal restore rectangle.
+            host.showMaximized()

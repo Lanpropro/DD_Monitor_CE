@@ -138,7 +138,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_ui_polish](../selfcheck_ui_polish.py) | `offline` / `smoke`；角标透明边缘、底栏背景、历史按钮、控制点缩放曲线和菜单缩略图排序；Windows 原生 alpha 子项单独执行 |
 | [selfcheck_card_drop](../selfcheck_card_drop.py) | `offline` / `smoke`；原缓冲标识保持、短前奏限时与首帧立即清理、透明小窗口、墙内可见卡片抓取／取消／换格、元数据备用卡片、连续拖入、销毁、系统关闭动画及中性圆角来源图标；bootstrap 加 `--native` 用本地视频核对抓取期间进度、libmpv/HWND 保持；不读取账号、不移动系统鼠标 |
 | [selfcheck_audio_normalization](../selfcheck_audio_normalization.py) | `offline`、`smoke`；压低／保持／恢复时间、静音保持、参数边界、左右参数／曲线布局、下拉预设／拖动／关闭均衡时编辑与自动保存／重置、播放器暂停与退出生命周期；不读取账号、不联网 |
-| [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项检查可见时 Qt 与 Win32 客户区尺寸一致，在独立 Windows 桌面执行，不作为真实冷启动耗时依据 |
+| [selfcheck_startup_windows](../selfcheck_startup_windows.py) | `offline`、`smoke`；隔离配置与空插件，检查构建期间无独立小窗口和 HWND、底栏过滤范围、首次最大化、普通/最大化状态关闭落盘再开及普通还原尺寸、无效几何默认、横竖屏和隐藏重开；未开播格子初始化不重入窗口绘制，下一轮事件仍清空画面/状态（默认及1.5倍原生后端复查）；原生专项在实际绘制帧检查 Qt 与 Win32 客户区尺寸及完整画面墙，不作为真实冷启动耗时依据 |
 | [selfcheck_menu_drag](../selfcheck_menu_drag.py) | `offline`；菜单拖影、共享行让位、松手提交、取消不保存、相同落点不重启动画与系统动画关闭；合成控件，不做真实性能结论 |
 | [selfcheck_system_tray](../selfcheck_system_tray.py) | `offline` / `smoke`；托盘选项清洗/排序/显隐及动作复用、布局示意采集/绘制、最小化前快照保留与点击恢复、托盘画中画选中路恢复/关闭重暂停、托盘设置保存／重置、默认停止观看取流、恢复与手动暂停保留、录制保护、首次关闭选择及记忆、退出；隔离配置、无真实账号或鼠标操作 |
 | [selfcheck_settings_control](../selfcheck_settings_control.py) | `smoke` / `offline`；设置协调导入、旧对话框工厂、普通/独立入口、真实Qt信号、宿主页/更新页复用、保存取消异常清理、状态与应用顺序、SC预览；隔离替身、无窗口/进程/账号/网络 |

@@ -520,9 +520,10 @@ class MainWindow(QMainWindow):
             (self.state.get('ui') or {}).get('workspace_pins'))
         self.sidebar.watch_history = WatchHistory(self.state.get("watch_history"))
         geometry = self.state.get("geometry")
+        self._geometry_restored = False
         if geometry:
             try:
-                self.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii")))
+                self._geometry_restored = self.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii")))
             except Exception:  # noqa: BLE001
                 pass
         if (self.state.get("ui") or {}).get("sidebar_collapsed"):
@@ -657,8 +658,7 @@ class MainWindow(QMainWindow):
         super().paintEvent(event)
 
     def show_initial_maximized(self) -> None:
-        # Windows can expose a maximized HWND before Qt receives its final
-        # resize event. Size the hidden tree first, including the native caption.
+        # Compatibility entry: saved normal/maximized state now takes priority.
         return self.window_layout.show_initial_maximized()
 
     def refresh_theme(self) -> None:
