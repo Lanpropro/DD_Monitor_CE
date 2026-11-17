@@ -1,5 +1,5 @@
 """Settings notifications; owned page implementations with legacy exports in dialogs."""
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
@@ -60,17 +60,26 @@ class NoticeBlurPreview(QWidget):
         painter.drawPath(hills)
         painter.end()
         self.strength = 16
+        self.banner_enabled = True
 
     def set_strength(self, value):
         self.strength = value
         self.update()
 
+    def set_banner_enabled(self, enabled):
+        self.banner_enabled = enabled
+        self.update()
+
     def paintEvent(self, event):
         from .room_artwork import paint_room_background
         painter = QPainter(self)
-        paint_room_background(painter, self.rect(), self.artwork.source, 8,
-                              focus=False, frost=self.artwork.frosted(self.strength))
-        painter.setPen(QColor('#ffffff'))
+        if self.banner_enabled:
+            paint_room_background(painter, self.rect(), self.artwork.source, 8,
+                                  focus=False, frost=self.artwork.frosted(self.strength))
+        else:
+            from .corner_geometry import continuous_path
+            painter.fillPath(continuous_path(QRectF(self.rect()), 8), theme.qcolor(theme.ELEVATED))
+        painter.setPen(QColor('#ffffff') if self.banner_enabled else theme.qcolor(theme.TEXT1))
         font = painter.font()
         font.setPixelSize(12)
         painter.setFont(font)
@@ -172,6 +181,14 @@ class NotificationSettingsPage(QWidget):
         for box in (control_box, preview_box):
             box.setContentsMargins(0, 0, 0, 0)
             box.setSpacing(12)
+        banner_row = QHBoxLayout()
+        self.banner_enabled = ToggleSwitch('显示通知背景图')
+        self.banner_enabled.setChecked(bool(settings.get('notice_banner_enabled', DEFAULT_SETTINGS['notice_banner_enabled'])))
+        banner_label = QLabel('显示通知背景图')
+        banner_label.setBuddy(self.banner_enabled)
+        banner_row.addWidget(banner_label, 1)
+        banner_row.addWidget(self.banner_enabled)
+        control_box.addLayout(banner_row)
         control_box.addWidget(QLabel('背景模糊强度'))
         slider_row = QHBoxLayout()
         self.banner_blur = SettingsSlider()
@@ -183,7 +200,7 @@ class NotificationSettingsPage(QWidget):
         slider_row.addWidget(self.banner_blur_value)
         slider_row.addStretch(1)
         control_box.addLayout(slider_row)
-        hint = QLabel('数值越大，通知背景越模糊；0 为关闭，文字和头像保持清晰。')
+        hint = QLabel('关闭背景图后使用普通通知底色；模糊强度为0时保留清晰背景图。')
         hint.setObjectName('SettingsHint')
         hint.setWordWrap(True)
         control_box.addWidget(hint)
@@ -195,6 +212,8 @@ class NotificationSettingsPage(QWidget):
         self.background_columns.add_section('example', example)
         background.grid.addWidget(self.background_columns, 0, 0, 1, 2)
         self.banner_blur.valueChanged.connect(self._update_banner_blur)
+        self.banner_enabled.toggled.connect(self._update_banner_enabled)
+        self._update_banner_enabled(self.banner_enabled.isChecked())
         self._update_banner_blur(self.banner_blur.value())
         self.sections.add_section('background', background, wide=True)
         self.sections.add_section('live', reception)
@@ -205,12 +224,19 @@ class NotificationSettingsPage(QWidget):
         self.banner_blur_value.setText(str(value) if value else '关闭')
         self.banner_preview.set_strength(value)
 
+    def _update_banner_enabled(self, enabled):
+        self.banner_blur.setEnabled(enabled)
+        self.banner_blur_value.setEnabled(enabled)
+        self.banner_preview.set_banner_enabled(enabled)
+
     def reset(self):
         from .config import DEFAULT_SETTINGS
         for key, box in self._checks.items():
             box.setChecked(DEFAULT_SETTINGS[key])
         self.banner_blur.setValue(DEFAULT_SETTINGS['notice_banner_blur'])
+        self.banner_enabled.setChecked(DEFAULT_SETTINGS['notice_banner_enabled'])
 
     def values(self):
         return {**{key: box.isChecked() for key, box in self._checks.items()},
+                'notice_banner_enabled': self.banner_enabled.isChecked(),
                 'notice_banner_blur': self.banner_blur.value()}

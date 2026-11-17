@@ -228,10 +228,11 @@ class NoticeRow(QFrame):
     def paintEvent(self, event):
         if self._paper is None:
             super().paintEvent(event)
-            if self.artwork.source is not None:
-                from .room_artwork import paint_room_background, notice_frost
+            from .room_artwork import paint_room_background, notice_frost, notice_source
+            source = notice_source(self, self.artwork)
+            if source is not None:
                 painter = QPainter(self)
-                paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
+                paint_room_background(painter, self.rect(), source, theme.RADIUS_LG,
                                       focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
             return
         painter = QPainter(self)

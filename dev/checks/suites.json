@@ -138,6 +138,7 @@
       "selfcheck_card_drop",
       "selfcheck_settings_navigation",
       "selfcheck_settings_layout",
+      "selfcheck_shortcut_settings",
       "selfcheck_playback_controls",
       "selfcheck_widget_modules",
       "selfcheck_functional_modules",

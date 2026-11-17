@@ -87,7 +87,86 @@ class NotificationTests(unittest.TestCase):
         dialog._reset_current()
         self.assertEqual(dialog.notification_page.values(), {
             **{key: DEFAULT_SETTINGS[key] for key, _label in NotificationSettingsPage.ITEMS},
+            'notice_banner_enabled': DEFAULT_SETTINGS['notice_banner_enabled'],
             'notice_banner_blur': DEFAULT_SETTINGS['notice_banner_blur']})
+
+    def test_banner_display_switch_preserves_blur_and_uses_existing_autosave(self):
+        dialog = SettingsDialog({'notice_banner_blur': 30}, {}, preview=True)
+        self.addCleanup(self.dispose, dialog)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
+        page = dialog.notification_page
+        self.assertTrue(page.banner_enabled.isChecked())
+        requested = []
+        dialog.auto_save.requested.connect(requested.append)
+        dialog.auto_save.start()
+        self.addCleanup(dialog.auto_save.stop)
+        page.banner_enabled.click()
+        dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'notice_banner_enabled': False})
+        self.assertFalse(page.banner_preview.banner_enabled)
+        self.assertFalse(page.banner_blur.isEnabled())
+        self.assertEqual(page.banner_blur.value(), 30)
+        saved = page.values()
+        reopened = NotificationSettingsPage(saved)
+        self.addCleanup(self.dispose, reopened)
+        self.assertFalse(reopened.banner_enabled.isChecked())
+        self.assertEqual(reopened.banner_blur.value(), 30)
+        page.banner_enabled.click()
+        self.assertTrue(page.banner_preview.banner_enabled)
+        self.assertTrue(page.banner_blur.isEnabled())
+        self.assertEqual(page.banner_blur.value(), 30)
+        page.reset()
+        self.assertTrue(page.banner_enabled.isChecked())
+        self.assertEqual(page.banner_blur.value(), DEFAULT_SETTINGS['notice_banner_blur'])
+
+    def test_banner_display_switch_updates_existing_toast_and_history_without_losing_actions(self):
+        from PySide6.QtGui import QPixmap, QColor
+        from ddm import images, room_artwork
+        from ddm.notification_center import NoticeEntry, NoticeRow
+        from ddm.online_ui import ResultNotice
+        picture = QPixmap(160, 90)
+        picture.fill(QColor('#e06020'))
+        room = {'room_id': '1001', 'uname': '测试主播'}
+        window = QWidget()
+        # Use an identifiable clear image here; blur strength is tested separately.
+        window.settings = {'notice_banner_enabled': True, 'notice_banner_blur': 0}
+        window.resize(800, 500)
+        window.show()
+        self.addCleanup(self.dispose, window)
+        callback = Mock()
+        with patch.object(images, 'load_room_banner', return_value=picture), \
+                patch.object(images, 'load_room_cover', return_value=picture):
+            notice = ResultNotice(window)
+            notice.show_message('背景开关测试', [room], kind='live', persistent=True, on_click=callback)
+            row = NoticeRow(NoticeEntry('背景开关测试', 'live', '12:00', callback=callback, rooms=(room,)), window)
+        row.resize(360, row.sizeHint().height())
+        row.show()
+        self.app.processEvents()
+        for card in (notice, row):
+            self.assertTrue(card.property('roomBackdrop'))
+        window.settings['notice_banner_enabled'] = False
+        for card in (notice, row):
+            room_artwork.style_room_notice(card, card.artwork)
+        with patch.object(room_artwork, 'paint_room_background') as paint:
+            self.app.processEvents()
+            for card in (notice, row):
+                self.assertFalse(card.property('roomBackdrop'))
+                card.grab()
+            paint.assert_not_called()
+        notice.set_room_artwork('1001', picture, 'banners')
+        row.set_room_artwork('1001', picture, 'banners')
+        self.assertFalse(notice.property('roomBackdrop'))
+        self.assertIs(notice._on_click, callback)
+        self.assertIs(row.entry.callback, callback)
+        window.settings['notice_banner_enabled'] = True
+        for card in (notice, row):
+            room_artwork.style_room_notice(card, card.artwork)
+        for card in (notice, row):
+            self.assertTrue(card.property('roomBackdrop'))
+        with patch.object(room_artwork, 'paint_room_background', wraps=room_artwork.paint_room_background) as paint:
+            notice.grab()
+            row.grab()
+            self.assertGreaterEqual(paint.call_count, 2)
 
     def test_banner_blur_settings_roundtrip_and_reset(self):
         dialog = SettingsDialog({'notice_banner_blur': 30}, {}, preview=True)

@@ -177,7 +177,8 @@ class SettingsControl:
         changed_keys = {key for key, value in updated_settings.items() if host.settings.get(key) != value}
         from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
-        presentation_only = bool(changed_keys) and changed_keys <= MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+        presentation_only = bool(changed_keys) and changed_keys <= (
+            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | {'notice_banner_enabled'})
         host.settings.update(updated_settings)
         from . import theme
         if theme.configure_appearance(host.settings):
@@ -187,7 +188,11 @@ class SettingsControl:
         from .notification_center import NoticeRow
         from .online_ui import ResultNotice
         for notice in [*host.findChildren(NoticeRow), *host.findChildren(ResultNotice)]:
-            notice.update()
+            if 'notice_banner_enabled' in changed_keys:
+                from .room_artwork import style_room_notice
+                style_room_notice(notice, notice.artwork)
+            else:
+                notice.update()
         for codec_dialog in host._codec_dialogs.values():
             codec_dialog.controls.set_defaults(config_module.codec_settings(host.settings))
         if not host.settings.get("auto_update", False):
