@@ -1,6 +1,6 @@
 """Room addition and follow import dialogs; no settings-page or main-window dependency."""
 import re
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QMenu, QLineEdit, QListWidget, QListWidgetItem,
@@ -11,7 +11,9 @@ from .follow_folders import default_folder
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .motion import AnimatedDialog
-from .follow_import_ui import FollowImportDelegate, FollowImportList
+from .follow_import_ui import FollowImportDelegate, FollowImportItem, FollowImportList
+from .ui.select import SelectControl
+from pypinyin import lazy_pinyin
 
 
 from .room_folder_controls import (_add_folder_option, _create_folder_for_dialog)
@@ -40,7 +42,7 @@ class FollowImportDialog(QDialog):
         self.folder_names = {folder['name'] for folder in folders or []}
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
 
         self.header = QLabel()
@@ -59,7 +61,20 @@ class FollowImportDialog(QDialog):
         self.search_edit.setToolTip("支持中文、全拼和拼音首字母")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_rooms)
-        layout.addWidget(self.search_edit)
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        search_row.addWidget(self.search_edit, 1)
+        self.sort_control = SelectControl()
+        self.sort_control.setAccessibleName("主播排序")
+        self.sort_control.setMinimumContentsLength(4)
+        self.sort_control.setFixedWidth(126)
+        for label, mode in (("原顺序", "original"), ("直播优先", "live"),
+                            ("未添加优先", "unadded"), ("名称排序", "name")):
+            self.sort_control.addItem(label, mode)
+        self.sort_control.setToolTip("只调整显示顺序；名称按拼音及字母排序，不改变勾选")
+        self.sort_control.currentIndexChanged.connect(lambda _: self._sort_rooms())
+        search_row.addWidget(self.sort_control)
+        layout.addLayout(search_row)
 
         self.folder_controls = QWidget()
         folder_row = QHBoxLayout(self.folder_controls)
@@ -81,8 +96,12 @@ class FollowImportDialog(QDialog):
         self.new_folder_action.setEnabled(folder_creator is not None)
         self.new_folder_action.triggered.connect(lambda: _create_folder_for_dialog(self, folder_creator))
         # 快捷筛选
-        filters = QHBoxLayout()
+        filters = QGridLayout()
+        filters.setContentsMargins(0, 0, 0, 0)
         filters.setSpacing(6)
+        selection_actions = QHBoxLayout()
+        selection_actions.setContentsMargins(0, 0, 0, 0)
+        selection_actions.setSpacing(6)
         self.filter_buttons = []
         for text, handler in (("全选", lambda: self._check_all(True)),
                               ("不选", lambda: self._check_all(False)),
@@ -93,16 +112,22 @@ class FollowImportDialog(QDialog):
             button.setAutoDefault(False)
             button.setToolTip("只操作当前搜索结果")
             button.clicked.connect(handler)
-            filters.addWidget(button)
+            selection_actions.addWidget(button)
             self.filter_buttons.append(button)
-        filters.addStretch(1)
+        selection_actions.addStretch(1)
+        filters.addLayout(selection_actions, 0, 0)
+        filters.setColumnStretch(0, 1)
+        self.hide_existing = QCheckBox("隐藏已添加")
+        self.hide_existing.setToolTip("仅隐藏已有关注，保留其勾选；不会因为隐藏而移除关注")
+        self.hide_existing.toggled.connect(lambda _: self._filter_rooms(self.search_edit.text()))
+        filters.addWidget(self.hide_existing, 0, 1)
         if self.room_menu:
             pending_count = sum(not room.get("room_id") for room in rooms)
             self.show_pending = QCheckBox(f"待识别 {pending_count}")
             self.show_pending.setToolTip("显示尚未取得直播间号的账号；勾选后保存，识别成功后再导入")
             self.show_pending.setVisible(any(not room.get("room_id") for room in rooms))
             self.show_pending.toggled.connect(lambda _: self._filter_rooms(self.search_edit.text()))
-            filters.addWidget(self.show_pending)
+            filters.addWidget(self.show_pending, 1, 0, 1, 2)
         layout.addLayout(filters)
 
         self.list = FollowImportList()
@@ -110,7 +135,6 @@ class FollowImportDialog(QDialog):
         self.list.setItemDelegate(FollowImportDelegate(self.existing, self.list))
         self.list.itemDelegate().checkChanged.connect(self._update_header)
         self.list.setMouseTracking(True)
-        self.list.setSpacing(3)
         self._avatar_items = {}
         self.list.setUniformItemSizes(True)
         self._offset = 0
@@ -129,12 +153,11 @@ class FollowImportDialog(QDialog):
         self._offset = self.list.count()
         layout.addWidget(self.list, 1)
         self.list.itemChanged.connect(self._track_checked)
-        if self.room_menu:
-            self.empty_label = QLabel("暂未识别到可导入的直播间；可等待补充识别，或查看待识别账号。")
-            self.empty_label.setObjectName("SettingsHint")
-            self.empty_label.setWordWrap(True)
-            layout.addWidget(self.empty_label)
-            self.empty_label.hide()
+        self.empty_label = QLabel()
+        self.empty_label.setObjectName("SettingsHint")
+        self.empty_label.setWordWrap(True)
+        layout.addWidget(self.empty_label)
+        self.empty_label.hide()
 
         layout.addWidget(self.removal_hint)
         self.secondary_actions = QHBoxLayout()
@@ -160,6 +183,7 @@ class FollowImportDialog(QDialog):
         self.footer.addWidget(self.confirm_controls, 1, 2)
         layout.addLayout(self.footer)
 
+        self.sort_control.setEnabled(not self._populating)
         self.import_button.setEnabled(not self._populating)
         for button in self.filter_buttons:
             button.setEnabled(not self._populating)
@@ -173,7 +197,9 @@ class FollowImportDialog(QDialog):
     def _append_rooms(self, rooms):
         for room in rooms:
             room_id = str(room["room_id"])
-            item = QListWidgetItem(self._room_text(room))
+            item = FollowImportItem(self._room_text(room))
+            item.setData(Qt.UserRole + 2, self.list.count())
+            item.setData(Qt.UserRole + 3, (self.list.count(),))
             item.setData(Qt.UserRole, room)
             item.setToolTip(self._room_text(room))
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
@@ -184,14 +210,13 @@ class FollowImportDialog(QDialog):
                 self._avatar_items.setdefault(room_id, item)
             if room.get("anchor_uid"):
                 self._avatar_items.setdefault("account:" + str(room["anchor_uid"]), item)
-            query = self.search_edit.text().strip().casefold()
-            item.setHidden(not matches_text(room['uname'], query))
-            if self.room_menu and not self.show_pending.isChecked() and not room.get("room_id"):
-                item.setHidden(True)
+            item.setHidden(self._room_hidden(room))
             for key in (room_id, 'account:' + str(room.get('anchor_uid'))):
                 pixmap = self._pending_avatars.pop(key, None)
                 if pixmap is not None:
                     self.set_avatar(key, pixmap)
+        if self.sort_control.currentData() != "original":
+            self._sort_rooms()
 
     def _populate_more(self):
         self._append_rooms(self.rooms[self._offset:self._offset + 32])
@@ -200,6 +225,7 @@ class FollowImportDialog(QDialog):
         if not self._populating:
             self._populate_timer.stop()
             self.import_button.setEnabled(True)
+            self.sort_control.setEnabled(True)
             for button in self.filter_buttons:
                 button.setEnabled(True)
             self._avatar_timer.start()
@@ -219,13 +245,13 @@ class FollowImportDialog(QDialog):
     def request_visible_avatars(self):
         if not self.isVisible():
             return
-        first = max(0, self.list.indexAt(QPoint(12, 8)).row())
-        last = self.list.indexAt(QPoint(12, self.list.viewport().height() - 8)).row()
-        if last < first:
-            last = first + 24
+        visible = self.list.viewport().rect().adjusted(0, -80, 0, 80)
         faces = {}
-        for index in range(first, min(self.list.count(), last + 5)):
-            room = self.list.item(index).data(Qt.UserRole)
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            if item.isHidden() or not self.list.visualItemRect(item).intersects(visible):
+                continue
+            room = item.data(Qt.UserRole)
             key = str(room.get('room_id') or 'account:' + str(room.get('anchor_uid')))
             if room.get('face') and key not in self._requested_avatars:
                 self._requested_avatars.add(key)
@@ -244,13 +270,34 @@ class FollowImportDialog(QDialog):
         # 隐藏条目而不重建列表，保留勾选和异步回填的头像。
         if self.property("loading"):
             return
-        query = text.strip().casefold()
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setHidden(not matches_text(item.data(Qt.UserRole)["uname"], query))
-            if self.room_menu and not self.show_pending.isChecked() and not item.data(Qt.UserRole).get("room_id"):
-                item.setHidden(True)
+            item.setHidden(self._room_hidden(item.data(Qt.UserRole)))
+        self._avatar_timer.start()
         self._update_header()
+
+    def _room_hidden(self, room):
+        return (not matches_text(room['uname'], self.search_edit.text().strip().casefold())
+                or (self.hide_existing.isChecked() and str(room['room_id']) in self.existing)
+                or (self.room_menu and not self.show_pending.isChecked() and not room.get('room_id')))
+
+    def _sort_rooms(self):
+        mode = self.sort_control.currentData()
+        for index in range(self.list.count()):
+            item = self.list.item(index)
+            room = item.data(Qt.UserRole)
+            original = item.data(Qt.UserRole + 2)
+            if mode == 'live':
+                key = (not bool(room.get('live')), original)
+            elif mode == 'unadded':
+                key = (str(room['room_id']) in self.existing, original)
+            elif mode == 'name':
+                key = (''.join(lazy_pinyin(room['uname'])).casefold(), original)
+            else:
+                key = (original,)
+            item.setData(Qt.UserRole + 3, key)
+        self.list.sortItems()
+        self._avatar_timer.start()
 
     # ---- 勾选交互：整行可点 ----
     def _track_checked(self, item: QListWidgetItem) -> None:
@@ -311,9 +358,16 @@ class FollowImportDialog(QDialog):
         if self.room_menu:
             self.show_pending.setText(f"待识别 {pending}")
             self.show_pending.setVisible(bool(pending))
-            self.empty_label.setText("没有匹配的主播，请调整搜索条件。" if self.search_edit.text().strip() else
-                                     "暂无可导入的直播间，可补充识别或显示待识别账号。")
-            self.empty_label.setVisible(shown == 0)
+        if self.search_edit.text().strip():
+            empty_text = "没有匹配的主播，请调整搜索条件。"
+        elif self.hide_existing.isChecked() and self.rooms:
+            empty_text = "当前没有未添加的主播，可取消“隐藏已添加”查看。"
+        elif self.room_menu:
+            empty_text = "暂无可导入的直播间，可补充识别或显示待识别账号。"
+        else:
+            empty_text = "暂无可导入的关注。"
+        self.empty_label.setText(empty_text)
+        self.empty_label.setVisible(shown == 0 and not self.property("loading"))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -338,24 +392,22 @@ class FollowImportDialog(QDialog):
             status += "（本次识别失败）"
         elif room.get("follow_resolve_note"):
             status += "（本次" + room["follow_resolve_note"] + "）"
-        return "　".join([room["uname"], status] + ([room["title"][:18]] if room.get("title") else []))
+        return "　".join([room["uname"], status] + ([room["title"]] if room.get("title") else []))
 
     def update_account(self, account):
         for index, room in enumerate(self.rooms):
             if room.get("anchor_uid") == account.get("anchor_uid"):
                 self.rooms[index] = dict(account)
-                if index >= self.list.count():
+                item = self._avatar_items.get('account:' + str(account.get('anchor_uid')))
+                if item is None:
                     return
-                item = self.list.item(index)
                 item.setData(Qt.UserRole, dict(account))
                 item.setText(self._room_text(account))
                 item.setToolTip(self._room_text(account))
                 if account.get("room_id"):
                     self._avatar_items[str(account["room_id"])] = item
-                if self.room_menu:
-                    self._filter_rooms(self.search_edit.text())
-                else:
-                    self._update_header()
+                self._sort_rooms()
+                self._filter_rooms(self.search_edit.text())
                 return
 
     # ---- 结果 ----

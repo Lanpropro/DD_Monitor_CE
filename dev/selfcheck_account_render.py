@@ -26,7 +26,10 @@ def choose_platform(dialog, kind):
     if dialog.import_follows:
         picker = dialog.import_bar.platform
         assert picker.isEnabled()
-        picker.setCurrentIndex(picker.findData(kind))
+        if picker.buttons[kind].isVisible():
+            QTest.mouseClick(picker.buttons[kind], Qt.LeftButton)
+        else:
+            picker.actions[kind].trigger()
     else:
         QTest.mouseClick(dialog.platform_buttons[kind], Qt.LeftButton)
 
