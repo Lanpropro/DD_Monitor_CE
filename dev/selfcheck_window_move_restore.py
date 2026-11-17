@@ -178,7 +178,7 @@ class MoveRestoreTests(unittest.TestCase):
         original_event = Probe.event
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'resize.jsonl'
-            trace = WindowResizeTrace(path)
+            trace = WindowResizeTrace(path, profile_dpi=True)
             with trace:
                 trace.wrap(Probe, 'event', event_types=(QEvent.ScreenChangeInternal,
                                                        QEvent.DevicePixelRatioChange))
@@ -188,12 +188,17 @@ class MoveRestoreTests(unittest.TestCase):
                 try:
                     hwnd = int(window.winId())
                     self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
+                    message = wintypes.MSG()
+                    message.hWnd, message.message = hwnd, 0x02e0
+                    with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                        window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
                     probe = Probe()
                     self.assertEqual(probe.event(QEvent(QEvent.Resize)), 42)
                     self.assertEqual(probe.event(QEvent(QEvent.DevicePixelRatioChange)), 42)
                     with self.assertRaisesRegex(RuntimeError, 'probe'):
                         probe.event(QEvent(QEvent.ScreenChangeInternal))
                     window.move(window.pos() + QPoint(20, 10))
+                    self.assertIsNone(trace.dpi_profiler)
                     window.resize(window.width() + 40, window.height() + 20)
                     QTest.qWait(70)
                     self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
@@ -219,6 +224,11 @@ class MoveRestoreTests(unittest.TestCase):
                          [0x0231, 0x0232])
         self.assertIn(0x0003, [x['message'] for x in row['messages']])
         self.assertFalse(row['messagesCapped'])
+        self.assertEqual(len(row['dpiProfiles']), 1)
+        profile = row['dpiProfiles'][0]
+        self.assertLessEqual(len(profile['functions']), 120)
+        self.assertTrue(profile['functions'])
+        self.assertIsNone(trace.dpi_profiler)
         self.assertGreaterEqual(row['cpuMs'], 0)
         self.assertTrue(all(x['cpuAtMs'] >= 0 for x in row['messages']))
         for key in ('initialTopology', 'finalTopology'):
@@ -281,6 +291,36 @@ class MoveRestoreTests(unittest.TestCase):
                 trace.flush()
             rows = path.read_text().splitlines()
         self.assertEqual(len(rows), 2)
+
+    def test_dpi_profile_is_opt_in_bounded_and_stops_on_flush(self):
+        from dev.diagnose_window_resize import WindowResizeTrace
+        previous = sys.getprofile()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            trace.begin(self.window)
+            trace.start_dpi_profile()
+            self.assertIsNone(trace.dpi_profiler)
+            trace.flush()
+            trace = WindowResizeTrace(path, profile_dpi=True)
+            trace.MAX_DPI_PROFILES = 1
+            trace.begin(self.window)
+            trace.start_dpi_profile()
+            sum(range(100))
+            trace.finish_dpi_profile()
+            trace.start_dpi_profile()
+            self.assertIsNone(trace.dpi_profiler)
+            trace.flush()
+            trace.begin(self.window)
+            trace.start_dpi_profile()
+            trace.flush()  # Exit without a subsequent move must also disable profiling.
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertIs(sys.getprofile(), previous)
+        self.assertEqual([len(row['dpiProfiles']) for row in rows], [0, 1, 1])
+        self.assertTrue(any('builtins.sum' in f['function'] for f in rows[1]['dpiProfiles'][0]['functions']))
+        self.assertTrue(all(len(p['functions']) <= 120 for row in rows for p in row['dpiProfiles']))
+        self.assertNotIn('uname', json.dumps(rows))
+        self.assertIsNone(trace.dpi_profiler)
 
     def test_same_size_native_message_still_clears_wall_mode_on_exit(self):
         window = self.window

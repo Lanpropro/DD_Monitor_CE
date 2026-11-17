@@ -97,6 +97,10 @@ if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
 if /i "%~1"=="--diagnose-danmaku-motion" set "DDM_DANMAKU_MOTION_CAPTURE=1"
 if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
 if /i "%~1"=="--diagnose-window-resize" set "DDM_WINDOW_RESIZE_CAPTURE=1"
+if /i "%~1"=="--diagnose-window-dpi-profile" (
+    set "DDM_WINDOW_RESIZE_CAPTURE=1"
+    set "DDM_WINDOW_DPI_PROFILE=1"
+)
 if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
@@ -397,7 +401,7 @@ if not "%errorlevel%"=="0" exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=windows"
-"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit MoveRestoreTests.test_first_native_size_arms_wall_before_qt_resizes_children
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit MoveRestoreTests.test_first_native_size_arms_wall_before_qt_resizes_children MoveRestoreTests.test_dpi_profile_is_opt_in_bounded_and_stops_on_flush
 if not "%errorlevel%"=="0" exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_resize_widgets
 exit /b %errorlevel%

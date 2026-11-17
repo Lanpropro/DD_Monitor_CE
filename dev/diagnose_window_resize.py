@@ -2,6 +2,7 @@
 import ctypes
 from ctypes import wintypes
 from collections import Counter
+import cProfile
 import functools
 import json
 import os
@@ -12,8 +13,9 @@ import time
 class WindowResizeTrace:
     MAX_GESTURES = 80
     MAX_CALLS = 12000
+    MAX_DPI_PROFILES = 8
 
-    def __init__(self, path):
+    def __init__(self, path, *, profile_dpi=False):
         self.path = Path(path)
         self.originals = []
         self.window = None
@@ -22,6 +24,9 @@ class WindowResizeTrace:
         self.stack = []
         self.started = 0
         self.gesture = 0
+        self.profile_dpi = profile_dpi
+        self.dpi_profiler = None
+        self.dpi_profiles = []
 
     def begin(self, window, source='native-resize'):
         self.flush()
@@ -42,6 +47,42 @@ class WindowResizeTrace:
         widgets = [self.window, *self.window.findChildren(QWidget)]
         native = Counter(type(w).__name__ for w in widgets if w.internalWinId())
         return dict(widgets=len(widgets), nativeWidgets=sum(native.values()), nativeTypes=dict(native))
+
+    def start_dpi_profile(self):
+        if (not self.profile_dpi or self.window is None or self.dpi_profiler is not None
+                or len(self.dpi_profiles) >= self.MAX_DPI_PROFILES):
+            return
+        self.dpi_profile_start = time.perf_counter(), time.thread_time()
+        self.dpi_profiler = cProfile.Profile()
+        self.dpi_profiler.enable()
+
+    def finish_dpi_profile(self):
+        profiler = self.dpi_profiler
+        if profiler is None:
+            return
+        profiler.disable()
+        self.dpi_profiler = None
+        started, cpu_started = self.dpi_profile_start
+        duration = time.perf_counter()-started
+        cpu = time.thread_time()-cpu_started
+        stats = profiler.getstats()
+        # Retain both self-time and cumulative-time leaders, bounded independently
+        # of the number of events; no arguments, locals or widget text.
+        selected = {entry.code: entry for entry in sorted(stats, key=lambda s: s.inlinetime,
+                                                         reverse=True)[:60]}
+        selected.update((entry.code, entry) for entry in sorted(stats, key=lambda s: s.totaltime,
+                                                               reverse=True)[:60])
+        functions = []
+        for code, entry in selected.items():
+            name = (code if isinstance(code, str) else
+                    f'{Path(code.co_filename).name}:{code.co_firstlineno}:{code.co_name}')
+            functions.append(dict(function=name, calls=entry.callcount,
+                                  selfMs=round(entry.inlinetime*1000, 3),
+                                  totalMs=round(entry.totaltime*1000, 3)))
+        self.dpi_profiles.append(dict(atMs=round((started-self.started)*1000, 3),
+            durationMs=round(duration*1000, 3), cpuMs=round(cpu*1000, 3),
+            profiledSelfMs=round(sum(entry.inlinetime for entry in stats)*1000, 3),
+            functions=functions))
 
     def state(self):
         w = self.window
@@ -64,15 +105,18 @@ class WindowResizeTrace:
     def flush(self):
         if self.window is None:
             return
+        self.finish_dpi_profile()
         row = dict(pid=os.getpid(), gesture=self.gesture, time=self.epoch, source=self.source,
                    durationMs=round((time.perf_counter()-self.started)*1000, 3),
                    cpuMs=round((time.thread_time()-self.cpu_started)*1000, 3),
                    initial=self.initial, final=self.state(),
                    initialTopology=self.initial_topology, finalTopology=self.topology(),
+                   dpiProfiles=self.dpi_profiles,
                    calls=self.calls, callsCapped=len(self.calls) >= self.MAX_CALLS,
                    messages=self.messages, messagesCapped=len(self.messages) >= self.MAX_CALLS)
         self.window = None
         self.calls, self.messages = [], []
+        self.dpi_profiles = []
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open('a', encoding='utf-8') as output:
             output.write(json.dumps(row) + '\n')
@@ -104,6 +148,11 @@ class WindowResizeTrace:
             code, value = msg.message, int(msg.wParam)
             if code == 0x0231:
                 trace.begin(window)
+            if trace.window is window:
+                if code in (0x0003, 0x0232, 0x02e0):
+                    trace.finish_dpi_profile()
+                if code == 0x02e0:
+                    trace.start_dpi_profile()
             result = native(window, event_type, message)
             if trace.window is window and code in (0x0231, 0x0232, 0x0003, 0x0005, 0x02e0):
                 if len(trace.messages) < trace.MAX_CALLS:
