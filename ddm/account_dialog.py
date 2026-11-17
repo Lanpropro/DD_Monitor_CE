@@ -15,7 +15,7 @@ from .widget_support import BRAND_ASSETS_DIR
 
 
 from .account_workers import (FollowAccountResolver)
-from .follow_import_ui import AccountImportBar
+from .follow_import_ui import AccountImportBar, paint_import_surface
 
 
 class AccountPlatformDialog(QDialog):
@@ -26,7 +26,9 @@ class AccountPlatformDialog(QDialog):
         self.import_follows = import_follows
         if import_follows:
             self.setWindowFlag(Qt.FramelessWindowHint, True)
-            self.setSizeGripEnabled(True)
+            self.setAttribute(Qt.WA_TranslucentBackground)
+            self.setProperty("customControlSurface", True)
+            theme.signals().changed.connect(self.update)
         self.reauthenticate = reauthenticate
         self._reauthenticate_kind = platform_kind
         self.rooms = []
@@ -47,13 +49,15 @@ class AccountPlatformDialog(QDialog):
         self._pending_platform = ""
         self.setWindowTitle("导入关注" if import_follows else "登录")
         self.layout_box = QVBoxLayout(self)
+        if import_follows:
+            self.layout_box.setContentsMargins(12, 10, 12, 10)
+            self.layout_box.setSpacing(8)
         self.platform_buttons = {}
         if import_follows:
             labels = [("bilibili", "哔哩哔哩")] + [(p.kind, p.label) for p in providers.values()
                                                           if p.kind != "bilibili"]
             self.import_bar = AccountImportBar(labels, self)
-            self.import_bar.platform.currentIndexChanged.connect(
-                lambda index: self.select_platform(self.import_bar.platform.itemData(index)))
+            self.import_bar.platform.selectionRequested.connect(self.select_platform)
             self.import_bar.refresh.clicked.connect(lambda: self.select_platform(self.kind, reread=True))
             self.layout_box.addWidget(self.import_bar)
         else:
@@ -98,9 +102,7 @@ class AccountPlatformDialog(QDialog):
     def _update_platform_labels(self):
         if self.import_follows:
             picker = self.import_bar.platform
-            picker.blockSignals(True)
-            picker.setCurrentIndex(max(0, picker.findData(self.kind)))
-            picker.blockSignals(False)
+            picker.set_current(self.kind)
             account = self.owner._accounts.get(self.kind, {})
             logged = bool(bili.SESSION_DATA) if self.kind == "bilibili" else bool(account) and not account.get("_login_expired")
             self.import_bar.set_account((account or {"uname": "已登录"}) if logged else {}, self.kind)
@@ -191,6 +193,29 @@ class AccountPlatformDialog(QDialog):
         y = max(screen.top(), min(frame.top(), screen.bottom() - frame.height() + 1))
         self.move(x, y)
 
+    def mousePressEvent(self, event):
+        if self.import_follows and event.button() == Qt.LeftButton and self.windowHandle() is not None:
+            point = event.position()
+            edges = Qt.Edge(0)
+            if point.x() < 8:
+                edges |= Qt.LeftEdge
+            if point.x() >= self.width() - 8:
+                edges |= Qt.RightEdge
+            if point.y() < 8:
+                edges |= Qt.TopEdge
+            if point.y() >= self.height() - 8:
+                edges |= Qt.BottomEdge
+            if edges and self.windowHandle().startSystemResize(edges):
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        if self.import_follows:
+            paint_import_surface(self)
+        else:
+            super().paintEvent(event)
+
     def showEvent(self, event):
         super().showEvent(event)
         self._center_on_owner()
@@ -198,9 +223,7 @@ class AccountPlatformDialog(QDialog):
     def _select_platform_control(self, kind):
         if self.import_follows:
             picker = self.import_bar.platform
-            picker.blockSignals(True)
-            picker.setCurrentIndex(picker.findData(kind))
-            picker.blockSignals(False)
+            picker.set_current(kind)
         else:
             self.platform_buttons[kind].setChecked(True)
 
@@ -368,6 +391,7 @@ class AccountPlatformDialog(QDialog):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
         page = FollowImportDialog([], existing, self.owner)
         page.setProperty("loading", True)
+        page.empty_label.hide()
         page.header.setText(title)
         page.import_button.setEnabled(False)
         for button in page.filter_buttons:

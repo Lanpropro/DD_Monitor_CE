@@ -8,10 +8,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QWidget
 from ddm import bili, theme
 from ddm.account_dialog import AccountPlatformDialog
 from ddm.room_dialogs import FollowImportDialog
+from ddm.follow_import_ui import AccountImportBar
 
 ROOMS = [dict(room_id='100', uname='测试主播', live=True, title='直播标题'),
          dict(room_id='200', uname='小明', live=False, title='游戏直播'),
@@ -146,6 +147,97 @@ class FollowImportUITests(unittest.TestCase):
         self.assertFalse(self.page.list.item(299).icon().isNull())
         self.assertFalse(self.page.selected())
 
+    def test_two_column_reflow_retains_selection_and_click_targets(self):
+        for width, columns in ((760, 2), (430, 1), (760, 2)):
+            self.page.resize(width, 620)
+            QTest.qWait(25)
+            self.assertEqual(self.page.list.columns, columns)
+            first = self.page.list.visualItemRect(self.page.list.item(0))
+            second = self.page.list.visualItemRect(self.page.list.item(1))
+            if columns == 2:
+                self.assertEqual(first.top(), second.top())
+                self.assertGreater(second.left(), first.right())
+            else:
+                self.assertGreater(second.top(), first.bottom())
+            self.assertEqual(self.page.selected(), [ROOMS[0]])
+            QTest.mouseClick(self.page.list.viewport(), Qt.LeftButton, pos=second.center())
+            self.assertEqual(self.page.selected(), ROOMS[:2])
+            QTest.mouseClick(self.page.list.viewport(), Qt.LeftButton, pos=second.center())
+            self.assertEqual(self.page.selected(), [ROOMS[0]])
+
+    def test_sort_and_hide_keep_existing_checks_and_explicit_folder_scope(self):
+        page = self.page
+        def order():
+            return [page.list.item(i).data(Qt.UserRole)['room_id'] for i in range(page.list.count())]
+        for mode, expected in [('live', ['100', '300', '200']), ('unadded', ['200', '300', '100']),
+                               ('name', ['100', '300', '200']), ('original', ['100', '200', '300'])]:
+            page.sort_control.setCurrentIndex(page.sort_control.findData(mode))
+            self.assertEqual(order(), expected)
+            self.assertEqual(page.selected(), [ROOMS[0]])
+            self.assertEqual(page.deselected_existing(), [])
+            self.assertEqual(page.folder_room_ids(), [])
+        page.hide_existing.setChecked(True)
+        self.assertTrue(page.list.item(0).isHidden())
+        page._check_all(True)
+        self.assertEqual(page.selected(), ROOMS)
+        self.assertEqual(page.folder_room_ids(), ['200', '300'])
+        self.assertEqual(page.deselected_existing(), [])
+        page._check_all(False)
+        self.assertEqual(page.selected(), [ROOMS[0]])
+        self.assertEqual(page.deselected_existing(), [])
+        page.hide_existing.setChecked(False)
+        self.assertFalse(page.list.item(0).isHidden())
+
+    def test_hide_all_existing_has_hint_without_removing_them(self):
+        self.page.close()
+        self.page = FollowImportDialog(ROOMS, {'100', '200', '300'})
+        self.page.hide_existing.setChecked(True)
+        self.assertTrue(all(self.page.list.item(i).isHidden() for i in range(3)))
+        self.assertEqual(self.page.selected(), ROOMS)
+        self.assertEqual(self.page.deselected_existing(), [])
+        self.assertFalse(self.page.empty_label.isHidden())
+        self.assertIn('取消', self.page.empty_label.text())
+
+    def test_pending_resolution_updates_the_same_item_after_sorting(self):
+        self.page.close()
+        self.page = FollowImportDialog([
+            dict(room_id='', anchor_uid='a', uname='Zed', live=False, pending_import=True),
+            dict(room_id='known', anchor_uid='b', uname='Alice', live=True)], set(), room_menu=True)
+        page = self.page
+        page.show_pending.setChecked(True)
+        page.sort_control.setCurrentIndex(page.sort_control.findData('name'))
+        self.assertEqual(page.list.item(0).data(Qt.UserRole)['anchor_uid'], 'b')
+        page.update_account(dict(room_id='resolved', anchor_uid='a', uname='Aaron', live=True))
+        self.assertEqual(page.list.item(0).data(Qt.UserRole)['anchor_uid'], 'a')
+        self.assertEqual(page.selected()[0]['room_id'], 'resolved')
+        self.assertEqual(page.list.item(1).data(Qt.UserRole)['room_id'], 'known')
+        page.sort_control.setCurrentIndex(page.sort_control.findData('original'))
+        self.assertEqual(page.list.item(0).data(Qt.UserRole)['anchor_uid'], 'a')
+
+    def test_platform_overflow_keeps_active_and_all_providers_reachable(self):
+        owner = QDialog()
+        bar = AccountImportBar([(str(i), f'平台{i}') for i in range(8)], owner)
+        bar.resize(400, 90)
+        owner.show()
+        bar.show()
+        bar.platform.set_current('7')
+        QTest.qWait(20)
+        tabs = bar.platform
+        self.assertTrue(tabs.buttons['7'].isVisible())
+        self.assertTrue(tabs.buttons['7'].isChecked())
+        self.assertTrue(tabs.more.isVisible())
+        for kind, button in tabs.buttons.items():
+            self.assertEqual(button.isVisible(), not tabs.actions[kind].isVisible())
+        requests = []
+        tabs.selectionRequested.connect(requests.append)
+        hidden = next(kind for kind, button in tabs.buttons.items() if not button.isVisible())
+        tabs.actions[hidden].trigger()
+        self.assertEqual(requests, [hidden])
+        tabs.set_current(hidden)
+        self.assertTrue(tabs.buttons[hidden].isChecked())
+        self.assertTrue(tabs.buttons[hidden].isVisible())
+        owner.close()
+
     def test_source_bar_refresh_and_platform_switch(self):
         owner = QWidget()
         owner.resize(430, 800)
@@ -161,8 +253,12 @@ class FollowImportUITests(unittest.TestCase):
             dialog.show()
             QTest.qWait(20)
             self.assertEqual(dialog.import_bar.account.uname, '测试账号')
+            QTest.mouseClick(dialog.import_bar.platform.buttons['bilibili'], Qt.LeftButton)
+            self.assertTrue(dialog.import_bar.platform.buttons['bilibili'].isChecked())
             self.assertEqual(dialog.width(), 430)
             self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
+            self.assertTrue(dialog.testAttribute(Qt.WA_TranslucentBackground))
+            self.assertEqual(dialog.grab().toImage().pixelColor(0, 0).alpha(), 0)
             self.assertLessEqual(dialog.import_bar.account.width(), 200)
             name = dialog.import_bar.account.name
             self.assertGreaterEqual(name.width(), name.fontMetrics().horizontalAdvance(name.text()))
@@ -173,10 +269,10 @@ class FollowImportUITests(unittest.TestCase):
             self.assertFalse(dialog.import_bar.platform.isEnabled())
             self.assertFalse(dialog.import_bar.refresh.isEnabled())
             dialog._busy(False)
-            dialog.import_bar.platform.setCurrentIndex(dialog.import_bar.platform.findData('test'))
+            QTest.mouseClick(dialog.import_bar.platform.buttons['test'], Qt.LeftButton)
             self.assertEqual(dialog.kind, 'test')
             self.assertFalse(dialog.import_bar.refresh.isEnabled())
-            dialog.import_bar.platform.setCurrentIndex(dialog.import_bar.platform.findData('bilibili'))
+            QTest.mouseClick(dialog.import_bar.platform.buttons['bilibili'], Qt.LeftButton)
             self.assertIsInstance(dialog.page, FollowImportDialog)
             self.assertEqual(dialog.width(), 430)
             dialog.import_bar.titlebar.close_button.click()
