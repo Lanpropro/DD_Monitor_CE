@@ -70,7 +70,7 @@ class NotificationTests(unittest.TestCase):
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['tray'])
         self.assertEqual(dialog.stack.currentIndex(), SettingsDialog.PAGE_INDEX['tray'])
         self.assertIn('托盘行为', [label.text() for label in
-                              dialog.stack.currentWidget().scroll.widget().findChildren(QLabel)])
+                              dialog.stack.currentWidget().findChildren(QLabel)])
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
         self.assertIs(dialog.stack.currentWidget(), dialog.notification_page)
         dialog.notification_page._checks['live_alert'].setChecked(False)
@@ -277,6 +277,12 @@ class NotificationTests(unittest.TestCase):
                 self.assertIsInstance(page.banner_blur_value, SettingsValueLabel)
                 self.assertTrue(page.banner_blur_value.font().bold())
                 self.assertTrue(page.sections.section('background').isAncestorOf(page.banner_preview))
+                preview = page.banner_preview
+                example = preview.parentWidget()
+                self.assertEqual(preview.height(), 100)
+                self.assertEqual(preview.width(), min(260, example.width()))
+                self.assertEqual(preview.mapTo(example, preview.rect().topRight()).x(), example.width() - 1)
+                self.assertTrue(example.rect().contains(preview.geometry()))
                 self.assertFalse(any('Banner' in label.text() for label in page.findChildren(QLabel)))
                 for key, box in page._checks.items():
                     card = page.sections.section('persistence' if key.startswith('notice_persist_') else 'live')
@@ -290,6 +296,23 @@ class NotificationTests(unittest.TestCase):
                         self.assertTrue(state.isVisible())
                         self.assertLess(state.mapTo(card, state.rect().topRight()).x(), box.mapTo(card, QPoint()).x())
             page.hide()
+
+    def test_banner_preview_can_shrink_below_preferred_width_and_remains_right_aligned(self):
+        from ddm.settings_notifications import NoticeBlurPreview
+        parent = QWidget()
+        self.addCleanup(self.dispose, parent)
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(0, 0, 0, 0)
+        preview = NoticeBlurPreview()
+        layout.addWidget(preview, 0, Qt.AlignRight)
+        for width in (420, 180, 300):
+            parent.resize(width, 120)
+            parent.show()
+            self.app.processEvents()
+            self.assertEqual(preview.size().height(), 100)
+            self.assertEqual(preview.width(), min(260, parent.width()))
+            self.assertEqual(preview.geometry().right(), parent.width() - 1)
+            self.assertTrue(parent.rect().contains(preview.geometry()))
 
     def test_notification_retention_segments_trigger_existing_autosave_contract(self):
         dialog = SettingsDialog({}, {}, preview=True)

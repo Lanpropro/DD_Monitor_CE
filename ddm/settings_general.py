@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (
 )
 from .config import DEFAULT_VOLUME, DECODE_HINTS, DECODE_MODES, codec_settings
 from .motion import AnimatedDialog
-from .ui import SegmentedControl, SelectControl, SettingsSlider, SettingsValueLabel, StepperControl, page_header as _page_head
-from .settings_layout import SettingsSection, section_grid
+from .ui import SegmentedControl, SelectControl, SettingsSlider, SettingsValueLabel, StepperControl, ToggleSwitch, page_header as _page_head
+from .settings_layout import SettingsColumns, SettingsSection, section_grid
 from .bili import BILI_CODECS
 
 
@@ -337,8 +337,11 @@ class TraySettingsPage(QWidget):
         self.setObjectName("SettingsPage")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(14)
+        outer.addLayout(_page_head("托盘行为", "选择关闭窗口后的行为，定制画面右键菜单。"))
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         self.scroll.setWidget(content)
@@ -346,31 +349,39 @@ class TraySettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("托盘行为", "设置关闭窗口的方式及隐藏到系统托盘后的行为"))
+        self.sections = SettingsColumns(content)
+        layout.addWidget(self.sections)
         behavior = SettingsSection('关闭与托盘')
-        layout.addWidget(behavior)
-        row = QHBoxLayout()
-        row.setSpacing(12)
-        row.addWidget(QLabel("关闭窗口时"))
-        self.close_behavior_combo = QComboBox()
+        behavior.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.close_behavior_combo = SelectControl()
         self.close_behavior_combo.setAccessibleName("关闭窗口时")
         for label, value in (("每次询问", "ask"), ("隐藏到托盘", "tray"), ("退出程序", "exit")):
             self.close_behavior_combo.addItem(label, value)
         self.close_behavior_combo.setCurrentIndex(max(
             0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
-        self.close_behavior_combo.setMinimumWidth(180)
-        row.addWidget(self.close_behavior_combo)
-        row.addStretch(1)
-        behavior.grid.addLayout(row, 0, 0, 1, 2)
-        self.pause_playback = QCheckBox("进入托盘后暂停播放")
+        behavior.grid.addWidget(self.close_behavior_combo, 0, 0, 1, 2)
+        close_hint = QLabel('点击关闭按钮时，按此方式处理。托盘菜单仍可退出程序。')
+        close_hint.setObjectName('SettingsHint')
+        close_hint.setWordWrap(True)
+        behavior.grid.addWidget(close_hint, 1, 0, 1, 2)
+        self.pause_playback = ToggleSwitch("隐藏到托盘后暂停播放")
         self.pause_playback.setChecked(bool(settings.get("tray_pause_playback", True)))
-        behavior.grid.addWidget(self.pause_playback, 1, 0, 1, 2)
-        hint = QLabel("暂停时停止观看取流；恢复主窗口后重新连接直播。原本手动暂停的格子保持暂停，录制继续运行。\n普通最小化或切换到其他软件不受影响。")
+        pause_label = QLabel('隐藏后暂停播放')
+        pause_label.setBuddy(self.pause_playback)
+        pause_label.setWordWrap(True)
+        behavior.grid.setColumnStretch(0, 1)
+        behavior.grid.setColumnStretch(1, 0)
+        behavior.grid.addWidget(pause_label, 2, 0)
+        behavior.grid.addWidget(self.pause_playback, 2, 1, Qt.AlignRight)
+        self.pause_playback.setToolTip('隐藏到托盘时停止观看取流，恢复窗口后重连；原本手动暂停的格子保持暂停。普通最小化和切换应用不受影响，录制继续。')
+        hint = QLabel('恢复窗口后继续播放；录制不受影响。仅在隐藏到托盘时生效。')
         hint.setObjectName("SettingsHint")
         hint.setWordWrap(True)
-        behavior.grid.addWidget(hint, 2, 0, 1, 2)
+        behavior.grid.addWidget(hint, 3, 0, 1, 2)
+        self.sections.add_section('close', behavior)
         menu = SettingsSection('画面右键菜单')
-        layout.addWidget(menu)
+        menu.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.sections.add_section('menu', menu)
         from .tile_menu import TileMenuEditor
         self.tile_menu = TileMenuEditor(settings.get('tile_context_menu'))
         menu.grid.addWidget(self.tile_menu, 0, 0, 1, 2)

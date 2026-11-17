@@ -497,13 +497,13 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(self.dialog.general_scroll.horizontalScrollBar().maximum(), 0)
             self.assertLessEqual(editor.geometry().right(), card.width())
             if direction == QBoxLayout.LeftToRight:
-                self.assertLess(editor.parameters_panel.geometry().right(), editor.preview_panel.x())
-                self.assertEqual(editor.parameters_panel.y(), editor.preview_panel.y())
+                self.assertLess(editor.parameters_panel.geometry().right(), editor.items_panel.x())
+                self.assertEqual(editor.parameters_panel.y(), editor.items_panel.y())
             else:
-                self.assertLess(editor.parameters_panel.geometry().bottom(), editor.preview_panel.y())
+                self.assertLess(editor.parameters_panel.geometry().bottom(), editor.items_panel.y())
             for control in editor.controls.values():
                 self.assertTrue(editor.parameters_panel.isAncestorOf(control))
-            self.assertTrue(editor.preview_panel.isAncestorOf(editor.graph))
+            self.assertTrue(editor.items_panel.isAncestorOf(editor.graph))
             self.assertEqual(page.values()['volume_normalization_curve']['hold'], 4.5)
 
     def test_nested_audio_editor_and_controls_follow_base_colors_in_place(self):
@@ -653,6 +653,11 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(page.values(), {key: config.DEFAULT_SETTINGS[key] for key in page.values()})
         for control in (page.recording_enabled, page.lock_quality, page.replay_enabled):
             self.assertIsInstance(control, ToggleSwitch)
+        self.assertEqual(page.lock_quality.accessibleName(), '录制时锁定可用最高分辨率')
+        self.assertIn('录制时锁定可用最高分辨率', {label.text() for label in page.findChildren(QLabel)})
+        self.assertIn('录制时锁定可用最高分辨率', page.lock_quality.toolTip())
+        self.assertIn('账号权限', page.lock_quality.toolTip())
+        self.assertIn('恢复录制前的画质', page.lock_quality.toolTip())
         for control in (page.format, page.codec, page.encoder, page.fps, page.replay_scope):
             self.assertIsInstance(control, SelectControl)
         for editor, stepper in ((page.bitrate, page.bitrate_stepper),
@@ -795,7 +800,7 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertIn('pip_volume_up', page.values())
         self.assertIn('pip_volume_down', page.values())
 
-    def test_tray_retains_menu_preview_order_and_visibility(self):
+    def test_tray_retains_menu_order_and_visibility(self):
         page = self.page(6)
         editor = page.tile_menu
         editor.move_before('reload', 'mute')
@@ -805,8 +810,86 @@ class SettingsLayoutTests(unittest.TestCase):
             self.dialog.resize(width, 800)
             settle()
             self.assertEqual(editor.values(), before)
-            self.assertTrue(editor.preview.isVisible())
+            self.assertTrue(editor.items.isVisible())
             self.assertTrue(editor.checks['reload'].isVisible())
+
+    def test_tray_cards_and_menu_controls_fit_narrow_wide_and_large_fonts(self):
+        from ddm.dialogs import TraySettingsPage
+        from ddm.ui import SelectControl, ToggleSwitch
+        previous = dict(theme._preferences)
+        self.addCleanup(theme.configure_appearance, previous)
+        for font_size in (13, 20):
+            theme.configure_appearance({'appearance_font_size': font_size})
+            page = TraySettingsPage({'close_behavior': 'tray', 'tray_pause_playback': False})
+            page.setStyleSheet(theme.qss())
+            try:
+                self.assertIsInstance(page.close_behavior_combo, SelectControl)
+                self.assertIsInstance(page.pause_playback, ToggleSwitch)
+                self.assertTrue(all(isinstance(check, ToggleSwitch) for check in page.tile_menu.checks.values()))
+                before = page.values()
+                for width in (500, 1600):
+                    page.resize(width, 800)
+                    page.show()
+                    settle()
+                    self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                    expected = 2 if width == 1600 else 1
+                    self.assertEqual(page.sections.columns, expected)
+                    for widget in (page.close_behavior_combo, page.pause_playback,
+                                   page.tile_menu.items, *page.tile_menu.checks.values()):
+                        self.assertTrue(page.scroll.widget().rect().contains(
+                            widget.mapTo(page.scroll.widget(), widget.rect().topLeft())))
+                        self.assertTrue(page.scroll.widget().rect().contains(
+                            widget.mapTo(page.scroll.widget(), widget.rect().bottomRight())))
+                    self.assertEqual(page.values(), before)
+                    self.assertEqual(page.findChildren(QScrollArea), [page.scroll])
+                page.reset()
+                self.assertEqual(page.values()['close_behavior'], config.DEFAULT_SETTINGS['close_behavior'])
+                self.assertEqual(page.values()['tray_pause_playback'], config.DEFAULT_SETTINGS['tray_pause_playback'])
+            finally:
+                page.close()
+                page.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                settle()
+
+    def test_tray_changes_drag_and_default_restore_use_existing_autosave(self):
+        from ddm.tile_menu import MENU_ITEMS, menu_choices
+        page = self.page(6)
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        page.close_behavior_combo.setCurrentIndex(page.close_behavior_combo.findData('tray'))
+        page.pause_playback.setChecked(False)
+        editor = page.tile_menu
+        rows = dict(editor.items.rows())
+        start = rows['reload'].center().toPoint()
+        end = rows['quality'].topLeft().toPoint() + QPoint(25, 1)
+        QTest.mousePress(editor.items, Qt.LeftButton, pos=start)
+        QTest.mouseMove(editor.items, end)
+        QTest.mouseRelease(editor.items, Qt.LeftButton, pos=end)
+        ids = [entry['id'] for entry in editor.values()]
+        self.assertLess(ids.index('reload'), ids.index('quality'))
+        editor.checks['plugins'].click()
+        editor.select_item('plugins')
+        editor.move_item(-1)
+        self.assertEqual(editor.items.selected, 'plugins')
+        self.assertFalse(next(entry for entry in editor.values() if entry['id'] == 'plugins')['enabled'])
+        self.assertTrue(self.dialog.auto_save.timer.isActive())
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], page.values())
+        saved = page.values()
+        self.dialog.auto_save.acknowledge()
+        # Reopen from the saved delta without depending on any real configuration.
+        from ddm.dialogs import TraySettingsPage
+        reopened = TraySettingsPage(saved)
+        self.assertEqual(reopened.values(), saved)
+        reopened.deleteLater()
+        requested.clear()
+        editor.set_choices(None)
+        self.assertTrue(self.dialog.auto_save.timer.isActive())
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'tile_context_menu': menu_choices(None)})
+        self.assertEqual([entry['id'] for entry in editor.values()], [key for key, _label in MENU_ITEMS])
+        self.dialog.auto_save.acknowledge()
 
 
 class AppearanceEditorTests(unittest.TestCase):
@@ -852,7 +935,7 @@ class AppearanceEditorTests(unittest.TestCase):
                 editor = page.parts_editor
                 background = editor.background_controls
                 self.assertEqual(editor.findChildren(SettingsSurface), [editor.editor_card])
-                self.assertTrue(editor.editor_card.isAncestorOf(editor.preview))
+                self.assertTrue(editor.editor_card.isAncestorOf(editor.items))
                 self.assertTrue(editor.editor_card.isAncestorOf(background.choose))
                 self.assertIsInstance(editor.scenes, SelectControl)
                 self.assertIsInstance(background.video_toggle, ToggleSwitch)
