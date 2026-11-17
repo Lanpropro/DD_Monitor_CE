@@ -200,6 +200,8 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 
 Windows主窗口构造时启用Qt原生同级控件按需创建策略；视频由TilePlayer显式绑定HWND，FullscreenBar显式保留自身原生窗口并由Qt路由普通子控件输入。WindowLayout在首次原生交互时结束启动阶段，避免依赖被子窗口遮满的主窗口Paint。BadgeSurface及VideoCorner使用已有的合并上传定时器保证原生alpha，不依赖偶然曝光；状态仍由原控件持有，Qt父子关系及播放器绑定不变。
 
+画面墙在Windows设置WA_DontCreateNativeAncestors，使布局根／内容容器保持普通Qt控件；墙保留Qt逻辑父对象，原生父窗口由Qt映射到主窗口，视频及浮层仍归各自原控件。坐标统一使用Qt映射，原生命中回归核对物理相对位置，继续沿用原屏幕／DPI通知及交互收尾。
+
 设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
 
 添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。

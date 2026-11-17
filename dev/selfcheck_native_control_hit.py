@@ -10,8 +10,8 @@ import tempfile
 import time
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMenu, QVBoxLayout, QWidget
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -45,6 +45,8 @@ def main(source=None):
     user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
                                     wintypes.WPARAM, wintypes.LPARAM]
     user32.SendMessageW.restype = wintypes.LPARAM
+    user32.GetParent.argtypes = (wintypes.HWND,)
+    user32.GetParent.restype = wintypes.HWND
 
     def hit(tile, button):
         hwnd = int(tile.winId())
@@ -69,12 +71,29 @@ def main(source=None):
 
     for layout, count in (("2x2", 4), ("3x2", 6), ("3x3", 9),
                           ("portrait_main6", 7)):
+        host = QWidget()
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setGeometry(-9000, -9000, 1480, 800)
+        row = QHBoxLayout(host)
+        sidebar = QWidget(host)
+        sidebar.setFixedWidth(280)
+        row.addWidget(sidebar)
+        content = QWidget(host)
+        row.addWidget(content, 1)
+        column = QVBoxLayout(content)
         wall = WallGrid([{"room_id": str(i + 1), "uname": str(i), "live": True,
-                          "quality": 250} for i in range(count)], layout_id=layout)
-        wall.setGeometry(-9000, -9000, 1200, 800)
-        wall.setAttribute(Qt.WA_ShowWithoutActivating)
-        wall.show()
+                          "quality": 250} for i in range(count)], layout_id=layout, parent=content)
+        column.addWidget(wall)
+        host.show()
         settle(app, 0.2)
+        assert not content.internalWinId() and not sidebar.internalWinId()
+        assert user32.GetParent(int(wall.winId())) == int(host.winId())
+        origin = wintypes.POINT()
+        user32.MapWindowPoints(int(wall.winId()), int(host.winId()), ctypes.byref(origin), 1)
+        position = wall.mapTo(host, QPoint())
+        scale = wall.devicePixelRatioF()
+        assert abs(origin.x-round(position.x()*scale)) <= 1
+        assert abs(origin.y-round(position.y()*scale)) <= 1
         for tile in wall.tiles:
             show_controls(tile)
         players = []
@@ -127,7 +146,8 @@ def main(source=None):
             for player in players:
                 player.release()
             wall.close()
-            wall.deleteLater()
+            host.close()
+            host.deleteLater()
             settle(app, 0.1)
     print("Native control hit checks passed", flush=True)
 
