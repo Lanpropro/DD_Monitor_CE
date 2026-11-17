@@ -99,7 +99,7 @@ class AddRoomEntryTests(unittest.TestCase):
         QTest.keyClick(single.edit, Qt.Key_Return)
         self.assertEqual(single.room_ids, ['1002'])
 
-    def test_collapsed_sidebar_has_add_menu_connected_to_original_signal(self):
+    def test_collapsed_sidebar_has_direct_add_connected_to_original_signal(self):
         sidebar = self.own(Sidebar([], auto_compact=False))
         sidebar.show()
         sidebar.set_collapsed(True, animate=False)
@@ -111,9 +111,6 @@ class AddRoomEntryTests(unittest.TestCase):
         calls = []
         sidebar.addRoomClicked.connect(lambda: calls.append('add'))
         button.click()
-        menu = sidebar.navigation.menu
-        next(action for action in menu.actions() if action.text() == '添加直播间…').trigger()
-        menu.close()
         self.assertEqual(calls, ['add'])
         sidebar.set_collapsed(False, animate=False)
         self.assertTrue(button.isHidden())
@@ -193,20 +190,8 @@ class AddRoomEntryTests(unittest.TestCase):
 
     def test_single_target_reuses_original_query_and_preserves_target_on_completion(self):
         host = self.host()
-        host._normalize_room_input = lambda text: None
-        host.sidebar.folder_state = lambda: []
-        host.sidebar.create_folder = Mock()
-        host.plugins.platforms = {}
-        host._add_room_id = Mock()
         target = object()
-        def accept(dialog):
-            dialog.edit.setText('1001')
-            dialog.accept()
-            return dialog.result()
         catalog = RoomCatalog(host)
-        with patch.object(AddRoomDialog, 'exec', accept):
-            catalog.open_add_room(dialog_type=AddRoomDialog, target_tile=target)
-        host._add_room_id.assert_called_once_with('1001', folder_id='', target_tile=target)
         catalog.add_room_id('1001', resolver_type=Resolver, target_tile=target)
         Resolver.created[-1].complete()
         self.assertEqual(host._on_room_added.call_args.kwargs['target_tile'], target)

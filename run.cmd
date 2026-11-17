@@ -769,4 +769,6 @@ exit /b %errorlevel%
 :roomAddCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_add_entry
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_add_inline
 exit /b %errorlevel%

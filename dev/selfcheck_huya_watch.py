@@ -17,7 +17,7 @@ from PySide6.QtGui import QDropEvent, QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ddm import bili, config, images, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.dialogs import AddRoomDialog  # noqa: E402
+from ddm.room_add_panel import RoomAddPanel  # noqa: E402
 from ddm.widgets import ROOM_MIME, NavItem, Tile, WATCHING_TEXT  # noqa: E402
 
 
@@ -216,11 +216,11 @@ def main():
                     patch.object(hp, "play_url", return_value=(url, qn, profile, headers)), \
                     patch.object(window, "_play_on", side_effect=capture), \
                     patch.object(window, "refresh_status"), patch.object(window, "refresh_stats"):
-                def accept_huya(dialog):
-                    dialog.edit.setText("https://www.huya.com/660000")
-                    dialog.accept()
-                    return dialog.result()
-                with patch.object(AddRoomDialog, "exec", accept_huya):
+                def accept_huya(dialog, open_editor=RoomAddPanel.open):
+                    open_editor(dialog)
+                    dialog.entry.setPlainText("https://www.huya.com/660000")
+                    dialog.submit_button.click()
+                with patch.object(RoomAddPanel, "open", accept_huya):
                     window.open_add_room()
                 settle(app, lambda: bool(played))
                 window._add_room_id("huya:660000")

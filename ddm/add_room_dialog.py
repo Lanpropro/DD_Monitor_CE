@@ -109,22 +109,13 @@ class AddRoomDialog(AnimatedDialog):
         return room_id
 
     def accept(self) -> None:
-        lines = (self.batch_edit.toPlainText().splitlines() if self.batch_button.isChecked()
-                 else [self.edit.text()])
-        rooms = []
-        for number, text in enumerate(lines, 1):
-            if not text.strip():
-                continue
-            try:
-                room_id = self._normalize(text.strip())
-            except ValueError as error:
-                self.hint.setText(f"第 {number} 行：{error}")
-                self.hint.setStyleSheet(f"color: {theme.ERROR}")
-                return
-            if room_id not in rooms:
-                rooms.append(room_id)
-        if not rooms:
-            self.hint.setText("请输入至少一个房间号或直播间链接")
+        from .room_add_input import normalize_room_lines
+        text = self.batch_edit.toPlainText() if self.batch_button.isChecked() else self.edit.text()
+        try:
+            rooms = normalize_room_lines(text, self._normalize)
+        except ValueError as error:
+            self.hint.setText(str(error))
+            self.hint.setStyleSheet(f"color: {theme.ERROR}")
             return
         self.room_ids = rooms
         self.room_id = rooms[0]

@@ -28,6 +28,9 @@ class SidebarCollapse:
         host = self.host
         if collapsed == host.collapsed:
             return
+        editor = getattr(host, 'room_add_panel', None)
+        if editor is not None:
+            editor.close_editor()
         if host.side == "top":
             host.collapsed = collapsed
             # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件。

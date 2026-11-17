@@ -42,7 +42,6 @@ from .bili import (
     AccountLoader, InfoResolver, StatsPoller, StatusPoller, StreamResolver,
 )
 from .dialogs import SettingsDialog
-from .add_room_dialog import AddRoomDialog
 from .settings_general import CodecSettingsDialog
 from .shortcut_actions import SHORTCUT_ACTIONS
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
@@ -1341,7 +1340,7 @@ class MainWindow(QMainWindow):
 
     # ---- 房间增删 ----
     def open_add_room(self, target_tile=None) -> None:
-        return self.room_placement.open_add_room(dialog_type=AddRoomDialog, target_tile=target_tile)
+        return self.room_placement.open_add_room(target_tile=target_tile, resolver_type=InfoResolver)
 
     def _add_room_id(self, room_id: str, *, folder_id: str = "", target_tile=None) -> None:
         return self.room_placement.add_room_id(room_id, folder_id=folder_id, resolver_type=InfoResolver, target_tile=target_tile)

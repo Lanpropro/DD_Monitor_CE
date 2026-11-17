@@ -26,6 +26,9 @@ class SidebarOrientation:
         """
         host = self.host
         side = "top" if side == "top" else "left"
+        editor = getattr(host, 'room_add_panel', None)
+        if side != host.side and editor is not None:
+            editor.close_editor()
         # 无论走哪个分支，先把约束解掉：
         # - 滚动区的高度上限（竖屏那条「只占一条」的限制留着，切回左栏就只剩一条）
         # - 侧栏的竖直策略（竖屏时被压成一条，切回左栏必须重新撑满）
