@@ -1,16 +1,38 @@
 """Settings notifications; owned page implementations with legacy exports in dialogs."""
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+    QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
 from . import theme
-from .ui import SettingsSlider, SettingsValueLabel, SettingsSurface, ToggleSwitch, page_header as _page_head
-from .settings_layout import SettingsColumns
+from .ui import SegmentedControl, SettingsSlider, SettingsValueLabel, ToggleSwitch, page_header as _page_head
+from .settings_layout import SettingsColumns, SettingsSection
 
 
 class NotificationSwitch(ToggleSwitch):
     """Compatibility name for the shared settings switch."""
+
+
+class NotificationRetentionControl(SegmentedControl):
+    """Keep boolean settings compatibility with the shared two-choice control."""
+    toggled = Signal(bool)
+
+    def __init__(self, title):
+        super().__init__((('auto', '自动收起'), ('manual', '手动关闭')))
+        self.setAccessibleName(title)
+        self.valueChanged.connect(lambda _value: self.toggled.emit(self.isChecked()))
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def isChecked(self):
+        return self.value() == 'manual'
+
+    def setChecked(self, checked):
+        self.setValue('manual' if checked else 'auto')
+
+    def click(self):
+        self.setChecked(not self.isChecked())
 
 
 class NoticeBlurPreview(QWidget):
@@ -18,7 +40,7 @@ class NoticeBlurPreview(QWidget):
         super().__init__(parent)
         from .room_artwork import RoomArtwork
         self.setFixedSize(180, 86)
-        self.setAccessibleName('通知 Banner 模糊效果示例')
+        self.setAccessibleName('通知背景模糊效果示例')
         self.artwork = RoomArtwork(())
         self.artwork.banner = QPixmap(640, 280)
         painter = QPainter(self.artwork.banner)
@@ -88,102 +110,95 @@ class NotificationSettingsPage(QWidget):
         groups.setSpacing(12)
         self._checks = {}
         self._states = {}
+        self.sections = SettingsColumns(content)
+        groups.addWidget(self.sections)
+
+        reception = SettingsSection('接收通知')
+        persistence = SettingsSection('停留方式')
+        for card in (reception, persistence):
+            card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+            card.grid.setColumnStretch(0, 1)
+            card.grid.setColumnStretch(1, 0)
         descriptions = (
-            '显示软件、开播、更新和操作结果等浮动通知；关闭后仍可在通知面板查看历史。',
-            '主播开播时显示浮动提醒，并突出关注卡片。',
-            '全屏观看时不显示浮动通知，仍可在通知面板查看。',
-            '发现新版本时，保留更新入口。',
-            '重要主播的开播提醒不自动消失。',
-            '未置顶主播的开播提醒是否持续显示。',
-            '保留异常提示，方便稍后查看与处理。',
-            '录制、保存等操作结果是否持续显示。',
+            '显示更新、开播和操作结果；关闭后仍可在通知菜单查看历史。',
+            '主播开播时显示通知，并突出关注卡片。',
+            '全屏观看时隐藏浮动通知，仍可在通知菜单查看。',
+            '发现新版本时保留更新入口。',
+            '置顶主播开播后保留提醒。',
+            '其他主播开播后保留提醒。',
+            '保留异常提示，方便稍后处理。',
+            '保留录制、保存等操作结果。',
         )
         for index, (key, label) in enumerate(self.ITEMS):
-            if index in (0, 3):
-                card = SettingsSurface()
-                card.setObjectName('NotificationSettingsGroup')
-                rows = QVBoxLayout(card)
-                rows.setContentsMargins(14, 12, 14, 10)
-                rows.setSpacing(6)
-                heading = QLabel('通知与开播提醒' if index == 0 else '浮动通知停留方式')
-                heading.setObjectName('NotificationSettingsHeading')
-                rows.addWidget(heading)
-                if index == 3:
-                    hint = QLabel('关闭常驻后自动收起，仍可在通知面板查看。')
-                    hint.setObjectName('SettingsHint')
-                    hint.setWordWrap(True)
-                    rows.addWidget(hint)
-                groups.addWidget(card)
-            if index not in (0, 3):
-                separator = QFrame()
-                separator.setObjectName('NotificationSettingsDivider')
-                separator.setFixedHeight(1)
-                rows.addWidget(separator)
-            row = QHBoxLayout()
-            row.setContentsMargins(0, 6, 0, 6)
-            row.setSpacing(8)
-            text = QVBoxLayout()
-            text.setSpacing(3)
+            card = reception if index < 3 else persistence
             title = QLabel('接收开播提醒' if index == 1 else label)
             title.setWordWrap(True)
-            text.addWidget(title)
-            description = QLabel(descriptions[index])
-            description.setWordWrap(True)
-            description.setObjectName('SettingsHint')
-            text.addWidget(description)
-            row.addLayout(text, 1)
-            state = QLabel()
-            state.setObjectName('NotificationSettingsState')
-            row.addWidget(state)
-            box = NotificationSwitch(title.text())
+            box = NotificationSwitch(title.text()) if index < 3 else NotificationRetentionControl(title.text())
+            title.setBuddy(box if index < 3 else box.buttons['auto'])
             box.setAccessibleDescription(descriptions[index])
             box.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
-            def update_state(checked, state=state,
-                             simple=key in ('notifications_enabled', 'live_alert', 'notice_hide_fullscreen')):
+            state = QLabel(card)
+            state.setObjectName('SettingsHint')
+            def update_state(checked, state=state, simple=index < 3):
                 state.setText(('已启用' if checked else '已关闭') if simple
                               else ('手动关闭' if checked else '自动收起'))
             box.toggled.connect(update_state)
             update_state(box.isChecked())
+            controls = QHBoxLayout()
+            controls.setSpacing(10)
+            if index < 3:
+                controls.addWidget(state)
+            else:
+                state.hide()
+            controls.addWidget(box)
+            row = index if index < 3 else index - 3
+            card.grid.addWidget(title, row, 0)
+            card.grid.addLayout(controls, row, 1, Qt.AlignRight)
             self._checks[key] = box
             self._states[key] = state
-            row.addWidget(box)
-            rows.addLayout(row)
-        card = SettingsSurface()
-        card.setObjectName('NotificationSettingsGroup')
-        blur_layout = QVBoxLayout(card)
-        blur_layout.setContentsMargins(14, 12, 14, 12)
-        row = QHBoxLayout()
-        controls = QVBoxLayout()
-        controls.addWidget(QLabel('Banner 毛玻璃模糊强度'))
+        for card, row, text in (
+                (reception, 3, '关闭通知或全屏隐藏后，仍可在通知菜单查看历史；开播提醒同时控制关注卡片动效。'),
+                (persistence, 5, '选择自动收起后提示会自行消失；手动关闭会持续保留，两种方式均可在通知菜单查看记录。')):
+            hint = QLabel(text)
+            hint.setObjectName('SettingsHint')
+            hint.setWordWrap(True)
+            card.grid.addWidget(hint, row, 0, 1, 2)
+
+        background = SettingsSection('背景预览')
+        background.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.background_columns = SettingsColumns(respect_preference=False)
+        controls, example = QWidget(), QWidget()
+        control_box, preview_box = QVBoxLayout(controls), QVBoxLayout(example)
+        for box in (control_box, preview_box):
+            box.setContentsMargins(0, 0, 0, 0)
+            box.setSpacing(12)
+        control_box.addWidget(QLabel('背景模糊强度'))
         slider_row = QHBoxLayout()
         self.banner_blur = SettingsSlider()
         self.banner_blur.setRange(0, 40)
-        self.banner_blur.setAccessibleName('Banner 毛玻璃模糊强度')
+        self.banner_blur.setAccessibleName('通知背景模糊强度')
         self.banner_blur.setValue(int(settings.get('notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))
-        slider_row.addWidget(self.banner_blur, 1)
+        slider_row.addWidget(self.banner_blur)
         self.banner_blur_value = SettingsValueLabel()
         slider_row.addWidget(self.banner_blur_value)
         slider_row.addStretch(1)
-        controls.addLayout(slider_row)
-        row.addLayout(controls, 1)
-        self.banner_preview = NoticeBlurPreview()
-        row.addWidget(self.banner_preview)
-        self.banner_blur.valueChanged.connect(self._update_banner_blur)
-        self._update_banner_blur(self.banner_blur.value())
-        blur_layout.addLayout(row)
+        control_box.addLayout(slider_row)
         hint = QLabel('数值越大，通知背景越模糊；0 为关闭，文字和头像保持清晰。')
         hint.setObjectName('SettingsHint')
         hint.setWordWrap(True)
-        blur_layout.addWidget(hint)
-        cards = [groups.itemAt(index).widget() for index in range(groups.count())]
-        for existing in cards:
-            groups.removeWidget(existing)
-            existing.layout().addStretch(1)
-        self.sections = SettingsColumns()
-        self.sections.add_section('background', card, wide=True)
-        self.sections.add_section('live', cards[0])
-        self.sections.add_section('persistence', cards[1])
-        groups.addWidget(self.sections)
+        control_box.addWidget(hint)
+        control_box.addStretch(1)
+        self.banner_preview = NoticeBlurPreview()
+        preview_box.addWidget(self.banner_preview, 0, Qt.AlignLeft)
+        preview_box.addStretch(1)
+        self.background_columns.add_section('controls', controls)
+        self.background_columns.add_section('example', example)
+        background.grid.addWidget(self.background_columns, 0, 0, 1, 2)
+        self.banner_blur.valueChanged.connect(self._update_banner_blur)
+        self._update_banner_blur(self.banner_blur.value())
+        self.sections.add_section('background', background, wide=True)
+        self.sections.add_section('live', reception)
+        self.sections.add_section('persistence', persistence)
         groups.addStretch(1)
 
     def _update_banner_blur(self, value):

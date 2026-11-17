@@ -22,6 +22,7 @@ if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
+if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
@@ -448,6 +449,19 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_super_chat
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sc_simulator
+exit /b %errorlevel%
+
+:settingsSearchCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pinyin_search
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_danmaku_blocking -- BlockingEditorTests
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_notification_center -- NotificationTests.test_settings_navigation_places_notifications_before_shortcuts NotificationTests.test_banner_blur_settings_roundtrip_and_reset NotificationTests.test_notification_switches_support_keyboard_click_and_explicit_states NotificationTests.test_notification_settings_cards_fit_themes_and_small_dialog NotificationTests.test_notification_sections_keep_compact_controls_readable_at_large_font_and_narrow_width NotificationTests.test_notification_retention_segments_trigger_existing_autosave_contract
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls -- WorkspaceControlTests.test_function_search_supports_pinyin_and_keeps_action_order
 exit /b %errorlevel%
 
 :streamInfoCheck

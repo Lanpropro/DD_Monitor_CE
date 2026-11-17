@@ -117,6 +117,9 @@ class BlockingEditorTests(unittest.TestCase):
         self.assertLessEqual(max(centers) - min(centers), 1)
         editor.list.setCurrentRow(0)
         self.assertIn('手动添加，没有触发消息', editor.details.toPlainText())
+        self.assertIn('手动填写ID，未查询昵称', editor.details.toPlainText())
+        self.assertNotIn('平台：', editor.details.toPlainText())
+        self.assertTrue(editor.list.item(0).icon().isNull())
 
     def test_details_preserve_full_text_and_legacy_unknowns_in_bounded_area(self):
         rule = dict(platform='youtube', uid='UCfixture', uname='User', source='message',
@@ -171,6 +174,9 @@ class BlockingEditorTests(unittest.TestCase):
             page.show()
             editor = page.blocked_users
             card = page.sections.section('blocking')
+            words = page.blocking_columns.section('words')
+            self.assertTrue(words.isAncestorOf(editor.details), 'Details share the existing words-column space')
+            self.assertFalse(editor.isAncestorOf(editor.details))
             def settle():
                 for _ in range(3):
                     APP.processEvents()
@@ -184,12 +190,15 @@ class BlockingEditorTests(unittest.TestCase):
                 bottom = editor.details.mapTo(card, editor.details.rect().bottomRight())
                 self.assertTrue(card.rect().contains(bottom), (page.width(), card.rect(), bottom))
                 self.assertEqual(editor.details.visibleRegion().boundingRect().height(), 160)
+                self.assertTrue(page.blocking_details_title.isVisible())
+                self.assertGreaterEqual(editor.details.y(), page.block_edit.y() + page.block_edit.height())
             for width in (1200, 700):
                 page.resize(width, 720)
                 editor.list.clearSelection()
                 editor.list.setCurrentRow(-1)
                 settle()
                 self.assertFalse(editor.details.isVisible())
+                self.assertFalse(page.blocking_details_title.isVisible())
                 editor.list.setCurrentRow(0)
                 details_fit()
                 editor.list.item(1).setSelected(True)
@@ -392,7 +401,7 @@ class BlockingTests(unittest.TestCase):
             self.assertEqual(self.window.settings['danmaku_blocked_users'][0]['uid'], 'UCfixture')
             self.assertEqual(self.window.settings['danmaku_blocked_users'][0]['source'], 'manual')
             self.assertNotIn('source_text', self.window.settings['danmaku_blocked_users'][0])
-            self.assertFalse(editor.list.item(0).icon().isNull())
+            self.assertTrue(editor.list.item(0).icon().isNull())
             manual_rule = dict(editor.users()[0])
             editor.set_users([{'platform': 'youtube', 'uid': str(index)} for index in range(20)])
             self.assertGreater(editor.list.verticalScrollBar().maximum(), 0)

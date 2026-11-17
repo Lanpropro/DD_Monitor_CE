@@ -768,6 +768,35 @@ for before, component, after in (
             parent.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_font_search_supports_chinese_pinyin_initials_and_multiple_terms(self):
+        from PySide6.QtTest import QSignalSpy
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=['思源黑体 SC', '微软雅黑', 'Example 42']):
+            control = ui.FontSelectControl(parent)
+        box.addWidget(control)
+        parent.show()
+        self.app.processEvents()
+        changed = QSignalSpy(control.currentFontChanged)
+        try:
+            control.showPopup()
+            cases = [('思源', ['思源黑体 SC']), ('siyuanheiti', ['思源黑体 SC']),
+                     ('SYHT', ['思源黑体 SC']), ('SC syht', ['思源黑体 SC']),
+                     ('微软雅黑', ['微软雅黑']), ('weiruanyahei', ['微软雅黑']), ('WRYH', ['微软雅黑']),
+                     ('42', ['Example 42']), ('EXAMPLE', ['Example 42']), ('syht 42', [])]
+            for query, expected in cases:
+                control.search.setText(query)
+                self.app.processEvents()
+                self.assertEqual([control.itemText(row) for row in range(control.count())
+                                  if not control.view().isRowHidden(row)], expected, query)
+            self.assertEqual(control.count(), 3)
+            self.assertEqual(changed.count(), 0)
+            self.assertEqual(control.currentFont().family(), '思源黑体 SC')
+        finally:
+            control.hidePopup()
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_font_search_keeps_native_keyboard_and_mouse_selection(self):
         from PySide6.QtTest import QSignalSpy
         parent = QWidget()

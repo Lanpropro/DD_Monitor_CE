@@ -10,6 +10,7 @@ from .update_notice import set_update_dot
 from .update_offers import plugin_update_offers
 from .online_tasks import OnlinePage
 from .plugin_details_ui import PluginDetailsPanel
+from .search import matches_query
 
 # Compatibility export; details are now embedded widgets.
 PluginDetailsDialog = PluginDetailsPanel
@@ -307,13 +308,13 @@ class PluginStorePage(OnlinePage):
                 self._detail_buttons[key].setChecked(True)
 
     def _filter_offers(self, *_args, reset_scroll=True):
-        terms = self.search.text().casefold().split()
+        query = self.search.text()
         scope = self.filter.currentIndex()
         visible = []
         for offer in self._display_offers:
             plugin_id = offer['id']
             text = ' '.join(str(offer.get(key) or '') for key in ('name', 'id', 'description', 'author')).casefold()
-            matches = all(term in text for term in terms)
+            matches = matches_query(text, query)
             matches = matches and (scope == 0 or (scope == 1 and plugin_id not in self._installed_ids)
                 or (scope == 2 and plugin_id in self._installed_ids)
                 or (scope == 3 and plugin_id in self._update_ids))
