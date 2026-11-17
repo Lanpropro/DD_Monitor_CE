@@ -421,6 +421,147 @@ class SystemTrayTests(unittest.TestCase):
         self.assertEqual(steps, ['hidden', 'exited'])
 
 
+class TrayMenuChoicesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_choices_clean_restore_defaults_and_keep_explicit_all_off(self):
+        from ddm.tray_menu import TRAY_MENU_ITEMS, tray_menu_choices
+        defaults = [{'id': key, 'enabled': True} for key, _label in TRAY_MENU_ITEMS]
+        self.assertIsNone(config.DEFAULT_SETTINGS['tray_context_menu'])
+        for value in (None, [], 'invalid'):
+            self.assertEqual(tray_menu_choices(value), defaults)
+        result = tray_menu_choices([
+            {'id': 'pip', 'enabled': False}, {'id': 'unknown'}, None,
+            {'id': 'pip', 'enabled': True}, {'id': 'exit'}, {'id': 'toggle', 'enabled': 0}])
+        self.assertEqual(result, [dict(id='pip', enabled=False), dict(id='exit', enabled=True),
+                                  dict(id='toggle', enabled=False), dict(id='layout_preview', enabled=True)])
+        disabled = [{'id': key, 'enabled': False} for key, _label in TRAY_MENU_ITEMS]
+        self.assertEqual(tray_menu_choices(disabled), disabled)
+
+    def tray(self):
+        from types import SimpleNamespace
+        from PySide6.QtWidgets import QWidget
+        window = QWidget()
+        window.settings = {}
+        window._closing = False
+        window.picture_in_picture = SimpleNamespace(active=False, manage=Mock())
+        window.wall = QWidget(window)
+        window.wall.resize(400, 200)
+        window.wall.tiles = []
+        window.wall.pane_danmaku = SimpleNamespace(rendered=lambda: [])
+        FakeTray.supported = True
+        with patch.object(system_tray, 'QSystemTrayIcon', FakeTray):
+            tray = system_tray.SystemTray(window)
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(tray.shutdown)
+        return window, tray
+
+    def visible_ids(self, tray):
+        return [key for action in tray.menu.actions() if action.isVisible()
+                for key, candidate in tray.menu_actions.items() if action is candidate]
+
+    def test_about_to_show_reorders_and_hides_persistent_actions(self):
+        window, tray = self.tray()
+        actions = dict(tray.menu_actions)
+        separators = list(tray.menu_separators)
+        initial_action_count = len(tray.menu.findChildren(type(tray.exit_action)))
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), ['layout_preview', 'toggle', 'pip', 'exit'])
+        choices = [dict(id='exit', enabled=True), dict(id='pip', enabled=False),
+                   dict(id='layout_preview', enabled=True), dict(id='toggle', enabled=True)]
+        window.settings['tray_context_menu'] = choices
+        for _ in range(5):
+            tray.menu.aboutToShow.emit()
+            self.assertEqual(self.visible_ids(tray), ['exit', 'layout_preview', 'toggle'])
+            self.assertEqual(sum(action.isSeparator() for action in tray.menu.actions()), 2)
+            self.assertEqual(tray.menu_actions, actions)
+            self.assertEqual(tray.menu_separators, separators)
+            self.assertIs(tray.preview_action.defaultWidget(), tray.layout_preview)
+        choices[1]['enabled'] = True
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), ['exit', 'pip', 'layout_preview', 'toggle'])
+        self.assertEqual(sum(action.isSeparator() for action in tray.menu.actions()), 3)
+        self.assertEqual(len(tray.menu.findChildren(type(tray.exit_action))), initial_action_count)
+
+    def test_all_off_defaults_and_callbacks_keep_restore_accessible(self):
+        from ddm.tray_menu import TRAY_MENU_ITEMS
+        window, tray = self.tray()
+        window.settings['tray_context_menu'] = [dict(id=key, enabled=False) for key, _ in TRAY_MENU_ITEMS]
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), [])
+        self.assertFalse(any(action.isSeparator() for action in tray.menu.actions()))
+        with patch.object(tray, 'toggle') as toggle:
+            tray.icon.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
+            toggle.assert_called_once()
+        window.settings['tray_context_menu'] = []
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(len(self.visible_ids(tray)), 4)
+        with patch.object(tray, 'restore') as restore:
+            tray.toggle_action.trigger()
+            restore.assert_called_once()
+        tray.pip_action.trigger()
+        window.picture_in_picture.manage.assert_called_once()
+        with patch.object(window, 'close') as close:
+            tray.exit_action.trigger()
+            self.assertTrue(tray.exit_requested)
+            close.assert_called_once()
+
+    def test_choices_roundtrip_uses_only_temporary_configuration(self):
+        from ddm.tray_menu import tray_menu_choices
+        choices = tray_menu_choices([dict(id='exit', enabled=False), dict(id='pip', enabled=True)])
+        with tempfile.TemporaryDirectory(prefix='ddm-tray-menu-') as temporary:
+            with (patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')),
+                  patch.dict(os.environ, {'DDM_NO_SAVE': ''})):
+                config.save({'version': 1, 'settings': {'tray_context_menu': choices}}, raise_errors=True)
+                self.assertEqual(config.load()['settings']['tray_context_menu'], choices)
+
+    def test_settings_preview_references_choices_selects_and_renders_all_off(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QFont, QFontDatabase, QImage
+        from PySide6.QtTest import QTest
+        from ddm.tray_menu import TrayMenuPreview, tray_menu_choices
+        preview = TrayMenuPreview()
+        self.addCleanup(preview.deleteLater)
+        font_id = QFontDatabase.addApplicationFont(str(
+            Path(__file__).resolve().parents[1] / 'ddm/assets/fonts/SourceHanSansSC-Regular.otf'))
+        self.assertGreaterEqual(font_id, 0)
+        preview.setFont(QFont(QFontDatabase.applicationFontFamilies(font_id)[0]))
+        choices = tray_menu_choices([dict(id='exit', enabled=True), dict(id='toggle', enabled=False)])
+        preview.set_choices(choices)
+        self.assertIs(preview.choices, choices)
+        self.assertEqual([key for key, _ in preview.rows()], ['exit', 'layout_preview', 'pip'])
+        preview.show()
+        self.app.processEvents()
+        changed = Mock()
+        preview.selectedChanged.connect(changed)
+        point = preview.rows()[1][1].center().toPoint()
+        QTest.mouseClick(preview, Qt.LeftButton, pos=point)
+        self.assertEqual(preview.selected, 'layout_preview')
+        changed.assert_called_once_with('layout_preview')
+        image = QImage(preview.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        preview.render(image)
+        self.assertEqual(preview.width(), 260)
+        self.assertGreater(preview.rows()[1][1].height(), preview.rows()[0][1].height())
+        output = os.environ.get('DDM_TRAY_MENU_OUTPUT')
+        if output:
+            self.assertTrue(image.save(output))
+        for choice in choices:
+            choice['enabled'] = False
+        preview.set_choices(choices)
+        self.assertEqual(preview.rows(), [])
+        self.assertEqual(preview.height(), 100)
+        empty = QImage(preview.size(), QImage.Format_ARGB32_Premultiplied)
+        empty.fill(Qt.transparent)
+        preview.render(empty)
+        center = empty.pixelColor(QPoint(130, 50))
+        self.assertTrue(any(empty.pixelColor(x, y) != center
+                            for x in range(30, 230) for y in range(40, 60)),
+                        'The all-off preview must paint its explanation')
+
+
 class TrayLayoutPreviewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

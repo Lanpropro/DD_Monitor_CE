@@ -38,6 +38,8 @@
 
 播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
+关注栏与菜单拖动的行位移动画共用 `ddm/row_motion.py`，保留关注栏既有时钟、150ms OutCubic和中途改向行为；菜单拖动仅暂态让位，松手才提交。`ddm/tray_menu.py` 负责托盘选项清洗及设置示意，实际托盘动作仍由 `ddm/system_tray.py` 持有。
+
 托盘入口与隐藏播放状态由 `ddm/system_tray.py` 协调；`ddm/tray_preview.py` 仅采集格子几何/类型/标签并绘制布局示意，不抓视频帧、不落盘或持续刷新。右键菜单预览与编辑共用 `ddm/tile_menu.py` 的单一选择状态。
 
 多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
@@ -255,6 +257,7 @@
 - `dev/selfcheck_settings_navigation.py`
 - `dev/selfcheck_settings_layout.py`
 - `dev/selfcheck_shortcut_settings.py`
+- `dev/selfcheck_menu_drag.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
 - `dev/selfcheck_settings_control.py`

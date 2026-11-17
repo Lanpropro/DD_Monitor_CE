@@ -383,19 +383,29 @@ class TraySettingsPage(QWidget):
         menu.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections.add_section('menu', menu, wide=True)
         from .tile_menu import TileMenuEditor
+        from .tray_menu import TRAY_MENU_ITEMS, TrayMenuPreview, tray_menu_choices
         self.tile_menu = TileMenuEditor(settings.get('tile_context_menu'))
+        tray = SettingsSection('托盘菜单')
+        tray.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.sections.add_section('tray_menu', tray, wide=True)
+        self.tray_menu = TileMenuEditor(settings.get('tray_context_menu'), items=TRAY_MENU_ITEMS,
+                                       normalize=tray_menu_choices, preview_factory=TrayMenuPreview)
         menu.grid.addWidget(self.tile_menu, 0, 0, 1, 2)
+        tray.grid.addWidget(self.tray_menu, 0, 0, 1, 2)
         self.tile_menu.layoutChanged.connect(lambda: self.sections.refresh_section('menu'))
+        self.tray_menu.layoutChanged.connect(lambda: self.sections.refresh_section('tray_menu'))
         layout.addStretch(1)
 
     def values(self):
         return {"close_behavior": self.close_behavior_combo.currentData(),
                 "tray_pause_playback": self.pause_playback.isChecked(),
-                "tile_context_menu": self.tile_menu.values()}
+                "tile_context_menu": self.tile_menu.values(),
+                "tray_context_menu": self.tray_menu.values()}
 
     def reset(self):
         from .config import DEFAULT_SETTINGS
         self.pause_playback.setChecked(DEFAULT_SETTINGS["tray_pause_playback"])
         self.tile_menu.set_choices(DEFAULT_SETTINGS['tile_context_menu'])
+        self.tray_menu.set_choices(DEFAULT_SETTINGS['tray_context_menu'])
         self.close_behavior_combo.setCurrentIndex(
             self.close_behavior_combo.findData(DEFAULT_SETTINGS["close_behavior"]))

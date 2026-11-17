@@ -178,7 +178,7 @@ class SettingsControl:
         from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
         presentation_only = bool(changed_keys) and changed_keys <= (
-            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | {'notice_banner_enabled'})
+            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | {'notice_banner_enabled', 'tray_context_menu'})
         host.settings.update(updated_settings)
         from . import theme
         if theme.configure_appearance(host.settings):
