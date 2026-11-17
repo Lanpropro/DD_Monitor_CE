@@ -606,6 +606,13 @@ class MainWindow(QMainWindow):
                 self._begin_interactive_resize()
             elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
                 self._finish_interactive_resize()
+            elif msg.message == 0x02e0:  # WM_DPICHANGED precedes Qt child resizing
+                if (self._interactive_resize and hasattr(self, "wall") and not self._closing
+                        and not self._startup_layout_pending and self._fullscreen_tile is None):
+                    # Cross-screen DPI changes can resize children before WM_SIZE.
+                    # Reuse the existing coalesced layout/overlay path until release.
+                    self.wall.set_interactive_resize(True)
+                    self._resize_dirty = True
             elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
                 previous = self._native_size_state
                 self._native_size_state = int(msg.wParam)

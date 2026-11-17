@@ -1,6 +1,7 @@
 """Opt-in, bounded native move/resize timings; buffer until mouse release."""
 import ctypes
 from ctypes import wintypes
+from collections import Counter
 import functools
 import json
 import os
@@ -29,10 +30,18 @@ class WindowResizeTrace:
         self.window = window
         self.source = source
         self.started = time.perf_counter()
+        self.cpu_started = time.thread_time()
         self.epoch = time.time()
         self.gesture += 1
         self.initial = self.state()
+        self.initial_topology = self.topology()
         return True
+
+    def topology(self):
+        from PySide6.QtWidgets import QWidget
+        widgets = [self.window, *self.window.findChildren(QWidget)]
+        native = Counter(type(w).__name__ for w in widgets if w.internalWinId())
+        return dict(widgets=len(widgets), nativeWidgets=sum(native.values()), nativeTypes=dict(native))
 
     def state(self):
         w = self.window
@@ -57,7 +66,9 @@ class WindowResizeTrace:
             return
         row = dict(pid=os.getpid(), gesture=self.gesture, time=self.epoch, source=self.source,
                    durationMs=round((time.perf_counter()-self.started)*1000, 3),
+                   cpuMs=round((time.thread_time()-self.cpu_started)*1000, 3),
                    initial=self.initial, final=self.state(),
+                   initialTopology=self.initial_topology, finalTopology=self.topology(),
                    calls=self.calls, callsCapped=len(self.calls) >= self.MAX_CALLS,
                    messages=self.messages, messagesCapped=len(self.messages) >= self.MAX_CALLS)
         self.window = None
@@ -97,6 +108,7 @@ class WindowResizeTrace:
             if trace.window is window and code in (0x0231, 0x0232, 0x0003, 0x0005, 0x02e0):
                 if len(trace.messages) < trace.MAX_CALLS:
                     trace.messages.append(dict(atMs=round((time.perf_counter()-trace.started)*1000, 3),
+                                               cpuAtMs=round((time.thread_time()-trace.cpu_started)*1000, 3),
                                                message=code, wParam=value, **trace.state()))
                 if code == 0x0232:
                     trace.flush()

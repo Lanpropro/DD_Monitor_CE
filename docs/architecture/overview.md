@@ -196,6 +196,8 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 
 窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
 
+主窗口原生事件入口在交互WM_SIZE及跨屏WM_DPICHANGED到来、Qt处理子控件之前启用现有画面墙合并布局；WindowLayout继续持有手势收尾协调，墙与格子各自持有合并状态和既有定时器。非交互DPI、纯移动和默认Qt消息处理沿用原路径，不建立第二套跨屏几何或播放器状态。
+
 设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
 
 添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。

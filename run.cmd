@@ -397,7 +397,7 @@ if not "%errorlevel%"=="0" exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=windows"
-"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_window_move_restore.py" MoveRestoreTests.test_resize_trace_records_native_order_and_nested_layout_work MoveRestoreTests.test_resize_trace_covers_menu_orientation_and_restores_wrappers MoveRestoreTests.test_resize_trace_stops_at_session_limit MoveRestoreTests.test_first_native_size_arms_wall_before_qt_resizes_children
 if not "%errorlevel%"=="0" exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_resize_widgets
 exit /b %errorlevel%
