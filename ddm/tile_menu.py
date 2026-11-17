@@ -1,12 +1,12 @@
 """Built-in playback context menu choices, ordering and settings editor."""
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPen
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import theme
 from .corner_geometry import continuous_path
 
-from .ui import ActionButton
+from .ui import ActionButton, ToggleSwitch
 
 
 MENU_ITEMS = (
@@ -51,63 +51,82 @@ def arrange_menu(menu, choices):
             previous = group
 
 
-class MenuPreview(QWidget):
+class MenuOrderList(QWidget):
+    """Editable menu rows; all items remain available when hidden in playback."""
     orderChanged = Signal(str, str)
     selectedChanged = Signal(str)
+    enabledChanged = Signal(str, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.choices = []
         self.selected = ''
-        self._pressed = None
-        self._before = None
+        self._pressed = self._before = None
         self.setMinimumWidth(200)
-        self.setMinimumHeight(360)
         self.setMouseTracking(True)
-        self.setAccessibleName('画面右键菜单缩略图；拖动功能行调整顺序')
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName('右键菜单功能；拖动调整顺序，开关控制显示')
+        self.checks = {}
+        for key, label in MENU_ITEMS:
+            check = ToggleSwitch(label, self)
+            check.setToolTip('显示' + label)
+            check.toggled.connect(lambda enabled, name=key: self.enabledChanged.emit(name, enabled))
+            self.checks[key] = check
 
     def rows(self):
-        rows = []
-        y = 12
-        previous = None
-        for entry in self.choices:
-            if not entry['enabled']:
-                continue
-            group = MENU_GROUPS[entry['id']]
-            if previous is not None and previous != group:
-                y += 7
-            height = 40 if entry['id'] == 'volume' else 27
-            rows.append((entry['id'], QRectF(8, y, self.width()-16, height)))
-            y += height
-            previous = group
-        return rows
+        height = max(36, self.fontMetrics().height() + 16)
+        return [(entry['id'], QRectF(0, index * height, self.width(), height))
+                for index, entry in enumerate(self.choices)]
 
     def set_choices(self, choices):
-        self.choices = menu_choices(choices)
-        rows = self.rows()
-        self.setMinimumHeight(max(120, int(rows[-1][1].bottom()+12) if rows else 120))
+        self.choices = choices
+        for entry in self.choices:
+            check = self.checks[entry['id']]
+            check.blockSignals(True)
+            check.setChecked(entry['enabled'])
+            check.blockSignals(False)
+        self.setFixedHeight(round(self.rows()[-1][1].bottom()))
+        self._position_switches()
         self.update()
+
+    def _position_switches(self):
+        for key, rect in self.rows():
+            check = self.checks[key]
+            check.move(self.width() - check.width() - 8,
+                       round(rect.center().y() - check.height() / 2))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_switches()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange and self.choices:
+            self.setFixedHeight(round(self.rows()[-1][1].bottom()))
+            self._position_switches()
 
     def _hit(self, position):
         return next((key for key, rect in self.rows() if rect.contains(position)), None)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self.setFocus()
             self._pressed = self._hit(event.position())
             self._start = event.position()
             self._before = None
             if self._pressed:
-                self.selected = self._pressed
-                self.selectedChanged.emit(self.selected)
-                self.update()
+                self.selectedChanged.emit(self._pressed)
 
     def mouseMoveEvent(self, event):
-        if self._pressed and (event.position()-self._start).manhattanLength() >= 4:
+        if self._pressed and (event.position() - self._start).manhattanLength() >= 4:
             remaining = [(key, rect) for key, rect in self.rows() if key != self._pressed]
-            self._before = next((key for key, rect in remaining if event.position().y() < rect.center().y()), '')
+            self._before = next((key for key, rect in remaining
+                                 if event.position().y() < rect.center().y()), '')
             self.update()
         else:
-            self.setCursor(Qt.OpenHandCursor if self._hit(event.position()) else Qt.ArrowCursor)
+            key = self._hit(event.position())
+            self.setCursor(Qt.OpenHandCursor if key else Qt.ArrowCursor)
+            self.setToolTip(dict(MENU_ITEMS).get(key, ''))
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -117,96 +136,57 @@ class MenuPreview(QWidget):
                 self.orderChanged.emit(key, before)
             self.update()
 
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Up, Qt.Key_Down):
+            keys = [key for key, _rect in self.rows()]
+            index = keys.index(self.selected) if self.selected in keys else 0
+            index = max(0, min(len(keys) - 1, index + (-1 if event.key() == Qt.Key_Up else 1)))
+            self.selectedChanged.emit(keys[index])
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        painter.setBrush(theme.qcolor(theme.ELEVATED))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), theme.RADIUS_MD))
-        rows = self.rows()
-        if not rows:
-            painter.setPen(theme.qcolor(theme.TEXT3))
-            painter.drawText(self.rect(), Qt.AlignCenter, '右侧勾选要显示的功能')
         labels = dict(MENU_ITEMS)
-        font = painter.font()
-        font.setPixelSize(12)
-        painter.setFont(font)
-        previous = None
+        rows = self.rows()
         for key, rect in rows:
-            group = MENU_GROUPS[key]
-            if previous is not None and group != previous:
-                painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-                painter.drawLine(QPointF(14, rect.top()-4), QPointF(self.width()-14, rect.top()-4))
             if key == self.selected:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
-                painter.drawPath(continuous_path(rect, theme.RADIUS_SM))
-            painter.setPen(theme.qcolor(theme.TEXT3))
+                painter.drawPath(continuous_path(rect.adjusted(0, 2, 0, -2), theme.RADIUS_SM))
+            painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
             for offset in (-2, 2):
-                painter.drawLine(QPointF(14, rect.center().y()+offset), QPointF(19, rect.center().y()+offset))
-            painter.setPen(theme.qcolor(theme.TEXT1))
-            label = '音量 40' if key == 'volume' else labels[key]
-            if key == 'plugins':
-                label = '插件扩展功能…'
-            text_rect = rect.adjusted(18, 0, -18, 0)
-            if key == 'volume':
-                text_rect.setHeight(22)
-            text = painter.fontMetrics().elidedText(label, Qt.ElideRight, int(text_rect.width()))
+                painter.drawLine(QPointF(8, rect.center().y() + offset),
+                                 QPointF(15, rect.center().y() + offset))
+            painter.setPen(theme.qcolor(theme.TEXT1 if self.checks[key].isChecked() else theme.TEXT3))
+            text_rect = rect.adjusted(24, 0, -self.checks[key].width() - 20, 0)
+            text = painter.fontMetrics().elidedText(labels[key], Qt.ElideRight, int(text_rect.width()))
             painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, text)
-            if key == 'volume':
-                y = rect.bottom()-8
-                painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 3))
-                painter.drawLine(QPointF(29, y), QPointF(self.width()-25, y))
-                painter.setPen(QPen(theme.qcolor(theme.ACCENT), 3))
-                painter.drawLine(QPointF(29, y), QPointF(self.width()*.45, y))
-            elif key in ('quality', 'audio_channel'):
-                painter.drawText(rect.adjusted(0, 0, -6, 0), Qt.AlignRight | Qt.AlignVCenter, '›')
-            previous = group
         if self._before is not None and self._pressed:
             y = next((rect.top() for key, rect in rows if key == self._before), rows[-1][1].bottom())
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2))
-            painter.drawLine(QPointF(8, y), QPointF(self.width()-8, y))
+            painter.drawLine(QPointF(0, y), QPointF(self.width(), y))
 
 
 class TileMenuEditor(QWidget):
+    changed = Signal()
+
     def __init__(self, choices=None, parent=None):
         super().__init__(parent)
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
-        columns = QHBoxLayout()
-        columns.setSpacing(16)
-        left = QVBoxLayout()
-        left.addWidget(QLabel('菜单预览 · 拖动排序'))
-        self.preview = MenuPreview(self)
-        self.preview.orderChanged.connect(self.move_before)
-        self.preview.selectedChanged.connect(self.select_item)
-        left.addWidget(self.preview)
-        left.addStretch(1)
-        columns.addLayout(left, 1)
-        right = QVBoxLayout()
-        right.addWidget(QLabel('显示的功能'))
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setMinimumWidth(175)
-        scroll.setMinimumHeight(330)
-        options = QWidget()
-        options.setObjectName('TileMenuOptions')
-        options_box = QVBoxLayout(options)
-        options_box.setContentsMargins(0, 0, 0, 0)
-        options_box.setSpacing(8)
-        self.checks = {}
-        for key, label in MENU_ITEMS:
-            check = QCheckBox(label)
-            check.setToolTip(label)
-            self.checks[key] = check
-            check.toggled.connect(lambda enabled, name=key: self.set_enabled(name, enabled))
-            options_box.addWidget(check)
-        options_box.addStretch(1)
-        scroll.setWidget(options)
-        right.addWidget(scroll, 1)
-        columns.addLayout(right, 1)
-        box.addLayout(columns)
+        hint = QLabel('拖动调整顺序，关闭开关可隐藏功能。')
+        hint.setObjectName('SettingsHint')
+        hint.setWordWrap(True)
+        box.addWidget(hint)
+        self.items = MenuOrderList(self)
+        self.items.orderChanged.connect(self.move_before)
+        self.items.selectedChanged.connect(self.select_item)
+        self.items.enabledChanged.connect(self.set_enabled)
+        self.checks = self.items.checks
+        box.addWidget(self.items)
         row = QHBoxLayout()
         for label, direction in (('上移', -1), ('下移', 1)):
             button = ActionButton(label)
@@ -218,49 +198,40 @@ class TileMenuEditor(QWidget):
         row.addStretch(1)
         box.addLayout(row)
         self.set_choices(choices)
-        self.ensurePolished()
-        self.setMinimumHeight(box.minimumSize().height())
 
     def set_choices(self, choices):
         self._choices = menu_choices(choices)
-        for entry in self._choices:
-            check = self.checks[entry['id']]
-            check.blockSignals(True)
-            check.setChecked(entry['enabled'])
-            check.blockSignals(False)
-        self.preview.set_choices(self._choices)
-        self.select_item(next((entry['id'] for entry in self._choices if entry['enabled']), ''))
+        self.items.set_choices(self._choices)
+        self.select_item(self._choices[0]['id'])
+        self.changed.emit()
 
     def select_item(self, key):
-        self.preview.selected = key
-        self.preview.update()
-        for name, check in self.checks.items():
-            check.setProperty('menuSelected', name == key)
-            check.style().unpolish(check)
-            check.style().polish(check)
+        self.items.selected = key
+        self.items.update()
 
     def set_enabled(self, key, enabled):
         for entry in self._choices:
             if entry['id'] == key:
                 entry['enabled'] = enabled
-        self.preview.set_choices(self._choices)
+        self.items.update()
+        self.changed.emit()
 
     def move_before(self, key, before):
         entry = next(entry for entry in self._choices if entry['id'] == key)
         self._choices.remove(entry)
         index = next((i for i, other in enumerate(self._choices) if other['id'] == before), len(self._choices))
         self._choices.insert(index, entry)
-        self.preview.set_choices(self._choices)
+        self.items.set_choices(self._choices)
         self.select_item(key)
+        self.changed.emit()
 
     def move_item(self, delta):
-        visible = [key for key, _rect in self.preview.rows()]
-        if self.preview.selected in visible:
-            index = visible.index(self.preview.selected)
-            target = index+delta
-            if 0 <= target < len(visible):
-                self.move_before(visible[index], visible[target] if delta < 0 else (
-                    visible[target+1] if target+1 < len(visible) else ''))
+        keys = [entry['id'] for entry in self._choices]
+        index = keys.index(self.items.selected)
+        target = index + delta
+        if 0 <= target < len(keys):
+            self.move_before(keys[index], keys[target] if delta < 0 else (
+                keys[target + 1] if target + 1 < len(keys) else ''))
 
     def values(self):
         return [dict(entry) for entry in self._choices]

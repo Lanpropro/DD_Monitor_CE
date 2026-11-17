@@ -58,10 +58,10 @@ class RecordingSettingsPage(QWidget):
             "  1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；\n"
             "  2) 正在录制的会话会正常收尾并导出（已经录到的部分不丢）；\n"
             "  3) 本体录制参数一起置灰。即时回放是另一个开关，不受影响。")
-        self.lock_quality = ToggleSwitch('录制时锁定原画')
-        self.lock_quality.setToolTip('录制时锁定原画，结束后恢复录制前的画质。')
+        self.lock_quality = ToggleSwitch('录制时锁定可用最高分辨率')
+        self.lock_quality.setToolTip('录制时锁定可用最高分辨率；实际可用档位由直播源、平台和账号权限决定，结束后恢复录制前的画质。')
         self._field(storage.grid, 1, '格子录制按钮', self.recording_enabled)
-        self._field(storage.grid, 2, '录制时锁定原画', self.lock_quality)
+        self._field(storage.grid, 2, '录制时锁定可用最高分辨率', self.lock_quality)
         self.min_free = QSpinBox()
         self.min_free.setRange(256, 100000)
         self.min_free.setAccessibleName('磁盘剩余空间警戒线')

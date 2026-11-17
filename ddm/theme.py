@@ -780,7 +780,6 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     font-size: {FONT_CONTROL}px;
     font-weight: 600;
 }}
-#TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
     background: transparent;
     border: none;

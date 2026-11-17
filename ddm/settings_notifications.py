@@ -1,5 +1,5 @@
 """Settings notifications; owned page implementations with legacy exports in dialogs."""
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
@@ -39,7 +39,9 @@ class NoticeBlurPreview(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         from .room_artwork import RoomArtwork
-        self.setFixedSize(180, 86)
+        self.setFixedHeight(100)
+        self.setMaximumWidth(260)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.setAccessibleName('通知背景模糊效果示例')
         self.artwork = RoomArtwork(())
         self.artwork.banner = QPixmap(640, 280)
@@ -61,6 +63,9 @@ class NoticeBlurPreview(QWidget):
         painter.end()
         self.strength = 16
         self.banner_enabled = True
+
+    def sizeHint(self):
+        return QSize(260, 100)
 
     def set_strength(self, value):
         self.strength = value
@@ -206,7 +211,7 @@ class NotificationSettingsPage(QWidget):
         control_box.addWidget(hint)
         control_box.addStretch(1)
         self.banner_preview = NoticeBlurPreview()
-        preview_box.addWidget(self.banner_preview, 0, Qt.AlignLeft)
+        preview_box.addWidget(self.banner_preview, 0, Qt.AlignRight)
         preview_box.addStretch(1)
         self.background_columns.add_section('controls', controls)
         self.background_columns.add_section('example', example)

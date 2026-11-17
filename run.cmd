@@ -469,9 +469,13 @@ exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_shortcut_settings
 if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout -- SettingsLayoutTests.test_tray_retains_menu_order_and_visibility SettingsLayoutTests.test_tray_cards_and_menu_controls_fit_narrow_wide_and_large_fonts SettingsLayoutTests.test_tray_changes_drag_and_default_restore_use_existing_autosave
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_polish -- UiPolishTests.test_menu_editor_and_runtime_keep_order_callbacks_and_visibility
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout -- SettingsLayoutTests.test_recording_page_reuses_controls_and_preserves_codec_and_switch_contracts SettingsLayoutTests.test_recording_page_retains_plugin_insertion_anchor_and_owned_values SettingsLayoutTests.test_recording_controls_save_native_deltas_and_reopen_without_touching_plugin_fields SettingsLayoutTests.test_recording_page_keeps_directory_inline_and_units_outside_at_wide_and_narrow_sizes
 if errorlevel 1 exit /b %errorlevel%
-"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_notification_center -- NotificationTests.test_banner_display_switch_preserves_blur_and_uses_existing_autosave NotificationTests.test_banner_blur_settings_roundtrip_and_reset NotificationTests.test_settings_navigation_places_notifications_before_shortcuts
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_notification_center -- NotificationTests.test_banner_display_switch_preserves_blur_and_uses_existing_autosave NotificationTests.test_banner_blur_settings_roundtrip_and_reset NotificationTests.test_settings_navigation_places_notifications_before_shortcuts NotificationTests.test_banner_preview_can_shrink_below_preferred_width_and_remains_right_aligned NotificationTests.test_notification_sections_keep_compact_controls_readable_at_large_font_and_narrow_width
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
 exit /b %errorlevel%
