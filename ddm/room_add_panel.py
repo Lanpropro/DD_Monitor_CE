@@ -1,4 +1,4 @@
-"""In-window room entry over the search/follow area; never changes wall layout."""
+"""In-window room entry anchored to the sidebar; never replaces search or follow content."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu,
     QPlainTextEdit, QVBoxLayout, QWidget)
@@ -19,13 +19,14 @@ class RoomAddPanel(QFrame):
         super().__init__(sidebar.window())
         self.sidebar = sidebar
         sidebar.room_add_panel = self
-        self._placement = None
-        self._saved_widgets = []
         self.busy = False
         self.folder_id = ''
         self.folder_names = set()
         self.folder_creator = sidebar.create_folder
         self.setObjectName('InlineRoomAdd')
+        if QApplication.platformName() == 'windows':
+            self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
+            self.setAttribute(Qt.WA_NativeWindow)
         box = QVBoxLayout(self)
         box.setContentsMargins(10, 8, 10, 10)
         box.setSpacing(6)
@@ -39,7 +40,7 @@ class RoomAddPanel(QFrame):
         self.entry.textChanged.connect(self._update_count)
         self.entry.installEventFilter(self)
         top.addWidget(self.entry, 1)
-        self.close_button = NavigationButton('返回搜索', 'close')
+        self.close_button = NavigationButton('关闭添加', 'close')
         self.close_button.setFixedSize(24, 24)
         self.close_button.clicked.connect(self.close_editor)
         top.addWidget(self.close_button, 0, Qt.AlignTop)
@@ -77,7 +78,6 @@ class RoomAddPanel(QFrame):
         self.setStyleSheet(stylesheet(f'''
             #InlineRoomAdd {{background:{theme.CONTENT}; border:1px solid {theme.ACCENT}; border-radius:12px;}}
             #InlineRoomInput {{background:transparent; border:none; padding:0; color:{theme.TEXT1};}}
-            #InlineRoomImport {{background:transparent; border:none; padding:0 2px; color:{theme.ACCENT};}}
         '''))
         self.error.setStyleSheet(f'color:{theme.ERROR};')
 
@@ -99,39 +99,10 @@ class RoomAddPanel(QFrame):
             self._select_folder(action)
             menu.addSeparator()
             menu.addAction('新建文件夹…').triggered.connect(lambda: _create_folder_for_dialog(self, self.folder_creator))
-        self._place_editor()
         self.fit_to_search()
         self.show()
         self.raise_()
         self.entry.setFocus(Qt.OtherFocusReason)
-
-    def _place_editor(self):
-        if self._placement is not None:
-            return
-        sidebar = self.sidebar
-        mode = 'floating' if sidebar.collapsed else ('portrait' if sidebar.side == 'top' else 'column')
-        self._placement = mode
-        parent = sidebar.window() if mode == 'floating' else (sidebar if mode == 'portrait' else sidebar._column)
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(16777215, 16777215)
-        if QApplication.platformName() == 'windows':
-            self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
-            self.setAttribute(Qt.WA_NativeWindow, mode == 'floating')
-        self.setParent(parent)
-        widgets = (sidebar.search,) if mode == 'column' else (() if mode == 'floating' else (
-            sidebar.search, sidebar.scroll, sidebar._head_scroll, sidebar.navigation.filters,
-            sidebar.navigation.folder_toggle_button, sidebar.navigation.add_button,
-            sidebar.navigation.manage_button, sidebar.toggle_button))
-        for widget in widgets:
-            policy = widget.sizePolicy()
-            self._saved_widgets.append((widget, widget.isHidden(), policy))
-            if mode == 'portrait' and not widget.isHidden():
-                retained = widget.sizePolicy()
-                retained.setRetainSizeWhenHidden(True)
-                widget.setSizePolicy(retained)
-            widget.hide()
-        if mode == 'column':
-            sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search), self)
 
     def _select_folder(self, action):
         self.folder_id = action.data()
@@ -167,13 +138,6 @@ class RoomAddPanel(QFrame):
     def close_editor(self):
         self._fit_timer.stop()
         self.hide()
-        if self._placement == 'column':
-            self.sidebar._layout.removeWidget(self)
-        for widget, hidden, policy in self._saved_widgets:
-            widget.setSizePolicy(policy)
-            widget.setVisible(not hidden)
-        self._saved_widgets.clear()
-        self._placement = None
         self.dismissed.emit()
         if self.sidebar.search.isVisible():
             self.sidebar.search.setFocus(Qt.OtherFocusReason)
@@ -185,25 +149,14 @@ class RoomAddPanel(QFrame):
     def fit_to_search(self):
         sidebar = self.sidebar
         parent = self.parentWidget()
-        anchor = sidebar._head_scroll if sidebar.side == 'top' and sidebar.collapsed else sidebar.search
-        if sidebar.side == 'left' and sidebar.collapsed:
-            # No search field exists in the narrow rail; keep it collapsed and
-            # place the same editor beside its add button inside the main window.
+        width = max(160, min(400, parent.width() - 16))
+        height = 132 if self.error.isHidden() else 156
+        if sidebar.side == 'left':
             point = sidebar.mapTo(parent, QPoint(sidebar.width() + 4, 12))
-            width, height = min(400, parent.width() - point.x() - 12), 132
         else:
-            point = anchor.mapTo(parent, QPoint(0, 0))
-            right = sidebar.mapTo(parent, QPoint(sidebar.width() - 10, 0)).x()
-            width = right - point.x()
-            if sidebar.side == 'top':
-                bottom = sidebar.mapTo(parent, QPoint(0, sidebar.height() - 8)).y()
-                height = max(102, bottom - point.y())
-            else:
-                lines = min(4, max(1, self.entry.document().blockCount()))
-                height = 82 + self.entry.fontMetrics().lineSpacing() * lines
-        if not self.error.isHidden():
-            height = max(height, 126)
-        width = max(160, min(width, parent.width() - 16))
+            button = (sidebar.navigation.collapsed_add_button if sidebar.collapsed
+                      else sidebar.navigation.add_button)
+            point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
         folder_width = max(52, min(120, width - 20 - 24 - self.submit_button.sizeHint().width() - 18))
         self.folder_button.setMaximumWidth(folder_width)
         if hasattr(self, '_folder_name'):
@@ -211,11 +164,7 @@ class RoomAddPanel(QFrame):
                 self._folder_name, Qt.ElideRight, max(20, folder_width - 30)))
         point.setX(max(8, min(point.x(), parent.width() - width - 8)))
         point.setY(max(0, min(point.y(), parent.height() - height)))
-        if self._placement == 'column':
-            self.setFixedHeight(height)
-            self.sidebar._layout.activate()
-        else:
-            self.setGeometry(QRect(point, QSize(width, height)))
+        self.setGeometry(QRect(point, QSize(width, height)))
         if self.isVisible():
             self.raise_()
 
@@ -232,7 +181,7 @@ class RoomAddPanel(QFrame):
             if watched in (self.sidebar, self.sidebar.search, self.sidebar.scroll, self.parentWidget()) and event.type() in (
                     QEvent.Resize, QEvent.Move, QEvent.LayoutRequest, QEvent.Show):
                 self._fit_timer.start(0)
-            elif (self._placement == 'floating' and event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget)
+            elif (event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget)
                   and watched.window() is self.parentWidget() and watched is not self
                   and not self.isAncestorOf(watched)):
                 self.close_editor()
