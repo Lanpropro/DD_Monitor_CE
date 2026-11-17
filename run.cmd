@@ -21,6 +21,12 @@ set "DIAG_ARG=%~1"
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
+if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
+if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
+if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
+if /i "%~1"=="--check-update-settings" goto updateSettingsCheck
+if /i "%~1"=="--check-portrait-ui" goto portraitUiCheck
+if /i "%~1"=="--check-tray-menu" goto trayMenuCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
@@ -190,6 +196,8 @@ exit /b %errorlevel%
 
 :diagnosticsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_settings_layout
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_on_demand_diagnostics
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_diagnostics
@@ -400,6 +408,15 @@ exit /b %errorlevel%
 :imageCacheCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_image_cache
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_extra_cache
+exit /b %errorlevel%
+
+:portraitUiCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_card_layout
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_portrait_ui
 exit /b %errorlevel%
 
 :fullscreenLayersCheck
@@ -436,6 +453,64 @@ set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_sc_simulator.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_super_chat.py"
+exit /b %errorlevel%
+
+:danmakuSettingsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_danmaku_blocking
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_super_chat
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sc_simulator
+exit /b %errorlevel%
+
+:settingsSearchCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pinyin_search
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_danmaku_blocking -- BlockingEditorTests
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_notification_center -- NotificationTests.test_settings_navigation_places_notifications_before_shortcuts NotificationTests.test_banner_blur_settings_roundtrip_and_reset NotificationTests.test_notification_switches_support_keyboard_click_and_explicit_states NotificationTests.test_notification_settings_cards_fit_themes_and_small_dialog NotificationTests.test_notification_sections_keep_compact_controls_readable_at_large_font_and_narrow_width NotificationTests.test_notification_retention_segments_trigger_existing_autosave_contract
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls -- WorkspaceControlTests.test_function_search_supports_pinyin_and_keeps_action_order
+exit /b %errorlevel%
+
+:trayMenuCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "TRAY_CHECK_FAILED="
+for %%T in (SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_restores_window SystemTrayTests.test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close TrayLayoutPreviewTests TrayMenuChoicesTests SystemTrayTests.test_default_hide_releases_watching_and_restore_reconnects SystemTrayTests.test_disabled_and_minimized_keep_playback SystemTrayTests.test_manual_pause_and_changed_room_are_not_resumed SystemTrayTests.test_recording_and_pending_capture_are_preserved) do (
+    "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_system_tray -- %%T
+    if errorlevel 1 set "TRAY_CHECK_FAILED=1"
+)
+if defined TRAY_CHECK_FAILED exit /b 1
+exit /b 0
+
+:updateSettingsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_settings
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_download_progress -- UpdateDownloadTests.test_app_update_action_keeps_its_left_anchor_through_transfer_states UpdateDownloadTests.test_plugin_expansion_moves_only_its_column_and_keeps_one_footer UpdateDownloadTests.test_plugin_cards_keep_text_inside_at_large_font_and_narrow_width UpdateDownloadTests.test_plugin_columns_resize_filter_sort_and_keep_download_controls UpdateDownloadTests.test_plugin_controls_use_shared_library_and_preserve_actions_and_check_signals
+exit /b %errorlevel%
+
+:settingsControlsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_shortcut_settings
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_menu_drag
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout -- SettingsLayoutTests.test_tray_retains_menu_order_and_visibility SettingsLayoutTests.test_tray_cards_and_menu_controls_fit_narrow_wide_and_large_fonts SettingsLayoutTests.test_tray_changes_drag_and_default_restore_use_existing_autosave SettingsLayoutTests.test_separate_menu_sections_preserve_drafts_and_save_only_tray_edits SettingsLayoutTests.test_both_menu_sections_fit_large_fonts_and_narrow_wide_sizes
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_polish -- UiPolishTests.test_menu_editor_and_runtime_keep_order_callbacks_and_visibility UiPolishTests.test_narrow_menu_preview_drag_selection_hidden_rows_and_single_owner
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout -- SettingsLayoutTests.test_recording_page_reuses_controls_and_preserves_codec_and_switch_contracts SettingsLayoutTests.test_recording_page_retains_plugin_insertion_anchor_and_owned_values SettingsLayoutTests.test_recording_controls_save_native_deltas_and_reopen_without_touching_plugin_fields SettingsLayoutTests.test_recording_page_keeps_directory_inline_and_units_outside_at_wide_and_narrow_sizes
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_notification_center -- NotificationTests.test_banner_display_switch_preserves_blur_and_uses_existing_autosave NotificationTests.test_banner_blur_settings_roundtrip_and_reset NotificationTests.test_settings_navigation_places_notifications_before_shortcuts NotificationTests.test_banner_preview_can_shrink_below_preferred_width_and_remains_right_aligned NotificationTests.test_notification_sections_keep_compact_controls_readable_at_large_font_and_narrow_width
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
 exit /b %errorlevel%
 
 :streamInfoCheck

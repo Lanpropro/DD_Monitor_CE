@@ -76,6 +76,8 @@ class NavigationButton(QPushButton):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width()/2, self.height()/2)
         self._dock_feedback.transform(painter)
+        if self.kind in ('folders_expand', 'folders_collapse') and self.property('horizontalFolderIcon'):
+            painter.rotate(-90)
         QSvgRenderer(QByteArray(svg.encode())).render(
             painter, QRectF(-9, -9, 18, 18))
 
@@ -314,11 +316,12 @@ class SidebarNavigation(QObject):
         action.setChecked(sidebar.select_mode)
         action.triggered.connect(sidebar.set_select_mode)
         menu.addAction('刷新关注状态').triggered.connect(sidebar.refresh_button.click)
-        menu.addSeparator()
-        menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
-        fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
-                              else '全部折叠文件夹')
-        fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
+        if sidebar.side != 'top':
+            menu.addSeparator()
+            menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
+            fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
+                                  else '全部折叠文件夹')
+            fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
         menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
@@ -353,11 +356,17 @@ class SidebarNavigation(QObject):
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
         self.header.setVisible(left)
-        self.filters.setVisible(left and not sidebar.collapsed)
+        self.filters.setVisible(not sidebar.collapsed and (left or not sidebar.select_mode))
+        self.folder_toggle_button.setVisible(left or (not sidebar.collapsed and not sidebar.select_mode))
+        self.density_button.setVisible(left)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         self.tools_divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         if not left:
+            self.manage_button.setToolTip('关注与常用操作')
+            self.manage_button.setAccessibleName('关注与常用操作')
             return
+        self.manage_button.setToolTip('关注管理')
+        self.manage_button.setAccessibleName('关注管理')
         sidebar._layout.insertWidget(0, self.header)
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)

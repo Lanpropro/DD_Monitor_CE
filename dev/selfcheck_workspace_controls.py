@@ -554,6 +554,28 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertFalse(panel.popup.isVisible())
         self.assertFalse(panel.launcher.isChecked())
 
+    def test_function_search_supports_pinyin_and_keeps_action_order(self):
+        first, first_action = self.add('subtitle', '字幕工具 42')
+        first.setToolTip('实时翻译 · 小明 Example')
+        self.add('recording', '录制助手')
+        panel = self.sidebar.workspace_controls
+        panel.launcher.click()
+        settle()
+        order = list(panel._rows)
+        cases = [('字幕', {'subtitle'}), ('zimu', {'subtitle'}), ('ZM', {'subtitle'}),
+                 ('ssfy', {'subtitle'}), ('XM', {'subtitle'}), ('EXAMPLE', {'subtitle'}),
+                 ('42', {'subtitle'}), ('zimu 42 example', {'subtitle'}), ('lz', {'recording'}),
+                 ('zm missing', set()), ('subtitle', set())]
+        for query, expected in cases:
+            panel.search.setText(query)
+            self.assertEqual({key[1] for key, (row, _launch, _pin) in panel._rows.items()
+                              if not row.isHidden()}, expected, query)
+            self.assertEqual(list(panel._rows), order)
+        panel.search.clear()
+        self.assertTrue(all(not row.isHidden() for row, _launch, _pin in panel._rows.values()))
+        self.assertFalse(first_action.isChecked(), 'Searching must not activate a function')
+        self.assertIs(panel.entries[('workspace-test', 'subtitle')][1], first)
+
     def test_popup_uses_original_click_and_action_state(self):
         panel = self.sidebar.workspace_controls
         first, action = self.add('first', '第一个', 0)
@@ -645,9 +667,14 @@ class WorkspaceControlTests(unittest.TestCase):
             settle()
             self.assertTrue(self.sidebar.navigation.rail.isHidden())
             self.assertIs(panel.launcher.parentWidget(), self.sidebar._bar_row)
-            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
+            for button in (self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
+                self.assertIs(button.parentWidget(), self.sidebar._bar_row)
+                self.assertTrue(button.isVisible())
+                self.assertEqual(button.size(), self.sidebar.settings_button.size())
+                self.assertTrue(self.sidebar.rect().contains(button.mapTo(
+                    self.sidebar, button.rect().bottomRight())))
             self.assertTrue(self.sidebar.clear_wall_button.isVisible())
-            self.assertEqual(self.sidebar.clear_wall_button.size().width(), 30)
+            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
             for collapsed in (True, False):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 settle()

@@ -38,6 +38,10 @@
 
 播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
 
+关注栏与菜单拖动的行位移动画共用 `ddm/row_motion.py`，保留关注栏既有时钟、150ms OutCubic和中途改向行为；菜单拖动仅暂态让位，松手才提交。`ddm/tray_menu.py` 负责托盘选项清洗及设置示意，实际托盘动作仍由 `ddm/system_tray.py` 持有。
+
+托盘入口与隐藏播放状态由 `ddm/system_tray.py` 协调；`ddm/tray_preview.py` 仅采集格子几何/类型/标签并绘制布局示意，不抓视频帧、不落盘或持续刷新。右键菜单预览与编辑共用 `ddm/tile_menu.py` 的单一选择状态。
+
 多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
 
 矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
@@ -53,6 +57,14 @@
 网页登录职责：`ddm/account_browser.py`只管理本应用临时浏览器与回环控制连接；`ddm/browser_account_worker.py`处理取消、身份确认和关注读取；`ddm/browser_account_dialog.py`负责交互、加密保存和会话接线。平台接口解析留在独立插件，OAuth仍由原模块负责。浏览器只在用户发起登录且保存会话不可用时启动，结束或取消后释放，不读取个人浏览器资料。
 
 ## 已跟踪的其他文件：逐项标注
+
+- `ddm/cache_cleanup.py`：固定缓存类别、HTTP清理请求及历史日志边界。
+- `ddm/cache_cleanup_ui.py`：额外缓存的后台统计、选择与清理反馈。
+- `ddm/sidebar_portrait.py`：借用既有关注控件的竖屏工具栏与横向列表。
+- `dev/selfcheck_settings_card_layout.py`
+- `dev/selfcheck_portrait_ui.py`
+- `dev/selfcheck_diagnostic_settings_layout.py`
+- `dev/selfcheck_extra_cache.py`
 
 ### 文档规范与校验
 
@@ -252,6 +264,8 @@
 - `dev/selfcheck_card_drop.py`
 - `dev/selfcheck_settings_navigation.py`
 - `dev/selfcheck_settings_layout.py`
+- `dev/selfcheck_shortcut_settings.py`
+- `dev/selfcheck_menu_drag.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
 - `dev/selfcheck_settings_control.py`
@@ -450,6 +464,7 @@
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
+- `dev/selfcheck_update_settings.py`
 - `dev/selfcheck_update_preview.py`
 - `dev/folder_stress_preview.py`
 - `dev/update_preview.py`
@@ -801,7 +816,7 @@ B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili
 
 房间细分：`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。
 
-SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_chat_animation.py` 为运行时展开/折叠期限，`super_chat_avatar.py` 为头像资源与绘制，`super_chat_preview.py` 为设置预览与位置编辑。原 super_chat_presentation 保留兼容导出，项目内部按实际职责导入，QObject/定时器父对象不变。
+SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语及可读字号下限，`super_chat_animation.py` 为运行时展开/折叠期限与按格子尺寸自动紧凑的状态，`video_super_chat.py` 持有画面正文/标题滚动，`super_chat_widgets.py` 保留弹幕栏正文阅读位置，`super_chat_avatar.py` 为头像资源与绘制，`super_chat_preview.py` 为设置预览与位置编辑。原 super_chat_presentation 保留兼容导出，项目内部按实际职责导入，QObject/定时器父对象不变。屏蔽来源元数据的持久化与匹配归danmaku_filter/danmaku_blocking，settings_danmaku_blocking仅编辑及展示；字体搜索保留FontSelectControl的选择/保存契约。
 
 关注栏呈现细分：`sidebar_orientation.py` 管横竖布局与借用控件，`sidebar_collapse.py` 管收起/展开协调，`sidebar_layout_picker.py` 管布局选择器；账号形状/显隐归既有 SidebarAccountControl，焦点交互归 SidebarInteraction。SidebarPresentation 保留兼容委托及外观行同步，控件、动画、计时器、状态全部仍归 Sidebar。
 

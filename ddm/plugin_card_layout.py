@@ -33,6 +33,12 @@ class PluginCardLayout(QLayout):
             self._columns = columns
             self.invalidate()
 
+    def fit_columns(self, width):
+        # Progress details already elide; reserve readable card space and the
+        # actual action controls instead of their full optional status text.
+        minimum = max(360, max((item.minimumSize().width() for item in self._items), default=0))
+        self.set_columns(2 if width >= minimum * 2 + self.spacing() else 1)
+
     def expandingDirections(self):
         return Qt.Horizontal
 

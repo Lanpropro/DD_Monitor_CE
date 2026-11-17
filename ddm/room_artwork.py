@@ -72,15 +72,25 @@ class RoomArtwork:
         return True
 
 
-def notice_frost(widget, artwork):
+def _notice_settings(widget):
     from .config import DEFAULT_SETTINGS
     while widget is not None:
         settings = getattr(widget, 'settings', None)
         if isinstance(settings, dict):
-            return artwork.frosted(max(0, min(40, int(settings.get(
-                'notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))))
+            return settings
         widget = widget.parentWidget()
-    return artwork.frosted(DEFAULT_SETTINGS['notice_banner_blur'])
+    return DEFAULT_SETTINGS
+
+
+def notice_source(widget, artwork):
+    return artwork.source if _notice_settings(widget).get('notice_banner_enabled', True) else None
+
+
+def notice_frost(widget, artwork):
+    from .config import DEFAULT_SETTINGS
+    settings = _notice_settings(widget)
+    return artwork.frosted(max(0, min(40, int(settings.get(
+        'notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))))
 
 
 def paint_room_background(painter, rect, pixmap, radius, *, focus=True, frost=None):
@@ -108,7 +118,7 @@ def paint_room_background(painter, rect, pixmap, radius, *, focus=True, frost=No
 
 
 def style_room_notice(widget, artwork):
-    widget.setProperty('roomBackdrop', artwork.source is not None)
+    widget.setProperty('roomBackdrop', notice_source(widget, artwork) is not None)
     for child in [widget, *widget.findChildren(QWidget)]:
         child.style().unpolish(child)
         child.style().polish(child)

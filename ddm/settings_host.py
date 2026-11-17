@@ -124,7 +124,9 @@ class SettingsHost(QObject):
         return values
 
     def sync(self):
-        state = {'kind': 'host-state', 'values': self.values(),
+        portrait = getattr(self.window, 'orientation', '') == 'portrait'
+        self.stack.setProperty('settings_portrait', portrait)
+        state = {'kind': 'host-state', 'values': self.values(), 'portrait': portrait,
                  'material_background': self.stack.property('settings_backdrop_path') or '',
                  'save_enabled': self.dialog.confirm_button.isEnabled(),
                  'action_visible': not self.dialog.confirm_button.isHidden(),
