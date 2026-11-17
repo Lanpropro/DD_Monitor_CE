@@ -108,13 +108,6 @@ class SidebarAccountControl:
             menu.addSeparator()
             menu.addAction("导入关注")
             menu.addAction("+ 添加直播间")
-        elif host.side == "left" and host.collapsed:
-            # 横屏收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
-            # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
-            menu.addSeparator()
-            menu.addAction("布局预设")
-            menu.addAction('画中画')
-            menu.addAction("设置")
         for action in account_actions:
             menu.removeAction(action)
             menu.addAction(action)

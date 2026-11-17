@@ -157,6 +157,7 @@ class SidebarNavigation(QObject):
         self.collapsed_add_button = NavigationButton('添加与导入', 'plus', self.rail)
         self.collapsed_add_button.clicked.connect(lambda: self.open_add_menu(anchor=self.collapsed_add_button))
         self.top.addWidget(self.collapsed_add_button, 0, Qt.AlignHCenter)
+        self.collapsed_add_button.setFixedSize(24, 24)
         self.collapsed_add_button.hide()
         self.manage_button = NavigationButton('关注管理', 'more', self.header)
         self.manage_button.clicked.connect(self.open_manage_menu)
@@ -381,14 +382,14 @@ class SidebarNavigation(QObject):
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
         add = self.collapsed_add_button
-        holder = self.rail if left else sidebar._bar_row
+        holder = sidebar._column if left else sidebar._bar_row
         if holder is not None and add.parentWidget() is not holder:
             self.top.removeWidget(add)
             previous = add.parentWidget()
             if previous is not None and previous.layout() is not None:
                 previous.layout().removeWidget(add)
             add.setParent(holder)
-            (self.top if left else sidebar._bar_row_box).addWidget(add)
+            (sidebar._layout if left else sidebar._bar_row_box).addWidget(add)
         add.setVisible(holder is not None and sidebar.collapsed)
         self.header.setVisible(left)
         self.filters.setVisible(not sidebar.collapsed and (left or not sidebar.select_mode))
@@ -442,5 +443,7 @@ class SidebarNavigation(QObject):
         for widget in (self.title, self.count, self.add_button, self.manage_button):
             widget.setVisible(not sidebar.collapsed)
         sidebar.toggle_button.show()
+        sidebar._layout.removeWidget(add)
+        sidebar._layout.insertWidget(sidebar._layout.indexOf(self.header) + 1, add, 0, Qt.AlignRight)
         self._sort_tools()
         self.sync_count()

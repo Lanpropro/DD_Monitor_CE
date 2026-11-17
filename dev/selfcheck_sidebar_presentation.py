@@ -297,7 +297,7 @@ print('30 native reparent cycles completed', flush=True)
             self.sidebar._open_account_menu()
         picker.assert_called_once_with()
 
-    def test_menu_entries_follow_side_and_collapse_and_retain_pip_entry(self):
+    def test_menu_entries_follow_side_and_collapse_without_duplicate_tools(self):
         self.sidebar.set_account('Current')
         for side, collapsed in (('left', False), ('left', True), ('top', False), ('top', True)):
             with self.subTest(side=side, collapsed=collapsed):
@@ -307,9 +307,9 @@ print('30 native reparent cycles completed', flush=True)
                 labels = [a.text() for a in menu.actions() if a.text()]
                 self.assertEqual('导入关注' in labels, side == 'top' and collapsed)
                 self.assertEqual('+ 添加直播间' in labels, side == 'top' and collapsed)
-                self.assertEqual('画中画' in labels, side == 'left' and collapsed)
-                self.assertEqual('设置' in labels, side == 'left' and collapsed)
-                self.assertEqual('布局预设' in labels, side == 'left' and collapsed)
+                self.assertNotIn('画中画', labels)
+                self.assertNotIn('设置', labels)
+                self.assertNotIn('布局预设', labels)
                 if side == 'top':
                     self.assertEqual(menu.width(), 240)
 

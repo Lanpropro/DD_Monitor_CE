@@ -428,12 +428,7 @@ class Sidebar(QFrame):
         return self.items_control.set_room_face(room_id, pixmap)
 
     def account_menu(self) -> QMenu:
-        """账号菜单：退出登录；放不进横栏的入口也在这里。
-
-        竖屏横栏只有一行：导入关注 / 添加直播间收进这个菜单；「布局预设 / 设置」
-        是并排摆在横栏上的按钮，只有收起时（按钮藏起来）才需要放进菜单。
-        单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
-        """
+        """账号操作菜单；导入和添加入口按当前方向保留。"""
         return self.account_control.account_menu(popup_type=AccountPopupMenu, row_type=AccountRow)
 
     def _open_account_menu(self) -> None:
