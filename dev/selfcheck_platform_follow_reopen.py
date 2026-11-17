@@ -72,7 +72,7 @@ def main():
                 dialog.select_platform("douyu")
                 assert not dialog._platform_pages["douyu"].remember.isChecked()
                 assert dialog.page.property("loading") and not dialog.page.import_button.isEnabled()
-                assert all(not b.isEnabled() for b in dialog.platform_buttons.values())
+                assert not dialog.import_bar.platform.isEnabled()
                 wait_for(app, lambda: follows_ready(dialog))
                 page = dialog.page
                 assert page.rooms == rooms and provider.follow_rooms.call_count == count + 1

@@ -224,6 +224,7 @@
 - `dev/selfcheck_folder_drag.py`
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
+- `dev/selfcheck_follow_import_ui.py`
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_failed_stream_quality.py`
 - `dev/selfcheck_empty_tile_quality.py`
@@ -826,3 +827,5 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。
 
 原位添加：`room_add_panel.py` 管统一的展开式添加面板、焦点与定位，不替换搜索或关注区域，保持画面墙布局；`room_add_input.py` 管行号校验和去重；RoomCatalog 持有目标格、查询工厂与完成回调，复用原解析器。
+
+关注导入：`follow_import_ui.py` 只负责紧凑平台栏和双行列表绘制，`room_dialogs.py` 保留勾选、文件夹归类、分批填充和头像请求；`account_dialog.py` 保留平台切换、缓存与任务生命周期。

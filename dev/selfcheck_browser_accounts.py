@@ -233,10 +233,10 @@ class BrowserAccountTests(unittest.TestCase):
                 dialog.page._read()
                 wait_for_list()
                 self.assertEqual([room['room_id'] for room in dialog.page.rooms], ['twitch:fixture'])
-                self.assertTrue(dialog.platform_buttons['twitch'].property('loggedIn'))
+                self.assertEqual(dialog.import_bar.account.uname, owner._accounts['twitch']['uname'])
                 platform.browser_follow_rooms.return_value = [
                     {'room_id': 'twitch:newfixture', 'platform': 'twitch', 'uname': 'New fixture', 'live': False}]
-                dialog.page.reread_button.click()
+                dialog.import_bar.refresh.click()
                 wait_for_list()
                 self.assertEqual(launched.call_count, 1)
                 self.assertEqual(platform.browser_follow_rooms.call_count, 2)

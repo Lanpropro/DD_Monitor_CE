@@ -33,6 +33,7 @@ if /i "%~1"=="--check-live-elapsed" goto liveElapsedCheck
 if /i "%~1"=="--check-functional-modules" goto functionalModulesCheck
 if /i "%~1"=="--check-widget-boundaries" goto widgetBoundariesCheck
 if /i "%~1"=="--check-room-add" goto roomAddCheck
+if /i "%~1"=="--check-follow-import" goto followImportCheck
 if /i "%~1"=="--check-room-presets" goto roomPresetsCheck
 if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-preview-scroll" goto previewScrollCheck
@@ -539,6 +540,11 @@ exit /b %errorlevel%
 :liveBufferingCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_player_lifetime -- LiveBufferingTests
+exit /b %errorlevel%
+
+:followImportCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_follow_import_ui
 exit /b %errorlevel%
 
 :roomAddCheck

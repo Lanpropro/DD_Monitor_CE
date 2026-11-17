@@ -100,8 +100,8 @@ def main():
                     wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog) and owner._follow_loader is None)
                     assert [room['room_id'] for room in dialog.page.rooms] == [
                         'twitch:fixturechannel' if kind == 'twitch' else 'youtube:' + channel]
-                    assert dialog.platform_buttons[kind].property('loggedIn')
-                    assert all(button.isEnabled() for button in dialog.platform_buttons.values())
+                    assert dialog.import_bar.account.uname == owner._accounts[kind]['uname']
+                    assert dialog.import_bar.platform.isEnabled()
                     original = dialog.page
                     other_kind = 'youtube' if kind == 'twitch' else 'twitch'
                     dialog.select_platform(other_kind)
@@ -111,7 +111,7 @@ def main():
                     updated = dict(original.rooms[0], uname='New subscription')
                     with patch.object(owner.plugins.platforms[kind], 'follow_rooms',
                                       return_value=[updated]) as reread:
-                        QTest.mouseClick(original.reread_button, Qt.LeftButton)
+                        QTest.mouseClick(dialog.import_bar.refresh, Qt.LeftButton)
                         wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog)
                                  and dialog.page is not original and owner._follow_loader is None)
                         reread.assert_called_once()
@@ -127,7 +127,7 @@ def main():
                 assert 'Fixture API unavailable' in page.status.text()
                 assert owner._accounts['youtube']['uid'] == 'google-fixture'
                 assert AccountStore('youtube', root=root).load_auth()['refresh_token'] == 'fixture-youtube-refresh'
-                assert dialog.platform_buttons['youtube'].property('loggedIn')
+                assert dialog.import_bar.account.uname == owner._accounts['youtube']['uname']
                 dispose(app, dialog)
             # 独立应用实例恢复两个身份，令牌不会进入配置或界面账号字段。
             with patch.dict(os.environ, DDM_NO_SAVE='0'):
