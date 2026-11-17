@@ -27,6 +27,7 @@ if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
+if /i "%~1"=="--check-tray-menu" goto trayMenuCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
 if /i "%~1"=="--sc-simulator" goto scsimulator
@@ -512,13 +513,23 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls -- WorkspaceControlTests.test_function_search_supports_pinyin_and_keeps_action_order
 exit /b %errorlevel%
 
+:trayMenuCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "TRAY_CHECK_FAILED="
+for %%T in (SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_restores_window SystemTrayTests.test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close TrayLayoutPreviewTests SystemTrayTests.test_default_hide_releases_watching_and_restore_reconnects SystemTrayTests.test_disabled_and_minimized_keep_playback SystemTrayTests.test_manual_pause_and_changed_room_are_not_resumed SystemTrayTests.test_recording_and_pending_capture_are_preserved) do (
+    "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_system_tray -- %%T
+    if errorlevel 1 set "TRAY_CHECK_FAILED=1"
+)
+if defined TRAY_CHECK_FAILED exit /b 1
+exit /b 0
+
 :settingsControlsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_shortcut_settings
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout -- SettingsLayoutTests.test_tray_retains_menu_order_and_visibility SettingsLayoutTests.test_tray_cards_and_menu_controls_fit_narrow_wide_and_large_fonts SettingsLayoutTests.test_tray_changes_drag_and_default_restore_use_existing_autosave
 if errorlevel 1 exit /b %errorlevel%
-"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_polish -- UiPolishTests.test_menu_editor_and_runtime_keep_order_callbacks_and_visibility
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_polish -- UiPolishTests.test_menu_editor_and_runtime_keep_order_callbacks_and_visibility UiPolishTests.test_narrow_menu_preview_drag_selection_hidden_rows_and_single_owner
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_layout -- SettingsLayoutTests.test_recording_page_reuses_controls_and_preserves_codec_and_switch_contracts SettingsLayoutTests.test_recording_page_retains_plugin_insertion_anchor_and_owned_values SettingsLayoutTests.test_recording_controls_save_native_deltas_and_reopen_without_touching_plugin_fields SettingsLayoutTests.test_recording_page_keeps_directory_inline_and_units_outside_at_wide_and_narrow_sizes
 if errorlevel 1 exit /b %errorlevel%

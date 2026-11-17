@@ -210,6 +210,8 @@ Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命�
 
 SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过期和排序；`super_chat_api.py` 为 B 站快照协议/工作线程；`super_chat_presentation.py` 为布局、预览、头像和绘制；`super_chat_widgets.py` 为弹幕面板卡片，`video_super_chat.py` 为画面 SC 浮层。`super_chat.py` 保留旧导出，滚动画面弹幕继续由 VideoDanmaku 负责。
 
+托盘入口与隐藏播放由 `system_tray.py` 协调；`tray_preview.py` 仅采集格子几何/类型/标签并绘制布局示意，不取视频帧、不落盘、不持续刷新。`tile_menu.py` 的窄菜单预览和功能列表共用选择状态，界面排序不复制配置。
+
 小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
 
 在线界面职责：`online_tasks.py` 工作线程与页面关闭后的退役清理；`plugin_downloads.py` 由主窗口持有插件下载／安装任务和状态，设置关闭后继续；`download_progress.py` 采样字节和速度，`update_progress_ui.py` 在通知、更新页和插件卡片显示进度及完成反馈，`ui/progress.py` 提供主题进度条。`plugin_store_ui.py` 插件商店；`plugin_details_ui.py` 卡片内详情展开和文本自适应高度，由卡片拥有并随外层列表滚动，复用原卡片底部操作组；`plugin_card_layout.py` 按筛选后顺序将卡片分入等宽独立列，分别计算高度，展开只推动本列；`app_update_ui.py` 软件更新页；`update_notice.py` 更新提示与标记；`result_notice.py` 用户结果通知；`update_offers.py` 版本提示数据。`update_errors.py` 将在线任务异常分类为可读失败原因，`update_progress_ui.py` 在原操作行显示换行反馈；关闭更新浮层仅标已读，通知中心保留恢复同一任务的入口。`online_ui.py` 保留旧导出和已有任务/通知替换入口，退役集合只保留一份。

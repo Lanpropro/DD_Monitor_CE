@@ -360,7 +360,7 @@ class TraySettingsPage(QWidget):
         self.close_behavior_combo.setCurrentIndex(max(
             0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
         behavior.grid.addWidget(self.close_behavior_combo, 0, 0, 1, 2)
-        close_hint = QLabel('点击关闭按钮时，按此方式处理。托盘菜单仍可退出程序。')
+        close_hint = QLabel('右键托盘图标可查看布局、打开画中画或退出。双击图标恢复窗口。')
         close_hint.setObjectName('SettingsHint')
         close_hint.setWordWrap(True)
         behavior.grid.addWidget(close_hint, 1, 0, 1, 2)
@@ -378,13 +378,14 @@ class TraySettingsPage(QWidget):
         hint.setObjectName("SettingsHint")
         hint.setWordWrap(True)
         behavior.grid.addWidget(hint, 3, 0, 1, 2)
-        self.sections.add_section('close', behavior)
+        self.sections.add_section('close', behavior, wide=True)
         menu = SettingsSection('画面右键菜单')
         menu.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-        self.sections.add_section('menu', menu)
+        self.sections.add_section('menu', menu, wide=True)
         from .tile_menu import TileMenuEditor
         self.tile_menu = TileMenuEditor(settings.get('tile_context_menu'))
         menu.grid.addWidget(self.tile_menu, 0, 0, 1, 2)
+        self.tile_menu.layoutChanged.connect(lambda: self.sections.refresh_section('menu'))
         layout.addStretch(1)
 
     def values(self):

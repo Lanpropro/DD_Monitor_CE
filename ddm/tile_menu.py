@@ -1,7 +1,7 @@
 """Built-in playback context menu choices, ordering and settings editor."""
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from . import theme
 from .corner_geometry import continuous_path
@@ -170,8 +170,131 @@ class MenuOrderList(QWidget):
             painter.drawLine(QPointF(0, y), QPointF(self.width(), y))
 
 
+class MenuPreview(QWidget):
+    orderChanged = Signal(str, str)
+    selectedChanged = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.choices = []
+        self.selected = ''
+        self._pressed = None
+        self._before = None
+        self.setFixedWidth(280)
+        self.setMouseTracking(True)
+        self.setAccessibleName('画面右键菜单缩略图；拖动功能行调整顺序')
+
+    def rows(self):
+        rows = []
+        y = 12
+        previous = None
+        for entry in self.choices:
+            if not entry['enabled']:
+                continue
+            group = MENU_GROUPS[entry['id']]
+            if previous is not None and previous != group:
+                y += 7
+            height = max(27, self.fontMetrics().height() + 10)
+            if entry['id'] == 'volume':
+                height += 18
+            rows.append((entry['id'], QRectF(8, y, self.width()-16, height)))
+            y += height
+            previous = group
+        return rows
+
+    def set_choices(self, choices):
+        self.choices = choices
+        width = max(260, min(300, self.fontMetrics().horizontalAdvance('当前窗口编解码设置') + 70))
+        self.setFixedWidth(width)
+        rows = self.rows()
+        self.setFixedHeight(max(120, int(rows[-1][1].bottom()+12) if rows else 120))
+        self.update()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.FontChange and self.choices:
+            self.set_choices(self.choices)
+
+    def _hit(self, position):
+        return next((key for key, rect in self.rows() if rect.contains(position)), None)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._pressed = self._hit(event.position())
+            self._start = event.position()
+            self._before = None
+            if self._pressed:
+                self.selected = self._pressed
+                self.selectedChanged.emit(self.selected)
+                self.update()
+
+    def mouseMoveEvent(self, event):
+        if self._pressed and (event.position()-self._start).manhattanLength() >= 4:
+            remaining = [(key, rect) for key, rect in self.rows() if key != self._pressed]
+            self._before = next((key for key, rect in remaining if event.position().y() < rect.center().y()), '')
+            self.update()
+        else:
+            self.setCursor(Qt.OpenHandCursor if self._hit(event.position()) else Qt.ArrowCursor)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            key, before = self._pressed, self._before
+            self._pressed = self._before = None
+            if key and before is not None:
+                self.orderChanged.emit(key, before)
+            self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
+        painter.setBrush(theme.qcolor(theme.ELEVATED))
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), theme.RADIUS_MD))
+        rows = self.rows()
+        if not rows:
+            painter.setPen(theme.qcolor(theme.TEXT3))
+            painter.drawText(self.rect(), Qt.AlignCenter, '开启要显示的功能')
+        labels = dict(MENU_ITEMS)
+        previous = None
+        for key, rect in rows:
+            group = MENU_GROUPS[key]
+            if previous is not None and group != previous:
+                painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
+                painter.drawLine(QPointF(14, rect.top()-4), QPointF(self.width()-14, rect.top()-4))
+            if key == self.selected:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
+                painter.drawPath(continuous_path(rect, theme.RADIUS_SM))
+            painter.setPen(theme.qcolor(theme.TEXT1))
+            label = '音量 40' if key == 'volume' else labels[key]
+            if key == 'plugins':
+                label = '插件扩展功能…'
+            text_rect = rect.adjusted(10, 0, -24, 0)
+            if key == 'volume':
+                text_rect.setHeight(rect.height() - 18)
+            text = painter.fontMetrics().elidedText(label, Qt.ElideRight, int(text_rect.width()))
+            painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, text)
+            if key == 'volume':
+                y = rect.bottom()-8
+                painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 3))
+                painter.drawLine(QPointF(29, y), QPointF(self.width()-25, y))
+                painter.setPen(QPen(theme.qcolor(theme.ACCENT), 3))
+                painter.drawLine(QPointF(29, y), QPointF(self.width()*.45, y))
+            elif key in ('quality', 'audio_channel'):
+                x, y = rect.right() - 10, rect.center().y()
+                painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.5))
+                painter.drawLine(QPointF(x - 3, y - 4), QPointF(x + 1, y))
+                painter.drawLine(QPointF(x + 1, y), QPointF(x - 3, y + 4))
+            previous = group
+        if self._before is not None and self._pressed:
+            y = next((rect.top() for key, rect in rows if key == self._before), rows[-1][1].bottom())
+            painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2))
+            painter.drawLine(QPointF(8, y), QPointF(self.width()-8, y))
+
+
 class TileMenuEditor(QWidget):
     changed = Signal()
+    layoutChanged = Signal()
 
     def __init__(self, choices=None, parent=None):
         super().__init__(parent)
@@ -186,7 +309,15 @@ class TileMenuEditor(QWidget):
         self.items.selectedChanged.connect(self.select_item)
         self.items.enabledChanged.connect(self.set_enabled)
         self.checks = self.items.checks
-        box.addWidget(self.items)
+        self.preview = MenuPreview(self)
+        self.preview.orderChanged.connect(self.move_before)
+        self.preview.selectedChanged.connect(self.select_item)
+        self.columns = QBoxLayout(QBoxLayout.TopToBottom)
+        self.columns.setSpacing(16)
+        self.columns.addWidget(self.preview, 0, Qt.AlignLeft | Qt.AlignTop)
+        self.columns.addWidget(self.items, 1, Qt.AlignTop)
+        box.addLayout(self.columns)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         row = QHBoxLayout()
         for label, direction in (('上移', -1), ('下移', 1)):
             button = ActionButton(label)
@@ -199,21 +330,35 @@ class TileMenuEditor(QWidget):
         box.addLayout(row)
         self.set_choices(choices)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        needed = self.preview.width() + max(240, self.items.fontMetrics().horizontalAdvance('当前窗口编解码设置') + 90) + 16
+        direction = QBoxLayout.LeftToRight if self.width() >= needed else QBoxLayout.TopToBottom
+        if direction != self.columns.direction():
+            self.columns.setDirection(direction)
+            self.layout().invalidate()
+            self.updateGeometry()
+            self.layoutChanged.emit()
+
     def set_choices(self, choices):
         self._choices = menu_choices(choices)
         self.items.set_choices(self._choices)
+        self.preview.set_choices(self._choices)
         self.select_item(self._choices[0]['id'])
         self.changed.emit()
 
     def select_item(self, key):
         self.items.selected = key
         self.items.update()
+        self.preview.selected = key
+        self.preview.update()
 
     def set_enabled(self, key, enabled):
         for entry in self._choices:
             if entry['id'] == key:
                 entry['enabled'] = enabled
-        self.items.update()
+        self.items.set_choices(self._choices)
+        self.preview.set_choices(self._choices)
         self.changed.emit()
 
     def move_before(self, key, before):
@@ -222,6 +367,7 @@ class TileMenuEditor(QWidget):
         index = next((i for i, other in enumerate(self._choices) if other['id'] == before), len(self._choices))
         self._choices.insert(index, entry)
         self.items.set_choices(self._choices)
+        self.preview.set_choices(self._choices)
         self.select_item(key)
         self.changed.emit()
 
