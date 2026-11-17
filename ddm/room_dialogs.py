@@ -392,7 +392,7 @@ class FollowImportDialog(QDialog):
             status += "（本次识别失败）"
         elif room.get("follow_resolve_note"):
             status += "（本次" + room["follow_resolve_note"] + "）"
-        return "　".join([room["uname"], status] + ([room["title"][:18]] if room.get("title") else []))
+        return "　".join([room["uname"], status] + ([room["title"]] if room.get("title") else []))
 
     def update_account(self, account):
         for index, room in enumerate(self.rooms):

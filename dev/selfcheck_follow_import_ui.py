@@ -165,6 +165,11 @@ class FollowImportUITests(unittest.TestCase):
             QTest.mouseClick(self.page.list.viewport(), Qt.LeftButton, pos=second.center())
             self.assertEqual(self.page.selected(), [ROOMS[0]])
 
+        title = '完整的直播标题' * 20
+        self.page.close()
+        self.page = FollowImportDialog([dict(ROOMS[0], title=title)], set())
+        self.assertIn(title, self.page.list.item(0).toolTip())
+
     def test_sort_and_hide_keep_existing_checks_and_explicit_folder_scope(self):
         page = self.page
         def order():
