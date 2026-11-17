@@ -12,6 +12,22 @@ from .update_version import installed_revision, release_label
 from .online_tasks import OnlinePage
 from .settings_layout import SettingsSection
 from .ui import ActionButton, HintLabel, ToggleSwitch, page_header
+from .update_progress_ui import UpdateProgress
+
+
+class UpdateNotesBrowser(QTextBrowser):
+    def wheelEvent(self, event):
+        super().wheelEvent(event)
+        event.accept()
+
+
+class UpdateActionProgress(UpdateProgress):
+    """Size the action row for its visible control, not the hidden progress track."""
+    def sizeHint(self):
+        return self.stack.currentWidget().sizeHint()
+
+    def minimumSizeHint(self):
+        return self.stack.currentWidget().minimumSizeHint()
 
 
 class AppUpdatePage(OnlinePage):
@@ -64,17 +80,19 @@ class AppUpdatePage(OnlinePage):
         self.action.setEnabled(False)
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
-        from .update_progress_ui import UpdateProgress
-        self.download_progress = UpdateProgress(self, button=self.action, alignment=Qt.AlignLeft)
-        actions.addWidget(self.download_progress, 1)
+        self.update_actions = actions
+        self.download_progress = UpdateActionProgress(self, button=self.action, alignment=Qt.AlignLeft)
+        actions.addWidget(self.download_progress)
         actions.addWidget(self.check)
+        actions.addStretch(1)
         grid.addLayout(actions, 3, 0, 1, 2)
         grid.addWidget(self.status, 4, 0, 1, 2)
         self.notes_section = SettingsSection('当前版本 ' + version.VERSION + ' 更新说明')
         layout.addWidget(self.notes_section)
         self.notes_title = self.notes_section.layout().itemAt(0).widget()
         self.notes_title.setWordWrap(True)
-        self.notes = QTextBrowser()
+        self.notes = UpdateNotesBrowser()
+        self.notes.setProperty('settingsWheelLocal', True)
         self.notes.setFixedHeight(240)
         self.notes.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.notes.setObjectName('UpdateNotes')
@@ -205,6 +223,10 @@ class AppUpdatePage(OnlinePage):
     def _transfer_progress(self, state):
         self.download_state = dict(state)
         self.download_progress.set_state(state)
+        expanded = state.get('phase') in ('downloading', 'verifying', 'failed')
+        self.update_actions.setStretch(0, 1 if expanded else 0)
+        self.update_actions.setStretch(2, 0 if expanded else 1)
+        self.download_progress.updateGeometry()
         self.transferChanged.emit(self.download_state)
 
     def _progress(self, percent):

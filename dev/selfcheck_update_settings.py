@@ -222,6 +222,77 @@ class UpdateSettingsTests(unittest.TestCase):
                     self.assertTrue(image.save(str(directory / f'{mode}-{size}-{width}.png')))
                 page.close()
 
+    def test_notes_wheel_scrolls_only_the_document_including_its_boundaries(self):
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QWheelEvent
+        from ddm.settings_focus import SettingsInputFocus
+        page = self.page()
+        page.notes.setPlainText('\n'.join(f'发行说明 {index}' for index in range(100)))
+        QTest.qWait(30)
+        focus = SettingsInputFocus(page)
+        try:
+            inner, outer = page.notes.verticalScrollBar(), page.scroll.verticalScrollBar()
+            self.assertGreater(inner.maximum(), 0)
+            self.assertGreater(outer.maximum(), 0)
+            point = page.notes.viewport().rect().center()
+            def wheel(delta):
+                event = QWheelEvent(QPointF(point), QPointF(page.notes.viewport().mapToGlobal(point)),
+                                    QPoint(), QPoint(0, delta), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+                self.app.sendEvent(page.notes.viewport(), event)
+            wheel(-120)
+            self.assertGreater(inner.value(), 0)
+            self.assertEqual(outer.value(), 0)
+            inner.setValue(inner.maximum())
+            wheel(-120)
+            self.assertEqual(outer.value(), 0, 'Notes must consume wheels at the document boundary')
+            inner.setValue(0)
+            wheel(120)
+            self.assertEqual(outer.value(), 0)
+        finally:
+            self.app.removeEventFilter(focus)
+            focus.deleteLater()
+
+    def test_notes_embedded_wheel_delivery_targets_the_document(self):
+        from importlib.util import find_spec
+        if find_spec('ddm.settings_wheel') is None:
+            self.skipTest('Native wheel bridge exists in the integrated root checkout')
+        from ddm.settings_focus import SettingsInputFocus
+        from ddm.settings_wheel import deliver
+        page = self.page()
+        page.notes.setPlainText('\n'.join(f'发行说明 {index}' for index in range(100)))
+        QTest.qWait(30)
+        focus = SettingsInputFocus(page)
+        try:
+            point = page.notes.viewport().mapTo(page, page.notes.viewport().rect().center())
+            values = dict(x=point.x(), y=point.y(), delta=-120, buttons=0, modifiers=0)
+            inner, outer = page.notes.verticalScrollBar(), page.scroll.verticalScrollBar()
+            deliver(page, values)
+            self.assertGreater(inner.value(), 0)
+            self.assertEqual(outer.value(), 0)
+            inner.setValue(inner.maximum())
+            deliver(page, values)
+            self.assertEqual(outer.value(), 0)
+        finally:
+            self.app.removeEventFilter(focus)
+            focus.deleteLater()
+
+    def test_idle_and_ready_actions_stay_adjacent_on_the_left(self):
+        for frozen in (True, False):
+            page = self.page(frozen=frozen)
+            for state in (None, self.offer()):
+                if state is not None:
+                    page._release_ready(state)
+                QTest.qWait(30)
+                gap = page.check.mapTo(page, QPoint()).x() - page.action.mapTo(
+                    page, page.action.rect().topRight()).x()
+                self.assertGreater(gap, 0)
+                self.assertLessEqual(gap, 20, 'Idle actions must not sit at opposite edges')
+            page._transfer_progress(dict(received=4096, total=4096, percent=100, phase='ready'))
+            QTest.qWait(30)
+            gap = page.check.mapTo(page, QPoint()).x() - page.action.mapTo(
+                page, page.action.rect().topRight()).x()
+            self.assertLessEqual(gap, 20)
+
     def test_toggle_in_real_settings_dialog_saves_only_after_receipt(self):
         from ddm.dialogs import SettingsDialog
         dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True)
