@@ -79,7 +79,6 @@ class PortraitSidebar:
                            host.settings_button, host.account_row, host.toggle_button,
                            nav.follow_button, nav.filters, nav.add_button, nav.manage_button):
                 self._detach(widget)
-                widget.setParent(host._bar_row)
             while host._bar_row_box.count():
                 host._bar_row_box.takeAt(0)
             for widget in (nav.follow_button, self.follow_label, host.toggle_button):
@@ -100,11 +99,11 @@ class PortraitSidebar:
             nav.filters.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             host.search.setMinimumWidth(96)
             self._detach(host.scroll)
-            host.scroll.setParent(host._bar_row2)
-            host._bar_row2_box.addWidget(host.scroll)
             host._layout.insertWidget(0, host._bar_row)
             host._layout.insertWidget(1, self.controls)
-            host._layout.insertWidget(2, host._bar_row2)
+            # Keep the entire follow-list subtree under the column. Reparenting
+            # hundreds of styled card descendants is expensive on each switch.
+            host._layout.insertWidget(2, host.scroll, 1)
             host._bar_in_use = True
         host._bar_row.show()
         self.controls.show()
@@ -155,7 +154,7 @@ class PortraitSidebar:
         host._head_scroll.setVisible(host.collapsed and not select)
         host.search.setVisible(not host.collapsed and not select)
         host.batch_bar.setVisible(select)
-        host._bar_row2.setVisible(not host.collapsed)
+        host._bar_row2.hide()  # Legacy right-column container is no longer used.
         host.scroll.setVisible(not host.collapsed)
         for widget in (host._header_row, host.status_row, host.normal_bar, host.tool_row):
             widget.hide()

@@ -58,6 +58,30 @@ class PortraitUiTests(unittest.TestCase):
         self.host.resize(width, 1000)
         settle()
 
+    def test_orientation_keeps_follow_scroll_subtree_under_original_parent(self):
+        scroll = self.sidebar.scroll
+        parent = scroll.parentWidget()
+        content = scroll.widget()
+        cards = list(self.sidebar._items)
+        for _ in range(3):
+            self.portrait(480)
+            self.assertIs(scroll.parentWidget(), parent)
+            self.assertIs(scroll.widget(), content)
+            self.assertEqual(self.sidebar._items, cards)
+            self.assertGreater(self.sidebar._layout.indexOf(scroll),
+                               self.sidebar._layout.indexOf(self.sidebar.presentation_control.orientation.portrait.controls))
+            self.assertTrue(scroll.isVisible())
+            self.sidebar.set_collapsed(True, animate=False)
+            settle()
+            self.assertFalse(scroll.isVisible())
+            self.sidebar.set_collapsed(False, animate=False)
+            self.layout.build_arrangement('landscape')
+            self.host.resize(1200, 850)
+            settle()
+            self.assertIs(scroll.parentWidget(), parent)
+            self.assertTrue(scroll.isVisible())
+            self.assertFalse(scroll.horizontal_only)
+
     def test_compact_header_keeps_essential_access_in_both_collapse_states(self):
         previous = dict(theme._preferences)
         self.addCleanup(theme.configure_appearance, previous)

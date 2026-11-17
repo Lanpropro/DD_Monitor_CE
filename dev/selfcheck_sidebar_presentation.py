@@ -289,7 +289,7 @@ print('30 native reparent cycles completed', flush=True)
         rows = (self.sidebar._bar_row, self.sidebar._bar_row2, self.sidebar._bar_right,
                 self.sidebar.presentation_control.orientation.portrait.controls)
         self.assertIs(self.sidebar.search.parentWidget(), rows[3])
-        self.assertIs(self.sidebar.scroll.parentWidget(), rows[1])
+        self.assertIs(self.sidebar.scroll.parentWidget(), parents[self.sidebar.scroll])
         self.assertIs(self.sidebar.account_row.parentWidget(), rows[0])
         for _ in range(2):
             self.sidebar.set_side('left')
