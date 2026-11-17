@@ -12,12 +12,24 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
-from PySide6.QtCore import QEvent, QObject, QPoint
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 from ddm.app import MainWindow
 from ddm.plugins import PluginManager
 from dev.selfcheck_display_transition import make_window, assert_settled
+
+
+class DpiProbe(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.events = []
+
+    def event(self, event):
+        if (hasattr(self, 'events') and event.type() in
+                (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange, QEvent.User)):
+            self.events.append((event.type(), self.size()))
+        return super().event(event)
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows native window state')
@@ -94,6 +106,81 @@ class MoveRestoreTests(unittest.TestCase):
         self.user32.SendMessageW(hwnd, 0x0202, 0, packed)
         self.app.processEvents()
         self.assertEqual(paused, [tile.room], f'bar={tile.bottom.isVisible()} button={tile.pause_button.isVisible()}')
+
+    def test_dpi_notifications_wait_for_geometry_and_merge(self):
+        probe, foreign = DpiProbe(self.window), DpiProbe()
+        try:
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            self.assertEqual(len(probe.events), 1)
+            probe.events.clear()
+            message = wintypes.MSG()
+            message.hWnd, message.message = int(self.window.winId()), 0x02e0
+            self.send(0x0231)
+            with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)) as native:
+                self.assertEqual(self.window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message)),
+                                 (False, 0))
+                native.assert_called_once()
+            for _ in range(10):
+                for kind in (QEvent.DevicePixelRatioChange, QEvent.ScreenChangeInternal):
+                    QApplication.sendEvent(probe, QEvent(kind))
+            with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                self.window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+            QApplication.sendEvent(probe, QEvent(QEvent.User))
+            QApplication.sendEvent(foreign, QEvent(QEvent.DevicePixelRatioChange))
+            self.assertEqual([kind for kind, _ in probe.events], [QEvent.User])
+            self.assertEqual(len(foreign.events), 1)
+            probe.resize(230, 120)  # Stand in for Qt's native geometry tail, not a performance sample.
+            self.app.processEvents()
+            delivered = [(kind, size) for kind, size in probe.events if kind != QEvent.User]
+            self.assertEqual([kind for kind, _ in delivered],
+                             [QEvent.DevicePixelRatioChange, QEvent.ScreenChangeInternal])
+            self.assertTrue(all(size == probe.size() for _, size in delivered))
+            self.send(0x0232)
+            assert_settled(self.window)
+        finally:
+            foreign.close()
+            foreign.deleteLater()
+
+    def test_dpi_batch_skips_deleted_children_and_stops_with_owner(self):
+        from shiboken6 import isValid
+        from ddm.window_dpi import DpiEventBatch
+        owner = QWidget()
+        batch = DpiEventBatch(owner)
+        probe = DpiProbe(owner)
+        seen = probe.events
+        try:
+            batch.begin()
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            probe.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+            self.assertEqual(seen, [])
+            self.assertFalse(batch._timer.isActive())
+            probe = DpiProbe(owner)
+            seen = probe.events
+            batch.begin()
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            owner.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+            self.assertFalse(isValid(batch))
+            self.assertEqual(seen, [])
+        finally:
+            if isValid(owner):
+                owner.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        window = make_window(1, '1x1')
+        probe = DpiProbe(window)
+        seen = probe.events
+        try:
+            window.dpi_control.begin()
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            window.close()
+            self.app.processEvents()
+            self.assertEqual(seen, [], 'Application exit must cancel queued DPI delivery')
+        finally:
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_ordinary_move_keeps_real_window_visible_and_does_not_relayout(self):
         window = self.window
@@ -222,6 +309,7 @@ class MoveRestoreTests(unittest.TestCase):
                     message.hWnd, message.message = hwnd, 0x02e0
                     with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
                         window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+                    window.dpi_control.flush()  # The following direct event tests the collector, not batching.
                     probe = Probe()
                     self.assertEqual(probe.event(QEvent(QEvent.Resize)), 42)
                     self.assertEqual(probe.event(QEvent(QEvent.DevicePixelRatioChange)), 42)
@@ -265,7 +353,7 @@ class MoveRestoreTests(unittest.TestCase):
         self.assertIn(0x0003, [x['message'] for x in row['messages']])
         self.assertFalse(row['messagesCapped'])
         self.assertEqual({s['phase'] for s in row['geometrySamples']},
-                         {'dpi-entry', 'dpi-propagation', 'dpi-move', 'dpi-queued'})
+                         {'dpi-entry', 'dpi-propagation', 'dpi-move', 'dpi-queued', 'dpi-ui-flushed'})
         self.assertFalse(row['geometryCapped'])
         for sample in row['geometrySamples']:
             self.assertGreater(sample['nativeDpi'], 0)

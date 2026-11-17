@@ -1,6 +1,6 @@
 # 架构总览
 
-> 类型：架构 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-17 ｜ 读者：贡献者、维护者
+> 类型：架构 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-18 ｜ 读者：贡献者、维护者
 
 本页说明软件本体如何组成：有哪些进程、代码分几层、状态由谁持有、一次播放或一次设置保存经过哪些模块。
 文件级清单见[仓库文件分类清单](../repository-map.md)，单条功能的交互细节见对应设计文档。
@@ -108,7 +108,7 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
 | 职责域 | 代表模块 | 边界 |
 | --- | --- | --- |
 | 宿主协调 | `app.py`、`app_accounts.py`、`app_notices.py`、`app_shortcuts.py`、`app_updates.py` | 持有窗口状态、Qt 生命周期和跨模块编排 |
-| 窗口与布局 | `window_layout.py`、`layouts.py`、`layout_picker.py`、`wall_layout.py`、`wall_widgets.py`、`resize_layout.py` | 几何、比例与方向；播放器归播放域 |
+| 窗口与布局 | `window_layout.py`、`window_dpi.py`、`layouts.py`、`layout_picker.py`、`wall_layout.py`、`wall_widgets.py`、`resize_layout.py` | 几何、比例与方向；播放器归播放域 |
 | 画面墙与格子 | `wall_*`、`tile_*`、`pane_danmaku.py`、`pane_source_picker.py` | 格子内容、类型与换位；播放器核心不在这里重建 |
 | 侧栏与关注 | `sidebar_*`、`follow_folders.py`、`search.py`、`live_alert.py`、`watch_history.py` | 卡片、排序、文件夹与预览；账号身份归账号域 |
 | 播放与流 | `player.py`、`stream_playback.py`、`playback_*`、`bili.py`、`bili_workers.py`、`hls_proxy.py`、`codec_control.py` | 取流、解码、重连与状态；原生窗口由 `video_surface.py` 约束 |
@@ -197,6 +197,8 @@ Super Chat 单独存储与展示。发送能力由插件实现，本体只调用
 窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
 
 主窗口原生事件入口在交互WM_SIZE及跨屏WM_DPICHANGED到来、Qt处理子控件之前启用现有画面墙合并布局；WindowLayout继续持有手势收尾协调，墙与格子各自持有合并状态和既有定时器。非交互DPI、纯移动和默认Qt消息处理沿用原路径，不建立第二套跨屏几何或播放器状态。
+
+交互跨屏的Widget层DPI／屏幕通知由 `window_dpi.DpiEventBatch` 合并。该QObject及零间隔定时器归MainWindow所有，临时应用过滤器仅覆盖本窗口当时已有的Widget树；Qt原生QWindow的屏幕状态和几何继续正常处理，Widget通知在队列收尾按首次顺序各重放一次。重放前移除过滤器、清空缓存，销毁的控件跳过，退出时取消；外部窗口及其他事件继续原派发。只缓存接收者与通知类型，几何和播放器状态仍归原模块。
 
 Windows主窗口构造时启用Qt原生同级控件按需创建策略；视频由TilePlayer显式绑定HWND，FullscreenBar显式保留自身原生窗口并由Qt路由普通子控件输入。WindowLayout在首次原生交互时结束启动阶段，避免依赖被子窗口遮满的主窗口Paint。BadgeSurface及VideoCorner使用已有的合并上传定时器保证原生alpha，不依赖偶然曝光；状态仍由原控件持有，Qt父子关系及播放器绑定不变。
 

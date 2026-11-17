@@ -203,6 +203,7 @@ class WindowResizeTrace:
         from ddm.wall_border import WallPaneBorder
         from ddm.badge_surface import BadgeSurface
         from ddm.window_layout import WindowLayout
+        from ddm.window_dpi import DpiEventBatch
         from ddm.sidebar_orientation import SidebarOrientation
         from ddm.sidebar_portrait import PortraitSidebar
         from ddm.sidebar_navigation import SidebarNavigation
@@ -249,6 +250,7 @@ class WindowResizeTrace:
 
         targets = ((MainWindow, ('_begin_interactive_resize', 'resizeEvent', '_sync_tile_playback')),
                    (WindowLayout, ('build_arrangement', 'reshape_window')),
+                   (DpiEventBatch, ('flush',)),
                    (SidebarOrientation, ('set_side', 'detach_from_rows', 'restore_side_children')),
                    (PortraitSidebar, ('adopt', 'release', 'sync', 'sync_density')),
                    (SidebarNavigation, ('sync', 'release', '_sort_tools')),
@@ -280,6 +282,7 @@ class WindowResizeTrace:
         original = getattr(owner, name)
         trace = self
         samples_dpi = owner.__name__ == 'VideoSurface' and name == 'event'
+        finishes_dpi = owner.__name__ == 'DpiEventBatch' and name == 'flush'
         @functools.wraps(original)
         def measured(obj, *args, **kwargs):
             if event_types is not None and args[-1].type() not in event_types:
@@ -314,6 +317,8 @@ class WindowResizeTrace:
                     if event_types is not None:
                         call['eventType'] = int(args[-1].type())
                     trace.calls.append(call)
+                if finishes_dpi:
+                    trace.sample_geometry('dpi-ui-flushed')
                 if (samples_dpi and trace.next_geometry_sample is not None
                         and time.perf_counter() >= trace.next_geometry_sample):
                     trace.next_geometry_sample = time.perf_counter()+.15

@@ -57,6 +57,7 @@ from .room_preset_control import RoomPresetController
 from .app_updates import AppUpdates
 from .settings_control import SettingsControl
 from .window_layout import WindowLayout
+from .window_dpi import DpiEventBatch
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
@@ -138,6 +139,7 @@ class MainWindow(QMainWindow):
         self.app_updates = AppUpdates(self)
         self.settings_control = SettingsControl(self)
         self.window_layout = WindowLayout(self)
+        self.dpi_control = DpiEventBatch(self)
         self.stream_playback = StreamPlayback(self)
         self.codec_control = CodecControl(self)
         self.room_status = RoomStatus(self)
@@ -615,6 +617,7 @@ class MainWindow(QMainWindow):
                     # Reuse the existing coalesced layout/overlay path until release.
                     self.wall.set_interactive_resize(True)
                     self._resize_dirty = True
+                    self.dpi_control.begin()
             elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
                 previous = self._native_size_state
                 self._native_size_state = int(msg.wParam)
@@ -815,6 +818,7 @@ class MainWindow(QMainWindow):
         self._fullscreen_cursor.stop()
         # 先关闭独立设置界面；迟到回调不得访问正在释放的播放器。
         self._closing = True
+        self.dpi_control.cancel()
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
         self.hide()
