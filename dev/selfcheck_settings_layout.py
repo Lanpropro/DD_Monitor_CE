@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QScrollArea
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QScrollArea, QWidget
 from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -646,6 +646,143 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(self.dialog.shortcuts()['mute'], 'Ctrl+M')
         self.dialog._reset_current()
         self.assertEqual(self.dialog.shortcuts()['mute'], 'M')
+
+    def test_recording_page_reuses_controls_and_preserves_codec_and_switch_contracts(self):
+        from ddm.ui import SelectControl, StepperControl, ToggleSwitch
+        page = self.page(3)
+        self.assertEqual(page.values(), {key: config.DEFAULT_SETTINGS[key] for key in page.values()})
+        for control in (page.recording_enabled, page.lock_quality, page.replay_enabled):
+            self.assertIsInstance(control, ToggleSwitch)
+        for control in (page.format, page.codec, page.encoder, page.fps, page.replay_scope):
+            self.assertIsInstance(control, SelectControl)
+        for editor, stepper in ((page.bitrate, page.bitrate_stepper),
+                                (page.segment_minutes, page.segment_stepper),
+                                (page.replay_minutes, page.replay_minutes_stepper),
+                                (page.replay_max, page.replay_max_stepper),
+                                (page.min_free, page.min_free_stepper)):
+            self.assertIsInstance(stepper, StepperControl)
+            self.assertIs(stepper.spin, editor)
+            self.assertEqual(editor.suffix(), '')
+        self.assertEqual(page.codec.currentData(), 'copy')
+        self.assertFalse(page.encoder.isEnabled())
+        page.bitrate_stepper.plus.click()
+        self.assertEqual(page.codec.currentData(), 'h264')
+        self.assertTrue(page.encoder.isEnabled())
+        page.codec.setCurrentIndex(page.codec.findData('copy'))
+        page.fps.setCurrentIndex(page.fps.findData(60))
+        self.assertEqual(page.codec.currentData(), 'h264')
+        page.encoder.setCurrentIndex(page.encoder.findData('cpu'))
+        self.assertEqual(page.encoder.currentText(), 'CPU')
+        self.assertIn('libx264', page.encoder.toolTip())
+        self.assertIn('FFmpeg', page.encoder.toolTip())
+        page.recording_enabled.setChecked(False)
+        for control in (page.directory, page.browse, page.format, page.codec, page.encoder,
+                        page.bitrate, page.bitrate_stepper.plus, page.fps, page.segment_minutes,
+                        page.min_free, page.lock_quality):
+            self.assertFalse(control.isEnabled(), type(control).__name__)
+        self.assertTrue(page.replay_scope.isEnabled())
+        self.assertTrue(page.replay_minutes.isEnabled())
+        page.recording_enabled.setChecked(True)
+        page.replay_enabled.setChecked(False)
+        for control in (page.replay_scope, page.replay_minutes, page.replay_max,
+                        page.replay_minutes_stepper.plus, page.replay_max_stepper.plus):
+            self.assertFalse(control.isEnabled(), type(control).__name__)
+        self.assertTrue(page.format.isEnabled())
+        self.assertTrue(page.bitrate.isEnabled())
+        page.replay_enabled.setChecked(True)
+        page.replay_scope.setCurrentIndex(page.replay_scope.findData('all'))
+        self.assertTrue(page.replay_max.isEnabled())
+        page.replay_scope.setCurrentIndex(page.replay_scope.findData('recorded'))
+        self.assertFalse(page.replay_max.isEnabled())
+        page.reset()
+        self.assertEqual(page.values(), {key: config.DEFAULT_SETTINGS[key] for key in page.values()})
+        self.assertEqual(page.codec.currentData(), 'copy', 'Reset must not trigger transcode')
+
+    def test_recording_page_retains_plugin_insertion_anchor_and_owned_values(self):
+        page = self.page(3)
+        supplement = QWidget()
+        plugin_edit = QLineEdit('plugin-owned', supplement)
+        from PySide6.QtWidgets import QVBoxLayout
+        QVBoxLayout(supplement).addWidget(plugin_edit)
+        page.add_recording_mode(supplement)
+        settle()
+        self.assertIs(page.recording_mode_layout.itemAt(0).widget(), supplement)
+        self.assertTrue(page.scroll.widget().isAncestorOf(supplement))
+        self.assertFalse(page.sections.isAncestorOf(supplement))
+        for enabled in (False, True):
+            page.recording_enabled.setChecked(enabled)
+            self.assertTrue(supplement.isEnabled())
+            self.assertTrue(plugin_edit.isEnabled())
+            self.assertEqual(plugin_edit.text(), 'plugin-owned')
+        page.reset()
+        self.assertEqual(plugin_edit.text(), 'plugin-owned')
+        self.assertIs(page.recording_mode_layout.itemAt(0).widget(), supplement)
+
+    def test_recording_controls_save_native_deltas_and_reopen_without_touching_plugin_fields(self):
+        from ddm.settings_recording import RecordingSettingsPage
+        page = self.page(3)
+        plugin_edit = QLineEdit('plugin-owned')
+        page.add_recording_mode(plugin_edit)
+        requests = []
+        self.dialog.auto_save.requested.connect(requests.append)
+        self.dialog.auto_save.start()
+        try:
+            page.bitrate_stepper.plus.click()
+            self.dialog.auto_save.flush()
+            self.assertEqual(requests[-1]['settings'], {'recording_codec': 'h264', 'recording_bitrate': 6001})
+            self.dialog.auto_save.acknowledge()
+            page.recording_enabled.setChecked(False)
+            self.dialog.auto_save.flush()
+            self.assertEqual(requests[-1]['settings'], {'recording_enabled': False})
+            self.assertEqual(plugin_edit.text(), 'plugin-owned')
+            self.assertTrue(plugin_edit.isEnabled())
+            restored = RecordingSettingsPage(page.values())
+            try:
+                self.assertEqual(restored.values(), page.values())
+                self.assertFalse(restored.recording_enabled.isChecked())
+                self.assertEqual(restored.codec.currentData(), 'h264')
+                self.assertEqual(restored.bitrate.value(), 6001)
+            finally:
+                restored.deleteLater()
+        finally:
+            self.dialog.auto_save.stop()
+
+    def test_recording_page_keeps_directory_inline_and_units_outside_at_wide_and_narrow_sizes(self):
+        page = self.page(3)
+        controls = (page.directory, page.browse, page.codec, page.bitrate_stepper, page.replay_scope)
+        try:
+            for font_size in (13, 20):
+                theme.configure_appearance({'appearance_font_size': font_size})
+                theme.apply('dark')
+                for width in (1200, 760):
+                    self.dialog.resize(width, 850)
+                    settle()
+                    self.assertEqual((page.directory, page.browse, page.codec, page.bitrate_stepper, page.replay_scope), controls)
+                    self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                    directory = page.directory.mapTo(page.scroll.widget(), page.directory.rect().center())
+                    browse = page.browse.mapTo(page.scroll.widget(), page.browse.rect().center())
+                    self.assertLessEqual(abs(directory.y() - browse.y()), 1)
+                    self.assertLess(page.directory.mapTo(page.scroll.widget(), page.directory.rect().topRight()).x(),
+                                    page.browse.mapTo(page.scroll.widget(), QPoint()).x())
+                    for _key, card, _wide in page.sections.entries:
+                        self.assertGreaterEqual(card.x(), 0)
+                        self.assertLessEqual(card.geometry().right(), page.sections.width())
+                    recording = page.sections.section('recording')
+                    lefts = [control.mapTo(recording, QPoint()).x() for control in
+                             (page.format, page.codec, page.encoder, page.bitrate_stepper, page.fps, page.segment_stepper)]
+                    self.assertEqual(len(set(lefts)), 1, 'Keep the input column aligned beside external units')
+                    labels = {label.text() for label in page.findChildren(QLabel)}
+                    self.assertTrue({'kbps', 'fps', '分钟', 'MB'}.issubset(labels))
+                    for label in page.findChildren(QLabel):
+                        if label.text() in ('kbps', 'fps', '分钟', 'MB'):
+                            self.assertGreaterEqual(label.width(), label.fontMetrics().horizontalAdvance(label.text()))
+                    output = os.environ.get('DDM_RECORDING_PREVIEW')
+                    if output:
+                        Path(output).mkdir(parents=True, exist_ok=True)
+                        self.dialog.grab().save(str(Path(output) / f'recording-{font_size}-{width}.png'))
+        finally:
+            theme.configure_appearance({'appearance_font_size': 13})
+            theme.apply('dark')
 
     def test_shortcut_wheel_and_pip_groups_are_separate_and_match_edit_style(self):
         page = self.page(5)

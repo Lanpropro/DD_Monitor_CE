@@ -334,6 +334,21 @@ class SettingsControlTests(unittest.TestCase):
         host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
         host.apply_danmaku_settings.assert_called_once_with()
 
+    def test_banner_only_save_restyles_existing_notices_without_reapplying_danmaku(self):
+        from ddm.notification_center import NoticeRow
+        host = self.host
+        dialog = host._create_settings_dialog()
+        dialog.settings.return_value = {'notice_banner_enabled': False}
+        card = SimpleNamespace(artwork=object(), update=Mock())
+        with patch.object(host, 'findChildren', side_effect=lambda cls: [card] if cls is NoticeRow else []), \
+                patch('ddm.room_artwork.style_room_notice') as restyle:
+            host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
+        restyle.assert_called_once_with(card, card.artwork)
+        card.update.assert_not_called()
+        self.assertFalse(host.settings['notice_banner_enabled'])
+        host.apply_danmaku_settings.assert_not_called()
+        self.save.assert_called_once()
+
     def test_sc_preview_context_uses_current_surface_and_fullscreen_source(self):
         host = self.host
         viewport = Mock()

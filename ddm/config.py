@@ -82,6 +82,7 @@ DEFAULT_SETTINGS = {
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
     "notifications_enabled": True,  # 浮动通知总开关；关闭后仍保留通知中心历史
     "notice_hide_fullscreen": False,
+    "notice_banner_enabled": True,
     "notice_banner_blur": 16,
     "notice_persist_updates": True,
     "notice_persist_pinned_live": True,
