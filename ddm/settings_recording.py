@@ -24,6 +24,8 @@ class RecordingSettingsPage(QWidget):
         outer.addWidget(self.scroll)
         layout = QVBoxLayout(content)
         layout.addLayout(_page_head("录制与即时回放", "每个格子独立录制直播流；画面墙控件和弹幕不会进入文件。"))
+        self.recording_mode_layout = QVBoxLayout()
+        layout.addLayout(self.recording_mode_layout)
         grid = QGridLayout()
         layout.addLayout(grid)
         self.directory = QLineEdit()
@@ -98,7 +100,7 @@ class RecordingSettingsPage(QWidget):
         self.min_free.setRange(256, 100000)
         self.lock_quality = QCheckBox("录制时锁定原画，结束后恢复原画前的画质")
         for row, (label, widget, unit) in enumerate((
-            ("录制功能", self.recording_enabled, ""),
+            ("格子录制按钮", self.recording_enabled, ""),
             ("输出格式", self.format, ""), ("编码方式", self.codec, ""),
             ("编码器", self.encoder, ""),
             ("视频码率", self.bitrate, "kbps"), ("帧率", self.fps, "fps"),
@@ -126,11 +128,15 @@ class RecordingSettingsPage(QWidget):
         self.bitrate.valueChanged.connect(self._enable_transcode)
         self.fps.currentIndexChanged.connect(self._enable_transcode)
         self.sections = section_grid(grid, (
-            ('storage', '保存位置与空间', (0, 12), True),
-            ('recording', '录制与编码', (1, 2, 3, 4, 5, 6, 7, 13), False),
-            ('replay', '即时回放缓存', (8, 9, 10, 11), False),
+            ('storage', '格子录制与保存位置', (0, 1, 12, 13), True),
+            ('recording', '本体录制与编码', (2, 3, 4, 5, 6, 7), False),
+            ('replay', '本体即时回放缓存', (8, 9, 10, 11), False),
         ))
         layout.addStretch(1)
+
+    def add_recording_mode(self, widget):
+        """Place plugin-owned capture routing above the native settings."""
+        self.recording_mode_layout.addWidget(widget)
 
     def _browse(self) -> None:
         value = QFileDialog.getExistingDirectory(self, "选择录制保存目录",

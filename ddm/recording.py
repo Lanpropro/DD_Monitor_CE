@@ -80,12 +80,17 @@ class RecordingManager(QObject):
         self.noticeWithRoom.emit(message, dict(room or {}))
 
     def _directory(self) -> Path:
-        text = str(self.settings.get("recording_dir") or "").strip()
+        text = self.directory_setting
         if not text:
             raise ValueError("请先在「设置 → 录制」选择保存目录")
         folder = Path(text).expanduser().resolve()
         folder.mkdir(parents=True, exist_ok=True)
         return folder
+
+    @property
+    def directory_setting(self):
+        return str(getattr(self.session_factory, 'recording_directory', '')
+                   or self.settings.get('recording_dir') or '').strip()
 
     def _free_enough(self, folder: Path) -> bool:
         return shutil.disk_usage(folder).free >= max(
@@ -108,11 +113,15 @@ class RecordingManager(QObject):
             if recording and not session.recording:
                 session.recording = True
                 session.output_started_at = time.monotonic()
+                if session.recording_started() and session.process is not None:
+                    session.next_url = session.url
+                    session.next_headers = dict(tile.stream_headers or {})
+                    self._end_process(session)
                 self.changed.emit(tile)
                 if session.process is not None:
                     self._say(f"{session.name} 开始录制", session.room)
             return True
-        if not str(self.settings.get("recording_dir") or "").strip():
+        if not self.directory_setting:
             self._say("请先在「设置 → 录制」选择保存目录")
             return False
         executable = ffmpeg_path(self.settings)
@@ -131,6 +140,10 @@ class RecordingManager(QObject):
             # segment_extension 认不出编码就原样返回，行为跟改动前一致。
             session = self.session_factory(tile, self.settings, recording, folder,
                                            str(getattr(tile, "stream_codec", "") or ""))
+            for destination in session.recording_directories():
+                destination.mkdir(parents=True, exist_ok=True)
+                if not self._free_enough(destination):
+                    raise ValueError('保存目录所在磁盘剩余空间不足：' + str(destination))
             session.catalog_metadata = self.backend_owner is not None
             self.sessions[tile] = session
             self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
@@ -415,7 +428,7 @@ class RecordingManager(QObject):
                         self.stop(tile)
                     continue
                 self._say(f"{session.name} 的 FFmpeg 意外退出（{exit_code}）；详见 .ddm-parts 日志", session.room)
-                if not self._free_enough(session.folder):
+                if not all(self._free_enough(folder) for folder in session.recording_directories()):
                     self._stop_for_space(session)
                 else:
                     session.retry_count += 1
@@ -471,7 +484,7 @@ class RecordingManager(QObject):
 
     def _check_space(self, session: _Session) -> None:
         try:
-            if not self._free_enough(session.folder):
+            if not all(self._free_enough(folder) for folder in session.recording_directories()):
                 self._stop_for_space(session)
         except OSError as error:
             self._say(f"磁盘检查失败：{error}")

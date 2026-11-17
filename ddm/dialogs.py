@@ -146,14 +146,12 @@ class SettingsDialog(SettingsWindow):
         page = RecordingSettingsPage(settings)
         if self._plugin_manager is not None:
             from .settings_layout import SettingsSection
-            position = 1
             for plugin in self._plugin_manager.plugins:
                 widget = plugin.recording_settings(page)
                 if widget is not None:
-                    card = SettingsSection(plugin.name)
+                    card = SettingsSection(getattr(plugin, 'recording_settings_title', '') or plugin.name)
                     card.grid.addWidget(widget, 0, 0, 1, 2)
-                    page.sections.entries.insert(position, ('plugin_' + plugin.context.name, card, True))
-                    position += 1
+                    page.sections.entries.append(('plugin_' + plugin.context.name, card, True))
             page.sections._arrange()
         return page
 

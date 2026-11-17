@@ -105,7 +105,7 @@ class CaptureControl:
         host = self.host
         if not host._replay_enabled():
             return
-        if not str(host.settings.get("recording_dir") or "").strip():
+        if not host.recorder.directory_setting:
             if not host.open_settings("recording") or host._closing or not host._replay_enabled():
                 return
         host._replay_suppressed.pop(tile, None)
@@ -141,7 +141,7 @@ class CaptureControl:
         if not str(host.settings.get("recording_dir") or "").strip():
             if not host.open_settings("recording"):
                 return
-            if not str(host.settings.get("recording_dir") or "").strip():
+            if not host.recorder.directory_setting:
                 host._record_notice("请先选择录制保存目录", tile.room)
                 return
         if not host.settings.get("recording_lock_quality", True):
