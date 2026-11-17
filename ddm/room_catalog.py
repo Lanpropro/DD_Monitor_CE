@@ -66,21 +66,25 @@ class RoomCatalog:
         if dialog.exec() != AddRoomDialog.Accepted:
             return
         room_ids = getattr(dialog, 'room_ids', []) or [dialog.room_id]
-        if len(room_ids) > 1 or target_tile is not None:
+        if len(room_ids) > 1:
             from .room_add_batch import RoomAddBatch
             from .bili import InfoResolver
             RoomAddBatch(host, room_ids, dialog.folder_id, target_tile=target_tile,
                          resolver_type=InfoResolver).start()
         else:
-            host._add_room_id(room_ids[0], folder_id=dialog.folder_id)
+            options = {'target_tile': target_tile} if target_tile is not None else {}
+            host._add_room_id(room_ids[0], folder_id=dialog.folder_id, **options)
 
-    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type) -> None:
+    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type, target_tile=None) -> None:
         from PySide6.QtWidgets import QMessageBox
         host = self.host
         InfoResolver = resolver_type
         from .room_input import is_bili_short_url
         short_link = is_bili_short_url(room_id)
-        if any(str(room.get("room_id")) == room_id for room in host.sidebar.rooms()):
+        existing = next((room for room in host.sidebar.rooms() if str(room.get("room_id")) == room_id), None)
+        if existing is not None:
+            if target_tile is not None:
+                host._on_room_added(existing, folder_id=folder_id, target_tile=target_tile)
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = host.plugins.platform_for(room_id)
@@ -89,10 +93,10 @@ class RoomCatalog:
                 QMessageBox.warning(host, "添加直播间", "请启用对应的平台插件并重启")
                 return
             resolver = InfoResolver(room_id, host, platform=platform)
-            resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id)
+            resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id, target_tile=target_tile)
                                       if not host._closing else None)
             resolver.failed.connect(lambda _rid, r=resolver: host._on_platform_room_failed(
-                r, platform, room_id, folder_id=folder_id))
+                r, platform, room_id, folder_id=folder_id, target_tile=target_tile))
             resolver.finished.connect(lambda r=resolver: host._platform_info_running.discard(r))
             resolver.finished.connect(resolver.deleteLater)
             host._platform_info_running.add(resolver)
@@ -100,7 +104,7 @@ class RoomCatalog:
             return
         print(f"正在查询房间 {room_id} ...")
         resolver = InfoResolver(room_id, host)
-        resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id))
+        resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id, target_tile=target_tile))
         if short_link:
             resolver.failed.connect(lambda _rid: QMessageBox.warning(
                 host, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
@@ -112,7 +116,7 @@ class RoomCatalog:
         host._platform_info_running.add(resolver)
         resolver.start()
 
-    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
+    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
         from PySide6.QtWidgets import QDialog, QMessageBox
         host = self.host
         if host._closing:
@@ -125,7 +129,7 @@ class RoomCatalog:
             canonical = dialog.room_id
             dialog.deleteLater()
             if result == QDialog.Accepted and canonical and not host._closing:
-                host._add_room_id(canonical, folder_id=folder_id)
+                host._add_room_id(canonical, folder_id=folder_id, target_tile=target_tile)
             return
         QMessageBox.warning(host, "添加直播间", "平台房间获取失败\n\n" + (
             getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))

@@ -1332,11 +1332,11 @@ class MainWindow(QMainWindow):
     def open_add_room(self, target_tile=None) -> None:
         return self.room_placement.open_add_room(dialog_type=AddRoomDialog, target_tile=target_tile)
 
-    def _add_room_id(self, room_id: str, *, folder_id: str = "") -> None:
-        return self.room_placement.add_room_id(room_id, folder_id=folder_id, resolver_type=InfoResolver)
+    def _add_room_id(self, room_id: str, *, folder_id: str = "", target_tile=None) -> None:
+        return self.room_placement.add_room_id(room_id, folder_id=folder_id, resolver_type=InfoResolver, target_tile=target_tile)
 
-    def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
-        return self.room_placement.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id)
+    def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
+        return self.room_placement.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id, target_tile=target_tile)
 
     def _on_room_added(self, room: dict, *, folder_id: str = "", target_tile=None, notify=True) -> None:
         return self.room_placement.on_room_added(room, folder_id=folder_id, max_tiles=MAX_TILES, target_tile=target_tile, notify=notify)

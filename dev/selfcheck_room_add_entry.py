@@ -189,6 +189,27 @@ class AddRoomEntryTests(unittest.TestCase):
             self.assertIn('失败 1', notice.call_args.args[1])
             self.assertEqual(batch.failures, [('1', '网络请求超时')])
 
+    def test_single_target_reuses_original_query_and_preserves_target_on_completion(self):
+        host = self.host()
+        host._normalize_room_input = lambda text: None
+        host.sidebar.folder_state = lambda: []
+        host.sidebar.create_folder = Mock()
+        host.plugins.platforms = {}
+        host._add_room_id = Mock()
+        target = object()
+        def accept(dialog):
+            dialog.edit.setText('1001')
+            dialog.accept()
+            return dialog.result()
+        catalog = RoomCatalog(host)
+        with patch.object(AddRoomDialog, 'exec', accept):
+            catalog.open_add_room(dialog_type=AddRoomDialog, target_tile=target)
+        host._add_room_id.assert_called_once_with('1001', folder_id='', target_tile=target)
+        catalog.add_room_id('1001', resolver_type=Resolver, target_tile=target)
+        Resolver.created[-1].complete()
+        self.assertEqual(host._on_room_added.call_args.kwargs['target_tile'], target)
+        self.assertFalse(host._platform_info_running)
+
     def test_close_stops_next_lookup(self):
         host = self.host()
         batch = RoomAddBatch(host, ['1', '2'], resolver_type=Resolver)
