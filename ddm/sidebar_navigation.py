@@ -165,6 +165,8 @@ class SidebarNavigation(QObject):
         for button in (self.add_button, self.manage_button):
             button.setFixedSize(26, 26)
             header.addWidget(button)
+        header.addStretch(0)
+        self._header_tail = header.itemAt(header.count() - 1)
         sidebar._layout.insertWidget(1, self.header)
 
         self.filters = QWidget(sidebar)
@@ -407,10 +409,11 @@ class SidebarNavigation(QObject):
                 sidebar._detach_from_rows(button)
                 button.setParent(self.rail)
                 self.bottom.addWidget(button, 0, Qt.AlignHCenter)
+            self.in_rail = True
+        if sidebar.toggle_button.parentWidget() is not self.header:
             sidebar._detach_from_rows(sidebar.toggle_button)
             sidebar.toggle_button.setParent(self.header)
-            self.header.layout().addWidget(sidebar.toggle_button)
-            self.in_rail = True
+            self.header.layout().insertWidget(self.header.layout().count() - 1, sidebar.toggle_button)
         for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button, sidebar.settings_button):
             button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
@@ -437,6 +440,13 @@ class SidebarNavigation(QObject):
             widget.setVisible(not sidebar.collapsed)
         sidebar.toggle_button.show()
         sidebar._layout.removeWidget(add)
-        sidebar._layout.insertWidget(sidebar._layout.indexOf(self.header) + 1, add, 0, Qt.AlignRight)
+        header = self.header.layout()
+        for control in (self.add_button, self.manage_button, sidebar.toggle_button):
+            header.removeWidget(control)
+            tail = next(index for index in range(header.count()) if header.itemAt(index) is self._header_tail)
+            header.insertWidget(tail, control)
+        header.setStretch(header.count() - 1, 1 if sidebar.collapsed else 0)
+        sidebar._layout.insertWidget(sidebar._layout.indexOf(self.header) + 1, add, 0,
+                                     Qt.AlignHCenter if sidebar.collapsed else Qt.AlignRight)
         self._sort_tools()
         self.sync_count()

@@ -96,6 +96,9 @@ class AccountPlatformDialog(QDialog):
             self.layout_box.addLayout(toolbar)
         self._update_platform_labels()
         self.pages = QStackedWidget(self)
+        if import_follows:
+            # WebEngine promotes this ancestor; do it before the visible HWND exists.
+            self.pages.setAttribute(Qt.WA_NativeWindow)
         self.layout_box.addWidget(self.pages, 1)
         self.select_platform(platform_kind)
 

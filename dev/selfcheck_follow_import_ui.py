@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QObject, QEvent, QPoint, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
@@ -243,6 +243,48 @@ class FollowImportUITests(unittest.TestCase):
         self.assertTrue(tabs.buttons[hidden].isVisible())
         owner.close()
 
+    def test_first_browser_platform_keeps_visible_window_and_native_handle(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Native HWND lifecycle requires the Windows backend')
+        owner = QWidget()
+        owner.resize(900, 800)
+        owner.plugins = SimpleNamespace(_platform_owner={})
+        owner._accounts = {'bilibili': dict(uname='Fixture')}
+        owner._closing = False
+        owner._clear_platform_account = lambda *_: None
+        owner.sidebar = SimpleNamespace(rooms=lambda: [], folder_state=lambda: [], create_folder=lambda _: None)
+        owner._start_avatar_loader = lambda *_: None
+        provider = SimpleNamespace(kind='douyu', label='斗鱼', follow_cookie_domain='douyu.com',
+                                   follow_login_url='about:blank', account_login_url='about:blank')
+        events = []
+        class VisibilityTrace(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() in (QEvent.Hide, QEvent.Show, QEvent.WinIdChange):
+                    events.append(event.type())
+                return False
+        with patch.object(bili, 'SESSION_DATA', 'fixture'), patch.object(
+                AccountPlatformDialog, '_load_bili', lambda dialog: dialog._show_rooms(ROOMS)):
+            dialog = AccountPlatformDialog(owner, {'douyu': provider}, import_follows=True)
+            dialog.show()
+            QTest.qWait(40)
+            trace = VisibilityTrace(dialog)
+            dialog.installEventFilter(trace)
+            handle = int(dialog.winId())
+            try:
+                for kind in ('douyu', 'bilibili', 'douyu'):
+                    QTest.mouseClick(dialog.import_bar.platform.buttons[kind], Qt.LeftButton)
+                    QTest.qWait(30)
+                    self.assertEqual(dialog.kind, kind)
+                    self.assertTrue(dialog.isVisible())
+                    self.assertEqual(int(dialog.winId()), handle)
+                    self.assertEqual(events, [])
+                self.assertIs(dialog._platform_pages['douyu'].browser.window(), dialog)
+            finally:
+                dialog.removeEventFilter(trace)
+                dialog.reject()
+                dialog.deleteLater()
+                owner.close()
+
     def test_source_bar_refresh_and_platform_switch(self):
         owner = QWidget()
         owner.resize(430, 800)
@@ -261,6 +303,14 @@ class FollowImportUITests(unittest.TestCase):
             QTest.mouseClick(dialog.import_bar.platform.buttons['bilibili'], Qt.LeftButton)
             self.assertTrue(dialog.import_bar.platform.buttons['bilibili'].isChecked())
             self.assertEqual(dialog.width(), 430)
+            tabs = dialog.import_bar.platform
+            for width in (430, 700, 430):
+                dialog.resize(width, dialog.height())
+                QTest.qWait(15)
+                for button in [*tabs.buttons.values(), tabs.more]:
+                    if button.isVisible():
+                        rect = button.rect().translated(button.mapTo(tabs, QPoint()))
+                        self.assertTrue(tabs.rect().contains(rect), (width, rect, tabs.rect()))
             self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
             self.assertTrue(dialog.testAttribute(Qt.WA_TranslucentBackground))
             self.assertEqual(dialog.grab().toImage().pixelColor(0, 0).alpha(), 0)
