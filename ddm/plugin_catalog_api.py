@@ -1,5 +1,4 @@
 """Discover official Release ZIPs, inspect their manifests and cache verified offers."""
-import os
 from pathlib import Path
 import re
 import json
@@ -8,6 +7,8 @@ import time
 import zipfile
 from types import SimpleNamespace
 import requests
+from . import image_cache
+from .cache_cleanup import store_catalog
 from .update_version import version_key
 from .plugin_manifest import PLUGIN_ID, read_manifest
 from .plugin_packages import PluginPackages
@@ -138,6 +139,7 @@ def load_plugin_cache(path):
 
 def cached_plugin_catalog(client, current_version, path, force=False):
     from . import online as api
+    stamp = image_cache.ticket()
     cache = api.load_plugin_cache(path)
     now = time.time()
     if not force and cache and 0 <= now - cache['checked_at'] < api.CATALOG_CHECK_SECONDS:
@@ -147,14 +149,7 @@ def cached_plugin_catalog(client, current_version, path, force=False):
                  offers=offers, checked_at=now)
     path = Path(path)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix='.plugin-catalog-', dir=path.parent)
-        os.close(descriptor)
-        try:
-            Path(temporary).write_text(json.dumps(cache, ensure_ascii=False), encoding='utf-8')
-            os.replace(temporary, path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        store_catalog(path, json.dumps(cache, ensure_ascii=False).encode('utf-8'), stamp)
     except OSError:
         pass
     return offers

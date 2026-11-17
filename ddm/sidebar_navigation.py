@@ -314,6 +314,12 @@ class SidebarNavigation(QObject):
     def open_manage_menu(self):
         sidebar = self.sidebar
         menu = self._menu(self.manage_button)
+        if sidebar.side == 'top':
+            menu.addAction('添加直播间…').triggered.connect(sidebar.add_button.click)
+            menu.addAction('导入关注…').triggered.connect(sidebar.import_button.click)
+            menu.addAction('新建文件夹…').triggered.connect(sidebar.prompt_folder)
+            menu.addAction('切换卡片／列表').triggered.connect(self.density_button.click)
+            menu.addSeparator()
         action = menu.addAction('多选管理')
         action.setCheckable(True)
         action.setChecked(sidebar.select_mode)
@@ -327,6 +333,13 @@ class SidebarNavigation(QObject):
         menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
+        if sidebar.side == 'top':
+            menu.addSeparator()
+            for text, button in (('布局预设', sidebar.layout_button),
+                                 ('画中画', sidebar.picture_in_picture_button),
+                                 ('切换外观', sidebar.appearance_button),
+                                 ('清空画面墙', sidebar.clear_wall_button)):
+                menu.addAction(text).triggered.connect(button.click)
         menu.popup(self.manage_button.mapToGlobal(QPoint(0, self.manage_button.height()+4)))
         self.menu = menu
 
@@ -359,11 +372,17 @@ class SidebarNavigation(QObject):
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
         self.header.setVisible(left)
-        self.filters.setVisible(left and not sidebar.collapsed)
+        self.filters.setVisible(not sidebar.collapsed if left else not sidebar.select_mode)
+        self.folder_toggle_button.setVisible(left)
+        self.density_button.setVisible(left)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         self.tools_divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         if not left:
+            self.manage_button.setToolTip('关注与常用操作')
+            self.manage_button.setAccessibleName('关注与常用操作')
             return
+        self.manage_button.setToolTip('关注管理')
+        self.manage_button.setAccessibleName('关注管理')
         sidebar._layout.insertWidget(0, self.header)
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)

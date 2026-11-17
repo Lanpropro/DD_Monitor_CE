@@ -312,6 +312,10 @@ SelectControl由组合框继续持有唯一模型和选中值，关闭时仅绘�
 
 `plugin_replacements.py`负责组合包向独立平台包的声明迁移、设置继承与装载优先级；`plugin_types.PluginContext`只暴露平台是否已接管的查询。平台协议、缓存与互动请求仍属于插件，不在迁移层复制。
 
+缓存清理：`cache_cleanup.py`仅管理固定额外缓存、HTTP请求标记及可删除的历史本体日志；`cache_cleanup_ui.py`管理后台统计和选择反馈。图片与插件目录复用`image_cache`跨进程代次；网页登录资料归原profile，`web_login`在懒入口调用Qt HTTP清理并等待完成再导航，账号和Cookie不进入清理职责。
+
+竖屏关注栏：`sidebar_portrait.py`借用Sidebar已有控件与信号并在横屏归还；`sidebar_orientation.py`保留方向协调与旧委托。播放格、媒体和布局预设继续由原宿主持有。设置分列由`settings_layout`按窗口方向、宽度、字号及同一份用户偏好决定；诊断页面只持有表单与状态，实际收集仍由独立`DiagnosticExport`后端执行。
+
 ## 相关文档
 
 - [架构文档索引](README.md)

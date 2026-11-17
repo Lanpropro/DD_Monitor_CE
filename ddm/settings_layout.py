@@ -1,5 +1,5 @@
 """Responsive settings sections; pages keep ownership of controls and values."""
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from .ui import SettingsSurface
 
@@ -36,6 +36,7 @@ class SettingsColumns(QWidget):
         self.grid.setSpacing(16)
         self.entries = []
         self.columns = 0
+        self._layout_window = None
 
     def add_section(self, key, widget, *, wide=False):
         self.entries.append((key, widget, wide))
@@ -99,12 +100,35 @@ class SettingsColumns(QWidget):
 
     def _column_count(self):
         from . import theme
-        vertical = self.respect_preference and self.window().property('settings_card_layout') == 'vertical'
+        window = self.window()
+        mode = window.property('settings_card_layout') if self.respect_preference else 'auto'
+        vertical = mode == 'vertical' or (mode != 'horizontal' and window.height() > window.width())
         threshold = round(self.BREAKPOINT * max(1, theme.FONT_CONTROL / 13))
         return 2 if not vertical and self.width() >= threshold else 1
 
+    def _watch_window(self):
+        window = self.window()
+        if window is self._layout_window:
+            return
+        if self._layout_window is not None:
+            self._layout_window.removeEventFilter(self)
+            self._layout_window.destroyed.disconnect(self._window_destroyed)
+        self._layout_window = window
+        window.installEventFilter(self)
+        window.destroyed.connect(self._window_destroyed)
+
+    def _window_destroyed(self):
+        self._layout_window = None
+
+    def eventFilter(self, watched, event):
+        if watched is self._layout_window and event.type() == QEvent.Resize:
+            if self._column_count() != self.columns:
+                self._arrange()
+        return super().eventFilter(watched, event)
+
     def showEvent(self, event):
         super().showEvent(event)
+        self._watch_window()
         self._arrange()
 
 

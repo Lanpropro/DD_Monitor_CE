@@ -28,6 +28,7 @@ if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
 if /i "%~1"=="--check-update-settings" goto updateSettingsCheck
+if /i "%~1"=="--check-portrait-ui" goto portraitUiCheck
 if /i "%~1"=="--check-tray-menu" goto trayMenuCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
 if /i "%~1"=="--check-danmaku-independent" goto danmakuIndependentCheck
@@ -205,6 +206,8 @@ exit /b %errorlevel%
 
 :diagnosticsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_settings_layout
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_on_demand_diagnostics
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sidebar_diagnostics
@@ -454,6 +457,15 @@ exit /b %errorlevel%
 :imageCacheCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_image_cache
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_extra_cache
+exit /b %errorlevel%
+
+:portraitUiCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_card_layout
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_portrait_ui
 exit /b %errorlevel%
 
 :fullscreenLayersCheck
