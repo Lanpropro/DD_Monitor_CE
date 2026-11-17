@@ -14,6 +14,7 @@ class WindowResizeTrace:
     MAX_GESTURES = 80
     MAX_CALLS = 12000
     MAX_DPI_PROFILES = 8
+    MAX_GEOMETRY_SAMPLES = 24
 
     def __init__(self, path, *, profile_dpi=False):
         self.path = Path(path)
@@ -27,6 +28,71 @@ class WindowResizeTrace:
         self.profile_dpi = profile_dpi
         self.dpi_profiler = None
         self.dpi_profiles = []
+        self.geometry_samples = []
+        self.next_geometry_sample = None
+
+    def sample_geometry(self, phase):
+        if self.window is None or len(self.geometry_samples) >= self.MAX_GEOMETRY_SAMPLES:
+            return
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QWidget
+        root = self.window
+        root_hwnd = int(root.internalWinId())
+        if not root_hwnd:
+            return
+        user32 = ctypes.windll.user32
+        user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+        user32.MapWindowPoints.argtypes = (wintypes.HWND, wintypes.HWND,
+                                          ctypes.POINTER(wintypes.POINT), wintypes.UINT)
+        user32.GetDpiForWindow.argtypes = (wintypes.HWND,)
+        user32.GetDpiForWindow.restype = wintypes.UINT
+        user32.GetParent.argtypes = (wintypes.HWND,)
+        user32.GetParent.restype = wintypes.HWND
+        user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+        def native_rect(hwnd):
+            bounds, origin = wintypes.RECT(), wintypes.POINT()
+            if not user32.GetClientRect(hwnd, ctypes.byref(bounds)):
+                return None
+            user32.MapWindowPoints(hwnd, root_hwnd, ctypes.byref(origin), 1)
+            return [origin.x, origin.y, bounds.right, bounds.bottom]
+        windows, known = [], set()
+        for widget in (root, *root.findChildren(QWidget)):
+            hwnd = int(widget.internalWinId())
+            if not hwnd:
+                continue
+            known.add(hwnd)
+            visible = bool(user32.IsWindowVisible(hwnd))
+            if not visible and not widget.isVisible():
+                continue
+            rect = native_rect(hwnd)
+            if rect is None:
+                continue
+            position = widget.mapTo(root, QPoint())
+            parent = widget.parentWidget()
+            windows.append(dict(cls=type(widget).__name__, instance=id(widget), hwnd=hwnd,
+                qtWindow=widget.isWindow(),
+                qtParent=id(parent) if parent is not None else None,
+                nativeParent=user32.GetParent(hwnd), qtVisible=widget.isVisible(), nativeVisible=visible,
+                qtRect=[position.x(), position.y(), widget.width(), widget.height()],
+                nativeRect=rect,
+                qtScale=widget.devicePixelRatioF(), nativeDpi=user32.GetDpiForWindow(hwnd)))
+        external = []
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumChildWindows.argtypes = (wintypes.HWND, callback_type, wintypes.LPARAM)
+        user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        def collect_external(hwnd, _unused):
+            if hwnd not in known:
+                name = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, name, len(name))
+                external.append(dict(cls=name.value, hwnd=hwnd, nativeParent=user32.GetParent(hwnd),
+                    nativeRect=native_rect(hwnd), nativeDpi=user32.GetDpiForWindow(hwnd),
+                    nativeVisible=bool(user32.IsWindowVisible(hwnd))))
+            return True
+        user32.EnumChildWindows(root_hwnd, callback_type(collect_external), 0)
+        self.geometry_samples.append(dict(phase=phase,
+            atMs=round((time.perf_counter()-self.started)*1000, 3),
+            scale=root.devicePixelRatioF(), nativeDpi=user32.GetDpiForWindow(root_hwnd),
+            windows=windows, externalWindows=external))
 
     def begin(self, window, source='native-resize'):
         self.flush()
@@ -112,11 +178,15 @@ class WindowResizeTrace:
                    initial=self.initial, final=self.state(),
                    initialTopology=self.initial_topology, finalTopology=self.topology(),
                    dpiProfiles=self.dpi_profiles,
+                   geometrySamples=self.geometry_samples,
+                   geometryCapped=len(self.geometry_samples) >= self.MAX_GEOMETRY_SAMPLES,
                    calls=self.calls, callsCapped=len(self.calls) >= self.MAX_CALLS,
                    messages=self.messages, messagesCapped=len(self.messages) >= self.MAX_CALLS)
         self.window = None
         self.calls, self.messages = [], []
         self.dpi_profiles = []
+        self.geometry_samples = []
+        self.next_geometry_sample = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open('a', encoding='utf-8') as output:
             output.write(json.dumps(row) + '\n')
@@ -149,6 +219,18 @@ class WindowResizeTrace:
             if code == 0x0231:
                 trace.begin(window)
             if trace.window is window:
+                if code == 0x02e0:
+                    from PySide6.QtCore import QTimer
+                    trace.sample_geometry('dpi-entry')
+                    trace.next_geometry_sample = time.perf_counter()+.15
+                    gesture = trace.gesture
+                    def queued_geometry():
+                        if trace.window is window and trace.gesture == gesture:
+                            trace.sample_geometry('dpi-queued')
+                    QTimer.singleShot(0, window, queued_geometry)
+                elif code in (0x0003, 0x0232) and trace.next_geometry_sample is not None:
+                    trace.sample_geometry('dpi-move' if code == 0x0003 else 'dpi-exit')
+                    trace.next_geometry_sample = None
                 if code in (0x0003, 0x0232, 0x02e0):
                     trace.finish_dpi_profile()
                 if code == 0x02e0:
@@ -197,6 +279,7 @@ class WindowResizeTrace:
     def wrap(self, owner, name, *, opens=False, event_types=None):
         original = getattr(owner, name)
         trace = self
+        samples_dpi = owner.__name__ == 'VideoSurface' and name == 'event'
         @functools.wraps(original)
         def measured(obj, *args, **kwargs):
             if event_types is not None and args[-1].type() not in event_types:
@@ -231,6 +314,10 @@ class WindowResizeTrace:
                     if event_types is not None:
                         call['eventType'] = int(args[-1].type())
                     trace.calls.append(call)
+                if (samples_dpi and trace.next_geometry_sample is not None
+                        and time.perf_counter() >= trace.next_geometry_sample):
+                    trace.next_geometry_sample = time.perf_counter()+.15
+                    trace.sample_geometry('dpi-propagation')
                 if opened:
                     trace.flush()
         self.originals.append((owner, name, original))

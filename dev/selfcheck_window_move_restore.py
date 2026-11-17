@@ -227,33 +227,55 @@ class MoveRestoreTests(unittest.TestCase):
                     self.assertEqual(probe.event(QEvent(QEvent.DevicePixelRatioChange)), 42)
                     with self.assertRaisesRegex(RuntimeError, 'probe'):
                         probe.event(QEvent(QEvent.ScreenChangeInternal))
+                    trace.next_geometry_sample = 0
+                    QApplication.sendEvent(window.wall.tiles[0].video, QEvent(QEvent.DevicePixelRatioChange))
                     window.move(window.pos() + QPoint(20, 10))
                     self.assertIsNone(trace.dpi_profiler)
                     window.resize(window.width() + 40, window.height() + 20)
                     QTest.qWait(70)
                     self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
                     trace.MAX_CALLS = 2
+                    trace.MAX_GEOMETRY_SAMPLES = 1
                     self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
                     window.move(window.pos() + QPoint(20, 10))
                     window.move(window.pos() + QPoint(20, 10))
+                    with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                        window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
                     self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
                 finally:
                     window.close()
                     window.deleteLater()
                     self.app.processEvents()
             rows = [json.loads(line) for line in path.read_text().splitlines()]
+            contents = path.read_text()
+            self.app.processEvents()
+            self.assertEqual(path.read_text(), contents, 'Queued geometry must not write after capture closes')
             row = next(row for row in rows if row['source'] == 'native-resize')
             capped = [row for row in rows if row['source'] == 'native-resize'][1]
         self.assertTrue(capped['messagesCapped'])
         self.assertEqual(len(capped['messages']), 2)
         self.assertLessEqual(len(capped['calls']), 2)
         self.assertFalse(capped['final']['interactive'])
+        self.assertTrue(capped['geometryCapped'])
+        self.assertEqual(len(capped['geometrySamples']), 1)
         self.assertFalse(row['final']['interactive'])
         self.assertFalse(row['final']['wallInteractive'])
         self.assertEqual([x['message'] for x in row['messages'] if x['message'] in (0x0231, 0x0232)],
                          [0x0231, 0x0232])
         self.assertIn(0x0003, [x['message'] for x in row['messages']])
         self.assertFalse(row['messagesCapped'])
+        self.assertEqual({s['phase'] for s in row['geometrySamples']},
+                         {'dpi-entry', 'dpi-propagation', 'dpi-move', 'dpi-queued'})
+        self.assertFalse(row['geometryCapped'])
+        for sample in row['geometrySamples']:
+            self.assertGreater(sample['nativeDpi'], 0)
+            self.assertTrue(sample['windows'])
+            self.assertTrue(all(node['hwnd'] and len(node['nativeRect']) == 4
+                                and len(node['qtRect']) == 4 for node in sample['windows']))
+            root = next(node for node in sample['windows'] if node['instance'] == id(window))
+            self.assertEqual(root['nativeRect'][:2], [0, 0])
+            self.assertTrue(root['qtWindow'])
+        self.assertNotIn('uname', json.dumps(row))
         self.assertEqual(len(row['dpiProfiles']), 1)
         profile = row['dpiProfiles'][0]
         self.assertLessEqual(len(profile['functions']), 120)
@@ -329,6 +351,30 @@ class MoveRestoreTests(unittest.TestCase):
             path = Path(directory) / 'resize.jsonl'
             trace = WindowResizeTrace(path)
             trace.begin(self.window)
+            topology, geometry = trace.topology(), self.window.geometry()
+            trace.sample_geometry('static')
+            self.assertEqual(trace.topology(), topology, 'Sampling must not create native windows')
+            self.assertEqual(self.window.geometry(), geometry)
+            sample = trace.geometry_samples[-1]
+            wall = next(node for node in sample['windows'] if node['instance'] == id(self.window.wall))
+            expected = [round(value*sample['scale']) for value in wall['qtRect']]
+            self.assertTrue(all(abs(a-b) <= 2 for a, b in zip(expected, wall['nativeRect'])))
+            self.user32.CreateWindowExW.argtypes = (wintypes.DWORD, wintypes.LPCWSTR,
+                wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                ctypes.c_int, wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p)
+            self.user32.CreateWindowExW.restype = wintypes.HWND
+            self.user32.DestroyWindow.argtypes = (wintypes.HWND,)
+            child = self.user32.CreateWindowExW(0, 'STATIC', 'sample-private-text', 0x50000000,
+                10, 20, 30, 40, int(self.window.internalWinId()), None, None, None)
+            self.assertTrue(child)
+            try:
+                trace.sample_geometry('external')
+                node = next(n for n in trace.geometry_samples[-1]['externalWindows'] if n['hwnd'] == child)
+                self.assertEqual(node['nativeRect'], [10, 20, 30, 40])
+                self.assertEqual(node['nativeParent'], int(self.window.internalWinId()))
+                self.assertNotIn('sample-private-text', json.dumps(trace.geometry_samples))
+            finally:
+                self.user32.DestroyWindow(child)
             trace.start_dpi_profile()
             self.assertIsNone(trace.dpi_profiler)
             trace.flush()
