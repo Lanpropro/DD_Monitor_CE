@@ -236,7 +236,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_danmaku_limit_migration](../selfcheck_danmaku_limit_migration.py) | 单项执行前核对 |
 | [selfcheck_danmaku_limit_settings](../selfcheck_danmaku_limit_settings.py) | 单项执行前核对 |
 | [selfcheck_danmaku_menu](../selfcheck_danmaku_menu.py) | 单项执行前核对 |
-| [selfcheck_danmaku_blocking](../selfcheck_danmaku_blocking.py) | `offline`；平台＋ID／昵称回退、接收前过滤与插件派发、左键词条／用户屏蔽、历史及排队栅格／SC过滤、设置增删／自动保存／临时文件重建、已开及延后设置页同步；临时数据、不读取账号、不联网、不发送真实弹幕 |
+| [selfcheck_danmaku_blocking](../selfcheck_danmaku_blocking.py) | `offline`；平台＋ID／昵称回退、手动ID格式与错误反馈、首次屏蔽来源及原文临时落盘／远程同步、Ctrl/Shift多选与同行操作、列表及详情边界滚轮隔离、接收前过滤与插件派发、历史及排队栅格／SC过滤、设置增删／自动保存／临时文件重建、已开及延后设置页同步；临时数据、不读取账号、不联网、不发送真实弹幕 |
 | [selfcheck_danmaku_actions](../selfcheck_danmaku_actions.py) | `offline`；单条悬停、点击、复制和房间绑定发送，使用替身输入控件 |
 | [selfcheck_danmaku_render_thread](../selfcheck_danmaku_render_thread.py) | `native`；另以 `--unthrottled` 检查不等待垂直同步时的实际滚动速度 |
 | [selfcheck_danmaku_retention](../selfcheck_danmaku_retention.py) | 单项执行前核对 |
@@ -246,7 +246,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_danmaku_unicode](../selfcheck_danmaku_unicode.py) | `offline`；历史 Unicode 字形回退、文字栅格非空和输入框主题刷新 |
 | [selfcheck_live_danmaku](../selfcheck_live_danmaku.py) | 单项执行前核对 |
 | [selfcheck_live_danmaku_live](../selfcheck_live_danmaku_live.py) | 单项执行前核对 |
-| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行 |
+| [selfcheck_super_chat](../selfcheck_super_chat.py) | `offline`；状态、官方六档金额边界、两处实际像素、正文自适应高度与完整换行、小格子默认紧凑／保底字号／向下展开／正文及标题滚动 |
 | [selfcheck_sc_simulator](../selfcheck_sc_simulator.py) | `offline`；SC 模拟、多条纵向排列、独立折叠计时与关闭、滚动定位、画面／弹幕栏独立位置与实际对照、设置重开及重置、全屏恢复、紧凑控件及外置单位、共用大小和透明度、画面自动等比缩放与手动大小叠加／预览及实时重排、小画面弹幕缩放曲线单调及大画面不变、正文留白与背景混色；合成消息、隔离数据 |
 | [selfcheck_video_danmaku](../selfcheck_video_danmaku.py) | `offline`；含后台尺寸重绘、最终像素／进度、两个尺寸缓存、旧结果丢弃与 GUI 事件交付；主窗口路由、设置和连接取消保留全部断言，在独立进程运行，隔离此前栅格／Quick夹具 |
 | [selfcheck_video_danmaku_controls](../selfcheck_video_danmaku_controls.py) | `offline`；含按格独立设置、全局隔离、SC 范围、全屏、换格、空格及重启恢复 |
@@ -264,7 +264,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [check_setup_permissions](../check_setup_permissions.py) | 单项 Windows 后台检查；需原生入口和 ISCC，使用独立 AppId、临时目录 ACL 及合成安装验证目录／单文件权限、EXE／DLL 占用、只读文件拦截和解除限制后修复安装 |
 | [selfcheck_data_paths](../selfcheck_data_paths.py) | `offline`：离屏、合成数据，验证安装版与便携版路径、迁移与失败回退、数据设置入口及更新提权分支；不调用真实 UAC、不读真实账号 |
 | [selfcheck_image_cache](../selfcheck_image_cache.py) | `offline`；临时图片与数据目录、新图替换/共享引用/失败保留、封面640及头像256长边/JPEG与PNG压缩、下载后头像快照、小图不放大、裁切元数据/透明度保留、无URL旧图本地转存和重复读取不再压缩、跨进程清理及头像迟到转存保护、饼图选择及后台清理；不联网、不读真实账号 |
-| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、开关鼠标／空格／禁用兼容、展开条焦点和按下时的圆角、分段互斥／方向键／信号／立体表面／主题／内容宽度、下拉提交取消／禁用／父销毁清理、一体式数值步进的输入／范围／键盘／禁用边界、选区失焦清理／阴影开关／固定宽度、开关鼠标250ms可中断过渡／键盘和系统动画关闭时直达、曲线独立底板／绘图区／网格／白色节点、卡片静态背景缓存／分区遮挡／预览草稿和子控件清晰及实际页面复用；离屏、临时数据，无账号/外网；设置原生/嵌入根节点的深浅色录屏基础色像素、原生与自绘控件、弹出菜单及设置外主题隔离、均匀卡片底色与独立外阴影 |
+| [selfcheck_ui_components](../selfcheck_ui_components.py) | `offline`；共用组件入口、按需导入、原类身份、旧设置函数兼容、省略标签缩放恢复、图标按钮切换/绘制/销毁、开关鼠标／空格／禁用兼容、展开条焦点和按下时的圆角、分段互斥／方向键／信号／立体表面／主题／内容宽度、下拉提交取消／禁用／父销毁清理、字体搜索与无匹配／少字体可见几何／确认保存、一体式数值步进的输入／范围／键盘／禁用边界、选区失焦清理／阴影开关／固定宽度、开关鼠标250ms可中断过渡／键盘和系统动画关闭时直达、曲线独立底板／绘图区／网格／白色节点、卡片静态背景缓存／分区遮挡／预览草稿和子控件清晰及实际页面复用；离屏、临时数据，无账号/外网；设置原生/嵌入根节点的深浅色录屏基础色像素、原生与自绘控件、弹出菜单及设置外主题隔离、均匀卡片底色与独立外阴影 |
 | [check_setup_data_cleanup](../check_setup_data_cleanup.py) | 单项 Windows 后台检查；先构建原生入口，再传入 ISCC；使用独立登记和合成文件验证软件目录／独立数据目录的默认保留、勾选清理、中文路径、链接保护及额外文件保留 |
 | [check_release_package](../check_release_package.py) | 单项执行前核对 |
 | [selfcheck_close_release](../selfcheck_close_release.py) | 单项执行前核对 |

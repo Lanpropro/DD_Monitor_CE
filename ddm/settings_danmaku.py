@@ -85,8 +85,9 @@ class DanmakuSettingsPage(QWidget):
         user_layout.addWidget(QLabel('屏蔽用户'))
         from .settings_danmaku_blocking import BlockedUsersEditor
         self.blocked_users = BlockedUsersEditor(settings.get('danmaku_blocked_users'))
+        self.blocked_users.list.itemSelectionChanged.connect(self._refresh_blocking_layout)
         user_layout.addWidget(self.blocked_users)
-        user_layout.addWidget(_hint('按平台与用户 ID 屏蔽，在该平台所有房间生效；无 ID 的记录按昵称匹配，同名用户也会被屏蔽。移除后恢复接收。'))
+        user_layout.addWidget(_hint('屏蔽在该平台所有房间生效；弹幕未提供 ID 时按昵称匹配，同名用户也会被屏蔽。'))
         user_layout.addStretch(1)
         self.blocking_columns.add_section('words', word_panel)
         self.blocking_columns.add_section('users', user_panel)
@@ -154,7 +155,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_scale_with_video.setChecked(bool(settings.get('super_chat_scale_with_video', False)))
         row.addWidget(self.super_chat_scale_with_video)
         parameters.addLayout(row)
-        parameters.addWidget(_hint('以 720 px 高的画面为基准，卡片、文字与头像一起缩放；此项只影响画面布局。'))
+        parameters.addWidget(_hint('以 720 px 高的画面为基准缩放，正文保留可读字号。小格子先显示紧凑标题，点击后向下展开；内容超出格子时在卡片内滚动。'))
         self.super_chat_scale_curve = ScaleCurveControl(settings.get('super_chat_scale_curve'),
                                                        strength=int(settings.get('super_chat_scale_strength', 35)))
         self.super_chat_scale_curve.setEnabled(self.super_chat_scale_with_video.isChecked())
@@ -220,6 +221,10 @@ class DanmakuSettingsPage(QWidget):
         self.sections.add_section('blocking', blocking, wide=True)
         self.sections.add_section('sc_placement', placement, wide=True)
         layout.addStretch(1)
+
+    def _refresh_blocking_layout(self):
+        self.blocking_columns.refresh_section('users')
+        self.sections.refresh_section('blocking')
 
     def sync_blocking(self, values):
         if 'danmaku_block_words' in values:

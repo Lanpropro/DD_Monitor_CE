@@ -1,4 +1,5 @@
 """Platform-scoped user identities and shared incoming-comment filtering."""
+import re
 
 
 def _text(value):
@@ -30,8 +31,27 @@ def normalize_users(users):
         key = (identity['platform'], 'uid' if identity['uid'] else 'uname', identity['uid'] or identity['uname'])
         if key not in seen:
             seen.add(key)
+            for field in ('blocked_at', 'source', 'source_text', 'source_room_id', 'source_kind'):
+                if isinstance(item.get(field), str):
+                    identity[field] = item[field]
             result.append(identity)
     return result
+
+
+def manual_user_error(platform, uid):
+    """Validate only the identity shape used by current adapters, never existence."""
+    uid = _text(uid)
+    if not uid:
+        return '请填写该平台的用户 ID，不是昵称'
+    if platform in ('bilibili', 'douyin', 'douyu', 'huya', 'twitch'):
+        if not re.fullmatch(r'[1-9][0-9]*', uid):
+            return '该平台需要正整数用户 ID，请勿填写昵称、账号名或链接'
+        return ''
+    if platform == 'youtube':
+        if not re.fullmatch(r'UC[A-Za-z0-9_-]+', uid):
+            return 'YouTube 需要 UC 开头的频道 ID，不是 @名称或频道链接'
+        return ''
+    return '该平台尚未提供手动 ID 格式，请从弹幕菜单屏蔽用户'
 
 
 def block_phrase(text):
