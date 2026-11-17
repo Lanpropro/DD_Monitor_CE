@@ -1,13 +1,10 @@
 """User-block list editing; identity validation and matching live in danmaku_filter."""
-import os
 from datetime import datetime, timezone
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from .danmaku_filter import manual_user_error, normalize_users
 from .ui import SelectControl
-from .widget_support import BRAND_ASSETS_DIR
 
 
 PLATFORMS = {'bilibili': '哔哩哔哩', 'douyin': '抖音', 'douyu': '斗鱼',
@@ -55,7 +52,7 @@ class BlockedUsersEditor(QWidget):
         self.platform.setMinimumWidth(112)
         self.uid = QLineEdit()
         self.uid.setMinimumWidth(0)
-        self.uid.setPlaceholderText('数字用户 ID')
+        self.uid.setPlaceholderText('B站 UID（数字）')
         self.uid.setAccessibleName('待屏蔽的用户 ID')
         self.add = QPushButton('添加')
         self.add.setObjectName('IconButton')
@@ -77,7 +74,7 @@ class BlockedUsersEditor(QWidget):
         self.feedback.setObjectName('SettingsHint')
         self.feedback.setWordWrap(True)
         layout.addWidget(self.feedback)
-        self.hint = QLabel('填写平台真实用户 ID，不是昵称或房间号；只检查格式，未核验账户是否存在。\n'
+        self.hint = QLabel('B站填写个人主页中的数字 UID，不是昵称或直播间号；仅检查格式，不查询账号资料。\n'
                            'Ctrl / Shift 可多选；列表滚轮只滚动本列表。', self)
         self.hint.setObjectName('SettingsHint')
         self.hint.setWordWrap(True)
@@ -104,16 +101,10 @@ class BlockedUsersEditor(QWidget):
             platform = rule['platform']
             if self.platform.findData(platform) < 0:
                 self.platform.addItem(platform, platform)
-            label = PLATFORMS.get(platform, platform)
-            identity = 'ID: ' + rule['uid'] if rule['uid'] else '按昵称匹配，含同名用户'
+            identity = ('UID: ' if platform == 'bilibili' else 'ID: ') + rule['uid'] if rule['uid'] else '按昵称匹配，含同名用户'
             name = (rule['uname'] + ' · ') if rule['uname'] else ''
             text = f"{name}{identity}"
             item = QListWidgetItem(text, self.list)
-            icon_path = os.path.join(BRAND_ASSETS_DIR, 'platforms',
-                                     'huya.png' if platform == 'huya' else platform + '.ico')
-            if not os.path.isfile(icon_path):
-                icon_path = os.path.join(BRAND_ASSETS_DIR, 'platforms', 'generic.svg')
-            item.setIcon(QIcon(icon_path))
             item.setData(Qt.UserRole + 1, platform)
             item.setToolTip(text)
             item.setData(Qt.UserRole, rule)
@@ -125,8 +116,13 @@ class BlockedUsersEditor(QWidget):
         self.details.hide()
 
     def _platform_changed(self):
-        youtube = self.platform.currentData() == 'youtube'
-        self.uid.setPlaceholderText('频道 ID（UC 开头）' if youtube else '数字用户 ID')
+        platform = self.platform.currentData()
+        self.uid.setPlaceholderText('B站 UID（数字）' if platform == 'bilibili' else
+                                    '频道 ID（UC 开头）' if platform == 'youtube' else '数字用户 ID')
+        explanation = ('B站填写个人主页中的数字 UID，不是昵称或直播间号' if platform == 'bilibili' else
+                       'YouTube填写UC开头的频道 ID，不是@名称或频道链接' if platform == 'youtube' else
+                       '填写该平台的数字用户 ID，不是昵称或房间号')
+        self.hint.setText(explanation + '；仅检查格式，不查询账号资料。\nCtrl / Shift 可多选；列表滚轮只滚动本列表。')
         self.feedback.clear()
 
     def _selection_changed(self):
@@ -146,9 +142,9 @@ class BlockedUsersEditor(QWidget):
             when = '旧记录未记录屏蔽时间'
         source = rule.get('source')
         origin = {'message': '弹幕菜单屏蔽', 'manual': '手动添加'}.get(source, '旧记录未记录来源')
-        parts = ['平台：' + PLATFORMS.get(rule['platform'], rule['platform']),
-                 '用户 ID：' + (rule['uid'] or '未提供，按昵称匹配'),
-                 '昵称：' + (rule['uname'] or '未记录'), '屏蔽时间：' + when, '来源：' + origin]
+        parts = [('用户 UID：' if rule['platform'] == 'bilibili' else '用户 ID：') + (rule['uid'] or '未提供，按昵称匹配'),
+                 '昵称：' + (rule['uname'] or ('手动填写ID，未查询昵称' if source == 'manual' else '原记录未提供昵称')),
+                 '屏蔽时间：' + when, '来源：' + origin]
         if source == 'message':
             parts.append('触发文本：' + (rule.get('source_text') or '该条消息未提供文本'))
             if rule.get('source_room_id'):

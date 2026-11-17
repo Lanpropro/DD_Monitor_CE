@@ -9,6 +9,7 @@ from .plugin_card_layout import PluginCardLayout
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
 from .ui import SettingsSurface, DisclosureButton, ElidedLabel, page_header as _page_head
+from .search import matches_query
 
 
 class PluginRemovePrompt(AnimatedDialog):
@@ -184,7 +185,7 @@ class PluginSettingsPage(QWidget):
         self._filter_installed(reset_scroll=False)
 
     def _filter_installed(self, *_args, reset_scroll=True):
-        terms = self.installed_browser.search.text().casefold().split()
+        query = self.installed_browser.search.text()
         scope = self.installed_browser.filter.currentIndex()
         metadata = {offer['id']: offer for offer in self.store_page.offers}
         visible = []
@@ -192,7 +193,7 @@ class PluginSettingsPage(QWidget):
             enabled = self.checks[plugin_id].isChecked()
             text = ' '.join(str(entry.get(key) or '') for key in ('id', 'name', 'description'))
             text += ' ' + str(metadata.get(plugin_id, {}).get('author') or '')
-            matches = all(term in text.casefold() for term in terms)
+            matches = matches_query(text, query)
             matches = matches and (scope == 0 or (scope == 1 and enabled)
                 or (scope == 2 and not enabled) or (scope == 3 and plugin_id in self._available_update_ids))
             self._installed_cards[plugin_id].setVisible(matches)

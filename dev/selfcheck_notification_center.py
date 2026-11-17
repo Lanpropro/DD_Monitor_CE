@@ -20,6 +20,8 @@ from ddm.dialogs import NotificationSettingsPage, SettingsDialog
 from ddm.notification_center import NotificationButton, remember_result
 from ddm.online_ui import show_result, UpdateNotice
 from ddm.widgets import Sidebar
+from ddm.ui import SegmentedControl, SettingsSlider, SettingsValueLabel
+from ddm.settings_layout import SettingsSection
 
 
 class NotificationTests(unittest.TestCase):
@@ -113,17 +115,21 @@ class NotificationTests(unittest.TestCase):
         self.app.processEvents()
         for key, box in page._checks.items():
             before = box.isChecked()
-            box.setFocus()
-            QTest.keyClick(box, Qt.Key_Space)
+            target = box.buttons['auto' if before else 'manual'] if isinstance(box, SegmentedControl) else box
+            target.setFocus()
+            QTest.keyClick(target, Qt.Key_Space)
             self.assertEqual(box.isChecked(), not before)
             expected = ('已启用' if box.isChecked() else '已关闭') if key in ('notifications_enabled', 'live_alert', 'notice_hide_fullscreen') else (
                 '手动关闭' if box.isChecked() else '自动收起')
             self.assertEqual(page._states[key].text(), expected)
-            QTest.mouseClick(box, Qt.LeftButton, pos=QPoint(box.width()-2, box.height()//2))
+            target = box.buttons['manual' if before else 'auto'] if isinstance(box, SegmentedControl) else box
+            QTest.mouseClick(target, Qt.LeftButton, pos=target.rect().center())
             self.assertEqual(box.isChecked(), before)
             self.assertTrue(box.accessibleName())
             self.assertTrue(box.accessibleDescription())
-            self.assertEqual(box.focusPolicy(), Qt.StrongFocus)
+            self.assertEqual(target.focusPolicy(), Qt.StrongFocus)
+            if isinstance(box, SegmentedControl):
+                self.assertTrue(page._states[key].isHidden())
 
     def test_notification_master_switch_hides_float_but_keeps_history(self):
         self.owner.settings = {'notifications_enabled': False}
@@ -157,6 +163,9 @@ class NotificationTests(unittest.TestCase):
                 self.assertNotEqual(preview.grab().toImage(), sharp)
                 for key, box in page._checks.items():
                     state = page._states[key]
+                    if isinstance(box, SegmentedControl):
+                        self.assertTrue(state.isHidden())
+                        continue
                     self.assertLess(state.mapTo(page, QPoint(state.width(), 0)).x(),
                                     box.mapTo(page, QPoint()).x()+1)
                     self.assertGreaterEqual(state.height(), state.fontMetrics().height())
@@ -165,6 +174,62 @@ class NotificationTests(unittest.TestCase):
                 self.app.processEvents()
                 rect = page.scroll.viewport().rect()
                 self.assertTrue(rect.contains(last.mapTo(page.scroll.viewport(), last.rect().center())))
+
+    def test_notification_sections_keep_compact_controls_readable_at_large_font_and_narrow_width(self):
+        previous = dict(theme._preferences)
+        self.addCleanup(theme.configure_appearance, previous)
+        for font_size in (13, 20):
+            theme.configure_appearance({'appearance_font_size': font_size})
+            page = NotificationSettingsPage({})
+            self.addCleanup(self.dispose, page)
+            page.setStyleSheet(theme.qss())
+            for width in (500, 1200):
+                page.resize(width, 780)
+                page.show()
+                for _ in range(3):
+                    self.app.processEvents()
+                self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                self.assertEqual([card.findChild(QLabel, 'SettingsSectionTitle').text()
+                                  for _key, card, _wide in page.sections.entries],
+                                 ['背景预览', '接收通知', '停留方式'])
+                self.assertTrue(all(isinstance(card, SettingsSection) for _key, card, _wide in page.sections.entries))
+                self.assertIsInstance(page.banner_blur, SettingsSlider)
+                self.assertEqual(page.banner_blur.width(), 160)
+                self.assertIsInstance(page.banner_blur_value, SettingsValueLabel)
+                self.assertTrue(page.banner_blur_value.font().bold())
+                self.assertTrue(page.sections.section('background').isAncestorOf(page.banner_preview))
+                self.assertFalse(any('Banner' in label.text() for label in page.findChildren(QLabel)))
+                for key, box in page._checks.items():
+                    card = page.sections.section('persistence' if key.startswith('notice_persist_') else 'live')
+                    self.assertTrue(card.rect().contains(box.mapTo(card, box.rect().bottomRight())), (font_size, width, key))
+                    self.assertNotEqual(page._states[key].objectName(), 'NotificationSettingsState')
+                    if isinstance(box, SegmentedControl):
+                        for button in box.buttons.values():
+                            self.assertGreaterEqual(button.width(), button.fontMetrics().horizontalAdvance(button.text()) + 8)
+                    else:
+                        state = page._states[key]
+                        self.assertTrue(state.isVisible())
+                        self.assertLess(state.mapTo(card, state.rect().topRight()).x(), box.mapTo(card, QPoint()).x())
+            page.hide()
+
+    def test_notification_retention_segments_trigger_existing_autosave_contract(self):
+        dialog = SettingsDialog({}, {}, preview=True)
+        self.addCleanup(self.dispose, dialog)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
+        page = dialog.notification_page
+        requested = []
+        dialog.auto_save.requested.connect(requested.append)
+        dialog.auto_save.start()
+        self.addCleanup(dialog.auto_save.stop)
+        control = page._checks['notice_persist_warning']
+        control.buttons['manual'].click()
+        self.assertTrue(dialog.auto_save.timer.isActive())
+        dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings']['notice_persist_warning'], True)
+        dialog.auto_save.acknowledge()
+        control.buttons['auto'].click()
+        dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings']['notice_persist_warning'], False)
 
     def test_all_results_survive_toast_dismissal_and_hidden_owner(self):
         show_result(self.owner, '<b>原样文本</b>', kind='warning')

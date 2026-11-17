@@ -1,4 +1,4 @@
-"""关注搜索共用的中文、全拼与首字母匹配。"""
+"""本体与插件共用的中文、全拼、首字母及多词搜索匹配。"""
 from functools import lru_cache
 from itertools import groupby
 
@@ -22,3 +22,7 @@ def matches_text(text: str, query: str) -> bool:
         return True
     compact = ''.join(query.split())
     return bool(compact) and any(compact in key for key in _pinyin_keys(text))
+
+
+def matches_query(text: str, query: str) -> bool:
+    return all(matches_text(text, term) for term in query.split())

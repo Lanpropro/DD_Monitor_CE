@@ -4,6 +4,7 @@ from PySide6.QtGui import QFont, QFontDatabase, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QLabel, QLineEdit, QListView, QSizePolicy, QStyle, QStyledItemDelegate, QVBoxLayout, QWidget
 
 from .. import theme
+from ..search import matches_query
 
 
 class _SelectDelegate(QStyledItemDelegate):
@@ -170,11 +171,10 @@ class FontSelectControl(SelectControl):
                    max(bounds.top(), min(top, bounds.bottom() - popup.height() + 1)))
 
     def _filter_fonts(self, text):
-        terms = text.casefold().split()
         view = self.view()
         visible = []
         for row in range(self.count()):
-            matches = all(term in self.itemText(row).casefold() for term in terms)
+            matches = matches_query(self.itemText(row), text)
             view.setRowHidden(row, not matches)
             if matches:
                 visible.append(row)

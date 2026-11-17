@@ -85,6 +85,11 @@ class DanmakuSettingsPage(QWidget):
         user_layout.addWidget(QLabel('屏蔽用户'))
         from .settings_danmaku_blocking import BlockedUsersEditor
         self.blocked_users = BlockedUsersEditor(settings.get('danmaku_blocked_users'))
+        self.blocked_users.layout().removeWidget(self.blocked_users.details)
+        self.blocking_details_title = QLabel('屏蔽用户详情')
+        self.blocking_details_title.hide()
+        word_layout.insertWidget(word_layout.count() - 1, self.blocking_details_title)
+        word_layout.insertWidget(word_layout.count() - 1, self.blocked_users.details)
         self.blocked_users.list.itemSelectionChanged.connect(self._refresh_blocking_layout)
         user_layout.addWidget(self.blocked_users)
         user_layout.addWidget(_hint('屏蔽在该平台所有房间生效；弹幕未提供 ID 时按昵称匹配，同名用户也会被屏蔽。'))
@@ -223,6 +228,8 @@ class DanmakuSettingsPage(QWidget):
         layout.addStretch(1)
 
     def _refresh_blocking_layout(self):
+        self.blocking_details_title.setVisible(bool(self.blocked_users.list.selectedItems()))
+        self.blocking_columns.refresh_section('words')
         self.blocking_columns.refresh_section('users')
         self.sections.refresh_section('blocking')
 

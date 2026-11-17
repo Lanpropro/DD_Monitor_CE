@@ -3,24 +3,106 @@ import os
 from pathlib import Path
 import sys
 import time
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QApplication
-from ddm import theme
+from ddm import config, theme
 from ddm.app import MainWindow
 from ddm.dialogs import FollowImportDialog
-from ddm.search import _pinyin_keys, matches_text
+from ddm.search import _pinyin_keys, matches_query, matches_text
+
+
+def check_shared_queries():
+    text = '字幕工具 42 Example 小明'
+    for query in ('', '   ', '字幕', 'zimu', 'ZM', 'xiaoming', 'XM', '42', 'EXAMPLE',
+                  'zm 42 example xm', 'xiao ming'):
+        assert matches_query(text, query), query
+    for query in ('zm 43', 'zimu missing', 'xiaohong', '43', 'reverse subtitle'):
+        assert not matches_query(text, query), query
+    assert matches_text('小明', 'xiao ming'), 'Keep the existing single-query pinyin contract'
+    assert not matches_text('Alice', 'al ice'), 'Do not change the original substring contract'
+    entries = ['重庆作者', '小明', 'Alice']
+    original = list(entries)
+    assert [text for text in entries if matches_query(text, 'XM')] == ['小明']
+    assert entries == original, 'Filtering must not rewrite caller order'
+    print('PASS: shared empty/Chinese/pinyin/initials/ID/English/AND query contract and original order')
+
+
+def check_plugin_search(app):
+    from ddm.plugin_store_ui import PluginStorePage
+    from ddm.settings_plugins import PluginSettingsPage
+    entries = [dict(id='caption_tools', name='字幕工具', description='实时翻译', version='1.0',
+                    enabled=True, status='已加载'),
+               dict(id='recorder_2', name='录制助手', description='保存直播', version='1.0',
+                    enabled=False, status='已禁用')]
+    offers = [dict(entry, version='2.0', available=True, author=author)
+              for entry, author in zip(entries, ('小明', '重庆作者'))]
+    with TemporaryDirectory(prefix='ddm-plugin-pinyin-') as directory, \
+            patch.object(config, 'data_root', return_value=directory), \
+            patch.object(PluginStorePage, 'open_catalog'):
+        manager = SimpleNamespace(catalog=lambda: entries, plugins_dir=str(Path(directory) / 'plugins'),
+                                  enabled={'caption_tools'}, _removed=set())
+        page = PluginSettingsPage(manager)
+        store = page.store_page
+        try:
+            store.offers = offers
+            store.show_offers(offers)
+            page._show_update_notes(offers)
+            original_button = store.buttons['caption_tools']
+            cases = [('字幕', {'caption_tools'}), ('zimu', {'caption_tools'}), ('ZM', {'caption_tools'}),
+                     ('ssfy', {'caption_tools'}), ('XM', {'caption_tools'}), ('cqzz', {'recorder_2'}),
+                     ('CAPTION', {'caption_tools'}), ('2', {'recorder_2'}),
+                     ('zimu xm caption', {'caption_tools'}), ('zm 2', set()), ('2.0', set())]
+            for query, expected in cases:
+                store.search.setText(query)
+                page.installed_browser.search.setText(query)
+                assert {key for key, card in store._offer_cards.items() if not card.isHidden()} == expected, query
+                assert {key for key, card in page._installed_cards.items() if not card.isHidden()} == expected, query
+            store.search.setText('zimu')
+            store.filter.setCurrentIndex(1)
+            assert all(card.isHidden() for card in store._offer_cards.values()), 'Retain the uninstalled filter'
+            store.filter.setCurrentIndex(3)
+            assert not store._offer_cards['caption_tools'].isHidden(), 'Combine pinyin with the update filter'
+            page.installed_browser.search.setText('lz')
+            page.installed_browser.filter.setCurrentIndex(1)
+            assert all(card.isHidden() for card in page._installed_cards.values()), 'Retain the enabled filter'
+            page.installed_browser.filter.setCurrentIndex(2)
+            assert not page._installed_cards['recorder_2'].isHidden()
+            page.checks['recorder_2'].setChecked(True)
+            assert page._installed_cards['recorder_2'].isHidden(), 'Keep unsaved enable choices when filtering'
+            assert page.checks['recorder_2'].isChecked()
+            store.filter.setCurrentIndex(0)
+            store.search.clear()
+            store.sort.setCurrentIndex(1)
+            expected = [entry['id'] for entry in sorted(offers, key=lambda entry: (entry['name'].casefold(), entry['id']))]
+            assert [store.cards.itemAt(i).widget() for i in range(store.cards.count())] == [store._offer_cards[key] for key in expected]
+            store.search.setText('xm')
+            store.search.clear()
+            assert [store.cards.itemAt(i).widget() for i in range(store.cards.count())] == [store._offer_cards[key] for key in expected]
+            assert store.buttons['caption_tools'] is original_button, 'Searching must preserve the active action identity'
+        finally:
+            store.stop()
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    print('PASS: installed/store pinyin fields, ID/English/AND, original filters, enable drafts, sorting and action identity')
 
 
 def main():
+    check_shared_queries()
+    if sys.argv[1:] == ['--query-only']:
+        return
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_plugin_search(app)
     for text, query in [('小明', 'xiaoming'), ('小明', 'XM'), ('小明', 'xiao ming'),
                         ('重庆主播', 'chongqing'), ('重庆主播', 'cqzb'),
                         ('莉蔻Liko', 'likouliko'), ('莉蔻Liko', 'lkliko'),
