@@ -1,13 +1,14 @@
 """Follow import list rendering; selection data remains in FollowImportDialog."""
-from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QStyle, QStyledItemDelegate,
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QListWidget, QStyle, QStyledItemDelegate,
                               QVBoxLayout, QWidget)
 
 from . import theme
 from .account_widgets import AccountRow
 from .playback_controls import RefreshButton
 from .ui.select import SelectControl
+from .settings_window import SettingsTitleBar
 
 
 class AccountImportBar(QWidget):
@@ -17,9 +18,12 @@ class AccountImportBar(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 0)
-        title = QLabel('导入关注')
-        title.setObjectName('AppTitle')
-        layout.addWidget(title)
+        self.titlebar = SettingsTitleBar(parent)
+        self.titlebar.breadcrumb.setText('导入关注')
+        self.titlebar.row.setContentsMargins(0, 0, 0, 0)
+        self.titlebar.close_button.setAccessibleName('关闭导入关注')
+        self.titlebar.close_button.setToolTip('关闭导入关注')
+        layout.addWidget(self.titlebar)
         row = QHBoxLayout()
         self.platform = SelectControl()
         self.platform.setAccessibleName('导入平台')
@@ -30,7 +34,9 @@ class AccountImportBar(QWidget):
         self.account = AccountRow(self)
         self.account.setMinimumWidth(0)
         self.account.setCursor(Qt.ArrowCursor)
-        row.addWidget(self.account, 1)
+        self.account.setMaximumWidth(200)
+        row.addWidget(self.account)
+        row.addStretch(1)
         self.refresh = RefreshButton(self, size=34, object_name='IconButton')
         self.refresh.setAccessibleName('刷新关注列表')
         self.refresh.setToolTip('重新读取当前平台关注')
@@ -42,6 +48,8 @@ class AccountImportBar(QWidget):
                                  account.get('_pixmap'), platform=kind)
         self.account.arrow.hide()
         self.account.platform_badge.hide()
+        text_width = self.account.name.fontMetrics().horizontalAdvance(self.account.name.text())
+        self.account.setFixedWidth(min(200, max(90, text_width + 60)))
 
 
 class FollowImportDelegate(QStyledItemDelegate):
@@ -118,22 +126,34 @@ class FollowImportDelegate(QStyledItemDelegate):
                          metrics.elidedText(status, Qt.ElideRight, status_rect.width()))
         painter.restore()
 
-    def editorEvent(self, event, model, option, index):
-        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-            self.parent().setCurrentIndex(index)
-            return True
-        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
-            toggle = option.rect.contains(event.position().toPoint())
-        else:
-            return event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick)
-        if toggle:
-            checked = index.data(Qt.CheckStateRole) == Qt.Checked.value
-            model.setData(index, Qt.Unchecked if checked else Qt.Checked, Qt.CheckStateRole)
-            self.checkChanged.emit()
-        return True
-
-
 class FollowImportList(QListWidget):
+    """Own row input independently of delegate hit rectangles after scrolling."""
+
+    def mousePressEvent(self, event):
+        self._pressed_item = None
+        if event.button() == Qt.LeftButton:
+            self._pressed_item = self.itemAt(event.position().toPoint())
+            self._press_position = event.position().toPoint()
+            if self._pressed_item is not None:
+                self.setCurrentItem(self._pressed_item)
+                self.setFocus(Qt.MouseFocusReason)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        item = getattr(self, '_pressed_item', None)
+        self._pressed_item = None
+        if event.button() == Qt.LeftButton and item is not None:
+            position = event.position().toPoint()
+            if (self.itemAt(position) is item and
+                    (position - self._press_position).manhattanLength() < QApplication.startDragDistance()):
+                item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+                self.itemDelegate().checkChanged.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Space and self.currentItem() is not None:
             if not event.isAutoRepeat():

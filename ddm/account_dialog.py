@@ -24,6 +24,9 @@ class AccountPlatformDialog(QDialog):
         self.owner = owner
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
+        if import_follows:
+            self.setWindowFlag(Qt.FramelessWindowHint, True)
+            self.setSizeGripEnabled(True)
         self.reauthenticate = reauthenticate
         self._reauthenticate_kind = platform_kind
         self.rooms = []
