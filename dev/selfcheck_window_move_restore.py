@@ -74,10 +74,11 @@ class MoveRestoreTests(unittest.TestCase):
         self.assertFalse(window.sidebar.internalWinId(), 'Sidebar does not need a native sibling window')
         tile = window.wall.tiles[0]
         tile.video.winId()  # The same explicit native binding used by TilePlayer.bind.
-        self.assertFalse(window.centralWidget().internalWinId())
-        self.assertFalse(window._content.internalWinId())
+        self.assertTrue(window.centralWidget().internalWinId())
+        self.assertTrue(window._content.internalWinId())
         self.assertIs(window.wall.parentWidget(), window._content)
-        self.assertEqual(self.user32.GetParent(int(window.wall.internalWinId())), int(window.winId()))
+        self.assertEqual(self.user32.GetParent(int(window.wall.internalWinId())),
+                         int(window._content.internalWinId()))
         for widget in (tile.video, tile.bottom, tile.controls, tile.stream_badge):
             self.assertTrue(widget.internalWinId(), type(widget).__name__)
         for widget in (tile.pause_button, tile.volume_slider, tile.volume_label,

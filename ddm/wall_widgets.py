@@ -42,9 +42,6 @@ class WallGrid(QWidget):
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            # Keep the layout-only ancestors alien when video/overlays become native.
-            self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
         self._quick_danmaku_layer = None
         self._quick_danmaku_attempted = False
         self._quick_danmaku_requested = (
