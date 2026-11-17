@@ -2,13 +2,13 @@
 import zipfile
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
 from .plugin_card_layout import PluginCardLayout
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
-from .ui import SettingsSurface, DisclosureButton, ElidedLabel, page_header as _page_head
+from .ui import ActionButton, SettingsSurface, DisclosureButton, ElidedLabel, ToggleSwitch, page_header as _page_head
 from .search import matches_query
 
 
@@ -24,12 +24,11 @@ class PluginRemovePrompt(AnimatedDialog):
             f'将删除插件“{plugin_name}”及其文件。\n已加载的插件将在重启后停止运行。'))
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        self.cancel_button = QPushButton('取消')
-        self.cancel_button.setObjectName('IconButton')
+        self.cancel_button = ActionButton('取消')
         self.cancel_button.setDefault(True)
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
-        self.delete_button = QPushButton('删除')
+        self.delete_button = ActionButton('删除')
         self.delete_button.setObjectName('PrimaryButton')
         self.delete_button.setAutoDefault(False)
         self.delete_button.clicked.connect(self.accept)
@@ -62,8 +61,7 @@ class PluginSettingsPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
         layout.addLayout(_page_head("插件", "拖入 ZIP 插件包或含插件 ZIP 的 EXE；安装和启用更改在重启后生效"))
-        self.install_button = QPushButton("装载插件…")
-        self.install_button.setObjectName("IconButton")
+        self.install_button = ActionButton("装载插件…")
         self.install_button.clicked.connect(self._install)
         actions = QHBoxLayout()
         actions.addWidget(self.install_button)
@@ -280,19 +278,22 @@ class PluginSettingsPage(QWidget):
         heading = QHBoxLayout()
         heading.addWidget(title, 1)
         summary.addLayout(heading)
-        check = QCheckBox("启用")
+        check = ToggleSwitch('启用 ' + entry['name'])
+        check.setText('启用')
+        check.setAccessibleDescription('启用或停用更改在重启后生效')
         check.setChecked(entry["enabled"])
         self.checks[entry["id"]] = check
         check.toggled.connect(self._installed_selection_changed)
+        enabled_label = QLabel('启用')
+        enabled_label.setBuddy(check)
+        heading.addWidget(enabled_label)
         heading.addWidget(check)
-        update = QPushButton("更新")
-        update.setObjectName("IconButton")
+        update = ActionButton("更新")
         update.setMinimumWidth(update.fontMetrics().horizontalAdvance('校验/解压中') + 28)
         update.hide()
         update.clicked.connect(lambda: self._update_plugin(entry["id"]))
         self.update_buttons[entry["id"]] = update
-        remove = QPushButton("删除")
-        remove.setObjectName("IconButton")
+        remove = ActionButton("删除")
         remove.clicked.connect(lambda: self._remove(entry["id"], card))
         details = DisclosureButton(card)
         details.setText('详情')

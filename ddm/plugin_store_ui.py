@@ -2,10 +2,10 @@
 from pathlib import Path
 import time
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from .plugin_card_layout import PluginCardLayout
 from . import config, online, plugin_updates, theme, version
-from .ui import SettingsSurface, DisclosureButton, ElidedLabel
+from .ui import ActionButton, SelectControl, SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot
 from .update_offers import plugin_update_offers
 from .online_tasks import OnlinePage
@@ -31,11 +31,11 @@ class PluginBrowserToolbar(QWidget):
         self.search_row.addWidget(self.search, 1)
         layout.addLayout(self.search_row)
         filters = QHBoxLayout()
-        self.filter = QComboBox(self)
+        self.filter = SelectControl(self)
         self.filter.addItems(states)
         self.filter.setAccessibleName('按状态筛选插件')
         filters.addWidget(self.filter)
-        self.sort = QComboBox(self)
+        self.sort = SelectControl(self)
         self.sort.addItems(('默认排序', '名称排序', '更新优先'))
         self.sort.setAccessibleName('插件排序')
         filters.addWidget(self.sort)
@@ -74,8 +74,7 @@ class PluginStorePage(OnlinePage):
         self._opened = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 10, 4, 8)
-        self.refresh = QPushButton('刷新插件商店')
-        self.refresh.setObjectName('IconButton')
+        self.refresh = ActionButton('刷新插件商店')
         self.refresh.clicked.connect(lambda: self.refresh_catalog(force=True))
         self.browser = PluginBrowserToolbar(self, ('全部插件', '未安装', '已安装', '可更新'))
         self.search, self.filter, self.sort, self.count = (
@@ -239,8 +238,7 @@ class PluginStorePage(OnlinePage):
             title.setTextFormat(Qt.PlainText)
             title.setToolTip(offer['name'])
             summary.addWidget(title)
-            button = QPushButton('安装')
-            button.setObjectName('IconButton')
+            button = ActionButton('安装')
             button.setMinimumWidth(button.fontMetrics().horizontalAdvance('校验/解压中') + 28)
             description = ElidedLabel(' '.join(str(offer.get('description') or '暂无说明').split()), card)
             description.setObjectName('SettingsHint')

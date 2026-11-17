@@ -582,6 +582,87 @@ class UpdateDownloadTests(unittest.TestCase):
             page.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_plugin_controls_use_shared_library_and_preserve_actions_and_check_signals(self):
+        from PySide6.QtWidgets import QDialog
+        from ddm.settings_plugins import PluginRemovePrompt, PluginSettingsPage
+        from ddm.ui import ActionButton, DisclosureButton, SelectControl, ToggleSwitch
+        self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        key = 'shared_controls'
+        self.manager.install_zip(str(self.package(key, '1.0')))
+        page = PluginSettingsPage(self.manager)
+        prompt = PluginRemovePrompt('测试插件')
+        try:
+            store = page.store_page
+            offers = [dict(id=key, name='已安装插件', version='2.0', available=True),
+                      dict(id='new_plugin', name='新插件', version='1.0', available=True)]
+            store.offers = offers
+            store.show_offers(offers)
+            page._show_update_notes(offers)
+            page.resize(1000, 650)
+            page.show()
+            self.app.processEvents()
+            for browser in (page.installed_browser, store.browser):
+                for control in (browser.filter, browser.sort):
+                    self.assertIsInstance(control, SelectControl)
+                    changed = []
+                    control.currentIndexChanged.connect(changed.append)
+                    QTest.keyClick(control, Qt.Key_Down)
+                    self.assertEqual(control.currentIndex(), 1)
+                    self.assertEqual(changed[-1], 1)
+                    control.setCurrentIndex(0)
+                self.assertEqual(browser.search.objectName(), 'Search')
+            card = page._installed_cards[key]
+            check = page.checks[key]
+            self.assertIsInstance(check, ToggleSwitch)
+            self.assertEqual(check.text(), '启用')
+            self.assertIn(key, check.accessibleName())
+            self.assertTrue(check.accessibleDescription())
+            labels = [label for label in card.findChildren(QLabel) if label.buddy() is check]
+            self.assertEqual([label.text() for label in labels], ['启用'])
+            self.assertTrue(labels[0].isVisible())
+            states, toggled = [], []
+            check.stateChanged.connect(states.append)
+            check.toggled.connect(toggled.append)
+            before = check.isChecked()
+            QTest.keyClick(check, Qt.Key_Space)
+            self.assertEqual(check.isChecked(), not before)
+            self.assertEqual(states, [Qt.Checked.value if check.isChecked() else Qt.Unchecked.value])
+            self.assertEqual(toggled, [not before])
+            for control in (page.install_button, page.update_buttons[key], store.refresh,
+                            *store.buttons.values(), prompt.cancel_button, prompt.delete_button):
+                self.assertIsInstance(control, ActionButton)
+            remove = next(button for button in card.findChildren(QPushButton) if button.text() == '删除')
+            self.assertIsInstance(remove, ActionButton)
+            self.assertIsInstance(page._detail_buttons[key], DisclosureButton)
+            self.assertTrue(prompt.cancel_button.isDefault())
+            self.assertFalse(prompt.delete_button.autoDefault())
+            self.assertEqual(prompt.delete_button.objectName(), 'PrimaryButton')
+            with patch('ddm.settings_plugins.QFileDialog.getOpenFileName', return_value=('', '')) as choose:
+                page.install_button.click()
+                choose.assert_called_once()
+            with patch.object(store, 'refresh_catalog') as refresh:
+                store.refresh.click()
+                refresh.assert_called_once_with(force=True)
+            with patch.object(store, 'install_offer') as install:
+                page.update_buttons[key].click()
+                store.buttons['new_plugin'].click()
+                self.assertEqual(install.call_count, 2)
+                install.assert_any_call(offers[0])
+                install.assert_any_call(offers[1])
+            with patch.object(page, '_remove') as delete:
+                remove.click()
+                delete.assert_called_once_with(key, card)
+            prompt.cancel_button.click()
+            self.assertEqual(prompt.result(), QDialog.DialogCode.Rejected)
+            prompt.delete_button.click()
+            self.assertEqual(prompt.result(), QDialog.DialogCode.Accepted)
+        finally:
+            prompt.deleteLater()
+            store.stop()
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
     def test_notification_plugin_progress_reopen_and_retry(self):
         key = 'fixture'
         archive = self.package(key)
