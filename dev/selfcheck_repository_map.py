@@ -69,7 +69,9 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 74)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 75)])
+        memory_case = next(line for line in content.splitlines() if line.startswith('| BUG-074 |'))
+        self.assertEqual(memory_case.split('|')[3].strip(), '待定位')
         douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：暂缓定位。', douyu_case)
         self.assertIn('(archive/douyu-playback-202611.md#2026-11-02-起播停顿与线路对照原-bug-案例)', douyu_case)

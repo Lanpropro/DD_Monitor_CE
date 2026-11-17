@@ -40,10 +40,25 @@ class NativeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(code & 0xffffffff, 0xc0000005)
         report = json.loads(next(folder.glob('*.json')).read_text())
         self.assertEqual(report['exception_code'], '0xc0000005')
+        self.assertGreater(int(report['instruction_address'], 16), 0)
+        self.assertIsNone(report['access_type'])
+        self.assertIsNone(report['access_address'])
         self.assertTrue(report['frames'])
         self.assertTrue(any('fixture' in row.get('module', '').lower() for row in report['frames']), report)
         self.assertFalse(report['dump_requested'])
         self.assertEqual(list(folder.glob('*.dmp')), [])
+
+    def test_actual_access_addresses_are_preserved_without_dumps(self):
+        for operation in ('read', 'write', 'execute'):
+            with self.subTest(operation=operation):
+                code, folder = self.invoke(operation)
+                self.assertEqual(code & 0xffffffff, 0xc0000005)
+                report = json.loads(next(folder.glob('*.json')).read_text())
+                self.assertEqual(report['access_type'], operation)
+                self.assertEqual(int(report['access_address'], 16), 0x3bb)
+                self.assertGreater(int(report['instruction_address'], 16), 0)
+                self.assertFalse(report['dump_requested'])
+                self.assertEqual(list(folder.glob('*.dmp')), [])
 
     def test_opt_in_dump_is_valid_and_atomic(self):
         code, folder = self.invoke('1')

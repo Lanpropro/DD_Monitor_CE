@@ -119,6 +119,24 @@ int wmain(int argc, wchar_t** argv) {
     if (output) {
         fprintf(output, "{\"schema\":1,\"pid\":%lu,\"tid\":%lu,\"exception_code\":\"0x%08lx\",\"dump_requested\":%s,\"dump_saved\":%s,\"dump_error\":%lu,",
                 shared->pid, shared->tid, shared->code, shared->dumps ? "true" : "false", dumpSaved ? "true" : "false", dumpError);
+        EXCEPTION_POINTERS pointers = {};
+        EXCEPTION_RECORD record = {};
+        const bool accessKnown = shared->code == EXCEPTION_ACCESS_VIOLATION &&
+            ReadProcessMemory(process, reinterpret_cast<LPCVOID>(shared->exceptionPointers),
+                              &pointers, sizeof(pointers), nullptr) &&
+            ReadProcessMemory(process, pointers.ExceptionRecord, &record, sizeof(record), nullptr) &&
+            record.NumberParameters >= 2;
+        const char* access = !accessKnown ? nullptr :
+            record.ExceptionInformation[0] == 0 ? "read" :
+            record.ExceptionInformation[0] == 1 ? "write" :
+            record.ExceptionInformation[0] == 8 ? "execute" : nullptr;
+        fprintf(output, "\"instruction_address\":\"0x%016llx\",\"access_type\":", shared->context.Rip);
+        if (access) {
+            fprintf(output, "\"%s\",\"access_address\":\"0x%016llx\",", access,
+                    static_cast<ULONG64>(record.ExceptionInformation[1]));
+        } else {
+            fprintf(output, "null,\"access_address\":null,");
+        }
         SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS);
         BOOL symbols = SymInitialize(process, "", TRUE); // No symbol server/network lookup.
         fprintf(output, "\"stack_error\":%lu,\"frames\":[", symbols ? 0 : GetLastError());
