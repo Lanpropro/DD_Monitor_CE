@@ -150,6 +150,28 @@ class CaptionHostChecks(unittest.TestCase):
             tile.deleteLater()
             APP.processEvents()
 
+    def test_danmaku_switch_never_recreates_a_cleared_translation(self):
+        tile = Tile({'room_id': 'fixture', 'uname': 'test', 'live': True})
+        try:
+            tile.resize(800, 486)
+            tile.show()
+            APP.processEvents()
+            tile.set_translation_caption('our original', '我们的译文')
+            tile.video_danmaku.set_enabled(False)
+            self.assertTrue(tile.video_caption.isVisible())
+            tile.clear_translation_caption()
+            for enabled in (True, False, True):
+                tile.video_danmaku.set_enabled(enabled)
+                tile.raise_overlays()
+                tile.video_caption.sync_geometry()
+                APP.processEvents()
+                self.assertFalse(tile.video_caption.isVisible())
+                self.assertEqual(tile.video_caption._texts(), [])
+        finally:
+            tile.close()
+            tile.deleteLater()
+            APP.processEvents()
+
 
 if __name__ == "__main__":
     unittest.main()
