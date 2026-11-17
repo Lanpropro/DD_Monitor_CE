@@ -53,7 +53,7 @@ class SidebarPresentationTests(unittest.TestCase):
         return self.sidebar.account_menu()
 
     def test_independent_imports_legacy_identity_and_single_state_owner(self):
-        for name in ('sidebar_account_control', 'sidebar_presentation'):
+        for name in ('sidebar_account_control', 'sidebar_presentation', 'sidebar_portrait'):
             code = 'import sys; import ddm.' + name + '; ' + \
                 "assert not {'ddm.app','ddm.widgets','ddm.sidebar_widgets','ddm.player','mpv'}.intersection(sys.modules)"
             result = subprocess.run([sys.executable, '-c', code], cwd=ROOT,
@@ -67,8 +67,11 @@ class SidebarPresentationTests(unittest.TestCase):
         presenter = self.sidebar.presentation_control
         self.assertEqual(set(vars(presenter)), {'host', 'orientation', 'collapse', 'layout_picker'})
         self.assertIs(presenter.host, self.sidebar)
-        for name in ('orientation', 'collapse', 'layout_picker'):
+        for name in ('collapse', 'layout_picker'):
             self.assertEqual(vars(getattr(presenter, name)), {'host': self.sidebar})
+        portrait = presenter.orientation.portrait
+        self.assertEqual(vars(presenter.orientation), {'host': self.sidebar, 'portrait': portrait})
+        self.assertEqual(vars(portrait), {'host': self.sidebar})
 
     def test_account_values_selection_visibility_and_clear_keep_same_row(self):
         row = self.sidebar.account_row
@@ -172,11 +175,13 @@ class SidebarPresentationTests(unittest.TestCase):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 menu = self.sidebar.account_menu()
                 labels = [a.text() for a in menu.actions() if a.text()]
-                self.assertEqual('导入关注' in labels, side == 'top')
-                self.assertEqual('+ 添加直播间' in labels, side == 'top')
-                self.assertEqual('画中画' in labels, collapsed)
-                self.assertEqual('设置' in labels, collapsed)
-                self.assertEqual('布局预设' in labels, collapsed)
+                self.assertEqual('导入关注' in labels, side == 'top' and collapsed)
+                self.assertEqual('+ 添加直播间' in labels, side == 'top' and collapsed)
+                self.assertEqual('画中画' in labels, side == 'left' and collapsed)
+                self.assertEqual('设置' in labels, side == 'left' and collapsed)
+                self.assertEqual('布局预设' in labels, side == 'left' and collapsed)
+                if side == 'top':
+                    self.assertEqual(menu.width(), 240)
 
     def test_orientation_roundtrip_keeps_widgets_and_restores_original_parents(self):
         widgets = [self.sidebar.search, self.sidebar.scroll, self.sidebar.tool_row, self.sidebar.account_row,
@@ -185,15 +190,17 @@ class SidebarPresentationTests(unittest.TestCase):
         parents = {widget: widget.parentWidget() for widget in widgets}
         hwnd = int(self.sidebar.winId()) if QApplication.platformName() == 'windows' else None
         self.sidebar.set_side('top')
-        rows = self.sidebar._bar_row, self.sidebar._bar_row2, self.sidebar._bar_right
-        self.assertIs(self.sidebar.search.parentWidget(), rows[0])
+        rows = (self.sidebar._bar_row, self.sidebar._bar_row2, self.sidebar._bar_right,
+                self.sidebar.presentation_control.orientation.portrait.controls)
+        self.assertIs(self.sidebar.search.parentWidget(), rows[3])
         self.assertIs(self.sidebar.scroll.parentWidget(), rows[1])
-        self.assertIs(self.sidebar.account_row.parentWidget(), rows[2])
+        self.assertIs(self.sidebar.account_row.parentWidget(), rows[0])
         for _ in range(2):
             self.sidebar.set_side('left')
             self.assertEqual({widget: widget.parentWidget() for widget in widgets}, parents)
             self.sidebar.set_side('top')
-            self.assertEqual((self.sidebar._bar_row, self.sidebar._bar_row2, self.sidebar._bar_right), rows)
+            self.assertEqual((self.sidebar._bar_row, self.sidebar._bar_row2, self.sidebar._bar_right,
+                              self.sidebar.presentation_control.orientation.portrait.controls), rows)
         if hwnd is not None:
             self.assertEqual(int(self.sidebar.winId()), hwnd)
 
@@ -214,13 +221,15 @@ class SidebarPresentationTests(unittest.TestCase):
             self.sidebar._apply_scroll_axis()
             rows = self.sidebar.list_box.item_size()[1] + NAV_ITEM_GAP + theme.SCROLLBAR_SIZE
             self.assertEqual((self.sidebar.scroll.minimumHeight(), self.sidebar.scroll.maximumHeight()), (rows, rows))
-            self.assertEqual(self.sidebar.tool_row.layout().direction(), QBoxLayout.TopToBottom)
+            self.assertTrue(self.sidebar.tool_row.isHidden())
+            self.assertEqual(self.sidebar._bar_row_box.direction(), QBoxLayout.LeftToRight)
+            self.assertEqual(self.sidebar.presentation_control.orientation.portrait.controls_box.direction(), QBoxLayout.LeftToRight)
             self.assertTrue(self.sidebar.scroll.horizontal_only)
         self.sidebar.set_side('left')
         self.assertEqual(self.sidebar.tool_row.layout().direction(), QBoxLayout.LeftToRight)
         self.assertFalse(self.sidebar.scroll.horizontal_only)
 
-    def test_top_collapse_moves_account_between_existing_rows_and_keeps_compact_size(self):
+    def test_top_collapse_keeps_account_in_toolbar_and_compact_size(self):
         self.sidebar.set_side('top')
         self.sidebar.set_collapsed(True, animate=False)
         self.assertIs(self.sidebar.account_row.parentWidget(), self.sidebar._bar_row)
@@ -228,7 +237,7 @@ class SidebarPresentationTests(unittest.TestCase):
         self.assertTrue(self.sidebar.scroll.isHidden())
         self.assertFalse(self.sidebar._head_scroll.isHidden())
         self.sidebar.set_collapsed(False, animate=False)
-        self.assertIs(self.sidebar.account_row.parentWidget(), self.sidebar._bar_right)
+        self.assertIs(self.sidebar.account_row.parentWidget(), self.sidebar._bar_row)
         self.assertFalse(self.sidebar.scroll.isHidden())
         self.assertTrue(self.sidebar._head_scroll.isHidden())
 
@@ -266,7 +275,9 @@ class SidebarPresentationTests(unittest.TestCase):
 
     def test_parent_deletion_releases_borrowed_rows_controls_and_existing_timers(self):
         self.sidebar.set_side('top')
+        portrait = self.sidebar.presentation_control.orientation.portrait
         children = [self.sidebar._bar_row, self.sidebar._bar_row2, self.sidebar._bar_right,
+            portrait.controls, portrait.follow_group, self.sidebar.navigation.follow_button,
             self.sidebar.search, self.sidebar.scroll, self.sidebar.account_row, self.sidebar._card_entry_timer]
         self.sidebar.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

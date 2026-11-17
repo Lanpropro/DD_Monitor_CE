@@ -52,6 +52,7 @@ def run_worker():
             self.plugin_checks = {}
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            self.setProperty('settings_portrait', bool(snapshot.get('portrait', False)))
             self._auto_save_enabled = True
             self.auto_save.requested.connect(lambda changes: send({'kind': 'auto-save', 'changes': changes}))
             self.occlusion_timer = QTimer(self)
@@ -249,6 +250,7 @@ def run_worker():
                 self.dialog._host_save_error = message['state'] == 'error'
                 SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])
             elif kind == 'host-state' and self.dialog is not None:
+                self.dialog.setProperty('settings_portrait', bool(message.get('portrait', False)))
                 self.dialog.host_values = message['values']
                 if theme.configure_appearance(message['values']):
                     theme.apply(theme.mode())
@@ -288,6 +290,8 @@ def run_worker():
             elif kind == 'host-cancel' and self.dialog is not None:
                 self.dialog.reject()
             elif kind == 'focus' and self.dialog is not None:
+                if 'portrait' in message:
+                    self.dialog.setProperty('settings_portrait', bool(message['portrait']))
                 QTimer.singleShot(0, self.dialog,
                                   lambda dialog=self.dialog: host_api._activate_dialog(dialog))
             elif kind == 'open' and self.dialog is None:

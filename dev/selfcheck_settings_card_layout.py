@@ -1,17 +1,20 @@
 """Settings card orientation, existing preference, safe columns and isolated persistence."""
 from pathlib import Path
 import os
+import json
+import time
+from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from shiboken6 import isValid
 from ddm import config, theme
@@ -19,6 +22,38 @@ from ddm.dialogs import SettingsDialog
 from ddm.settings_layout import SettingsColumns, SettingsSection
 from ddm.settings_material import apply_properties, normalize
 from ddm.settings_material_editor import SettingsMaterialEditor
+
+if sys.argv[1:] == ['--portrait-worker']:
+    from ddm import dialogs, settings_process
+    original_dialog = dialogs.SettingsDialog
+
+    class ProbeDialog(original_dialog):
+        def showEvent(self, event):
+            super().showEvent(event)
+            self._probe_ready = True
+            QTimer.singleShot(20, self.prepare_report)
+
+        def event(self, event):
+            result = super().event(event)
+            if (event.type() == QEvent.DynamicPropertyChange
+                    and event.propertyName() == b'settings_portrait'
+                    and getattr(self, '_probe_ready', False)):
+                QTimer.singleShot(20, self.prepare_report)
+            return result
+
+        def prepare_report(self):
+            self.resize(1400, 850)
+            QTimer.singleShot(20, self.report)
+
+        def report(self):
+            print(settings_process.PREFIX + json.dumps(dict(
+                kind='layout-probe', portrait=bool(self.property('settings_portrait')),
+                columns=self.general_page.sections.columns,
+                width=self.width(), height=self.height(),
+                preference=self.settings()['settings_card_layout'])), flush=True)
+
+    dialogs.SettingsDialog = ProbeDialog
+    raise SystemExit(settings_process.run_worker())
 
 APP = QApplication.instance() or QApplication([])
 
@@ -82,6 +117,110 @@ class SettingsCardLayoutTests(unittest.TestCase):
         root.resize(root.width(), 850)
         settle()
         self.assertEqual(columns.columns, 2)
+
+    def test_main_portrait_context_drives_wide_settings_without_changing_preference(self):
+        root, columns = self.root_with_columns()
+        self.assertGreater(root.width(), root.height())
+        self.assertEqual(columns.columns, 2)
+        root.setProperty('settings_portrait', True)
+        settle()
+        self.assertEqual(columns.columns, 1, 'Portrait host must override a wide settings shell in auto mode')
+        self.assertEqual(root.property('settings_card_layout'), None)
+        apply_properties(root, {'settings_card_layout': 'horizontal'})
+        settle()
+        self.assertEqual(columns.columns, 2)
+        apply_properties(root, {'settings_card_layout': 'auto'})
+        settle()
+        self.assertEqual(columns.columns, 1)
+        root.setProperty('settings_portrait', False)
+        settle()
+        self.assertEqual(columns.columns, 2)
+
+    def test_in_process_dialog_uses_portrait_host_with_wide_shell(self):
+        from ddm.settings_control import SettingsControl
+        owner = QWidget()
+        owner.orientation = 'portrait'
+        owner.settings = dict(config.DEFAULT_SETTINGS)
+        owner.shortcuts = {}
+        owner._available_update = None
+        owner._plugin_update_offers = []
+        owner.plugins = None
+        owner._get_update_page = Mock()
+        owner._remember_updates = Mock()
+        owner.set_appearance = Mock()
+        with patch('ddm.settings_autosave_apply.bind_dialog'):
+            dialog = SettingsControl(owner).create_settings_dialog(
+                dialog_class=lambda *args, **kwargs: SettingsDialog(*args, preview=True, **kwargs))
+        try:
+            dialog.setAttribute(Qt.WA_DontShowOnScreen)
+            dialog.resize(1400, 850)
+            dialog.show()
+            settle()
+            self.assertTrue(dialog.property('settings_portrait'))
+            self.assertGreater(dialog.width(), dialog.height())
+            self.assertEqual(dialog.general_page.sections.columns, 1)
+            self.assertEqual(dialog.settings()['settings_card_layout'], 'auto')
+        finally:
+            dispose(dialog)
+            dispose(owner)
+
+    def test_embedded_settings_receive_host_orientation_without_saving_it(self):
+        from ddm.settings_host import SettingsHost
+        root, columns = self.root_with_columns()
+        client = Mock()
+        session = SimpleNamespace(window=SimpleNamespace(orientation='portrait'), stack=root,
+            values=lambda: {'settings_card_layout': 'auto'}, last_state=None, client=client,
+            dialog=SimpleNamespace(confirm_button=Mock(), PAGES=[]))
+        session.dialog.confirm_button.isEnabled.return_value = True
+        session.dialog.confirm_button.isHidden.return_value = True
+        session.dialog.confirm_button.text.return_value = ''
+        SettingsHost.sync(session)
+        settle()
+        self.assertEqual(columns.columns, 1)
+        self.assertTrue(client._send.call_args.args[0]['portrait'])
+        self.assertEqual(client._send.call_args.args[0]['values'], {'settings_card_layout': 'auto'})
+        session.window.orientation = 'landscape'
+        SettingsHost.sync(session)
+        settle()
+        self.assertEqual(columns.columns, 2)
+        self.assertFalse(client._send.call_args.args[0]['portrait'])
+
+    def test_real_worker_snapshot_focus_and_host_state_follow_portrait(self):
+        from ddm import settings_process
+        owner = QWidget()
+        owner.orientation = 'portrait'
+        client = settings_process.SettingsProcess(owner)
+        messages, errors = [], []
+        client.received.connect(lambda message: messages.append(message) if message['kind'] == 'layout-probe' else None)
+        client.failed.connect(errors.append)
+        def wait_for(predicate):
+            until = time.monotonic() + 15
+            while not predicate() and not errors and time.monotonic() < until:
+                APP.processEvents()
+                time.sleep(.01)
+            self.assertFalse(errors)
+            self.assertTrue(predicate(), messages)
+        command = (sys.executable, [str(Path(__file__).resolve()), '--portrait-worker'])
+        with tempfile.TemporaryDirectory(prefix='ddm-portrait-worker-') as directory, \
+                patch.object(config, 'REPO', directory), \
+                patch.object(settings_process, 'worker_command', return_value=command), \
+                patch.object(settings_process, '_allow_foreground'):
+            try:
+                client.open(dict(config.DEFAULT_SETTINGS), {})
+                wait_for(lambda: any(row['portrait'] and row['columns'] == 1 for row in messages))
+                self.assertTrue(all(row['width'] > row['height'] for row in messages))
+                owner.orientation = 'landscape'
+                client.open(dict(config.DEFAULT_SETTINGS), {})
+                wait_for(lambda: any(not row['portrait'] and row['columns'] == 2 for row in messages))
+                before = len(messages)
+                client._send(dict(kind='host-state', portrait=True,
+                    values={'settings_card_layout': 'auto'}, material_background='',
+                    save_enabled=True, action_visible=False, save_text='', marks={}))
+                wait_for(lambda: any(row['portrait'] and row['columns'] == 1 for row in messages[before:]))
+                self.assertTrue(all(row['preference'] == 'auto' for row in messages))
+            finally:
+                client.finish()
+                dispose(owner)
 
     def test_explicit_double_columns_keep_narrow_and_large_font_safety(self):
         root, columns = self.root_with_columns()

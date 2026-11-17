@@ -16,6 +16,9 @@ class SettingsControl:
         host = self.host
         if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
             return host.open_settings()
+        session = getattr(host, '_settings_host', None)
+        if session is not None:
+            session.sync()
         host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context())
         return False
 
@@ -117,6 +120,7 @@ class SettingsControl:
         dialog = SettingsDialog(host.settings if settings is None else settings,
                                 host.shortcuts if shortcuts is None else shortcuts, host,
                                 plugin_manager=host.plugins, update_page_factory=host._get_update_page)
+        dialog.setProperty('settings_portrait', getattr(host, 'orientation', '') == 'portrait')
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
             if key == 'danmaku':
