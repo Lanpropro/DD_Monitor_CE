@@ -431,7 +431,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_douyin_room_verification](../selfcheck_douyin_room_verification.py) | 本地 WebEngine 验证页、身份核对、取消重试与首次添加复用 |
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
-| [selfcheck_follow_import_ui](../selfcheck_follow_import_ui.py) | `offline`；十三项：双列重排、平台溢出、圆角窗口、四种排序、隐藏后的勾选／归类保持、拼音搜索、回填和滚动点选；同组可在Windows后端运行，假账号数据 |
+| [selfcheck_follow_import_ui](../selfcheck_follow_import_ui.py) | `offline`；十三项＋一项Windows专属（离屏跳过）：首次浏览器句柄稳定、平台栏完整尺寸、双列重排、平台溢出、圆角窗口、四种排序、隐藏后的勾选／归类保持、拼音搜索、回填和滚动点选；同组可在Windows后端运行，假账号数据 |
 | [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32/33位原关注＋1位新增的归类隔离、结果提示与头像范围、主动勾选归类、取消勾选与保存 |
 | [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；输出 results/follow-stress.json |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；两处拼音搜索与750行缓存回归 |

@@ -22,7 +22,7 @@ class ImportPlatformTabs(QWidget):
     def __init__(self, platforms, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.setFixedHeight(theme.CONTROL_HEIGHT)
+        self.setMinimumHeight(theme.CONTROL_HEIGHT)
         self._current = ''
         self.buttons = {}
         self.group = QButtonGroup(self)
@@ -47,7 +47,7 @@ class ImportPlatformTabs(QWidget):
             button.setFixedSize(min(148, max(64, button.fontMetrics().horizontalAdvance(label) + 44)),
                                 theme.CONTROL_HEIGHT)
             button.clicked.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
-            self._row.addWidget(button)
+            self._row.addWidget(button, 0, Qt.AlignTop)
             self.group.addButton(button)
             self.buttons[kind] = button
             action = self.menu.addAction(button.icon(), label)
@@ -63,7 +63,7 @@ class ImportPlatformTabs(QWidget):
         self.more.setMenu(self.menu)
         self.more.setStyleSheet('QPushButton#IconButton {padding:0;} '
                                'QPushButton#IconButton::menu-indicator {image:none; width:0;}')
-        self._row.addWidget(self.more)
+        self._row.addWidget(self.more, 0, Qt.AlignTop)
         self._row.addStretch(1)
 
     def set_current(self, kind):

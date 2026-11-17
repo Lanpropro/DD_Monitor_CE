@@ -106,6 +106,10 @@ class AddRoomEntryTests(unittest.TestCase):
         self.pump()
         button = sidebar.navigation.collapsed_add_button
         self.assertTrue(button.isVisible())
+        column_center = sidebar._column.width() / 2
+        for control in (sidebar.toggle_button, button):
+            center = control.mapTo(sidebar._column, control.rect().center()).x() + .5
+            self.assertAlmostEqual(center, column_center, delta=1)
         self.assertGreater(button.mapTo(sidebar, button.rect().topLeft()).y(),
                            sidebar.toggle_button.mapTo(sidebar, sidebar.toggle_button.rect().bottomLeft()).y())
         calls = []
@@ -128,6 +132,9 @@ class AddRoomEntryTests(unittest.TestCase):
         self.pump()
         self.assertTrue(button.isVisible())
         self.assertIs(button.parentWidget(), sidebar._column)
+        for control in (sidebar.toggle_button, button):
+            center = control.mapTo(sidebar._column, control.rect().center()).x() + .5
+            self.assertAlmostEqual(center, sidebar._column.width() / 2, delta=1)
         sidebar.set_collapsed(False, animate=False)
         self.assertTrue(button.isHidden())
 
