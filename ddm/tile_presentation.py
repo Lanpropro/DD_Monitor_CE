@@ -184,6 +184,13 @@ class TilePresentation:
         rounded_pixmap = render_pixmap
         host = self.host
         host.cover.setGeometry(host.video.rect())
+        button = host.add_room_button
+        button.setVisible(not host.room.get("room_id") and not host.property('pictureInPicture'))
+        if not button.isHidden():
+            button.adjustSize()
+            button.move(max(0, (host.video.width() - button.width()) // 2),
+                        max(0, (host.video.height() - button.height()) // 2))
+            button.raise_()
         source = getattr(host, "_cover_source", None)
         if host.cover.isHidden():
             return
@@ -212,7 +219,7 @@ class TilePresentation:
                 host.cover.setText("")        # 播放中 / 连接中都不显示文字，避免和动画重叠
             else:
                 fallback = host.room.get("uname", "") if host.room.get("live") else "未开播"
-                host.cover.setText(host._status_text or fallback)
+                host.cover.setText((host._status_text or fallback) if host.room.get("room_id") else "")
 
     def refresh_moved_overlays(self) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.

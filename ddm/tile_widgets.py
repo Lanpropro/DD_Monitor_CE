@@ -55,6 +55,7 @@ class Tile(QFrame):
     reloadRequested = Signal(dict)
     fullscreenRequested = Signal(object)
     closeRequested = Signal(dict)
+    addRoomRequested = Signal()
     roomDropped = Signal(str)
     tileDropped = Signal(str)          # 拖过来的来源房间号
     paneEditRequested = Signal()
@@ -124,6 +125,11 @@ class Tile(QFrame):
         self.video.setObjectName("TileVideo")
         self.video.setAttribute(Qt.WA_StyledBackground, True)
         self.cover = QLabel(self.video)
+        self.add_room_button = QPushButton("＋ 添加直播间", self.video)
+        self.add_room_button.setObjectName("IconButton")
+        self.add_room_button.setToolTip("添加到此空位；也可拖入关注的直播间")
+        self.add_room_button.clicked.connect(self.addRoomRequested.emit)
+        self.add_room_button.hide()
         self.cover.setAlignment(Qt.AlignCenter)
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -778,6 +784,9 @@ class Tile(QFrame):
             menu.addAction("切换为弹幕", self.paneEditRequested.emit).setData('switch_danmaku')
             from .tile_menu import arrange_menu
             arrange_menu(menu, self._video_danmaku_global_settings.get('tile_context_menu'))
+            first = menu.actions()[0] if menu.actions() else None
+            add = menu.addAction("添加直播间…", self.addRoomRequested.emit)
+            menu.insertAction(first, add)
             if not menu.isEmpty():
                 menu.exec(event.globalPos())
             menu.deleteLater()

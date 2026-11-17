@@ -104,6 +104,7 @@
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
 - `dev/selfcheck_accounts.py`
+- `dev/selfcheck_room_add_entry.py`
 - `dev/selfcheck_add_room_folder.py`
 - `dev/selfcheck_add_room_hints.py`
 - `dev/selfcheck_mobile_share.py`
@@ -689,3 +690,5 @@
 逐模块职责与状态归属见[详细模块职责](architecture/overview.md#10-详细模块职责)。
 
 插件字幕展示由 `video_caption.py` 管理，Tile 持有按需创建的控件；换房清理、播放栏安全区和浮层排列分别接入 `tile_state.py`、`tile_controls.py`、`tile_presentation.py`。公开字幕接口在 `plugin_types.py`，字幕所有者映射唯一保留在 PluginManager，装载失败及卸载通过上下文统一收尾。
+
+添加职责：`room_add_batch.py` 管多行添加的逐条后台查询与结果汇总，复用原识别器和放置规则；窗口持有查询线程与目标格，退出时停止后续队列。

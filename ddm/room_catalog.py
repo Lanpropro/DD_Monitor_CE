@@ -53,7 +53,7 @@ class RoomCatalog:
                 return room
         return bili.room_info(room_id) if room_id.isdigit() else None
 
-    def open_add_room(self, *, dialog_type) -> None:
+    def open_add_room(self, *, dialog_type, target_tile=None) -> None:
         host = self.host
         AddRoomDialog = dialog_type
         dialog = AddRoomDialog(host, room_id_resolver=host._normalize_room_input,
@@ -65,16 +65,27 @@ class RoomCatalog:
             dialog.hint.setText(dialog.hint.text() + "；" + "；".join(hints))
         if dialog.exec() != AddRoomDialog.Accepted:
             return
-        host._add_room_id(dialog.room_id, folder_id=dialog.folder_id)
+        room_ids = getattr(dialog, 'room_ids', []) or [dialog.room_id]
+        if len(room_ids) > 1:
+            from .room_add_batch import RoomAddBatch
+            from .bili import InfoResolver
+            RoomAddBatch(host, room_ids, dialog.folder_id, target_tile=target_tile,
+                         resolver_type=InfoResolver).start()
+        else:
+            options = {'target_tile': target_tile} if target_tile is not None else {}
+            host._add_room_id(room_ids[0], folder_id=dialog.folder_id, **options)
 
-    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type) -> None:
+    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type, target_tile=None) -> None:
         from PySide6.QtWidgets import QMessageBox
         host = self.host
         InfoResolver = resolver_type
         from .room_input import bili_profile_uid, is_bili_short_url
         short_link = is_bili_short_url(room_id)
         profile_link = bool(bili_profile_uid(room_id))
-        if any(str(room.get("room_id")) == room_id for room in host.sidebar.rooms()):
+        existing = next((room for room in host.sidebar.rooms() if str(room.get("room_id")) == room_id), None)
+        if existing is not None:
+            if target_tile is not None:
+                host._on_room_added(existing, folder_id=folder_id, target_tile=target_tile)
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = host.plugins.platform_for(room_id)
@@ -83,10 +94,10 @@ class RoomCatalog:
                 QMessageBox.warning(host, "添加直播间", "请启用对应的平台插件并重启")
                 return
             resolver = InfoResolver(room_id, host, platform=platform)
-            resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id)
+            resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id, target_tile=target_tile)
                                       if not host._closing else None)
             resolver.failed.connect(lambda _rid, r=resolver: host._on_platform_room_failed(
-                r, platform, room_id, folder_id=folder_id))
+                r, platform, room_id, folder_id=folder_id, target_tile=target_tile))
             resolver.finished.connect(lambda r=resolver: host._platform_info_running.discard(r))
             resolver.finished.connect(resolver.deleteLater)
             host._platform_info_running.add(resolver)
@@ -94,7 +105,7 @@ class RoomCatalog:
             return
         print(f"正在查询房间 {room_id} ...")
         resolver = InfoResolver(room_id, host)
-        resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id))
+        resolver.resolved.connect(lambda room: host._on_room_added(room, folder_id=folder_id, target_tile=target_tile))
         if short_link or profile_link:
             resolver.failed.connect(lambda _rid, r=resolver: QMessageBox.warning(
                 host, "添加直播间", (getattr(r, 'error_message', '') or
@@ -108,7 +119,7 @@ class RoomCatalog:
         host._platform_info_running.add(resolver)
         resolver.start()
 
-    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
+    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
         from PySide6.QtWidgets import QDialog, QMessageBox
         host = self.host
         if host._closing:
@@ -121,14 +132,13 @@ class RoomCatalog:
             canonical = dialog.room_id
             dialog.deleteLater()
             if result == QDialog.Accepted and canonical and not host._closing:
-                host._add_room_id(canonical, folder_id=folder_id)
+                host._add_room_id(canonical, folder_id=folder_id, target_tile=target_tile)
             return
         QMessageBox.warning(host, "添加直播间", "平台房间获取失败\n\n" + (
             getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
 
-    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles) -> None:
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
         host = self.host
-        MAX_TILES = max_tiles
         if host._closing:
             return
         if host.sidebar.add_room(room):
@@ -136,10 +146,14 @@ class RoomCatalog:
                 host.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
             host.load_avatars_for([room])       # 新加的房间立刻显示头像
             from .online_ui import show_result
-            show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
+            if notify:
+                show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
         status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")
-        if len(host.wall.tiles) < MAX_TILES:
+        if (target_tile in host.wall.tiles and not target_tile.room.get('room_id')
+                and host._tile_of(str(room.get('room_id'))) is None):
+            host.room_placement.drop_room(target_tile, str(room['room_id']), room=room)
+        else:
             host.add_to_wall(room)
         host._refresh_meta()
         host._save_timer.start()

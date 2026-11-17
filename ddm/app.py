@@ -372,6 +372,7 @@ class MainWindow(QMainWindow):
         self._watch_history_timer.start()
         self._record_clock.start()
         self.wall.tileClicked.connect(self._on_tile_clicked)
+        self.wall.addRoomRequested.connect(self.open_add_room)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
         self.wall.tileCreated.connect(self._wire_tile)
@@ -1329,17 +1330,17 @@ class MainWindow(QMainWindow):
         self.room_placement.place_live_notice_rooms(rooms)
 
     # ---- 房间增删 ----
-    def open_add_room(self) -> None:
-        return self.room_placement.open_add_room(dialog_type=AddRoomDialog)
+    def open_add_room(self, target_tile=None) -> None:
+        return self.room_placement.open_add_room(dialog_type=AddRoomDialog, target_tile=target_tile)
 
-    def _add_room_id(self, room_id: str, *, folder_id: str = "") -> None:
-        return self.room_placement.add_room_id(room_id, folder_id=folder_id, resolver_type=InfoResolver)
+    def _add_room_id(self, room_id: str, *, folder_id: str = "", target_tile=None) -> None:
+        return self.room_placement.add_room_id(room_id, folder_id=folder_id, resolver_type=InfoResolver, target_tile=target_tile)
 
-    def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
-        return self.room_placement.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id)
+    def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
+        return self.room_placement.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id, target_tile=target_tile)
 
-    def _on_room_added(self, room: dict, *, folder_id: str = "") -> None:
-        return self.room_placement.on_room_added(room, folder_id=folder_id, max_tiles=MAX_TILES)
+    def _on_room_added(self, room: dict, *, folder_id: str = "", target_tile=None, notify=True) -> None:
+        return self.room_placement.on_room_added(room, folder_id=folder_id, max_tiles=MAX_TILES, target_tile=target_tile, notify=notify)
 
     def add_to_wall(self, room: dict, *, empty_only=False) -> None:
         return self.room_placement.add_to_wall(room, empty_only=empty_only, max_tiles=MAX_TILES)

@@ -154,6 +154,10 @@ class SidebarNavigation(QObject):
         header.addStretch(1)
         self.add_button = NavigationButton('添加与导入', 'plus', self.header)
         self.add_button.clicked.connect(self.open_add_menu)
+        self.collapsed_add_button = NavigationButton('添加与导入', 'plus', self.rail)
+        self.collapsed_add_button.clicked.connect(lambda: self.open_add_menu(anchor=self.collapsed_add_button))
+        self.top.addWidget(self.collapsed_add_button, 0, Qt.AlignHCenter)
+        self.collapsed_add_button.hide()
         self.manage_button = NavigationButton('关注管理', 'more', self.header)
         self.manage_button.clicked.connect(self.open_manage_menu)
         for button in (self.add_button, self.manage_button):
@@ -314,14 +318,15 @@ class SidebarNavigation(QObject):
         menu.aboutToHide.connect(lambda: button.setDown(False))
         return menu
 
-    def open_add_menu(self):
+    def open_add_menu(self, _checked=False, *, anchor=None):
         sidebar = self.sidebar
-        menu = self._menu(self.add_button)
+        anchor = anchor or self.add_button
+        menu = self._menu(anchor)
         menu.addAction('添加直播间…').triggered.connect(sidebar.add_button.click)
         menu.addAction('导入关注…').triggered.connect(sidebar.import_button.click)
         menu.addSeparator()
         menu.addAction('新建文件夹…').triggered.connect(sidebar.prompt_folder)
-        menu.popup(self.add_button.mapToGlobal(QPoint(0, self.add_button.height()+4)))
+        menu.popup(anchor.mapToGlobal(QPoint(0, anchor.height()+4)))
         self.menu = menu
 
     def open_manage_menu(self):
@@ -375,6 +380,16 @@ class SidebarNavigation(QObject):
         self.icon_drag.cancel()
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
+        add = self.collapsed_add_button
+        holder = self.rail if left else sidebar._bar_row
+        if holder is not None and add.parentWidget() is not holder:
+            self.top.removeWidget(add)
+            previous = add.parentWidget()
+            if previous is not None and previous.layout() is not None:
+                previous.layout().removeWidget(add)
+            add.setParent(holder)
+            (self.top if left else sidebar._bar_row_box).addWidget(add)
+        add.setVisible(holder is not None and sidebar.collapsed)
         self.header.setVisible(left)
         self.filters.setVisible(not sidebar.collapsed and (left or not sidebar.select_mode))
         self.folder_toggle_button.setVisible(left or (not sidebar.collapsed and not sidebar.select_mode))

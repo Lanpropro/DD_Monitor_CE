@@ -42,6 +42,7 @@ if /i "%~1"=="--check-playback-controls" goto playbackControlsCheck
 if /i "%~1"=="--check-live-elapsed" goto liveElapsedCheck
 if /i "%~1"=="--check-functional-modules" goto functionalModulesCheck
 if /i "%~1"=="--check-widget-boundaries" goto widgetBoundariesCheck
+if /i "%~1"=="--check-room-add" goto roomAddCheck
 if /i "%~1"=="--check-room-presets" goto roomPresetsCheck
 if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-preview-scroll" goto previewScrollCheck
@@ -744,4 +745,9 @@ exit /b %errorlevel%
 :mediaSourcesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_media_sources
+exit /b %errorlevel%
+
+:roomAddCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_add_entry
 exit /b %errorlevel%
