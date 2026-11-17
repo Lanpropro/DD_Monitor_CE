@@ -71,7 +71,7 @@ class RepositoryMapTests(unittest.TestCase):
         ids = [first or second for first, second in cases]
         self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 75)])
         memory_case = next(line for line in content.splitlines() if line.startswith('| BUG-074 |'))
-        self.assertEqual(memory_case.split('|')[3].strip(), '待定位')
+        self.assertEqual(memory_case.split('|')[3].strip(), '部分修复待验收')
         douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：暂缓定位。', douyu_case)
         self.assertIn('(archive/douyu-playback-202611.md#2026-11-02-起播停顿与线路对照原-bug-案例)', douyu_case)
@@ -107,7 +107,7 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertEqual(cross_screen.split('|')[3].strip(), '已验收')
         for feature in ('画面黑屏', '只有弹幕', '关注栏完好', '基本确认修复'):
             self.assertIn(feature, cross_screen)
-        states = {'已验收', '已修复待验收', '已实现待合并', '历史修复待复核',
+        states = {'已验收', '已修复待验收', '部分修复待验收', '已实现待合并', '历史修复待复核',
                   '待定位', '待复现', '测试或环境记录'}
         for line in content.splitlines():
             if re.match(r'^\| BUG-\d{3} \|', line):

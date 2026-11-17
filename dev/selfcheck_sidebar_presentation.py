@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QApplication, QBoxLayout, QPushButton, QWidgetAction
+from PySide6.QtWidgets import QApplication, QBoxLayout, QLayout, QPushButton, QWidgetAction
 from shiboken6 import isValid
 from ddm import config, images, motion, theme
 from ddm import sidebar_widgets as module
@@ -44,6 +44,102 @@ class SidebarPresentationTests(unittest.TestCase):
             self.sidebar.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.stack.close()
+
+    def test_tool_reordering_invalidates_removed_layout_items(self):
+        navigation = self.sidebar.navigation
+        items = [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())]
+        navigation.restore_order(['pip', 'clear', 'layout'])
+        current = [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())]
+        self.assertEqual([widget.kind for widget in navigation.movable_tools()], ['pip', 'clear', 'layout'])
+        for item in items:
+            self.assertTrue(not isValid(item) or item in current,
+                            'Removed C++ layout items must not keep valid Python wrappers')
+        retained = list(current)
+        navigation.restore_order(['pip', 'clear', 'layout'])
+        self.assertEqual(retained, [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())])
+
+    def test_sidebar_creation_and_local_server_leave_no_stale_item_bindings(self):
+        source = '''
+import tempfile
+from unittest.mock import patch
+import shiboken6 as s
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtNetwork import QLocalServer
+from PySide6.QtWidgets import QApplication, QLayout, QLayoutItem, QWidget
+from ddm import config, images
+from ddm.sidebar_widgets import Sidebar
+app = QApplication([])
+with tempfile.TemporaryDirectory() as directory, patch.object(config, 'DATA_ROOT', directory), \\
+        patch.object(config, 'CONFIG_PATH', directory + '/config.json'), patch.object(images, 'REPO', directory):
+    for attempt in range(60):
+        root = QWidget()
+        sidebar = Sidebar([dict(room_id=str(i), uname='Fixture') for i in range(5)], root, auto_compact=False)
+        registered = {s.getCppPointer(obj)[0] for obj in s.getAllValidWrappers()
+                      if isinstance(obj, QLayoutItem) and not isinstance(obj, QLayout)}
+        actual = {s.getCppPointer(layout.itemAt(index))[0] for layout in root.findChildren(QLayout)
+                  for index in range(layout.count())}
+        assert not registered - actual, ('stale layout item bindings', attempt, len(registered - actual))
+        server = QLocalServer(root)
+        server.newConnection.connect(lambda: None)
+        root.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        assert not any(isinstance(obj, QLayoutItem) and not isinstance(obj, QLayout)
+                       for obj in s.getAllValidWrappers()), attempt
+app.shutdown()
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'sidebar_lifetime.py'
+            script.write_text(source, encoding='utf-8')
+            result = subprocess.run([sys.executable, str(ROOT / 'dev/checks/bootstrap.py'), str(script)],
+                                    cwd=ROOT, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+    def test_orientation_changes_invalidate_removed_layout_items(self):
+        from shiboken6 import getCppPointer, ownedByPython
+        for side in ('top', 'left', 'top', 'left'):
+            items = [layout.itemAt(index) for layout in self.sidebar.findChildren(QLayout)
+                     for index in range(layout.count())]
+            self.sidebar.set_side(side)
+            actual = {getCppPointer(layout.itemAt(index))[0] for layout in self.sidebar.findChildren(QLayout)
+                      for index in range(layout.count())}
+            stale = [item for item in items if isValid(item) and not ownedByPython(item)
+                     and getCppPointer(item)[0] not in actual]
+            self.assertFalse(stale, f'{side}: removed layout items retain valid wrappers')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows platform window lifecycle')
+    def test_native_reparented_windows_release_backing_stores(self):
+        # The same Qt-only sequence crashes qoffscreen 6.11.2 at +0x32ad.
+        # Validate the production Windows backend without touching desktop input.
+        source = '''
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
+from PySide6.QtCore import Qt, QCoreApplication, QEvent
+app = QApplication([])
+assert app.platformName() == 'windows'
+for attempt in range(30):
+    first, second = QWidget(), QWidget()
+    first.setGeometry(-12000, -12000, 400, 300)
+    second.setGeometry(-12000, -12000, 400, 300)
+    left, right = QVBoxLayout(first), QVBoxLayout(second)
+    child = QWidget()
+    child.setAttribute(Qt.WA_NativeWindow)
+    left.addWidget(child)
+    first.show(); second.show(); app.processEvents()
+    left.removeWidget(child); right.addWidget(child); app.processEvents()
+    right.removeWidget(child); left.addWidget(child); app.processEvents()
+    first.deleteLater(); second.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+app.shutdown()
+print('30 native reparent cycles completed', flush=True)
+'''
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'native_reparent.py'
+            script.write_text(source, encoding='utf-8')
+            result = subprocess.run([sys.executable, str(ROOT / 'dev/checks/bootstrap.py'), str(script)],
+                                    cwd=ROOT, env=dict(os.environ, QT_QPA_PLATFORM='windows'),
+                                    capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertIn(b'30 native reparent cycles completed', result.stdout)
 
     def logged_menu(self):
         self.sidebar.set_account('Current', platform='bilibili', uid='100')

@@ -64,7 +64,6 @@ class SystemTrayTests(unittest.TestCase):
         self.stack.enter_context(patch.object(config, 'CONFIG_PATH', str(root / 'config.json')))
         self.stack.enter_context(patch.dict(os.environ, {'DDM_NO_SAVE': ''}))
         self.stack.enter_context(patch.object(system_tray, 'QSystemTrayIcon', FakeTray))
-        self.stack.enter_context(patch('ddm.app.QTimer.singleShot'))
         FakeTray.supported = True
         self.windows = []
 
@@ -77,7 +76,10 @@ class SystemTrayTests(unittest.TestCase):
 
     def window(self, behavior='ask', state=None, layout_id='1x1'):
         state = state or {'plugins_enabled': [], 'settings': {'close_behavior': behavior}}
-        window = MainWindow([], [], layout_id=layout_id, state=state)
+        # Suppress startup work only; native PiP queues its reparent/start after
+        # the shell is shown and must keep that real event-loop delivery.
+        with patch('ddm.app.QTimer.singleShot'):
+            window = MainWindow([], [], layout_id=layout_id, state=state)
         self.windows.append(window)
         window.show()
         self.app.processEvents()

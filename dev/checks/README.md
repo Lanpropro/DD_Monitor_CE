@@ -18,10 +18,14 @@
 | [selfcheck_diagnostic_settings_layout](../selfcheck_diagnostic_settings_layout.py) | `offline`；宽窄/大小字号/主题布局、固定操作、局部滚轮、原导出字段及转储隐私默认值 |
 | [selfcheck_extra_cache](../selfcheck_extra_cache.py) | `offline`；临时目录六类统计清理、迟到写入、HTTP请求与导航等待、日志占用和路径链接保护 |
 
-Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编译 `native_crash.cpp`；
-`bootstrap.py` 仅在设置 `DDM_CHECK_NATIVE_STACK_DLL` 时加载。CI 的功能检查启用它，
-将访问冲突的模块、偏移和可解析符号写入原有 stderr 日志，不吞异常、不重试、不改 GC 或断言。
-`selfcheck_check_runner` 用独立子进程验证原始异常及退出码仍然保留；它不是 Qt 故障复现或修复。
+Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `native_crash.cpp`；
+`bootstrap.py` 通过 `ddm/check_diagnostics.py` 自动发现 `work/check-native-crash.dll`，
+`DDM_CHECK_NATIVE_STACK_DLL` 可显式指定。仓库模式默认关闭，`DDM_CHECK_NATIVE_CAPTURE=0` 可关闭默认采集。
+每个检查及其设置子进程记录 PID、父进程、用例名、Python 异常位置和脚本／Qt关闭阶段；复用正式原生采集器记录致命异常。
+默认只有文本，`DDM_CHECK_MINIDUMP=1` 才在隔离测试中保存转储；不记录其他命令参数、locals或异常正文。
+证据在 runner 日志目录内，直接 bootstrap 默认写 `work/checks/native-evidence/`，子进程继承同一目录。
+仅检查进程禁用 Windows 系统故障对话框以自动收尾；保留异常和非零退出码，不重试、不改 GC 或断言。
+`selfcheck_check_runner` 以受控子进程验证访问地址、PID、阶段和原始退出码；这些用例验证采集机制，不是 Qt 故障复现。
 
 | 脚本 | 执行分类 |
 | --- | --- |

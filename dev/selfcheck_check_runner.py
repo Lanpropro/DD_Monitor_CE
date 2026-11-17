@@ -17,18 +17,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev import run_checks as runner
 from dev.checks import bootstrap
 from dev.checks.widget_cases import run_widget_cases
+from ddm import check_diagnostics
 
 
 class CheckRunnerTests(unittest.TestCase):
-    def test_native_stack_capture_is_opt_in_and_load_errors_are_failures(self):
-        with patch.dict(os.environ, {}, clear=True):
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD exit status')
+    def test_memory_entry_preserves_negative_native_exit_status(self):
+        entry = (runner.ROOT / 'run.cmd').read_text(encoding='utf-8-sig').split(':nativeMemoryCheck\n', 1)[1].split(':diagnosticsCheck', 1)[0]
+        checks = [line for line in entry.splitlines() if line.startswith('if ')]
+        self.assertEqual(len(checks), 5)
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'exit-status.cmd'
+            for code in (7, -1073741819):
+                for check in checks:
+                    script.write_text('@echo off\ncmd /d /c exit /b ' + str(code) + '\n' + check + '\nexit /b 0\n')
+                    result = subprocess.run(['cmd', '/d', '/c', str(script)], capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode & 0xffffffff, code & 0xffffffff)
+
+    def test_native_stack_capture_default_disable_and_load_errors(self):
+        with patch.dict(os.environ, {'DDM_CHECK_NATIVE_CAPTURE': '0'}, clear=True):
             self.assertIsNone(bootstrap.install_native_stack())
         if sys.platform == 'win32':
+            with patch.dict(os.environ, {}, clear=True), patch.object(check_diagnostics, '_stack', None), \
+                    patch.object(check_diagnostics.ctypes, 'CDLL') as load, \
+                    patch.object(Path, 'is_file', return_value=True):
+                self.assertIs(bootstrap.install_native_stack(), load.return_value)
+                load.assert_called_once_with(str(check_diagnostics.DEFAULT_NATIVE_STACK.resolve()))
             with patch.dict(os.environ, {'DDM_CHECK_NATIVE_STACK_DLL': 'missing-native-capture.dll'}):
                 with self.assertRaises(OSError):
                     bootstrap.install_native_stack()
 
-    @unittest.skipUnless(sys.platform == 'win32' and os.environ.get('DDM_CHECK_NATIVE_STACK_DLL'),
+    @unittest.skipUnless(sys.platform == 'win32' and check_diagnostics.DEFAULT_NATIVE_STACK.is_file(),
                          'Requires the optional Windows x64 native capture helper')
     def test_native_stack_capture_preserves_exception_and_exit_code(self):
         # Raise a synthetic first-chance AV which ctypes normally reports as
@@ -48,9 +67,13 @@ sys.exit(99)
             script.write_text(source, encoding='utf-8')
             command = [sys.executable, '-u', str(Path(bootstrap.__file__)), str(script)]
             env = dict(os.environ)
-            env.pop('DDM_CHECK_NATIVE_STACK_DLL')
+            env.pop('DDM_CHECK_NATIVE_STACK_DLL', None)
+            env['DDM_CHECK_NATIVE_CAPTURE'] = '0'
             baseline = subprocess.run(command, env=env, capture_output=True, timeout=30)
-            captured = subprocess.run(command, capture_output=True, timeout=30)
+            env['DDM_CHECK_NATIVE_CAPTURE'] = '1'
+            env['DDM_CHECK_MODE'] = 'offline'
+            env['DDM_CHECK_EVIDENCE_DIR'] = directory
+            captured = subprocess.run(command, env=env, capture_output=True, timeout=30)
         self.assertEqual(baseline.returncode, 23, baseline.stderr.decode(errors='replace'))
         self.assertEqual(captured.returncode, baseline.returncode, captured.stderr.decode(errors='replace'))
         self.assertEqual(captured.stdout, baseline.stdout)
@@ -59,6 +82,77 @@ sys.exit(99)
         self.assertIn(b'NATIVE_ACCESS_VIOLATION', captured.stderr)
         self.assertIn(b'kernelbase.dll+', captured.stderr.lower())
         self.assertIn(b'python312.dll+', captured.stderr.lower())
+
+    def test_check_evidence_tracks_failure_without_arguments_or_messages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            script = directory / 'failure.py'
+            script.write_text("raise ValueError('PRIVATE_MESSAGE')\n", encoding='utf-8')
+            env = dict(os.environ, DDM_CHECK_MODE='offline', DDM_CHECK_NATIVE_CAPTURE='1',
+                       DDM_CHECK_EVIDENCE_DIR=temp)
+            result = subprocess.run([sys.executable, str(runner.BOOTSTRAP), str(script),
+                                     'PRIVATE_ARGUMENT', 'Cases.test_failure'],
+                                    env=env, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            content = next(directory.glob('check-process-*.jsonl')).read_text(encoding='utf-8')
+            rows = [json.loads(line) for line in content.splitlines()]
+            self.assertEqual(rows[0]['cases'], ['Cases.test_failure'])
+            self.assertEqual(rows[0]['script'], 'failure.py')
+            self.assertIn('script.exit', [row['stage'] for row in rows])
+            self.assertIn('cleanup.end', [row['stage'] for row in rows])
+            self.assertEqual(rows[-1]['stage'], 'atexit')
+            self.assertNotIn('PRIVATE', content)
+            self.assertEqual(list(directory.glob('native-crash-*.json')), [])
+
+    @unittest.skipUnless(sys.platform == 'win32' and
+                         (runner.ROOT / 'work/native-diagnostics/DDMonitorNativeCapture.dll').is_file(),
+                         'Requires Windows native diagnostics binaries')
+    def test_fatal_check_capture_keeps_exit_code_pid_and_optional_dump(self):
+        # A deliberately invalid thread entry is outside ctypes' SEH boundary.
+        # This validates evidence plumbing, not the intermittent Qt failure.
+        source = '''
+import ctypes
+k = ctypes.windll.kernel32
+k.GetErrorMode.restype = ctypes.c_uint
+k.SetErrorMode(k.GetErrorMode() | 2)
+k.CreateThread.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                          ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p]
+k.CreateThread.restype = ctypes.c_void_p
+k.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+thread = k.CreateThread(None, 0, 0x3bb, None, 0, None)
+assert thread
+k.WaitForSingleObject(thread, 10000)
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            script = directory / 'fatal.py'
+            script.write_text(source, encoding='utf-8')
+            for mode in ('disabled', 'text', 'dump'):
+                output = directory / mode
+                env = dict(os.environ, DDM_CHECK_MODE='offline',
+                           DDM_CHECK_NATIVE_CAPTURE='0' if mode == 'disabled' else '1',
+                           DDM_CHECK_EVIDENCE_DIR=str(output),
+                           DDM_CHECK_MINIDUMP='1' if mode == 'dump' else '0')
+                env.pop('DDM_CHECK_NATIVE_STACK_DLL', None)
+                process = subprocess.Popen([sys.executable, str(runner.BOOTSTRAP), str(script)],
+                                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = process.communicate(timeout=30)
+                self.assertEqual(process.returncode & 0xffffffff, 0xc0000005, stderr)
+                if mode == 'disabled':
+                    self.assertFalse(output.exists())
+                    continue
+                report = json.loads(next(output.glob('native-crash-*.json')).read_text())
+                self.assertEqual(report['access_type'], 'execute')
+                self.assertEqual(int(report['access_address'], 16), 0x3bb)
+                rows = [json.loads(line) for line in (output / f"check-process-{report['pid']}.jsonl").read_text().splitlines()]
+                # Windows venv's python.exe may be a redirector parent process.
+                self.assertIn(process.pid, (rows[0]['pid'], rows[0]['parent_pid']))
+                self.assertEqual(rows[-1]['stage'], 'script.begin')
+                self.assertEqual(report['dump_saved'], mode == 'dump', report)
+                dumps = list(output.glob('*.dmp'))
+                self.assertEqual(len(dumps), int(mode == 'dump'))
+                if dumps:
+                    self.assertEqual(dumps[0].read_bytes()[:4], b'MDMP')
 
     def test_widget_case_processes_keep_all_cases_and_propagate_failure(self):
         class Cases(unittest.TestCase):

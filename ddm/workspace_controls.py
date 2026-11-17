@@ -219,6 +219,7 @@ class WorkspaceControls(QFrame):
         self.launcher.setProperty('dockRail', not top)
         if close_popup:
             self.popup.hide()
+        self.sidebar._detach_from_rows(self.launcher)
         if top and self.sidebar._bar_row_box is not None:
             self.sidebar.presentation_control.orientation.portrait.place_launcher()
         elif not top:

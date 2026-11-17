@@ -203,11 +203,14 @@ class SidebarNavigation(QObject):
         tools = {self.tool_key(button): button for button in self.movable_tools()}
         keys = [key for key in self._tool_order if key in tools]
         keys.extend(key for key in tools if key not in keys)
-        for index, key in enumerate(keys):
-            self.bottom.insertWidget(index, tools[key], 0, Qt.AlignHCenter)
-        for index, widget in enumerate((self.fixed_divider, self.sidebar.notification_button,
-                                        self.sidebar.appearance_button, self.sidebar.settings_button), len(keys)):
-            self.bottom.insertWidget(index, widget, 0, Qt.AlignHCenter)
+        ordered = [tools[key] for key in keys] + [self.fixed_divider, self.sidebar.notification_button,
+                                                self.sidebar.appearance_button, self.sidebar.settings_button]
+        for index, widget in enumerate(ordered):
+            if self.bottom.indexOf(widget) != index:
+                # Explicit removal invalidates PySide's old QWidgetItem wrapper.
+                # insertWidget's implicit removal leaves a stale binding on 6.11.2.
+                self.bottom.removeWidget(widget)
+                self.bottom.insertWidget(index, widget, 0, Qt.AlignHCenter)
         self.fixed_divider.show()
 
     def reorder_group(self, before, after):
@@ -353,13 +356,16 @@ class SidebarNavigation(QObject):
         self.filters.hide()
         if not self.in_rail:
             return
+        sidebar._detach_from_rows(sidebar.workspace_controls.launcher)
         for button in (sidebar.layout_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+            sidebar._detach_from_rows(button)
             button.setProperty('dockRail', False)
             button.set_navigation_mode(False)
             button.setParent(sidebar.tool_row)
             sidebar.tool_row.layout().addWidget(button)
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
+            sidebar._detach_from_rows(button)
             button.setProperty('dockRail', False)
         sidebar.clear_wall_button.setProperty('dockRail', False)
         sidebar._restore_side_children()
@@ -383,14 +389,18 @@ class SidebarNavigation(QObject):
             return
         self.manage_button.setToolTip('关注管理')
         self.manage_button.setAccessibleName('关注管理')
-        sidebar._layout.insertWidget(0, self.header)
+        if sidebar._layout.indexOf(self.header) != 0:
+            sidebar._layout.removeWidget(self.header)
+            sidebar._layout.insertWidget(0, self.header)
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
         if not self.in_rail:
             for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button,
                            sidebar.notification_button, sidebar.appearance_button, sidebar.settings_button):
+                sidebar._detach_from_rows(button)
                 button.setParent(self.rail)
                 self.bottom.addWidget(button, 0, Qt.AlignHCenter)
+            sidebar._detach_from_rows(sidebar.toggle_button)
             sidebar.toggle_button.setParent(self.header)
             self.header.layout().addWidget(sidebar.toggle_button)
             self.in_rail = True

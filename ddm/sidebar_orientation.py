@@ -1,6 +1,6 @@
 """Sidebar orientation and borrowed toolbar layout; Sidebar owns controls and mutable layout state."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QLayout, QSizePolicy, QWidget
 from . import theme
 from .sidebar_navigation import RAIL_WIDTH
 from .ui.toolbar import BarIconButton
@@ -116,6 +116,13 @@ class SidebarOrientation:
     def detach_from_rows(self, widget: QWidget) -> None:
         """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
         host = self.host
+        parent = widget.parentWidget()
+        box = parent.layout() if parent is not None else None
+        if box is not None:
+            # setParent/addWidget's implicit removal does not invalidate old
+            # QWidgetItem bindings on PySide 6.11.2, including nested rail rows.
+            for holder in (box, *box.findChildren(QLayout)):
+                holder.removeWidget(widget)
         for holder in (host._layout, host._bar_row_box, getattr(host, '_bar_row2_box', None),
                        getattr(host, '_bar_right_box', None)):
             if holder is not None:
@@ -232,6 +239,7 @@ class SidebarOrientation:
 
         box = host.status_row.layout()
         for widget in (host.count_label, host.batch_button, host.notification_button, host.appearance_button, host.refresh_button):
+            host._detach_from_rows(widget)
             box.removeWidget(widget)
         box.addWidget(host.count_label, 1)
         box.addWidget(host.batch_button, 0, Qt.AlignRight)

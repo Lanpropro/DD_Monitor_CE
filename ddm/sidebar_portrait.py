@@ -83,6 +83,7 @@ class PortraitSidebar:
             while host._bar_row_box.count():
                 host._bar_row_box.takeAt(0)
             for widget in (nav.follow_button, self.follow_label, host.toggle_button):
+                self.follow_box.removeWidget(widget)
                 self.follow_box.addWidget(widget)
             host._bar_row_box.addWidget(self.follow_group)
             self.place_launcher()
@@ -184,6 +185,7 @@ class PortraitSidebar:
         nav.follow_button.setProperty('dockRail', True)
         nav.top.insertWidget(0, nav.follow_button)
         for button in (host.layout_button, host.picture_in_picture_button, host.settings_button):
+            host._detach_from_rows(button)
             button.setParent(host.tool_row)
             host.tool_row.layout().addWidget(button)
             button.setSizePolicy(host._tool_button_policies[button])

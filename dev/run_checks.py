@@ -33,6 +33,7 @@ def run_script(script, mode, arguments, directory, timeout):
     env = dict(os.environ, DDM_NO_SAVE='1', PYTHONUTF8='1', PYTHONIOENCODING='utf-8',
                DDM_CHECK_MODE=mode)
     env['QT_QPA_PLATFORM'] = 'windows' if mode in ('native', 'live') else 'offscreen'
+    env['DDM_CHECK_LOG_DIR'] = str(directory.resolve())
     logfile = directory / (script + '.log')
     command = [sys.executable, '-u', str(BOOTSTRAP), str(ROOT / 'dev' / (script + '.py')), *arguments]
     with logfile.open('w', encoding='utf-8') as output:

@@ -9,6 +9,12 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 
 def run_worker():
+    check_evidence = None
+    if os.environ.get('DDM_CHECK_EVIDENCE_DIR'):
+        from .check_diagnostics import start
+        check_evidence = start(Path(sys.argv[0]).name, role='settings-worker')
+        if check_evidence is not None:
+            check_evidence.record('worker.begin')
     # The worker receives a settings snapshot; it must not read/write the
     # portable installation's account, configuration or installed plugins.
     from . import settings_process as host_api
@@ -345,5 +351,9 @@ def run_worker():
         threading.Thread(target=read_requests, name='settings-input', daemon=True).start()
         QTimer.singleShot(0, lambda: send({'kind': 'ready', 'pid': os.getpid()}))
         result = app.exec()
+        if check_evidence is not None:
+            check_evidence.record('worker.event-loop.end', code=result)
     app.shutdown()
+    if check_evidence is not None:
+        check_evidence.record('worker.shutdown.end')
     return result

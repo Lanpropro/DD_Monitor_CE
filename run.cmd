@@ -47,6 +47,7 @@ if /i "%~1"=="--check-sidebar-drag" goto sidebarDragCheck
 if /i "%~1"=="--check-preview-scroll" goto previewScrollCheck
 if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
+if /i "%~1"=="--check-native-memory" goto nativeMemoryCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
 if /i "%~1"=="--check-audio-normalization" goto audioNormalizationCheck
 if /i "%~1"=="--check-wall-panes" goto wallPanesCheck
@@ -202,6 +203,26 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_logging
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_qt_log
+exit /b %errorlevel%
+
+:nativeMemoryCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=offscreen"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_check_runner.py"
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_sidebar_presentation.py" SidebarPresentationTests.test_tool_reordering_invalidates_removed_layout_items SidebarPresentationTests.test_orientation_changes_invalidate_removed_layout_items SidebarPresentationTests.test_sidebar_creation_and_local_server_leave_no_stale_item_bindings SidebarPresentationTests.test_menu_entries_follow_side_and_collapse_and_retain_pip_entry
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_on_demand_diagnostics.py"
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_layout_growth_empty.py"
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+rem Native child-window reparenting is broken in Qt 6.11.2's offscreen plugin.
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_system_tray.py"
+if not "%errorlevel%"=="0" exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_sidebar_presentation.py" SidebarPresentationTests.test_tool_reordering_invalidates_removed_layout_items SidebarPresentationTests.test_orientation_changes_invalidate_removed_layout_items SidebarPresentationTests.test_sidebar_creation_and_local_server_leave_no_stale_item_bindings SidebarPresentationTests.test_menu_entries_follow_side_and_collapse_and_retain_pip_entry SidebarPresentationTests.test_native_reparented_windows_release_backing_stores
 exit /b %errorlevel%
 
 :diagnosticsCheck
