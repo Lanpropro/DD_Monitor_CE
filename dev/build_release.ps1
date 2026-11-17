@@ -221,6 +221,8 @@ if (-not $SourceOnly) {
         --collect-all av `
         --collect-submodules ddm.ui `
         --hidden-import numpy `
+        --hidden-import tarfile `
+        --hidden-import bz2 `
         --hidden-import mpv `
         --copy-metadata python-mpv `
         --hidden-import ddm.live_danmaku `

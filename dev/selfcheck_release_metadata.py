@@ -77,6 +77,8 @@ def main():
     assert '--hidden-import ddm.ui.stepper' in source, 'The lazy settings stepper must be included in frozen builds'
     assert '--collect-submodules ddm.ui' in source, 'All lazy settings UI modules must be included in frozen builds'
     assert '--hidden-import ddm.widgets' in source, 'Frozen builds must retain legacy widget imports for plugins'
+    for dependency in ('tarfile', 'bz2'):
+        assert f'--hidden-import {dependency}' in source, 'Frozen builds must support plugin model archive preparation'
     assert 'archive --format=zip --output=$snapshot HEAD' in source
     for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
         assert pattern in source
