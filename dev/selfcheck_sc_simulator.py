@@ -145,7 +145,7 @@ class NativeSurfaceTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
-    def test_sc_auto_scale_preserves_proportions_and_manual_size(self):
+    def test_sc_auto_scale_preserves_manual_size_above_readability_floor(self):
         from ddm.video_danmaku import VideoDanmaku
         owner = VideoDanmaku()
         self.addCleanup(owner.close)
@@ -161,12 +161,13 @@ class SimulatorTests(unittest.TestCase):
                 owner.resize(width, height)
                 rect = owner.super_chat_overlay.card_rects()[0]
                 sizes.append((rect.width(), rect.height(), owner.super_chat_overlay._paint_scale))
-                self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, manual / 100 * height / 720)
+                self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, max(.9, manual / 100 * height / 720))
+                self.assertAlmostEqual(rect.width(), min(340 * max(.9, manual / 100 * height / 720), width - 20))
                 self.assertLessEqual(rect.right(), width)
                 self.assertLessEqual(rect.bottom(), height)
-            self.assertAlmostEqual(sizes[1][0], sizes[0][0] / 2)
-            self.assertAlmostEqual(sizes[2][0], sizes[0][0] / 4)
-            self.assertLessEqual(abs(sizes[1][1] - sizes[0][1] / 2), 2)
+            self.assertGreaterEqual(sizes[0][0], sizes[1][0])
+            self.assertGreaterEqual(sizes[1][0], sizes[2][0])
+            self.assertTrue(all(size[2] >= .9 for size in sizes))
         owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale_with_video=False))
         owner.resize(640, 360)
         owner.super_chat_overlay.card_rects()
@@ -182,7 +183,7 @@ class SimulatorTests(unittest.TestCase):
         for height, expected in ((720, 1), (360, .7845840978967508), (180, .6155722066724582)):
             owner.resize(1280, height)
             owner.super_chat_overlay.card_rects()
-            self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, expected)
+            self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, max(.9, expected))
 
     def test_default_video_danmaku_curve_preserves_small_pane_readability(self):
         from ddm.video_danmaku import VideoDanmaku
@@ -217,7 +218,7 @@ class SimulatorTests(unittest.TestCase):
                                               'cards': [{'message': '', 'collapsed': False}]}})
         stage = preview.stage_rect()
         factor = stage.width() / 640
-        self.assertAlmostEqual(preview.card_rect().width() / factor, 272)
+        self.assertAlmostEqual(preview.card_rect().width() / factor, 306)
         preview.set_layout_mode(1)
         before = preview.card_rect()
         page.super_chat_scale_with_video.click()
@@ -248,7 +249,7 @@ class SimulatorTests(unittest.TestCase):
             self.assertTrue(rects)
             ratio = owner.height() / 720
             expected = .6 + .4 * ratio if ratio <= 1 else 1 + .3 * (ratio - 1)
-            self.assertAlmostEqual(sc._paint_scale, expected)
+            self.assertAlmostEqual(sc._paint_scale, max(.9, expected))
             self.assertTrue(sc.isVisible())
             self.assertEqual(owner.settings['super_chat_position'], [.4, .6])
         window.sc_scale.setValue(150)
@@ -380,7 +381,8 @@ class SimulatorTests(unittest.TestCase):
         for scale in (.75, 1, 1.5, 2):
             height = sc_card_height(event, 340 * scale, scale)
             text_height = sc_message_document(event, 340 * scale, scale).size().height()
-            self.assertGreaterEqual(height, 56 * scale + 2 * SC_BODY_PADDING * scale + text_height)
+            from ddm.super_chat_layout import sc_body_padding
+            self.assertGreaterEqual(height, round(56 * scale) + 2 * sc_body_padding(scale) + text_height)
 
     def test_layout_previews_keep_independent_positions_and_layout_specific_scale_opacity(self):
         from ddm.dialogs import DanmakuSettingsPage
@@ -482,7 +484,13 @@ class SimulatorTests(unittest.TestCase):
         card = stack._cards[0]
         self.assertGreater(stack.height(), short)
         self.assertEqual(card.message.text(), message)
-        self.assertLessEqual(card.message.document().size().height(), card.message.viewport().height())
+        bar = card.message.verticalScrollBar()
+        self.assertGreaterEqual(card.message.viewport().height() + bar.maximum(),
+                                card.message.document().size().height())
+        bar.setValue(bar.maximum())
+        before = bar.value()
+        stack.set_events(stack._events)
+        self.assertEqual(bar.value(), before, 'Refreshing the same message preserves the reading position')
         window.number.setValue(2)
         window.price.setValue(50)
         window.message.setPlainText('short')
@@ -504,13 +512,16 @@ class SimulatorTests(unittest.TestCase):
         collapsed_height = sc.card_rects()[2].height()
         sc.presentation.expand('1')
         self.assertGreater(sc.card_rects()[2].height(), collapsed_height)
-        sc.presentation.expand()
         for size in ((200, 120), (420, 240), (1000, 700)):
             window.tile.video_danmaku.resize(*size)
+            sc.presentation.expand(sc.chats[0]['id'])
             rect = sc.card_rects()[0]
             self.assertTrue(window.tile.video_danmaku.rect().contains(rect.toAlignedRect()))
             document = sc_message_document(sc.chats[0], rect.width(), sc._paint_scale)
-            self.assertLessEqual(document.size().height() + 61 * sc._paint_scale, rect.height() + 1)
+            from ddm.super_chat_layout import sc_body_padding
+            body = rect.height() - round(56 * sc._paint_scale) - 2 * sc_body_padding(sc._paint_scale)
+            self.assertGreaterEqual(body, document.defaultFont().pixelSize(), 'Selected SC retains at least one readable line')
+            self.assertGreaterEqual(sc._paint_scale, .9)
 
     def test_visibility_opacity_and_isolated_data(self):
         window = self.window

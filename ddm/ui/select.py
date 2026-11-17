@@ -1,7 +1,7 @@
 """Shared compact selector using Qt's model, popup placement and input handling."""
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QFont, QFontDatabase, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QComboBox, QFrame, QListView, QSizePolicy, QStyle, QStyledItemDelegate
+from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QLabel, QLineEdit, QListView, QSizePolicy, QStyle, QStyledItemDelegate, QVBoxLayout, QWidget
 
 from .. import theme
 
@@ -114,6 +114,108 @@ class FontSelectControl(SelectControl):
         super().__init__(parent)
         self.addItems(QFontDatabase.families())
         self.currentTextChanged.connect(lambda family: self.currentFontChanged.emit(QFont(family)))
+        popup = self.view().window()
+        header = QWidget(popup)
+        header.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        layout = QVBoxLayout(header)
+        layout.setContentsMargins(8, 8, 8, 4)
+        self.search = QLineEdit(header)
+        self.search.setPlaceholderText('搜索字体名称')
+        self.search.setAccessibleName('搜索字体名称')
+        self.search.setClearButtonEnabled(True)
+        self.search.setFixedHeight(theme.CONTROL_HEIGHT)
+        layout.addWidget(self.search)
+        self.empty = QLabel('没有匹配的字体', header)
+        self.empty.setObjectName('SettingsHint')
+        self.empty.hide()
+        layout.addWidget(self.empty)
+        popup.layout().insertWidget(0, header)
+        self.search.textChanged.connect(self._filter_fonts)
+        self.search.installEventFilter(self)
+        self.view().installEventFilter(self)
+
+    def showPopup(self):
+        self.search.clear()
+        super().showPopup()
+        self._resize_popup()
+        self.search.setFocus(Qt.PopupFocusReason)
+
+    def _resize_popup(self):
+        view = self.view()
+        popup = view.window()
+        if not popup.isVisible():
+            return
+        self.search.parentWidget().updateGeometry()
+        popup.layout().invalidate()
+        popup.layout().activate()
+        visible = [row for row in range(self.count()) if not view.isRowHidden(row)]
+        row_height = max(1, view.sizeHintForRow(visible[0]) if visible else theme.CONTROL_HEIGHT)
+        margins = view.contentsMargins()
+        padding = margins.top() + margins.bottom()
+        bounds = self.screen().availableGeometry()
+        overhead = popup.height() - view.height() + padding
+        rows = min(max(1, len(visible)), self.maxVisibleItems(),
+                   max(1, (bounds.height() - overhead) // row_height))
+        width = max(popup.width(), self.width(), self.search.parentWidget().sizeHint().width() + 10)
+        view.setFixedHeight(rows * row_height + padding)
+        view.doItemsLayout()
+        view.scrollTo(view.currentIndex())
+        popup.layout().invalidate()
+        popup.adjustSize()
+        popup.resize(min(width, bounds.width()), min(popup.height(), bounds.height()))
+        below = self.mapToGlobal(QPoint(0, self.height())).y()
+        above = self.mapToGlobal(QPoint(0, 0)).y() - popup.height()
+        top = below if below + popup.height() <= bounds.bottom() + 1 else above
+        popup.move(max(bounds.left(), min(popup.x(), bounds.right() - popup.width() + 1)),
+                   max(bounds.top(), min(top, bounds.bottom() - popup.height() + 1)))
+
+    def _filter_fonts(self, text):
+        terms = text.casefold().split()
+        view = self.view()
+        visible = []
+        for row in range(self.count()):
+            matches = all(term in self.itemText(row).casefold() for term in terms)
+            view.setRowHidden(row, not matches)
+            if matches:
+                visible.append(row)
+        self.empty.setVisible(not visible)
+        current = view.currentIndex()
+        if not current.isValid() or current.row() not in visible:
+            view.setCurrentIndex(self.model().index(visible[0], 0) if visible else self.model().index(-1, 0))
+        self._resize_popup()
+
+    def eventFilter(self, watched, event):
+        if watched in (self.search, self.view()) and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                self.hidePopup()
+                return True
+            if event.key() in (Qt.Key_Down, Qt.Key_Up):
+                view = self.view()
+                visible = [row for row in range(self.count()) if not view.isRowHidden(row)]
+                if visible:
+                    current = view.currentIndex().row()
+                    position = visible.index(current) if current in visible else 0
+                    if watched is view:
+                        position = max(0, min(len(visible) - 1,
+                                             position + (1 if event.key() == Qt.Key_Down else -1)))
+                    view.setCurrentIndex(self.model().index(visible[position], 0))
+                    view.scrollTo(view.currentIndex())
+                    view.setFocus(Qt.ShortcutFocusReason)
+                return True
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                index = self.view().currentIndex()
+                if not index.isValid() or self.view().isRowHidden(index.row()):
+                    return True
+                if watched is self.search:
+                    self.view().setFocus(Qt.ShortcutFocusReason)
+                    QApplication.sendEvent(self.view(), event)
+                    return True
+            if (watched is self.view() and event.text().isprintable()
+                    and not event.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)):
+                self.search.setFocus(Qt.ShortcutFocusReason)
+                QApplication.sendEvent(self.search, event)
+                return True
+        return super().eventFilter(watched, event)
 
     def currentFont(self):
         return QFont(self.currentText())

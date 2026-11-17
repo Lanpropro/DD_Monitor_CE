@@ -1,6 +1,7 @@
 """Host-wide comment/user blocking, quick actions and persistence; isolated data only."""
 import os
 from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 import sys
 import tempfile
@@ -11,10 +12,14 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from ddm import app as app_module, config, danmaku_actions, plugins
-from ddm.danmaku_filter import event_blocked, normalize_users, user_identity
+from ddm import app as app_module, config, danmaku_actions, plugins, theme
+from ddm.danmaku_filter import event_blocked, manual_user_error, normalize_users, user_identity
+from ddm.settings_danmaku_blocking import BlockedUsersEditor
+from ddm.settings_focus import SettingsInputFocus
 from ddm.settings_danmaku import DanmakuSettingsPage
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
@@ -52,6 +57,190 @@ class FilterTests(unittest.TestCase):
         self.assertFalse(event_blocked({'kind': 'super_chat', 'text': '广告'}, '1', settings))
         self.assertTrue(event_blocked({'kind': 'super_chat', 'uid': '42'}, 'twitch:x', settings))
         self.assertFalse(event_blocked({'kind': 'super_chat_delete', 'uid': '42'}, 'twitch:x', settings))
+
+
+    def test_block_origin_metadata_survives_normalization_without_changing_identity(self):
+        rule = dict(platform='bilibili', uid='42', uname='User', blocked_at='2026-11-17T01:02:03+00:00',
+                    source='message', source_text='<b>完整文本</b>\n第二行', source_room_id='1001', source_kind='danmaku')
+        self.assertEqual(normalize_users([rule, dict(rule, source_text='later')]), [rule])
+        legacy = {'platform': 'huya', 'uid': '123', 'uname': ''}
+        self.assertEqual(normalize_users([legacy]), [legacy])
+        self.assertTrue(event_blocked({'uid': '42', 'uname': 'Renamed'}, '2002',
+                                     {'danmaku_blocked_users': [rule]}))
+
+    def test_manual_identity_validation_follows_adapter_shapes_without_lookup(self):
+        for platform in ('bilibili', 'douyin', 'douyu', 'huya', 'twitch'):
+            self.assertEqual(manual_user_error(platform, '123456789012345'), '')
+            for value in ('', '0', '-42', '昵称', '@login', 'https://example.invalid/42', '４２'):
+                self.assertTrue(manual_user_error(platform, value), (platform, value))
+        self.assertEqual(manual_user_error('youtube', 'UCfixture_123-abc'), '')
+        self.assertIn('频道 ID', manual_user_error('youtube', '@handle'))
+        self.assertTrue(manual_user_error('custom', 'opaque:user'))
+
+
+class BlockingEditorTests(unittest.TestCase):
+    def setUp(self):
+        self.editor = BlockedUsersEditor([])
+        self.editor.resize(850, 560)
+        self.editor.show()
+        APP.processEvents()
+
+    def tearDown(self):
+        self.editor.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_manual_feedback_single_row_and_metadata_without_network_verification(self):
+        editor = self.editor
+        changed = []
+        editor.changed.connect(lambda: changed.append(True))
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('No account lookup')) as request:
+            editor.uid.setText('昵称')
+            editor.add.click()
+            self.assertEqual(editor.users(), [])
+            self.assertIn('正整数', editor.feedback.text())
+            editor.uid.setText('42')
+            editor.add.click()
+            self.assertEqual(changed, [True])
+            rule = editor.users()[0]
+            self.assertEqual(rule['source'], 'manual')
+            self.assertNotIn('source_text', rule)
+            self.assertIsNotNone(datetime.fromisoformat(rule['blocked_at']).tzinfo)
+            self.assertIn('未核验', editor.feedback.text())
+            editor.uid.setText('42')
+            editor.add.click()
+            self.assertEqual(changed, [True])
+            self.assertEqual(editor.users(), [rule])
+            self.assertIn('已在屏蔽列表', editor.feedback.text())
+            request.assert_not_called()
+        controls = (editor.platform, editor.uid, editor.add, editor.remove)
+        centers = [widget.geometry().center().y() for widget in controls]
+        self.assertLessEqual(max(centers) - min(centers), 1)
+        editor.list.setCurrentRow(0)
+        self.assertIn('手动添加，没有触发消息', editor.details.toPlainText())
+
+    def test_details_preserve_full_text_and_legacy_unknowns_in_bounded_area(self):
+        rule = dict(platform='youtube', uid='UCfixture', uname='User', source='message',
+                    blocked_at='2026-11-17T01:02:03+00:00', source_room_id='youtube:live',
+                    source_text='<b>完整原文</b>\n' + '完整长文本\n' * 300)
+        self.editor.set_users([rule, dict(platform='huya', uid='123', uname='Old')])
+        self.editor.list.setCurrentRow(0)
+        APP.processEvents()
+        text = self.editor.details.toPlainText()
+        self.assertIn(rule['source_text'], text)
+        self.assertIn('2026-11-17', text)
+        self.assertIn('youtube:live', text)
+        self.assertLessEqual(self.editor.details.height(), 190)
+        self.assertGreater(self.editor.details.verticalScrollBar().maximum(), 0)
+        self.editor.list.setCurrentRow(1)
+        text = self.editor.details.toPlainText()
+        self.assertIn('未记录屏蔽时间', text)
+        self.assertIn('未记录触发消息', text)
+        self.assertNotIn('2026-', text)
+
+    def test_ctrl_shift_multi_selection_and_batch_remove(self):
+        editor = self.editor
+        editor.set_users([dict(platform='bilibili', uid=str(n), uname=f'用户{n}') for n in range(1, 9)])
+        APP.processEvents()
+        viewport = editor.list.viewport()
+        def click(row, modifier=Qt.NoModifier):
+            point = editor.list.visualItemRect(editor.list.item(row)).center()
+            QTest.mouseClick(viewport, Qt.LeftButton, modifier, point)
+        click(0)
+        click(2, Qt.ControlModifier)
+        self.assertEqual({editor.list.row(item) for item in editor.list.selectedItems()}, {0, 2})
+        click(5, Qt.ShiftModifier)
+        selected = editor.list.selectedItems()
+        rows = {editor.list.row(item) for item in selected}
+        self.assertTrue({2, 3, 4, 5} <= rows)
+        removing = {item.data(Qt.UserRole)['uid'] for item in selected}
+        before = {rule['uid'] for rule in editor.users()}
+        changed = []
+        editor.changed.connect(lambda: changed.append(True))
+        editor.remove.click()
+        self.assertEqual({rule['uid'] for rule in editor.users()}, before - removing)
+        self.assertEqual(changed, [True])
+        self.assertIn(str(len(removing)), editor.feedback.text())
+
+    def test_inline_user_details_fit_the_real_blocking_card_after_selection_changes(self):
+        page = DanmakuSettingsPage({'danmaku_blocked_users': [
+            dict(platform='bilibili', uid=str(n), source='message',
+                 blocked_at='2026-11-17T01:02:03+00:00', source_text='完整触发文本\n' * 100)
+            for n in range(1, 4)]})
+        page.setStyleSheet(theme.qss())
+        try:
+            page.show()
+            editor = page.blocked_users
+            card = page.sections.section('blocking')
+            def settle():
+                for _ in range(3):
+                    APP.processEvents()
+            def details_fit():
+                settle()
+                center = editor.details.mapTo(page.scroll.widget(), editor.details.rect().center())
+                page.scroll.ensureVisible(center.x(), center.y(), 0, editor.details.height() // 2 + 16)
+                settle()
+                self.assertTrue(editor.details.isVisible())
+                self.assertEqual(editor.details.height(), 160)
+                bottom = editor.details.mapTo(card, editor.details.rect().bottomRight())
+                self.assertTrue(card.rect().contains(bottom), (page.width(), card.rect(), bottom))
+                self.assertEqual(editor.details.visibleRegion().boundingRect().height(), 160)
+            for width in (1200, 700):
+                page.resize(width, 720)
+                editor.list.clearSelection()
+                editor.list.setCurrentRow(-1)
+                settle()
+                self.assertFalse(editor.details.isVisible())
+                editor.list.setCurrentRow(0)
+                details_fit()
+                editor.list.item(1).setSelected(True)
+                self.assertEqual(len(editor.list.selectedItems()), 2)
+                details_fit()
+                editor.list.clearSelection()
+                settle()
+                self.assertFalse(editor.details.isVisible())
+                bottom = editor.mapTo(card, editor.rect().bottomRight())
+                self.assertTrue(card.rect().contains(bottom), (page.width(), card.rect(), bottom))
+        finally:
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_user_list_and_origin_details_wheel_stay_local_at_both_boundaries(self):
+        rules = [dict(platform='bilibili', uid=str(n), source='message',
+                      source_text='完整原文\n' * 300) for n in range(1, 81)]
+        page = DanmakuSettingsPage({'danmaku_blocked_users': rules})
+        focus = SettingsInputFocus(page)
+        try:
+            page.resize(1200, 650)
+            page.show()
+            APP.processEvents()
+            editor = page.blocked_users
+            editor.list.setCurrentRow(0)
+            APP.processEvents()
+            outer = page.scroll.verticalScrollBar()
+            self.assertGreater(outer.maximum(), 0)
+            for control in (editor.list, editor.details):
+                page.scroll.ensureWidgetVisible(control)
+                APP.processEvents()
+                bar = control.verticalScrollBar()
+                self.assertGreater(bar.maximum(), 0)
+                for position, delta in ((0, 120), (bar.maximum() // 2, -120), (bar.maximum(), -120)):
+                    bar.setValue(position)
+                    APP.processEvents()
+                    value = outer.value()
+                    viewport = control.viewport()
+                    point = viewport.rect().center()
+                    event = QWheelEvent(QPointF(point), QPointF(viewport.mapToGlobal(point)), QPoint(),
+                                        QPoint(0, delta), Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False)
+                    APP.sendEvent(viewport, event)
+                    APP.processEvents()
+                    self.assertTrue(event.isAccepted())
+                    self.assertEqual(outer.value(), value, (type(control).__name__, position))
+                    if position == bar.maximum() // 2:
+                        self.assertGreater(bar.value(), position)
+        finally:
+            APP.removeEventFilter(focus)
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 class BlockingTests(unittest.TestCase):
@@ -117,7 +306,16 @@ class BlockingTests(unittest.TestCase):
         self.route('douyin:one', {'uid': '42', 'uname': '用户', 'text': 'first'})
         self.quick_action(3)
         rule = self.window.settings['danmaku_blocked_users'][0]
-        self.assertEqual(rule, {'platform': 'douyin', 'uid': '42', 'uname': '用户'})
+        self.assertEqual({key: rule[key] for key in ('platform', 'uid', 'uname')},
+                         {'platform': 'douyin', 'uid': '42', 'uname': '用户'})
+        self.assertEqual(rule['source'], 'message')
+        self.assertEqual(rule['source_text'], 'first')
+        self.assertEqual(rule['source_room_id'], 'douyin:one')
+        self.assertIsNotNone(datetime.fromisoformat(rule['blocked_at']).tzinfo)
+        first = dict(rule)
+        self.window.danmaku_blocking.block({'uid': '42', 'uname': '改名', 'text': 'later'},
+                                          'douyin:two', user=True)
+        self.assertEqual(self.window.settings['danmaku_blocked_users'][0], first)
         self.assertFalse(self.window.wall.danmaku._blocks)
         self.route('douyin:two', {'uid': '42', 'uname': '已改名', 'text': 'second'})
         self.assertFalse(self.window.wall.danmaku._blocks)
@@ -192,10 +390,13 @@ class BlockingTests(unittest.TestCase):
             editor.add.click()
             dialog.auto_save.flush()
             self.assertEqual(self.window.settings['danmaku_blocked_users'][0]['uid'], 'UCfixture')
+            self.assertEqual(self.window.settings['danmaku_blocked_users'][0]['source'], 'manual')
+            self.assertNotIn('source_text', self.window.settings['danmaku_blocked_users'][0])
             self.assertFalse(editor.list.item(0).icon().isNull())
+            manual_rule = dict(editor.users()[0])
             editor.set_users([{'platform': 'youtube', 'uid': str(index)} for index in range(20)])
             self.assertGreater(editor.list.verticalScrollBar().maximum(), 0)
-            editor.set_users([{'platform': 'youtube', 'uid': 'UCfixture'}])
+            editor.set_users([manual_rule])
             with patch.dict(os.environ):
                 os.environ.pop('DDM_NO_SAVE', None)
                 config.save(self.window.current_state(), raise_errors=True)
@@ -249,7 +450,28 @@ class BlockingTests(unittest.TestCase):
         self.window._settings_process = Process()
         self.window.danmaku_blocking.block({'text': 'fixture'}, '1001')
         self.assertEqual(pushed, [{'danmaku_block_words': ['fixture']}])
+        self.window.danmaku_blocking.block({'uid': '42', 'text': '触发来源\n完整文本'}, '1001', user=True)
+        rule = self.window.settings['danmaku_blocked_users'][0]
+        self.assertEqual(pushed[-1], {'danmaku_blocked_users': [rule]})
+        with patch.dict(os.environ):
+            os.environ.pop('DDM_NO_SAVE', None)
+            config.save(self.window.current_state(), raise_errors=True)
+            saved = config.load()['settings']['danmaku_blocked_users']
+        self.assertEqual(saved, [rule])
+        self.assertEqual(saved[0]['source_text'], '触发来源\n完整文本')
+        page = DanmakuSettingsPage({})
+        try:
+            page.sync_blocking(pushed[-1])
+            self.assertEqual(page.values()['danmaku_blocked_users'], [rule])
+        finally:
+            page.deleteLater()
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        results = [run_widget_cases(case, __file__)
+                   for case in (FilterTests, BlockingEditorTests, BlockingTests)]
+        raise SystemExit(int(any(results)))
+    else:
+        unittest.main()

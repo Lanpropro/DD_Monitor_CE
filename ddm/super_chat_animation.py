@@ -16,6 +16,8 @@ class SuperChatPresentation(QObject):
         self.delay = 7
         self.ids = set()
         self.collapsed_ids = set()
+        self.compact_ids = set()
+        self.compact = False
         self.deadlines = {}
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -63,20 +65,50 @@ class SuperChatPresentation(QObject):
         added = ids - self.ids
         self.ids = ids
         self.collapsed_ids.intersection_update(ids)
+        self.compact_ids.intersection_update(ids)
         self.deadlines = {key: deadline for key, deadline in self.deadlines.items() if key in ids}
         if not ids:
             self.entrance.stop()
             self.progress = 1.0
         for key in added:
-            self.deadlines[key] = time.monotonic() + self.delay
+            if self.compact:
+                self.collapsed_ids.add(key)
+                self.compact_ids.add(key)
+            else:
+                self.deadlines[key] = time.monotonic() + self.delay
         self._schedule()
         if added and motion.enabled():
             self.entrance.stop()
             self.entrance.start()
 
+    def set_compact(self, compact):
+        if self.compact == compact:
+            return
+        self.compact = compact
+        if compact:
+            self.compact_ids = self.ids - self.collapsed_ids
+            self.collapsed_ids.update(self.compact_ids)
+            for key in self.compact_ids:
+                self.deadlines.pop(key, None)
+        else:
+            self.collapsed_ids.difference_update(self.compact_ids)
+            for key in self.compact_ids:
+                self.deadlines[key] = time.monotonic() + self.delay
+            self.compact_ids.clear()
+        self._schedule()
+        if self.ids:
+            self.changed.emit()
+
     def expand(self, chat_id=None, *, animate=False):
         keys = self.ids if chat_id is None else {str(chat_id)} & self.ids
+        if self.compact and chat_id is not None:
+            others = self.ids - keys
+            self.compact_ids.update(others - self.collapsed_ids)
+            self.collapsed_ids.update(others)
+            for key in others:
+                self.deadlines.pop(key, None)
         self.collapsed_ids.difference_update(keys)
+        self.compact_ids.difference_update(keys)
         for key in keys:
             self.deadlines[key] = time.monotonic() + self.delay
         self._schedule()
@@ -91,6 +123,7 @@ class SuperChatPresentation(QObject):
         self.progress = 1.0
         keys = self.ids if chat_id is None else {str(chat_id)} & self.ids
         self.collapsed_ids.update(keys)
+        self.compact_ids.difference_update(keys)
         for key in keys:
             self.deadlines.pop(key, None)
         self._schedule()

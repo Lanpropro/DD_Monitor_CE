@@ -8,6 +8,17 @@ from . import theme
 from .super_chat_model import SC_CONTENT_COLOR, SC_BODY_PADDING
 
 
+MIN_SC_SCALE = .9
+
+
+def sc_compact_viewport(width, height):
+    return width < 480 or height < 270
+
+
+def sc_body_padding(scale):
+    return math.ceil((6 if scale < 1 else SC_BODY_PADDING) * scale)
+
+
 def sc_message_document(event, width, scale=1.0):
     font = QFont(theme.FONT_DEFAULT)
     font.setPixelSize(max(1, round(14 * scale)))
@@ -31,21 +42,33 @@ def sc_card_height(event, width, scale=1.0, collapsed=False):
     if collapsed:
         return round(36 * scale)
     document = sc_message_document(event, width, scale)
-    padding = round(56 * scale) + 2 * math.ceil(SC_BODY_PADDING * scale)
+    padding = round(56 * scale) + 2 * sc_body_padding(scale)
     return math.ceil(max(100 * scale, padding + document.size().height() + 1))
 
 
-def sc_card_geometry(events, base_width, scale, available_width, available_height, collapsed=False):
+def sc_card_geometry(events, base_width, scale, available_width, available_height, collapsed=False, scroll_stack=False):
     if not events:
         return 1, 1, scale, []
-    scale = min(scale, max(1, available_width) / base_width)
+    scale = max(MIN_SC_SCALE, min(scale, max(1, available_width) / base_width))
     for attempt in range(8):
-        width = base_width * scale
+        width = min(base_width * scale, max(1, available_width))
         heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed) for event in events]
         height = sum(heights) + 8 * scale * (len(heights) - 1)
-        if height <= max(1, available_height) or attempt == 7:
+        if height <= max(1, available_height) or scale == MIN_SC_SCALE or attempt == 7:
             break
-        scale *= max(1, available_height) / height * .98
+        scale = max(MIN_SC_SCALE, scale * max(1, available_height) / height * .98)
+    if height > max(1, available_height):
+        # Keep readable type; constrain bodies and let their views scroll instead.
+        budget = max(1, available_height - 8 * scale * (len(heights) - 1))
+        minimum = round(56 * scale) + 2 * sc_body_padding(scale) + max(12, round(14 * scale)) + 1
+        floors = [min(value, minimum) for value in heights]
+        floor_total = sum(floors)
+        extra = max(0, budget - floor_total)
+        flexible = max(1, sum(heights) - floor_total)
+        heights = ([floor + extra * (value - floor) / flexible for value, floor in zip(heights, floors)]
+                   if budget >= floor_total else floors if scroll_stack else
+                   [value * budget / floor_total for value in floors])
+        height = sum(heights) + 8 * scale * (len(heights) - 1)
     return width, height, scale, heights
 
 
@@ -57,13 +80,17 @@ def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
     margin = 8 if panel else 10
     base_width = min(340, max(150 if panel else 168,
                              round(viewport_width * (.46 if panel else .30))))
+    if not panel and sc_compact_viewport(viewport_width, viewport_height):
+        base_width = 280
     if scale_with_video and not panel:
         base_width = 340
         from .viewport_scale import viewport_scale
         scale *= viewport_scale(viewport_height, scale_strength, scale_curve)
+    default_top = margin if panel or viewport_height < 320 else 54
+    bottom_margin = margin if isinstance(position, (list, tuple)) and len(position) == 2 else default_top
     width, height, scale, heights = sc_card_geometry(
         events, base_width, scale, viewport_width - 2 * margin,
-        viewport_height - 2 * margin, collapsed)
+        viewport_height - margin - bottom_margin, collapsed, scroll_stack=not panel)
     spans = (max(0, viewport_width - 2 * margin - width),
              max(0, viewport_height - 2 * margin - height))
     if isinstance(position, (list, tuple)) and len(position) == 2:
@@ -75,11 +102,9 @@ def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
                      for ratio, span in zip(ratios, spans)]
     else:
         left = margin + (round(spans[0]) if panel else spans[0])
-        top = margin if panel else min(54 if viewport_height >= 320 else 10, margin + spans[1])
+        top = default_top
     if panel:
-        width = max(1, round(width))
-        heights = [sc_card_height(event, width, scale, collapsed(event) if callable(collapsed) else collapsed)
-                   for event in events]
+        width = max(1, math.floor(width))
     rects = sc_stack_rects(width, height, len(events), scale=scale, card_heights=heights)
     return [rect.translated(left, top) for rect in rects], scale
 

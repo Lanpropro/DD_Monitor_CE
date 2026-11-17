@@ -32,6 +32,8 @@ class SettingsInputFocus(QObject):
         owner, blocked = watched, False
         delta = event.pixelDelta().y() or event.angleDelta().y()
         while owner is not None and owner is not self.parent():
+            if owner.property('settingsWheelLocal'):
+                return False
             if isinstance(owner, QSlider):
                 if owner.orientation() == Qt.Horizontal and owner.isEnabled():
                     return False
