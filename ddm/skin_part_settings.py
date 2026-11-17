@@ -146,6 +146,8 @@ class PartSettings(QDialog):
         for key, label in (('background', '底色'), ('foreground', '文字颜色'),
                 ('border_color', '边框颜色'), ('border_width', '边框宽度'),
                 ('radius', '圆角'), ('image', '背景图片'), ('icon', '图标图片')):
+            if not professional and key not in ('image', 'icon'):
+                continue
             check = QCheckBox(label)
             row = QHBoxLayout()
             if key in NUMBERS:
@@ -268,14 +270,15 @@ class PartSettings(QDialog):
         if self._loading:
             return False
         from . import config, theme
-        from .skin_parts import validate_parts
+        from .skin_parts import ASSETS, COLORS, NUMBERS, validate_parts
         target = {key: edit.value() if isinstance(edit, QSpinBox) else edit.text().strip()
                   for key, (check, edit) in self.fields.items() if check.isChecked() and check.isEnabled()}
         background = self.part.currentData() == 'background'
         if not self.professional and not background:
             previous = self._draft_values().get(self.part.currentData(), {})
             target = {key: value for key, value in previous.items()
-                      if key in self.fields and key not in self._editable_fields()} | target
+                      if key in (*COLORS, *NUMBERS, *ASSETS)
+                      and key not in self._editable_fields()} | target
         try:
             values = self._draft_values(None if background else target)
             self.preview.personal = validate_parts(values, Path(config.data_root())/'utils/skins')

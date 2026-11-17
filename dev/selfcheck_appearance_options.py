@@ -55,7 +55,8 @@ class AppearanceOptionsTests(unittest.TestCase):
                 page = page_type(deepcopy(config.DEFAULT_SETTINGS))
                 window.body_layout.addWidget(page)
                 received = []
-                bridge = EmbeddedSettingsWheel(page, lambda values: received.append(values))
+                with patch.object(page, 'winId', side_effect=AssertionError('Extra native page window')):
+                    bridge = EmbeddedSettingsWheel(page, lambda values: received.append(values))
                 window.show()
                 settle()
                 get_bounds = None
@@ -74,7 +75,9 @@ class AppearanceOptionsTests(unittest.TestCase):
                         return True
                     get_bounds = patch.object(ctypes.windll.user32, 'GetWindowRect', side_effect=bounds)
                     get_bounds.start()
-                    native = (QPointF(-12000, -10000) + QPointF(local) * page.devicePixelRatioF()).toPoint()
+                    offset = page.mapTo(bridge.native, QPoint())
+                    native = (QPointF(-12000, -10000)
+                              + QPointF(local + offset) * page.devicePixelRatioF()).toPoint()
                     message = wintypes.MSG()
                     message.message = 0x20A
                     message.wParam = 0xff88 << 16

@@ -24,7 +24,13 @@
 
 根 `run.cmd --check-settings-performance` 增加禁止构造重复常规编辑器、快照保留、旧Show扩展及控件身份回归；`--check-settings-control` 检查hosted参数转交及默认工厂。原生 `selfcheck_settings_process.py --embedded-native` 检查固定worker HWND、DPI、全页面切换及保存／取消／安装收尾；可选 `--installed-logo-controls` 只提取安装包控件类，不加载插件运行时，兼容独立platform_logo.py与旧plugin.py位置，本机已验证保存和取消。原生专项无真实账号、网络请求或桌面输入。
 
-人工复测：重启根 `run.cmd --diagnose-settings-performance`（默认轻量模式），首次打开后立即切外观，再到录制／插件，关闭重开；核对初次等待、插件Logo开关保存及滚轮。预期不再为隐藏宿主重复创建常规编辑器；第一批无体感改善、第二批略有改善，第三批实际幅度待复测，不将离屏耗时作为优化结论。首次可见窗口显示、原生嵌入、各页自身首次创建及其他背景材质解码仍有成本，不作零等待承诺。
+第三批用户复测仍反馈“略有缩短”。宿主4500／worker66860的轻量记录中，隐藏宿主构建已低于55ms；外观页首次创建约437–462ms，worker首次嵌入约264–382ms，一次停顿采样位于滚轮桥接构造时的 `root.winId()`。首次可见窗口Show到Paint约379ms，不能把这些阶段都归为隐藏宿主构建。
+
+第四批：`settings_wheel.py` 复用容器已有原生父窗口，收到滚轮时读取其effectiveWinId，用屏幕物理坐标、DPI及容器相对父窗口偏移转换本地坐标，不再为滚轮转交显式调用容器winId创建HWND；仍在原Qt父子生命周期内移除过滤器。滚轮回归禁止桥接构造调用页面winId，并包含有父级偏移的负屏幕坐标、重复滚动、普通输入与原生跨进程外观／更新页切换。
+
+`skin_part_settings.py` 的普通图片／图标模式只创建两组素材控件，省去五组隐藏专业控件；专业模式保留完整字段。编辑图片时按原样保留未编辑的颜色、边框、圆角、状态与builtin值，专项验证保存结果和专业模式编辑。根 `--check-settings-performance` 共25项；`--check-settings-scroll` 及原生 `--appearance-native` 检查滚轮、首次进入／重进边界。后者首次执行无输出退出1，启用现有原生栈助手复测退出0；未确定首次退出原因，不能据复测通过推断通用Qt内存错误已修复。
+
+人工复测：重启根 `run.cmd --diagnose-settings-performance`（默认轻量模式），首次打开后立即切外观，再到录制／插件，关闭重开；核对初次等待、外观布局和滚轮，选择已有分区后换图确认其他样式保留。第一批无体感改善、第二／三批略有改善，第四批幅度待复测，不将离屏耗时作为优化结论。首次可见窗口显示、原生嵌入及各页自身首次创建仍有成本，不作零等待承诺。
 
 扩展验证的既有失败：独立 `selfcheck_theme_palette.py` 在本机离屏／Windows平台均于 `dark: palette QSS changed the existing rendered design` 断言失败；用 `HEAD` 的原事件过滤方法替换后，离屏环境出现同样失败。本批不修改该主题截图契约，也不将其记为通过；目标入口采用实际设置页的主题跟随与按钮悬停检查。用户同期补充的三张内存异常截图已单独保存在本地取证记录，尚无匹配PID或已确认根因。
 

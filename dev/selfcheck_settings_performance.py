@@ -7,12 +7,13 @@ import tempfile
 import threading
 import time
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThreadPool, QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QStandardItem, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QWidget
@@ -23,6 +24,59 @@ from ddm.settings_performance import SettingsProbe, install
 from ddm.settings_window import SettingsWindow
 
 APP = QApplication.instance() or QApplication([])
+
+
+class PartPreparationTests(unittest.TestCase):
+    def test_simple_artwork_editor_omits_professional_controls_and_preserves_saved_styles(self):
+        from ddm.skin_part_settings import PartSettings
+
+        class Layer(QObject):
+            frameReady = Signal()
+            image, mask, path = None, 35, ''
+
+        class Controller(QObject):
+            changed = Signal()
+            override, error = None, ''
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(config, 'REPO', temporary), \
+                patch('ddm.skin_preview.SkinPreview.capture_interface'):
+            folder = Path(temporary) / 'utils/skins'
+            folder.mkdir(parents=True)
+            image = QImage(8, 8, QImage.Format_RGB32)
+            image.fill(QColor('red'))
+            for name in ('old.png', 'new.png'):
+                image.save(str(folder / name))
+            style = {'background': '#112233', 'foreground': '#ddeeff', 'border_color': '#556677',
+                     'border_width': 2, 'radius': 12, 'image': 'old.png',
+                     'hover': {'background': '#334455'}, 'builtin': True}
+            owner = QWidget()
+            owner.settings = {**config.DEFAULT_SETTINGS, 'skin_parts': {'settings': deepcopy(style)}}
+            owner.shortcuts = {}
+            owner.set_skin = lambda values: owner.settings.update(values)
+            owner.set_skin_parts = lambda values: owner.settings.update(skin_parts=deepcopy(values))
+            controller = owner.skin_controller = Controller(owner)
+            controller.window, controller.layer = owner, Layer(owner)
+            page = professional = None
+            try:
+                page = PartSettings(owner, embedded=True)
+                self.assertEqual(set(page.fields), {'image', 'icon'})
+                page._select_part('settings')
+                self.assertFalse(page._drafts)
+                page.fields['image'][1].setText('new.png')
+                self.assertTrue(page.save_changes())
+                self.assertEqual(owner.settings['skin_parts']['settings'], {**style, 'image': 'new.png'})
+                professional = PartSettings(owner, professional=True)
+                self.assertEqual(set(professional.fields),
+                                 {'background', 'foreground', 'border_color', 'border_width', 'radius', 'image', 'icon'})
+                professional._select_part('settings')
+                professional.fields['radius'][1].setValue(18)
+                self.assertTrue(professional.save_changes())
+                self.assertEqual(owner.settings['skin_parts']['settings']['radius'], 18)
+            finally:
+                for widget in (page, professional, owner):
+                    if widget is not None:
+                        widget.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 class HostedGeneralTests(unittest.TestCase):

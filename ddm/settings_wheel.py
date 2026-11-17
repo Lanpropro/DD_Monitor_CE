@@ -26,7 +26,7 @@ class EmbeddedSettingsWheel(QObject, QAbstractNativeEventFilter):
         QAbstractNativeEventFilter.__init__(self)
         self.root, self.send = root, send
         self.app = QApplication.instance()
-        self.hwnd = int(root.winId())
+        self.native = root.nativeParentWidget() or root.window()
         self.app.installNativeEventFilter(self)
         root.destroyed.connect(self.stop)
 
@@ -40,11 +40,13 @@ class EmbeddedSettingsWheel(QObject, QAbstractNativeEventFilter):
         native = QPoint(ctypes.c_short(msg.lParam & 0xffff).value,
                         ctypes.c_short((msg.lParam >> 16) & 0xffff).value)
         bounds = wintypes.RECT()
-        if not ctypes.windll.user32.GetWindowRect(wintypes.HWND(self.hwnd), ctypes.byref(bounds)):
+        if not ctypes.windll.user32.GetWindowRect(
+                wintypes.HWND(int(self.native.effectiveWinId())), ctypes.byref(bounds)):
             return False, 0
-        # The embedded child is frameless; native screen offsets use its current DPI.
+        # Use the existing native ancestor; winId() on an alien container would
+        # create an extra HWND and its cross-process native window hierarchy.
         point = ((QPointF(native) - QPointF(bounds.left, bounds.top))
-                 / self.root.devicePixelRatioF()).toPoint()
+                 / self.root.devicePixelRatioF()).toPoint() - self.root.mapTo(self.native, QPoint())
         if not self.root.rect().contains(point):
             return False, 0
         self.send(dict(x=point.x(), y=point.y(),

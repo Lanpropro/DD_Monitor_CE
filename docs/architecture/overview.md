@@ -250,6 +250,8 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语及可读�
 
 独立设置的可见常规编辑器由worker持有，隐藏宿主通过工厂的 `hosted=True` 使用 `settings_host_general.py`，仅维护旧插件Show扩展需要的插入grid、平台显示锚点与GeneralContributions。对话框类型、插件经理和accepted接线不变；其余常规值由对话框初始快照及worker保存协议提供，不另建一套隐藏编辑状态。一般设置入口和预览默认仍使用完整GeneralSettingsPage，MainWindow工厂只作薄参数转交；隐藏页和贡献控件均继续归宿主对话框的Qt父子树管理。
 
+嵌入滚轮桥接复用已有原生父窗口，在投递时读取effectiveWinId及最新容器偏移，不为坐标换算强制创建额外原生容器。分区美化普通模式只拥有素材字段的控件，其余显式样式继续来自原配置与草稿；专业模式保留完整编辑器，避免为普通入口复制一套不可操作的隐藏编辑状态。
+
 在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 从正式 Release ZIP 清单发现插件，负责兼容性和持久缓存，复用安装器验证结构而不执行插件；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，不再维护插件 ID 白名单，缓存状态仍由调用者传入。
 
 ### 诊断中心与崩溃证据
