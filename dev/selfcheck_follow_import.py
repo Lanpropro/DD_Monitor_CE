@@ -66,7 +66,7 @@ def main():
     assert [dialog.list.item(i).checkState() for i in range(3)] == [Qt.Checked, Qt.Unchecked, Qt.Unchecked]
     assert dialog.selected() == [ROOMS[0]] and "已选 1" in dialog.header.text()
     assert dialog.deselected_existing() == [] and not dialog.folder_changed
-    assert [a.text() for a in dialog.folder_button.menu().actions()] == ["未分类", "赛事"]
+    assert [a.text() for a in dialog.folder_button.menu().actions() if a.isCheckable()] == ["未分类", "赛事"]
     assert dialog.folder_id == ""
     select_folder(dialog, "games")
     assert dialog.folder_button.text() == "赛事"
@@ -113,7 +113,7 @@ def main():
     empty = FollowImportDialog([], set())
     empty.search_edit.setText("主播")
     empty._check_all(True)
-    assert not empty.selected() and len(empty.folder_button.menu().actions()) == 1
+    assert not empty.selected() and len([a for a in empty.folder_button.menu().actions() if a.isCheckable()]) == 1
     empty.close()
     print("PASS: name-only search, case folding, visible-only bulk actions, retained checks/avatars, Enter and empty list")
 
@@ -130,7 +130,7 @@ def main():
         page = account.page
         assert {room["room_id"] for room in page.selected()} == {
             room["room_id"] for room in window.sidebar.rooms()}
-        assert [a.text() for a in page.folder_button.menu().actions()] == ["默认关注", "已有分类", "导入分类"]
+        assert [a.text() for a in page.folder_button.menu().actions() if a.isCheckable()] == ["默认关注", "已有分类", "导入分类"]
         select_folder(page, target)
         page.search_edit.setText("测试主播")
         page._check_all(True)
@@ -223,16 +223,16 @@ def main():
             page.search_edit.setText('测试主播')
             checked = [page.list.item(i).checkState() for i in range(page.list.count())]
             hidden = [page.list.item(i).isHidden() for i in range(page.list.count())]
-            assert page.new_folder_button.isEnabled()
+            assert page.new_folder_action.isEnabled()
             for name, accepted in (('取消', False), ('  ', True), ('已有分类', True)):
                 before_folders = window.sidebar.folder_state()
                 with patch.object(FolderIconDialog, 'exec', edit_folder(name, accepted)), \
                         patch('ddm.dialogs.QMessageBox.warning'):
-                    QTest.mouseClick(page.new_folder_button, Qt.LeftButton)
+                    page.new_folder_action.trigger()
                 assert window.sidebar.folder_state() == before_folders
                 assert not page.folder_changed
             with patch.object(FolderIconDialog, 'exec', edit_folder('新导入分组')):
-                QTest.mouseClick(page.new_folder_button, Qt.LeftButton)
+                page.new_folder_action.trigger()
             assert window.sidebar.get_folder(page.folder_id)['icon'] == {'type': 'builtin', 'name': 'star', 'color': 'blue'}
             created.append(page.folder_id)
             assert page.folder_changed and page.folder_button.text() == '新导入分组'

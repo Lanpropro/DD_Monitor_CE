@@ -49,6 +49,27 @@ class FollowImportUITests(unittest.TestCase):
                          pos=QPoint(rect.right() - 22, rect.center().y()))
         self.assertEqual(self.page.selected(), [])
 
+    def test_scrolled_mouse_clicks_toggle_avatar_text_and_checkbox(self):
+        self.page.close()
+        rooms = [dict(room_id=str(i), uname=f'主播{i}', live=False) for i in range(100)]
+        self.page = FollowImportDialog(rooms, set())
+        self.page.show()
+        QTest.qWait(25)
+        self.page.list.scrollToItem(self.page.list.item(45))
+        QTest.qWait(25)
+        item = self.page.list.item(45)
+        rect = self.page.list.visualItemRect(item)
+        for x in (rect.left() + 30, rect.center().x(), rect.right() - 22):
+            pos = QPoint(x, rect.center().y())
+            QTest.mouseMove(self.page.list.viewport(), pos)
+            QTest.mousePress(self.page.list.viewport(), Qt.LeftButton, pos=pos)
+            QTest.qWait(15)
+            QTest.mouseRelease(self.page.list.viewport(), Qt.LeftButton, pos=pos)
+            QTest.qWait(5)
+            self.assertEqual(item.checkState(), Qt.Checked)
+            self.assertEqual(self.page.header.text(), '已选 1 · 新增 1')
+            self.page._check_all(False)
+
     def test_pinyin_search_visible_actions_and_new_count(self):
         self.page.search_edit.setText('xiaoming')
         self.assertEqual([self.page.list.item(i).isHidden() for i in range(3)], [True, False, True])
@@ -67,7 +88,7 @@ class FollowImportUITests(unittest.TestCase):
             self.page.resize(width, 620)
             QTest.qWait(20)
             self.assertEqual(self.page.width(), width)
-            for control in (self.page.folder_button, self.page.new_folder_button, self.page.import_button):
+            for control in (self.page.folder_button, self.page.import_button):
                 rect = control.rect().translated(control.mapTo(self.page, QPoint()))
                 self.assertTrue(self.page.rect().contains(rect), (width, rect))
             action = next(a for a in self.page.folder_button.menu().actions() if a.data() == 'games')
@@ -75,6 +96,20 @@ class FollowImportUITests(unittest.TestCase):
             self.assertEqual(self.page.folder_id, 'games')
             row = self.page.footer.getItemPosition(self.page.footer.indexOf(self.page.confirm_controls))[0]
             self.assertEqual(row, 0 if width == 700 else 1)
+
+    def test_new_folder_is_a_menu_action_and_preserves_selection(self):
+        self.assertFalse(hasattr(self.page, 'new_folder_button'))
+        self.assertEqual(self.page.new_folder_action.text(), '新建文件夹…')
+        self.assertFalse(self.page.new_folder_action.isEnabled())
+        self.page.close()
+        self.page = FollowImportDialog(ROOMS, {'100'}, folder_creator=lambda *_: None)
+        self.page.search_edit.setText('xiaoming')
+        with patch('ddm.room_folder_controls.create_folder_dialog', return_value=('new', '新文件夹')):
+            self.page.new_folder_action.trigger()
+        self.assertEqual(self.page.folder_id, 'new')
+        self.assertEqual(self.page.folder_button.text(), '新文件夹')
+        self.assertEqual(self.page.selected(), [ROOMS[0]])
+        self.assertEqual(self.page.search_edit.text(), 'xiaoming')
 
     def test_pending_selection_resolves_without_losing_checks(self):
         self.page.close()
@@ -127,6 +162,10 @@ class FollowImportUITests(unittest.TestCase):
             QTest.qWait(20)
             self.assertEqual(dialog.import_bar.account.uname, '测试账号')
             self.assertEqual(dialog.width(), 430)
+            self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
+            self.assertLessEqual(dialog.import_bar.account.width(), 200)
+            name = dialog.import_bar.account.name
+            self.assertGreaterEqual(name.width(), name.fontMetrics().horizontalAdvance(name.text()))
             original = dialog.page
             dialog.import_bar.refresh.click()
             self.assertIsNot(dialog.page, original)
@@ -140,7 +179,8 @@ class FollowImportUITests(unittest.TestCase):
             dialog.import_bar.platform.setCurrentIndex(dialog.import_bar.platform.findData('bilibili'))
             self.assertIsInstance(dialog.page, FollowImportDialog)
             self.assertEqual(dialog.width(), 430)
-            dialog.reject()
+            dialog.import_bar.titlebar.close_button.click()
+            self.assertFalse(dialog.isVisible())
         owner.close()
 
 

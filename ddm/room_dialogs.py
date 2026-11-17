@@ -76,15 +76,10 @@ class FollowImportDialog(QDialog):
             _add_folder_option(self, folder_menu, folder_id, name)
         self.folder_button.setMenu(folder_menu)
         folder_row.addWidget(self.folder_button)
-        self.new_folder_button = QPushButton("＋")
-        self.new_folder_button.setFixedWidth(34)
-        self.new_folder_button.setToolTip("新建文件夹")
-        self.new_folder_button.setAccessibleName("新建文件夹")
-        self.new_folder_button.setObjectName("IconButton")
-        self.new_folder_button.setAutoDefault(False)
-        self.new_folder_button.setEnabled(folder_creator is not None)
-        self.new_folder_button.clicked.connect(lambda: _create_folder_for_dialog(self, folder_creator))
-        folder_row.addWidget(self.new_folder_button)
+        folder_menu.addSeparator()
+        self.new_folder_action = folder_menu.addAction("新建文件夹…")
+        self.new_folder_action.setEnabled(folder_creator is not None)
+        self.new_folder_action.triggered.connect(lambda: _create_folder_for_dialog(self, folder_creator))
         # 快捷筛选
         filters = QHBoxLayout()
         filters.setSpacing(6)
@@ -118,8 +113,6 @@ class FollowImportDialog(QDialog):
         self.list.setSpacing(3)
         self._avatar_items = {}
         self.list.setUniformItemSizes(True)
-        self.list.setLayoutMode(QListWidget.Batched)
-        self.list.setBatchSize(64)
         self._offset = 0
         self._populating = len(rooms) > 128
         self._pending_avatars = {}
