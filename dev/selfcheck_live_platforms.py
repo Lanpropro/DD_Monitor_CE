@@ -17,7 +17,7 @@ from PySide6.QtGui import QDropEvent, QIcon, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ddm import bili, config, images, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.dialogs import AddRoomDialog  # noqa: E402
+from ddm.room_add_panel import RoomAddPanel  # noqa: E402
 from ddm.widgets import ROOM_MIME  # noqa: E402
 
 DOUYIN_CATEGORY_URL = (
@@ -239,11 +239,11 @@ def main():
                             patch.object(platform, "play_url", return_value=("https://cdn.test/live.flv", 10000, kind, headers)), \
                             patch.object(platform, "play_url_for_codec", return_value=(
                                 "https://cdn.test/live.flv", 10000, kind, headers, "avc")):
-                        def accept(dialog):
-                            dialog.edit.setText(category_url if kind == "douyin" else platform.room_url(kind + ":123"))
-                            dialog.accept()
-                            return dialog.result()
-                        with patch.object(AddRoomDialog, "exec", accept):
+                        def accept(dialog, open_editor=RoomAddPanel.open):
+                            open_editor(dialog)
+                            dialog.entry.setPlainText(category_url if kind == "douyin" else platform.room_url(kind + ":123"))
+                            dialog.submit_button.click()
+                        with patch.object(RoomAddPanel, "open", accept):
                             window.open_add_room()
                         settle(app, lambda: any(profile == kind for _, profile, _ in played))
                         item = next(item for item in window.sidebar.items() if item.room["room_id"] == kind + ":123")

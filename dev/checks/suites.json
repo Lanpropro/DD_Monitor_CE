@@ -70,6 +70,9 @@
     "mode": "offline",
     "description": "已核对的离屏功能回归；需要开发依赖，录制专项另需 FFmpeg；使用替身或本机测试服务",
     "scripts": [
+      "selfcheck_follow_import_ui",
+      "selfcheck_room_add_inline",
+      "selfcheck_room_add_entry",
       "selfcheck_update_download_progress",
       "selfcheck_update_preview",
       "selfcheck_browser_accounts",

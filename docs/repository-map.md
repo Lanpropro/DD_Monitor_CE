@@ -123,6 +123,8 @@
 - `dev/selfcheck_account_recovery.py`
 - `dev/selfcheck_account_render.py`
 - `dev/selfcheck_accounts.py`
+- `dev/selfcheck_room_add_inline.py`
+- `dev/selfcheck_room_add_entry.py`
 - `dev/selfcheck_add_room_folder.py`
 - `dev/selfcheck_add_room_hints.py`
 - `dev/selfcheck_mobile_share.py`
@@ -222,6 +224,7 @@
 - `dev/selfcheck_folder_drag.py`
 - `dev/selfcheck_folder_icons.py`
 - `dev/selfcheck_follow_folders.py`
+- `dev/selfcheck_follow_import_ui.py`
 - `dev/selfcheck_follow_import.py`
 - `dev/selfcheck_failed_stream_quality.py`
 - `dev/selfcheck_empty_tile_quality.py`
@@ -799,7 +802,7 @@ B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili
 
 登录边界：`bili_login_worker.py`、`oauth_worker.py`、`platform_follow_worker.py` 分别持有扫码、OAuth、平台关注协议工作线程；原 login/oauth_login/platform_login 保留具体登录界面及旧工厂。`platform_profiles.py` 统一持有浏览器 profile 注册表与退出清理，原模块只是同一字典的兼容引用。
 
-房间细分：`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。
+房间细分：`room_add_batch.py` 管多行添加的逐条后台查询与结果汇总，复用原识别器和放置规则；`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。
 
 SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_chat_animation.py` 为运行时展开/折叠期限，`super_chat_avatar.py` 为头像资源与绘制，`super_chat_preview.py` 为设置预览与位置编辑。原 super_chat_presentation 保留兼容导出，项目内部按实际职责导入，QObject/定时器父对象不变。
 
@@ -822,3 +825,7 @@ SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_
 
 
 画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。
+
+原位添加：`room_add_panel.py` 管统一的展开式添加面板、焦点与定位，不替换搜索或关注区域，保持画面墙布局；`room_add_input.py` 管行号校验和去重；RoomCatalog 持有目标格、查询工厂与完成回调，复用原解析器。
+
+关注导入：`follow_import_ui.py` 负责紧凑平台入口、溢出菜单、圆角外壳和响应式单／双列绘制；`room_dialogs.py` 持有关注数据、排序／隐藏条件、勾选、文件夹归类、分批填充和头像请求，源顺序独立于显示顺序；`account_dialog.py` 保留唯一平台状态、页面缓存与任务生命周期。

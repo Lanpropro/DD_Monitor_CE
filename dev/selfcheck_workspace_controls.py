@@ -703,9 +703,7 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.pluginSettingsRequested.connect(lambda: calls.append('store'))
         nav = self.sidebar.navigation
         nav.open_add_menu()
-        nav.menu.actions()[0].trigger()
-        nav.menu.actions()[1].trigger()
-        nav.menu.hide()
+        self.sidebar.import_button.click()
         self.sidebar.workspace_controls.store_button.click()
         self.assertEqual(calls, ['add', 'import', 'store'])
 

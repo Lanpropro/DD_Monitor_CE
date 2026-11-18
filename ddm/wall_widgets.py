@@ -22,6 +22,7 @@ from .wall_geometry import (best_columns)
 class WallGrid(QWidget):
     """画面墙：自动网格或指定布局方案。"""
 
+    addRoomRequested = Signal(object)
     tileClicked = Signal(dict)
     tileCreated = Signal(object)
     roomDropped = Signal(object, str)      # 目标格子, 房间号
@@ -204,6 +205,7 @@ class WallGrid(QWidget):
         tile = Tile(room, self)
         if self._quick_danmaku_layer is not None:
             tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
+        tile.addRoomRequested.connect(lambda t=tile: self.addRoomRequested.emit(t))
         tile.clicked.connect(self.tileClicked.emit)
         tile.roomDropped.connect(lambda rid, t=tile: self.roomDropped.emit(t, rid))
         tile.tileDropped.connect(lambda rid, t=tile: self.tileSwapped.emit(rid, t))

@@ -15,6 +15,7 @@ from .widget_support import BRAND_ASSETS_DIR
 
 
 from .account_workers import (FollowAccountResolver)
+from .follow_import_ui import AccountImportBar, paint_import_surface
 
 
 class AccountPlatformDialog(QDialog):
@@ -23,6 +24,11 @@ class AccountPlatformDialog(QDialog):
         self.owner = owner
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
+        if import_follows:
+            self.setWindowFlag(Qt.FramelessWindowHint, True)
+            self.setAttribute(Qt.WA_TranslucentBackground)
+            self.setProperty("customControlSurface", True)
+            theme.signals().changed.connect(self.update)
         self.reauthenticate = reauthenticate
         self._reauthenticate_kind = platform_kind
         self.rooms = []
@@ -43,46 +49,69 @@ class AccountPlatformDialog(QDialog):
         self._pending_platform = ""
         self.setWindowTitle("导入关注" if import_follows else "登录")
         self.layout_box = QVBoxLayout(self)
-        toolbar = QGridLayout()
-        toolbar.addWidget(QLabel("平台"), 0, 0)
+        if import_follows:
+            self.layout_box.setContentsMargins(12, 10, 12, 10)
+            self.layout_box.setSpacing(8)
         self.platform_buttons = {}
-        self.group = QButtonGroup(self)
-        groups = [[("bilibili", "B站")]]
-        owners = getattr(owner.plugins, "_platform_owner", {})
-        plugin_rows = {}
-        for provider in providers.values():
-            plugin = owners.get(provider.kind, "domestic" if provider.kind in ("huya", "douyu", "douyin") else "global")
-            if plugin not in plugin_rows:
-                if provider.kind in ("huya", "douyu", "douyin"):
-                    plugin_rows[plugin] = 0
-                else:
-                    plugin_rows[plugin] = len(groups)
-                    groups.append([])
-            groups[plugin_rows[plugin]].append((provider.kind, provider.label))
-        for row, platforms in enumerate(groups):
-            for column, (kind, label) in enumerate(platforms, 1):
-                button = QPushButton(label)
-                button.setFixedWidth(112)
-                button.setProperty("platformLabel", label)
-                button.setCheckable(True)
-                button.setAutoDefault(False)
-                button.setCursor(Qt.PointingHandCursor)
-                button.setObjectName("IconButton")
-                icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
-                                         "huya.png" if kind == "huya" else kind + ".ico")
-                button.setIcon(QIcon(icon_path))
-                button.clicked.connect(lambda _checked=False, k=kind: self.select_platform(k))
-                self.group.addButton(button)
-                self.platform_buttons[kind] = button
-                toolbar.addWidget(button, row, column)
-        toolbar.setColumnStretch(max(map(len, groups)) + 1, 1)
-        self.layout_box.addLayout(toolbar)
+        if import_follows:
+            labels = [("bilibili", "哔哩哔哩")] + [(p.kind, p.label) for p in providers.values()
+                                                          if p.kind != "bilibili"]
+            self.import_bar = AccountImportBar(labels, self)
+            self.import_bar.platform.selectionRequested.connect(self.select_platform)
+            self.import_bar.refresh.clicked.connect(lambda: self.select_platform(self.kind, reread=True))
+            self.layout_box.addWidget(self.import_bar)
+        else:
+            toolbar = QGridLayout()
+            toolbar.addWidget(QLabel("平台"), 0, 0)
+            self.group = QButtonGroup(self)
+            groups = [[("bilibili", "B站")]]
+            owners = getattr(owner.plugins, "_platform_owner", {})
+            plugin_rows = {}
+            for provider in providers.values():
+                plugin = owners.get(provider.kind, "domestic" if provider.kind in ("huya", "douyu", "douyin") else "global")
+                if plugin not in plugin_rows:
+                    if provider.kind in ("huya", "douyu", "douyin"):
+                        plugin_rows[plugin] = 0
+                    else:
+                        plugin_rows[plugin] = len(groups)
+                        groups.append([])
+                groups[plugin_rows[plugin]].append((provider.kind, provider.label))
+            for row, platforms in enumerate(groups):
+                for column, (kind, label) in enumerate(platforms, 1):
+                    button = QPushButton(label)
+                    button.setFixedWidth(112)
+                    button.setProperty("platformLabel", label)
+                    button.setCheckable(True)
+                    button.setAutoDefault(False)
+                    button.setCursor(Qt.PointingHandCursor)
+                    button.setObjectName("IconButton")
+                    icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
+                                             "huya.png" if kind == "huya" else kind + ".ico")
+                    button.setIcon(QIcon(icon_path))
+                    button.clicked.connect(lambda _checked=False, k=kind: self.select_platform(k))
+                    self.group.addButton(button)
+                    self.platform_buttons[kind] = button
+                    toolbar.addWidget(button, row, column)
+            toolbar.setColumnStretch(max(map(len, groups)) + 1, 1)
+            self.layout_box.addLayout(toolbar)
         self._update_platform_labels()
         self.pages = QStackedWidget(self)
+        if import_follows:
+            # WebEngine promotes this ancestor; do it before the visible HWND exists.
+            self.pages.setAttribute(Qt.WA_NativeWindow)
         self.layout_box.addWidget(self.pages, 1)
         self.select_platform(platform_kind)
 
     def _update_platform_labels(self):
+        if self.import_follows:
+            picker = self.import_bar.platform
+            picker.set_current(self.kind)
+            account = self.owner._accounts.get(self.kind, {})
+            logged = bool(bili.SESSION_DATA) if self.kind == "bilibili" else bool(account) and not account.get("_login_expired")
+            self.import_bar.set_account((account or {"uname": "已登录"}) if logged else {}, self.kind)
+            self.import_bar.refresh.setEnabled(isinstance(self.page, FollowImportDialog)
+                                               and not self.page.property("loading"))
+            return
         for kind, button in self.platform_buttons.items():
             label = button.property("platformLabel")
             logged = bool(bili.SESSION_DATA) if kind == "bilibili" else (
@@ -104,8 +133,13 @@ class AccountPlatformDialog(QDialog):
         self._update_platform_labels()
         page = self._platform_pages.get(self.kind)
         can_switch = page is not None and page._interactive_read and self._closing_result is None
-        for button in self.platform_buttons.values():
-            button.setEnabled(not busy or can_switch)
+        if self.import_follows:
+            self.import_bar.platform.setEnabled(not busy or can_switch)
+            self.import_bar.refresh.setEnabled(not busy and isinstance(self.page, FollowImportDialog)
+                                               and not self.page.property("loading"))
+        else:
+            for button in self.platform_buttons.values():
+                button.setEnabled(not busy or can_switch)
         if not busy and self._pending_platform and self._closing_result is None:
             kind, self._pending_platform = self._pending_platform, ""
             self.select_platform(kind)
@@ -141,7 +175,14 @@ class AccountPlatformDialog(QDialog):
                 and page not in self._follow_pages.values()):
             page.finished.connect(self._page_finished)
         page.show()
-        self.resize(size.width() + 24, size.height() + self.layout_box.itemAt(0).sizeHint().height() + 24)
+        if not self.import_follows or not self.isVisible():
+            available = self.owner.screen().availableGeometry()
+            width = min(size.width() + 24, available.width() - 24)
+            if self.import_follows and self.owner.width() >= 400:
+                width = min(width, self.owner.width())
+            self.resize(width, min(size.height() + self.layout_box.itemAt(0).sizeHint().height() + 24,
+                                   available.height() - 40))
+        self._update_platform_labels()
         self.layout_box.activate()
         if self.isVisible():
             self._center_on_owner()
@@ -155,19 +196,49 @@ class AccountPlatformDialog(QDialog):
         y = max(screen.top(), min(frame.top(), screen.bottom() - frame.height() + 1))
         self.move(x, y)
 
+    def mousePressEvent(self, event):
+        if self.import_follows and event.button() == Qt.LeftButton and self.windowHandle() is not None:
+            point = event.position()
+            edges = Qt.Edge(0)
+            if point.x() < 8:
+                edges |= Qt.LeftEdge
+            if point.x() >= self.width() - 8:
+                edges |= Qt.RightEdge
+            if point.y() < 8:
+                edges |= Qt.TopEdge
+            if point.y() >= self.height() - 8:
+                edges |= Qt.BottomEdge
+            if edges and self.windowHandle().startSystemResize(edges):
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        if self.import_follows:
+            paint_import_surface(self)
+        else:
+            super().paintEvent(event)
+
     def showEvent(self, event):
         super().showEvent(event)
         self._center_on_owner()
 
+    def _select_platform_control(self, kind):
+        if self.import_follows:
+            picker = self.import_bar.platform
+            picker.set_current(kind)
+        else:
+            self.platform_buttons[kind].setChecked(True)
+
     def select_platform(self, kind, *, reread=False):
         if self._closing_result is not None or (kind == self.kind and not reread):
             return
-        if not self.platform_buttons[kind].isEnabled():
+        if not (self.import_bar.platform.isEnabled() if self.import_follows else self.platform_buttons[kind].isEnabled()):
             return
         page = self._platform_pages.get(self.kind)
         if page is not None and page._worker is not None:
             self._pending_platform = kind
-            self.platform_buttons[self.kind].setChecked(True)
+            self._select_platform_control(self.kind)
             page.cancel_read()
             return
         if self._account_resolver is not None:
@@ -182,7 +253,7 @@ class AccountPlatformDialog(QDialog):
             self._follow_pages.pop(kind, None)
         self._clear_page()
         self.kind = kind
-        self.platform_buttons[kind].setChecked(True)
+        self._select_platform_control(kind)
         notice = getattr(self.providers.get(kind), "account_login_notice", "")
         if notice:
             page = QWidget()
@@ -323,6 +394,7 @@ class AccountPlatformDialog(QDialog):
         existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
         page = FollowImportDialog([], existing, self.owner)
         page.setProperty("loading", True)
+        page.empty_label.hide()
         page.header.setText(title)
         page.import_button.setEnabled(False)
         for button in page.filter_buttons:
@@ -412,13 +484,7 @@ class AccountPlatformDialog(QDialog):
                                   folder_creator=self.owner.sidebar.create_folder,
                                   room_menu=self.kind == "douyin")
         if self.kind in ("douyin", "youtube", "twitch"):
-            page.reread_button = QPushButton("重新读取", page)
-            page.reread_button.setObjectName("IconButton")
-            page.reread_button.setCursor(Qt.PointingHandCursor)
-            page.reread_button.setAutoDefault(False)
-            page.reread_button.clicked.connect(
-                lambda _checked=False, kind=self.kind: self.select_platform(kind, reread=True))
-            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(0, page.reread_button)
+            page.reread_button = self.import_bar.refresh
         if self.kind == "douyin":
             uid = self.owner._accounts.get(self.kind, {}).get("uid")
             if uid:
@@ -427,10 +493,10 @@ class AccountPlatformDialog(QDialog):
                     cache_follows(rooms)
                 else:
                     self.owner._douyin_follow_cache = {"uid": str(uid), "rooms": deepcopy(rooms)}
-            page.platform_notice = QLabel("受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。"
-                                          "你仍可直接勾选账号导入，软件会随后台刷新继续查询", page)
+            page.platform_notice = QLabel("部分账号资料暂不完整，可先勾选，稍后继续识别。", page)
             page.platform_notice.setObjectName("SettingsHint")
             page.platform_notice.setWordWrap(True)
+            page.platform_notice.setToolTip("受抖音网页接口及访问验证限制，部分未开播账号资料暂时无法获取；按账号导入后随后台刷新继续查询。")
             page.layout().insertWidget(1, page.platform_notice)
         page.finished.connect(self._page_finished)
         self._follow_pages[self.kind] = page
@@ -449,7 +515,8 @@ class AccountPlatformDialog(QDialog):
             page.resolve_button.setCursor(Qt.PointingHandCursor)
             page.resolve_button.setAutoDefault(False)
             page.resolve_button.clicked.connect(lambda: self._resolve_accounts(page))
-            page.layout().itemAt(page.layout().count() - 1).layout().insertWidget(1, page.resolve_button)
+            page.secondary_actions.addWidget(page.resolve_button)
+            page.secondary_actions.addStretch(1)
         self._set_page(page)
         page.request_visible_avatars()
         # 打开磁盘缓存不触发网络；新读取的列表才自动补充。

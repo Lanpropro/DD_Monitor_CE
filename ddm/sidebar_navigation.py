@@ -17,6 +17,7 @@ PATHS = {
     'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
+    'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     'plus': '<path d="M12 5v14M5 12h14"/>',
     'more': '<circle cx="5" cy="12" r=".8"/><circle cx="12" cy="12" r=".8"/><circle cx="19" cy="12" r=".8"/>',
     'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
@@ -144,11 +145,18 @@ class SidebarNavigation(QObject):
         header.addStretch(1)
         self.add_button = NavigationButton('添加与导入', 'plus', self.header)
         self.add_button.clicked.connect(self.open_add_menu)
+        self.collapsed_add_button = NavigationButton('添加与导入', 'plus', self.rail)
+        self.collapsed_add_button.clicked.connect(lambda: self.open_add_menu(anchor=self.collapsed_add_button))
+        self.top.addWidget(self.collapsed_add_button, 0, Qt.AlignHCenter)
+        self.collapsed_add_button.setFixedSize(24, 24)
+        self.collapsed_add_button.hide()
         self.manage_button = NavigationButton('关注管理', 'more', self.header)
         self.manage_button.clicked.connect(self.open_manage_menu)
         for button in (self.add_button, self.manage_button):
             button.setFixedSize(26, 26)
             header.addWidget(button)
+        header.addStretch(0)
+        self._header_tail = header.itemAt(header.count() - 1)
         sidebar._layout.insertWidget(1, self.header)
 
         self.filters = QWidget(sidebar)
@@ -296,15 +304,8 @@ class SidebarNavigation(QObject):
         menu.aboutToHide.connect(lambda: button.setDown(False))
         return menu
 
-    def open_add_menu(self):
-        sidebar = self.sidebar
-        menu = self._menu(self.add_button)
-        menu.addAction('添加直播间…').triggered.connect(sidebar.add_button.click)
-        menu.addAction('导入关注…').triggered.connect(sidebar.import_button.click)
-        menu.addSeparator()
-        menu.addAction('新建文件夹…').triggered.connect(sidebar.prompt_folder)
-        menu.popup(self.add_button.mapToGlobal(QPoint(0, self.add_button.height()+4)))
-        self.menu = menu
+    def open_add_menu(self, _checked=False, *, anchor=None):
+        self.sidebar.addRoomClicked.emit()
 
     def open_manage_menu(self):
         sidebar = self.sidebar
@@ -352,6 +353,16 @@ class SidebarNavigation(QObject):
         self.icon_drag.cancel()
         left = sidebar.side == 'left'
         self.rail.setVisible(left)
+        add = self.collapsed_add_button
+        holder = sidebar._column if left else sidebar._bar_row
+        if holder is not None and add.parentWidget() is not holder:
+            self.top.removeWidget(add)
+            previous = add.parentWidget()
+            if previous is not None and previous.layout() is not None:
+                previous.layout().removeWidget(add)
+            add.setParent(holder)
+            (sidebar._layout if left else sidebar._bar_row_box).addWidget(add)
+        add.setVisible(holder is not None and sidebar.collapsed)
         self.header.setVisible(left)
         self.filters.setVisible(left and not sidebar.collapsed)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
@@ -366,9 +377,11 @@ class SidebarNavigation(QObject):
                            sidebar.notification_button, sidebar.appearance_button, sidebar.settings_button):
                 button.setParent(self.rail)
                 self.bottom.addWidget(button, 0, Qt.AlignHCenter)
-            sidebar.toggle_button.setParent(self.header)
-            self.header.layout().addWidget(sidebar.toggle_button)
             self.in_rail = True
+        if sidebar.toggle_button.parentWidget() is not self.header:
+            sidebar._detach_from_rows(sidebar.toggle_button)
+            sidebar.toggle_button.setParent(self.header)
+            self.header.layout().insertWidget(self.header.layout().count() - 1, sidebar.toggle_button)
         for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button, sidebar.settings_button):
             button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
@@ -388,5 +401,14 @@ class SidebarNavigation(QObject):
         for widget in (self.title, self.count, self.add_button, self.manage_button):
             widget.setVisible(not sidebar.collapsed)
         sidebar.toggle_button.show()
+        sidebar._layout.removeWidget(add)
+        header = self.header.layout()
+        for control in (self.add_button, self.manage_button, sidebar.toggle_button):
+            header.removeWidget(control)
+            tail = next(index for index in range(header.count()) if header.itemAt(index) is self._header_tail)
+            header.insertWidget(tail, control)
+        header.setStretch(header.count() - 1, 1 if sidebar.collapsed else 0)
+        sidebar._layout.insertWidget(sidebar._layout.indexOf(self.header) + 1, add, 0,
+                                     Qt.AlignHCenter if sidebar.collapsed else Qt.AlignRight)
         self._sort_tools()
         self.sync_count()

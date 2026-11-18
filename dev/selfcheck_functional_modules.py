@@ -318,7 +318,7 @@ class FunctionalModulesTests(unittest.TestCase):
         placement = RoomPlacement(host)
         self.assertIsInstance(placement.catalog, RoomCatalog)
         self.assertIsInstance(placement.navigation, RoomNavigation)
-        self.assertEqual(vars(placement.catalog), {'host': host})
+        self.assertEqual(vars(placement.catalog), {'host': host, '_add_panel': None, '_add_target': None})
         self.assertEqual(vars(placement.navigation), {'host': host})
         self.assertEqual(placement.room_browser_url({'room_id': '123'}), 'https://live.bilibili.com/123')
         for module in ('room_catalog', 'room_navigation', 'watch_history_sampling'):

@@ -212,17 +212,17 @@ class RoomPlacement:
         host._refresh_meta()
         print(f"已关闭 {room.get('uname')}，格子已清空")
 
-    def open_add_room(self, *, dialog_type) -> None:
-        return self.catalog.open_add_room(dialog_type=dialog_type)
+    def open_add_room(self, *, dialog_type=None, target_tile=None, resolver_type=None) -> None:
+        return self.catalog.open_add_room(dialog_type=dialog_type, target_tile=target_tile, resolver_type=resolver_type)
 
-    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type) -> None:
-        return self.catalog.add_room_id(room_id, folder_id=folder_id, resolver_type=resolver_type)
+    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type, target_tile=None) -> None:
+        return self.catalog.add_room_id(room_id, folder_id=folder_id, resolver_type=resolver_type, target_tile=target_tile)
 
-    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id=""):
-        return self.catalog.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id)
+    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
+        return self.catalog.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id, target_tile=target_tile)
 
-    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles) -> None:
-        return self.catalog.on_room_added(room, folder_id=folder_id, max_tiles=max_tiles)
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
+        return self.catalog.on_room_added(room, folder_id=folder_id, max_tiles=max_tiles, target_tile=target_tile, notify=notify)
 
     def add_to_wall(self, room: dict, *, empty_only=False, max_tiles) -> None:
         from . import plugins as plugin_api

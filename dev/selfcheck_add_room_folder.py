@@ -18,6 +18,7 @@ from ddm import theme
 from ddm.app import MainWindow
 from ddm.bili import InfoResolver
 from ddm.dialogs import AddRoomDialog
+from ddm.room_add_panel import RoomAddPanel
 from ddm.folder_icons import FolderIconDialog
 from ddm.follow_folders import UNCLASSIFIED
 from ddm.plugins import RoomInfo
@@ -127,13 +128,14 @@ def main():
             patch.object(window, "load_avatars_for"), patch.object(window, "add_to_wall"), \
             patch.object(window, "_normalize_room_input", side_effect=lambda value: value):
         # 实际添加窗口传递选中的文件夹；两个异步请求反向完成仍进入各自目标。
+        open_editor = RoomAddPanel.open
         def choose(dialog):
-            assert [action.text() for action in dialog.folder_button.menu().actions()] == ["默认关注", "赛事", "娱乐"]
+            open_editor(dialog)
+            assert [action.text() for action in dialog.folder_button.menu().actions() if action.isCheckable()] == ["默认关注", "赛事", "娱乐"]
             select(dialog, first)
-            dialog.edit.setText("101")
-            dialog.accept()
-            return dialog.result()
-        with patch.object(AddRoomDialog, "exec", choose):
+            dialog.entry.setPlainText("101")
+            dialog.submit_button.click()
+        with patch.object(RoomAddPanel, "open", choose):
             window.open_add_room()
         window._add_room_id("huya:a", folder_id=second)
         InfoFixture.pending[1].complete()
@@ -185,17 +187,19 @@ def main():
         # 在实际添加窗口中新建文件夹，自动选中，取消/空名/重名不改变原选择。
         created = []
         def create_and_add(dialog):
-            dialog.edit.setText('105')
-            assert dialog.new_folder_button.isEnabled()
+            open_editor(dialog)
+            dialog.entry.setPlainText('105')
+            before_folder = dialog.folder_id
+            new_folder = next(action for action in dialog.folder_button.menu().actions() if action.text() == '新建文件夹…')
             for text, accepted in (('取消', False), ('   ', True), ('赛事', True)):
                 before = window.sidebar.folder_state()
                 with patch.object(FolderIconDialog, 'exec', edit_folder(text, accepted)), \
                         patch('ddm.dialogs.QMessageBox.warning'):
-                    QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+                    new_folder.trigger()
                 assert window.sidebar.folder_state() == before
-                assert dialog.folder_id == '' and dialog.edit.text() == '105'
+                assert dialog.folder_id == before_folder and dialog.entry.toPlainText() == '105'
             with patch.object(FolderIconDialog, 'exec', edit_folder('  新分组  ')):
-                QTest.mouseClick(dialog.new_folder_button, Qt.LeftButton)
+                new_folder.trigger()
             assert window.sidebar.get_folder(dialog.folder_id)['icon'] == {'type': 'builtin', 'name': 'star', 'color': 'blue'}
             created.append(dialog.folder_id)
             assert dialog.folder_button.text() == '新分组'
@@ -203,9 +207,8 @@ def main():
             assert window.sidebar.get_folder(dialog.folder_id)['type'] == 'normal'
             select(dialog, first)
             select(dialog, created[0])
-            dialog.accept()
-            return dialog.result()
-        with patch.object(AddRoomDialog, 'exec', create_and_add):
+            dialog.submit_button.click()
+        with patch.object(RoomAddPanel, 'open', create_and_add):
             window.open_add_room()
         InfoFixture.pending[-1].complete()
         assert window.sidebar.folder_for('105') == created[0]

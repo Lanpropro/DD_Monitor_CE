@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,9 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication
 from ddm.app import MainWindow
 from ddm.dialogs import AddRoomDialog
+from ddm.room_add_panel import RoomAddPanel
 
 
 def main():
@@ -33,23 +35,22 @@ def main():
                                     for name in names}
         captured = []
         def inspect(dialog):
-            captured.append(dialog.hint.text())
-            assert dialog.hint.wordWrap()
-            return QDialog.Rejected
+            captured.append(dialog.entry.toolTip())
+            assert '每行一个' in dialog.entry.toolTip()
         try:
-            with patch.object(AddRoomDialog, 'exec', new=inspect):
+            with patch.object(RoomAddPanel, 'open', new=inspect):
                 window.open_add_room()
             hint = captured[-1]
-            assert hint.startswith('支持 B 站房间号')
+            assert hint.startswith('房间号或直播间链接')
             for name in ('虎牙', '斗鱼', '抖音', 'Twitch', 'YouTube'):
                 assert (name in hint) == (name in names), (enabled, hint)
-            assert '个人主页链接' not in hint
+            assert 'Ctrl+Enter' in hint
             # 新插件的说明无需修改本体；旧插件没有可选字段也不会导致窗口打不开。
             window.plugins.platforms = {'custom': SimpleNamespace(room_input_hint='自定义链接格式'),
                                         'legacy': SimpleNamespace(label='旧平台')}
-            with patch.object(AddRoomDialog, 'exec', new=inspect):
+            with patch.object(RoomAddPanel, 'open', new=inspect):
                 window.open_add_room()
-            assert captured[-1] == '支持 B 站房间号；自定义链接格式'
+            assert captured[-1] == '房间号或直播间链接，每行一个；Ctrl+Enter 添加；自定义链接格式'
         finally:
             window.close()
             app.processEvents()
@@ -57,4 +58,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    with tempfile.TemporaryDirectory(prefix='ddm-add-hints-') as directory, \
+            patch('ddm.plugins.DEFAULT_PLUGINS_DIR', directory):
+        main()

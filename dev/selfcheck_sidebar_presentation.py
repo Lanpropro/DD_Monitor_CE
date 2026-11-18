@@ -164,7 +164,7 @@ class SidebarPresentationTests(unittest.TestCase):
             self.sidebar._open_account_menu()
         picker.assert_called_once_with()
 
-    def test_menu_entries_follow_side_and_collapse_and_retain_pip_entry(self):
+    def test_menu_entries_follow_side_and_collapse_without_duplicate_tools(self):
         self.sidebar.set_account('Current')
         for side, collapsed in (('left', False), ('left', True), ('top', False), ('top', True)):
             with self.subTest(side=side, collapsed=collapsed):
@@ -174,9 +174,9 @@ class SidebarPresentationTests(unittest.TestCase):
                 labels = [a.text() for a in menu.actions() if a.text()]
                 self.assertEqual('导入关注' in labels, side == 'top')
                 self.assertEqual('+ 添加直播间' in labels, side == 'top')
-                self.assertEqual('画中画' in labels, collapsed)
-                self.assertEqual('设置' in labels, collapsed)
-                self.assertEqual('布局预设' in labels, collapsed)
+                self.assertNotIn('画中画', labels)
+                self.assertNotIn('设置', labels)
+                self.assertNotIn('布局预设', labels)
 
     def test_orientation_roundtrip_keeps_widgets_and_restores_original_parents(self):
         widgets = [self.sidebar.search, self.sidebar.scroll, self.sidebar.tool_row, self.sidebar.account_row,
