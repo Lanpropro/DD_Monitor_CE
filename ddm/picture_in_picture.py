@@ -127,14 +127,10 @@ class PictureInPicture(QObject):
                 self.placement = (tuple(saved_positions[key] for key in wall_selection)
                                   if all(key in saved_positions for key in wall_selection) else ())
         self._first_picker = False
-        self.dialog = PictureInPictureDialog(self)
+        self.dialog = PictureInPictureDialog(self, compact=True) if anchor is not None else PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
-        if anchor is not None:
-            rect = QRect(anchor.mapToGlobal(anchor.rect().topLeft()), anchor.size())
-            screen = QApplication.screenAt(rect.center()) or anchor.screen()
-            if screen is not None:
-                self.dialog.place_near(rect, screen.availableGeometry(), below=below)
-        self.dialog.open()
+        if anchor is None or self.dialog.attach_to_toolbar(anchor, below=below):
+            self.dialog.open()
 
     def _finish_manage(self, _result):
         self.dialog = None

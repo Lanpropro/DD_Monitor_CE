@@ -1,7 +1,7 @@
 """Picture-in-picture room selection and composition dialog."""
-from PySide6.QtCore import QEvent, QRect, QRectF, QSize, QSignalBlocker, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QSignalBlocker, Qt
 from PySide6.QtGui import QPainter, QPen
-from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from . import theme
 from .corner_geometry import continuous_path
 from .search import matches_text
@@ -52,9 +52,17 @@ class RoomChoice(QPushButton):
 
 
 class PictureInPictureDialog(QDialog):
-    def __init__(self, controller):
-        super().__init__(controller.floating or controller.host, Qt.Dialog | Qt.FramelessWindowHint)
+    COMPACT_SIZE = QSize(424, 516)
+
+    def __init__(self, controller, *, compact=False):
+        parent = controller.host if compact else (controller.floating or controller.host)
+        super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.controller = controller
+        self._toolbar_anchor = None
+        self._toolbar_below = False
+        self._toolbar_position = None
+        self._drag_offset = None
+        self._compact = compact
         self._order = list(controller.selected_choices())
         self._primary = controller.primary_choice()
         self._placements = dict(zip(self._order, controller.placement)) if len(self._order) == len(controller.placement) else {}
@@ -65,10 +73,14 @@ class PictureInPictureDialog(QDialog):
         self.setProperty('customControlSurface', True)
         theme.signals().changed.connect(self.update)
         available = self.screen().availableGeometry()
-        self.resize(min(560, available.width() - 48), min(740, available.height() - 80))
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        if compact:
+            self.resize(self.COMPACT_SIZE)
+        else:
+            self.resize(min(560, available.width() - 48), min(740, available.height() - 80))
+        outer = QVBoxLayout(self)
+        margin = 12 if compact else 20
+        outer.setContentsMargins(margin, margin, margin, margin)
+        outer.setSpacing(8 if compact else 12)
         self.titlebar = SettingsTitleBar(self)
         self.titlebar.row.setContentsMargins(0, 0, 0, 0)
         self.titlebar.breadcrumb.hide()
@@ -77,17 +89,38 @@ class PictureInPictureDialog(QDialog):
         self.titlebar.close_button.setAccessibleName('关闭组合画中画')
         self.titlebar.close_button.setToolTip('关闭组合画中画')
         self.titlebar.row.setAlignment(self.titlebar.close_button, Qt.AlignTop)
-        layout.addWidget(self.titlebar)
+        outer.addWidget(self.titlebar)
+        scroll = QScrollArea(self)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidgetResizable(True)
+        if compact:
+            scroll.setObjectName('PipToolbarViewport')
+            scroll.setStyleSheet('#PipToolbarViewport { background: transparent; border: none; }')
+            body = QWidget()
+            layout = QVBoxLayout(body)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(8)
+            scroll.setWidget(body)
+            scroll.viewport().setAutoFillBackground(False)
+            body.setAutoFillBackground(False)
+            outer.addWidget(scroll, 1)
+        else:
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            layout = outer
         self.preview = CompositionPreview(self)
+        if compact:
+            self.titlebar.setMinimumHeight(42)
+            self.preview.setFixedHeight(106)
         self.preview.positionsSwapped.connect(self._swap_preview)
         self.preview.positionChanged.connect(self._place_preview)
         layout.addWidget(self.preview)
         options = QFrame(self)
         options.setObjectName('PluginCard')
         option_rows = QVBoxLayout(options)
-        option_rows.setContentsMargins(12, 10, 12, 10)
-        option_rows.setSpacing(8)
-        self.arrangements = PipArrangements(controller.columns, options)
+        option_margin = 8 if compact else 12
+        option_rows.setContentsMargins(option_margin, 7 if compact else 10, option_margin, 7 if compact else 10)
+        option_rows.setSpacing(6 if compact else 8)
+        self.arrangements = PipArrangements(controller.columns, options, compact=compact)
         self.arrangements.setAccessibleName('画中画排列方式')
         option_rows.addWidget(self.arrangements)
         parallel_row = QHBoxLayout()
@@ -108,10 +141,6 @@ class PictureInPictureDialog(QDialog):
         self.search.setAccessibleName('搜索画中画直播间')
         self.search.textChanged.connect(self._filter)
         layout.addWidget(self.search)
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.choice_viewport = scroll.viewport()
         self.choice_viewport.installEventFilter(self)
         content = QWidget()
@@ -150,10 +179,13 @@ class PictureInPictureDialog(QDialog):
             self.sections.append((heading, group))
         self._wall_count = len(self.sections[0][1])
         choices.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll, 1)
+        if compact:
+            layout.addWidget(content, 1)
+        else:
+            scroll.setWidget(content)
+            layout.addWidget(scroll, 1)
         self.hint = HintLabel(parent=self)
-        layout.addWidget(self.hint)
+        outer.addWidget(self.hint)
         footer = QHBoxLayout()
         cancel = ActionButton('取消', self)
         cancel.clicked.connect(self.reject)
@@ -163,7 +195,7 @@ class PictureInPictureDialog(QDialog):
         self.start.setObjectName('PrimaryButton')
         self.start.clicked.connect(self._apply)
         footer.addWidget(self.start)
-        layout.addLayout(footer)
+        outer.addLayout(footer)
         self.arrangements.changed.connect(self._refresh)
         self._refresh()
         self._arrange_choices()
@@ -198,11 +230,49 @@ class PictureInPictureDialog(QDialog):
             left = anchor.left() - width - gap
             if x + width > area.right() + 1 and left >= area.left():
                 x = left
-        self.move(max(area.left(), min(x, area.right() + 1 - width)),
-                  max(area.top(), min(y, area.bottom() + 1 - height)))
+        self.move(self._clamp_position(QPoint(x, y), area))
+
+    def _clamp_position(self, position, area):
+        return QPoint(max(area.left(), min(position.x(), area.right() + 1 - self.width())),
+                      max(area.top(), min(position.y(), area.bottom() + 1 - self.height())))
+
+    def attach_to_toolbar(self, anchor, *, below):
+        self._toolbar_anchor = anchor
+        self._toolbar_below = below
+        self.controller.host.installEventFilter(self)
+        self.titlebar.installEventFilter(self)
+        return self._fit_to_main_window()
+
+    def _main_window_area(self):
+        host = self.controller.host
+        area = QRect(host.mapToGlobal(QPoint()), host.size())
+        screen = QApplication.screenAt(self._toolbar_anchor.mapToGlobal(self._toolbar_anchor.rect().center()))
+        if screen is not None:
+            visible = area.intersected(screen.availableGeometry())
+            if visible.isValid():
+                return visible
+        return area
+
+    def _fit_to_main_window(self):
+        available = self._main_window_area()
+        area = available.adjusted(8, 8, -8, -8)
+        self.layout().activate()
+        minimum = self.minimumSizeHint()
+        if not area.isValid() or minimum.boundedTo(area.size()) != minimum:
+            self.reject()
+            return False
+        self.resize(self.COMPACT_SIZE.boundedTo(area.size()))
+        if self._toolbar_position is None:
+            anchor = self._toolbar_anchor
+            rect = QRect(anchor.mapToGlobal(QPoint()), anchor.size())
+            self.place_near(rect, available, below=self._toolbar_below)
+        else:
+            position = self.controller.host.mapToGlobal(self._toolbar_position)
+            self.move(self._clamp_position(position, area))
+        return True
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.windowHandle() is not None:
+        if not self._compact and event.button() == Qt.LeftButton and self.windowHandle() is not None:
             x, y = event.position().toPoint().toTuple()
             edges = Qt.Edge(0)
             if x < 8:
@@ -228,6 +298,8 @@ class PictureInPictureDialog(QDialog):
         name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
         index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
         button = RoomChoice(room, name, index, face, holder)
+        if self._compact:
+            button.setMinimumHeight(54)
         button.choice = key
         button.folder_names = folder_names
         button.setChecked(checked)
@@ -299,7 +371,30 @@ class PictureInPictureDialog(QDialog):
             grid.parentWidget().setVisible(bool(visible))
 
     def eventFilter(self, watched, event):
-        if watched is self.choice_viewport and event.type() == QEvent.Resize:
+        kind = event.type()
+        if self._toolbar_anchor is not None:
+            if watched is self.controller.host and self.isVisible():
+                if kind in (QEvent.Move, QEvent.Resize):
+                    self._fit_to_main_window()
+                elif kind == QEvent.Hide or (kind == QEvent.WindowStateChange and watched.isMinimized()):
+                    self.reject()
+            elif watched is self.titlebar:
+                if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                    self._drag_offset = event.globalPosition().toPoint() - self.pos()
+                    self.titlebar.grabMouse()
+                    return True
+                if kind == QEvent.MouseMove and self._drag_offset is not None and event.buttons() & Qt.LeftButton:
+                    position = event.globalPosition().toPoint() - self._drag_offset
+                    position = self._clamp_position(position, self._main_window_area().adjusted(8, 8, -8, -8))
+                    self._toolbar_position = self.controller.host.mapFromGlobal(position)
+                    self.move(position)
+                    return True
+                if kind in (QEvent.MouseButtonRelease, QEvent.UngrabMouse, QEvent.Hide) and self._drag_offset is not None:
+                    self._drag_offset = None
+                    if QWidget.mouseGrabber() is self.titlebar:
+                        self.titlebar.releaseMouse()
+                    return kind == QEvent.MouseButtonRelease
+        if watched is self.choice_viewport and kind == QEvent.Resize:
             self._arrange_choices()
         return super().eventFilter(watched, event)
 

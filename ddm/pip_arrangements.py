@@ -12,7 +12,7 @@ from .pip_geometry import pane_rectangles
 class PipArrangements(QWidget):
     changed = Signal()
 
-    def __init__(self, mode, parent):
+    def __init__(self, mode, parent, *, compact=False):
         super().__init__(parent)
         self._preference = mode
         self.mode = mode
@@ -32,7 +32,9 @@ class PipArrangements(QWidget):
             button.setCursor(Qt.PointingHandCursor)
             button.setObjectName('LayoutCard')
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            button.setIconSize(QSize(40, 26))
+            button.setIconSize(QSize(32, 21) if compact else QSize(40, 26))
+            if compact:
+                button.setStyleSheet('QToolButton#LayoutCard { padding: 4px 3px; }')
             row.addWidget(button)
             self.group.addButton(button)
             button.clicked.connect(lambda _checked=False, mode=value: self.select(mode))

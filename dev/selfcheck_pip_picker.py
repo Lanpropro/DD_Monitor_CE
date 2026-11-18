@@ -8,7 +8,7 @@ import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPalette, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QScrollArea, QWidget
 
 
 class PipPickerTests(unittest.TestCase):
@@ -17,26 +17,56 @@ class PipPickerTests(unittest.TestCase):
     window = fixtures.MainNoticesTests.window
     close_window = fixtures.MainNoticesTests.close_window
 
-    def test_toolbar_opens_picker_beside_the_button_and_keeps_a_moved_window(self):
+    def test_toolbar_picker_stays_inside_the_main_window_on_open_drag_and_resize(self):
+        from ddm.pip_composition import FREE_LAYOUT
+        from selfcheck_picture_in_picture import pointer
+
         window = self.window([dict(room_id='1', uname='Wall', live=True)])
+        window.sidebar.add_rooms([dict(room_id=str(i), uname=f'Followed {i}', live=True) for i in range(2, 7)])
         button = window.sidebar.picture_in_picture_button
         self.assertTrue(button.isVisible())
-        bounds = window.screen().availableGeometry().adjusted(8, 8, -8, -8)
-        window.move(bounds.topLeft() + QPoint(12, 12))
+        available = window.screen().availableGeometry()
+        window.move(available.topLeft() + QPoint(22, 22))
         self.app.processEvents()
+        def bounds():
+            return QRect(window.mapToGlobal(QPoint()), window.size()).intersected(available).adjusted(8, 8, -8, -8)
         anchor = QRect(button.mapToGlobal(QPoint()), button.size())
         button.click()
         pip = window.picture_in_picture
         dialog = pip.dialog
         self.assertIsNotNone(dialog)
-        self.assertTrue(bounds.contains(dialog.geometry()))
-        if anchor.right() + 8 + dialog.width() <= bounds.right():
+        self.assertLessEqual(dialog.width(), 424)
+        self.assertLessEqual(dialog.height(), 516)
+        self.assertTrue(bounds().contains(dialog.geometry()))
+        self.assertEqual(dialog.grab().toImage().pixelColor(0, 0).alpha(), 0)
+        if anchor.right() + 8 + dialog.width() <= bounds().right():
             self.assertEqual(dialog.x(), anchor.right() + 9)
-        moved_position = bounds.topLeft() + QPoint(20, 20)
-        dialog.move(moved_position)
+
+        for room in ('2', '3', '4', '5', '6'):
+            dialog.checks[room].setChecked(True)
+        self.app.processEvents()
+        self.assertTrue(dialog.arrangements.buttons[FREE_LAYOUT].isVisible())
+        self.assertTrue(dialog.rect().contains(QRect(dialog.start.mapTo(dialog, QPoint()), dialog.start.size())))
+
+        header = dialog.titlebar
+        local = header.rect().center()
+        pressed = header.mapToGlobal(local)
+        outside = bounds().bottomRight() + QPoint(150, 150)
+        pointer(header, QEvent.MouseButtonPress, local, pressed, Qt.LeftButton, Qt.LeftButton)
+        pointer(header, QEvent.MouseMove, header.mapFromGlobal(outside), outside, Qt.NoButton, Qt.LeftButton)
+        pointer(header, QEvent.MouseButtonRelease, header.mapFromGlobal(outside), outside, Qt.LeftButton, Qt.NoButton)
+        self.assertEqual(dialog.geometry().bottomRight(), bounds().bottomRight())
+        moved_position = dialog.pos()
         pip.manage_from_sidebar()
         self.assertIs(pip.dialog, dialog)
         self.assertEqual(dialog.pos(), moved_position)
+
+        window.resize(390, 370)
+        self.app.processEvents()
+        self.assertTrue(bounds().contains(dialog.geometry()))
+        outer = dialog.findChild(QScrollArea, 'PipToolbarViewport')
+        self.assertGreater(outer.verticalScrollBar().maximum(), 0)
+        self.assertTrue(dialog.rect().contains(QRect(dialog.start.mapTo(dialog, QPoint()), dialog.start.size())))
         dialog.reject()
 
     def test_anchored_picker_flips_at_screen_edges(self):
