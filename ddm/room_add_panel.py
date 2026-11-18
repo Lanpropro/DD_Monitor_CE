@@ -3,6 +3,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu,
     QPlainTextEdit, QVBoxLayout, QWidget)
+from shiboken6 import isValid
 from . import theme
 from .continuous_corners import stylesheet
 from .follow_folders import default_folder
@@ -24,6 +25,7 @@ class RoomAddPanel(QFrame):
         self.sidebar = sidebar
         sidebar.room_add_panel = self
         self.busy = False
+        self._focus_on_close = None
         self.folder_id = ''
         self.folder_names = set()
         self.folder_creator = sidebar.create_folder
@@ -98,7 +100,8 @@ class RoomAddPanel(QFrame):
         '''))
         self.error.setStyleSheet(f'color:{theme.ERROR};')
 
-    def open(self, *, can_choose_followed=False):
+    def open(self, *, can_choose_followed=False, focus_on_close=None):
+        self._focus_on_close = focus_on_close
         if not self.busy:
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
@@ -168,15 +171,20 @@ class RoomAddPanel(QFrame):
         self.error.show()
         self.fit_to_search()
 
-    def close_editor(self, *, focus_search=True):
+    def close_editor(self):
+        if self.isHidden():
+            return
+        focus_target, self._focus_on_close = self._focus_on_close, None
         focused = QApplication.focusWidget()
-        if not focus_search and focused is not None and self.isAncestorOf(focused):
-            self.window().setFocus(Qt.OtherFocusReason)
+        if focus_target is not None and focused is not None and self.isAncestorOf(focused):
+            if not isValid(focus_target) or not focus_target.isVisible() or not focus_target.isEnabled():
+                focus_target = self.window()
+            focus_target.setFocus(Qt.OtherFocusReason)
         self._fit_timer.stop()
         self.hide()
         self.followed_toggle.setChecked(False)
         self.dismissed.emit()
-        if focus_search and self.sidebar.search.isVisible():
+        if focus_target is None and self.sidebar.search.isVisible():
             self.sidebar.search.setFocus(Qt.OtherFocusReason)
 
     def _import(self):

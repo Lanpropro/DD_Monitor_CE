@@ -74,7 +74,9 @@ class RoomCatalog:
         hints = [getattr(platform, 'room_input_hint', '') for platform in host.plugins.platforms.values()]
         self._add_panel.entry.setToolTip('房间号或直播间链接，每行一个；Ctrl+Enter 添加'
                                        + ''.join('；' + hint for hint in hints if hint))
-        self._add_panel.open(can_choose_followed=self._add_target is not None)
+        target = self._add_target
+        self._add_panel.open(can_choose_followed=target is not None,
+                             focus_on_close=target.add_room_button if target is not None else None)
 
     def _load_followed(self):
         occupied = {str(tile.room.get('room_id') or '') for tile in self.host.wall.tiles}
@@ -101,7 +103,7 @@ class RoomCatalog:
             panel.show_error('该主播已从关注列表移除')
             return
         host._on_room_added(dict(room), target_tile=target)
-        panel.close_editor(focus_search=False)
+        panel.close_editor()
         self._add_target = None
 
     def _submit_inline(self, text, folder_id):
@@ -131,7 +133,7 @@ class RoomCatalog:
         panel.set_busy(False)
         if success:
             panel.entry.clear()
-            panel.close_editor(focus_search=self._add_target is None)
+            panel.close_editor()
             self._add_target = None
         else:
             panel.show_error(message)

@@ -82,6 +82,7 @@ class InlineRoomAddTests(unittest.TestCase):
         host.recorder = Mock()
         host._stop_tile = Mock()
         host.start_tile = Mock()
+        host.load_avatars_for = Mock()
         host.apply_quality_policy = Mock(return_value=[])
         host._refresh_meta = Mock()
         host._save_timer = Mock()
@@ -101,6 +102,41 @@ class InlineRoomAddTests(unittest.TestCase):
         model = picker.model
         return [index for row in range(model.rowCount()) for column in range(model.columnCount())
                 if (index := model.index(row, column)).data(Qt.UserRole)]
+
+    def test_dismissing_add_panel_from_empty_tile_returns_focus_to_its_button(self):
+        wall = self.install_wall()
+        button = wall.tiles[0].add_room_button
+        search = self.host.sidebar.search
+        for method in ('close button', 'Escape'):
+            with self.subTest(method=method):
+                QTest.mouseClick(button, Qt.LeftButton)
+                self.pump()
+                panel = self.catalog._add_panel
+                self.assertIs(self.app.focusWidget(), panel.entry)
+                focused = []
+
+                def record_focus(_old, new):
+                    focused.append(new)
+
+                self.app.focusChanged.connect(record_focus)
+                try:
+                    if method == 'close button':
+                        QTest.mouseClick(panel.close_button, Qt.LeftButton)
+                    else:
+                        QTest.keyClick(panel.entry, Qt.Key_Escape)
+                    self.pump()
+                finally:
+                    self.app.focusChanged.disconnect(record_focus)
+                self.assertFalse(panel.isVisible())
+                self.assertNotIn(search, focused)
+                self.assertIs(self.app.focusWidget(), button)
+
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.pump()
+        QTest.mouseClick(search, Qt.LeftButton)
+        self.pump()
+        self.assertFalse(panel.isVisible())
+        self.assertIs(self.app.focusWidget(), search)
 
     def test_live_filter_restores_saved_value_and_keeps_last_choice(self):
         wall = self.install_wall()
@@ -307,7 +343,7 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(panel.busy)
 
     def test_one_input_uses_existing_resolver_target_and_closes_on_success(self):
-        target = object()
+        target = self.install_wall().tiles[0]
         panel = self.open(target)
         panel.entry.setPlainText('https://live.bilibili.com/1001')
         panel.submit_button.click()
@@ -316,6 +352,7 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(panel.submit_button.isEnabled())
         Resolver.created[-1].complete()
         self.assertFalse(panel.isVisible())
+        self.assertFalse(target.add_room_button.isVisible())
         self.assertEqual(panel.entry.toPlainText(), '')
         self.assertIsNot(self.app.focusWidget(), self.host.sidebar.search)
         self.assertIs(self.host._on_room_added.call_args.kwargs['target_tile'], target)
