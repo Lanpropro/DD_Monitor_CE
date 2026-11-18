@@ -341,6 +341,28 @@ class PictureInPictureWindow(QWidget):
             edges |= Qt.BottomEdge
         return edges
 
+    def _resize_geometry(self, bounds, edges, delta):
+        rect = QRect(bounds)
+        if delta.isNull():
+            return rect
+        horizontal = edges & (Qt.LeftEdge | Qt.RightEdge)
+        vertical = edges & (Qt.TopEdge | Qt.BottomEdge)
+        width_delta = -delta.x() if edges & Qt.LeftEdge else delta.x()
+        height_delta = -delta.y() if edges & Qt.TopEdge else delta.y()
+        aspect = self.aspect
+        if horizontal and vertical:
+            # Project the signed pointer motion onto the aspect-ratio diagonal.
+            width_delta = (width_delta * aspect + height_delta) * aspect / (aspect * aspect + 1)
+        elif vertical:
+            width_delta = height_delta * aspect
+        width = max(self.minimumWidth(), round(bounds.width() + width_delta))
+        rect.setSize(QSize(width, round(width / aspect)))
+        if edges & Qt.LeftEdge:
+            rect.moveRight(bounds.right())
+        if edges & Qt.TopEdge:
+            rect.moveBottom(bounds.bottom())
+        return rect
+
     def _tile_at(self, point):
         if self.tools.isVisible() and self.tools.geometry().contains(point):
             return None
@@ -437,34 +459,12 @@ class PictureInPictureWindow(QWidget):
             if self._gesture is not None:
                 start, bounds, edges = self._gesture
                 delta = point - start
-                rect = QRect(bounds)
-                if not edges:
-                    rect.translate(delta)
-                else:
-                    if edges & Qt.LeftEdge:
-                        rect.setLeft(min(bounds.left() + delta.x(), bounds.right() - self.minimumWidth() + 1))
-                    if edges & Qt.RightEdge:
-                        rect.setRight(max(bounds.right() + delta.x(), bounds.left() + self.minimumWidth() - 1))
-                    if edges & Qt.TopEdge:
-                        rect.setTop(min(bounds.top() + delta.y(), bounds.bottom() - self.minimumHeight() + 1))
-                    if edges & Qt.BottomEdge:
-                        rect.setBottom(max(bounds.bottom() + delta.y(), bounds.top() + self.minimumHeight() - 1))
-                    by_height = (not edges & (Qt.LeftEdge | Qt.RightEdge)
-                                 or bool(edges & (Qt.TopEdge | Qt.BottomEdge)) and abs(delta.y()) * self.aspect > abs(delta.x()))
-                    width = round(rect.height() * self.aspect) if by_height else rect.width()
-                    width = max(self.minimumWidth(), width)
-                    size = QSize(width, round(width / self.aspect))
-                    rect.setSize(size)
-                    if edges & Qt.LeftEdge:
-                        rect.moveRight(bounds.right())
-                    if edges & Qt.TopEdge:
-                        rect.moveBottom(bounds.bottom())
                 if edges:
-                    self._pending_geometry = rect
+                    self._pending_geometry = self._resize_geometry(bounds, edges, delta)
                     if not self._geometry_timer.isActive():
                         self._geometry_timer.start()
                 else:
-                    self._move_composition(rect, native_input=event.spontaneous())
+                    self._move_composition(bounds.translated(delta), native_input=event.spontaneous())
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
             source, start = self._reorder_drag
@@ -477,14 +477,17 @@ class PictureInPictureWindow(QWidget):
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
             start, bounds, edges = self._gesture
+            delta = point - start
             if not edges:
-                rect = QRect(bounds)
-                rect.moveTopLeft(bounds.topLeft() + point - start)
+                rect = bounds.translated(delta)
                 if self._live_move is not None:
                     self._live_move.set_geometry(rect)
                     self._live_move.finish()
                 else:
                     self.move(rect.topLeft())
+            else:
+                rect = self._resize_geometry(bounds, edges, delta)
+                self._pending_geometry = rect if self._live_resize is not None or rect != self.geometry() else None
             self._flush_geometry(finishing=True)
             self._gesture = None
             self.releaseMouse()

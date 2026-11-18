@@ -367,6 +367,44 @@ def check_native_corners(pip):
         QTest.qWait(80)
 
 
+def check_resize_corner_motion():
+    controller = Mock(pinned=False, dialog=None, display_wall=Mock())
+    controller.display_wall.visible_tiles.return_value = []
+    floating = PictureInPictureWindow(controller)
+    floating.setAttribute(Qt.WA_ShowWithoutActivating)
+    floating.setGeometry(-15000, 0, 640, 180)
+    floating.aspect = 32 / 9  # Two 16:9 streams side by side.
+    floating.setMinimumSize(192, 54)
+    floating.show()
+    try:
+        bounds = floating.geometry()
+        for x_sign, y_sign in ((1, 1), (-1, -1), (-1, 1), (1, -1)):
+            floating.setGeometry(bounds)
+            corner = QPoint(3 if x_sign < 0 else bounds.width() - 4,
+                            3 if y_sign < 0 else bounds.height() - 4)
+            pressed = floating.mapToGlobal(corner)
+            pointer(floating, QEvent.MouseButtonPress, corner, pressed, Qt.LeftButton, Qt.LeftButton)
+            widths = []
+            for dx, dy in ((-56, 15), (-56, 16), (-600, -150), (0, 0), (64, 18)):
+                delta = QPoint(x_sign * dx, y_sign * dy)
+                pointer(floating, QEvent.MouseMove, corner + delta, pressed + delta, Qt.NoButton, Qt.LeftButton)
+                preview = floating._pending_geometry
+                widths.append(preview.width())
+                assert abs(preview.width() / floating.aspect - preview.height()) <= 1
+                assert (preview.right() if x_sign < 0 else preview.left()) == (bounds.right() if x_sign < 0 else bounds.left())
+                assert (preview.bottom() if y_sign < 0 else preview.top()) == (bounds.bottom() if y_sign < 0 else bounds.top())
+            assert abs(widths[1] - widths[0]) <= 2, 'A one-pixel move across axes must not jump the window'
+            assert widths[2:] == [floating.minimumWidth(), bounds.width(), bounds.width() + 64]
+            delta = QPoint(x_sign * 96, y_sign * 27)
+            pointer(floating, QEvent.MouseButtonRelease, corner + delta, pressed + delta, Qt.LeftButton, Qt.NoButton)
+            assert floating.size() == QSize(bounds.width() + 96, bounds.height() + 27), 'Use the final pointer on release'
+    finally:
+        floating.stop()
+        floating.close()
+        floating.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 def check_resize_burst(pip, wall):
     floating = pip.floating
     bounds = floating.geometry()
@@ -1310,6 +1348,10 @@ def main():
         os.environ['DDM_QTQUICK_DANMAKU'] = '1'
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_resize_corner_motion()
+    if '--resize-geometry' in sys.argv:
+        print('PASS: continuous PiP corner resizing and final pointer geometry')
+        return
     check_quick_mask_batch()
     check_focus_geometry()
     check_adaptive_geometry()
