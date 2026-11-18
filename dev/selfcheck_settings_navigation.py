@@ -139,7 +139,7 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertEqual({row['volume'] for row in page.entries.values()}, {61})
         card.avatars['1001'].click()
         self.assertGreaterEqual(card.playback.findText('2K'), 0)
-        card.group_button.click()
+        card.avatars['1001'].click()
         self.assertIsNone(card.room_id)
         card.avatars['huya:1001'].click()
         card.volume.setValue(57)
@@ -164,6 +164,54 @@ class SettingsNavigationTests(unittest.TestCase):
         card.remove_button.click()
         dialog.auto_save.flush()
         self.assertEqual(set(sent[-1]['settings']['streamer_defaults']), {'1001'})
+        dialog.auto_save.acknowledge()
+        self.assertEqual(page.undo_notice.undo_button.text(), '撤回')
+        page.undo_notice.undo_button.click()
+        dialog.auto_save.flush()
+        self.assertEqual(sent[-1]['settings']['streamer_defaults'], saved)
+        self.assertEqual(list(page.entries), ['huya:1001', '1001'])
+
+    def test_collapsed_group_removal_and_undo_respect_avatar_selection(self):
+        rows = {'1001': {'name': '甲', 'volume': 20}, 'huya:1002': {'name': '乙', 'volume': 20},
+                '1003': {'name': '丙', 'volume': 30}}
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows,
+                                     streamer_defaults_merge_identical=True), {}, preview=True,
+                                streamer_rooms={key: row['name'] for key, row in rows.items()})
+        self.addCleanup(dialog.deleteLater)
+        dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
+        page = dialog.stack.currentWidget()
+        group = ('1001', 'huya:1002')
+        card = page.cards[group]
+        self.assertTrue(card.details.isHidden())
+        self.assertIsNone(card.room_id)
+        self.assertTrue(card.remove_button.isEnabled())
+        card.remove_button.click()
+        self.assertEqual(list(page.entries), ['1003'])
+        self.assertEqual(page.undo_notice.undo_button.text(), '全部撤回')
+        self.assertEqual(page.undo_notice.timer.interval(), 10000)
+        page.undo_notice.undo_button.click()
+        self.assertEqual(list(page.entries), list(rows))
+        self.assertEqual(page.entries, rows)
+        self.assertTrue(page.undo_notice.undo_button.isHidden())
+
+        card = page.cards[group]
+        card.avatars['huya:1002'].click()
+        card.toggle.click()
+        self.assertTrue(card.details.isHidden())
+        card.remove_button.click()
+        self.assertEqual(list(page.entries), ['1001', '1003'])
+        self.assertFalse(page.undo_notice.pile.isHidden())
+        self.assertEqual(page.undo_notice.undo_button.text(), '撤回')
+        page.add('huya:1002')
+        page.cards[('huya:1002',)].volume.setValue(88)
+        page.undo_notice.undo_button.click()
+        self.assertEqual(page.entries['huya:1002']['volume'], 88)
+        self.assertEqual(page.entries['1001']['volume'], 20)
+
+        page.cards[('1003',)].remove_button.click()
+        page.undo_notice._expire()
+        page.undo_removal()
+        self.assertNotIn('1003', page.entries)
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button

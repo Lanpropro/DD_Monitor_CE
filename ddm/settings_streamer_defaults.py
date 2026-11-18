@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLay
 from .settings_layout import SettingsSection
 from .settings_streamer_picker import StreamerPicker
 from .settings_streamer_profiles import StreamerProfileCard, quality_label
+from .settings_streamer_undo import StreamerRemovalNotice
 from .streamer_defaults import native_quality_options, room_defaults
 from .ui import ToggleSwitch, page_header
 
@@ -31,6 +32,7 @@ class StreamerDefaultsPage(QWidget):
         self.qualities = {}
         self.requests = {}
         self.cards = {}
+        self.last_removal = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -74,6 +76,9 @@ class StreamerDefaultsPage(QWidget):
         self.regroup_timer.setSingleShot(True)
         self.regroup_timer.timeout.connect(self._render_profiles)
         self.merge.toggled.connect(self._merge_changed)
+        self.undo_notice = StreamerRemovalNotice(self)
+        self.undo_notice.undo_requested.connect(self.undo_removal)
+        self.undo_notice.expired.connect(self._clear_removal)
         self.picker.set_occupied(self.entries)
         self._render_profiles()
 
@@ -137,10 +142,36 @@ class StreamerDefaultsPage(QWidget):
         else:
             self.expanded.difference_update(room_ids)
 
-    def remove(self, room_id):
-        self.entries.pop(room_id, None)
-        self.expanded.discard(room_id)
-        self.requests.pop(room_id, None)
+    def remove(self, room_ids):
+        order = tuple(self.entries)
+        removed = {room_id: self.entries.pop(room_id) for room_id in room_ids if room_id in self.entries}
+        if not removed:
+            return
+        self.last_removal = order, removed, self.expanded.intersection(removed)
+        self.expanded.difference_update(removed)
+        for room_id in removed:
+            self.requests.pop(room_id, None)
+        self._refresh_removed_profiles()
+        self.undo_notice.present([self.rooms[room_id] for room_id in removed])
+
+    def undo_removal(self):
+        if self.last_removal is None:
+            return
+        order, removed, expanded = self.last_removal
+        self._clear_removal()
+        restored = {room_id: row for room_id, row in removed.items() if room_id not in self.entries}
+        if restored:
+            rows = {**self.entries, **restored}
+            self.entries = {room_id: rows[room_id] for room_id in dict.fromkeys((*order, *rows))
+                            if room_id in rows}
+            self.expanded.update(expanded.intersection(restored))
+            self._refresh_removed_profiles()
+        self.undo_notice.confirm(len(restored))
+
+    def _clear_removal(self):
+        self.last_removal = None
+
+    def _refresh_removed_profiles(self):
         self.picker.set_occupied(self.entries)
         self._render_profiles()
         self.changed.emit()
