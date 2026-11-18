@@ -6,12 +6,21 @@ import time
 
 from . import config as config_module
 from .update_version import update_identity
-from .streamer_defaults import room_choices
 
 
 class SettingsControl:
     def __init__(self, host):
         self.host = host
+
+    def streamer_rooms(self):
+        from .streamer_settings_catalog import room_choices
+        return room_choices(self.host)
+
+    def request_streamer_quality(self, room_id, reply):
+        if getattr(self, '_streamer_catalog', None) is None:
+            from .streamer_settings_catalog import StreamerSettingsCatalog
+            self._streamer_catalog = StreamerSettingsCatalog(self.host)
+        self._streamer_catalog.request(room_id, reply)
 
     def open_sidebar_settings(self):
         host = self.host
@@ -21,7 +30,7 @@ class SettingsControl:
         if session is not None:
             session.sync()
         host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(),
-                                          streamer_rooms=room_choices(host.sidebar.rooms()))
+                                          streamer_rooms=self.streamer_rooms())
         return False
 
     def sc_preview_context(self):
@@ -82,6 +91,16 @@ class SettingsControl:
         host = self.host
         if getattr(host, '_closing', False):
             return
+        if message['kind'] == 'streamer-quality':
+            room_id, token = message.get('room_id'), message.get('token')
+            client = host._settings_process
+            if isinstance(room_id, str) and room_id and isinstance(token, str):
+                def reply(options, error):
+                    if client.visible and not client.closing:
+                        client._send({'kind': 'streamer-quality-result', 'room_id': room_id,
+                                      'token': token, 'options': options, 'error': error})
+                self.request_streamer_quality(room_id, reply)
+            return
         session = getattr(host, '_settings_host', None)
         if session is None:
             if message['kind'] not in ('host-page', 'host-general'):
@@ -122,7 +141,7 @@ class SettingsControl:
         dialog = SettingsDialog(host.settings if settings is None else settings,
                                 host.shortcuts if shortcuts is None else shortcuts, host,
                                 plugin_manager=host.plugins, update_page_factory=host._get_update_page,
-                                streamer_rooms=room_choices(host.sidebar.rooms()),
+                                streamer_rooms=self.streamer_rooms(),
                                 **({'hosted': True} if hosted else {}))
         dialog.setProperty('settings_portrait', getattr(host, 'orientation', '') == 'portrait')
         def page_created(index, widget):
@@ -142,6 +161,16 @@ class SettingsControl:
                     widget._release_ready(host._available_update)
                     widget._busy(False)
         dialog.pageCreated.connect(page_created)
+        def request_streamer_quality(room_id, token):
+            from shiboken6 import isValid
+
+            def reply(options, error):
+                if isValid(dialog):
+                    dialog.receive_streamer_quality(room_id, token, options, error)
+
+            self.request_streamer_quality(room_id, reply)
+
+        dialog.streamerQualityRequested.connect(request_streamer_quality)
         dialog.updatesViewed.connect(host._remember_updates)
         dialog.appearanceChanged.connect(host.set_appearance)
         dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']

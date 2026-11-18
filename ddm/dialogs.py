@@ -33,6 +33,7 @@ class SettingsDialog(SettingsWindow):
     updatesViewed = Signal(object)
     appearanceChanged = Signal(str)
     pageCreated = Signal(int, object)
+    streamerQualityRequested = Signal(str, str)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = settings_pages.SETTINGS_PAGES
@@ -220,10 +221,17 @@ class SettingsDialog(SettingsWindow):
                 page.releaseChecked.connect(self._mark_app_update)
                 page.data_page.changed.connect(self._update_save_button)
                 self._update_save_button()
+            if index == PAGE_INDEX['streamer_defaults']:
+                page.qualityRequested.connect(self.streamerQualityRequested)
             self.pageCreated.emit(index, page)
             print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
                   file=sys.stderr, flush=True)
         return self._loaded_pages[index]
+
+    def receive_streamer_quality(self, room_id, token, options, error):
+        page = self._loaded_pages.get(PAGE_INDEX['streamer_defaults'])
+        if page is not None:
+            page.receive_quality(room_id, token, options, error)
 
     appearance_page = property(lambda self: self._page(1))
     danmaku_page = property(lambda self: self._page(2))

@@ -18,7 +18,11 @@ def room_defaults(settings, room_id):
     values = {}
     for key in ('playback', 'recording'):
         level = row.get(key)
-        if type(level) is int and level in QUALITY_LABELS:
+        if isinstance(level, dict):
+            qn = level.get('qn')
+            if type(qn) is int and (0 < qn < 2 ** 31 or key == 'playback' and qn == -1):
+                values[key] = {'qn': qn, 'label': str(level.get('label') or qn)}
+        elif type(level) is int and level in QUALITY_LABELS:
             values[key] = level
     volume = row.get('volume')
     if type(volume) is int and 0 <= volume <= 100:
@@ -26,9 +30,17 @@ def room_defaults(settings, room_id):
     return values
 
 
-def room_choices(rooms):
-    return {str(room['room_id']): str(room.get('uname') or room['room_id'])
-            for room in rooms if room.get('room_id')}
+def native_quality_options(options):
+    choices = {}
+    for item in options or ():
+        try:
+            qn = int(item['qn'])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if qn == -1 or 0 < qn < 2 ** 31:
+            label = str(item.get('desc') or item.get('label') or qn)
+            choices.setdefault(qn, {'qn': qn, 'label': label})
+    return list(choices.values())
 
 
 def tier_size(option, quality, *, bili):

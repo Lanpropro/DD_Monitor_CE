@@ -75,12 +75,22 @@ def child(action):
                 index = self.PAGE_INDEX['streamer_defaults']
                 self.nav.setCurrentRow(index)
                 page = self._loaded_pages[index]
-                assert page.available.currentData() == '1001'
-                page.add_button.click()
-                page.playback.setCurrentIndex(page.playback.findData(1440))
-                page.recording.setCurrentIndex(page.recording.findData(1080))
-                page.volume.setValue(57)
-                self.reject()
+                for room_id in ('1001', 'fixture:7'):
+                    page.picker.buttons[room_id].click()
+
+                def configure():
+                    if page.requests:
+                        QTimer.singleShot(5, page, configure)
+                        return
+                    for room_id, volume in (('1001', 57), ('fixture:7', 62)):
+                        card = page.cards[(room_id,)]
+                        assert card.playback.count() == 3
+                        card.playback.setCurrentIndex(1)
+                        card.recording.setCurrentIndex(2)
+                        card.volume.setValue(volume)
+                    self.reject()
+
+                configure()
                 return
             if action in ('preview-save', 'preview-sync-save'):
                 page = self.danmaku_page
@@ -271,7 +281,13 @@ def check_worker(app, action):
     client.saved.connect(saves.append)
     client.autoSaveRequested.connect(lambda message: saves.append(message['changes']))
     def host_request(message):
-        if message['kind'] == 'host-page':
+        if message['kind'] == 'streamer-quality':
+            room_id = message['room_id']
+            options = ([{'qn': 15000, 'label': '2K'}, {'qn': 400, 'label': '蓝光'}]
+                       if room_id == '1001' else [{'qn': 2, 'label': '超清'}, {'qn': 1, 'label': '原画'}])
+            client._send({'kind': 'streamer-quality-result', 'room_id': room_id,
+                          'token': message['token'], 'options': options})
+        elif message['kind'] == 'host-page':
             pages.append(message['index'])
         elif message['kind'] == 'host-flush':
             client._send({'kind': 'host-flushed'})
@@ -292,7 +308,7 @@ def check_worker(app, action):
             assert pid != os.getpid()
             initial = dict(config.DEFAULT_SETTINGS, default_volume=42, seen_update_versions={'app': '0.5.1'})
             context = {'panel': {'size': [800, 450], 'cards': [{'message': '', 'collapsed': False}]}}
-            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture'})
+            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture', 'fixture:7': 'Other'})
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
             assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -305,8 +321,12 @@ def check_worker(app, action):
                 for saved in saves:
                     combined.update(saved.get('settings', {}))
                 if action == 'streamer-defaults':
-                    assert combined == {'streamer_defaults': {'1001': {
-                        'name': 'Fixture', 'playback': 1440, 'recording': 1080, 'volume': 57}}}
+                    assert combined == {'streamer_defaults': {
+                        '1001': {'name': 'Fixture', 'playback': {'qn': 15000, 'label': '2K'},
+                                 'recording': {'qn': 400, 'label': '蓝光'}, 'volume': 57},
+                        'fixture:7': {'name': 'Other', 'playback': {'qn': 2, 'label': '超清'},
+                                      'recording': {'qn': 1, 'label': '原画'}, 'volume': 62},
+                    }}
                 else:
                     assert combined['default_volume'] == 17
                     if action == 'preview-save':
@@ -334,7 +354,7 @@ def check_worker(app, action):
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
             messages.clear()
-            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture'})
+            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture', 'fixture:7': 'Other'})
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert client.process.processId() == process_pid
             assert next(m['pid'] for m in messages if m['kind'] == 'painted') == pid

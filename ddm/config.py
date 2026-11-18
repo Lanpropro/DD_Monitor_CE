@@ -73,6 +73,7 @@ DEFAULT_SETTINGS = {
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
     "streamer_defaults": {},
+    "streamer_defaults_merge_identical": False,
     "audio_follows_room": False,
     "hover_wheel_volume": False,
     "hover_wheel_volume_step": DEFAULT_HOVER_WHEEL_VOLUME_STEP,

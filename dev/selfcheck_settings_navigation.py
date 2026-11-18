@@ -12,7 +12,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QColor, QCursor, QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import isValid
 from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
@@ -73,40 +73,68 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertEqual(self.dialog.stack.currentWidget(), self.dialog.danmaku_page)
         self.assertTrue(self.navigation.collapsed)
 
-    def test_streamer_defaults_can_search_add_save_and_remove_one_room(self):
-        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True,
-                                streamer_rooms={'1001': '主播甲', 'huya:1001': '主播乙'})
+    def test_streamer_cards_keep_two_native_configs_and_split_display_groups(self):
+        rooms = {'1001': {'name': '主播甲', 'followed': True, 'platform': 'B 站'},
+                 'huya:1001': {'name': '主播乙', 'followed': True, 'platform': '虎牙'}}
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True, streamer_rooms=rooms)
         self.addCleanup(dialog.deleteLater)
         dialog.auto_save.start()
         sent = []
         dialog.auto_save.requested.connect(sent.append)
+        options = {'1001': [{'qn': 400, 'label': '蓝光'}, {'qn': 10000, 'label': '原画'}],
+                   'huya:1001': [{'qn': 2000, 'label': '蓝光'}, {'qn': 1, 'label': '原画'}]}
+        dialog.streamerQualityRequested.connect(
+            lambda key, token: dialog.receive_streamer_quality(key, token, options[key], ''))
         dialog.navigation.search.setText('zbdlsz')
-        page_index = dialog.PAGE_INDEX['streamer_defaults']
+        page_index = PAGE_INDEX['streamer_defaults']
         self.assertEqual(page_index, PAGE_INDEX['shortcuts'] + 1)
         self.assertEqual(dialog.navigation.heading(page_index), '观看与互动')
-        self.assertFalse(dialog.nav.isRowHidden(page_index))
         dialog.nav.setCurrentRow(page_index)
         page = dialog.stack.currentWidget()
-        self.assertFalse(page.playback.isEnabled())
-        page.search.setText('zby')
-        self.assertEqual(page.available.currentData(), 'huya:1001')
-        page.add_button.click()
-        page.playback.setCurrentIndex(page.playback.findData(1440))
-        page.recording.setCurrentIndex(page.recording.findData(2160))
-        page.volume.setValue(0)
+        self.assertFalse(page.cards)
+        page.picker.search.setText('zby')
+        self.assertTrue(page.picker.items['1001'].isHidden())
+        self.assertFalse(page.picker.items['huya:1001'].isHidden())
+        page.picker.buttons['huya:1001'].click()
+        page.picker.search.clear()
+        page.picker.buttons['1001'].click()
+        self.assertEqual(list(page.cards), [('huya:1001',), ('1001',)])
+        for room_id in page.entries:
+            card = page.cards[(room_id,)]
+            self.assertFalse(card.details.isHidden())
+            self.assertIn(rooms[room_id]['platform'], card.name.text())
+            card.playback.setCurrentIndex(card.playback.findData(options[room_id][0]))
+            card.recording.setCurrentIndex(card.recording.findData(options[room_id][1]))
+            card.volume.setValue(0)
+        page.merge.click()
+        group = ('huya:1001', '1001')
+        self.assertEqual(list(page.cards), [group])
+        card = page.cards[group]
+        self.assertLess(card.avatars['1001'].x() - card.avatars['huya:1001'].x(),
+                        card.avatars['1001'].width())
+        self.assertTrue(card.avatars['1001'].findChild(QWidget, 'StreamerAvatarPlatform'))
+        card.avatars['huya:1001'].click()
+        card.volume.setValue(57)
+        APP.processEvents()
+        self.assertEqual(list(page.cards), [('huya:1001',), ('1001',)])
+        self.assertEqual(page.entries['huya:1001']['volume'], 57)
+        self.assertEqual(page.entries['1001']['volume'], 0)
+        card = page.cards[('huya:1001',)]
+        card.toggle.click()
+        self.assertTrue(card.details.isHidden())
+        self.assertIn('57%', card.summary_values['volume'].text())
         dialog.auto_save.flush()
-        self.assertEqual(sent[-1]['settings']['streamer_defaults'],
-                         {'huya:1001': {'name': '主播乙', 'playback': 1440,
-                                        'recording': 2160, 'volume': 0}})
+        saved = sent[-1]['settings']['streamer_defaults']
+        self.assertEqual(set(saved), {'1001', 'huya:1001'})
+        self.assertEqual(saved['1001']['playback']['qn'], 400)
+        self.assertEqual(saved['huya:1001']['playback']['qn'], 2000)
         dialog.auto_save.acknowledge()
-        saved = dialog.settings()
-        saved_page = type(page)(saved, {})
+        saved_page = type(page)(dialog.settings(), {})
         self.addCleanup(saved_page.deleteLater)
-        self.assertEqual(saved_page.configured.currentData(), 'huya:1001')
-        self.assertEqual(saved_page.volume.value(), 0)
-        page.remove_button.click()
+        self.assertEqual(saved_page.values()['streamer_defaults'], saved)
+        page.remove('huya:1001')
         dialog.auto_save.flush()
-        self.assertEqual(sent[-1]['settings']['streamer_defaults'], {})
+        self.assertEqual(set(sent[-1]['settings']['streamer_defaults']), {'1001'})
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button

@@ -61,6 +61,8 @@ def run_worker():
             self.painted = False
             super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True,
                              streamer_rooms=snapshot.get('streamer_rooms'))
+            self.streamerQualityRequested.connect(lambda room_id, token: send({
+                'kind': 'streamer-quality', 'room_id': room_id, 'token': token}))
             self.setProperty('settings_portrait', bool(snapshot.get('portrait', False)))
             self._auto_save_enabled = True
             self.auto_save.requested.connect(lambda changes: send({'kind': 'auto-save', 'changes': changes}))
@@ -260,6 +262,9 @@ def run_worker():
                 self.dialog.done(self.dialog.pending_close_result)
             elif kind == 'auto-saved' and self.dialog is not None:
                 self.dialog.auto_save.acknowledge(message.get('error', ''))
+            elif kind == 'streamer-quality-result' and self.dialog is not None:
+                self.dialog.receive_streamer_quality(message['room_id'], message['token'],
+                                                    message['options'], message.get('error', ''))
             elif kind == 'auto-status' and self.dialog is not None:
                 self.dialog._host_save_error = message['state'] == 'error'
                 SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])

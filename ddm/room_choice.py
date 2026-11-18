@@ -7,16 +7,16 @@ from .ui import Avatar, ElidedLabel
 
 
 class RoomChoice(QPushButton):
-    def __init__(self, room, name, index, pixmap, parent):
+    def __init__(self, room, name, index, pixmap, parent, *, platform_label=''):
         super().__init__(parent)
         self.preview_name = name
         self.setObjectName('PipRoomChoice')
         self.setCheckable(True)
         self.setAutoDefault(False)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(64)
+        self.setMinimumHeight(80 if platform_label else 64)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setToolTip(name + ' · ' + str(room['room_id']))
+        self.setToolTip(' · '.join(part for part in (name, str(room['room_id']), platform_label) if part))
         self.setAccessibleName(self.toolTip())
         box = QVBoxLayout(self)
         box.setContentsMargins(5, 5, 5, 4)
@@ -31,6 +31,13 @@ class RoomChoice(QPushButton):
         label.setTextFormat(Qt.PlainText)
         label.setAttribute(Qt.WA_TransparentForMouseEvents)
         box.addWidget(label)
+        if platform_label:
+            platform = ElidedLabel(platform_label, self)
+            platform.setObjectName('SettingsHint')
+            platform.setAlignment(Qt.AlignCenter)
+            platform.setTextFormat(Qt.PlainText)
+            platform.setAttribute(Qt.WA_TransparentForMouseEvents)
+            box.addWidget(platform)
         self.badge = QLabel('✓', self)
         self.badge.setObjectName('PipChoiceBadge')
         self.badge.setAlignment(Qt.AlignCenter)

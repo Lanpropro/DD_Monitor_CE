@@ -150,11 +150,13 @@ class CaptureControl:
                 host._record_notice("请先选择录制保存目录", tile.room)
                 return
         height = tile.room.get('_streamer_recording_height') if recording else None
-        if height is None and not host.settings.get("recording_lock_quality", True):
+        choice = tile.room.get('_streamer_recording_choice') if recording else None
+        custom_quality = height is not None or choice is not None
+        if not custom_quality and not host.settings.get("recording_lock_quality", True):
             host.recorder.start(tile, recording=recording)
             return
         session = host.recorder.sessions.get(tile)
-        if session is not None and (height is None or session.recording or session.stopping):
+        if session is not None and (not custom_quality or session.recording or session.stopping):
             host.recorder.start(tile, recording=recording)
             return
         if not tile.room.get("live") or not tile.isVisible():
@@ -162,7 +164,12 @@ class CaptureControl:
             return
         room_id = str(tile.room.get("room_id") or "")
         target = 10000
-        if height is not None:
+        if choice is not None:
+            target = choice['qn']
+            if target == 10000 and choice['label'] in ('最高', '最高可用'):
+                tiers = quality_tiers(room_id, tile.quality_options, 0, allow_lower=False)
+                target = tiers[0] if tiers else target
+        elif height is not None:
             tiers = quality_tiers(room_id, tile.quality_options, height, allow_lower=False)
             if not tiers:
                 host._record_notice(f"直播源未提供 {QUALITY_LABELS[height]}，录制未开始", tile.room)
@@ -198,7 +205,9 @@ class CaptureControl:
         recording = host._pending_capture.pop(tile)
         if tile.actual_quality != tile.quality:
             height = tile.room.get('_streamer_recording_height') if recording else None
-            label = f" {QUALITY_LABELS[height]}" if height is not None else "原画"
+            choice = tile.room.get('_streamer_recording_choice') if recording else None
+            label = f" {choice['label']}" if choice else (
+                f" {QUALITY_LABELS[height]}" if height is not None else "原画")
             host._record_notice(f"直播源未提供{label}，录制未开始", tile.room)
             host._restore_capture_quality(tile)
         elif not host.recorder.start(tile, recording=recording):
@@ -295,7 +304,8 @@ class CaptureControl:
 
         def resolved(_rid, url, quality, profile, _options):
             if current():
-                if ('_streamer_recording_height' in tile.room and tile in host._capture_quality
+                if ((tile.room.keys() & {'_streamer_recording_height', '_streamer_recording_choice'})
+                        and tile in host._capture_quality
                         and quality != tile.quality):
                     host.recorder.source_failed(session, '直播源未提供锁定的录制画质')
                     return

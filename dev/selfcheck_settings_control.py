@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 import subprocess
 import sys
+from threading import get_ident
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -11,6 +12,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Signal
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 from ddm import app as app_module
@@ -30,6 +32,7 @@ class Dialog(QObject):
     PAGES = (('general', ''), ('plugins', ''), ('updates', ''), ('danmaku', ''))
     PAGE_INDEX = {key: index for index, (key, _) in enumerate(PAGES)}
     pageCreated = Signal(int, object)
+    streamerQualityRequested = Signal(str, str)
     updatesViewed = Signal(dict)
     appearanceChanged = Signal(str)
 
@@ -135,7 +138,43 @@ class SettingsControlTests(unittest.TestCase):
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}):
             self.assertFalse(host._open_sidebar_settings())
         host._settings_process.open.assert_called_once_with(
-            host.settings, host.shortcuts, {'fixture': True}, streamer_rooms={'1001': '主播'})
+            host.settings, host.shortcuts, {'fixture': True}, streamer_rooms=host.settings_control.streamer_rooms())
+        room = host._settings_process.open.call_args.kwargs['streamer_rooms']['1001']
+        self.assertEqual((room['name'], room['followed']), ('主播', True))
+
+    def test_streamer_quality_reads_platform_in_worker_and_reuses_visible_tiers(self):
+        host = self.host
+        host._platform_info_running = set()
+        host._tile_of = Mock(return_value=None)
+        worker_threads = []
+        replies = []
+
+        def options(room_id):
+            worker_threads.append(get_ident())
+            self.assertEqual(room_id, 'fixture:7')
+            return [{'qn': 8, 'desc': '原画'}, {'qn': 2, 'desc': '流畅'}]
+
+        plugin = SimpleNamespace(room_quality_options=Mock(side_effect=options), label='测试平台')
+        host.plugins.platform_for = Mock(return_value=plugin)
+        host.plugins.platforms = {'fixture': plugin}
+        host.sidebar.rooms = lambda: [{'room_id': 'fixture:7', 'uname': '主播'}]
+        self.assertEqual(host.settings_control.streamer_rooms()['fixture:7']['platform'], '测试平台')
+        host.settings_control.request_streamer_quality('fixture:7', lambda values, error: replies.append((values, error)))
+        host.settings_control.request_streamer_quality('fixture:7', lambda values, error: replies.append((values, error)))
+        for _ in range(100):
+            if not host._platform_info_running:
+                break
+            QTest.qWait(10)
+        self.assertFalse(host._platform_info_running)
+        self.assertEqual(len(replies), 2)
+        self.assertEqual(replies[0], ([{'qn': 8, 'label': '原画'}, {'qn': 2, 'label': '流畅'}], ''))
+        self.assertEqual(replies[1], replies[0])
+        self.assertEqual(len(worker_threads), 1)
+        self.assertNotEqual(worker_threads[0], get_ident())
+        host._tile_of.return_value = SimpleNamespace(quality_options=[{'qn': 13, 'desc': '当前可用'}])
+        host.settings_control.request_streamer_quality('fixture:7', lambda values, error: replies.append((values, error)))
+        self.assertEqual(replies[-1], ([{'qn': 13, 'label': '当前可用'}], ''))
+        plugin.room_quality_options.assert_called_once_with('fixture:7')
 
     def test_process_is_reused_and_old_signal_entries_keep_host_parent(self):
         host = self.host
@@ -243,7 +282,7 @@ class SettingsControlTests(unittest.TestCase):
         self.assertIsInstance(dialog, Dialog)
         self.assertIs(dialog.parent(), host)
         self.assertEqual(dialog.initial_shortcuts, {'focus': 'G'})
-        self.assertEqual(dialog.options['streamer_rooms'], {'1001': '主播'})
+        self.assertEqual(dialog.options['streamer_rooms']['1001']['name'], '主播')
         self.assertEqual(host.settings['seen_update_entry_versions'], {'app': '9.0', 'alpha': '2'})
         self.save.assert_called_once()
         preview = Mock()

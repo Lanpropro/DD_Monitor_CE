@@ -207,6 +207,8 @@ class SettingsProcess(QObject):
                 self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
             elif kind == 'auto-save' and not self.closing:
                 self.autoSaveRequested.emit(message)
+            elif kind == 'streamer-quality' and not self.closing:
+                self.hostRequest.emit(message)
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False

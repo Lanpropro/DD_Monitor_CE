@@ -125,21 +125,25 @@ def style_room_notice(widget, artwork):
     widget.update()
 
 
-def add_platform_logos(layout, rooms, parent):
+def platform_icon(platform):
     from .widget_support import BRAND_ASSETS_DIR
+
+    assets = Path(BRAND_ASSETS_DIR) / 'platforms'
+    path = assets / ('huya.png' if platform == 'huya' else platform + '.ico')
+    return QIcon(str(path if path.is_file() else assets / 'generic.svg'))
+
+
+def add_platform_logos(layout, rooms, parent):
     seen = set()
     for room in rooms[:3]:
         platform = room_platform(room)
         if not platform or platform in seen:
             continue
         seen.add(platform)
-        path = Path(BRAND_ASSETS_DIR) / 'platforms' / ('huya.png' if platform == 'huya' else platform + '.ico')
-        if not path.is_file():
-            path = path.with_name('generic.svg')
         label = QLabel(parent)
         label.setObjectName('NoticePlatform')
         label.setFixedSize(18, 18)
-        label.setPixmap(QIcon(str(path)).pixmap(16, 16))
+        label.setPixmap(platform_icon(platform).pixmap(16, 16))
         label.setAlignment(Qt.AlignCenter)
         label.setToolTip(platform)
         label.setAccessibleName(platform)

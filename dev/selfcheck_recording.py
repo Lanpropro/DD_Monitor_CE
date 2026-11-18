@@ -832,6 +832,23 @@ def main():
             window.capture_control.toggle_recording(tile)
             assert tile.quality == 250 and not tile.quality_locked
             assert tile not in window._pending_capture
+
+        # A platform-specific tier may have no numerical resolution mapping.
+        tile.set_room({'room_id': 'fixture:7', 'live': True,
+                       '_streamer_recording_choice': {'qn': 7, 'label': '原始码率'}})
+        tile.quality = 2
+        tile.set_actual_quality(2)
+        tile.stream_url = str(source)
+        with patch.object(window, 'start_tile') as resolve, patch.object(
+                window.recorder, 'start', return_value=True) as record, patch.object(window, '_record_notice') as notice:
+            window._start_capture(tile, recording=True)
+            assert tile.quality == 7 and tile.quality_locked
+            resolve.assert_called_once_with(tile)
+            tile.set_actual_quality(2)
+            window._finish_pending_capture(tile)
+            record.assert_not_called()
+            assert '原始码率' in notice.call_args.args[0]
+            assert tile.quality == 2 and not tile.quality_locked
         window.close()
     print("FFmpeg 双格独立录制、设置、原画锁定、即时回放、满盘停止与断流续录：通过")
 

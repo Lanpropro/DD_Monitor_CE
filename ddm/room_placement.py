@@ -214,9 +214,17 @@ class RoomPlacement:
         defaults = room_defaults(self.host.settings, room.get('room_id'))
         if 'playback' in defaults:
             room['_streamer_playback'] = True
-            room['_streamer_pending_height'] = defaults['playback']
+            playback = defaults['playback']
+            if isinstance(playback, dict):
+                room['quality'] = playback['qn']
+            else:
+                room['_streamer_pending_height'] = playback
         if 'recording' in defaults:
-            room['_streamer_recording_height'] = defaults['recording']
+            recording = defaults['recording']
+            if isinstance(recording, dict):
+                room['_streamer_recording_choice'] = recording
+            else:
+                room['_streamer_recording_height'] = recording
         if 'volume' in defaults:
             room['volume'] = room['_streamer_initial_volume'] = defaults['volume']
         return room

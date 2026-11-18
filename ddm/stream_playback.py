@@ -404,7 +404,8 @@ class StreamPlayback:
             return
         if tile in host._pending_capture:
             recording = host._pending_capture.pop(tile)
-            label = "指定画质" if recording and '_streamer_recording_height' in tile.room else "原画"
+            configured = tile.room.keys() & {'_streamer_recording_height', '_streamer_recording_choice'}
+            label = "指定画质" if recording and configured else "原画"
             host._record_notice(f"{label}取流失败，录制未开始：{reason}", tile.room)
             host._restore_capture_quality(tile)
             if not login_required:

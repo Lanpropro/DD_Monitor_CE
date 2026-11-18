@@ -108,6 +108,20 @@ class RoomPlacementTests(unittest.TestCase):
         host.placement.drop_room(other, 'new')
         self.assertEqual(other.volume, 71)
 
+    def test_streamer_native_tiers_keep_platform_ids_with_no_resolution_mapping(self):
+        target = Tile('old')
+        host = Host(target)
+        room_id = 'fixture:42'
+        host.rooms[room_id] = dict(room_id=room_id, uname='Platform', live=True)
+        host.settings['streamer_defaults'] = {room_id: {
+            'playback': {'qn': 2000, 'label': '蓝光'},
+            'recording': {'qn': 1, 'label': '原画'}, 'volume': 0}}
+        host.placement.drop_room(target, room_id)
+        self.assertEqual(target.room['quality'], 2000)
+        self.assertNotIn('_streamer_pending_height', target.room)
+        self.assertEqual(target.room['_streamer_recording_choice'], {'qn': 1, 'label': '原画'})
+        self.assertEqual(target.volume, 0)
+
     def test_missing_room_and_same_room_do_not_restart(self):
         target = Tile('same')
         host = Host(target)
