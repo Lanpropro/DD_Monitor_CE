@@ -193,7 +193,7 @@ class MainNoticesTests(unittest.TestCase):
         def check_updates(enabled):
             if enabled:
                 self.assertFalse(sidebar._collapse_animating)
-                self.assertTrue(wall._sidebar_animating)
+                self.assertFalse(wall._sidebar_animating)
                 self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                 for item in sidebar.items():
                     self.assertEqual(item._compact, sidebar.collapsed)
@@ -223,7 +223,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(sidebar.width(), width)
         self.assertFalse(sidebar._collapse_animating)
 
-    def test_sidebar_final_paint_precedes_player_resize(self):
+    def test_sidebar_paint_waits_for_wall_geometry(self):
         window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
         sidebar, wall = window.sidebar, window.wall
         paints = []
@@ -231,28 +231,33 @@ class MainNoticesTests(unittest.TestCase):
         class PaintRecorder(QObject):
             def eventFilter(self, watched, event):
                 if event.type() == QEvent.Paint:
-                    paints.append((sidebar.collapsed, sidebar._column.width()))
+                    right = max(tile.geometry().right() + 1 for tile in wall.visible_tiles())
+                    settled = (not wall._sidebar_animating
+                               and right == wall.width() - wall.grid.contentsMargins().right())
+                    paints.append((sidebar.collapsed, sidebar._column.width(), settled))
                 return False
 
         recorder = PaintRecorder(sidebar)
         sidebar.installEventFilter(recorder)
         original = wall._relayout_preset
         observations = []
-        def resize_after_paint():
-            expected = (sidebar.collapsed,
-                        theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
-            observations.append((expected in paints, sidebar.updatesEnabled()))
+        def resize_while_held():
+            observations.append((bool(paints), sidebar.updatesEnabled()))
             return original()
 
-        with patch.object(wall, '_relayout_preset', side_effect=resize_after_paint) as resize:
+        with patch.object(wall, '_relayout_preset', side_effect=resize_while_held) as resize:
             for collapsed in (True, False) * 3:
                 paints.clear()
                 sidebar.set_collapsed(collapsed)
                 self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
                 self.assertFalse(wall._sidebar_animating)
+                self.app.processEvents()
+                width = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
+                self.assertTrue(paints)
+                self.assertEqual(set(paints), {(collapsed, width, True)})
             self.assertEqual(resize.call_count, 6)
-        self.assertEqual(observations, [(True, True)] * 6,
-                         'Final sidebar paint must precede native player resize')
+        self.assertEqual(observations, [(False, False)] * 6,
+                         'The wall must resize before the sidebar can paint again')
 
     def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
         window = self.window([dict(room_id='1001', uname='Fixture')])
