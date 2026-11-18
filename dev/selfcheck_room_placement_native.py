@@ -91,7 +91,7 @@ def main():
                 window.settings['hover_wheel_volume'] = True
                 volume = first.volume
                 QTest.wheelEvent(first.video.windowHandle(), first.video.rect().center(), QPoint(0, 120))
-                assert first.volume == min(volume + 10, 100) and second.volume == audio[0][0]
+                assert first.volume == min(volume + 3, 100) and second.volume == audio[0][0]
                 window.start_tile.assert_not_called()
                 assert not denied
             finally:

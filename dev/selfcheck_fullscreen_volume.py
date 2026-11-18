@@ -53,7 +53,7 @@ def main():
             assert window.current_state()['settings']['hover_wheel_volume']
             assert window.current_state()['settings']['audio_follows_room']
             wheel_over(first.video)
-            assert first.volume == 52 and second.volume == 42
+            assert first.volume == 45 and second.volume == 42
             wheel_over(first.video, delta=-120)
             assert first.volume == 42
             empty_volume = empty.volume
@@ -71,7 +71,7 @@ def main():
             window._on_fullscreen(second)
             app.processEvents()
             wheel_over(second.video)
-            assert second.volume == 52 and first.volume == 42
+            assert second.volume == 45 and first.volume == 42
             wheel_over(second.video, delta=-120)
             second.set_muted(True)
             second.pause_button.setFocus()
@@ -98,16 +98,21 @@ def main():
                 with patch.object(window, '_tile_under_cursor', return_value=second):
                     wheel_over(second.video, modifiers=Qt.ShiftModifier)
                     assert second.volume == 52, 'Shift+滚轮每次应调整 10 音量'
+                    wheel_over(second.video, modifiers=Qt.ShiftModifier, delta=-120)
+                    assert second.volume == 42
                     second.set_volume(42)
                     window.settings['wheel_volume_step'] = 7
+                    window.settings['hover_wheel_volume_step'] = 4
                     window.shortcuts['volume_up'] = 'Alt+WheelUp'
                     wheel_over(second.video, modifiers=Qt.AltModifier)
                     assert second.volume == 49
-                    wheel_over(second.video, delta=-120)
+                    wheel_over(second.video, modifiers=Qt.ShiftModifier, delta=-120)
                     assert second.volume == 42
                     wheel_over(second.video, delta=240)
-                    assert second.volume == 56
-                    second.set_volume(42)
+                    assert second.volume == 50
+                    wheel_over(second.video, delta=-120)
+                    wheel_over(second.video, delta=-120)
+                    assert second.volume == 42
                 for modifiers in (Qt.ControlModifier, Qt.ShiftModifier, Qt.AltModifier):
                     QTest.keyClick(second.pause_button, Qt.Key_Up, modifiers)
                     assert second.volume == 42

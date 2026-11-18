@@ -25,10 +25,11 @@ DEFAULT_SHORTCUTS = {key: default for key, _description, default in SHORTCUT_ACT
 WHEEL_SHORTCUTS = ('volume_up', 'volume_down')
 FULLSCREEN_VOLUME_SHORTCUTS = ('fullscreen_volume_up', 'fullscreen_volume_down')
 DEFAULT_WHEEL_VOLUME_STEP = 10
+DEFAULT_HOVER_WHEEL_VOLUME_STEP = 3
 
 
-def wheel_volume_step(value):
-    return value if type(value) is int and 1 <= value <= 100 else DEFAULT_WHEEL_VOLUME_STEP
+def wheel_volume_step(value, default=DEFAULT_WHEEL_VOLUME_STEP):
+    return value if type(value) is int and 1 <= value <= 100 else default
 
 
 def configured_shortcuts(saved):

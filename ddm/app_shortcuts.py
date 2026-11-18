@@ -4,7 +4,10 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from .playback_controls import VolumeButton
-from .shortcut_actions import DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS, WHEEL_SHORTCUTS, wheel_volume_step
+from .shortcut_actions import (
+    DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
+    WHEEL_SHORTCUTS, wheel_volume_step
+)
 from .video_surface import VideoSurface
 
 
@@ -70,13 +73,15 @@ class AppShortcuts(QObject):
             tile = watched.parentWidget()
             if not tile.room.get('room_id'):
                 return False
+            step = wheel_volume_step(host.settings.get('hover_wheel_volume_step'), DEFAULT_HOVER_WHEEL_VOLUME_STEP)
         else:
             if not self._matches_volume_wheel(event.modifiers(), delta):
                 return False
             tile = host._tile_under_cursor()
             if tile is None:
                 return False
-        step = wheel_volume_step(host.settings.get('wheel_volume_step')) * max(1, abs(angle) // 120)
+            step = wheel_volume_step(host.settings.get('wheel_volume_step'))
+        step *= max(1, abs(angle) // 120)
         tile.set_volume(tile.volume + (step if delta > 0 else -step))
         event.accept()
         return True

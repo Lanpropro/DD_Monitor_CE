@@ -159,9 +159,11 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.addCleanup(dispose, dialog)
         self.assertNotIn('hover_wheel_volume', dialog.general_page.values())
         self.assertEqual(dialog.settings()['wheel_volume_step'], 7)
+        self.assertEqual(dialog.settings()['hover_wheel_volume_step'], 3)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['shortcuts'])
         page = dialog.shortcut_page
         self.assertEqual(page.wheel_step.value(), 7)
+        self.assertEqual(page.hover_wheel_step.value(), 3)
         self.assertFalse(page.hover_wheel_volume.isChecked())
         requested = []
         dialog.auto_save.requested.connect(requested.append)
@@ -170,13 +172,19 @@ class ShortcutSettingsTests(unittest.TestCase):
         page.search.setText('音量步长')
         self.assertFalse(page._wheel_options.isHidden())
         self.assertEqual([key for key, _card, _wide in page.sections.entries], ['wheel'])
-        page.wheel_step.setValue(3)
+        page.hover_wheel_step.setValue(4)
         page.hover_wheel_volume.click()
         dialog.auto_save.flush()
-        self.assertEqual(requested[-1]['settings'], {'wheel_volume_step': 3, 'hover_wheel_volume': True})
+        self.assertEqual(requested[-1]['settings'],
+                         {'hover_wheel_volume_step': 4, 'hover_wheel_volume': True})
+        dialog.auto_save.acknowledge()
+        page.wheel_step.setValue(8)
+        dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'wheel_volume_step': 8})
         dialog.auto_save.acknowledge()
         page.sections.section('wheel').findChildren(QPushButton)[-1].click()
-        self.assertEqual(page.settings_values(), {'wheel_volume_step': 10, 'hover_wheel_volume': False})
+        self.assertEqual(page.settings_values(), {'wheel_volume_step': 10, 'hover_wheel_volume_step': 3,
+                                                   'hover_wheel_volume': False})
 
     def test_shared_legacy_bindings_are_copied_and_explicit_context_bindings_win(self):
         bindings = configured_shortcuts({'mute': 'Ctrl+M', 'solo': '',

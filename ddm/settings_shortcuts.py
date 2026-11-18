@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
 )
 
 from .shortcut_actions import (
-    DEFAULT_WHEEL_VOLUME_STEP, FULLSCREEN_VOLUME_SHORTCUTS, SHORTCUT_ACTIONS, WHEEL_SHORTCUTS, wheel_volume_step
+    DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOLUME_STEP, FULLSCREEN_VOLUME_SHORTCUTS,
+    SHORTCUT_ACTIONS, WHEEL_SHORTCUTS, wheel_volume_step
 )
 from .settings_layout import SettingsColumns, SettingsSection
 from .search import matches_query
@@ -143,24 +144,33 @@ class ShortcutSettingsPage(QWidget):
         grid = QGridLayout(options)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setColumnStretch(0, 1)
+        self.wheel_step = self._add_wheel_step(
+            grid, 0, '组合键滚动每格音量', wheel_volume_step(settings.get('wheel_volume_step')))
+        self.wheel_step.setToolTip('适用于上方设置的滚轮组合键，默认使用 Shift')
         hover = QLabel('悬停画面时直接用滚轮调节音量', options)
         hover.setWordWrap(True)
         self.hover_wheel_volume = ToggleSwitch(hover.text(), options)
         self.hover_wheel_volume.setChecked(bool(settings.get('hover_wheel_volume', False)))
         hover.setBuddy(self.hover_wheel_volume)
-        grid.addWidget(hover, 0, 0)
-        grid.addWidget(self.hover_wheel_volume, 0, 1, Qt.AlignRight)
-        step = QLabel('每格滚轮调整音量', options)
-        step.setWordWrap(True)
-        self.wheel_step = QSpinBox(options)
-        self.wheel_step.setRange(1, 100)
-        self.wheel_step.setSuffix(' 点')
-        self.wheel_step.setAccessibleName(step.text())
-        self.wheel_step.setValue(wheel_volume_step(settings.get('wheel_volume_step')))
-        step.setBuddy(self.wheel_step)
-        grid.addWidget(step, 1, 0)
-        grid.addWidget(StepperControl(self.wheel_step), 1, 1, Qt.AlignRight)
+        grid.addWidget(hover, 1, 0)
+        grid.addWidget(self.hover_wheel_volume, 1, 1, Qt.AlignRight)
+        self.hover_wheel_step = self._add_wheel_step(
+            grid, 2, '直接滚动每格音量',
+            wheel_volume_step(settings.get('hover_wheel_volume_step'), DEFAULT_HOVER_WHEEL_VOLUME_STEP))
         return options
+
+    def _add_wheel_step(self, grid, row, title, value):
+        step = QLabel(title)
+        step.setWordWrap(True)
+        spin = QSpinBox()
+        spin.setRange(1, 100)
+        spin.setSuffix(' 点')
+        spin.setAccessibleName(title)
+        spin.setValue(value)
+        step.setBuddy(spin)
+        grid.addWidget(step, row, 0)
+        grid.addWidget(StepperControl(spin), row, 1, Qt.AlignRight)
+        return spin
 
     def _filter(self, *_args):
         if not hasattr(self, '_all_sections'):
@@ -177,7 +187,7 @@ class ShortcutSettingsPage(QWidget):
             if match:
                 visible.add(key)
         self.sections.entries = []
-        wheel_match = matches_query('主窗口 滚轮音量 悬停画面 调节音量 音量步长 每格滚轮调整', query)
+        wheel_match = matches_query('主窗口 滚轮音量 悬停画面 调节音量 音量步长 直接滚动 组合键滚动', query)
         self._wheel_options.setVisible(wheel_match)
         for entry in self._all_sections:
             key, card, _wide = entry
@@ -201,6 +211,7 @@ class ShortcutSettingsPage(QWidget):
             self._reset_one(key)
         if wheel:
             self.hover_wheel_volume.setChecked(False)
+            self.hover_wheel_step.setValue(DEFAULT_HOVER_WHEEL_VOLUME_STEP)
             self.wheel_step.setValue(DEFAULT_WHEEL_VOLUME_STEP)
 
     def reset(self) -> None:
@@ -208,6 +219,7 @@ class ShortcutSettingsPage(QWidget):
 
     def settings_values(self) -> dict:
         return {'hover_wheel_volume': self.hover_wheel_volume.isChecked(),
+                'hover_wheel_volume_step': self.hover_wheel_step.value(),
                 'wheel_volume_step': self.wheel_step.value()}
 
     def values(self) -> dict:
