@@ -93,11 +93,16 @@ FULLSCREEN_BAR_STYLE = '''
     background: transparent;
     border: none;
 }
-#TileBottom[fullscreen="true"] #TileCtrl:hover,
-#TileBottom[fullscreen="true"] #TileCtrl[hovered="true"],
-#TileBottom[fullscreen="true"] #TileToggle:hover {
-    background: rgba(255, 255, 255, 0.18);
-    color: #ffffff;
+#TileBottom[fullscreen="true"] #TileCtrl:!disabled:hover,
+#TileBottom[fullscreen="true"] #TileCtrl[hovered="true"]:!disabled,
+#TileBottom[fullscreen="true"] #TileToggle:!disabled:hover,
+#TileBottom[fullscreen="true"] #TileToggle[hovered="true"]:!disabled,
+#TileBottom[fullscreen="true"] #BiliVolumeButton:!disabled:hover,
+#TileBottom[fullscreen="true"] #BiliVolumeButton[hovered="true"]:!disabled,
+#TileBottom[fullscreen="true"] #DanmakuSendButton:!disabled:hover,
+#TileBottom[fullscreen="true"] #DanmakuSendButton[hovered="true"]:!disabled {
+    background: palette(highlight);
+    color: #04161f;
 }
 #TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
     color: #fb7299;

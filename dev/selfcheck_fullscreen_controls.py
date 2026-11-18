@@ -229,6 +229,22 @@ def check_control_contrast(app, tile):
             icon = render(tile.pause_button, '#ffffff')
             assert all(icon.pixelColor(x, y).value() > 230
                        for x in range(icon.width()) for y in range(icon.height()))
+            sample = QPoint(3, tile.pause_button.height() // 2)
+            accent = theme.qcolor(theme.ACCENT)
+            for button in (tile.pause_button, tile.volume_button, tile.danmaku_button,
+                           tile.danmaku_settings_button, tile.recording_button, tile.fullscreen_button):
+                before = render(button, '#ffffff')
+                app.sendEvent(button, QEvent(QEvent.Enter))
+                hovered = render(button, '#ffffff')
+                assert hovered.pixelColor(sample) == accent, button.objectName()
+                assert hovered.pixelColor(0, 0) == QColor('#ffffff'), 'Hover must follow the button corners'
+                app.sendEvent(button, QEvent(QEvent.Leave))
+                assert render(button, '#ffffff') == before, 'Leaving must restore the resting surface'
+            tile.pause_button.setEnabled(False)
+            app.sendEvent(tile.pause_button, QEvent(QEvent.Enter))
+            assert render(tile.pause_button, '#ffffff').pixelColor(sample) != accent
+            app.sendEvent(tile.pause_button, QEvent(QEvent.Leave))
+            tile.pause_button.setEnabled(True)
             pixel = render(editor, '#ffffff').pixelColor(editor.width() - 16, editor.height() // 2)
             assert 80 < pixel.value() < 130, 'Only the composer field needs a translucent dark backing'
             assert editor.palette().color(QPalette.PlaceholderText).value() > 220
