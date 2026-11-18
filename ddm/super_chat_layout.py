@@ -75,8 +75,17 @@ def sc_card_geometry(events, base_width, scale, available_width, available_heigh
 def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
                        position=None, panel=False, collapsed=False, scale_with_video=False,
                        scale_strength=35, scale_curve=None):
+    rects, scale, _ = sc_stack_layout(events, viewport_width, viewport_height, scale,
+                                     position, panel, collapsed, scale_with_video,
+                                     scale_strength, scale_curve)
+    return rects, scale
+
+
+def sc_stack_layout(events, viewport_width, viewport_height, scale=1.0,
+                    position=None, panel=False, collapsed=False, scale_with_video=False,
+                    scale_strength=35, scale_curve=None):
     if not events:
-        return [], scale
+        return [], scale, QRectF()
     margin = 8 if panel else 10
     base_width = min(340, max(150 if panel else 168,
                              round(viewport_width * (.46 if panel else .30))))
@@ -88,11 +97,19 @@ def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
         scale *= viewport_scale(viewport_height, scale_strength, scale_curve)
     default_top = margin if panel or viewport_height < 320 else 54
     bottom_margin = margin if isinstance(position, (list, tuple)) and len(position) == 2 else default_top
+    available_height = max(1, viewport_height - margin - bottom_margin)
+    dense_height = min(available_height, max(180, round(available_height * .60)))
+    compact_height = (44 * len(events) - 8) * MIN_SC_SCALE
+    if compact_height > dense_height:
+        available_height = dense_height
+        if panel:
+            base_width = max(base_width, min(225, round(viewport_width * .72)))
     width, height, scale, heights = sc_card_geometry(
         events, base_width, scale, viewport_width - 2 * margin,
-        viewport_height - margin - bottom_margin, collapsed, scroll_stack=not panel)
+        available_height, collapsed, scroll_stack=True)
+    visible_height = min(height, available_height)
     spans = (max(0, viewport_width - 2 * margin - width),
-             max(0, viewport_height - 2 * margin - height))
+             max(0, viewport_height - 2 * margin - visible_height))
     if isinstance(position, (list, tuple)) and len(position) == 2:
         try:
             ratios = [max(0.0, min(1.0, float(value))) for value in position]
@@ -106,7 +123,7 @@ def sc_placement_rects(events, viewport_width, viewport_height, scale=1.0,
     if panel:
         width = max(1, math.floor(width))
     rects = sc_stack_rects(width, height, len(events), scale=scale, card_heights=heights)
-    return [rect.translated(left, top) for rect in rects], scale
+    return [rect.translated(left, top) for rect in rects], scale, QRectF(left, top, width, visible_height)
 
 
 def sc_stack_rects(width, height, count, card_height=100, scale=1.0, card_heights=None):

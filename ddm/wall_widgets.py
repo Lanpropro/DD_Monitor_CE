@@ -272,10 +272,12 @@ class WallGrid(QWidget):
 
     def sync_sc_placement(self):
         panes = self.pane_danmaku
-        docked = self.has_danmaku and self.fullscreen_tile is None
-        targets = {panes.target(panel) for panel in panes.rendered() if docked or panel in panes.floating}
+        linked = {panel: panes.target(panel) for panel in panes.rendered()
+                  if self.has_danmaku or panel in panes.floating}
+        targets = {tile for panel, tile in linked.items() if self.fullscreen_tile is None or panel in panes.floating}
+        independent = set(linked.values())
         for tile in self.tiles:
-            tile.video_danmaku.set_sc_independent(self.has_danmaku or bool(panes.floating))
+            tile.video_danmaku.set_sc_independent(tile in independent)
             tile.video_danmaku.set_sc_in_panel(tile in targets)
 
     def cell_of(self, tile: Tile):

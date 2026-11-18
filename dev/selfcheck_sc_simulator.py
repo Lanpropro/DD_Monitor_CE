@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev.sc_simulator import ScSimulator, config, theme
 from ddm import motion
 from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
-from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtCore import QRectF
+from PySide6.QtGui import QColor, QImage, QPainter, QWheelEvent
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
@@ -670,6 +670,41 @@ class SimulatorTests(unittest.TestCase):
             APP.processEvents()
             self.assertEqual(stack.mapToGlobal(QPoint()), origin)
 
+    def test_dense_sc_keeps_readable_cards_and_scrolls_on_both_surfaces(self):
+        window = self.window
+        self.click(window.add_batch_button)
+        panel = window.wall.danmaku
+        stack = panel.super_chats
+        stack.presentation.collapse()
+        self.assertEqual(len(stack._events), 21)
+        self.assertLess(stack.height(), panel.body.viewport().height() * .8)
+        self.assertGreater(stack._scroll_maximum, 0)
+        self.assertTrue(all(card.height() >= card.header.height() >= 32 for card in stack._cards))
+        title = stack._cards[0].name
+        self.assertGreater(title.width(), 16)
+        wheel_position = title.rect().center()
+        wheel = QWheelEvent(QPointF(wheel_position), QPointF(title.mapToGlobal(wheel_position)),
+                            QPoint(), QPoint(0, -12000), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        APP.sendEvent(title, wheel)
+        self.assertEqual(stack._scroll_offset, stack._scroll_maximum)
+        last = stack._cards[-1]
+        self.assertTrue(stack.rect().contains(last.mapTo(stack, last.rect().center())))
+
+        window.layout_choice.setCurrentIndex(1)
+        overlay = window.tile.video_danmaku.super_chat_overlay
+        overlay.presentation.collapse()
+        self.assertEqual(len(overlay.chats), 21)
+        self.assertLess(overlay.height(), window.tile.video_danmaku.height() * .8)
+        first = overlay.card_rects()[0]
+        pos = first.center() - overlay._content_origin
+        wheel = QWheelEvent(pos, QPointF(overlay.mapToGlobal(pos.toPoint())),
+                            QPoint(), QPoint(0, -12000), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        APP.sendEvent(overlay, wheel)
+        self.assertEqual(overlay._stack_offset, overlay._stack_maximum)
+        self.assertTrue(overlay._stack_viewport.contains(overlay.card_rects()[-1].center()))
+        self.assertTrue(overlay.close_buttons[-1].isVisible())
+        self.assertFalse(overlay.close_buttons[0].isVisible())
+
     def test_only_clicked_sc_expands_and_new_arrival_is_independent(self):
         window = self.window
         window.number.setValue(2)
@@ -1003,6 +1038,7 @@ class SimulatorTests(unittest.TestCase):
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
 
     def test_main_sc_moves_to_panel_and_returns_for_fullscreen(self):
+        from ddm.wall_quick_settings import WallQuickSettings
         window = self.window
         window.layout_choice.setCurrentIndex(2)
         small = window.wall._make_tile({'room_id': '2', 'uname': 'Small', 'live': True})
@@ -1014,6 +1050,15 @@ class SimulatorTests(unittest.TestCase):
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
         self.assertTrue(small.video_danmaku.super_chat_overlay.isVisible())
+        controls = WallQuickSettings(window)
+        with patch.object(window, '_on_video_danmaku_changed', create=True,
+                          side_effect=lambda _enabled: window.wall.sync_sc_placement()):
+            controls.set_danmaku(False)
+            self.assertTrue(window.wall.danmaku.super_chats.isVisible())
+            self.assertTrue(small.video_danmaku.super_chat_overlay.isHidden(),
+                            'A chat pane belonging to another tile must not keep unlinked SC visible')
+            controls.set_danmaku(True)
+            self.assertTrue(small.video_danmaku.super_chat_overlay.isVisible())
         window.wall.set_fullscreen_tile(window.tile)
         APP.processEvents()
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isVisible())

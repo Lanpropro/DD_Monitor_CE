@@ -1,8 +1,8 @@
 """Super Chat cards and stacks inside chat panes; state stays with each Qt widget."""
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
-from PySide6.QtGui import QPainter, QTextOption
+from PySide6.QtGui import QColor, QPainter, QTextOption
 from PySide6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget
-from . import motion
+from . import motion, theme
 from .super_chat_model import SC_CONTENT_COLOR, SC_PRICE_COLOR, SC_USER_COLOR, format_price, format_remaining, order_super_chats, remaining_seconds, super_chat_palette
 from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 from .super_chat_animation import SuperChatPresentation
@@ -229,8 +229,14 @@ class SuperChatStack(QWidget):
         self.presentation = SuperChatPresentation(self)
         self.presentation.changed.connect(self._presentation_changed)
         self._cards = []
-        self.alpha = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self.alpha)
+        self._viewport = QWidget(self)
+        self._content = QWidget(self._viewport)
+        self._viewport.installEventFilter(self)
+        self._content.installEventFilter(self)
+        self._scroll_offset = 0
+        self._scroll_maximum = 0
+        self.alpha = QGraphicsOpacityEffect(self._viewport)
+        self._viewport.setGraphicsEffect(self.alpha)
         self.hide()
 
     def configure(self, settings):
@@ -252,6 +258,12 @@ class SuperChatStack(QWidget):
         self.update()
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.Wheel and self._scroll_maximum:
+            over_message = any(watched is card.message or card.message.isAncestorOf(watched)
+                               for card in self._cards)
+            if not over_message:
+                self.wheelEvent(event)
+                return True
         if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
             for index, card in enumerate(self._cards[:len(self._events)]):
                 if watched is card.close_button:
@@ -259,6 +271,7 @@ class SuperChatStack(QWidget):
                 if card is watched or card.isAncestorOf(watched):
                     if self.presentation.is_collapsed(self._events[index]):
                         self.presentation.expand(self._events[index]['id'])
+                        self._scroll_to(max(self._scroll_offset, card.geometry().bottom() + 1 - self.height()))
                         return True
         return super().eventFilter(watched, event)
 
@@ -286,7 +299,7 @@ class SuperChatStack(QWidget):
         self.setVisible(bool(events) and self._enabled and limit != 0)
         self.presentation.set_events(self._events)
         while len(self._cards) < len(self._events):
-            card = SuperChatCard(self)
+            card = SuperChatCard(self._content)
             card.dismissed.connect(self._dismiss)
             card.dismissFinished.connect(self._dismiss_finished)
             for child in [card, *card.findChildren(QWidget)]:
@@ -299,10 +312,16 @@ class SuperChatStack(QWidget):
         self.update()
 
     def arrange(self):
-        _, _, _, heights = sc_card_geometry(self._events, self.width() / self._effective_scale,
-            self._effective_scale, self.width(), self.height(), self.presentation.is_collapsed)
+        _, height, _, heights = sc_card_geometry(self._events, self.width() / self._effective_scale,
+            self._effective_scale, self.width(), self.height(), self.presentation.is_collapsed,
+            scroll_stack=True)
         rects = sc_stack_rects(self.width(), self.height(), len(self._events),
                                scale=self._effective_scale, card_heights=heights)
+        content_height = max(round(height), rects[-1].toAlignedRect().bottom() + 1) if rects else 0
+        self._scroll_maximum = max(0, content_height - self.height())
+        self._viewport.setGeometry(self.rect())
+        self._content.resize(self.width(), content_height)
+        self._scroll_to(self._scroll_offset)
         for index in reversed(range(len(self._cards))):
             card = self._cards[index]
             card.setVisible(index < len(rects))
@@ -316,6 +335,23 @@ class SuperChatStack(QWidget):
                 card.setCursor(Qt.PointingHandCursor if self.presentation.is_collapsed(self._events[index]) else Qt.ArrowCursor)
                 card.setToolTip('点击展开醒目留言' if self.presentation.is_collapsed(self._events[index]) else '')
                 card.raise_()
+
+    def _scroll_to(self, offset):
+        self._scroll_offset = max(0, min(round(offset), self._scroll_maximum))
+        self._content.move(0, -self._scroll_offset)
+
+    def wheelEvent(self, event):
+        if not self._scroll_maximum:
+            return super().wheelEvent(event)
+        delta = event.pixelDelta().y() or event.angleDelta().y() / 120 * 42
+        self._scroll_to(self._scroll_offset - delta)
+        event.accept()
+
+    def paintEvent(self, event):
+        if self._scroll_maximum:
+            painter = QPainter(self)
+            painter.fillRect(event.rect(), QColor('#ffffff' if theme.is_light() else theme.CONTENT))
+            painter.end()
 
     def tick(self):
         for card, event in zip(self._cards, self._events):
