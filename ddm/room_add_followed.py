@@ -1,6 +1,6 @@
 """Search and select followed rooms from the inline empty-slot editor."""
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QStyle, QVBoxLayout, QWidget
 
 from .room_choice import RoomChoice
 from .search import matches_text
@@ -13,6 +13,7 @@ class FollowedRoomPicker(QWidget):
         super().__init__(parent)
         self.sidebar = sidebar
         self.groups = []
+        self._columns = 0
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
@@ -52,6 +53,7 @@ class FollowedRoomPicker(QWidget):
         box.setContentsMargins(0, 0, 0, 0)
         box.setSpacing(6)
         self.groups = []
+        self._columns = 0
         for folder in sidebar.folders:
             group = entries.get(folder['id'])
             if not group:
@@ -76,6 +78,7 @@ class FollowedRoomPicker(QWidget):
                 card = RoomChoice(room, display, index, item.thumb.face_pixmap(), holder)
                 card.setCheckable(False)
                 card.setMinimumHeight(54)
+                card.hide()
                 card.clicked.connect(lambda _checked, key=room_id: self.selected.emit(key))
                 terms = ' '.join((display, room_id, str(room.get('display_room_id') or ''), name))
                 cards.append((card, terms, room))
@@ -89,32 +92,51 @@ class FollowedRoomPicker(QWidget):
         self.scroll.setWidget(content)
         self._arrange()
 
+    def _column_count(self):
+        scrollbar = self.scroll.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        return max(1, (self.scroll.contentsRect().width() - scrollbar - 16 + 6) // 106)
+
     def _arrange(self):
-        if self.scroll.widget() is None:
+        content = self.scroll.widget()
+        if content is None:
             return
-        columns = max(1, (self.scroll.viewport().width() - 16 + 6) // 106)
+        columns = self._column_count()
+        columns_changed = columns != self._columns
+        self._columns = columns
         words = self.search.text().split()
         live_only = self.live_only.isChecked()
         has_results = False
-        for holder, grid, cards in self.groups:
-            while grid.count():
-                grid.takeAt(0)
-            for column in range(max(columns, grid.columnCount())):
-                grid.setColumnStretch(column, 1 if column < columns else 0)
-            index = 0
-            for button, terms, room in cards:
-                live = room.get('live') and room.get('live_known', True)
-                matched = (not live_only or live) and all(matches_text(terms, word) for word in words)
-                button.setVisible(matched)
-                if matched:
-                    grid.addWidget(button, index // columns, index % columns)
-                    index += 1
-            holder.setVisible(bool(index))
-            has_results |= bool(index)
-        self.empty.setText('没有匹配的关注主播' if (words or live_only) and self.groups else '暂无可入墙的关注主播')
-        self.empty.setVisible(not has_results)
+        content.setUpdatesEnabled(False)
+        try:
+            for holder, grid, cards in self.groups:
+                matches = [button for button, terms, room in cards
+                           if (not live_only or room.get('live') and room.get('live_known', True))
+                           and all(matches_text(terms, word) for word in words)]
+                has_results |= bool(matches)
+                positions = {button: divmod(index, columns) for index, button in enumerate(matches)}
+                # Keep matching cards already in their final position in the grid.
+                for index in reversed(range(grid.count())):
+                    button = grid.itemAt(index).widget()
+                    if positions.get(button) == grid.getItemPosition(index)[:2]:
+                        positions.pop(button)
+                    else:
+                        grid.takeAt(index)
+                        if button not in positions:
+                            button.hide()
+                if columns_changed:
+                    for column in range(max(columns, grid.columnCount())):
+                        grid.setColumnStretch(column, int(column < columns))
+                for button, (row, column) in positions.items():
+                    grid.addWidget(button, row, column)
+                    button.show()
+                holder.setVisible(bool(matches))
+            self.empty.setText('没有匹配的关注主播' if (words or live_only) and self.groups else '暂无可入墙的关注主播')
+            self.empty.setVisible(not has_results)
+        finally:
+            content.setUpdatesEnabled(True)
 
     def eventFilter(self, watched, event):
-        if watched is self.scroll.viewport() and event.type() == QEvent.Resize:
+        if (watched is self.scroll.viewport() and event.type() == QEvent.Resize
+                and self._column_count() != self._columns):
             self._arrange()
         return super().eventFilter(watched, event)

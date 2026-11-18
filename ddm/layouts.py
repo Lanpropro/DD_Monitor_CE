@@ -8,10 +8,11 @@ cells 的数量就是这个方案一屏能放几路；多出来的窗口按同�
 """
 import math
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QLineF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 
 from . import theme
+from .corner_geometry import continuous_path
 
 
 def even_cells(rows: int, cols: int) -> list[tuple[int, int, int, int]]:
@@ -224,23 +225,40 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None, *, preset=False) 
     else:
         cells = even_cells(2, 2)
 
-    padding = 2.0
+    padding = 4.0 if preset else 2.0
     gap = 3.0 if preset else 2.0
     cell_width = (width - padding * 2 - gap * (cols - 1)) / cols
     cell_height = (height - padding * 2 - gap * (rows - 1)) / rows
     if preset:
         smallest = min((rowspan * colspan for _, _, rowspan, colspan in cells), default=1)
-        base = theme.qcolor(theme.CONTENT).name()
-        outline = theme.qcolor(theme.TEXT1).name()
-        main_outline = theme.mix(outline, theme.ACCENT, .28)
+        base = theme.qcolor(theme.BG).name()
+        ink = theme.qcolor(theme.TEXT1).name()
+        painter.fillPath(continuous_path(QRectF(0, 0, width, height), 6), theme.qcolor(base))
     for index, (row, col, rowspan, colspan) in enumerate(cells):
         x = padding + col * (cell_width + gap)
         y = padding + row * (cell_height + gap)
         w = cell_width * colspan + gap * (colspan - 1)
         h = cell_height * rowspan + gap * (rowspan - 1)
+        if preset:
+            cell = QRectF(x, y, w, h)
+            chat = index == danmaku
+            main = rowspan * colspan > smallest
+            if chat:
+                fill = theme.mix(ink, theme.SUCCESS, .54)
+            elif main:
+                fill = theme.mix(ink, theme.ACCENT, .68)
+            else:
+                fill = theme.mix(base, ink, .62)
+            painter.fillPath(continuous_path(cell, min(4, w / 4, h / 4)), theme.qcolor(fill))
+            if chat:
+                painter.setPen(QPen(theme.qcolor(base), 1.4, Qt.SolidLine, Qt.RoundCap))
+                for line, fraction in enumerate((.58, .39)):
+                    cy = y + h * (.38 + .24 * line)
+                    painter.drawLine(QLineF(x + w * .2, cy, x + w * (.2 + fraction), cy))
+            continue
         if spec and index == danmaku:
             # 弹幕格：主题色描边 + 三道横线
-            painter.setBrush(theme.qcolor(theme.mix(base, theme.SUCCESS, .22) if preset else theme.ACCENT_SOFT))
+            painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
             painter.drawRoundedRect(QRectF(x, y, w, h), 2.0, 2.0)
             painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
@@ -248,12 +266,7 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None, *, preset=False) 
                 line_y = y + h * (0.3 + line * 0.2)
                 painter.drawRect(QRectF(x + 2, line_y, max(1.0, w - 4), 1.0))
             continue
-        if preset:
-            main = rowspan * colspan > smallest
-            fill = theme.mix(base, theme.ACCENT if main else outline, .27 if main else .14)
-            painter.setBrush(theme.qcolor(fill))
-            painter.setPen(QPen(theme.qcolor(main_outline if main else outline), 1.8))
-        elif spec:
+        if spec:
             fill = theme.mix(theme.CONTENT, '#000000' if theme.is_light() else '#ffffff',
                              .08 if theme.is_light() else .40)
             painter.setBrush(theme.qcolor(fill))

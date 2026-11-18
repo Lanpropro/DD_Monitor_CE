@@ -1,12 +1,13 @@
 """Interactive image-cache usage chart; disk operations stay off the GUI thread."""
 import math
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QPainter, QPainterPath
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSignalBlocker, Qt, QThreadPool, Signal
+from PySide6.QtGui import QLinearGradient, QPainter, QPainterPath
+from PySide6.QtWidgets import QBoxLayout, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from . import config, image_cache, theme
-from .ui import ActionButton, HintLabel, TitleLabel
+from .settings_layout import SettingsSection
+from .ui import ActionButton, HintLabel
 
 LABELS = {'avatars': '主播头像', 'covers': '直播间封面'}
 _live_tasks = set()
@@ -30,7 +31,6 @@ class CachePie(QWidget):
         super().__init__(parent)
         self.labels = labels
         self.colors = colors
-        self.title = title
         self.setFixedSize(214, 214)
         self.setMouseTracking(True)
         self.setAccessibleName(title + '占用饼图，可通过复选框选择类别')
@@ -86,9 +86,12 @@ class CachePie(QWidget):
             consumed += self.values[kind]['bytes']
             end = 90 * 16 - round(360 * 16 * consumed / max(1, total))
             color = theme.qcolor(colors[kind])
-            if self.selected and kind not in self.selected:
-                color.setAlpha(65)
-            painter.setBrush(color)
+            gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            for offset, shade in ((0., color.lighter(128)), (.5, color), (1., color.darker(123))):
+                if self.selected and kind not in self.selected:
+                    shade.setAlpha(65)
+                gradient.setColorAt(offset, shade)
+            painter.setBrush(gradient)
             painter.drawPie(rect, start, end - start)
             start = end
         painter.restore()
@@ -102,7 +105,7 @@ class CachePie(QWidget):
         font.setBold(False)
         painter.setFont(font)
         painter.setPen(theme.qcolor(theme.TEXT3))
-        painter.drawText(QRectF(35, 112, 144, 24), Qt.AlignCenter, self.title if total else '暂无占用')
+        painter.drawText(QRectF(35, 112, 144, 24), Qt.AlignCenter, '合计' if total else '暂无占用')
 
 
 class _Signals(QObject):
@@ -130,81 +133,98 @@ def _forget_task(task):
     _live_tasks.discard(task)
 
 
-class ImageCachePanel(QWidget):
-    def __init__(self, parent=None, *, root=None):
-        super().__init__(parent)
+class CacheUsagePanel(SettingsSection):
+    def __init__(self, title, parent=None, *, root=None, backend, labels, colors, hint, details=None, deferred=()):
+        super().__init__(title, parent)
         self.root = root or config.data_root()
-        self.values = {kind: {'bytes': 0, 'files': 0} for kind in image_cache.KINDS}
+        self.backend = backend
+        self.colors = colors
+        self.deferred = frozenset(deferred)
+        self.values = {kind: {'bytes': 0, 'files': 0} for kind in labels}
         self._task = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 8, 0, 0)
-        title = TitleLabel('图片缓存')
-        layout.addWidget(title)
-        hint = HintLabel('点击饼图或勾选类别，选择要清理的图片。占比仅包含头像和封面。')
-        layout.addWidget(hint)
-        content = QHBoxLayout()
-        self.pie = CachePie()
-        self.pie.toggled.connect(self._toggle)
-        content.addWidget(self.pie)
-        grid = QGridLayout()
-        grid.setColumnStretch(1, 1)
+        self.grid.addWidget(HintLabel(hint), 0, 0, 1, 2)
+        self.content = QBoxLayout(QBoxLayout.LeftToRight)
+        self.content.setSpacing(12)
+        self.pie = CachePie(self, labels=labels, colors=colors, title=title)
+        self.pie.toggled.connect(lambda kind: self.checks[kind].toggle())
+        self.content.addWidget(self.pie, 0, Qt.AlignTop | Qt.AlignHCenter)
+        self.legend = QWidget(self)
+        self.legend.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        legend = QGridLayout(self.legend)
+        legend.setContentsMargins(0, 0, 0, 0)
+        legend.setAlignment(Qt.AlignTop)
+        legend.setColumnStretch(1, 1)
+        self.content.addWidget(self.legend, 1)
         self.checks, self.details, self.dots = {}, {}, {}
-        for row, kind in enumerate(image_cache.KINDS):
+        for row, (kind, title) in enumerate(labels.items()):
             dot = QLabel('●')
-            dot.setStyleSheet(f'color: {cache_colors()[kind]}; font-size: 16px;')
-            check = QCheckBox(LABELS[kind])
-            check.setAccessibleName('选择清理' + LABELS[kind])
+            check = QCheckBox(title)
+            check.setAccessibleName('选择清理' + title)
             check.toggled.connect(self._selection_changed)
             detail = HintLabel('尚未统计')
-            detail.setWordWrap(False)
-            grid.addWidget(dot, row * 2, 0)
-            grid.addWidget(check, row * 2, 1)
-            grid.addWidget(detail, row * 2 + 1, 1)
-            self.checks[kind], self.details[kind] = check, detail
-            self.dots[kind] = dot
-        content.addLayout(grid, 1)
-        layout.addLayout(content)
+            if details:
+                check.setToolTip(details[kind])
+                detail.setToolTip(details[kind])
+            legend.addWidget(dot, row * 2, 0)
+            legend.addWidget(check, row * 2, 1)
+            legend.addWidget(detail, row * 2 + 1, 1)
+            self.checks[kind], self.details[kind], self.dots[kind] = check, detail, dot
+        self.grid.addLayout(self.content, 1, 0, 1, 2)
+
         actions = QHBoxLayout()
         self.selected_button = ActionButton('清理所选')
         self.selected_button.clicked.connect(self.clear_selected)
-        self.all_button = ActionButton('全部清理')
-        self.all_button.setToolTip('只清理头像和封面缓存')
-        self.all_button.clicked.connect(self.clear_all)
+        self.select_all_button = ActionButton('全选')
+        self.select_all_button.clicked.connect(self._toggle_all)
         self.refresh_button = ActionButton('刷新统计')
         self.refresh_button.clicked.connect(self.refresh)
-        for button in (self.selected_button, self.all_button, self.refresh_button):
+        for button in (self.selected_button, self.select_all_button, self.refresh_button):
             actions.addWidget(button)
         actions.addStretch(1)
-        layout.addLayout(actions)
-        self.status = HintLabel('主播有新图时自动清理旧图。手动清理后按需重新加载，不影响账号、关注和录像。')
-        layout.addWidget(self.status)
+        self.grid.addLayout(actions, 2, 0, 1, 2)
+        self.status = HintLabel('尚未统计')
+        self.grid.addWidget(self.status, 3, 0, 1, 2)
         theme.signals().changed.connect(self._theme_changed)
+        self._theme_changed()
         self._selection_changed()
 
     def _theme_changed(self, *_args):
-        for kind, dot in self.dots.items():
-            dot.setStyleSheet(f'color: {cache_colors()[kind]}; font-size: 16px;')
+        for kind, color in self.colors().items():
+            self.dots[kind].setStyleSheet(f'color: {color}; font-size: 16px;')
         self.pie.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        margins = self.layout().contentsMargins()
+        needed = self.pie.width() + self.legend.sizeHint().width() + self.content.spacing()
+        self.content.setDirection(QBoxLayout.LeftToRight
+                                  if self.width() - margins.left() - margins.right() >= needed else QBoxLayout.TopToBottom)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh()
 
-    def _toggle(self, kind):
-        self.checks[kind].toggle()
-
     def selected(self):
         return {kind for kind, check in self.checks.items() if check.isChecked()}
 
+    def _toggle_all(self):
+        select = len(self.selected()) < len(self.checks)
+        for check in self.checks.values():
+            with QSignalBlocker(check):
+                check.setChecked(select)
+        self._selection_changed()
+
     def _selection_changed(self):
-        self.pie.selected = self.selected()
+        selected = self.selected()
+        self.pie.selected = selected
         self.pie.update()
         busy = self._task is not None
-        size = sum(self.values[kind]['bytes'] for kind in self.selected())
-        files = sum(self.values[kind]['files'] for kind in self.selected())
+        size = sum(self.values[kind]['bytes'] for kind in selected)
+        files = sum(self.values[kind]['files'] for kind in selected)
         self.selected_button.setText('清理所选' + (f' · {size_text(size)}' if files else ''))
-        self.selected_button.setEnabled(not busy and bool(files))
-        self.all_button.setEnabled(not busy and any(value['files'] for value in self.values.values()))
+        self.selected_button.setEnabled(not busy and bool(files or self.deferred & selected))
+        self.select_all_button.setText('取消全选' if len(selected) == len(self.checks) else '全选')
+        self.select_all_button.setEnabled(not busy)
         self.refresh_button.setEnabled(not busy)
         self.pie.setEnabled(not busy)
         for check in self.checks.values():
@@ -223,21 +243,15 @@ class ImageCachePanel(QWidget):
         QThreadPool.globalInstance().start(self._task)
 
     def refresh(self):
-        self._start(lambda: (None, image_cache.usage(self.root)), '正在统计图片缓存…')
+        backend, root = self.backend, self.root
+        self._start(lambda: (None, backend.usage(root)), '正在统计…')
 
     def clear_selected(self):
-        kinds = self.selected()
-        if kinds:
-            self._clear(kinds)
-
-    def clear_all(self):
-        self._clear(image_cache.KINDS)
-
-    def _clear(self, kinds):
-        def operation():
-            result = image_cache.clear(self.root, kinds)
-            return result, image_cache.usage(self.root)
-        self._start(operation, '正在清理图片缓存…')
+        selected, backend, root = self.selected(), self.backend, self.root
+        if selected:
+            def operation():
+                return backend.clear(root, selected), backend.usage(root)
+            self._start(operation, '正在清理所选类别…')
 
     def _completed(self, payload):
         result, self.values = payload
@@ -245,14 +259,25 @@ class ImageCachePanel(QWidget):
         self.pie.values = self.values
         total = sum(value['bytes'] for value in self.values.values())
         for kind, value in self.values.items():
+            pending = ' · 已安排下次网页登录时清理' if value.get('pending') else ''
             self.details[kind].setText(f"{size_text(value['bytes'])} · {value['files']} 个文件 · "
-                                      f"{value['bytes'] / max(1, total):.1%}")
-        self.status.setText(f"已释放 {size_text(result['bytes'])}，清理 {result['files']} 个文件，"
-                            f"跳过 {result['skipped']} 个在用文件。" if result is not None
-                            else '点击饼图选择类别；没有新图时保留最近一次头像和封面。')
+                                       f"{value['bytes'] / max(1, total):.1%}" + pending)
+        message = '统计完成。'
+        if result is not None:
+            message = (f"已释放 {size_text(result['bytes'])}，清理 {result['files']} 个文件，"
+                       f"跳过 {result['skipped']} 个在用或不可清理文件。")
+            if result.get('deferred'):
+                message += ' 网页登录 HTTP 缓存已安排在下次打开网页登录时清理。'
+        self.status.setText(message)
         self._selection_changed()
 
     def _failed(self, message):
         self._task = None
-        self.status.setText('图片缓存操作未完成：' + message)
+        self.status.setText('缓存操作未完成：' + message)
         self._selection_changed()
+
+
+class ImageCachePanel(CacheUsagePanel):
+    def __init__(self, parent=None, *, root=None):
+        super().__init__('图片缓存', parent, root=root, backend=image_cache, labels=LABELS, colors=cache_colors,
+                         hint='点击扇区或勾选类别。主播有新图时自动清理旧图，手动清理后按需重新加载。')

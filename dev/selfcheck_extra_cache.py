@@ -292,6 +292,8 @@ class ExtraCacheTests(unittest.TestCase):
         page = DataSettingsPage()
         self.assertIsInstance(page.image_cache, ImageCachePanel)
         self.assertEqual(page.extra_cache.root, str(self.root))
+        for button in ('selected_button', 'select_all_button', 'refresh_button'):
+            self.assertEqual(getattr(page.image_cache, button).text(), getattr(page.extra_cache, button).text())
         page.extra_cache.refresh()
         page.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

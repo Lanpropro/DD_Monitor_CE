@@ -34,13 +34,7 @@ class DiagnosticsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
-        header = QHBoxLayout()
-        header.addLayout(page_header('诊断与反馈', '描述问题、导出记录，检查后手动发送给维护者。'), 1)
-        self.open_issue = ActionButton('打开 Issue')
-        self.open_issue.setToolTip('在浏览器中选择 GitHub 问题模板')
-        self.open_issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUE_URL)))
-        header.addWidget(self.open_issue, 0, Qt.AlignTop)
-        outer.addLayout(header)
+        outer.addLayout(page_header('诊断与反馈', '描述问题、导出记录，检查后手动发送给维护者。'))
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -149,11 +143,14 @@ class DiagnosticsPage(QWidget):
         self.actions = QBoxLayout(QBoxLayout.LeftToRight)
         self.summary = ActionButton('查看摘要')
         self.open_folder = ActionButton('打开保存位置')
+        self.open_issue = ActionButton('打开 Issue')
+        self.open_issue.setToolTip('在浏览器中选择 GitHub 问题模板，可手动添加诊断包')
+        self.open_issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUE_URL)))
         self.generate = ActionButton('导出诊断包')
         self.generate.setObjectName('PrimaryButton')
         self.summary.setEnabled(False)
         self.open_folder.setEnabled(False)
-        for button in (self.generate, self.summary, self.open_folder):
+        for button in (self.generate, self.summary, self.open_folder, self.open_issue):
             self.actions.addWidget(button)
         outer.addLayout(self.actions)
         self.generate.clicked.connect(self._generate)
@@ -187,7 +184,8 @@ class DiagnosticsPage(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._arrange_actions(self.actions, (self.generate, self.summary, self.open_folder), self.contentsRect().width())
+        self._arrange_actions(self.actions, (self.generate, self.summary, self.open_folder, self.open_issue),
+                              self.contentsRect().width())
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Resize and watched is self.sections.section('live'):
@@ -196,7 +194,7 @@ class DiagnosticsPage(QWidget):
 
     @staticmethod
     def _arrange_actions(layout, buttons, width):
-        needed = sum(button.sizeHint().width() for button in buttons) + max(0, layout.spacing()) * 2
+        needed = sum(button.sizeHint().width() for button in buttons) + max(0, layout.spacing()) * (len(buttons) - 1)
         layout.setDirection(QBoxLayout.TopToBottom if width < needed else QBoxLayout.LeftToRight)
 
     def values(self):

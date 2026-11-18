@@ -112,6 +112,7 @@ class DiagnosticLayoutTests(unittest.TestCase):
 
     def test_issue_button_opens_the_template_picker_without_exporting(self):
         _host, page = self.page(500, 850)
+        self.assertEqual(page.actions.indexOf(page.open_issue), 3)
         page.description.setPlainText('本地填写的诊断内容')
         with patch('ddm.settings_diagnostics.QDesktopServices.openUrl') as browser, patch.object(page.export, 'start') as export:
             page.open_issue.click()

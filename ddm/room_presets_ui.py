@@ -1,11 +1,13 @@
 """Room combinations live inside the existing layout picker."""
-from PySide6.QtCore import QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QMenu, QMessageBox, QPushButton, QScrollArea, QToolButton,
+                               QMessageBox, QPushButton, QScrollArea, QToolButton,
                                QVBoxLayout, QWidget)
 
 from . import layouts, room_presets, theme
+from .corner_geometry import continuous_path
+from .sidebar_navigation import NavigationButton
 
 
 def thumbnail(snapshot):
@@ -21,9 +23,8 @@ def thumbnail(snapshot):
     for cell, rect in room_presets.thumbnail_geometry(snapshot, QRect(5, 5, 214, 128)).items():
         slot = slots.get(cell)
         occupied = bool(slot and slot['room_id'])
-        painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
-        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if occupied else theme.CONTENT))
-        painter.drawRoundedRect(rect, 3, 3)
+        fill = theme.mix(theme.qcolor(theme.CONTENT).name(), theme.ACCENT, .22) if occupied else theme.CONTENT
+        painter.fillPath(continuous_path(QRectF(rect).adjusted(1, 1, -1, -1), 4), theme.qcolor(fill))
         painter.setPen(theme.qcolor(theme.TEXT1 if occupied else theme.TEXT2))
         name = (slot["label"] or slot["room_id"]) if slot and slot["room_id"] else ("空位" if slot else "弹幕")
         if cell in panels:
@@ -125,13 +126,18 @@ class RoomPresetsPage(QWidget):
             label.setMaximumWidth(170)
             label.setWordWrap(True)
             actions.addWidget(label, 1)
-            menu = QToolButton()
-            menu.setText("管理")
-            menu.setObjectName("PresetManageButton")
-            menu.setFixedSize(48, 28)
-            menu.setToolTip("管理此组合")
-            menu.clicked.connect(lambda _checked=False, item=record, button=menu: self.manage(item, button))
-            actions.addWidget(menu)
+            rename = QToolButton()
+            rename.setText("重命名")
+            rename.setObjectName("PresetManageButton")
+            rename.setMinimumSize(52, 28)
+            rename.setAccessibleName("重命名 " + name)
+            rename.clicked.connect(lambda _checked=False, item=record: self._rename(item))
+            actions.addWidget(rename)
+            delete = NavigationButton("删除组合", "close")
+            delete.setFixedSize(28, 28)
+            delete.setAccessibleName("删除组合 " + name)
+            delete.clicked.connect(lambda _checked=False, key=record.get('id', str(index)): self._ask_delete(key))
+            actions.addWidget(delete)
             box.addLayout(actions)
             card = QToolButton()
             card.setObjectName("LayoutCard")
@@ -198,13 +204,6 @@ class RoomPresetsPage(QWidget):
             self.picker.show()
         return name.strip(), accepted
 
-    def _confirm(self, title, message):
-        result = QMessageBox.question(self.picker, title, message,
-                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if not self.host._closing:
-            self.picker.show()
-        return result == QMessageBox.Yes
-
     def _error(self, error):
         QMessageBox.warning(self.picker, "直播间组合", str(error))
         if not self.host._closing:
@@ -270,24 +269,12 @@ class RoomPresetsPage(QWidget):
         self.host.delete_room_preset(preset_id)
         self.refresh()
 
-    def manage(self, record, button):
-        menu = QMenu(self)
-        rename = menu.addAction("重命名")
-        overwrite = menu.addAction("用当前画面更新此组合")
-        delete = menu.addAction("删除组合")
-        action = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
-        menu.deleteLater()
+    def _rename(self, record):
+        name, accepted = self._ask_name("重命名组合", str(record.get("name") or ""))
+        if not accepted:
+            return
         try:
-            if action is rename:
-                name, accepted = self._ask_name("重命名组合", str(record.get("name") or ""))
-                if accepted:
-                    self.host.rename_room_preset(record.get("id"), name)
-            elif action is overwrite:
-                if self._confirm("更新组合", f"是否用当前画面更新“{record.get('name', '')}”？"):
-                    self.host.save_room_preset(record.get("name", ""), record.get("id"))
-            elif action is delete:
-                self._ask_delete(record.get("id"))
-                return
+            self.host.rename_room_preset(record.get("id"), name)
             self.refresh()
         except ValueError as error:
             self._error(error)

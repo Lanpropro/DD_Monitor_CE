@@ -131,7 +131,11 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(any(card.isVisible() for card in cards))
         panel.followed.search.clear()
         self.assertEqual([card.preview_name for card in cards if card.isVisible()], ['路人'])
-        QTest.mouseClick(panel.followed.live_only, Qt.LeftButton)
+        stable_grid = next(grid for _holder, grid, entries in panel.followed.groups
+                           if any(card.preview_name == '路人' for card, _terms, _room in entries))
+        with patch.object(stable_grid, 'takeAt', wraps=stable_grid.takeAt) as removed:
+            QTest.mouseClick(panel.followed.live_only, Qt.LeftButton)
+        removed.assert_not_called()
         panel.followed.search.setText('7654')
         card = next(card for card in cards if card.isVisible())
         self.assertFalse(card.isCheckable())
