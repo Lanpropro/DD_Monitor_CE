@@ -1,6 +1,7 @@
 """Opt-in theme-switch and animation capture hooks."""
 import cProfile
 import functools
+import sys
 import time
 from .responsiveness_probe import profile_functions, Probe
 
@@ -23,11 +24,17 @@ def install_theme_capture(path, *, profile_calls=False):
             return apply_theme(mode)
         started = time.perf_counter()
         source = 'transition' if transition_depth else 'direct'
+        profile = cProfile.Profile() if profile_calls and not transition_depth and sys.getprofile() is None else None
+        if profile is not None:
+            profile.enable()
         try:
             return apply_theme(mode)
         finally:
+            if profile is not None:
+                profile.disable()
             probe.write('theme-apply', mode=theme.normalize_mode(mode), source=source,
-                duration_ms=round((time.perf_counter() - started) * 1000, 3))
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                functions=capture_api.profile_functions(profile) if profile is not None else [])
 
     @functools.wraps(original)
     def change(transition, mode, *args, **kwargs):

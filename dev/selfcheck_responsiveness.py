@@ -265,6 +265,8 @@ class ProbeTests(unittest.TestCase):
                 self.assertEqual([(row['source'], row['mode']) for row in applies],
                                  [('direct', 'dark'), ('transition', 'light')])
                 self.assertTrue(all(row['duration_ms'] >= 0 for row in applies))
+                self.assertTrue(0 < len(applies[0]['functions']) <= 30)
+                self.assertEqual(applies[1]['functions'], [])
                 self.assertEqual(len(switches), 2)
                 self.assertTrue(all(0 < len(row['functions']) <= 30 for row in switches))
                 self.assertNotIn('private-theme-error', json.dumps(rows))

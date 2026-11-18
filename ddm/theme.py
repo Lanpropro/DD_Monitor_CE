@@ -332,7 +332,7 @@ def _refresh_widget_palette(widget, *, invalidate=False, defer=False):
     widget.style().polish(widget)
 
 
-def refresh_theme_properties(widget, *, defer=False):
+def _set_theme_properties(widget):
     # The light exceptions are installed once. Change the selector property,
     # not hundreds of local stylesheets, and invalidate only affected widgets.
     name = widget.objectName()
@@ -343,6 +343,12 @@ def refresh_theme_properties(widget, *, defer=False):
         return
     if widget.property('appearanceLight') != _light:
         widget.setProperty('appearanceLight', _light)
+        return True
+    return False
+
+
+def refresh_theme_properties(widget, *, defer=False):
+    if _set_theme_properties(widget):
         _refresh_widget_palette(widget, invalidate=True, defer=defer)
         return True
     return False
@@ -543,13 +549,15 @@ def apply(value):
         source, colors, _last = _styles[widget]
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         styled = local_style(source, tuple(colors.items()) if source else (), extra)
-        properties_changed = refresh_theme_properties(widget, defer=True)
+        properties_changed = _set_theme_properties(widget)
+        editor = isinstance(widget, QLineEdit)
         if styled != widget.styleSheet():
+            # Replacing local QSS already polishes the widget with its new properties.
             widget.setStyleSheet(styled)
-        elif isinstance(widget, QLineEdit) and not properties_changed:
-            _refresh_widget_palette(widget, invalidate=True, defer=True)
-        elif styled and not properties_changed:
-            _refresh_widget_palette(widget, defer=True)
+            _pending_palette.pop(widget, None)
+        elif not typography_changed and (properties_changed or styled or editor):
+            # Qt's stylesheet polish invalidates the render rules and rebuilds the palette.
+            _refresh_widget_palette(widget, invalidate=editor, defer=True)
         _styles[widget] = (source, colors, styled)
         if typography_changed:
             _refresh_widget_palette(widget, invalidate=True)
