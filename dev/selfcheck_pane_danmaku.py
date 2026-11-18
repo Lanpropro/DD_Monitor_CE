@@ -18,12 +18,13 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QAbstractAnimation, QPoint, QSize, Qt
-from PySide6.QtGui import QImage, QPixmap, QColor
+from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QSize, Qt
+from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
+from ddm.widget_support import TILE_MIME
 from ddm.widgets import DanmakuPanel, WallGrid
 from selfcheck_video_danmaku import Client, Snapshot
 
@@ -48,6 +49,21 @@ class PaneDanmakuTests(unittest.TestCase):
                                  live=True, volume=20 + 10 * i, muted=bool(i % 2)) for i in range(4)], offscreen=True)
         window.settings["close_behavior"] = "exit"
         return window
+
+    def drop_video(self, panel, tile, cell):
+        wall = panel.parentWidget()
+        point = wall.mapToGlobal(wall.pane_danmaku.rectangles[cell].center())
+        position = panel.mapFromGlobal(point)
+        mime = QMimeData()
+        room_id = tile.room['room_id']
+        mime.setData(TILE_MIME, room_id.encode())
+        mime.setText(room_id)
+        enter = QDragEnterEvent(position, Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+        drop = QDropEvent(QPointF(position), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+        self.app.sendEvent(panel, enter)
+        self.assertTrue(enter.isAccepted())
+        self.app.sendEvent(panel, drop)
+        self.assertTrue(drop.isAccepted())
 
     def test_float_uses_the_same_panel_and_returns_the_composer_to_video(self):
         from ddm.plugins import TileControl
@@ -563,6 +579,59 @@ class PaneDanmakuTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '录制'):
             window.configure_wall_panes({panes.cell_for_tile(second): None})
 
+    def test_video_drop_uses_independent_settings_for_linked_and_unlinked_panes(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        owner, video, _other, backing = wall.tiles[:4]
+        for linked in (False, True):
+            for swap in (False, True):
+                with self.subTest(linked=linked, swap=swap):
+                    window.settings['danmaku_drag_linked_swap'] = swap if linked else not swap
+                    window.settings['danmaku_drag_unlinked_swap'] = swap if not linked else not swap
+                    window.configure_wall_panes({3: owner if linked else -1})
+                    original = panes.panels[3]
+                    self.drop_video(original, video, 3)
+                    self.assertEqual(panes.bindings(), {1: owner if linked else -1} if swap else {3: video})
+                    if swap:
+                        self.assertIs(panes.cell_tiles()[3], video)
+                        self.assertIs(panes.cell_tiles()[1], backing)
+                        self.assertIs(panes.panels[1], original)
+                        panes.move(1, video)
+                    else:
+                        self.assertIs(panes.cell_tiles()[1], video)
+
+    def test_video_drop_in_legacy_layout_can_relink_or_swap_without_relinking(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        window._on_layout_changed('dm_main2')
+        cell = wall._danmaku_cell
+        owner, video = wall.tiles[:2]
+        destination = panes.cell_for_tile(video)
+        self.assertFalse(panes.custom)
+        self.drop_video(wall.danmaku, video, cell)
+        self.assertEqual(panes.bindings(), {cell: video})
+        self.assertIs(panes.cell_tiles()[destination], video)
+        window._on_layout_changed('dm_main2')
+        self.assertIs(panes.target(wall.danmaku), owner)
+
+        window.settings['danmaku_drag_linked_swap'] = True
+        self.drop_video(wall.danmaku, video, cell)
+        self.assertEqual(panes.bindings(), {destination: owner})
+        self.assertIs(panes.cell_tiles()[cell], video)
+        self.assertIs(panes.panels[destination], wall.danmaku)
+
+    def test_video_drop_swaps_only_the_hit_cell_of_a_merged_pane(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        owner, video = wall.tiles[:2]
+        window.settings['danmaku_drag_linked_swap'] = True
+        window.configure_wall_panes({2: owner, 3: owner})
+        merged, = panes.rendered()
+        self.drop_video(merged, video, 2)
+        self.assertEqual(panes.bindings(), {1: owner, 3: owner})
+        self.assertIs(panes.cell_tiles()[2], video)
+        self.assertTrue(video.isVisible())
+
     def test_explicit_layout_selection_resets_manual_panes_including_current_layout(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
@@ -582,7 +651,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(set(panes.bindings()), {default})
         self.assertIs(panes.panels[default], wall.danmaku)
 
-    def test_adjacent_regions_merge_preserve_messages_and_restore_all_backing_cells(self):
+    def test_merged_pane_context_menu_restores_only_the_clicked_cell(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
         source = wall.tiles[0]
@@ -606,14 +675,29 @@ class PaneDanmakuTests(unittest.TestCase):
         panes.room_dropped(merged, '1002')
         self.assertTrue(all(tile is wall.tiles[1] for tile in panes.bindings().values()))
         self.assertEqual(len(panes.rendered()), 1)
-        menu = panes.create_menu(2)
-        self.addCleanup(menu.deleteLater)
-        self.assertEqual([a.text() for a in menu.actions()], ['恢复直播画面'])
-        menu.actions()[0].trigger()
-        self.assertFalse(panes.bindings())
-        self.assertFalse(panes.rendered())
-        self.assertFalse(panes.groups)
-        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:4]))
+        source = wall.tiles[1]
+        for clicked, remaining in ((2, 3), (3, 2)):
+            with self.subTest(clicked=clicked):
+                window.configure_wall_panes({2: source, 3: source})
+                merged, = panes.rendered()
+                window._danmaku_clients['1002'].message.emit(dict(kind='danmaku', text='保留的消息'))
+                viewport = merged.body.viewport()
+                point = wall.mapToGlobal(panes.rectangles[clicked].center())
+                event = QContextMenuEvent(QContextMenuEvent.Mouse, viewport.mapFromGlobal(point), point)
+
+                def restore(cell, _point):
+                    menu = panes.create_menu(cell)
+                    self.addCleanup(menu.deleteLater)
+                    self.assertEqual([action.text() for action in menu.actions()], ['恢复直播画面'])
+                    menu.actions()[0].trigger()
+
+                with patch.object(panes, 'open_menu', side_effect=restore):
+                    self.app.sendEvent(viewport, event)
+                self.assertEqual(panes.bindings(), {remaining: source})
+                self.assertTrue(panes.cell_tiles()[clicked].isVisible())
+                self.assertIs(panes.rendered()[0], merged)
+                self.assertEqual(merged._blocks[-1]['text'], '保留的消息')
+                self.assertEqual(merged.geometry(), panes.rectangles[remaining])
 
     def test_corner_right_column_merges_across_independently_allocated_rows(self):
         window = self.wall_window()
@@ -645,8 +729,9 @@ class PaneDanmakuTests(unittest.TestCase):
         client.message.emit(dict(kind='danmaku', text='环绕布局单份消息'))
         self.assertEqual(sum(event.get('text') == '环绕布局单份消息' for event in merged._blocks), 1)
         panes.request(5, video=True)
-        self.assertFalse(panes.bindings())
-        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:6]))
+        self.assertEqual(set(panes.bindings()), {1, 2})
+        self.assertTrue(wall.tiles[5].isVisible())
+        self.assertTrue(all(not wall.tiles[cell].isVisible() for cell in (1, 2)))
 
     def test_corner_default_rows_align_without_overriding_independent_ratios(self):
         wall = WallGrid([], layout_id='corner')
@@ -829,6 +914,15 @@ class PaneDanmakuTests(unittest.TestCase):
                 window.picture_in_picture.restore(activate=True)
                 self.assertEqual(len(window.wall.pane_danmaku.rendered()), 1)
                 self.assertTrue(window.wall.pane_danmaku.rendered()[0].isVisible())
+                window.settings['danmaku_drag_linked_swap'] = True
+                panel, = panes.rendered()
+                cell, destination = panes.panel_cell(panel), panes.cell_for_tile(source)
+                self.drop_video(panel, source, cell)
+                self.assertIs(panes.cell_tiles()[cell], source)
+                self.assertIs(panes.bindings()[destination], source)
+                pump(self.app, .15)
+                self.assertIs(player.player, core)
+                self.assertEqual(int(source.video.winId()), handle)
                 window.configure_wall_panes({})
                 self.assertIs(player.player, core)
                 self.assertEqual(int(source.video.winId()), handle)

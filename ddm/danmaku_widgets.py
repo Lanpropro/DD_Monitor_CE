@@ -210,6 +210,7 @@ class DanmakuPanel(QFrame):
     }
 
     roomDropped = Signal(str)          # 有直播间被拖到弹幕格上
+    tileDropped = Signal(str, QPoint)  # 画面墙直播与屏幕落点
     fontSizeChanged = Signal(int)      # 面板上的字号滑块被拖动
 
     def __init__(self, parent=None):
@@ -377,14 +378,16 @@ class DanmakuPanel(QFrame):
     def dropEvent(self, event) -> None:
         if event.mimeData().hasFormat(DANMAKU_MIME):
             return
-        source = ""
         if event.mimeData().hasFormat(ROOM_MIME):
             source = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
+            if source:
+                event.acceptProposedAction()
+                self.roomDropped.emit(source)
         elif event.mimeData().hasFormat(TILE_MIME):
             source = bytes(event.mimeData().data(TILE_MIME)).decode("utf-8", "ignore")
-        if source:
-            event.acceptProposedAction()
-            self.roomDropped.emit(source)
+            if source:
+                event.acceptProposedAction()
+                self.tileDropped.emit(source, self.mapToGlobal(event.position().toPoint()))
 
     # ---- 内容 ----
     def filter_events(self, allowed):

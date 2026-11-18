@@ -87,6 +87,16 @@ class DanmakuSettingsPage(QWidget):
         floating.grid.addWidget(self.float_keep_video_slots, 1, 1, Qt.AlignRight)
         floating.grid.addWidget(_hint('开启后，关闭浮窗时空格也会保留为直播格。已有直播的格子始终保留。'), 2, 0, 1, 2)
         self.sections.add_section('danmaku_float', floating)
+        drag = SettingsSection('画面拖入弹幕栏')
+        self.drag_unlinked = SegmentedControl((('source', '关联主播'), ('swap', '交换位置')),
+            'swap' if settings.get('danmaku_drag_unlinked_swap', False) else 'source')
+        self.drag_linked = SegmentedControl((('source', '更换主播'), ('swap', '交换位置')),
+            'swap' if settings.get('danmaku_drag_linked_swap', False) else 'source')
+        for row, (text, control) in enumerate((('未关联主播时', self.drag_unlinked),
+                                               ('已关联主播时', self.drag_linked))):
+            control.setAccessibleName(text)
+            drag.grid.addWidget(QLabel(text), row, 0)
+            drag.grid.addWidget(control, row, 1, Qt.AlignRight)
         blocking = SettingsSection('屏蔽管理')
         self.blocking_columns = SettingsColumns(respect_preference=False)
         word_panel, user_panel = QWidget(), QWidget()
@@ -245,6 +255,7 @@ class DanmakuSettingsPage(QWidget):
         self.video_columns.add_section('curve', self.video_preview)
         video.grid.addWidget(self.video_columns, 0, 0, 1, 2)
         self.sections.add_section('danmaku_curve', video)
+        self.sections.add_section('danmaku_drag', drag)
         self.sections.add_section('blocking', blocking, wide=True)
         self.sections.add_section('sc_placement', placement, wide=True)
         layout.addStretch(1)
@@ -298,6 +309,8 @@ class DanmakuSettingsPage(QWidget):
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.float_cell_mode.setValue('reserve')
         self.float_keep_video_slots.setChecked(config_module.DEFAULT_SETTINGS['danmaku_float_keep_video_slots'])
+        self.drag_unlinked.setValue('source')
+        self.drag_linked.setValue('source')
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
@@ -325,6 +338,8 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_float_reuse_cell": self.float_cell_mode.value() == 'reuse',
             "danmaku_float_keep_video_slots": self.float_keep_video_slots.isChecked(),
+            "danmaku_drag_unlinked_swap": self.drag_unlinked.value() == 'swap',
+            "danmaku_drag_linked_swap": self.drag_linked.value() == 'swap',
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
             "danmaku_blocked_users": self.blocked_users.users(),

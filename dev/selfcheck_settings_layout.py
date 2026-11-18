@@ -568,7 +568,8 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_danmaku_sc_options_share_one_card_with_the_preview(self):
         page = self.page(2)
         self.assertEqual([key for key, _card, _wide in page.sections.entries],
-                         ['font_filter', 'danmaku_float', 'danmaku_curve', 'blocking', 'sc_placement'])
+                         ['font_filter', 'danmaku_float', 'danmaku_curve', 'danmaku_drag',
+                          'blocking', 'sc_placement'])
         card = page.sections.section('sc_placement')
         for control in (page.super_chat_enabled, page.super_chat_opacity,
                         page.super_chat_collapse_stepper, page.super_chat_scale,
@@ -642,6 +643,25 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             theme.configure_appearance({'appearance_font_size': 13})
             theme.apply('dark')
+
+    def test_danmaku_drag_choices_autosave_independently_and_reset_to_source(self):
+        page = self.page(2)
+        keys = ('danmaku_drag_unlinked_swap', 'danmaku_drag_linked_swap')
+        unlinked, linked = page.drag_unlinked, page.drag_linked
+        self.assertEqual([page.values()[key] for key in keys], [False, False])
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        linked.buttons['swap'].click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {keys[1]: True})
+        self.dialog.auto_save.acknowledge()
+        unlinked.buttons['swap'].click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {keys[0]: True})
+        self.dialog.auto_save.acknowledge()
+        page.reset()
+        self.assertEqual([page.values()[key] for key in keys], [False, False])
 
     def test_scale_curve_hint_stays_below_graph(self):
         page = self.page(2)
