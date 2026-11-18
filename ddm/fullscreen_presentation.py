@@ -1,29 +1,7 @@
 """Present the existing tile as an owned window without resizing the playback wall."""
-from contextlib import contextmanager
-
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QObject, QRect, Qt
 
 from .widget_support import _repolish
-
-
-class _FullscreenHandoffCover(QWidget):
-    def __init__(self, owner, tile, frame):
-        super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
-                         | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
-        self.setObjectName('FullscreenHandoffCover')
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setAttribute(Qt.WA_OpaquePaintEvent)
-        self.frame = frame
-        self.video_rect = QRect(tile.video.geometry())
-        self.setGeometry(QRect(tile.mapToGlobal(QPoint()), tile.size()))
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#202124'))
-        if not self.frame.isNull():
-            painter.drawPixmap(self.video_rect, self.frame, self.frame.rect())
 
 
 class FullscreenPresentation(QObject):
@@ -42,36 +20,6 @@ class FullscreenPresentation(QObject):
             pane.video_danmaku.super_chat_overlay.set_presentation_changing(active)
 
     def enter(self, tile, geometry=None):
-        with self._hold_source(tile):
-            self._enter(tile, geometry)
-
-    @contextmanager
-    def _hold_source(self, tile):
-        cover = self._show_handoff_cover(tile)
-        try:
-            yield
-        finally:
-            if cover is not None:
-                cover.deleteLater()
-
-    @staticmethod
-    def _grab_handoff_frame(tile):
-        video = tile.video
-        if tile._player_active and video.isVisible() and (hwnd := int(video.internalWinId())):
-            return video.screen().grabWindow(hwnd)
-        return QPixmap()
-
-    def _show_handoff_cover(self, tile):
-        if QApplication.platformName() != 'windows' or not tile.isVisible():
-            return None
-        # A child backing store can still expose the wallpaper during promotion.
-        cover = _FullscreenHandoffCover(self.window, tile, self._grab_handoff_frame(tile))
-        cover.show()
-        cover.raise_()
-        cover.repaint()
-        return cover
-
-    def _enter(self, tile, geometry):
         wall = self.window.wall
         geometry = QRect(geometry if geometry is not None else self.window.screen().geometry())
         self.tile = tile
@@ -87,7 +35,6 @@ class FullscreenPresentation(QObject):
         wall._resize_timer.stop()
         wall.fullscreen_tile = tile
         self._set_comments_changing(True)
-        tile.hide()
         wall._sync_danmaku_controls()
         tile.installEventFilter(self)
         tile._presentation_changing = True
@@ -99,6 +46,7 @@ class FullscreenPresentation(QObject):
             tile.setAttribute(Qt.WA_ShowWithoutActivating, bool(background))
             if background:
                 flags |= Qt.WindowDoesNotAcceptFocus
+            tile.hide()
             tile.setWindowFlags(flags)
             tile.setProperty('fullscreen', True)
             _repolish(tile)
@@ -108,17 +56,18 @@ class FullscreenPresentation(QObject):
         finally:
             tile._presentation_changing = False
         tile._layout_areas()
-        layer = wall._quick_danmaku_layer
-        if layer is not None:
-            layer.set_presentation_changing(True)
-            layer.set_presentation_window(tile)
         # Exposing a new Tool bar can dispatch the owner's old native resize.
-        # Finish that work before restoring the final rectangle and first frame.
+        # Correct it before showing the tile, only relaying out if the size changed.
         if tile.bottom.qt_composited:
             tile.bottom.prepare_fullscreen_frame()
-            tile.setGeometry(geometry)
-            tile._layout_areas()
-            tile.bottom.prepare_fullscreen_frame()
+            if tile.geometry() != geometry:
+                size_changed = tile.size() != geometry.size()
+                tile.setGeometry(geometry)
+                if size_changed:
+                    tile._layout_areas()
+                else:
+                    tile.bottom.sync_owner_position()
+                tile.bottom.prepare_fullscreen_frame()
         tile.show()
         if tile.bottom.qt_composited:
             tile.bottom.setWindowOpacity(1.0)
@@ -136,6 +85,9 @@ class FullscreenPresentation(QObject):
                 pane.hide()
         for border in self._borders:
             border.hide()
+        layer = wall._quick_danmaku_layer
+        if layer is not None:
+            layer.set_presentation_window(tile)
         self._set_comments_changing(False)
 
     def leave(self):
@@ -160,38 +112,37 @@ class FullscreenPresentation(QObject):
         if dialog is not None:
             # Detach before changing the tile's native window flags on exit.
             dialog.set_presentation_owner(self.window)
-        with self._hold_source(tile):
-            tile.removeEventFilter(self)
-            self.tile = None
-            tile._presentation_changing = True
-            try:
-                tile.hide()
-                if layer is not None:
-                    layer.set_presentation_window(None)
-                tile.setProperty('fullscreen', False)
-                _repolish(tile)
-                tile.setWindowFlags(self._flags)
-                tile.setAttribute(Qt.WA_ShowWithoutActivating, self._show_without_activating)
-                tile.setGeometry(self._geometry)
-            finally:
-                tile._presentation_changing = False
-            wall.fullscreen_tile = None
-            wall._sync_danmaku_controls()
-            tile._layout_areas()
-            for pane, visible in self._visible:
-                if pane is tile:
-                    pane.setVisible(visible)
-            tile.bottom.setUpdatesEnabled(True)
-            if native_bar:
-                tile.bottom.repaint()
-            wall._fullscreen_layout_pending = False
-            wall.grid.setEnabled(self._grid_enabled)
-            self._visible = self._borders = []
-            if self.window.isVisible() and not self.window.testAttribute(Qt.WA_ShowWithoutActivating):
-                self.window.activateWindow()
-            if dialog is not None and dialog.isVisible():
-                dialog.raise_()
-            self._set_comments_changing(False)
+        if layer is not None:
+            layer.set_presentation_window(None)
+        tile.removeEventFilter(self)
+        self.tile = None
+        tile._presentation_changing = True
+        try:
+            tile.hide()
+            tile.setProperty('fullscreen', False)
+            _repolish(tile)
+            tile.setWindowFlags(self._flags)
+            tile.setAttribute(Qt.WA_ShowWithoutActivating, self._show_without_activating)
+            tile.setGeometry(self._geometry)
+        finally:
+            tile._presentation_changing = False
+        wall.fullscreen_tile = None
+        wall._sync_danmaku_controls()
+        tile._layout_areas()
+        for pane, visible in self._visible:
+            if pane is tile:
+                pane.setVisible(visible)
+        tile.bottom.setUpdatesEnabled(True)
+        if native_bar:
+            tile.bottom.repaint()
+        wall._fullscreen_layout_pending = False
+        wall.grid.setEnabled(self._grid_enabled)
+        self._visible = self._borders = []
+        if self.window.isVisible() and not self.window.testAttribute(Qt.WA_ShowWithoutActivating):
+            self.window.activateWindow()
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
+        self._set_comments_changing(False)
 
     def eventFilter(self, watched, event):
         tile = self.tile

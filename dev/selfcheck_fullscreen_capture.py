@@ -52,6 +52,9 @@ class Wall(QWidget):
 
     relayout = reveal_tiles_staggered = set_fullscreen_tile
 
+    def _sync_danmaku_controls(self):
+        return None
+
 
 class Window(QWidget):
     wall_type = Wall
@@ -70,6 +73,7 @@ class Window(QWidget):
             return self._exit_fullscreen()
         self._fullscreen_tile = tile
         self.wall.set_fullscreen_tile(tile)
+        self.wall._sync_danmaku_controls()
         if self.fail:
             raise ValueError('private-error')
         return TOKEN
@@ -188,13 +192,19 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(self.rows()[-1]['reason'], 'limit')
 
     def test_install_preserves_return_errors_and_nested_exit(self):
-        from ddm import app, wall_widgets, window_fullscreen, video_danmaku
+        from ddm import app, fullscreen_bar, fullscreen_presentation, tile_widgets, wall_widgets, window_fullscreen, video_danmaku
         for detailed in (False, True):
             captured_wall = type('CapturedWall', (Wall,), {})
             captured_window = type('CapturedWindow', (Window,), {'wall_type': captured_wall})
             captured_video = type('CapturedVideo', (video_danmaku.VideoDanmaku,), {})
+            captured_bar = type('CapturedBar', (fullscreen_bar.FullscreenBar,), {})
+            captured_presentation = type('CapturedPresentation', (fullscreen_presentation.FullscreenPresentation,), {})
+            captured_tile = type('CapturedTile', (tile_widgets.Tile,), {})
             with patch.object(app, 'MainWindow', captured_window), patch.object(wall_widgets, 'WallGrid', captured_wall), \
                     patch.object(video_danmaku, 'VideoDanmaku', captured_video), \
+                    patch.object(fullscreen_bar, 'FullscreenBar', captured_bar), \
+                    patch.object(fullscreen_presentation, 'FullscreenPresentation', captured_presentation), \
+                    patch.object(tile_widgets, 'Tile', captured_tile), \
                     patch.object(window_fullscreen, 'enter'), patch.object(window_fullscreen, 'exit'):
                 probe = diag.install(self.path, profile_calls=detailed)
                 window = captured_window()
@@ -206,6 +216,7 @@ class CaptureTests(unittest.TestCase):
                     capture.finish()
                     row = self.rows()[-1]
                     self.assertEqual(row['action'], 'enter')
+                    self.assertEqual(row['stages']['CapturedWall._sync_danmaku_controls']['calls'], 1)
                     self.assertEqual(bool(row['functions']), detailed)
                     self.assertIs(window._on_fullscreen(tile), TOKEN)
                     capture.finish()

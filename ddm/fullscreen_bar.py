@@ -120,7 +120,7 @@ class FullscreenBar(QWidget):
     def tile_y(self):
         return self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())).y()
 
-    def _follow_owner(self):
+    def sync_owner_position(self):
         if self.qt_composited:
             self.set_tile_geometry(*self._tile_rect.getRect())
 
@@ -200,5 +200,5 @@ class FullscreenBar(QWidget):
                 self.show()
                 self._owner_hidden_visible = False
             elif event.type() == QEvent.Move:
-                QTimer.singleShot(0, self, self._follow_owner)
+                QTimer.singleShot(0, self, self.sync_owner_position)
         return super().eventFilter(watched, event)

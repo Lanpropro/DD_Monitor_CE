@@ -375,10 +375,19 @@ def main():
         assert all(corner.isVisible() for corner in tile.video_corners)
         if app.platformName() == 'windows':
             assert not ctypes.windll.user32.GetWindowLongW(int(tile.bottom.winId()), -20) & 0x80000, 'Normal bar retained the fullscreen layered backing store'
+            wall_windows = set(QApplication.topLevelWidgets())
             enter = window._fullscreen_presentation.enter
+            sync_danmaku_controls = window.wall._sync_danmaku_controls
+
+            def sync_danmaku_before_video_hides():
+                if window.wall.fullscreen_tile is tile:
+                    assert tile.video.isVisible(), 'Docked controls must detach while the old video is visible'
+                sync_danmaku_controls()
+
             with patch.object(window, '_upgrade_fullscreen_quality'), \
                     patch.object(window._fullscreen_presentation, 'enter',
                                  side_effect=lambda target: enter(target, QRect(-20000, -20000, 1100, 800))), \
+                    patch.object(window.wall, '_sync_danmaku_controls', side_effect=sync_danmaku_before_video_hides), \
                     patch('ddm.motion.enabled', return_value=False):
                 for _ in range(3):
                     window._on_fullscreen(tile)
@@ -392,6 +401,9 @@ def main():
                     assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
                     native_bar_image(tile.bottom)
                     window._exit_fullscreen()
+                    assert not [widget for widget in set(QApplication.topLevelWidgets()) - wall_windows
+                                if widget.parentWidget() is window and widget.isVisible()], (
+                        'A temporary presentation window is still covering the restored wall')
                     app.processEvents()
                     assert tile.bottom.isVisible() and not tile.bottom.isWindow()
         page = GeneralSettingsPage({'fullscreen_auto_hide_controls': False})
