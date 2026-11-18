@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPalette, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QWidget
@@ -16,6 +16,48 @@ class PipPickerTests(unittest.TestCase):
     setUp = fixtures.MainNoticesTests.setUp
     window = fixtures.MainNoticesTests.window
     close_window = fixtures.MainNoticesTests.close_window
+
+    def test_toolbar_opens_picker_beside_the_button_and_keeps_a_moved_window(self):
+        window = self.window([dict(room_id='1', uname='Wall', live=True)])
+        button = window.sidebar.picture_in_picture_button
+        self.assertTrue(button.isVisible())
+        bounds = window.screen().availableGeometry().adjusted(8, 8, -8, -8)
+        window.move(bounds.topLeft() + QPoint(12, 12))
+        self.app.processEvents()
+        anchor = QRect(button.mapToGlobal(QPoint()), button.size())
+        button.click()
+        pip = window.picture_in_picture
+        dialog = pip.dialog
+        self.assertIsNotNone(dialog)
+        self.assertTrue(bounds.contains(dialog.geometry()))
+        if anchor.right() + 8 + dialog.width() <= bounds.right():
+            self.assertEqual(dialog.x(), anchor.right() + 9)
+        moved_position = bounds.topLeft() + QPoint(20, 20)
+        dialog.move(moved_position)
+        pip.manage_from_sidebar()
+        self.assertIs(pip.dialog, dialog)
+        self.assertEqual(dialog.pos(), moved_position)
+        dialog.reject()
+
+    def test_anchored_picker_flips_at_screen_edges(self):
+        window = self.window([])
+        window.picture_in_picture.manage()
+        dialog = window.picture_in_picture.dialog
+        available = QRect(-1400, -150, 1200, 1000)
+        bounds = available.adjusted(8, 8, -8, -8)
+        anchor = QRect(bounds.left() + 240, bounds.top() + 45, 36, 32)
+        dialog.place_near(anchor, available, below=True)
+        self.assertEqual(dialog.pos(), QPoint(anchor.left(), anchor.bottom() + 9))
+        self.assertTrue(bounds.contains(dialog.geometry()))
+        anchor.moveBottom(bounds.bottom() - 10)
+        dialog.place_near(anchor, available, below=True)
+        self.assertEqual(dialog.y() + dialog.height(), anchor.top() - 8)
+        self.assertTrue(bounds.contains(dialog.geometry()))
+        anchor.moveTopRight(bounds.topRight() + QPoint(-16, 100))
+        dialog.place_near(anchor, available, below=False)
+        self.assertEqual(dialog.x() + dialog.width(), anchor.left() - 8)
+        self.assertTrue(bounds.contains(dialog.geometry()))
+        dialog.reject()
 
     def test_picker_replaces_the_native_caption_without_losing_window_controls(self):
         window = self.window([dict(room_id='1', uname='Main', live=True)])

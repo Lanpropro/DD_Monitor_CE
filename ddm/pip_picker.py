@@ -178,6 +178,29 @@ class PictureInPictureDialog(QDialog):
         painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
         painter.drawPath(path)
 
+    def place_near(self, anchor, available, *, below):
+        gap = 8
+        area = available.adjusted(gap, gap, -gap, -gap)
+        if not area.isValid():
+            return
+        self.layout().activate()
+        self.resize(self.size().boundedTo(area.size()))
+        width, height = self.width(), self.height()
+        if below:
+            x = anchor.left()
+            y = anchor.bottom() + 1 + gap
+            above = anchor.top() - height - gap
+            if y + height > area.bottom() + 1 and above >= area.top():
+                y = above
+        else:
+            x = anchor.right() + 1 + gap
+            y = anchor.top()
+            left = anchor.left() - width - gap
+            if x + width > area.right() + 1 and left >= area.left():
+                x = left
+        self.move(max(area.left(), min(x, area.right() + 1 - width)),
+                  max(area.top(), min(y, area.bottom() + 1 - height)))
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.windowHandle() is not None:
             x, y = event.position().toPoint().toTuple()

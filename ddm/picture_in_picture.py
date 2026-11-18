@@ -97,7 +97,14 @@ class PictureInPicture(QObject):
             for button in self.floating.tools.findChildren(PictureInPictureButton):
                 button.update()
 
-    def manage(self):
+    def manage_from_sidebar(self):
+        sidebar = self.host.sidebar
+        anchor = sidebar.picture_in_picture_button
+        if not anchor.isVisible():
+            anchor = sidebar.account_row
+        self.manage(anchor=anchor if anchor.isVisible() else None, below=sidebar.side == 'top')
+
+    def manage(self, *, anchor=None, below=False):
         if self.active:
             self.floating.audio_panel.hide()
         if self.dialog is not None:
@@ -122,6 +129,11 @@ class PictureInPicture(QObject):
         self._first_picker = False
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
+        if anchor is not None:
+            rect = QRect(anchor.mapToGlobal(anchor.rect().topLeft()), anchor.size())
+            screen = QApplication.screenAt(rect.center()) or anchor.screen()
+            if screen is not None:
+                self.dialog.place_near(rect, screen.availableGeometry(), below=below)
         self.dialog.open()
 
     def _finish_manage(self, _result):

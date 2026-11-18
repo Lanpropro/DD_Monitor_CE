@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.empty_hint, 1)
         from .picture_in_picture import PictureInPicture
         self.picture_in_picture = PictureInPicture(self)
-        self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage)
+        self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage_from_sidebar)
         from .wall_removal import WallRemoval
         self.wall_removal = WallRemoval(self)
 
