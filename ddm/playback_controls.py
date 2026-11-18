@@ -112,10 +112,11 @@ class VolumeButton(TileButton):
         super().paintEvent(event)          # 背景由样式表画
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        silent = self.muted or self.level == 0
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
-        color = (theme.qcolor(theme.TEXT3 if self.muted else theme.TEXT1)
+        color = (theme.qcolor(theme.TEXT3 if silent else theme.TEXT1)
                  if theme.is_light() and not self.property('fullscreen')
-                 else QColor("#9499a0" if self.muted else "#f1f2f3"))
+                 else QColor("#9499a0" if silent else "#f1f2f3"))
         if self.underMouse():
             color = QColor(theme.ACCENT)
         pen = QPen(color, 1.7)
@@ -136,7 +137,7 @@ class VolumeButton(TileButton):
         path.lineTo(left, top + 8)
         path.closeSubpath()
         painter.drawPath(path)
-        if self.muted:
+        if silent:
             # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
             cross = QPointF(left + 17, center.y())
             painter.drawLine(cross + QPointF(-3.5, -3.5), cross + QPointF(3.5, 3.5))

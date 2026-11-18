@@ -67,6 +67,20 @@ assert not any(name in sys.modules for name in (
         self.assertEqual(clicked, [True, True])
         self.assertIs(button.parentWidget(), self.owner)
 
+    def test_zero_volume_draws_mute_icon_without_changing_explicit_mute(self):
+        from ddm.tile_widgets import Tile
+        tile = Tile({'room_id': 'fixture', 'volume': 40, 'muted': False}, self.owner)
+        button = tile.volume_button
+        tile.set_volume(0)
+        self.assertFalse(tile.muted)
+        self.assertFalse(button.muted)
+        silent = button.grab().toImage()
+        tile.set_muted(True)
+        self.assertEqual(button.grab().toImage(), silent)
+        tile.set_volume(40)
+        self.assertFalse(tile.muted)
+        self.assertNotEqual(button.grab().toImage(), silent)
+
     def test_volume_wheel_clamps_emits_and_keeps_channel(self):
         button = ui.VolumeButton(self.owner)
         changed = []
