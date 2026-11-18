@@ -812,8 +812,8 @@ class Tile(QFrame):
         """右键菜单：音量滑条 + 画质 + 声道 + 常规操作。"""
         return self.menu_control.build_menu(menu_type=QMenu)
 
-    def set_volume(self, value: int) -> None:
-        return self.state_control.set_volume(value)
+    def set_volume(self, value: int, *, unmute: bool = True) -> None:
+        return self.state_control.set_volume(value, unmute=unmute)
 
     def _sync_vertical_volume(self) -> None:
         return self.state_control.sync_vertical_volume()

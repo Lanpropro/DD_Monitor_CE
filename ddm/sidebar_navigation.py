@@ -15,6 +15,7 @@ PATHS = {
     'functions': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     'layout': '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18M14 12h7"/>',
     'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
+    'wall_settings': '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 10h12M6 15h12M9 8v4M15 13v4"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
     'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
@@ -201,7 +202,8 @@ class SidebarNavigation(QObject):
 
     def movable_tools(self):
         fixed = (self.fixed_divider, self.sidebar.notification_button,
-                 self.sidebar.appearance_button, self.sidebar.settings_button)
+                 self.sidebar.appearance_button, self.sidebar.settings_button,
+                 self.sidebar.wall_settings_button)
         return [self.bottom.itemAt(index).widget() for index in range(self.bottom.count())
                 if self.bottom.itemAt(index).widget() not in fixed]
 
@@ -224,6 +226,7 @@ class SidebarNavigation(QObject):
         keys.extend(key for key in tools if key not in keys)
         ordered = [tools[key] for key in keys] + [self.fixed_divider, self.sidebar.notification_button,
                                                 self.sidebar.appearance_button, self.sidebar.settings_button]
+        ordered.insert(ordered.index(self.sidebar.picture_in_picture_button), self.sidebar.wall_settings_button)
         for index, widget in enumerate(ordered):
             if self.bottom.indexOf(widget) != index:
                 # Explicit removal invalidates PySide's old QWidgetItem wrapper.
@@ -357,7 +360,8 @@ class SidebarNavigation(QObject):
         if not self.in_rail:
             return
         sidebar._detach_from_rows(sidebar.workspace_controls.launcher)
-        for button in (sidebar.layout_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+        for button in (sidebar.layout_button, sidebar.wall_settings_button, sidebar.picture_in_picture_button,
+                       sidebar.settings_button):
             sidebar._detach_from_rows(button)
             button.setProperty('dockRail', False)
             button.set_navigation_mode(False)
@@ -405,7 +409,8 @@ class SidebarNavigation(QObject):
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
         if not self.in_rail:
-            for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button,
+            for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
+                           sidebar.picture_in_picture_button,
                            sidebar.notification_button, sidebar.appearance_button, sidebar.settings_button):
                 sidebar._detach_from_rows(button)
                 button.setParent(self.rail)
@@ -415,7 +420,8 @@ class SidebarNavigation(QObject):
             sidebar._detach_from_rows(sidebar.toggle_button)
             sidebar.toggle_button.setParent(self.header)
             self.header.layout().insertWidget(self.header.layout().count() - 1, sidebar.toggle_button)
-        for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+        for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
+                       sidebar.picture_in_picture_button, sidebar.settings_button):
             button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
             button.show()

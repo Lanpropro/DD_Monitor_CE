@@ -76,7 +76,7 @@ class PortraitSidebar:
             nav.filters.layout().removeWidget(nav.folder_toggle_button)
             for widget in (host._header_row, host.search, host._head_scroll, host.batch_bar,
                            host.notification_button, host.appearance_button, host.layout_button,
-                           host.picture_in_picture_button, host.clear_wall_button,
+                           host.wall_settings_button, host.picture_in_picture_button, host.clear_wall_button,
                            host.settings_button, host.account_row, host.toggle_button,
                            nav.follow_button, nav.filters, nav.folder_toggle_button, nav.add_button, nav.manage_button):
                 self._detach(widget)
@@ -88,7 +88,8 @@ class PortraitSidebar:
             host._bar_row_box.addWidget(self.follow_group)
             self.place_launcher()
             host._bar_row_box.addStretch(1)
-            for widget in (host.layout_button, host.picture_in_picture_button, host.clear_wall_button):
+            for widget in (host.layout_button, host.wall_settings_button, host.picture_in_picture_button,
+                           host.clear_wall_button):
                 host._bar_row_box.addWidget(widget)
             host._bar_row_box.addWidget(self.divider)
             for widget in (host.notification_button, host.appearance_button, host.settings_button, host.account_row):
@@ -114,7 +115,7 @@ class PortraitSidebar:
         if host.side != 'top' or not host._bar_in_use:
             return
         nav = host.navigation
-        for button in (host.layout_button, host.picture_in_picture_button, host.settings_button,
+        for button in (host.layout_button, host.wall_settings_button, host.picture_in_picture_button, host.settings_button,
                        host.clear_wall_button):
             button.set_navigation_mode(True)
             button.setProperty('dockRail', False)
@@ -129,7 +130,8 @@ class PortraitSidebar:
                 button.set_icon_mode(True)
         for button in (host.batch_button, host.refresh_button):
             button.hide()
-        for button in (nav.follow_button, host.layout_button, host.picture_in_picture_button, host.clear_wall_button,
+        for button in (nav.follow_button, host.layout_button, host.wall_settings_button,
+                       host.picture_in_picture_button, host.clear_wall_button,
                        host.notification_button, host.appearance_button, host.settings_button,
                        host.workspace_controls.launcher, host.toggle_button):
             button.show()
@@ -186,7 +188,8 @@ class PortraitSidebar:
         nav.top.insertWidget(0, nav.follow_button)
         host._detach_from_rows(host.appearance_button)
         host.appearance_button.setParent(host.status_row)
-        for button in (host.layout_button, host.picture_in_picture_button, host.settings_button):
+        for button in (host.layout_button, host.wall_settings_button, host.picture_in_picture_button,
+                       host.settings_button):
             host._detach_from_rows(button)
             button.setParent(host.tool_row)
             host.tool_row.layout().addWidget(button)

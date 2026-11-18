@@ -290,6 +290,9 @@ class MainWindow(QMainWindow):
         from .picture_in_picture import PictureInPicture
         self.picture_in_picture = PictureInPicture(self)
         self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage_from_sidebar)
+        from .wall_quick_settings import WallQuickSettings
+        self.wall_quick_settings = WallQuickSettings(self)
+        self.sidebar.wallSettingsRequested.connect(self.wall_quick_settings.open)
         from .wall_removal import WallRemoval
         self.wall_removal = WallRemoval(self)
 

@@ -332,6 +332,8 @@ SelectControl由组合框继续持有唯一模型和选中值，关闭时仅绘�
 
 侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
 
+画中画旁的画面墙全局设置由 `ddm/wall_quick_settings.py` 展示和协调，通过现有播放格及弹幕面板接口批量控制可见的上墙房间。`ddm/wall_quality.py` 将统一画质匹配到各平台已提供的可用档位。
+
 网页登录职责：`ddm/account_browser.py`只管理本应用临时浏览器与回环控制连接；`ddm/browser_account_worker.py`处理取消、身份确认和关注读取；`ddm/browser_account_dialog.py`负责交互、加密保存和会话接线。平台接口解析留在独立插件，OAuth仍由原模块负责。浏览器只在用户发起登录且保存会话不可用时启动，结束或取消后释放，不读取个人浏览器资料。
 
 `plugin_replacements.py`负责组合包向独立平台包的声明迁移、设置继承与装载优先级；`plugin_types.PluginContext`只暴露平台是否已接管的查询。平台协议、缓存与互动请求仍属于插件，不在迁移层复制。

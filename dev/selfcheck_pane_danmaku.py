@@ -228,6 +228,63 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(panes.state(), before)
         self.assertTrue(source.isVisible())
 
+    def test_wall_quick_settings_apply_to_visible_rooms_and_use_existing_float_lifecycle(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        first, second, locked, hidden = wall.tiles[:4]
+        second.set_room(dict(room_id='douyin:3001', uname='竖屏', volume=30, muted=True, live=True))
+        window.configure_wall_panes({3: first})
+        first.set_quality_options([{'qn': 400, 'desc': '蓝光 1080P'}, {'qn': 250, 'desc': '超清 720P'}])
+        second.set_quality_options([{'qn': 23, 'desc': '720x1280 · 60fps'}, {'qn': 88, 'desc': '540x960'}])
+        locked.quality_locked = True
+        first.danmaku_button.setChecked(True)
+        locked.room['supports_live_danmaku'] = False
+        original_locked, original_hidden = locked.quality, (hidden.quality, hidden.volume)
+        controls = window.wall_quick_settings
+        self.assertIsNone(controls.menu)
+        window.sidebar.wall_settings_button.click()
+        menu = controls.menu
+        self.assertTrue(menu.isVisible())
+        self.assertEqual(menu.volume_value.text(), '混合')
+        self.assertEqual(menu.quality.currentText(), '选择画质')
+
+        menu.volume.setValue(63)
+        self.assertEqual([tile.volume for tile in (first, second, locked)], [63] * 3)
+        self.assertTrue(second.muted)
+        self.assertEqual(hidden.volume, original_hidden[1])
+
+        index = menu.quality.findData(1080)
+        with patch.object(window, 'start_tile') as start:
+            menu.quality.setCurrentIndex(index)
+            menu.quality.activated.emit(index)
+        self.assertEqual([first.quality, second.quality], [400, 23])
+        self.assertEqual([call.args[0] for call in start.call_args_list], [first, second])
+        self.assertEqual((locked.quality, hidden.quality), (original_locked, original_hidden[0]))
+        self.assertIn('保留当前画质', menu.status.text())
+
+        self.assertIn('部分开启', menu.danmaku_label.text())
+        with patch.object(window, '_on_video_danmaku_changed', wraps=window._on_video_danmaku_changed) as changed:
+            menu.danmaku.click()
+            changed.assert_called_once_with(True)
+        self.assertTrue(first.danmaku_button.isChecked() and second.danmaku_button.isChecked())
+        self.assertFalse(locked.danmaku_button.isChecked() or hidden.danmaku_button.isChecked())
+        menu.danmaku.click()
+        self.assertFalse(first.danmaku_button.isChecked() or second.danmaku_button.isChecked())
+
+        panel = panes.panels[3]
+        menu.floats.click()
+        self.assertFalse(menu.isVisible())
+        self.assertEqual(list(panes.floating), [panel])
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.floats.isChecked())
+        menu.floats.click()
+        self.assertFalse(panes.floating)
+        self.assertIs(panes.panels[3], panel)
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.isVisible())
+        QTest.keyClick(menu, Qt.Key_Escape)
+        self.assertFalse(menu.isVisible())
+
     def test_float_cell_setting_round_trips_and_resets(self):
         from ddm.settings_danmaku import DanmakuSettingsPage
         page = DanmakuSettingsPage({'danmaku_float_reuse_cell': True, 'danmaku_float_keep_video_slots': True})

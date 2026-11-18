@@ -58,6 +58,18 @@ class SidebarPresentationTests(unittest.TestCase):
         navigation.restore_order(['pip', 'clear', 'layout'])
         self.assertEqual(retained, [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())])
 
+    def test_wall_settings_stays_next_to_picture_in_picture_in_both_orientations(self):
+        sidebar, nav = self.sidebar, self.sidebar.navigation
+        settings, pip = sidebar.wall_settings_button, sidebar.picture_in_picture_button
+        for order in (['layout', 'clear', 'pip'], ['pip', 'layout', 'clear']):
+            nav.restore_order(order)
+            self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(pip))
+            self.assertEqual(nav.order_state(), order)
+        sidebar.set_side('top')
+        self.assertEqual(sidebar._bar_row_box.indexOf(settings) + 1, sidebar._bar_row_box.indexOf(pip))
+        sidebar.set_side('left')
+        self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(pip))
+
     def test_navigation_mode_skips_matching_style_and_refreshes_changed_dock_or_size(self):
         button = self.sidebar.layout_button
         button.set_navigation_mode(True)
@@ -197,8 +209,9 @@ print('30 native reparent cycles completed', flush=True)
         presenter = self.sidebar.presentation_control
         self.assertEqual(set(vars(presenter)), {'host', 'orientation', 'collapse', 'layout_picker'})
         self.assertIs(presenter.host, self.sidebar)
-        for name in ('collapse', 'layout_picker'):
-            self.assertEqual(vars(getattr(presenter, name)), {'host': self.sidebar})
+        self.assertEqual(vars(presenter.collapse), {'host': self.sidebar})
+        self.assertIs(presenter.layout_picker.host, self.sidebar)
+        self.assertIs(presenter.layout_picker.parent(), self.sidebar)
         portrait = presenter.orientation.portrait
         self.assertEqual(vars(presenter.orientation), {'host': self.sidebar, 'portrait': portrait})
         self.assertEqual(vars(portrait), {'host': self.sidebar})
