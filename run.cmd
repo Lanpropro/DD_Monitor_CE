@@ -256,6 +256,8 @@ exit /b %errorlevel%
 :danmakuIndependentCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_video_danmaku_controls
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_danmaku_actions
 exit /b %errorlevel%
 
 :danmakuColorCheck

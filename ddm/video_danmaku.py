@@ -61,6 +61,16 @@ class _Comment:
     event: dict = field(default_factory=dict)
     raster_key: tuple = ()
     rasters: dict = field(default_factory=dict)
+    separating_from: '_Comment | None' = field(default=None, repr=False, compare=False)
+    separation_speed: float = 0.0
+
+    @property
+    def right(self):
+        return self.x + self.image.width() / self.image.devicePixelRatioF()
+
+    @property
+    def motion_speed(self):
+        return max(self.speed, self.separation_speed)
 
 
 class VideoDanmaku(QWidget):
@@ -123,11 +133,16 @@ class VideoDanmaku(QWidget):
         self._menu_open = False
         self.hide()
 
+    def _paint_order(self):
+        if self._hovered is None:
+            return self.comments
+        return [comment for comment in self.comments if comment is not self._hovered] + [self._hovered]
+
     def comment_at(self, point):
         mask = self._quick_video_mask if self._quick_requested else self.mask()
         if not self.rect().contains(point) or (not mask.isEmpty() and not mask.contains(point)):
             return None
-        for comment in reversed(self.comments):
+        for comment in reversed(self._paint_order()):
             scale = comment.image.devicePixelRatioF()
             rect = QRectF(comment.x, comment.lane * self.lane_height(),
                           comment.image.width() / scale, comment.image.height() / scale)
@@ -139,15 +154,37 @@ class VideoDanmaku(QWidget):
         if self._hovered is comment:
             return
         previous, self._hovered = self._hovered, comment
+        if comment is not None:
+            comment.held = True
+            self._set_separation(comment)
+            if self._quick_layer is not None:
+                self._quick_layer.pause_comment(comment.render_id, True, comment.x)
         if previous is not None:
             previous.held = False
             if self._quick_layer is not None:
                 self._quick_layer.pause_comment(previous.render_id, False, previous.x)
-        if comment is not None:
-            comment.held = True
-            if self._quick_layer is not None:
-                self._quick_layer.pause_comment(comment.render_id, True, comment.x)
+            self._separate_released(previous)
         self.update()
+
+    def _set_separation(self, front, rear=None):
+        speed = front.motion_speed
+        front.separating_from = rear
+        front.separation_speed = max(front.speed, rear.motion_speed) * 1.35 if rear is not None else 0
+        if self._quick_layer is not None and front.motion_speed != speed:
+            self._quick_layer.move(front.render_id, front.x, front.lane * self.lane_height(),
+                                   front.motion_speed)
+
+    def _separate_released(self, comment):
+        lane = sorted((other for other in self.comments if other.lane == comment.lane and not other.held),
+                      key=lambda other: other.x)
+        # Leftmost is ahead. The passing comment may already be ahead of the released one.
+        for front, rear in reversed(list(zip(lane, lane[1:]))):
+            if (front is comment or rear is comment) and rear.x - front.right < self._resume_gap(front, rear):
+                self._set_separation(front, rear)
+
+    def _resume_gap(self, front, rear):
+        # Leave enough distance for the front comment to return to its configured speed.
+        return self.GAP + max(0, rear.motion_speed - front.speed) * front.right / front.speed
 
     def _poll_hover(self):
         if self._menu_open or QApplication.mouseButtons():
@@ -228,7 +265,7 @@ class VideoDanmaku(QWidget):
                 if self._quick_layer is not None and self._quick_group is not None:
                     for comment in self.comments:
                         self._quick_layer.move(comment.render_id, comment.x,
-                                               comment.lane * self.lane_height(), comment.speed)
+                                               comment.lane * self.lane_height(), comment.motion_speed)
                 self.update()
             if color_changed:
                 self._comment_resize_timer.start(0)
@@ -428,16 +465,17 @@ class VideoDanmaku(QWidget):
             if allowed(comment.event):
                 kept.append(comment)
             else:
-                if self._hovered is comment:
-                    self._set_hover(None)
                 if self._quick_layer is not None and self._quick_group is not None:
                     self._quick_layer.remove(comment.render_id)
         self.comments = kept
+        if self._hovered is not None and not any(comment is self._hovered for comment in kept):
+            self._set_hover(None)
         self._pending_comments = {key: value for key, value in self._pending_comments.items() if allowed(value[-1])}
         self._set_quick_active()
         self.update()
 
     def clear_comments(self) -> None:
+        self._set_hover(None)
         self._comment_resize_timer.stop()
         self._stop_timer()
         self.comments.clear()
@@ -480,18 +518,26 @@ class VideoDanmaku(QWidget):
 
     def _prune_lanes(self) -> None:
         comments, self.comments = self.comments, []
-        for comment in comments:
-            if (comment.lane < self.lane_count() and
-                    self._lane_available(comment.lane, comment.speed, comment.x)):
+        count = self.lane_count()
+        crossing = {comment.lane for comment in comments if comment.held or comment.separating_from is not None}
+        # A passing comment may be ahead of its predecessor after a hover.
+        for comment in sorted(comments, key=lambda item: item.x):
+            if (comment.lane < count and (comment.lane in crossing
+                    or self._lane_available(comment.lane, comment.speed, comment.x))):
                 self.comments.append(comment)
-            elif self._quick_layer is not None and self._quick_group is not None:
-                self._quick_layer.remove(comment.render_id)
+            else:
+                if self._hovered is comment:
+                    self._set_hover(None)
+                if self._quick_layer is not None and self._quick_group is not None:
+                    self._quick_layer.remove(comment.render_id)
+        kept = {id(comment) for comment in self.comments}
+        self.comments = [comment for comment in comments if id(comment) in kept]
 
     def _lane_available(self, lane: int, speed: float, x: float | None = None) -> bool:
         for comment in self.comments:
-            if comment.lane != lane:
+            if comment.lane != lane or comment.held:
                 continue
-            right = comment.x + comment.image.width() / comment.image.devicePixelRatioF()
+            right = comment.right
             gap = (self.width() if x is None else x) - right
             if gap < self.GAP:
                 return False
@@ -528,18 +574,28 @@ class VideoDanmaku(QWidget):
         self._last_tick = now
         for comment in self.comments:
             if not comment.held:
-                comment.x -= elapsed * comment.speed
+                comment.x -= elapsed * comment.motion_speed
             if (self._quick_layer is not None and self._quick_group is not None
                     and not self._quick_animated()):
                 self._quick_layer.move(comment.render_id, comment.x,
                                        comment.lane * height)
         active = []
         for comment in self.comments:
-            if comment.x + comment.image.width() / comment.image.devicePixelRatioF() > 0:
+            if comment.right > 0:
                 active.append(comment)
             elif self._quick_layer is not None and self._quick_group is not None:
                 self._quick_layer.remove(comment.render_id)
         self.comments = active
+        if self._hovered is not None and self._hovered.right <= 0:
+            self._set_hover(None)
+        separating = [front for front in active if front.separating_from is not None]
+        if separating:
+            active_ids = {id(comment) for comment in active}
+            for front in separating:
+                rear = front.separating_from
+                if (id(rear) not in active_ids or rear.held
+                        or rear.x - front.right >= self._resume_gap(front, rear)):
+                    self._set_separation(front)
         self._poll_hover()
         self._set_quick_active()
         if bottom and self._quick_layer is None:
@@ -576,10 +632,10 @@ class VideoDanmaku(QWidget):
         height = self.lane_height()
         # Sample at paint time as queued QWidget updates may follow the timer.
         elapsed = max(0, perf_counter() - self._last_tick) if self.timer.isActive() and not self.paused else 0
-        for comment in self.comments:
+        for comment in self._paint_order():
             y = comment.lane * height
             if y < event.rect().bottom() + 1 and y + height > event.rect().top():
-                painter.drawPixmap(QPointF(comment.x - (0 if comment.held else elapsed * comment.speed), y), comment.image)
+                painter.drawPixmap(QPointF(comment.x - (0 if comment.held else elapsed * comment.motion_speed), y), comment.image)
 
     _paint_super_chat = staticmethod(_paint_super_chat)
 

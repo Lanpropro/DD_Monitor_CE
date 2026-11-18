@@ -599,6 +599,7 @@ class QuickDanmakuLayer(QObject):
         record = self.items.get(identifier)
         if record is not None:
             record['held'] = bool(paused)
+            record['item'].setZ(1 if paused else 0)
             self.move(identifier, x, record['item'].y())
 
     def remove(self, identifier):

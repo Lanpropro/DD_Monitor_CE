@@ -92,6 +92,7 @@ class VideoDanmakuRaster:
         images = {identifier: (key, image) for identifier, key, image in images}
         if host._quick_animated() and host.timer.isActive():
             host._tick()
+        reflowed = False
         for comment in host.comments:
             result = images.get(id(comment))
             if result is None or result[0] == comment.raster_key:
@@ -99,6 +100,7 @@ class VideoDanmakuRaster:
             key, image = result
             if key != renderer.key(comment.text, comment.color, comment.runs, comment.self_sent):
                 continue  # Ignore an old size, changed settings or newly loaded emoticons.
+            reflowed = True
             distance = host.width() + comment.image.width() / comment.image.devicePixelRatioF()
             progress = (host.width() - comment.x) / max(1, distance)
             comment.image = QPixmap.fromImage(image)
@@ -112,8 +114,9 @@ class VideoDanmakuRaster:
             if host._quick_layer is not None and host._quick_group is not None:
                 host._quick_layer.update(comment.render_id, image, comment.x,
                     comment.lane * host.lane_height(), width,
-                    comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
-        host._prune_lanes()
+                    comment.image.height() / comment.image.devicePixelRatioF(), comment.motion_speed)
+        if reflowed:
+            host._prune_lanes()
         # Results are admitted in arrival order, only with the current font/images.
         # Cleared tokens are absent, so late jobs cannot revive old room messages.
         for identifier, pending in list(host._pending_comments.items()):
@@ -156,9 +159,9 @@ class VideoDanmakuRaster:
                         comment.render_id, comment.image.toImage(), comment.x,
                         comment.lane * host.lane_height(),
                         comment.image.width() / comment.image.devicePixelRatioF(),
-                        comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+                        comment.image.height() / comment.image.devicePixelRatioF(), comment.motion_speed)
                 else:
                     host._quick_layer.move(comment.render_id, comment.x,
-                        comment.lane * host.lane_height(), comment.speed)
+                        comment.lane * host.lane_height(), comment.motion_speed)
         else:
             host.update()
