@@ -259,6 +259,34 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(observations, [(False, False)] * 6,
                          'The wall must resize before the sidebar can paint again')
 
+    def test_sidebar_width_settles_all_video_areas_before_raising_overlays(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        sidebar, wall = window.sidebar, window.wall
+        tiles = wall.visible_tiles()
+        tile = tiles[-1]
+        prior_sizes = [item.video.size() for item in tiles]
+        layout = wall._relayout_preset
+
+        with patch.object(tile.bottom, 'raise_', wraps=tile.bottom.raise_) as restack, \
+                patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
+                patch.object(tile.bottom, 'update', wraps=tile.bottom.update) as update:
+            def resize_video_areas():
+                self.assertTrue(all(item._interactive_resize for item in tiles))
+                layout()
+                self.assertTrue(all(item.video.size() != size for item, size in zip(tiles, prior_sizes)))
+                restack.assert_not_called()
+                tile._move_repaint_timer.start(0)
+
+            with patch.object(wall, '_relayout_preset', side_effect=resize_video_areas) as resize:
+                sidebar.set_collapsed(True)
+            resize.assert_called_once()
+            self.assertTrue(all(not item._interactive_resize for item in tiles))
+            restack.assert_called_once()
+            self.assertFalse(tile._move_repaint_timer.isActive())
+            update.assert_called()
+            self.app.processEvents()
+            repaint.assert_not_called()
+
     def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
         window = self.window([dict(room_id='1001', uname='Fixture')])
         sidebar, wall = window.sidebar, window.wall

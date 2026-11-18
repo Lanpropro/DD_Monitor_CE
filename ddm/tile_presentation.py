@@ -164,7 +164,7 @@ class TilePresentation:
         host._cover_source = pixmap
         host._layout_cover()
 
-    def set_interactive_resize(self, active: bool) -> None:
+    def set_interactive_resize(self, active: bool, *, queue_moved_repaint=False) -> None:
         host = self.host
         active = bool(active)
         if active == host._interactive_resize:
@@ -175,7 +175,9 @@ class TilePresentation:
                 host._layout_cover()
                 if host._resize_raise_pending:
                     host.raise_overlays()
-                if host._move_repaint_pending:
+                if queue_moved_repaint and (host._move_repaint_pending or host._move_repaint_timer.isActive()):
+                    host._refresh_moved_overlays(queued=True)
+                elif host._move_repaint_pending:
                     host._move_repaint_timer.start(0)
             host._resize_raise_pending = False
             host._move_repaint_pending = False
@@ -221,7 +223,7 @@ class TilePresentation:
                 fallback = host.room.get("uname", "") if host.room.get("live") else "未开播"
                 host.cover.setText((host._status_text or fallback) if host.room.get("room_id") else "")
 
-    def refresh_moved_overlays(self) -> None:
+    def refresh_moved_overlays(self, *, queued=False) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
         host = self.host
         host._move_repaint_timer.stop()
@@ -231,15 +233,16 @@ class TilePresentation:
         # child separately stalls the next size message. Force a final repaint
         # on release so the existing moved-text repair remains in effect.
         host._move_repaint_pending = host._interactive_resize
+        queued = queued or host._interactive_resize
         for widget in (host.video_danmaku, host.stream_badge, host.title_badge, host.time_badge,
                        host.controls, host.spinner, host.pause_overlay, host.bottom):
             if widget.isVisible():
-                widget.update() if host._interactive_resize else widget.repaint()
+                widget.update() if queued else widget.repaint()
         if host.video_caption is not None and host.video_caption.isVisible():
             host.video_caption.update()
         for widget in host.bottom.findChildren(QWidget):
             if widget.isVisible() and widget.testAttribute(Qt.WA_NativeWindow):
-                widget.update() if host._interactive_resize else widget.repaint()
+                widget.update() if queued else widget.repaint()
         host.update()
 
     def layout_video_area(self) -> tuple[int, int]:

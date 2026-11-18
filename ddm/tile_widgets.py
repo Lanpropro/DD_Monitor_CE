@@ -608,8 +608,8 @@ class Tile(QFrame):
     def set_cover(self, pixmap: QPixmap | None) -> None:
         return self.presentation_control.set_cover(pixmap)
 
-    def set_interactive_resize(self, active: bool) -> None:
-        return self.presentation_control.set_interactive_resize(active)
+    def set_interactive_resize(self, active: bool, *, queue_moved_repaint=False) -> None:
+        return self.presentation_control.set_interactive_resize(active, queue_moved_repaint=queue_moved_repaint)
 
     def _layout_cover(self) -> None:
         return self.presentation_control.layout_cover(render_pixmap=rounded_pixmap)
@@ -629,9 +629,9 @@ class Tile(QFrame):
         if self.video_caption is not None:
             self.video_caption.sync_geometry()
 
-    def _refresh_moved_overlays(self) -> None:
+    def _refresh_moved_overlays(self, *, queued=False) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
-        return self.presentation_control.refresh_moved_overlays()
+        return self.presentation_control.refresh_moved_overlays(queued=queued)
 
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""

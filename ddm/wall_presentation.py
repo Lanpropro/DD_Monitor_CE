@@ -170,9 +170,16 @@ class WallPresentation:
                                 host.fullscreen_tile, host._danmaku_cell)
                 if (layout_state == host._sidebar_layout and host.fullscreen_tile is None
                         and (host.layout_id == 'corner' or host.layout_id in host._partitions)):
-                    # Width-only settlement keeps pane visibility and native stacking intact.
-                    host._resize_pending = True
-                    host._flush_resize()
+                    # Set all video rectangles before repairing the native overlays.
+                    tiles = [tile for tile in host.visible_tiles() if not tile._interactive_resize]
+                    for tile in tiles:
+                        tile.set_interactive_resize(True)
+                    try:
+                        host._resize_pending = True
+                        host._flush_resize()
+                    finally:
+                        for tile in tiles:
+                            tile.set_interactive_resize(False, queue_moved_repaint=True)
                     QTimer.singleShot(0, host._sync_danmaku_controls)
                 else:
                     host.relayout(force=True)
