@@ -35,6 +35,7 @@ class PictureInPicture(QObject):
         self.host = host
         self.floating = None
         self.dialog = None
+        self._first_picker = True
         saved = host.state.get('ui', {}).get('picture_in_picture', {})
         self.selection = list(saved.get('selection', []))
         self.columns = saved.get('columns', 0)
@@ -104,15 +105,21 @@ class PictureInPicture(QObject):
             self.dialog.activateWindow()
             return
         if not self.active:
-            available = {key for _title, entries in self.candidate_groups() for key, _room in entries}
-            if not any(key in available for key in self.selected_choices()):
+            choices = self.selected_choices()
+            if self._first_picker or not any(key in choices for _title, entries in self.candidate_groups()
+                                             for key, _room in entries):
                 capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
-                self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
-                self.primary = None
+                wall_selection = [index for index, _room in self._wall_candidates() if index < capacity]
+                saved_positions = dict(zip(choices, self.placement)) if len(choices) == len(self.placement) else {}
+                primary = self.primary_choice()
+                self.selection = wall_selection
+                self.primary = primary if primary in wall_selection else None
                 self.external_rooms = []
                 self.external_primary = ''
                 self._choice_order = []
-                self.placement = ()
+                self.placement = (tuple(saved_positions[key] for key in wall_selection)
+                                  if all(key in saved_positions for key in wall_selection) else ())
+        self._first_picker = False
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()

@@ -87,6 +87,45 @@ class PipPickerTests(unittest.TestCase):
         self.assertGreater(primary.height(), min(label.height() for label in preview.labels))
         dialog.reject()
 
+    def test_first_picker_uses_wall_and_keeps_new_selections_in_the_top_group(self):
+        from ddm.pip_composition import FOCUS_LAYOUT, FREE_LAYOUT
+        rooms = [dict(room_id=str(i), uname=f'Wall {i}', live=True) for i in (1, 2)]
+        window = self.window(rooms)
+        window.sidebar.add_rooms([dict(room_id=str(i), uname=f'Followed {i}', live=True) for i in range(3, 7)])
+        pip = window.picture_in_picture
+        pip.selection = [1]
+        pip.external_rooms = ['3']
+        pip._choice_order = ['3', 1]
+        pip.manage()
+        dialog = pip.dialog
+        heading, top = dialog.sections[0]
+        self.assertEqual(heading.text(), '已入墙')
+        self.assertEqual([button.choice for button in top], [0, 1])
+        self.assertEqual(dialog._selected(), [0, 1])
+        self.assertFalse(dialog.checks['3'].isChecked())
+
+        dialog.arrangements.buttons[FREE_LAYOUT].click()
+        for key in ('3', '4', '5', '6'):
+            dialog.checks[key].setChecked(True)
+        QTest.qWait(40)
+        self.assertEqual([button.choice for button in top], [0, 1, '3', '4', '5', '6'])
+        self.assertEqual(heading.text(), '已入墙与已选')
+        cards = dialog.arrangements.buttons
+        self.assertTrue(cards[FOCUS_LAYOUT].isVisible())
+        self.assertGreater(cards[FREE_LAYOUT].x(), cards[FOCUS_LAYOUT].x())
+        top[2].click()
+        self.assertEqual([button.choice for button in top], [0, 1, '4', '5', '6'])
+        self.assertFalse(dialog.checks['3'].isChecked())
+        dialog.checks['3'].setChecked(True)
+        dialog.parallel.setChecked(True)
+        dialog.start.click()
+        QTest.qWait(60)
+        pip.restore()
+        pip.manage()
+        self.assertEqual([button.choice for button in pip.dialog.sections[0][1]],
+                         [0, 1, '4', '5', '6', '3'])
+        pip.dialog.reject()
+
     def test_parallel_picker_keeps_the_main_wall_and_local_audio_independent(self):
         window = self.window([dict(room_id='1', uname='Main', live=True, muted=False, volume=35)])
         window.sidebar.add_room(dict(room_id='2', uname='Followed', live=True))

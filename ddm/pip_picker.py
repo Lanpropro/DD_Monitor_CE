@@ -124,10 +124,9 @@ class PictureInPictureDialog(QDialog):
         self.sections = []
         self.choice_grids = []
         selected = self._order
-        faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in controller.host.sidebar.items()}
+        sidebar = controller.host.sidebar
+        faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in sidebar.items()}
         for title, entries in controller.candidate_groups():
-            if not entries:
-                continue
             holder = QFrame(content)
             holder.setObjectName('PluginCard')
             block = QVBoxLayout(holder)
@@ -144,22 +143,12 @@ class PictureInPictureDialog(QDialog):
             self.choice_grids.append(grid)
             group = []
             for key, room in entries:
-                name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
-                index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
-                check = RoomChoice(room, name, index, faces.get(str(room['room_id'])), holder)
-                check.choice = key
-                sidebar = controller.host.sidebar
                 folder = sidebar.get_folder(sidebar.folder_for(str(room['room_id'])))
-                check.folder_names = ' '.join((folder['name'] if folder else '',
-                                               title if title != '已入墙' else ''))
-                check.setChecked(key in selected)
-                self.checks.setdefault(key, check)
-                self.choice_buttons.setdefault(key, []).append(check)
-                check.toggled.connect(lambda checked, choice=key: self._toggle_choice(choice, checked))
-                self.rooms[key] = room
-                check.show()
-                group.append(check)
+                folder_names = ' '.join((folder['name'] if folder else '', title if title != '已入墙' else ''))
+                group.append(self._create_choice(key, room, holder, faces.get(str(room['room_id'])),
+                                                 key in selected, folder_names))
             self.sections.append((heading, group))
+        self._wall_count = len(self.sections[0][1])
         choices.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
@@ -212,6 +201,44 @@ class PictureInPictureDialog(QDialog):
         return ([index for index in previous if index in checked]
                 + [index for index in checked if index not in previous])
 
+    def _create_choice(self, key, room, holder, face, checked, folder_names=''):
+        name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
+        index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
+        button = RoomChoice(room, name, index, face, holder)
+        button.choice = key
+        button.folder_names = folder_names
+        button.setChecked(checked)
+        self.checks.setdefault(key, button)
+        self.choice_buttons.setdefault(key, []).append(button)
+        self.rooms[key] = room
+        button.toggled.connect(lambda checked, choice=key: self._toggle_choice(choice, checked))
+        button.show()
+        return button
+
+    def _sync_top_group(self, selection):
+        extras = [key for key in selection if isinstance(key, str)]
+        heading, buttons = self.sections[0]
+        mirrors = {button.choice: button for button in buttons[self._wall_count:]}
+        if extras == list(mirrors):
+            return
+        for key in tuple(mirrors):
+            if key not in extras:
+                mirror = mirrors.pop(key)
+                self.choice_buttons[key].remove(mirror)
+                mirror.hide()
+                mirror.deleteLater()
+        words = self.search.text().strip().lower().split()
+        for key in extras:
+            if key not in mirrors:
+                source = self.checks[key]
+                mirror = self._create_choice(key, self.rooms[key], heading.parentWidget(), source.avatar._source, True)
+                mirror.setVisible(self._matches(mirror, words))
+                mirrors[key] = mirror
+        buttons[self._wall_count:] = [mirrors[key] for key in extras]
+        title = '已入墙与已选' if self._wall_count else '已选直播间'
+        heading.setText(title if extras else '已入墙')
+        self._arrange_choices(top_only=True)
+
     def _toggle_choice(self, key, checked):
         for button in self.choice_buttons[key]:
             with QSignalBlocker(button):
@@ -221,28 +248,31 @@ class PictureInPictureDialog(QDialog):
 
     def _filter(self, value):
         words = value.strip().lower().split()
-        for heading, buttons in self.sections:
-            visible = []
+        for _heading, buttons in self.sections:
             for button in buttons:
-                room = self.rooms[button.choice]
-                text = ' '.join((str(room.get('uname') or ''), str(room['room_id']),
-                                 str(room.get('display_room_id') or ''), button.folder_names))
-                matches = all(matches_text(text, word) for word in words)
-                button.setVisible(matches)
-                visible.append(matches)
-            heading.setVisible(any(visible))
+                button.setVisible(self._matches(button, words))
         self._arrange_choices()
 
-    def _arrange_choices(self):
+    def _matches(self, button, words):
+        room = self.rooms[button.choice]
+        text = ' '.join((str(room.get('uname') or ''), str(room['room_id']),
+                         str(room.get('display_room_id') or ''), button.folder_names))
+        return all(matches_text(text, word) for word in words)
+
+    def _arrange_choices(self, *, top_only=False):
         columns = max(1, min(6, (self.choice_viewport.width() - 20 + 6) // 110))
-        for (_heading, buttons), grid in zip(self.sections, self.choice_grids):
+        section_count = 1 if top_only else len(self.sections)
+        for section in range(section_count):
+            heading, buttons = self.sections[section]
+            grid = self.choice_grids[section]
             while grid.count():
                 grid.takeAt(0)
             visible = [button for button in buttons if not button.isHidden()]
             for column in range(max(columns, grid.columnCount())):
                 grid.setColumnStretch(column, 1 if column < columns else 0)
-            for index, button in enumerate(visible):
-                grid.addWidget(button, index // columns, index % columns)
+            for position, button in enumerate(visible):
+                grid.addWidget(button, position // columns, position % columns)
+            heading.setVisible(bool(visible))
             grid.parentWidget().setVisible(bool(visible))
 
     def eventFilter(self, watched, event):
@@ -296,6 +326,7 @@ class PictureInPictureDialog(QDialog):
     def _refresh(self, *_args):
         selection = self._selected()
         self._order = selection
+        self._sync_top_group(selection)
         names = [self.checks[index].preview_name for index in selection]
         if self._primary not in selection:
             self._primary = selection[0] if selection else None

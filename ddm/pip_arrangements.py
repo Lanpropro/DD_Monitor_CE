@@ -23,8 +23,8 @@ class PipArrangements(QWidget):
         self.group = QButtonGroup(self)
         self.buttons = {}
         for value, name in ((0, '自动'), (16, '并排'), (1, '上下'), (GRID_LAYOUT, '均分'),
-                            (MAIN_LAYOUT, '一主多辅'), (FREE_LAYOUT, '自定义'), (FOCUS_LAYOUT, '六格组合'),
-                            (2, '两列'), (3, '三列')):
+                            (MAIN_LAYOUT, '一主多辅'), (FOCUS_LAYOUT, '六格组合'),
+                            (2, '两列'), (3, '三列'), (FREE_LAYOUT, '自定义')):
             button = QToolButton(self)
             button.setText(name)
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
