@@ -3,7 +3,7 @@ from PySide6.QtCore import QPoint, QRect, QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import QGridLayout, QLabel, QMenu, QWidget, QWidgetAction
 
 from .ui import SelectControl, SettingsSlider, SettingsValueLabel, ToggleSwitch
-from .wall_quality import WALL_QUALITY_CHOICES, closest_wall_quality
+from .wall_quality import WALL_QUALITY_CHOICES, wall_quality_request
 
 
 class WallQuickSettingsMenu(QMenu):
@@ -150,13 +150,15 @@ class WallQuickSettings:
     def set_quality(self, height):
         unavailable = 0
         for tile in self.tiles():
-            quality = closest_wall_quality(tile, height)
-            if quality is None or getattr(tile, 'quality_locked', False) or tile in self.host._capture_quality:
+            request = wall_quality_request(tile, height)
+            if not request.tiers or getattr(tile, 'quality_locked', False) or tile in self.host._capture_quality:
                 unavailable += 1
-            elif tile.quality != quality:
-                tile.set_quality(quality)
+            elif tile.room.get('live'):
+                self.host.start_tile(tile, wall_quality=request)
+            elif tile.quality != request.tiers[0]:
+                tile.set_quality(request.tiers[0])
         if self.menu is not None:
-            self.menu.set_status(f'{unavailable} 路因档位未知或录制锁定保留当前画质' if unavailable else '')
+            self.menu.set_status(f'{unavailable} 路因无合适档位或录制锁定保留当前画质' if unavailable else '')
 
     def set_danmaku(self, enabled):
         tiles = self.danmaku_tiles()

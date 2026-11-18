@@ -998,8 +998,9 @@ class MainWindow(QMainWindow):
         """有主次布局时：主画面自动用原画，其余用 720P。"""
         return self.stream_playback.apply_quality_policy(restart=restart)
 
-    def start_tile(self, tile, *, stream_quality: int | None = None) -> None:
-        return self.stream_playback.start_tile(tile, stream_quality=stream_quality, resolver_type=StreamResolver)
+    def start_tile(self, tile, *, stream_quality: int | None = None, wall_quality=None) -> None:
+        return self.stream_playback.start_tile(tile, stream_quality=stream_quality,
+            wall_quality=wall_quality, resolver_type=StreamResolver)
 
     def _on_resolver_finished(self, tile, resolver) -> None:
         return self.stream_playback.resolver_finished(tile, resolver)

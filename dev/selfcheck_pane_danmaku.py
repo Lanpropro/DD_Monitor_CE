@@ -234,7 +234,8 @@ class PaneDanmakuTests(unittest.TestCase):
         first, second, locked, hidden = wall.tiles[:4]
         second.set_room(dict(room_id='douyin:3001', uname='竖屏', volume=30, muted=True, live=True))
         window.configure_wall_panes({3: first})
-        first.set_quality_options([{'qn': 400, 'desc': '蓝光 1080P'}, {'qn': 250, 'desc': '超清 720P'}])
+        first.set_quality_options([{'qn': 20000, 'desc': '4K'}, {'qn': 15000, 'desc': '2K'},
+                                   {'qn': 400, 'desc': '蓝光 1080P'}, {'qn': 250, 'desc': '超清 720P'}])
         second.set_quality_options([{'qn': 23, 'desc': '720x1280 · 60fps'}, {'qn': 88, 'desc': '540x960'}])
         locked.quality_locked = True
         first.danmaku_button.setChecked(True)
@@ -260,12 +261,15 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual([tile.volume for tile in (first, second, locked)], [0] * 3)
         self.assertEqual(hidden.volume, original_hidden[1])
 
-        index = menu.quality.findData(1080)
+        self.assertGreaterEqual(menu.quality.findData(2160), 0)
+        index = menu.quality.findData(1440)
+        self.assertGreaterEqual(index, 0)
         with patch.object(window, 'start_tile') as start:
             menu.quality.setCurrentIndex(index)
             menu.quality.activated.emit(index)
-        self.assertEqual([first.quality, second.quality], [400, 23])
         self.assertEqual([call.args[0] for call in start.call_args_list], [first, second])
+        self.assertEqual([call.kwargs['wall_quality'].tiers for call in start.call_args_list],
+                         [(15000, 400, 250), (23, 88)])
         self.assertEqual((locked.quality, hidden.quality), (original_locked, original_hidden[0]))
         self.assertIn('保留当前画质', menu.status.text())
 
