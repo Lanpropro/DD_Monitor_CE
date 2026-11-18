@@ -1,4 +1,4 @@
-"""Opt-in timings for actual settings opening, page creation and embedding."""
+"""Opt-in timings for settings display and interaction."""
 import atexit
 import cProfile
 import functools
@@ -8,7 +8,7 @@ import time
 from logging.handlers import QueueHandler, QueueListener
 from queue import SimpleQueue
 
-from PySide6.QtCore import QEvent, QObject, QTimer
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .responsiveness_probe import Probe, profile_functions
@@ -55,7 +55,14 @@ class SettingsProbe(Probe):
             self.records += 1
             super().write(phase, pid=os.getpid(), **values)
 
-    def wrap(self, cls, name):
+    def settings_tick(self):
+        now = time.monotonic()
+        gap_ms = (now - self.last_tick) * 1000
+        self.last_tick = now
+        if gap_ms >= 60:
+            self.write('settings-heartbeat-gap', heartbeat_gap_ms=round(gap_ms, 3))
+
+    def wrap(self, cls, name, *, trace_each=False):
         method = getattr(cls, name)
 
         @functools.wraps(method)
@@ -80,7 +87,7 @@ class SettingsProbe(Probe):
                     self.profiling = False
                 elapsed = (time.perf_counter() - started) * 1000
                 self.active.pop()
-                if elapsed >= 16 or count == 0:
+                if trace_each or elapsed >= 16 or count == 0:
                     fields = {}
                     if name in ('_page', '_on_page_changed') and args:
                         fields['page'] = int(args[0])
@@ -141,19 +148,31 @@ def install(role):
         (SettingsAutoSave, ('start', 'watch_page', 'flush')),
     ):
         for name in names:
-            probe.wrap(cls, name)
+            probe.wrap(cls, name, trace_each=role == 'host' and name == 'flush')
     if role == 'host':
+        from .plugin_card_layout import PluginCardLayout
+        from .settings_focus import SettingsInputFocus
         from .settings_host import SettingsHost
+        from .settings_plugins import PluginSettingsPage
         from .settings_process import SettingsProcess
         for cls, names in ((SettingsHost, ('__init__', 'handle', 'sync')),
                            (SettingsProcess, ('open', '_open_pending', '_read'))):
             for name in names:
                 probe.wrap(cls, name)
+        probe.wrap(PluginSettingsPage, '_installed_selection_changed', trace_each=True)
+        probe.wrap(PluginSettingsPage, '_filter_installed', trace_each=True)
+        probe.wrap(PluginCardLayout, 'setGeometry')
+        probe.wrap(SettingsInputFocus, '_wheel', trace_each=True)
     app._settings_paint_capture = SettingsPaintCapture(app)
     app.installEventFilter(app._settings_paint_capture)
     timer = QTimer(app)
-    timer.setInterval(100)
-    timer.timeout.connect(lambda: setattr(probe, 'last_tick', time.monotonic()))
+    if role == 'host':
+        timer.setTimerType(Qt.PreciseTimer)
+        timer.setInterval(33)
+        timer.timeout.connect(probe.settings_tick)
+    else:
+        timer.setInterval(100)
+        timer.timeout.connect(lambda: setattr(probe, 'last_tick', time.monotonic()))
     timer.start()
     app._settings_performance_timer = timer
     app.aboutToQuit.connect(probe.stop)

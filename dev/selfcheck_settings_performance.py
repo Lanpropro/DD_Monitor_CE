@@ -382,6 +382,32 @@ class SettingsPreparationTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_interaction_capture_records_repeated_calls_and_delayed_ticks(self):
+        class Example:
+            def interact(self, private_value):
+                return private_value
+
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'capture.jsonl'
+            probe = SettingsProbe(path)
+            try:
+                probe.wrap(Example, 'interact', trace_each=True)
+                for _ in range(3):
+                    self.assertEqual(Example().interact('private-input'), 'private-input')
+                with patch('ddm.settings_performance.time.monotonic', return_value=probe.last_tick + .033):
+                    probe.settings_tick()
+                with patch('ddm.settings_performance.time.monotonic', return_value=probe.last_tick + .075):
+                    probe.settings_tick()
+            finally:
+                probe.stop()
+            content = path.read_text(encoding='utf-8')
+            self.assertNotIn('private-input', content)
+            records = [json.loads(line) for line in content.splitlines()]
+            self.assertEqual([r['function'] for r in records if r['phase'] == 'settings-call'],
+                             ['Example.interact'] * 3)
+            self.assertEqual([r['heartbeat_gap_ms'] for r in records
+                              if r['phase'] == 'settings-heartbeat-gap'], [75])
+
     def test_stage_timings_preserve_results_arguments_and_exceptions_without_recording_input(self):
         sentinel = object()
 
