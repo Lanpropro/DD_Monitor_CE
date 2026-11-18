@@ -2,6 +2,14 @@
 from PySide6.QtGui import QColor
 
 
+def glass_active(widget):
+    from .settings_backdrop import blur_available
+    window = widget.window()
+    return bool(window.property('settings_glass_enabled') and (
+        getattr(window, '_native_glass', False)
+        or window.property('settingsGlassContent') and blur_available()))
+
+
 def glass_tint(widget, tint=None, *, card=False):
     from . import theme
     light = theme.is_light()

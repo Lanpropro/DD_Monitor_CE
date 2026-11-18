@@ -10,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QColor, QCursor, QImage
+from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 from shiboken6 import isValid
@@ -251,6 +251,35 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertFalse(page.removed_profiles)
         self.assertTrue(notice.expand_button.isHidden())
         self.assertTrue(notice.details.isHidden())
+
+    def test_streamer_removal_notice_repaints_with_settings_glass(self):
+        self.dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
+        notice = self.dialog.stack.currentWidget().undo_notice
+        notice.present({'1001': {'name': '主播甲'}, '1002': {'name': '主播乙'}})
+
+        def fill_alpha():
+            APP.processEvents()
+            image = QImage(notice.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            with QPainter(image) as painter:
+                notice.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+            return image.pixelColor(notice.width() // 2, 5).alpha()
+
+        with patch('ddm.settings_window.apply_blur', side_effect=lambda _widget, enabled: bool(enabled)):
+            self.assertEqual(fill_alpha(), 255)
+            self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 60})
+            self.assertEqual(fill_alpha(), 153)
+            notice.expand_button.click()
+            self.assertTrue(notice.details.isVisible())
+            self.assertEqual(fill_alpha(), 153)
+            self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 80})
+            self.assertEqual(fill_alpha(), 204)
+            self.dialog.set_material({'settings_glass_enabled': False})
+            self.assertEqual(fill_alpha(), 255)
+
+        with patch('ddm.settings_window.apply_blur', return_value=False):
+            self.dialog.set_material({'settings_glass_enabled': True})
+            self.assertEqual(fill_alpha(), 255)
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button

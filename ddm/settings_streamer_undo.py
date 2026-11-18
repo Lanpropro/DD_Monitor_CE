@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QScrol
 
 from . import theme
 from .corner_geometry import continuous_path
+from .settings_material import base_color
+from .settings_material_paint import glass_active, glass_tint
 from .ui import ActionButton, Avatar, ElidedLabel
 
 
@@ -203,5 +205,6 @@ class StreamerRemovalNotice(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        painter.setBrush(theme.qcolor('#ffffff' if theme.is_light() else '#3c4044'))
+        tint = base_color(self, 'card', theme.CONTENT)
+        painter.setBrush(glass_tint(self, tint) if glass_active(self) else theme.qcolor(tint))
         painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12))
