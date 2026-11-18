@@ -236,6 +236,8 @@ exit /b %errorlevel%
 
 :diagnosticsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_image_cache -- CacheTests.test_avatar_lifecycle_records_source_and_threads_without_asset_data
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_settings_layout
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_on_demand_diagnostics

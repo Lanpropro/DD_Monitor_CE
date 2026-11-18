@@ -16,7 +16,7 @@ class VideoDanmakuRaster:
             return
         # The app owns downloads so removing a tile cannot destroy a running thread.
         app = QApplication.instance()
-        loader = AvatarLoader({url: url}, app, subdir="emoticons")
+        loader = AvatarLoader({url: url}, app, subdir="emoticons", diagnostic_source="video-emoticon")
         host._emoticon_loaders[url] = loader
         loader.loaded.connect(host._on_emoticon_loaded)
         loader.finished.connect(lambda: host._emoticon_loaders.pop(url, None))

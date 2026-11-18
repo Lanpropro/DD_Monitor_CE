@@ -69,6 +69,28 @@ class DiagnosticTests(unittest.TestCase):
             report = json.loads(archive.read('native-crashes.json'))
             self.assertTrue(report['dump_export_requested'])
 
+    def test_fatal_process_evidence_survives_newer_launch_logs(self):
+        report = 'logs/native-crash-12-abcdef.json'
+        lifecycle = 'logs/qt-lifecycle-12.jsonl'
+        stack = 'logs/ddm-crash-12.log'
+        self.put(report, json.dumps({'pid': 12, 'tid': 34, 'at_unix_ms': 1794977105650,
+                                     'access_type': 'read', 'access_address': '0x0000000000000000'}))
+        self.put(lifecycle, '{"pid":12,"thread":34,"kind":"AvatarLoader","source":"video-emoticon"}')
+        self.put(stack, 'fixture Python stack')
+        for path in (report, lifecycle, stack):
+            os.utime(self.app / path, (100000, 100000))
+        for pid in range(100, 130):
+            self.put(f'logs/qt-lifecycle-{pid}.jsonl', '{"stage":"construct.request"}')
+        with zipfile.ZipFile(self.cli()) as archive:
+            evidence = json.loads(archive.read('native-crashes.json'))['files']
+            self.assertEqual(len(evidence), 24)
+            self.assertTrue({report, lifecycle, stack}.issubset(evidence))
+            self.assertEqual(json.loads(archive.read(report))['at_unix_ms'], 1794977105650)
+            self.assertEqual(json.loads(archive.read(report))['access_type'], 'read')
+            self.assertEqual(json.loads(archive.read(report))['access_address'], '0x0000000000000000')
+            self.assertEqual(json.loads(archive.read(lifecycle))['source'], 'video-emoticon')
+            self.assertEqual(archive.read(stack), b'fixture Python stack')
+
     @classmethod
     def compile(cls, target, sources, gui=False):
         references = ['System.Management', 'System.Web.Extensions', 'System.IO.Compression',

@@ -50,7 +50,7 @@ def main():
                 dump.assert_called_once()
                 assert dump.call_args.kwargs["all_threads"]
                 handle = dump.call_args.kwargs["file"]
-                assert Path(handle.name).name == "ddm-crash.log"
+                assert Path(handle.name).name == f"ddm-crash-{os.getpid()}.log"
             contents = Path(path).read_text(encoding="utf-8")
             assert "[Qt QtWarningMsg] quality switch diagnostic" in contents
             assert "[Qt QtFatalMsg] fatal quality switch diagnostic" in contents

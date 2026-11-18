@@ -154,7 +154,7 @@ class DanmakuDocument:
         if url in host._images or url in host._loading_emoticons:
             return
         host._loading_emoticons.add(url)
-        loader = AvatarLoader({url: url}, host, subdir="emoticons")
+        loader = AvatarLoader({url: url}, host, subdir="emoticons", diagnostic_source="panel-emoticon")
         loader.loaded.connect(host._on_emoticon_loaded)
         loader.finished.connect(lambda: host._loading_emoticons.discard(url))
         loader.finished.connect(loader.deleteLater)

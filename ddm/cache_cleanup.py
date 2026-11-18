@@ -12,7 +12,8 @@ KINDS = (*IMAGE_KINDS, 'plugin-catalog', 'web-login', 'logs')
 _REQUEST = 'web-login-clear.request'
 _DAILY_LOG = re.compile(r'ddm-(\d{4}-\d{2}-\d{2})\.log(?:\.[1-5])?$')
 _PID_LOG = re.compile(r'(?:qt-lifecycle-(\d+)\.jsonl(?:\.[12])?|'
-                      r'settings-crash-(\d+)\.log|native-crash-(\d+)-[0-9a-f]+\.(?:json|dmp))$')
+                      r'(?:ddm|settings)-crash-(\d+)\.log(?:\.1)?|'
+                      r'native-crash-(\d+)-[0-9a-f]+\.(?:json|dmp))$')
 
 
 def _path(root, *parts):

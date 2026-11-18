@@ -1,7 +1,7 @@
 """Qt image workers; image API owns canonical cache paths, generation tokens and loaders."""
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QPixmap
-from . import image_cache
+from . import image_cache, qt_lifecycle
 
 
 class CachedCoverLoader(QThread):
@@ -54,12 +54,14 @@ class AvatarLoader(QThread):
 
     loaded = Signal(str, QPixmap)
 
-    def __init__(self, items: dict[str, str], parent=None, subdir: str = "avatars"):
+    @qt_lifecycle.construction(sources=('video-emoticon', 'panel-emoticon', 'sc-avatar', 'account-avatar'))
+    def __init__(self, items: dict[str, str], parent=None, subdir: str = "avatars", *, diagnostic_source=""):
         super().__init__(parent)
         self.items = dict(items)          # key -> url
         self.subdir = subdir
         self._stamp = image_cache.ticket()
 
+    @qt_lifecycle.running
     def run(self) -> None:
         from . import images as api
         from concurrent.futures import ThreadPoolExecutor, as_completed

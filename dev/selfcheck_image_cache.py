@@ -20,7 +20,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QThreadPoo
 from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
-from ddm import config, image_cache, images, theme
+from ddm import config, image_cache, images, qt_lifecycle, theme
 from ddm.cache_settings import ImageCachePanel
 
 
@@ -83,6 +83,42 @@ class CacheTests(unittest.TestCase):
         self.assertTrue(old.exists())
         self.assertTrue(unknown.exists())
         self.assertIsNotNone(images.load_room_avatar('1'))
+
+    def test_avatar_lifecycle_records_source_and_threads_without_asset_data(self):
+        from threading import get_native_id
+        from PySide6.QtCore import QObject
+
+        owner = QObject()
+        qt_lifecycle.start(self.root)
+        self.addCleanup(qt_lifecycle.close)
+        with patch.object(images, 'load_pixmap', return_value=None):
+            for source, subdir in (('video-emoticon', 'emoticons'), ('sc-avatar', 'sc-avatars'),
+                                   ('account-avatar', 'avatars'), ('private-source', 'avatars')):
+                worker = images.AvatarLoader({'private-room': 'https://example.invalid/private-avatar'}, owner,
+                                             subdir=subdir, diagnostic_source=source)
+                worker.finished.connect(worker.deleteLater)
+                worker.start()
+                self.assertTrue(worker.wait(5000))
+                self.app.processEvents()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        path = self.root / f'qt-lifecycle-{os.getpid()}.jsonl'
+        raw = path.read_text(encoding='utf-8')
+        self.assertNotIn('private-', raw)
+        rows = [json.loads(line) for line in raw.splitlines()]
+        self.assertEqual({row['kind'] for row in rows}, {'AvatarLoader'})
+        self.assertEqual({row['pid'] for row in rows}, {os.getpid()})
+        groups = {}
+        for row in rows:
+            groups.setdefault(row['object'], []).append(row)
+        self.assertEqual(len(groups), 4)
+        for source, group in zip(('video-emoticon', 'sc-avatar', 'account-avatar', None), groups.values()):
+            self.assertEqual({row.get('source') for row in group}, {source})
+            self.assertEqual([row['stage'] for row in group],
+                             ['construct.request', 'construct.ready', 'run.begin', 'run.end', 'destroyed'])
+            self.assertEqual(group[0]['thread'], get_native_id())
+            self.assertEqual(group[-1]['thread'], get_native_id())
+            self.assertNotEqual(group[2]['thread'], get_native_id())
+            self.assertEqual(group[2]['thread'], group[3]['thread'])
 
     def test_shared_image_removed_only_after_last_room_replaces_it(self):
         shared = self.image('shared')
