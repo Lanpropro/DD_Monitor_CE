@@ -17,7 +17,9 @@ from shiboken6 import isValid
 from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
+from ddm.settings_material_paint import glass_tint, window_background_tint
 from ddm.settings_navigation import SettingsNavigation
+from ddm.ui import SettingsSurface
 
 APP = QApplication.instance() or QApplication([])
 
@@ -232,10 +234,12 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertFalse(notice.expand_button.isHidden())
         self.assertTrue(notice.details.isHidden())
         bottom = notice.geometry().bottom()
+        scroll_size = page.scroll.size()
         notice.expand_button.click()
         APP.processEvents()
         self.assertFalse(notice.details.isHidden())
         self.assertEqual(notice.geometry().bottom(), bottom)
+        self.assertEqual(page.scroll.size(), scroll_size)
         self.assertEqual(list(notice.detail_rows), list(notice.rooms))
         notice.detail_rows['1002'].findChild(QPushButton).click()
         self.assertEqual(list(page.entries), ['1002', '1003', '1005'])
@@ -253,58 +257,57 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertTrue(notice.details.isHidden())
 
     @patch('ddm.settings_window.apply_blur', return_value=False)
-    def test_streamer_removal_notice_repaints_with_settings_glass(self, native_blur):
+    def test_streamer_removal_notice_matches_settings_card_material(self, native_blur):
         self.dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
         page = self.dialog.stack.currentWidget()
         notice = page.undo_notice
         notice.present({'1001': {'name': '主播甲'}, '1002': {'name': '主播乙'}})
-        marker = QWidget(page.scroll.viewport())
-        marker.setStyleSheet('background: #ff0000;')
-        sample = QPoint(245, 6)
+        reference = SettingsSurface(page)
 
-        def pixels():
-            APP.processEvents()
-            image = QImage(notice.size(), QImage.Format_ARGB32_Premultiplied)
-            image.fill(Qt.transparent)
+        def surface_pixels(widget, backdrop):
+            image = QImage(widget.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(backdrop)
             with QPainter(image) as painter:
-                notice.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+                widget.render(painter, QPoint(), QRegion(), QWidget.RenderFlag(0))
             return image
 
         for expanded in (False, True):
             if expanded:
                 notice.expand_button.click()
                 self.assertTrue(notice.details.isVisible())
-            with self.subTest(expanded=expanded):
-                solid = pixels()
-                self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 60})
-                glass = pixels()
-                self.assertEqual(glass.pixelColor(sample).alpha(), 255)
-                self.assertNotEqual(glass.pixelColor(sample), solid.pixelColor(sample))
+            for enabled, native, no_shadows in ((False, False, False), (True, False, False),
+                                                (True, True, False), (True, True, True)):
+                with self.subTest(expanded=expanded, enabled=enabled, native=native, no_shadows=no_shadows):
+                    native_blur.return_value = native
+                    self.dialog.set_material({'settings_glass_enabled': enabled, 'settings_no_shadows': no_shadows})
+                    self.dialog._sync_frame()
+                    APP.processEvents()
+                    reference.resize(notice.size())
+                    backdrop = glass_tint(notice, window_background_tint(notice)) if native else Qt.transparent
+                    actual = surface_pixels(notice, backdrop)
+                    expected = surface_pixels(reference, backdrop)
+                    if native:
+                        for sample in (actual.rect().center(), QPoint(10, 10), QPoint(1, 1)):
+                            for channel, target in zip(actual.pixelColor(sample).getRgb(),
+                                                       expected.pixelColor(sample).getRgb()):
+                                self.assertAlmostEqual(channel, target, delta=2)
+                    else:
+                        self.assertEqual(actual, expected)
 
-                # Colour from a stripe just outside the sampled point should spread into it.
-                stripe = notice.mapTo(page, sample + QPoint(4, -6))
-                marker.move(page.scroll.viewport().mapFrom(page, stripe))
-                marker.resize(16, 40)
-                marker.show()
-                self.assertGreater(pixels().pixelColor(sample).red(), glass.pixelColor(sample).red())
-                # The actual page composite must suppress the sharp edge, too.
-                composite = self.dialog.grab().toImage()
-                position = notice.mapTo(self.dialog, sample)
-                self.assertLess(abs(composite.pixelColor(position + QPoint(6, 0)).red()
-                                    - composite.pixelColor(position).red()), 45)
-                marker.hide()
-
-                self.dialog.set_material({'settings_glass_enabled': False})
-                self.assertEqual(pixels().pixelColor(sample), solid.pixelColor(sample))
-
-        native_blur.return_value = True
-        with patch('ddm.skin_parts.values_for', return_value={'background': '#326496'}):
-            self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 60})
-            color = pixels().pixelColor(sample)
-            self.assertEqual(color.name(), '#326496')
-            self.assertEqual(color.alpha(), 153)
-            self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 80})
-            self.assertEqual(pixels().pixelColor(sample).alpha(), 204)
+        # The mask only weakens page content under the shared glass surface.
+        marker = QWidget(page.scroll.viewport())
+        marker.setStyleSheet('background: #ff0000;')
+        marker.setGeometry(0, 0, 20, 24)
+        marker.move(page.scroll.viewport().mapFrom(page, notice.mapTo(page, QPoint(235, -10))))
+        inside = notice.mapTo(self.dialog, QPoint(245, 8))
+        outside = notice.mapTo(self.dialog, QPoint(245, -4))
+        before = self.dialog.grab().toImage()
+        marker.show()
+        after = self.dialog.grab().toImage()
+        inside_delta = after.pixelColor(inside).red() - before.pixelColor(inside).red()
+        outside_delta = after.pixelColor(outside).red() - before.pixelColor(outside).red()
+        self.assertLess(0, inside_delta)
+        self.assertLess(inside_delta * 2, outside_delta)
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button

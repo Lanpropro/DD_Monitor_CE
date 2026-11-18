@@ -79,6 +79,10 @@ class SettingsSurface(QFrame):
             owner = owner.parentWidget()
         return None
 
+    def _paint_glass_fill(self, painter, path):
+        from ..settings_material_paint import glass_tint
+        painter.fillPath(path, glass_tint(self, card=True))
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -102,13 +106,9 @@ class SettingsSurface(QFrame):
                     shadow = rect.adjusted(-spread, -spread, spread, spread).translated(0, 3)
                     painter.fillPath(continuous_path(shadow, theme.RADIUS_LG + spread), QColor(0, 0, 0, alpha))
                 painter.restore()
-            color = theme.qcolor(base_color(self, 'card', theme.CONTENT))
-            from ..settings_material_paint import glass_active, glass_tint
-            glass = glass_active(self)
-            if glass:
-                color = glass_tint(self, card=True)
-            painter.fillPath(path, color)
-            if glass:
+            from ..settings_material_paint import glass_active
+            if glass_active(self):
+                self._paint_glass_fill(painter, path)
                 # A small inset highlight gives the translucent group an edge
                 # without making the whole card opaque or shading its bottom.
                 edge = QLinearGradient(rect.topLeft(), rect.bottomRight())
@@ -117,6 +117,8 @@ class SettingsSurface(QFrame):
                 painter.setPen(QPen(edge, 1))
                 painter.setBrush(Qt.NoBrush)
                 painter.drawPath(path)
+            else:
+                painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
             return
         backdrop = self._backdrop()
         if backdrop is not None:
