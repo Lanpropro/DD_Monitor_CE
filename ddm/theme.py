@@ -511,6 +511,7 @@ def apply(value):
     typography = (FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING)
     typography_changed = typography != _applied_typography
     from .continuous_corners import source_stylesheet, stylesheet
+    from .skin_parts import style_for
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
     for widget in widgets:
@@ -523,21 +524,25 @@ def apply(value):
     stable_style = qss(palette_roles=True)
     if app.styleSheet() != stable_style:
         app.setStyleSheet(stable_style)
-    patterns = {}
+
+    # Cards with identical source styles can share one translation per theme change.
+    @lru_cache(maxsize=None)
+    def palette_pattern(colors):
+        replacements = {old: palette[name] for name, old in colors}
+        pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
+        return pattern, replacements
+
+    @lru_cache(maxsize=None)
+    def local_style(source, colors, extra):
+        if source:
+            pattern, replacements = palette_pattern(colors)
+            source = pattern.sub(lambda match: replacements[match.group()], source)
+        return stylesheet(source + '\n' + extra if extra else source)
+
     for widget in widgets:
         source, colors, _last = _styles[widget]
-        key = tuple(colors.items())
-        if key not in patterns:
-            replacements = {old: palette[name] for name, old in colors.items()}
-            pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
-            patterns[key] = pattern, replacements
-        pattern, replacements = patterns[key]
-        styled = pattern.sub(lambda match: replacements[match.group()], source) if source else ''
-        from .skin_parts import style_for
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
-        if extra:
-            styled += '\n' + extra
-        styled = stylesheet(styled)
+        styled = local_style(source, tuple(colors.items()) if source else (), extra)
         properties_changed = refresh_theme_properties(widget, defer=True)
         if styled != widget.styleSheet():
             widget.setStyleSheet(styled)

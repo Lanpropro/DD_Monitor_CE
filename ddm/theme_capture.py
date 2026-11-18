@@ -14,9 +14,24 @@ def install_theme_capture(path, *, profile_calls=False):
 
     probe = capture_api.Probe(path)
     original = ThemeTransition.change
+    apply_theme = theme.apply
+    transition_depth = 0
+
+    @functools.wraps(apply_theme)
+    def apply(mode):
+        if probe.stopped.is_set():
+            return apply_theme(mode)
+        started = time.perf_counter()
+        source = 'transition' if transition_depth else 'direct'
+        try:
+            return apply_theme(mode)
+        finally:
+            probe.write('theme-apply', mode=theme.normalize_mode(mode), source=source,
+                duration_ms=round((time.perf_counter() - started) * 1000, 3))
 
     @functools.wraps(original)
     def change(transition, mode, *args, **kwargs):
+        nonlocal transition_depth
         if probe.stopped.is_set():
             return original(transition, mode, *args, **kwargs)
         profile = cProfile.Profile() if profile_calls else None
@@ -24,9 +39,11 @@ def install_theme_capture(path, *, profile_calls=False):
         transition._theme_request_started = started
         if profile is not None:
             profile.enable()
+        transition_depth += 1
         try:
             return original(transition, mode, *args, **kwargs)
         finally:
+            transition_depth -= 1
             if profile is not None:
                 profile.disable()
             probe.write('theme-switch', mode=theme.normalize_mode(mode),
@@ -34,6 +51,7 @@ def install_theme_capture(path, *, profile_calls=False):
                 functions=capture_api.profile_functions(profile) if profile is not None else [])
 
     ThemeTransition.change = change
+    theme.apply = apply
     atexit.register(probe.stop)
     probe.write('start', mode='theme-switches-only')
     return probe

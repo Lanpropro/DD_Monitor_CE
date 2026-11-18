@@ -237,7 +237,7 @@ class ProbeTests(unittest.TestCase):
 
     def test_theme_capture_preserves_calls_and_bounds_function_records(self):
         from PySide6.QtWidgets import QApplication
-        from ddm import theme_transition
+        from ddm import theme, theme_transition
         app = QApplication.instance() or QApplication([])
         token = object()
 
@@ -245,19 +245,26 @@ class ProbeTests(unittest.TestCase):
             def change(self, mode, origin=None):
                 if mode == 'error':
                     raise ValueError('private-theme-error')
+                theme.apply(mode)
                 return origin
 
         path = Path(self.directory.name) / 'themes.jsonl'
-        with patch.object(theme_transition, 'ThemeTransition', Transition):
+        with patch.object(theme_transition, 'ThemeTransition', Transition), \
+                patch.object(theme, 'apply', return_value=token):
             with patch.object(QApplication, 'instance', return_value=None):
                 probe = diag.install_theme_capture(path, profile_calls=True)
             try:
                 transition = Transition()
+                self.assertIs(theme.apply('dark'), token)
                 self.assertIs(transition.change('light', token), token)
                 with self.assertRaises(ValueError):
                     transition.change('error')
                 rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
                 switches = [row for row in rows if row['phase'] == 'theme-switch']
+                applies = [row for row in rows if row['phase'] == 'theme-apply']
+                self.assertEqual([(row['source'], row['mode']) for row in applies],
+                                 [('direct', 'dark'), ('transition', 'light')])
+                self.assertTrue(all(row['duration_ms'] >= 0 for row in applies))
                 self.assertEqual(len(switches), 2)
                 self.assertTrue(all(0 < len(row['functions']) <= 30 for row in switches))
                 self.assertNotIn('private-theme-error', json.dumps(rows))

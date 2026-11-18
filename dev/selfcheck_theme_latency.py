@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
-from ddm import app as module, config, motion, theme, theme_transition, widgets, sidebar_cards
+from ddm import app as module, config, continuous_corners, motion, sidebar_folders, theme, theme_transition
 from ddm.skins import import_asset
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
@@ -35,6 +35,7 @@ def main():
     window.resize(2560, 1440)
     window.show()
     QTest.qWait(50)
+    check_shared_local_styles(window)
     records = []
     original_style = QWidget.setStyleSheet
     original_snapshot = theme_transition.ui_snapshot
@@ -59,9 +60,9 @@ def main():
                 def styled(widget, source):
                     record['stylesheet_resets'] += 1
                     original_style(widget, source)
-                def snapshot(widget):
+                def snapshot(widget, *args):
                     started = time.perf_counter()
-                    result = original_snapshot(widget)
+                    result = original_snapshot(widget, *args)
                     record['snapshot_ms'] = round((time.perf_counter()-started)*1000, 2)
                     return result
                 def applied(value):
@@ -72,7 +73,7 @@ def main():
                         patch.object(QWidget, 'setStyleSheet', styled), \
                         patch.object(theme_transition, 'ui_snapshot', snapshot), \
                         patch.object(theme, 'apply', applied), \
-                        patch.object(sidebar_cards, 'folder_icon', side_effect=AssertionError('Default folder icon must be reused')):
+                        patch.object(sidebar_folders, 'folder_icon', side_effect=AssertionError('Default folder icon must be reused')):
                     started = time.perf_counter()
                     window.set_appearance(mode)
                     record['prepare_ms'] = round((time.perf_counter()-started)*1000, 2)
@@ -88,6 +89,25 @@ def main():
     output.write_text(json.dumps(records, indent=2), encoding='utf-8')
     window.close()
     print('PASS: <20 stylesheet resets, cached folder icons, stable video geometry; measured stages: ' + json.dumps(records))
+
+
+def check_shared_local_styles(window):
+    theme.apply('dark')
+    source = f'QLabel {{ color: {theme.TEXT1}; margin: 1px; }}'
+    widgets = [QWidget(window) for _ in range(3)]
+    try:
+        for widget in widgets:
+            widget.setStyleSheet(source)
+        with patch.object(continuous_corners, 'stylesheet', wraps=continuous_corners.stylesheet) as compile_style:
+            theme.apply('light')
+        target = f'QLabel {{ color: {theme.TEXT1}; margin: 1px; }}'
+        assert [widget.styleSheet() for widget in widgets] == [target] * 3
+        assert sum(call.args[0] == target for call in compile_style.call_args_list) == 1
+        theme.apply('dark')
+        assert [widget.styleSheet() for widget in widgets] == [source] * 3
+    finally:
+        for widget in widgets:
+            widget.deleteLater()
 
 
 if __name__ == '__main__':
