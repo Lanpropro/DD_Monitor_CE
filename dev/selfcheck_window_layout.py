@@ -31,6 +31,7 @@ class Host:
     def __init__(self):
         self.orientation, self._layout_by_orientation, self._pending_layout = 'landscape', {}, ''
         self.state, self._applying_room_preset, self._settling_resize = {}, False, False
+        self.settings = {}
         self.picture_in_picture = Mock(active=False)
         self._root_layout, self._content, self.sidebar = Mock(), Mock(), Mock()
         self._root_layout.isEnabled.return_value = True
@@ -160,6 +161,17 @@ class WindowLayoutTests(unittest.TestCase):
         live_player.reapply_audio_channel.assert_called_once_with()
         live_player.release.assert_not_called()
         self.assertEqual(live.room['audio_channel'], 3)
+
+    def test_shrinking_moves_audio_with_promoted_room_when_enabled(self):
+        host = Host()
+        host.settings['audio_follows_room'] = True
+        offline, live = Tile('off', False, 20, True, 3), Tile('live', True, 75, False, 4)
+        host.wall.tiles, host.wall._capacity = [offline, live], lambda: 2
+        player = host.players[live] = Mock()
+        host._prioritize_live_tiles('1x1')
+        self.assertEqual(host.wall.tiles, [live, offline])
+        self.assertEqual((live.volume, live.muted, live.audio_channel), (75, False, 4))
+        self.assertEqual(player.mock_calls, [])
 
     def test_current_layout_reset_only_refreshes_playback_when_panes_changed(self):
         host = Host()

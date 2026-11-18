@@ -4,12 +4,21 @@ from .room_catalog import RoomCatalog
 from .room_navigation import RoomNavigation
 
 
+def _swap_audio_settings(first, second):
+    first.volume, second.volume = second.volume, first.volume
+    first.muted, second.muted = second.muted, first.muted
+    first.audio_channel, second.audio_channel = second.audio_channel, first.audio_channel
+
+
 class RoomPlacement:
     def __init__(self, host):
         self.host = host
         self.navigation = RoomNavigation(self.host)
         self.catalog = RoomCatalog(self.host)
         self.replacement = None
+
+    def _audio_follows_room(self):
+        return getattr(self.host, "settings", {}).get("audio_follows_room", False)
 
     def place_live_notice_rooms(self, rooms):
         from .wall_replacement import WallReplacement
@@ -38,20 +47,27 @@ class RoomPlacement:
                   file=sys.stderr, flush=True)
             return
         to_start = []
+        follows_room = other is not None and self._audio_follows_room()
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
             room = dict(other.room)  # 包括该房间独立的弹幕开关，侧栏副本不带格子设置。
             previous = dict(tile.room) if tile.room.get("room_id") else None
             host.recorder.stop(other)
             host._stop_tile(other)
+        host.recorder.stop(tile)
+        host._stop_tile(tile)
+        if other is not None:
+            if follows_room:
+                _swap_audio_settings(other, tile)
             other.set_room(previous)
             if previous and previous.get("room_id"):
                 to_start.append(other)
-        host.recorder.stop(tile)
-        host._stop_tile(tile)
         tile.set_room(room)
         if other is not None:
             host.wall.pane_danmaku.swap_sources(other, tile)
+            if follows_room:
+                other.sync_audio_ui()
+                tile.sync_audio_ui()
         to_start.append(tile)
         restarted = host.apply_quality_policy()
         for candidate in to_start:
@@ -78,8 +94,14 @@ class RoomPlacement:
         host.recorder.stop(target_tile)
         host._stop_tile(source)
         host._stop_tile(target_tile)
+        follows_room = self._audio_follows_room()
+        if follows_room:
+            _swap_audio_settings(source, target_tile)
         source.set_room(second if second.get("room_id") else None)
         target_tile.set_room(first if first.get("room_id") else None)
+        if follows_room:
+            source.sync_audio_ui()
+            target_tile.sync_audio_ui()
         host.wall.pane_danmaku.swap_sources(source, target_tile)
         restarted = host.apply_quality_policy()
         for tile in (source, target_tile):
@@ -114,25 +136,20 @@ class RoomPlacement:
             return False
         # 1) 两个格子换位置（房间里的一切跟着格子走：画质、取流结果、计时都还在）
         tiles[first_index], tiles[second_index] = tiles[second_index], tiles[first_index]
-        # 2) 音量 / 静音 / 声道属于**格子（位置）**，不跟着主播走：
-        #    两个格子的这几项设置对调，再把它们下发给自己那个（没挪窝的）播放器
-        source.volume, target.volume = target.volume, source.volume
-        source.muted, target.muted = target.muted, source.muted
-        source.audio_channel, target.audio_channel = \
-            target.audio_channel, source.audio_channel
+        follows_room = self._audio_follows_room()
+        if not follows_room:
+            # 格子本身已换位。对调其音频设置，让声音留在原位置。
+            _swap_audio_settings(source, target)
+            for tile in (source, target):
+                tile.room.update(volume=tile.volume, muted=tile.muted, audio_channel=tile.audio_channel)
+                player = host.players.get(tile)
+                if player is not None:
+                    player.set_volume(int(tile.volume))
+                    player.set_muted(tile.muted)
+                    player.set_audio_channel(int(tile.audio_channel))
+                    player.reapply_audio_channel()
         source.video_danmaku_overrides, target.video_danmaku_overrides = \
             target.video_danmaku_overrides, source.video_danmaku_overrides
-        for tile in (source, target):
-            tile.room["volume"] = tile.volume
-            tile.room["muted"] = tile.muted
-            tile.room["audio_channel"] = tile.audio_channel
-            player = host.players.get(tile)
-            if player is None:
-                continue
-            player.set_volume(int(tile.volume))
-            player.set_muted(tile.muted)
-            player.set_audio_channel(int(tile.audio_channel))
-            player.reapply_audio_channel()
         # Disabling paint alone still lets child HWNDs move with stale pixels
         # while the composer is reparented. Apply each bar's layout only once.
         bars = [(tile.bottom, tile.bottom.updatesEnabled(), tile.bottom.layout().isEnabled())
@@ -143,7 +160,7 @@ class RoomPlacement:
         try:
             host.wall.relayout(force=True)         # 换完位置重新摆一遍
             for tile in (source, target):
-                if host.players.get(tile) is not None:
+                if not follows_room:
                     tile.sync_audio_ui()
                 tile.raise_overlays()
         finally:

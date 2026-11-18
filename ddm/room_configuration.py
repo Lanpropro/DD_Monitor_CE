@@ -1,5 +1,6 @@
 """Pure room-state reconciliation and startup placeholder construction; configuration IO stays in config."""
 from copy import deepcopy
+import time
 
 
 def _unique(values) -> list[str]:
@@ -74,6 +75,8 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     room_ids = _unique(state.get("rooms", []))
     wall_slots = state.get("wall", []) or []
     default_volume = int((state.get("settings") or {}).get("default_volume", settings_api.DEFAULT_VOLUME))
+    saved_ends = state.get("last_live_ends")
+    now = time.time()
 
     def placeholder(room_id: str) -> dict:
         room = {
@@ -84,6 +87,9 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
             # 否则一打开软件，所有已开播的房间都会冒一遍开播提醒（见 app）。
             "live_known": False,
         }
+        end = saved_ends.get(room_id) if isinstance(saved_ends, dict) else None
+        if type(end) is int and 0 < end <= now:
+            room["last_live_end_ts"] = end
         saved = ((state.get("platform_rooms") or {}).get(room_id) or
                  (state.get("browser_rooms") or {}).get(room_id) or {})
         if ":" in room_id:

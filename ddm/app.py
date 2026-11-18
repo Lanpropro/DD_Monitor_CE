@@ -794,6 +794,7 @@ class MainWindow(QMainWindow):
             "custom_order": list(self.sidebar.custom_order),
             "follow_folders": self.sidebar.folder_state(),
             "watch_history": self.sidebar.watch_history.state(),
+            "last_live_ends": self.room_status.last_live_ends(),
             "settings": dict(self.settings),
             "emoticon_order": deepcopy(self.state.get("emoticon_order", {})),
             "geometry": str(self.saveGeometry().toBase64(),

@@ -4,6 +4,7 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from .playback_controls import VolumeButton
+from .video_surface import VideoSurface
 
 
 class AppShortcuts(QObject):
@@ -51,13 +52,32 @@ class AppShortcuts(QObject):
         window = watched.window() if hasattr(watched, 'window') else None
         if window is not host and window is not host._fullscreen_tile:
             return False
-        if not event.modifiers() & Qt.ShiftModifier:
-            return False
         delta = event.angleDelta().y() or event.pixelDelta().y()
         if not delta:
             return False
+        if event.modifiers() == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
+            if (not isinstance(watched, VideoSurface)
+                    or not watched.rect().contains(event.position().toPoint())
+                    or QApplication.activePopupWidget() is not None):
+                return False
+            tile = watched.parentWidget()
+            if not tile.room.get('room_id'):
+                return False
+        else:
+            if not self._matches_volume_wheel(event.modifiers(), delta):
+                return False
+            tile = host._tile_under_cursor()
+            if tile is None:
+                return False
+        tile.set_volume(tile.volume + (10 if delta > 0 else -10))
+        event.accept()
+        return True
+
+    def _matches_volume_wheel(self, pressed, delta):
+        if not pressed & Qt.ShiftModifier:
+            return False
         key = 'volume_up' if delta > 0 else 'volume_down'
-        shortcut = host.shortcuts.get(key, 'Shift+WheelUp' if delta > 0 else 'Shift+WheelDown')
+        shortcut = self.host.shortcuts.get(key, 'Shift+WheelUp' if delta > 0 else 'Shift+WheelDown')
         parts = [part for part in shortcut.split('+') if part]
         wheel = 'WheelUp' if delta > 0 else 'WheelDown'
         if not parts or parts[-1] != wheel:
@@ -66,14 +86,7 @@ class AppShortcuts(QObject):
         for part in parts[:-1]:
             modifiers |= {'Shift': Qt.ShiftModifier, 'Ctrl': Qt.ControlModifier,
                           'Alt': Qt.AltModifier, 'Meta': Qt.MetaModifier}.get(part, Qt.NoModifier)
-        if event.modifiers() != modifiers:
-            return False
-        tile = host._tile_under_cursor()
-        if tile is None:
-            return False
-        tile.set_volume(tile.volume + (10 if delta > 0 else -10))
-        event.accept()
-        return True
+        return pressed == modifiers
 
     def sync_input_shortcuts(self, *_args) -> None:
         host = self.host

@@ -34,7 +34,7 @@ def main():
                 tile.closeRequested.emit(tile.room)
                 assert not tile.room.get("room_id")
                 assert tile.quality == 250, (kind, tile.quality)
-                assert tile.quality_button.text() == "超清 720P"
+                assert tile.quality_button.text() == "画质"
                 assert tile.quality_button.toolTip() == "选择这一路的画质"
                 assert not tile.quality_options and tile.actual_quality == 0
                 assert (tile.volume, tile.muted, tile.audio_channel) == audio
@@ -47,12 +47,14 @@ def main():
             restored = MainWindow(sidebar, wall, layout_id="1x1", state=saved)
             empty = restored.wall.tiles[0]
             assert empty.quality == 250
-            assert empty.quality_button.text() == "超清 720P"
+            assert empty.quality_button.text() == "画质"
             assert restored.current_state()["wall"][0]["quality"] == 250
             empty.set_room({"room_id": "huya:123", "live": True, "quality": 1004000})
             assert empty.quality == 1004000 and empty.quality_button.text() == "获取画质…"
-            empty.set_quality_options([{"qn": 1004000, "desc": "蓝光4M"}])
+            empty.set_quality_options([{"qn": 1004000, "desc": "蓝光4M"}, {"qn": 1002000, "desc": "高清2M"}])
             assert empty.quality_button.text() == "蓝光4M"
+            empty.set_actual_quality(1002000)
+            assert empty.quality_button.text() == "高清2M"
             empty.set_room({"room_id": "123", "quality": 80})
             assert empty.quality == 80 and "1004000" not in empty.quality_button.text()
         finally:

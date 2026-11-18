@@ -163,9 +163,12 @@ class WindowLayout:
         live = lambda tile: bool(tile.room.get("room_id") and tile.room.get("live"))
         vacant = [index for index in range(capacity) if not live(tiles[index])]
         waiting = [index for index in range(capacity, len(tiles)) if live(tiles[index])]
+        follows_room = host.settings.get("audio_follows_room", False)
         for visible_index, hidden_index in zip(vacant, waiting):
             visible, hidden = tiles[visible_index], tiles[hidden_index]
             tiles[visible_index], tiles[hidden_index] = hidden, visible
+            if follows_room:
+                continue
             # 音量、静音和声道属于位置；画面随格子移动，声音设置留在原位置。
             visible.volume, hidden.volume = hidden.volume, visible.volume
             visible.muted, hidden.muted = hidden.muted, visible.muted

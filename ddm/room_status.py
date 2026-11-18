@@ -1,5 +1,6 @@
 """Status requests and updates; the host owns Qt thread and UI lifetimes."""
 import sys
+import time
 
 from . import plugins as plugin_api
 from .qt_lifecycle import delete_requested
@@ -8,6 +9,8 @@ from .qt_lifecycle import delete_requested
 class RoomStatus:
     def __init__(self, host):
         self.host = host
+        # A poll with unknown status does not end a confirmed live session.
+        self._confirmed_live = set()
 
     def refresh_stats(self, poller_type) -> None:
         """取画面墙上各房间的"看过"人数（wbi 签名接口，和网页显示一致）。"""
@@ -108,6 +111,44 @@ class RoomStatus:
         if host._poller is None:            # 列表是空的，没真的开轮询
             host.sidebar.set_refreshing(False)
 
+    def last_live_ends(self) -> dict:
+        host = self.host
+        rooms = [*host.sidebar.rooms(), *(tile.room for tile in host.wall.tiles)]
+        return {str(room["room_id"]): room["last_live_end_ts"] for room in rooms
+                if room.get("room_id") and room.get("last_live_end_ts")}
+
+    def _record_live_ends(self, rooms, status):
+        copies = {}
+        for room in rooms:
+            room_id = str(room.get("room_id") or "")
+            if room_id:
+                copies.setdefault(room_id, []).append(room)
+        self._confirmed_live.intersection_update(copies)
+        changed = False
+        for room_id, entries in copies.items():
+            if any(room.get("live") and room.get("live_known", True) for room in entries):
+                self._confirmed_live.add(room_id)
+            info = status.get(room_id)
+            if not info or not info.get("live_known", True):
+                continue
+            if info["live"]:
+                self._confirmed_live.add(room_id)
+                end = 0
+            elif room_id in self._confirmed_live:
+                self._confirmed_live.remove(room_id)
+                end = int(time.time())
+            else:
+                end = max(room.get("last_live_end_ts", 0) for room in entries)
+            for room in entries:
+                if room.get("last_live_end_ts", 0) != end:
+                    changed = True
+                    if end:
+                        room["last_live_end_ts"] = end
+                    else:
+                        room.pop("last_live_end_ts", None)
+        if changed:
+            self.host._save_timer.start()
+
     def apply_status(self, status: dict) -> None:
         host = self.host
         preview_status = status.get(host.hover_preview._room_id())
@@ -117,6 +158,7 @@ class RoomStatus:
         # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
         parallel = getattr(getattr(host, 'picture_in_picture', None), 'parallel_tiles', ())
         playback_tiles = (*host.wall.tiles, *parallel)
+        self._record_live_ends((entry.room for entry in (*playback_tiles, *host.sidebar._items)), status)
         tile_was_live = {tile: bool(tile.room.get("live")) for tile in playback_tiles}
         item_was_live = {item: bool(item.room.get("live")) for item in host.sidebar._items}
         item_was_known = {item: bool(item.room.get("live_known", True))

@@ -11,7 +11,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
@@ -80,6 +81,17 @@ def main():
                 assert all(player._prop('time-pos') > before for player, before in zip(players, positions))
                 assert {tile: int(tile.video.winId()) for tile in window.wall.tiles} == handles
                 assert [(tile.volume, tile.muted, tile.audio_channel) for tile in window.wall.tiles] == audio
+                window.settings['audio_follows_room'] = True
+                window._on_tile_swapped('1001', second)
+                assert window.wall.tiles[0] is first and window.wall.tiles[2] is second
+                assert [(tile.volume, tile.muted, tile.audio_channel) for tile in window.wall.tiles] == [
+                    audio[2], audio[1], audio[0], *audio[3:]]
+                assert window.players == owners
+                assert [player.state_generation for player in players] == generations
+                window.settings['hover_wheel_volume'] = True
+                volume = first.volume
+                QTest.wheelEvent(first.video.windowHandle(), first.video.rect().center(), QPoint(0, 120))
+                assert first.volume == min(volume + 10, 100) and second.volume == audio[0][0]
                 window.start_tile.assert_not_called()
                 assert not denied
             finally:
@@ -87,7 +99,7 @@ def main():
                 app.processEvents()
                 assert all(player._released for player in players)
         app.shutdown()
-    print('PASS: native room placement keeps two libmpv cores/HWNDs, continuous progress, position audio and clean shutdown')
+    print('PASS: native libmpv swaps preserve playback with both audio modes; hover wheel and shutdown')
 
 
 if __name__ == '__main__':

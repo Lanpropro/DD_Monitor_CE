@@ -1,5 +1,6 @@
 """Tile presentation; mutable state and Qt ownership stay with Tile."""
 import sys
+import time
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QFont, QFontMetrics, QPainterPath, QPainterPathStroker, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
@@ -219,7 +220,12 @@ class TilePresentation:
                 host.cover.setText("")        # 播放中 / 连接中都不显示文字，避免和动画重叠
             else:
                 fallback = host.room.get("uname", "") if host.room.get("live") else "未开播"
-                host.cover.setText((host._status_text or fallback) if host.room.get("room_id") else "")
+                text = (host._status_text or fallback) if host.room.get("room_id") else ""
+                end = host.room.get("last_live_end_ts")
+                if text in ("未开播", "已下播") and end and host.room.get("live_known", True):
+                    stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(end))
+                    text += f"\n约于 {stamp} 下播"
+                host.cover.setText(text)
 
     def refresh_moved_overlays(self) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.

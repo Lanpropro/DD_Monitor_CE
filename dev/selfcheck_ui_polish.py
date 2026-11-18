@@ -217,24 +217,24 @@ class UiPolishTests(unittest.TestCase):
         self.assertIsNone(tile._video_danmaku_global_settings['video_danmaku_scale_curve'])
         tile._set_video_danmaku_independent(False)
         self.assertIsNone(tile.video_danmaku.settings['video_danmaku_scale_curve'])
-        from ddm.video_danmaku_settings import VideoDanmakuSettings
-        menu = VideoDanmakuSettings()
-        self.addCleanup(menu.deleteLater)
-        received = []
-        menu.settingsChanged.connect(received.append)
-        menu.apply_settings({**config.DEFAULT_SETTINGS, 'video_danmaku_scale_curve': points})
-        self.assertEqual(menu.scale_curve.curve(), points)
-        self.assertFalse(received, 'Applying stored points must not emit edits')
-        menu.scale_curve.reset()
-        self.assertEqual(received[-1]['video_danmaku_scale_curve'], scale_curve_points())
-        menu.scale.setChecked(False)
-        self.assertFalse(menu.scale_curve.isEnabled())
         control.reset()
         self.assertEqual(control.curve(), scale_curve_points())
         image = graph.grab().toImage()
         grid_point = graph.point_position([.4, .4]).toPoint()
         self.assertNotEqual(image.pixelColor(grid_point), theme.qcolor(theme.CONTENT),
                             'An open curve must not fill over the grid below it')
+
+    def test_tile_danmaku_menu_keeps_scale_toggle_without_curve_editor(self):
+        from ddm.video_danmaku_settings import VideoDanmakuSettings
+        menu = VideoDanmakuSettings()
+        self.addCleanup(menu.deleteLater)
+        received = []
+        menu.settingsChanged.connect(received.append)
+        menu.apply_settings(config.DEFAULT_SETTINGS)
+        self.assertIsNone(menu.findChild(ScaleCurveControl))
+        self.assertFalse(received)
+        menu.scale.setChecked(False)
+        self.assertEqual(received, [{'video_danmaku_scale': False}])
 
     def test_menu_editor_and_runtime_keep_order_callbacks_and_visibility(self):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)

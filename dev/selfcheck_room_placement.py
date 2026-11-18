@@ -34,6 +34,7 @@ class Host:
     def __init__(self, *tiles):
         self.wall = SimpleNamespace(tiles=list(tiles), relayout=Mock(), pane_danmaku=Mock())
         self.players = {}
+        self.settings = {}
         self.rooms = {tile.room['room_id']: dict(tile.room) for tile in tiles if tile.room['room_id']}
         self.sidebar = SimpleNamespace(watch_history=Mock())
         self.recorder = SimpleNamespace(stop=Mock())
@@ -117,6 +118,7 @@ class RoomPlacementTests(unittest.TestCase):
         source = Tile('first', volume=20, muted=True, audio_channel=1)
         target = Tile('second', volume=70, audio_channel=4)
         host = Host(source, target)
+        del host.settings
         first_player, second_player = Mock(), Mock()
         host.players.update({source: first_player, target: second_player})
         host.placement.drop_room(target, 'first')
@@ -177,6 +179,40 @@ class RoomPlacementTests(unittest.TestCase):
                          [(10, True, 2), (80, False, 3)])
         self.assertIs(host.players[source], player)
         host.start_tile.assert_not_called()
+
+    def test_room_audio_follows_hot_swap_without_reconfiguring_players(self):
+        source = Tile('first', volume=10, muted=True, audio_channel=3)
+        target = Tile('second', volume=80, muted=False, audio_channel=4)
+        host = Host(source, target)
+        host.settings['audio_follows_room'] = True
+        host.players = {source: Mock(), target: Mock()}
+        host.placement.swap_tiles('first', target)
+        self.assertEqual([target, source], host.wall.tiles)
+        self.assertEqual([(80, False, 4), (10, True, 3)],
+                         [(t.volume, t.muted, t.audio_channel) for t in host.wall.tiles])
+        for player in host.players.values():
+            self.assertEqual(player.mock_calls, [])
+        host.start_tile.assert_not_called()
+
+    def test_room_audio_follows_both_fallback_swap_paths(self):
+        for action in ('drop', 'swap'):
+            for target_id in ('second', ''):
+                with self.subTest(action=action, target_id=target_id):
+                    source = Tile('first', volume=10, muted=True, audio_channel=3)
+                    target = Tile(target_id, volume=80, muted=False, audio_channel=4)
+                    host = Host(source, target)
+                    host.settings['audio_follows_room'] = True
+                    if action == 'drop':
+                        host.placement.drop_room(target, 'first')
+                    else:
+                        host.placement.swap_tiles('first', target)
+                    self.assertEqual([target_id, 'first'], [t.room.get('room_id', '') for t in host.wall.tiles])
+                    self.assertEqual([(80, False, 4), (10, True, 3)],
+                                     [(t.volume, t.muted, t.audio_channel) for t in host.wall.tiles])
+                    self.assertEqual((10, True, 3),
+                                     tuple(target.room[key] for key in ('volume', 'muted', 'audio_channel')))
+                    for tile in host.wall.tiles:
+                        tile.sync_audio_ui.assert_called_once_with()
 
     def test_hot_swap_rejects_unready_offline_or_removed_tiles(self):
         for reason in ('unready', 'offline', 'removed'):

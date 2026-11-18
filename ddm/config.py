@@ -71,6 +71,8 @@ DEFAULT_SETTINGS = {
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
+    "audio_follows_room": False,
+    "hover_wheel_volume": False,
     "volume_normalization": False,  # 播放时减小不同直播间与片段的音量差异。
     "volume_normalization_curve": None,  # 缺省使用平缓时间响应；编辑后保存独立参数。
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表

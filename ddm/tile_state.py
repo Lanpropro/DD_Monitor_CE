@@ -303,6 +303,8 @@ class TileState:
 
     def quality_text(self) -> str:
         host = self.host
+        if not host.room.get("room_id"):
+            return "画质"
         if host.quality == AUTO_QUALITY:
             return "自动" + (" · " + host._quality_name(host.actual_quality, short=True)
                            if host.actual_quality else "")
