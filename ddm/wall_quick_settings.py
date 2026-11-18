@@ -46,9 +46,10 @@ class WallQuickSettingsMenu(QMenu):
         self.danmaku.toggled.connect(self.danmakuChanged.emit)
         grid.addWidget(self.danmaku_label, 2, 0, 1, 2)
         grid.addWidget(self.danmaku, 2, 2, Qt.AlignRight)
+        self.floats_label = QLabel('弹幕浮窗')
         self.floats = ToggleSwitch('弹幕浮窗', holder)
         self.floats.toggled.connect(self.floatsChanged.emit)
-        grid.addWidget(QLabel('弹幕浮窗'), 3, 0, 1, 2)
+        grid.addWidget(self.floats_label, 3, 0, 1, 2)
         grid.addWidget(self.floats, 3, 2, Qt.AlignRight)
 
         self.status = QLabel(holder)
@@ -63,7 +64,7 @@ class WallQuickSettingsMenu(QMenu):
         self.volume_value.setText(str(value))
         self.volumeChanged.emit(value)
 
-    def sync(self, tiles, layers, *, can_float, has_floats):
+    def sync(self, tiles, layers, *, missing_floats, has_floats):
         levels = {tile.volume for tile in tiles}
         with QSignalBlocker(self.volume):
             self.volume.setValue(round(sum(tile.volume for tile in tiles) / len(tiles)) if tiles else 0)
@@ -72,9 +73,10 @@ class WallQuickSettingsMenu(QMenu):
         self.quality.setEnabled(bool(tiles))
         self.quality.setCurrentIndex(0)
         self.sync_danmaku(layers)
-        self.floats.setEnabled(can_float or has_floats)
+        self.floats.setEnabled(missing_floats or has_floats)
+        self.floats_label.setText('弹幕浮窗 · 部分开启' if has_floats and missing_floats else '弹幕浮窗')
         with QSignalBlocker(self.floats):
-            self.floats.setChecked(has_floats)
+            self.floats.setChecked(has_floats and not missing_floats)
         self.set_status('当前没有上墙直播间' if not tiles else '')
 
     def sync_danmaku(self, layers):
@@ -118,11 +120,10 @@ class WallQuickSettings:
     def danmaku_tiles(self):
         return [tile for tile in self.tiles() if tile.room.get('supports_live_danmaku') is not False]
 
-    def linked_panels(self):
+    def floating_rooms(self):
         panes = self.host.wall.pane_danmaku
-        tiles = self.danmaku_tiles()
-        return [panel for panel in panes.rendered() if panel not in panes.floating
-                and panel.isVisible() and panes.target(panel) in tiles]
+        return {str(tile.room['room_id']) for panel in panes.floating
+                if (tile := panes.target(panel)) is not None}
 
     def open(self):
         if self.menu is None:
@@ -134,15 +135,17 @@ class WallQuickSettings:
         if self.menu.isVisible():
             self.menu.hide()
             return
-        self.menu.sync(self.tiles(), [tile.danmaku_button.isChecked() for tile in self.danmaku_tiles()],
-                       can_float=bool(self.linked_panels()),
+        danmaku_tiles = self.danmaku_tiles()
+        rooms = {str(tile.room['room_id']) for tile in danmaku_tiles}
+        self.menu.sync(self.tiles(), [tile.danmaku_button.isChecked() for tile in danmaku_tiles],
+                       missing_floats=bool(rooms - self.floating_rooms()),
                        has_floats=bool(self.host.wall.pane_danmaku.floating))
         self.menu.open_at(self.host.sidebar.wall_settings_button)
 
     def set_volume(self, value):
         for tile in self.tiles():
-            if tile.volume != value:
-                tile.set_volume(value, unmute=False)
+            if tile.volume != value or (value > 0 and tile.muted):
+                tile.set_volume(value)
 
     def set_quality(self, height):
         unavailable = 0
@@ -173,8 +176,12 @@ class WallQuickSettings:
             self.menu.hide()
         panes = self.host.wall.pane_danmaku
         if enabled:
-            for panel in self.linked_panels():
-                panes.toggle_floating(panel)
+            opened = self.floating_rooms()
+            for tile in self.danmaku_tiles():
+                room_id = str(tile.room['room_id'])
+                if room_id not in opened:
+                    panes.open_for_tile(tile)
+                    opened.add(room_id)
         else:
             for panel in tuple(panes.floating):
                 panes.return_floating(panel)

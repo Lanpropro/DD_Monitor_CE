@@ -250,7 +250,14 @@ class PaneDanmakuTests(unittest.TestCase):
 
         menu.volume.setValue(63)
         self.assertEqual([tile.volume for tile in (first, second, locked)], [63] * 3)
+        self.assertFalse(second.muted)
+        second.set_muted(True)
+        menu.volume.sliderReleased.emit()
+        self.assertFalse(second.muted)
+        second.set_muted(True)
+        menu.volume.setValue(0)
         self.assertTrue(second.muted)
+        self.assertEqual([tile.volume for tile in (first, second, locked)], [0] * 3)
         self.assertEqual(hidden.volume, original_hidden[1])
 
         index = menu.quality.findData(1080)
@@ -274,7 +281,12 @@ class PaneDanmakuTests(unittest.TestCase):
         panel = panes.panels[3]
         menu.floats.click()
         self.assertFalse(menu.isVisible())
-        self.assertEqual(list(panes.floating), [panel])
+        self.assertIn(panel, panes.floating)
+        self.assertEqual(len(panes.floating), 2)
+        self.assertIs(panes.target(panel), first)
+        standalone, = (other for other in panes.floating if other is not panel)
+        self.assertIs(panes.target(standalone), second)
+        self.assertIsNone(panes.floating[standalone].cell)
         window.sidebar.wall_settings_button.click()
         self.assertTrue(menu.floats.isChecked())
         menu.floats.click()
@@ -284,6 +296,29 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(menu.isVisible())
         QTest.keyClick(menu, Qt.Key_Escape)
         self.assertFalse(menu.isVisible())
+
+    def test_wall_quick_floats_fill_a_plain_wall_once_per_room(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, duplicate, *others = wall.tiles[:4]
+        duplicate.set_room(dict(source.room))
+        self.assertFalse(panes.bindings())
+        panes.open_for_tile(source)
+        existing, = panes.floating
+        window.sidebar.wall_settings_button.click()
+        menu = window.wall_quick_settings.menu
+        self.assertTrue(menu.floats.isEnabled())
+        self.assertFalse(menu.floats.isChecked())
+        self.assertIn('部分开启', menu.floats_label.text())
+        menu.floats.click()
+        self.assertIn(existing, panes.floating)
+        self.assertCountEqual([panes.target(panel) for panel in panes.floating], [source, *others])
+        self.assertTrue(all(floating.cell is None for floating in panes.floating.values()))
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.floats.isChecked())
+        menu.floats.click()
+        self.assertFalse(panes.floating)
+        self.assertFalse(panes.bindings())
 
     def test_float_cell_setting_round_trips_and_resets(self):
         from ddm.settings_danmaku import DanmakuSettingsPage

@@ -399,7 +399,7 @@ class TileState:
         host._layout_controls()
         host.muteToggled.emit(host.room, muted)
 
-    def set_volume(self, value: int, *, unmute: bool = True) -> None:
+    def set_volume(self, value: int) -> None:
         host = self.host
         value = max(0, min(100, int(value)))
         host.volume = value
@@ -412,7 +412,7 @@ class TileState:
             host.volume_slider.setValue(value)
             host.volume_slider.blockSignals(False)
         host.volumeChanged.emit(host.room, value)
-        if unmute and host.muted and value > 0:
+        if host.muted and value > 0:
             # Apply the new level before making the player's audio audible.
             host.set_muted(False)
 
