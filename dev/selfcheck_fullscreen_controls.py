@@ -13,7 +13,7 @@ from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint,
 from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
-from ddm import app as app_module, theme
+from ddm import app as app_module, skin_parts, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
@@ -116,12 +116,11 @@ def check_transparent_bar(app, tile):
             image.fill(Qt.transparent)
             editor.paints = 0
             painter = QPainter(image)
-            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground | QWidget.DrawChildren)
             painter.end()
             assert editor.paints > 0, 'Transparent composition must include the live editor'
             sample_x = tile.bottom.width() // 2 + 120
-            assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
-            assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
+            check_gradient(image, sample_x)
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
@@ -166,6 +165,31 @@ def check_transparent_bar(app, tile):
         editor.hide()
     finally:
         editor.deleteLater()
+
+
+def check_gradient(image, x):
+    height = image.height()
+    alpha = [image.pixelColor(x, y).alpha() for y in range(height)]
+    assert alpha[0] < 5, 'Fullscreen bar top must reveal video'
+    assert 20 < alpha[height // 2] < 50, 'Most of the bar must stay lightly shaded'
+    assert 110 < alpha[-1] < 155, 'Bottom edge must darken without covering the video'
+    assert alpha == sorted(alpha), 'Fullscreen bar must darken smoothly toward the bottom'
+
+
+def check_skin_gradient(tile):
+    bar = tile.bottom
+    skin_parts.configure({}, {'controls': {'background': '#ff0033', 'radius': 8}})
+    try:
+        image = QImage(bar.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        bar.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+        painter.end()
+        check_gradient(image, image.width() // 2)
+        assert image.pixelColor(image.width() // 2, image.height() - 1).red() == 0, (
+            'Normal skin background must not be layered under the fullscreen gradient')
+    finally:
+        skin_parts.configure({}, {})
 
 
 def main():
@@ -232,6 +256,7 @@ def main():
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
         check_transparent_bar(app, tile)
+        check_skin_gradient(tile)
         if '--desktop' in sys.argv:
             with patch('ddm.motion.enabled', return_value=True):
                 tile.set_fullscreen_controls_hidden(True)
@@ -366,6 +391,8 @@ def main():
             window._fullscreen_tile = None
             window.wall.set_fullscreen_tile(None)
         assert not tile.bottom.property('fullscreen')
+        assert tile.bottom.testAttribute(Qt.WA_StyledBackground)
+        assert not tile.bottom.property('customControlSurface')
         assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
         assert not tile.bottom.isWindow(), 'Leaving fullscreen must restore the ordinary child bar'
         assert not tile.bottom._masked_labels, 'Leaving fullscreen must restore native label regions'

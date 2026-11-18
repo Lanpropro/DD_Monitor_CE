@@ -71,6 +71,10 @@ class FullscreenBar(QWidget):
         if not enabled:
             self._mask_label_windows(False)
         self.setProperty('fullscreen', enabled)
+        # The fullscreen gradient owns the bottom surface. A normal theme or
+        # skin fill under it would turn the alpha layer into a solid rectangle.
+        self.setProperty('customControlSurface', enabled)
+        self.setAttribute(Qt.WA_StyledBackground, not enabled)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             # Recreate this backing store (and its native input children) when
             # changing alpha modes; Qt can retain layered HWNDs after reparenting.
@@ -130,7 +134,9 @@ class FullscreenBar(QWidget):
     def _render_badge(self, painter):
         shade = QLinearGradient(0, 0, 0, self.height())
         shade.setColorAt(0, QColor(0, 0, 0, 0))
-        shade.setColorAt(1, QColor(0, 0, 0, 150))
+        shade.setColorAt(.32, QColor(0, 0, 0, 12))
+        shade.setColorAt(.72, QColor(0, 0, 0, 68))
+        shade.setColorAt(1, QColor(0, 0, 0, 146))
         painter.fillRect(self.rect(), shade)
 
     def _mask_label_windows(self, hide):
