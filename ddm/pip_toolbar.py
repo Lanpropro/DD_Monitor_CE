@@ -2,19 +2,7 @@
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, QTimer, Qt
 from PySide6.QtGui import QWindow
 from PySide6.QtWidgets import QApplication, QWidget
-
-
-def resize_edges(widget, point):
-    edges = Qt.Edge(0)
-    if point.x() < 8:
-        edges |= Qt.LeftEdge
-    elif point.x() >= widget.width() - 8:
-        edges |= Qt.RightEdge
-    if point.y() < 8:
-        edges |= Qt.TopEdge
-    elif point.y() >= widget.height() - 8:
-        edges |= Qt.BottomEdge
-    return edges
+from .panel_resize import resize_edges, resized_rect, set_resize_cursor
 
 
 class ToolbarPipPanel(QObject):
@@ -83,20 +71,6 @@ class ToolbarPipPanel(QObject):
                 or self._belongs_to_panel(QApplication.activePopupWidget())):
             self.dialog.reject()
 
-    def _set_resize_cursor(self, edges):
-        if edges in (Qt.TopEdge | Qt.LeftEdge, Qt.BottomEdge | Qt.RightEdge):
-            cursor = Qt.SizeFDiagCursor
-        elif edges in (Qt.TopEdge | Qt.RightEdge, Qt.BottomEdge | Qt.LeftEdge):
-            cursor = Qt.SizeBDiagCursor
-        elif edges & (Qt.LeftEdge | Qt.RightEdge):
-            cursor = Qt.SizeHorCursor
-        elif edges:
-            cursor = Qt.SizeVerCursor
-        else:
-            self.dialog.unsetCursor()
-            return
-        self.dialog.setCursor(cursor)
-
     def _begin_gesture(self, widget, edges, point):
         self._gesture = (widget, edges, point, self.dialog.geometry())
         widget.grabMouse()
@@ -120,17 +94,7 @@ class ToolbarPipPanel(QObject):
             position = self.dialog._clamp_position(original.topLeft() + delta, area)
             self.dialog.move(position)
         else:
-            minimum = self.dialog.minimumSizeHint()
-            result = QRect(original)
-            if edges & Qt.LeftEdge:
-                result.setLeft(max(area.left(), min(original.left() + delta.x(), original.right() - minimum.width() + 1)))
-            elif edges & Qt.RightEdge:
-                result.setRight(min(area.right(), max(original.right() + delta.x(), original.left() + minimum.width() - 1)))
-            if edges & Qt.TopEdge:
-                result.setTop(max(area.top(), min(original.top() + delta.y(), original.bottom() - minimum.height() + 1)))
-            elif edges & Qt.BottomEdge:
-                result.setBottom(min(area.bottom(), max(original.bottom() + delta.y(), original.top() + minimum.height() - 1)))
-            self.dialog.setGeometry(result)
+            self.dialog.setGeometry(resized_rect(original, edges, delta, area, self.dialog.minimumSizeHint()))
         self.position = self.host.mapFromGlobal(self.dialog.pos())
 
     def eventFilter(self, watched, event):
@@ -168,7 +132,7 @@ class ToolbarPipPanel(QObject):
                     self._begin_gesture(watched, edges, event.globalPosition().toPoint())
                     return True
         elif kind == QEvent.MouseMove and watched is dialog:
-            self._set_resize_cursor(resize_edges(dialog, event.position().toPoint()))
+            set_resize_cursor(dialog, resize_edges(dialog, event.position().toPoint()))
         elif kind == QEvent.Leave and watched is dialog:
             dialog.unsetCursor()
         return False

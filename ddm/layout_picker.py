@@ -3,27 +3,43 @@ from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QIcon
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QStyle,
-    QToolButton, QVBoxLayout, QWidget
+    QStyleOptionToolButton, QStylePainter, QToolButton, QVBoxLayout, QWidget
 )
 
 from . import layouts, theme
+from .panel_resize import resize_edges, resized_rect, set_resize_cursor
 from .ui import ActionButton, ElidedLabel, SegmentedControl, TitleLabel
+
+
+class _LayoutCard(QToolButton):
+    def paintEvent(self, event):
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.text = self.fontMetrics().elidedText(option.text, Qt.ElideRight, max(0, self.width() - 16))
+        QStylePainter(self).drawComplexControl(QStyle.CC_ToolButton, option)
 
 
 class LayoutPicker(QFrame):
     chosen = Signal(str)
     resetRequested = Signal()
+    sizeChanged = Signal(QSize)
 
     COLUMNS = 4
-    _icon_size = QSize(84, 46)
+    DEFAULT_SIZE = QSize(456, 360)
+    _icon_size = QSize(76, 42)
     _presets_key = '直播间组合'
 
-    def __init__(self, current: str, parent=None, portrait: bool = False, *, presets_host=None):
+    def __init__(self, current: str, parent=None, portrait: bool = False, *,
+                 presets_host=None, preferred_size=None, available=None):
         super().__init__(parent, Qt.Popup)
         self.setObjectName('LayoutPicker')
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._cards = {}
         self._sections = {}
+        self._columns = 0
+        self._resize_gesture = None
+        self._resize_area = (available or self.screen().availableGeometry()).adjusted(6, 6, -6, -6)
+        self.setMouseTracking(True)
         self._reset_layout_id = current
         self._can_reset_layout = layouts.capacity(current) > 1
         self.presets_page = None
@@ -77,54 +93,31 @@ class LayoutPicker(QFrame):
         self.reset_button.clicked.connect(self._reset_ratios)
         outer.addWidget(self.reset_button, 0, Qt.AlignRight)
 
-        metrics = QFontMetrics(self.font())
-        widest = max(metrics.horizontalAdvance(item['name']) for _, group in groups for item in group)
-        self._card_size = QSize(max(118, widest + 18), self._icon_size.height() + metrics.height() + 16)
-        available = self.screen().availableGeometry()
-        margins = outer.contentsMargins()
-        scrollbar = self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
-        chrome_width = margins.left() + margins.right() + scrollbar
-        spacing = self._grid.spacing()
-        columns = min(self.COLUMNS, max(1, (available.width() - 12 - chrome_width + spacing)
-                                        // (self._card_size.width() + spacing)))
-
         for name, group in groups:
-            self._add_group(name, group, columns, current)
+            self._add_group(board, name, group, current)
         self._refresh_icons()
         theme.signals().changed.connect(self._refresh_icons)
-
-        width = columns * self._card_size.width() + (columns - 1) * spacing + chrome_width
-        if self.presets_page is not None:
-            width = max(width, self.presets_page.minimumWidth() + chrome_width)
-        heights = []
-        for name in self._cards:
-            self.set_group(name)
-            self._grid.invalidate()
-            outer.invalidate()
-            height = outer.sizeHint().height()
-            if name != self._presets_key:
-                height += self._grid.sizeHint().height() - self.scroll.sizeHint().height() + 4
-            heights.append(height)
-        self.setFixedSize(min(width, available.width() - 12), min(max(heights), available.height() - 12))
         self.set_group(active)
+        self.setMinimumSize(QSize(320, 245).boundedTo(self._resize_area.size()))
+        size = (preferred_size or self.DEFAULT_SIZE).expandedTo(self.minimumSize()).boundedTo(self._resize_area.size())
+        self.resize(size)
+        self._reflow()
 
-    def _add_group(self, name, group, columns, current):
+    @staticmethod
+    def _section(name, index, item):
+        return item.get('section') or ('均分' if name == '普通布局' and index == 0 else '')
+
+    def _add_group(self, board, name, group, current):
         cards, sections = [], []
-        row, column = 0, 0
         for index, item in enumerate(group):
-            section = item.get('section') or ('均分' if name == '普通布局' and index == 0 else '')
+            section = self._section(name, index, item)
             if section:
-                if column:
-                    row, column = row + 1, 0
-                heading = QLabel(section)
+                heading = QLabel(section, board)
                 heading.setObjectName('SectionLabel')
-                self._grid.addWidget(heading, row, 0, 1, columns)
                 sections.append(heading)
-                row += 1
-            button = QToolButton()
+            button = _LayoutCard(board)
             button.setObjectName('LayoutCard')
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            button.setFixedSize(self._card_size)
             button.setIconSize(self._icon_size)
             button.setText(item['name'])
             button.setCheckable(True)
@@ -135,13 +128,84 @@ class LayoutPicker(QFrame):
                 button.setToolTip(button.toolTip() + '\n再次点击恢复默认比例')
             button.setCursor(Qt.PointingHandCursor)
             button.clicked.connect(lambda _checked, lid=item['id']: self._choose(lid))
-            self._grid.addWidget(button, row, column)
             cards.append(button)
-            column += 1
-            if column == columns:
-                row, column = row + 1, 0
         self._cards[name] = cards
         self._sections[name] = sections
+
+    def _reflow(self):
+        margins = self.layout().contentsMargins()
+        width = self.width() - margins.left() - margins.right() - self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        spacing = self._grid.spacing()
+        columns = min(self.COLUMNS, max(1, (width + spacing) // (122 + spacing)))
+        cell_width = max(1, (width - (columns - 1) * spacing) // columns)
+        height = self._icon_size.height() + QFontMetrics(self.font()).height() + 14
+        for cards in self._cards.values():
+            for card in cards:
+                card.setFixedSize(cell_width, height)
+        if columns == self._columns:
+            return
+        self._columns = columns
+        while self._grid.count():
+            self._grid.takeAt(self._grid.count() - 1)
+        for name, cards in self._cards.items():
+            headings = iter(self._sections[name])
+            row = column = 0
+            for index, card in enumerate(cards):
+                if self._section(name, index, layouts.BY_ID[card.property('layoutId')]):
+                    if column:
+                        row, column = row + 1, 0
+                    self._grid.addWidget(next(headings), row, 0, 1, columns)
+                    row += 1
+                self._grid.addWidget(card, row, column)
+                column += 1
+                if column == columns:
+                    row, column = row + 1, 0
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self._reflow()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and (edges := resize_edges(self, event.position().toPoint())):
+            self._resize_gesture = (edges, event.globalPosition().toPoint(), self.geometry())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def _drag_resize(self, point):
+        edges, pressed, original = self._resize_gesture
+        self.setGeometry(resized_rect(original, edges, point - pressed, self._resize_area, self.minimumSize()))
+
+    def mouseMoveEvent(self, event):
+        if self._resize_gesture is not None and event.buttons() & Qt.LeftButton:
+            self._drag_resize(event.globalPosition().toPoint())
+            event.accept()
+            return
+        set_resize_cursor(self, resize_edges(self, event.position().toPoint()))
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resize_gesture is not None and event.button() == Qt.LeftButton:
+            original = self._resize_gesture[2]
+            self._drag_resize(event.globalPosition().toPoint())
+            self._resize_gesture = None
+            if self.size() != original.size():
+                self.sizeChanged.emit(self.size())
+            set_resize_cursor(self, resize_edges(self, event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        if self._resize_gesture is None:
+            self.unsetCursor()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self._resize_gesture = None
+        self.unsetCursor()
+        super().hideEvent(event)
 
     def _refresh_icons(self, *_args):
         for cards in self._cards.values():

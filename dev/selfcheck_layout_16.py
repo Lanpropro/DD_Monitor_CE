@@ -6,10 +6,21 @@ from unittest.mock import Mock, patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication
 from ddm import layouts
 from ddm.widgets import LayoutPicker, WallGrid
+
+
+def resize_picker(picker, local, delta):
+    pressed = picker.mapToGlobal(local)
+    for kind, point, button, buttons in (
+            (QEvent.MouseButtonPress, pressed, Qt.LeftButton, Qt.LeftButton),
+            (QEvent.MouseMove, pressed + delta, Qt.NoButton, Qt.LeftButton),
+            (QEvent.MouseButtonRelease, pressed + delta, Qt.LeftButton, Qt.NoButton)):
+        event = QMouseEvent(kind, QPointF(picker.mapFromGlobal(point)), QPointF(point), button, buttons, Qt.NoModifier)
+        QApplication.sendEvent(picker, event)
 
 
 def main():
@@ -17,9 +28,11 @@ def main():
     assert layouts.capacity("4x4") == 16
     picker = LayoutPicker("4x4")
     assert "4x4" in picker.card_ids()
+    assert picker.size() == LayoutPicker.DEFAULT_SIZE
     screen = Mock(availableGeometry=lambda: QRect(0, 0, 540, 380))
     with patch.object(LayoutPicker, 'screen', return_value=screen):
         compact = LayoutPicker('corner')
+    compact.move(30, 10)
     compact.show()
     app.processEvents()
     bounds = compact.size()
@@ -28,6 +41,19 @@ def main():
     assert compact.scroll.horizontalScrollBar().maximum() == 0
     assert compact.current_label.text().startswith('当前')
     assert compact.reset_button.isVisible()
+    emitted = []
+    compact.sizeChanged.connect(emitted.append)
+    original = compact.geometry()
+    initial_columns = compact._columns
+    resize_picker(compact, QPoint(4, 4), QPoint(100, 60))
+    app.processEvents()
+    assert compact.geometry().bottomRight() == original.bottomRight()
+    assert compact._columns < initial_columns and emitted == [compact.size()]
+    assert compact.scroll.horizontalScrollBar().maximum() == 0
+    resize_picker(compact, compact.rect().bottomRight() - QPoint(4, 4), QPoint(1000, 1000))
+    assert compact.geometry().bottomRight() == screen.availableGeometry().adjusted(6, 6, -6, -6).bottomRight()
+    assert emitted[-1] == compact.size()
+    bounds = compact.size()
     compact._tabs['竖屏布局'].click()
     assert compact.size() == bounds and compact.group() == '竖屏布局'
     assert not compact.reset_button.isVisible()
@@ -36,6 +62,9 @@ def main():
     compact._cards['竖屏布局'][0].click()
     assert selected == [layouts.PORTRAIT_LAYOUTS[0]['id']]
     assert not compact.isVisible()
+    restored = LayoutPicker('corner', preferred_size=QSize(550, 470), available=QRect(0, 0, 420, 340))
+    assert restored.size() == QSize(408, 328)
+    restored.close()
     wall = WallGrid([], layout_id="3x3")
     wall.resize(1280, 800)
     wall.show()

@@ -344,6 +344,9 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
+        layout_picker = self.sidebar.presentation_control.layout_picker
+        layout_picker.restore_size(self.state.get("ui", {}).get("layout_picker_size"))
+        layout_picker.sizeChanged.connect(self._save_timer.start)
         self.sidebar.workspace_controls.pinsChanged.connect(self._save_timer.start)
         self.sidebar.navigation.orderChanged.connect(self._save_timer.start)
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
@@ -770,6 +773,7 @@ class MainWindow(QMainWindow):
                 for tile in self.wall.tiles if not tile.property('pictureInPictureTemporary')
             ],
             "ui": {
+                "layout_picker_size": self.sidebar.presentation_control.layout_picker.size_state(),
                 "picture_in_picture": self.picture_in_picture.state(),
                 "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,

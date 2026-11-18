@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
@@ -19,6 +19,7 @@ from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.room_presets_ui import thumbnail
 from selfcheck_corner_resize import border_for, drag
+from selfcheck_layout_16 import resize_picker
 
 
 def expect_invalid(snapshot):
@@ -73,6 +74,36 @@ def main():
             a = window.room_preset_snapshot()
             window.sidebar.open_layout_picker()
             picker = window.sidebar._picker
+            default_size = picker.size()
+            window._save_timer.stop()
+            resize_picker(picker, picker.rect().bottomRight() - QPoint(3, 3), QPoint(70, 36))
+            remembered = picker.size()
+            assert remembered != default_size and window._save_timer.isActive()
+            ui = window.current_state()['ui']
+            assert ui['layout_picker_size'] == remembered.toTuple()
+            with patch.dict(os.environ):
+                os.environ.pop('DDM_NO_SAVE', None)
+                config.save({'version': config.STATE_VERSION, 'ui': ui}, raise_errors=True)
+            stored = config.load()
+            assert stored['ui']['layout_picker_size'] == list(remembered.toTuple())
+            picker.close()
+            window.sidebar.open_layout_picker()
+            picker = window.sidebar._picker
+            assert picker.size() == remembered
+            # Use the same serialized state a fresh MainWindow receives from config.load.
+            restored = MainWindow([], [], layout_id='corner', state={'ui': stored['ui'], 'plugins_enabled': [],
+                'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+            try:
+                controller = restored.sidebar.presentation_control.layout_picker
+                assert controller.preferred_size == QSize(*ui['layout_picker_size'])
+                restored.setGeometry(window.geometry())
+                restored.show()
+                restored.sidebar.open_layout_picker()
+                assert restored.sidebar._picker.size() == remembered
+                restored.sidebar._picker.close()
+            finally:
+                restored.close()
+            picker.show()
             picker.set_group('直播间组合')
             page = picker.presets_page
             assert page.isVisible() and not picker.reset_button.isVisible()

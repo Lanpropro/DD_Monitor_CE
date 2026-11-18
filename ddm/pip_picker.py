@@ -11,7 +11,8 @@ from .pip_arrangements import PipArrangements
 from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, MAIN_LAYOUT
 from .pip_placement import initial_placement, placement_bounds
 from .pip_preview import CompositionPreview
-from .pip_toolbar import ToolbarPipPanel, resize_edges
+from .panel_resize import resize_edges
+from .pip_toolbar import ToolbarPipPanel
 from .room_choice import RoomChoice
 
 

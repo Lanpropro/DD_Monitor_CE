@@ -2,12 +2,13 @@
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QScrollArea, QToolButton,
+                               QMessageBox, QPushButton, QScrollArea, QStyle, QToolButton,
                                QVBoxLayout, QWidget)
 
 from . import layouts, room_presets, theme
 from .corner_geometry import continuous_path
 from .sidebar_navigation import NavigationButton
+from .ui import ElidedLabel
 
 
 def thumbnail(snapshot):
@@ -41,11 +42,11 @@ class RoomPresetsPage(QWidget):
     def __init__(self, host, picker):
         super().__init__(picker)
         self.host, self.picker = host, picker
-        self.setMinimumSize(460, 260)
+        self._columns = 0
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         bar = QHBoxLayout()
-        self.summary = QLabel("保存布局、主播位置和每格声音")
+        self.summary = ElidedLabel("保存布局、主播位置和每格声音")
         self.summary.setObjectName("SectionLabel")
         bar.addWidget(self.summary, 1)
         self.save_button = QPushButton("保存当前组合…")
@@ -84,6 +85,7 @@ class RoomPresetsPage(QWidget):
         self.scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.holder = QWidget()
         self.grid = QGridLayout(self.holder)
         self.grid.setContentsMargins(0, 4, 0, 0)
@@ -92,6 +94,23 @@ class RoomPresetsPage(QWidget):
         scroll.setWidget(self.holder)
         outer.addWidget(scroll, 1)
         self.refresh()
+
+    def _column_count(self):
+        scrollbar = self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        return max(1, (self.width() - scrollbar + self.grid.spacing()) // (244 + self.grid.spacing()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        columns = self._column_count()
+        if columns == self._columns:
+            return
+        self._columns = columns
+        if not self.cards:
+            if self.grid.count():
+                self.grid.addWidget(self.grid.itemAt(0).widget(), 0, 0, 1, columns)
+            return
+        for index, card in enumerate(self.cards.values()):
+            self.grid.addWidget(card.parentWidget(), index // columns, index % columns, Qt.AlignTop | Qt.AlignHCenter)
 
     def refresh(self):
         while self.grid.count():
@@ -103,7 +122,7 @@ class RoomPresetsPage(QWidget):
         self.delete_panels = {}
         self.save_button.setEnabled(self.host.room_presets["version"] == 1)
         records = self.host.room_presets["items"]
-        columns = max(1, (max(self.picker.width(), 460) - 32) // 256)
+        self._columns = columns = self._column_count()
         if not records:
             label = QLabel("尚未保存直播间组合\n点击右上方“保存当前组合…”开始")
             label.setObjectName("SectionLabel")
