@@ -224,7 +224,7 @@ class PluginSettingsPage(QWidget):
                 self._filter_installed(reset_scroll=False)
         return super().eventFilter(watched, event)
 
-    def _installed_selection_changed(self):
+    def _installed_selection_changed(self, _checked):
         self._filter_installed(reset_scroll=False)
         self.changed.emit()
 

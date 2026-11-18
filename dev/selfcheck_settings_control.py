@@ -352,6 +352,43 @@ class SettingsControlTests(unittest.TestCase):
         host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
         host.apply_danmaku_settings.assert_called_once_with()
 
+    def test_plugin_selection_autosave_only_updates_affected_features(self):
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        host.plugins.plugins = [SimpleNamespace(skin={}, context=SimpleNamespace(name='artwork'))]
+        host.plugins.enabled = None
+        for enabled in (['alpha', 'artwork'], None):
+            apply_changes(host, {'enabled_plugins': enabled})
+            self.assertEqual(host.plugins.enabled, None if enabled is None else set(enabled))
+        host.refresh_skin.assert_not_called()
+        host._sync_platform_rooms.assert_not_called()
+        for name in ('_refresh_shortcuts', '_sync_recording_switch', 'apply_danmaku_settings', 'apply_preview_settings'):
+            getattr(host, name).assert_not_called()
+        self.assertEqual(self.save.call_count, 2)
+        self.assertEqual(self.save.call_args.kwargs, {'raise_errors': True})
+
+        apply_changes(host, {'enabled_plugins': ['artwork']})
+        host._sync_platform_rooms.assert_called_once_with()
+        host.refresh_skin.assert_not_called()
+        host.refresh_skin.side_effect = lambda: host.settings.update(skin_package_owner='')
+        apply_changes(host, {'enabled_plugins': []})
+        host.refresh_skin.assert_called_once_with()
+        host._sync_platform_rooms.assert_called_once_with()
+        self.assertEqual(self.save.call_args.args[0]['settings']['skin_package_owner'], '')
+
+    def test_mixed_settings_and_plugin_removal_keep_full_save(self):
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        apply_changes(host, {'enabled_plugins': [], 'settings': {'default_volume': 50}})
+        self.assertEqual(host.settings['default_volume'], 50)
+        host.apply_danmaku_settings.assert_called_once_with()
+        host.plugins._removed.add('alpha')
+        apply_changes(host, {'enabled_plugins': None})
+        self.assertIsNone(host.plugins.enabled)
+        self.assertEqual(host.apply_danmaku_settings.call_count, 2)
+
     def test_banner_only_save_restyles_existing_notices_without_reapplying_danmaku(self):
         from ddm.notification_center import NoticeRow
         host = self.host

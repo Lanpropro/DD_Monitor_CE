@@ -584,9 +584,15 @@ class UpdateDownloadTests(unittest.TestCase):
 
     def test_plugin_controls_use_shared_library_and_preserve_actions_and_check_signals(self):
         from PySide6.QtWidgets import QDialog
+        from ddm.settings_performance import SettingsProbe
         from ddm.settings_plugins import PluginRemovePrompt, PluginSettingsPage
         from ddm.ui import ActionButton, DisclosureButton, SelectControl, ToggleSwitch
         self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        probe = SettingsProbe(self.root / 'plugin-settings-performance.jsonl')
+        self.stack.callback(probe.stop)
+        self.stack.enter_context(patch.object(PluginSettingsPage, '_installed_selection_changed',
+                                              PluginSettingsPage._installed_selection_changed))
+        probe.wrap(PluginSettingsPage, '_installed_selection_changed', trace_each=True)
         key = 'shared_controls'
         self.manager.install_zip(str(self.package(key, '1.0')))
         page = PluginSettingsPage(self.manager)
@@ -620,14 +626,17 @@ class UpdateDownloadTests(unittest.TestCase):
             labels = [label for label in card.findChildren(QLabel) if label.buddy() is check]
             self.assertEqual([label.text() for label in labels], ['启用'])
             self.assertTrue(labels[0].isVisible())
-            states, toggled = [], []
+            states, toggled, page_changes = [], [], []
             check.stateChanged.connect(states.append)
             check.toggled.connect(toggled.append)
+            page.changed.connect(lambda: page_changes.append(check.isChecked()))
             before = check.isChecked()
             QTest.keyClick(check, Qt.Key_Space)
             self.assertEqual(check.isChecked(), not before)
             self.assertEqual(states, [Qt.Checked.value if check.isChecked() else Qt.Unchecked.value])
             self.assertEqual(toggled, [not before])
+            self.assertEqual(page_changes, [not before])
+            self.assertIn('重启后生效', page.card_details[key][1].text())
             for control in (page.install_button, page.update_buttons[key], store.refresh,
                             *store.buttons.values(), prompt.cancel_button, prompt.delete_button):
                 self.assertIsInstance(control, ActionButton)

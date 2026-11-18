@@ -171,6 +171,27 @@ class SettingsControl:
         finally:
             dialog.deleteLater()
 
+    def apply_plugin_selection(self, enabled_plugins):
+        from .settings_performance import measure
+
+        host = self.host
+        manager = host.plugins
+        before = manager.enabled
+        after = None if enabled_plugins is None else set(enabled_plugins)
+        manager.enabled = after
+
+        def eligibility_changed(owner):
+            return (before is None or owner in before) != (after is None or owner in after)
+
+        if any(plugin.skin is not None and eligibility_changed(plugin.context.name)
+               for plugin in manager.plugins):
+            measure('SettingsControl.plugin_selection_skin', host.refresh_skin)
+        if any(eligibility_changed(owner) for owner in manager._platform_owner.values()):
+            measure('SettingsControl.plugin_selection_rooms', host._sync_platform_rooms)
+        host.state['settings'] = dict(host.settings)
+        state = measure('SettingsControl.plugin_selection_state', host.current_state)
+        measure('SettingsControl.plugin_selection_save', config_module.save, state, raise_errors=True)
+
     def apply_settings_dialog(self, dialog, plugins_before, *, dialog_class):
         host = self.host
         SettingsDialog = dialog_class

@@ -3,6 +3,10 @@ from types import SimpleNamespace
 
 
 def apply_changes(host, changes, dialog=None):
+    # Package removal can also change the selection and needs the full apply path.
+    if changes.keys() == {'enabled_plugins'} and not host.plugins._removed:
+        host.settings_control.apply_plugin_selection(changes['enabled_plugins'])
+        return
     before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
               dict(host.plugins._platform_owner), set(host.plugins._removed))
     controls = changes.get('plugin_controls', {})
