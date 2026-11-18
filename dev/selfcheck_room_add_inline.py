@@ -8,13 +8,14 @@ import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 from ddm import config, images, motion
 from ddm.sidebar_widgets import Sidebar
 from ddm.room_catalog import RoomCatalog
 from ddm.room_add_input import normalize_room_lines, normalize_room_text
-from ddm.room_choice import RoomChoice
+from ddm.avatar_widgets import circular_pixmap
 from ddm.room_placement import RoomPlacement
 from ddm.wall_widgets import WallGrid
 from selfcheck_room_add_entry import Resolver
@@ -95,6 +96,12 @@ class InlineRoomAddTests(unittest.TestCase):
         self.pump()
         return wall
 
+    @staticmethod
+    def choices(picker):
+        model = picker.model
+        return [index for row in range(model.rowCount()) for column in range(model.columnCount())
+                if (index := model.index(row, column)).data(Qt.UserRole)]
+
     def test_empty_slot_expands_grouped_follows_and_places_offline_room_without_lookup(self):
         wall = self.install_wall()
         occupied = dict(room_id='old', uname='测试关注', live=False)
@@ -123,23 +130,19 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertEqual(panel.y(), collapsed.y())
         self.assertGreater(panel.height(), collapsed.height())
         self.assertTrue(self.host.rect().contains(panel.geometry()))
-        cards = panel.followed.findChildren(RoomChoice)
-        self.assertEqual({card.preview_name for card in cards}, {'星空主播', '路人'})
+        self.assertEqual({index.data() for index in self.choices(panel.followed)}, {'星空主播', '路人'})
         panel.followed.search.setText('xkzb 赛事')
-        self.assertEqual([card.preview_name for card in cards if card.isVisible()], ['星空主播'])
+        self.assertEqual([index.data() for index in self.choices(panel.followed)], ['星空主播'])
         QTest.mouseClick(panel.followed.live_only, Qt.LeftButton)
-        self.assertFalse(any(card.isVisible() for card in cards))
+        self.assertFalse(self.choices(panel.followed))
         panel.followed.search.clear()
-        self.assertEqual([card.preview_name for card in cards if card.isVisible()], ['路人'])
-        stable_grid = next(grid for _holder, grid, entries in panel.followed.groups
-                           if any(card.preview_name == '路人' for card, _terms, _room in entries))
-        with patch.object(stable_grid, 'takeAt', wraps=stable_grid.takeAt) as removed:
-            QTest.mouseClick(panel.followed.live_only, Qt.LeftButton)
-        removed.assert_not_called()
+        self.assertEqual([index.data() for index in self.choices(panel.followed)], ['路人'])
+        QTest.mouseClick(panel.followed.live_only, Qt.LeftButton)
         panel.followed.search.setText('7654')
-        card = next(card for card in cards if card.isVisible())
-        self.assertFalse(card.isCheckable())
-        QTest.mouseClick(card, Qt.LeftButton)
+        index, = self.choices(panel.followed)
+        self.assertEqual(index.data(Qt.UserRole), 'huya:321')
+        view = panel.followed.scroll
+        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=view.visualRect(index).center())
         self.pump()
         self.assertFalse(panel.isVisible())
         self.assertEqual(target.room['room_id'], 'huya:321')
@@ -152,20 +155,37 @@ class InlineRoomAddTests(unittest.TestCase):
     def test_followed_picker_scrolls_in_portrait_and_preserves_an_occupied_target(self):
         wall = self.install_wall()
         self.host.sidebar.add_rooms([dict(room_id=str(i), uname=f'关注 {i}', live=True) for i in range(100, 140)])
+        for item in self.host.sidebar.items():
+            face = QPixmap(96, 96)
+            face.fill(Qt.blue)
+            item.thumb.set_face(face)
         self.portrait()
         target = wall.tiles[3]
         target.add_room_button.click()
         panel = self.catalog._add_panel
-        panel.followed_toggle.click()
-        self.pump()
+        with patch('ddm.room_add_followed.circular_pixmap', wraps=circular_pixmap) as crop:
+            panel.followed_toggle.click()
+            self.pump()
+            panel.followed.scroll.viewport().grab()
+            visible_crops = crop.call_count
+            self.assertGreater(visible_crops, 0)
+            self.assertLess(visible_crops, len(self.choices(panel.followed)))
+            panel.followed_toggle.click()
+            panel.followed_toggle.click()
+            self.pump()
+            panel.followed.scroll.viewport().grab()
+            self.assertEqual(crop.call_count, visible_crops)
         self.assertTrue(self.host.rect().contains(panel.geometry()))
         self.assertGreater(panel.followed.scroll.verticalScrollBar().maximum(), 0)
         search = panel.followed.search
         search.setText('139')
         self.pump()
-        card = next(card for card in panel.followed.findChildren(RoomChoice) if card.isVisible())
+        index, = self.choices(panel.followed)
         target.set_room(dict(room_id='other', uname='现有房间', live=False))
-        QTest.mouseClick(card, Qt.LeftButton)
+        view = panel.followed.scroll
+        view.setCurrentIndex(index)
+        view.setFocus()
+        QTest.keyClick(view, Qt.Key_Return)
         self.assertEqual(target.room['room_id'], 'other')
         self.assertTrue(panel.error.isVisible())
         self.assertTrue(self.host.rect().contains(panel.geometry()))

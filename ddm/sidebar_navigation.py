@@ -28,6 +28,7 @@ PATHS = {
     'filter_all': '<path d="M6 3h12"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="m10 11 6 3-6 3Z"/>',
     'filter_live': '<path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
+    'rename': '<path d="m5 15.5 10.6-10.6a2.1 2.1 0 0 1 3 3L8 18.5 4 20zM13.6 6.9l3 3"/>',
     'close': '<path d="m6 6 12 12M18 6 6 18"/>',
 }
 

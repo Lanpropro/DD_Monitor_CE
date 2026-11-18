@@ -1,9 +1,129 @@
-"""Search and select followed rooms from the inline empty-slot editor."""
-from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QStyle, QVBoxLayout, QWidget
+"""Search followed rooms and paint only the cards inside the scroll viewport."""
+from dataclasses import dataclass
 
-from .room_choice import RoomChoice
-from .search import matches_text
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, QRectF, Qt, Signal
+from PySide6.QtGui import QPainter, QPen, QPixmap, QPixmapCache
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFrame, QHeaderView, QHBoxLayout,
+                               QLabel, QLineEdit, QStyle, QStyledItemDelegate, QTableView, QVBoxLayout, QWidget)
+
+from . import theme
+from .avatar_widgets import AVATAR_COLORS, circular_pixmap
+from .corner_geometry import continuous_path
+from .search import matches_query
+
+
+@dataclass(frozen=True)
+class _RoomCard:
+    room_id: str
+    name: str
+    terms: str
+    room: dict
+    face: QPixmap | None
+    color: str
+
+
+class _FollowedRoomsModel(QAbstractTableModel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.rows = []
+        self.columns = 1
+
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self.rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else self.columns
+
+    def entry(self, index):
+        row = self.rows[index.row()]
+        if isinstance(row, str):
+            return row if index.column() == 0 else None
+        return row[index.column()] if index.column() < len(row) else None
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        entry = self.entry(index)
+        if isinstance(entry, _RoomCard):
+            if role == Qt.DisplayRole:
+                return entry.name
+            if role == Qt.UserRole:
+                return entry.room_id
+            if role in (Qt.ToolTipRole, Qt.AccessibleTextRole):
+                return f'{entry.name} · {entry.room_id}'
+        elif isinstance(entry, str) and role in (Qt.DisplayRole, Qt.ToolTipRole, Qt.AccessibleTextRole):
+            return entry
+        return None
+
+    def flags(self, index):
+        if index.isValid() and isinstance(self.entry(index), _RoomCard):
+            return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        return Qt.NoItemFlags
+
+    def set_rows(self, rows, columns):
+        self.beginResetModel()
+        self.rows, self.columns = rows, columns
+        self.endResetModel()
+
+
+class _FollowedRoomDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        entry = index.model().entry(index)
+        if entry is None:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setFont(option.font)
+        if isinstance(entry, str):
+            rect = option.rect.adjusted(3, 2, -3, -1)
+            painter.fillPath(continuous_path(QRectF(rect), 5), theme.qcolor(theme.CONTENT))
+            painter.setPen(theme.qcolor(theme.TEXT2))
+            text = rect.adjusted(8, 0, -8, 0)
+            painter.drawText(text, Qt.AlignVCenter, option.fontMetrics.elidedText(entry, Qt.ElideRight, text.width()))
+        else:
+            self._paint_card(painter, option, entry)
+        painter.restore()
+
+    @staticmethod
+    def _paint_card(painter, option, entry):
+        rect = option.rect.adjusted(3, 3, -3, -3)
+        focused = bool(option.state & QStyle.State_HasFocus)
+        highlighted = option.state & (QStyle.State_MouseOver | QStyle.State_Selected)
+        path = continuous_path(QRectF(rect).adjusted(.5, .5, -.5, -.5), 9)
+        painter.setPen(QPen(theme.qcolor(theme.ACCENT if focused else theme.BORDER_STRONG), 1))
+        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if highlighted else theme.CONTENT))
+        painter.drawPath(path)
+
+        avatar = QRect(rect.center().x() - 13, rect.top() + 5, 28, 28)
+        if entry.face is not None and not entry.face.isNull():
+            ratio = painter.device().devicePixelRatioF()
+            pixels = round(28 * ratio)
+            key = f'followed-room-avatar:{entry.face.cacheKey()}:{pixels}'
+            pixmap = QPixmapCache.find(key)
+            if pixmap is None:
+                pixmap = circular_pixmap(entry.face, pixels)
+                QPixmapCache.insert(key, pixmap)
+            painter.drawPixmap(avatar, pixmap)
+        else:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(theme.qcolor(entry.color))
+            painter.drawEllipse(avatar)
+            painter.setPen(Qt.white)
+            painter.drawText(avatar, Qt.AlignCenter, entry.name[:1])
+        name = rect.adjusted(4, 34, -4, -2)
+        painter.setPen(theme.qcolor(theme.TEXT1))
+        painter.drawText(name, Qt.AlignCenter, option.fontMetrics.elidedText(entry.name, Qt.ElideRight, name.width()))
+
+
+class _FollowedRoomsView(QTableView):
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            index = self.currentIndex()
+            if index.data(Qt.UserRole):
+                self.clicked.emit(index)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
 
 class FollowedRoomPicker(QWidget):
@@ -13,130 +133,111 @@ class FollowedRoomPicker(QWidget):
         super().__init__(parent)
         self.sidebar = sidebar
         self.groups = []
-        self._columns = 0
+        self._header_rows = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+        filters = QHBoxLayout()
+        filters.setSpacing(8)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
         self.search.setPlaceholderText('搜索关注主播 / 房间号')
         self.search.setAccessibleName(self.search.placeholderText())
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._arrange)
-        filters = QHBoxLayout()
-        filters.setSpacing(8)
         filters.addWidget(self.search, 1)
         self.live_only = QCheckBox('直播中', self)
         self.live_only.toggled.connect(self._arrange)
         filters.addWidget(self.live_only)
         layout.addLayout(filters)
-        self.scroll = QScrollArea(self)
+
+        self.empty = QLabel(objectName='SettingsHint')
+        self.empty.setAlignment(Qt.AlignCenter)
+        self.empty.hide()
+        layout.addWidget(self.empty)
+        self.scroll = _FollowedRoomsView(self)
+        self.scroll.setAccessibleName('可选的关注主播')
         self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.scroll.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.scroll.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.scroll.setMouseTracking(True)
+        self.scroll.setShowGrid(False)
+        self.scroll.horizontalHeader().hide()
+        self.scroll.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        header = self.scroll.verticalHeader()
+        header.hide()
+        header.setSectionResizeMode(QHeaderView.Fixed)
+        header.setMinimumSectionSize(20)
+        header.setDefaultSectionSize(58)
+        self.model = _FollowedRoomsModel(self.scroll)
+        self.scroll.setModel(self.model)
+        self.scroll.setItemDelegate(_FollowedRoomDelegate(self.scroll))
+        self.scroll.clicked.connect(self._select)
         self.scroll.viewport().installEventFilter(self)
         layout.addWidget(self.scroll, 1)
 
     def load(self, occupied):
         sidebar = self.sidebar
         default = sidebar.default_folder()['id']
+        folders = {folder['id']: folder['name'] for folder in sidebar.folders}
         entries = {}
-        for item in sidebar.items():
-            room_id = str(item.room.get('room_id') or '')
-            if room_id and room_id not in occupied:
-                entries.setdefault(sidebar.folder_for(room_id) or default, []).append((room_id, item))
-        previous = self.scroll.takeWidget()
-        if previous is not None:
-            previous.deleteLater()
-        content = QWidget()
-        box = QVBoxLayout(content)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
-        self.groups = []
-        self._columns = 0
-        for folder in sidebar.folders:
-            group = entries.get(folder['id'])
-            if not group:
+        for index, item in enumerate(sidebar.items()):
+            room = item.room
+            room_id = str(room.get('room_id') or '')
+            if not room_id or room_id in occupied:
                 continue
-            name = folder['name']
-            holder = QFrame(content)
-            holder.setObjectName('PluginCard')
-            section = QVBoxLayout(holder)
-            section.setContentsMargins(8, 8, 8, 8)
-            section.setSpacing(6)
-            title = QLabel(name, holder)
-            title.setObjectName('SectionLabel')
-            title.setTextFormat(Qt.PlainText)
-            section.addWidget(title)
-            grid = QGridLayout()
-            grid.setSpacing(6)
-            section.addLayout(grid)
-            cards = []
-            for index, (room_id, item) in enumerate(group):
-                room = item.room
-                display = str(room.get('uname') or room_id)
-                card = RoomChoice(room, display, index, item.thumb.face_pixmap(), holder)
-                card.setCheckable(False)
-                card.setMinimumHeight(54)
-                card.hide()
-                card.clicked.connect(lambda _checked, key=room_id: self.selected.emit(key))
-                terms = ' '.join((display, room_id, str(room.get('display_room_id') or ''), name))
-                cards.append((card, terms, room))
-            box.addWidget(holder)
-            self.groups.append((holder, grid, cards))
-        self.empty = QLabel(content)
-        self.empty.setObjectName('SettingsHint')
-        self.empty.setAlignment(Qt.AlignCenter)
-        box.addWidget(self.empty)
-        box.addStretch(1)
-        self.scroll.setWidget(content)
+            folder_id = sidebar.folder_for(room_id) or default
+            name = str(room.get('uname') or room_id)
+            terms = ' '.join((name, room_id, str(room.get('display_room_id') or ''), folders.get(folder_id, '')))
+            entries.setdefault(folder_id, []).append(_RoomCard(
+                room_id, name, terms, room, item.thumb.face_pixmap(), AVATAR_COLORS[index % len(AVATAR_COLORS)]))
+        self.groups = [(title, entries[key]) for key, title in folders.items() if key in entries]
         self._arrange()
+
+    def _select(self, index):
+        room_id = index.data(Qt.UserRole)
+        if room_id:
+            self.selected.emit(room_id)
 
     def _column_count(self):
         scrollbar = self.scroll.style().pixelMetric(QStyle.PM_ScrollBarExtent)
-        return max(1, (self.scroll.contentsRect().width() - scrollbar - 16 + 6) // 106)
+        return max(1, (self.scroll.contentsRect().width() - scrollbar) // 106)
 
     def _arrange(self):
-        content = self.scroll.widget()
-        if content is None:
-            return
         columns = self._column_count()
-        columns_changed = columns != self._columns
-        self._columns = columns
-        words = self.search.text().split()
+        query = self.search.text().strip()
         live_only = self.live_only.isChecked()
-        has_results = False
-        content.setUpdatesEnabled(False)
-        try:
-            for holder, grid, cards in self.groups:
-                matches = [button for button, terms, room in cards
-                           if (not live_only or room.get('live') and room.get('live_known', True))
-                           and all(matches_text(terms, word) for word in words)]
-                has_results |= bool(matches)
-                positions = {button: divmod(index, columns) for index, button in enumerate(matches)}
-                # Keep matching cards already in their final position in the grid.
-                for index in reversed(range(grid.count())):
-                    button = grid.itemAt(index).widget()
-                    if positions.get(button) == grid.getItemPosition(index)[:2]:
-                        positions.pop(button)
-                    else:
-                        grid.takeAt(index)
-                        if button not in positions:
-                            button.hide()
-                if columns_changed:
-                    for column in range(max(columns, grid.columnCount())):
-                        grid.setColumnStretch(column, int(column < columns))
-                for button, (row, column) in positions.items():
-                    grid.addWidget(button, row, column)
-                    button.show()
-                holder.setVisible(bool(matches))
-            self.empty.setText('没有匹配的关注主播' if (words or live_only) and self.groups else '暂无可入墙的关注主播')
-            self.empty.setVisible(not has_results)
-        finally:
-            content.setUpdatesEnabled(True)
+        rows = []
+        header_rows = []
+        for title, cards in self.groups:
+            matches = [card for card in cards
+                       if (not live_only or card.room.get('live') and card.room.get('live_known', True))
+                       and matches_query(card.terms, query)]
+            if matches:
+                header_rows.append(len(rows))
+                rows.append(title)
+                rows.extend(matches[i:i + columns] for i in range(0, len(matches), columns))
+        position = self.scroll.verticalScrollBar().value()
+        self.scroll.clearSpans()
+        header = self.scroll.verticalHeader()
+        font_height = self.scroll.fontMetrics().height()
+        header.setDefaultSectionSize(max(58, font_height + 42))
+        for row in self._header_rows:
+            self.scroll.setRowHeight(row, header.defaultSectionSize())
+        self._header_rows = header_rows
+        self.model.set_rows(rows, columns)
+        for row in header_rows:
+            self.scroll.setRowHeight(row, max(26, font_height + 8))
+            if columns > 1:
+                self.scroll.setSpan(row, 0, 1, columns)
+        self.scroll.verticalScrollBar().setValue(position)
+        self.empty.setText('没有匹配的关注主播' if (query or live_only) and self.groups else '暂无可入墙的关注主播')
+        self.empty.setVisible(not rows)
 
     def eventFilter(self, watched, event):
         if (watched is self.scroll.viewport() and event.type() == QEvent.Resize
-                and self._column_count() != self._columns):
+                and self._column_count() != self.model.columns):
             self._arrange()
         return super().eventFilter(watched, event)

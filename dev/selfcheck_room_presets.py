@@ -12,7 +12,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QFont, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QToolButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
@@ -164,7 +164,7 @@ def main():
                 assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
                 assert not page.name_form.isVisible() and picker.isVisible()
             first_record = window.room_presets['items'][0]
-            rename = page.cards[key].parentWidget().findChild(QToolButton, 'PresetManageButton')
+            rename = page.cards[key].parentWidget().findChild(QPushButton, 'PresetManageButton')
             with patch('ddm.room_presets_ui.QInputDialog.getText', return_value=('比赛观察', True)):
                 QTest.mouseClick(rename, Qt.LeftButton)
             assert first_record['name'] == '比赛观察'
@@ -329,8 +329,9 @@ def main():
                 page._ask_delete(candidate)
                 picker.grab().save(str(directory / f'room-presets-delete-{mode}.png'))
                 page._cancel_delete()
-                management = page.findChildren(QToolButton, 'PresetManageButton')
-                assert management and all(button.text() == '重命名' for button in management)
+                management = page.findChildren(QPushButton, 'PresetManageButton')
+                assert management and all(button.kind == 'rename' and not button.text()
+                                          and button.toolTip() == '重命名' for button in management)
                 for button in management:
                     assert contrast(button.palette().color(QPalette.ButtonText),
                                     theme.qcolor(theme.CONTENT)) >= 4.5

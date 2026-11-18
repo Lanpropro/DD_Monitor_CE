@@ -19,7 +19,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QMimeData, QPoint, QPointF,
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFontDatabase, QImage, QRegion
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QToolButton, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea, QWidget
 from ddm.continuous_corners import source_stylesheet
 from ddm import app as module, config, motion, theme
 from ddm.dialogs import SettingsDialog
@@ -295,7 +295,7 @@ def check_parts(app):
             app.processEvents()
             assert part_for(picker) == 'layout_menu' and '#ff225544' in source_stylesheet(picker.styleSheet())
             assert part_for(picker.presets_page.save_button) == 'buttons'
-            management = picker.findChildren(QToolButton, 'PresetManageButton')
+            management = picker.findChildren(QPushButton, 'PresetManageButton')
             assert management and part_for(management[0]) == 'buttons'
             card = next(iter(picker.presets_page.cards.values()))
             assert not part_for(card), 'Combination thumbnails are not generic skinnable buttons'
