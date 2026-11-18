@@ -13,6 +13,7 @@
 | [Fy1Sync](https://github.com/Fy1ng/Fy1Sync) | 双路播放、时间偏移，以及 YouTube 首次登录流程 | 曾阅读 v0.3.1／v0.3.2 发布记录；2026-11-10 对固定提交 `fc875cc3` 的登录、Cookie 和取流代码作只读核对 | 参考独立浏览器登录的流程思路；该项目未提供两平台关注导入现成实现，未复制其代码。来源记录见本机 `docs/local/archive/handoffs/GLOBAL-LIVE-HANDOFF-20261110.md` |
 | [FreeCast](https://github.com/Sur4lis/FreeCast) | 双路播放时逐路音量及可选人声分离 | 2026-11-02 只读参考 v1.21、提交 [`e8d080e`](https://github.com/Sur4lis/FreeCast/blob/e8d080e10971e31bf957763d0d625762366e6832/browser-extension/ui/dual-vocal.js) 的逐路音量实现 | 作为二路音频设计参考；本项目未引入 FreeCast。来源记录见本机 `work/domestic-functional-modules/tests/README_match_sync_performance.md` |
 | [Notebook Navigator](https://github.com/johansan/notebook-navigator) | 左侧直播间／文件夹选项的自定义图标、颜色和背景交互 | 用户提供的参考项目，尚无专项研究结论 | 需求保留在本机 `docs/local/idea.md`，实现范围待设计 |
+| [PureLive（纯粹直播）](https://github.com/wzgrx/PureLive) | 多平台直播聚合、多画面、小窗和录制等局部功能的候选参考；范围仅据项目 README 介绍 | 用户于 2026-11-18 提出；已浏览公开 README，未做源码研究或运行验证 | 维护者整体不看好，低优先级备查；遇到具体问题时再核对可能有用的局部内容，暂不安排深入研究或引入 |
 | 浏览器二路融合扩展 0.17.1 | 二路观看交互参考；公开项目来源未记录，本机留有 `work/external-review/bili-fusion-0.17.1/` | 已查看本地扩展资料和候选交互 | 相同弹幕计数、SC 延迟及状态提示等待设计；已具备的屏蔽和位置控制不重复列为待办 |
 | [木东渐变网站](https://mudong-gradient.pages.dev/) | 用户于 2026-11-16 指定的软件渐变颜色参考，配套视频为[《什么是电影感的渐变？》](https://www.bilibili.com/video/BV12rWD6SEPy/) | 已核对视频公开页及简介；网站本次访问受 DNS／代理连接失败影响，页面与工具功能待核对 | 作为主题与美化的渐变选色参考；具体记录见下方[渐变颜色参考](#渐变颜色参考) |
 
