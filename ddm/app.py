@@ -43,7 +43,7 @@ from .bili import (
 )
 from .dialogs import SettingsDialog
 from .settings_general import CodecSettingsDialog
-from .shortcut_actions import SHORTCUT_ACTIONS
+from .shortcut_actions import DEFAULT_SHORTCUTS, configured_shortcuts
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
 from .player import TilePlayer
@@ -86,7 +86,6 @@ from .app_shortcuts import AppShortcuts
 from .fullscreen_control import FullscreenControl
 from .app_notices import AppNotices
 
-DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 
 def setup_file_log() -> str:
@@ -541,8 +540,7 @@ class MainWindow(QMainWindow):
         self.sidebar.set_sort_mode(str(self.state.get("sort") or "custom"), notify=False)
         self.sidebar.apply_pins(self.state.get("pinned") or [])
         self.sidebar.set_folders(self.state.get("follow_folders") or [])
-        self.shortcuts = dict(DEFAULT_SHORTCUTS)
-        self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
+        self.shortcuts = configured_shortcuts((self.state.get("ui") or {}).get("shortcuts") or {})
         # 旧版画面弹幕的默认键为 D，随本次默认键调整到 B；其他自定义键保留。
         if (not (self.state.get("ui") or {}).get("danmaku_shortcut_default_b")
                 and self.shortcuts.get("video_danmaku") == "D"):

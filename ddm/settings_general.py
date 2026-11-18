@@ -157,7 +157,6 @@ class GeneralSettingsPage(QWidget):
     ITEMS = [
         ("default_muted", "新建格子初始静音"),
         ("audio_follows_room", "交换格子时声音跟随直播间"),
-        ("hover_wheel_volume", "悬停画面时用滚轮调节音量"),
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("volume_normalization", "音量均衡（减小直播间音量差异）"),
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
@@ -267,10 +266,10 @@ class GeneralSettingsPage(QWidget):
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 12, 2, 3, 4, 6), False),
-            ('following', '关注与预览', (0, 7, 8, 9, 10), False),
-            ('codecs', '编解码', (13,), False),
-            ('normalization', '音量均衡', (5, row), True),
+            ('playback', '播放与声音', (1, 11, 2, 3, 5), False),
+            ('following', '关注与预览', (0, 6, 7, 8, 9), False),
+            ('codecs', '编解码', (12,), False),
+            ('normalization', '音量均衡', (4, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         following = self.sections.section('following').grid
         collapse_label = QLabel('全部展开后的收起方式')

@@ -2,10 +2,11 @@
 import math
 import sys
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt
-from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
+from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 from . import theme
 from .pip_geometry import composition_ratio
+from .shortcut_actions import DEFAULT_SHORTCUTS
 
 
 class PictureInPictureButton(QPushButton):
@@ -98,7 +99,7 @@ class PictureInPictureTools(QWidget):
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
         self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
-        self.back = PictureInPictureButton('return', '关闭画中画并返回监控室（Esc）', self)
+        self.back = PictureInPictureButton('return', '关闭画中画并返回监控室', self)
         self.close_only = PictureInPictureButton('close', '仅关闭画中画，保持主窗口状态', self)
         for button in (self.manage, self.reorder, self.pin, self.back, self.close_only):
             box.addWidget(button)
@@ -107,7 +108,6 @@ class PictureInPictureTools(QWidget):
         self.pin.toggled.connect(owner._pin)
         self.back.clicked.connect(owner.return_to_monitor)
         self.close_only.clicked.connect(owner.close)
-        QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner._escape)
 
 
 class PictureInPictureWindow(QWidget):
@@ -146,7 +146,6 @@ class PictureInPictureWindow(QWidget):
         self.audio_panel = PictureInPictureAudio(self)
         self.audio_feedback = AudioFeedback(self)
         self.audio_button.clicked.connect(self.audio_panel.toggle)
-        QShortcut(QKeySequence(Qt.Key_Escape), self.audio_tools).activated.connect(self._escape)
         self._pending_geometry = None
         self._geometry_timer = QTimer(self)
         self._geometry_timer.setSingleShot(True)
@@ -159,8 +158,6 @@ class PictureInPictureWindow(QWidget):
         self._hover_timer.timeout.connect(self._poll_tools)
         self._hover_timer.start()
         QApplication.instance().installEventFilter(self)
-        shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
-        shortcut.activated.connect(self._escape)
 
     def track_tiles(self, tiles):
         tracked = {widget for widget, _tracking, _cursor in self._surface_state}
@@ -380,32 +377,51 @@ class PictureInPictureWindow(QWidget):
             widget.unsetCursor()
         self.tools.reorder.setToolTip('拖到另一格后松开互换；点击结束调整' if enabled else '调整画面位置')
 
+    def _handle_shortcut(self, watched, event):
+        if not isinstance(watched, QWidget):
+            return False
+        window = watched.window()
+        if window not in (self, self.tools, self.audio_tools, self.audio_panel):
+            return False
+        pressed = QKeySequence(event.keyCombination()).toString()
+        if not pressed:
+            return False
+        shortcuts = self.controller.host.shortcuts
+        actions = ('pip_exit',) if window is self.audio_panel else (
+            'pip_exit', 'pip_volume_up', 'pip_volume_down', 'pip_mute', 'pip_solo')
+        action = next((key for key in actions if pressed == shortcuts.get(key, DEFAULT_SHORTCUTS[key])), None)
+        if action is None:
+            # Keep Qt from dispatching a main-window binding for a key delivered to PiP.
+            if (event.type() == QEvent.ShortcutOverride and
+                    any(pressed == sequence for key, sequence in shortcuts.items() if not key.startswith('pip_'))):
+                event.accept()
+                return True
+            return False
+        event.accept()
+        if event.type() == QEvent.ShortcutOverride:
+            return True
+        if action == 'pip_exit':
+            self._escape()
+            return True
+        tile = self._tile_at(QCursor.pos()) if self._pointer_over() else None
+        if tile is not None:
+            if action in ('pip_volume_up', 'pip_volume_down'):
+                tile.set_volume(tile.volume + (5 if action == 'pip_volume_up' else -5))
+            elif action == 'pip_mute':
+                tile.set_muted(not tile.muted)
+            else:
+                for member in self.controller.audio_tiles():
+                    member.set_muted(member is not tile)
+            self.audio_feedback.display(tile)
+        return True
+
     def eventFilter(self, watched, event):
         kind = event.type()
         if (self._live_move is not None and self._live_move.system_moving
                 and kind in (QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease)):
             return False
-        if (kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and isinstance(watched, QWidget)
-                and watched.window() in (self, self.tools, self.audio_tools)):
-            pressed = QKeySequence(event.keyCombination()).toString()
-            shortcuts = self.controller.host.shortcuts
-            volume_up = shortcuts.get('pip_volume_up', 'Up')
-            volume_down = shortcuts.get('pip_volume_down', 'Down')
-            if pressed in (volume_up, volume_down, shortcuts.get('mute'), shortcuts.get('solo')):
-                if kind == QEvent.ShortcutOverride:
-                    event.accept()
-                    return True
-                tile = self._tile_at(QCursor.pos()) if self._pointer_over() else None
-                if tile is not None:
-                    if pressed in (volume_up, volume_down):
-                        tile.set_volume(tile.volume + (5 if pressed == volume_up else -5))
-                    elif pressed == shortcuts.get('mute'):
-                        tile.set_muted(not tile.muted)
-                    else:
-                        for member in self.controller.audio_tiles():
-                            member.set_muted(member is not tile)
-                    self.audio_feedback.display(tile)
-                return True
+        if kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and self._handle_shortcut(watched, event):
+            return True
         if kind == QEvent.UngrabMouse and watched is self and self._reorder_drag is not None:
             self._reorder_drag = None
             self.setCursor(Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)

@@ -2,14 +2,16 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QKeySequenceEdit, QLineEdit, QPushButton, QScrollArea,
-    QSizePolicy, QVBoxLayout, QWidget
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QKeySequenceEdit, QLineEdit,
+    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 )
 
-from .shortcut_actions import SHORTCUT_ACTIONS
+from .shortcut_actions import (
+    DEFAULT_WHEEL_VOLUME_STEP, FULLSCREEN_VOLUME_SHORTCUTS, SHORTCUT_ACTIONS, WHEEL_SHORTCUTS, wheel_volume_step
+)
 from .settings_layout import SettingsColumns, SettingsSection
 from .search import matches_query
-from .ui import ToggleSwitch, page_header as _page_head
+from .ui import StepperControl, ToggleSwitch, page_header as _page_head
 
 
 _SHORTCUT_TITLES = {
@@ -18,14 +20,16 @@ _SHORTCUT_TITLES = {
     'toggle_folders': '全部关注文件夹',
     'record': '录制', 'video_danmaku': '画面弹幕', 'solo': '单路声音',
     'volume_up': '滚轮增大音量', 'volume_down': '滚轮减小音量',
+    'fullscreen_volume_up': '全屏增大音量', 'fullscreen_volume_down': '全屏减小音量',
     'pip_volume_up': '画中画增大音量', 'pip_volume_down': '画中画减小音量',
+    'pip_mute': '画中画静音', 'pip_solo': '画中画单路声音', 'pip_exit': '退出画中画',
 }
 
 
 class ShortcutSettingsPage(QWidget):
     """Grouped shortcut editors; filtering never changes the saved bindings."""
 
-    def __init__(self, shortcuts: dict, parent=None):
+    def __init__(self, shortcuts: dict, parent=None, *, settings=None):
         super().__init__(parent)
         self.setObjectName('SettingsPage')
         self._edits: dict[str, QKeySequenceEdit] = {}
@@ -60,22 +64,23 @@ class ShortcutSettingsPage(QWidget):
         layout.addWidget(self.empty)
         self.sections = SettingsColumns()
         groups = (
-            ('home', '首页快捷键', ('focus', 'restore', 'close_tile', 'danmaku_input', 'toggle_folders')),
-            ('general', '常规快捷键', ('mute', 'audio_cycle', 'record', 'video_danmaku', 'solo')),
-            ('wheel', '滚轮快捷键', ('volume_up', 'volume_down')),
-            ('pip', '画中画快捷键', ('pip_volume_up', 'pip_volume_down')),
+            ('home', '主窗口 · 画面与关注', ('focus', 'restore', 'close_tile', 'danmaku_input', 'toggle_folders')),
+            ('general', '主窗口 · 播放控制', ('mute', 'audio_cycle', 'record', 'video_danmaku', 'solo')),
+            ('fullscreen', '主窗口 · 全屏音量', FULLSCREEN_VOLUME_SHORTCUTS),
+            ('wheel', '主窗口 · 滚轮音量', WHEEL_SHORTCUTS),
+            ('pip', '画中画快捷键', ('pip_volume_up', 'pip_volume_down', 'pip_mute', 'pip_solo', 'pip_exit')),
         )
         actions_by_key = {key: item for item in SHORTCUT_ACTIONS for key in (item[0],)}
         for key, title, keys in groups:
             self._group_keys[key] = keys
             self.sections.add_section(key, self._build_group(
-                title, [actions_by_key[name] for name in keys], shortcuts))
+                key, title, [actions_by_key[name] for name in keys], shortcuts, settings or {}))
         layout.addWidget(self.sections)
         layout.addStretch(1)
         self._all_sections = list(self.sections.entries)
         self.search.textChanged.connect(self._filter)
 
-    def _build_group(self, title, actions, shortcuts):
+    def _build_group(self, group, title, actions, shortcuts, settings):
         card = SettingsSection(title)
         card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         for index, (key, description, default) in enumerate(actions):
@@ -90,13 +95,15 @@ class ShortcutSettingsPage(QWidget):
             row.addWidget(label, 1)
             self._rows[key] = widget
             self._search_text[key] = ' '.join((title, label.text(), description, key))
-            special_mouse = default.startswith('Shift+Wheel')
+            special_mouse = key in WHEEL_SHORTCUTS
             edit = QLineEdit(shortcuts.get(key, default)) if special_mouse else QKeySequenceEdit(QKeySequence(shortcuts.get(key, default)))
             edit.setObjectName('ShortcutEdit')
             if special_mouse:
                 edit.setProperty('mouseShortcut', True)
             if isinstance(edit, QKeySequenceEdit):
                 edit.setClearButtonEnabled(True)
+                if group == 'pip':
+                    edit.setMaximumSequenceLength(1)
             edit.setFixedWidth(150)
             edit.setToolTip(description + ('；输入鼠标组合，如 Shift+WheelUp' if special_mouse else '；点击后按下新的按键组合'))
             edit.setAccessibleName(label.text() + '快捷键')
@@ -119,12 +126,41 @@ class ShortcutSettingsPage(QWidget):
             row.addWidget(enabled, 0, Qt.AlignVCenter)
             row.addWidget(reset_button)
             card.grid.addWidget(widget, index, 0, 1, 2)
+        row = len(actions)
+        if group == 'wheel':
+            self._wheel_options = self._build_wheel_options(settings, card)
+            card.grid.addWidget(self._wheel_options, row, 0, 1, 2)
+            row += 1
         reset = QPushButton('恢复本组')
         reset.setObjectName('ShortcutAction')
         reset.setCursor(Qt.PointingHandCursor)
-        reset.clicked.connect(lambda checked=False, actions=actions: self._reset_group(actions))
-        card.grid.addWidget(reset, len(actions), 0, 1, 2, Qt.AlignRight)
+        reset.clicked.connect(lambda _checked=False: self._reset_group(actions, wheel=group == 'wheel'))
+        card.grid.addWidget(reset, row, 0, 1, 2, Qt.AlignRight)
         return card
+
+    def _build_wheel_options(self, settings, card):
+        options = QWidget(card)
+        grid = QGridLayout(options)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setColumnStretch(0, 1)
+        hover = QLabel('悬停画面时直接用滚轮调节音量', options)
+        hover.setWordWrap(True)
+        self.hover_wheel_volume = ToggleSwitch(hover.text(), options)
+        self.hover_wheel_volume.setChecked(bool(settings.get('hover_wheel_volume', False)))
+        hover.setBuddy(self.hover_wheel_volume)
+        grid.addWidget(hover, 0, 0)
+        grid.addWidget(self.hover_wheel_volume, 0, 1, Qt.AlignRight)
+        step = QLabel('每格滚轮调整音量', options)
+        step.setWordWrap(True)
+        self.wheel_step = QSpinBox(options)
+        self.wheel_step.setRange(1, 100)
+        self.wheel_step.setSuffix(' 点')
+        self.wheel_step.setAccessibleName(step.text())
+        self.wheel_step.setValue(wheel_volume_step(settings.get('wheel_volume_step')))
+        step.setBuddy(self.wheel_step)
+        grid.addWidget(step, 1, 0)
+        grid.addWidget(StepperControl(self.wheel_step), 1, 1, Qt.AlignRight)
+        return options
 
     def _filter(self, *_args):
         if not hasattr(self, '_all_sections'):
@@ -141,14 +177,16 @@ class ShortcutSettingsPage(QWidget):
             if match:
                 visible.add(key)
         self.sections.entries = []
+        wheel_match = matches_query('主窗口 滚轮音量 悬停画面 调节音量 音量步长 每格滚轮调整', query)
+        self._wheel_options.setVisible(wheel_match)
         for entry in self._all_sections:
             key, card, _wide = entry
-            match = any(name in visible for name in self._group_keys[key])
+            match = (key == 'wheel' and wheel_match) or any(name in visible for name in self._group_keys[key])
             card.setVisible(match)
             if match:
                 self.sections.entries.append(entry)
         self.sections._arrange()
-        self.empty.setVisible(not visible)
+        self.empty.setVisible(not visible and not wheel_match)
 
     def _reset_one(self, key):
         self._row_toggles[key].setChecked(True)
@@ -158,13 +196,19 @@ class ShortcutSettingsPage(QWidget):
         else:
             edit.setKeySequence(QKeySequence(self._defaults[key]))
 
-    def _reset_group(self, actions):
+    def _reset_group(self, actions, *, wheel=False):
         for key, _label, _default in actions:
             self._reset_one(key)
+        if wheel:
+            self.hover_wheel_volume.setChecked(False)
+            self.wheel_step.setValue(DEFAULT_WHEEL_VOLUME_STEP)
 
     def reset(self) -> None:
-        for key in self._edits:
-            self._reset_one(key)
+        self._reset_group(SHORTCUT_ACTIONS, wheel=True)
+
+    def settings_values(self) -> dict:
+        return {'hover_wheel_volume': self.hover_wheel_volume.isChecked(),
+                'wheel_volume_step': self.wheel_step.value()}
 
     def values(self) -> dict:
         result = {}

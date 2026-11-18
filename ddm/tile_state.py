@@ -324,6 +324,8 @@ class TileState:
     def quality_choices(self) -> list[tuple[str, int]]:
         """优先用接口给的档位：直播间只提供哪些，菜单里就只留哪些。"""
         host = self.host
+        if not host.room.get("room_id"):
+            return []
         if host.quality_options:
             return [(host._quality_name(int(item["qn"])), int(item["qn"]))
                     for item in host.quality_options]
@@ -359,8 +361,11 @@ class TileState:
     def open_quality_menu(self, *, menu_type) -> None:
         QMenu = menu_type
         host = self.host
+        choices = host._quality_choices()
+        if not choices:
+            return
         menu = QMenu(host)
-        for name, value in host._quality_choices():
+        for name, value in choices:
             action = QAction(name, menu)
             action.setCheckable(True)
             action.setChecked(value == host.quality)

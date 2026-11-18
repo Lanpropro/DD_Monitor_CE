@@ -10,8 +10,33 @@ SHORTCUT_ACTIONS = [
     ("record", "开始／停止鼠标所在格子的录制", "R"),
     ("video_danmaku", "切换鼠标所在格子的画面弹幕", "B"),
     ("solo", "只保留鼠标所在那一路的声音", "Alt+M"),
-    ("volume_up", "按住 Shift 滚轮向上提高音量", "Shift+WheelUp"),
-    ("volume_down", "按住 Shift 滚轮向下降低音量", "Shift+WheelDown"),
+    ("volume_up", "按住设定的修饰键向上滚动以提高音量", "Shift+WheelUp"),
+    ("volume_down", "按住设定的修饰键向下滚动以降低音量", "Shift+WheelDown"),
+    ("fullscreen_volume_up", "主窗口全屏时提高当前画面音量", "Up"),
+    ("fullscreen_volume_down", "主窗口全屏时降低当前画面音量", "Down"),
     ("pip_volume_up", "画中画中提高当前画面音量", "Up"),
     ("pip_volume_down", "画中画中降低当前画面音量", "Down"),
+    ("pip_mute", "静音或恢复鼠标所在的画中画画面", "M"),
+    ("pip_solo", "只保留鼠标所在的画中画画面的声音", "Alt+M"),
+    ("pip_exit", "退出画中画并返回监控室", "Esc"),
 ]
+
+DEFAULT_SHORTCUTS = {key: default for key, _description, default in SHORTCUT_ACTIONS}
+WHEEL_SHORTCUTS = ('volume_up', 'volume_down')
+FULLSCREEN_VOLUME_SHORTCUTS = ('fullscreen_volume_up', 'fullscreen_volume_down')
+DEFAULT_WHEEL_VOLUME_STEP = 10
+
+
+def wheel_volume_step(value):
+    return value if type(value) is int and 1 <= value <= 100 else DEFAULT_WHEEL_VOLUME_STEP
+
+
+def configured_shortcuts(saved):
+    """Copy old shared bindings into each newly independent setting once."""
+    bindings = {**DEFAULT_SHORTCUTS, **saved}
+    for key, previous in (('fullscreen_volume_up', 'pip_volume_up'),
+                          ('fullscreen_volume_down', 'pip_volume_down'),
+                          ('pip_mute', 'mute'), ('pip_solo', 'solo')):
+        if key not in saved and previous in saved:
+            bindings[key] = saved[previous]
+    return bindings

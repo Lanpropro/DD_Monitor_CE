@@ -261,8 +261,30 @@ def check_audio_controls(pip):
             QTest.keyClick(tiles[0].video, Qt.Key_Up)
             assert tiles[0].volume == min(100, before + 5)
             from PySide6.QtGui import QKeySequence
-            QTest.keySequence(tiles[0].video, QKeySequence(pip.host.shortcuts['solo']))
+            QTest.keySequence(tiles[0].video, QKeySequence(pip.host.shortcuts['pip_solo']))
             assert not tiles[0].muted and tiles[1].muted
+            tile = tiles[0]
+            with patch.dict(pip.host.shortcuts, {'pip_volume_up': 'Ctrl+U', 'fullscreen_volume_up': 'Ctrl+P',
+                                                'mute': 'M', 'pip_mute': 'Ctrl+M',
+                                                'solo': 'Alt+M', 'pip_solo': 'Ctrl+J', 'pip_exit': 'Ctrl+Q'}):
+                tile.set_volume(40)
+                QTest.keyClick(tile.video, Qt.Key_P, Qt.ControlModifier)
+                assert tile.volume == 40
+                QTest.keyClick(tile.video, Qt.Key_U, Qt.ControlModifier)
+                assert tile.volume == 45
+                QTest.keyClick(tile.video, Qt.Key_M)
+                assert not tile.muted
+                QTest.keyClick(tile.video, Qt.Key_M, Qt.ControlModifier)
+                assert tile.muted
+                QTest.keyClick(tile.video, Qt.Key_M, Qt.AltModifier)
+                assert tile.muted
+                QTest.keyClick(tile.video, Qt.Key_J, Qt.ControlModifier)
+                assert not tile.muted and tiles[1].muted
+                with patch.object(floating, '_escape') as exit_pip:
+                    QTest.keyClick(tile.video, Qt.Key_Escape)
+                    exit_pip.assert_not_called()
+                    QTest.keyClick(tile.video, Qt.Key_Q, Qt.ControlModifier)
+                    exit_pip.assert_called_once_with()
         assert (other.volume, other.muted) == other_audio, 'Solo must leave unselected rooms alone'
     finally:
         panel.hide()
@@ -1386,7 +1408,8 @@ def exercise_parallel(app, window, directory):
 
 def main():
     app = QApplication([])
-    native = '--native' in sys.argv or app.platformName() == 'windows'
+    shortcuts_only = '--shortcuts-only' in sys.argv
+    native = not shortcuts_only and ('--native' in sys.argv or app.platformName() == 'windows')
     if native:
         os.environ['DDM_QTQUICK_DANMAKU'] = '1'
     app.setQuitOnLastWindowClosed(False)
@@ -1480,6 +1503,13 @@ def main():
 
         window = make_window()
         try:
+            if shortcuts_only:
+                pip = window.picture_in_picture
+                assert pip.start([0, 1])
+                QTest.qWait(150)
+                check_audio_controls(pip)
+                print('PASS: PiP audio and exit shortcuts are isolated from main-window bindings')
+                return
             exercise(app, window, native, directory)
         finally:
             window.close()

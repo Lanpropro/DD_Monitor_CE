@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from ddm import theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_shortcuts import ShortcutSettingsPage
-from ddm.shortcut_actions import SHORTCUT_ACTIONS
+from ddm.shortcut_actions import SHORTCUT_ACTIONS, configured_shortcuts
 
 APP = QApplication.instance() or QApplication([])
 QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
@@ -46,7 +46,7 @@ class ShortcutSettingsTests(unittest.TestCase):
     def test_search_matches_chinese_pinyin_initials_english_and_current_binding_without_changing_data(self):
         page = self.page({'focus': 'Ctrl+K', 'record': ''})
         before = page.values()
-        self.assertEqual(len(before), 14)
+        self.assertEqual(set(before), {item[0] for item in SHORTCUT_ACTIONS})
         for query, expected in (('全屏查看', 'focus'), ('quanpingchakan', 'focus'),
                                 ('qpck', 'focus'), ('audio_cycle', 'audio_cycle'),
                                 ('Ctrl+K', 'focus'), ('画中画 音量', 'pip_volume_up')):
@@ -69,7 +69,7 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.assertEqual(page.values(), before)
         page.search.clear()
         self.assertTrue(all(row.isVisible() for row in page._rows.values()))
-        self.assertEqual(len(page.sections.entries), 4)
+        self.assertEqual(len(page.sections.entries), 5)
         self.assertEqual(page.values(), before)
 
     def test_keyboard_mouse_binding_disabled_values_and_reset_keep_original_contract(self):
@@ -153,6 +153,45 @@ class ShortcutSettingsTests(unittest.TestCase):
         page._row_toggles['focus'].click()
         dialog.auto_save.flush()
         self.assertEqual(requested[-1]['shortcuts']['focus'], '')
+
+    def test_wheel_options_save_in_shortcuts_page_and_restore_defaults(self):
+        dialog = SettingsDialog({'wheel_volume_step': 7, 'hover_wheel_volume': False}, {}, preview=True)
+        self.addCleanup(dispose, dialog)
+        self.assertNotIn('hover_wheel_volume', dialog.general_page.values())
+        self.assertEqual(dialog.settings()['wheel_volume_step'], 7)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['shortcuts'])
+        page = dialog.shortcut_page
+        self.assertEqual(page.wheel_step.value(), 7)
+        self.assertFalse(page.hover_wheel_volume.isChecked())
+        requested = []
+        dialog.auto_save.requested.connect(requested.append)
+        dialog.auto_save.start()
+        self.addCleanup(dialog.auto_save.stop)
+        page.search.setText('音量步长')
+        self.assertFalse(page._wheel_options.isHidden())
+        self.assertEqual([key for key, _card, _wide in page.sections.entries], ['wheel'])
+        page.wheel_step.setValue(3)
+        page.hover_wheel_volume.click()
+        dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'wheel_volume_step': 3, 'hover_wheel_volume': True})
+        dialog.auto_save.acknowledge()
+        page.sections.section('wheel').findChildren(QPushButton)[-1].click()
+        self.assertEqual(page.settings_values(), {'wheel_volume_step': 10, 'hover_wheel_volume': False})
+
+    def test_shared_legacy_bindings_are_copied_and_explicit_context_bindings_win(self):
+        bindings = configured_shortcuts({'mute': 'Ctrl+M', 'solo': '',
+                                         'pip_volume_up': 'Ctrl+U', 'pip_mute': 'Ctrl+J'})
+        page = self.page(bindings)
+        self.assertEqual(page.values()['fullscreen_volume_up'], 'Ctrl+U')
+        self.assertEqual(page.values()['pip_volume_up'], 'Ctrl+U')
+        self.assertEqual(page.values()['pip_solo'], '')
+        self.assertEqual(page.values()['pip_mute'], 'Ctrl+J')
+        page._edits['pip_volume_up'].setKeySequence(QKeySequence('Ctrl+P'))
+        page._row_toggles['pip_exit'].click()
+        self.assertEqual(page.values()['fullscreen_volume_up'], 'Ctrl+U')
+        self.assertEqual(page.values()['pip_volume_up'], 'Ctrl+P')
+        self.assertEqual(page.values()['restore'], 'Esc')
+        self.assertEqual(page.values()['pip_exit'], '')
 
 
 if __name__ == '__main__':

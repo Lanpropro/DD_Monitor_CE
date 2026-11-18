@@ -14,7 +14,7 @@ from .ui import page_header as _page_head, step_button as _step_button
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
-from .shortcut_actions import SHORTCUT_ACTIONS
+from .shortcut_actions import configured_shortcuts
 from .settings_general import (CodecSettingsPanel, CodecSettingsDialog, GeneralSettingsPage, TraySettingsPage)
 from .settings_notifications import (NotificationSwitch, NoticeBlurPreview, NotificationSettingsPage)
 from .settings_shortcuts import ShortcutSettingsPage
@@ -50,7 +50,7 @@ class SettingsDialog(SettingsWindow):
         self._initial_settings = {key: settings.get(key, default) for key, default in DEFAULT_SETTINGS.items()
                                   if not key.startswith('video_danmaku_')
                                   and key not in ('skin_parts', 'danmaku_retention_version')}
-        self._initial_shortcuts = {key: shortcuts.get(key, default) for key, _label, default in SHORTCUT_ACTIONS}
+        self._initial_shortcuts = configured_shortcuts(shortcuts)
         self._plugin_manager = plugin_manager
         self._preview_only = preview
         self._update_page_factory = update_page_factory
@@ -95,7 +95,7 @@ class SettingsDialog(SettingsWindow):
             2: lambda: DanmakuSettingsPage(settings),
             3: lambda: self._recording_settings_page(settings),
             4: lambda: NotificationSettingsPage(settings),
-            5: lambda: ShortcutSettingsPage(shortcuts),
+            5: lambda: ShortcutSettingsPage(self._initial_shortcuts, settings=settings),
             6: lambda: TraySettingsPage(settings),
             7: lambda: PluginSettingsPage(plugin_manager),
             8: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
@@ -334,6 +334,8 @@ class SettingsDialog(SettingsWindow):
         for index in (1, 2, 3, 4, 6, 9):
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
+        if 5 in self._loaded_pages:
+            values.update(self._loaded_pages[5].settings_values())
         if 8 in self._loaded_pages:
             values.update(self._loaded_pages[8].values())
         values['seen_update_versions'] = dict(self.seen_versions)

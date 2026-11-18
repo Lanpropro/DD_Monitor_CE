@@ -35,13 +35,14 @@ class TileContextMenu:
         menu.addAction(wrapper)
         menu.addSeparator()
 
-        quality_menu = menu.addMenu("画质")
-        quality_menu.menuAction().setData('quality')
-        for name, value in host._quality_choices():
-            action = quality_menu.addAction(name)
-            action.setCheckable(True)
-            action.setChecked(value == host.quality)
-            action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
+        if host.room.get('room_id'):
+            quality_menu = menu.addMenu("画质")
+            quality_menu.menuAction().setData('quality')
+            for name, value in host._quality_choices():
+                action = quality_menu.addAction(name)
+                action.setCheckable(True)
+                action.setChecked(value == host.quality)
+                action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
 
         menu.addAction("当前窗口编解码设置…", host.codecSettingsRequested.emit).setData('codec')
         info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, host, host.streamInfoRequested.emit))

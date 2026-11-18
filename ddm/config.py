@@ -38,6 +38,7 @@ DEFAULT_VOLUME = 40
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
 from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+from .shortcut_actions import DEFAULT_WHEEL_VOLUME_STEP
 
 DEFAULT_SETTINGS = {
     **MATERIAL_DEFAULTS,
@@ -73,6 +74,7 @@ DEFAULT_SETTINGS = {
     "default_volume": DEFAULT_VOLUME,
     "audio_follows_room": False,
     "hover_wheel_volume": False,
+    "wheel_volume_step": DEFAULT_WHEEL_VOLUME_STEP,
     "volume_normalization": False,  # 播放时减小不同直播间与片段的音量差异。
     "volume_normalization_curve": None,  # 缺省使用平缓时间响应；编辑后保存独立参数。
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
