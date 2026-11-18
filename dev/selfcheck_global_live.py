@@ -135,7 +135,7 @@ def check_metadata(manager):
             else:
                 raise AssertionError("Invalid metadata/VOD must not become an offline live room")
     assert all(record["viewers"] == "" for record in records.values())
-    session = sys.modules[type(twitch).__mro__[1].__module__].Streamlink()
+    session = sys.modules[twitch.play_url.__func__.__module__].Streamlink()
     parser = youtube.parser(session, youtube.room_url(ROOMS[1]))
     with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=youtube_page())):
         assert parser._get_res(parser.url).text
@@ -157,7 +157,7 @@ def check_metadata(manager):
 
 
 def check_quality(manager):
-    module = sys.modules[type(manager.platforms["twitch"]).__mro__[1].__module__]
+    module = sys.modules[manager.platforms["twitch"].play_url.__func__.__module__]
     session = module.Streamlink()
     playlist = """#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1080x1920,FRAME-RATE=60
@@ -174,7 +174,7 @@ https://cdn.test/audio.m3u8
                for key in ("high", "low", "hevc", "audio")}
     streams.update(best=streams["high"], worst=streams["low"])
     for kind, platform in manager.platforms.items():
-        module = sys.modules[type(platform).__mro__[1].__module__]
+        module = sys.modules[platform.play_url.__func__.__module__]
         rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         with patch.object(module, "Streamlink", return_value=session), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(rid, live=True)), \
@@ -194,7 +194,7 @@ https://cdn.test/audio.m3u8
 
     # 高延迟代理可连续两次断开 TLS；第三次成功不能变成整格取流失败。
     for kind, platform in manager.platforms.items():
-        module = sys.modules[type(platform).__mro__[1].__module__]
+        module = sys.modules[platform.play_url.__func__.__module__]
         rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         original_streamlink = module.Streamlink
         sessions = []
