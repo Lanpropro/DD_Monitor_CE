@@ -3,6 +3,7 @@ from PySide6.QtCore import QEvent, QSignalBlocker, Qt
 from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from . import theme
 from .search import matches_text
+from .settings_window import SettingsTitleBar
 from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, SelectControl, ToggleSwitch, page_header
 from .pip_geometry import FOCUS_LAYOUT
 from .pip_preview import CompositionPreview
@@ -48,7 +49,7 @@ class RoomChoice(QPushButton):
 
 class PictureInPictureDialog(QDialog):
     def __init__(self, controller):
-        super().__init__(controller.floating or controller.host)
+        super().__init__(controller.floating or controller.host, Qt.Dialog | Qt.FramelessWindowHint)
         self.controller = controller
         self._order = list(controller.selected_choices())
         self._primary = controller.primary_choice()
@@ -59,7 +60,15 @@ class PictureInPictureDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
-        layout.addLayout(page_header('画中画', '选择画面组合；退出后恢复原监控室布局'))
+        self.titlebar = SettingsTitleBar(self)
+        self.titlebar.row.setContentsMargins(0, 0, 0, 0)
+        self.titlebar.breadcrumb.hide()
+        self.titlebar.row.takeAt(1)
+        self.titlebar.row.insertLayout(0, page_header('画中画', '选择画面组合；退出后恢复原监控室布局'), 1)
+        self.titlebar.close_button.setAccessibleName('关闭组合画中画')
+        self.titlebar.close_button.setToolTip('关闭组合画中画')
+        self.titlebar.row.setAlignment(self.titlebar.close_button, Qt.AlignTop)
+        layout.addWidget(self.titlebar)
         self.preview = CompositionPreview(self)
         self.preview.positionsSwapped.connect(self._swap_preview)
         layout.addWidget(self.preview)
@@ -172,6 +181,24 @@ class PictureInPictureDialog(QDialog):
         self.parallel.toggled.connect(self._refresh)
         self._refresh()
         self._arrange_choices()
+        self.columns.setFocus(Qt.OtherFocusReason)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.windowHandle() is not None:
+            x, y = event.position().toPoint().toTuple()
+            edges = Qt.Edge(0)
+            if x < 8:
+                edges |= Qt.LeftEdge
+            elif x >= self.width() - 8:
+                edges |= Qt.RightEdge
+            if y < 8:
+                edges |= Qt.TopEdge
+            elif y >= self.height() - 8:
+                edges |= Qt.BottomEdge
+            if edges and self.windowHandle().startSystemResize(edges):
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def _selected(self):
         checked = [index for index, check in self.checks.items() if check.isChecked()]

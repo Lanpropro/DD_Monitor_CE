@@ -17,6 +17,34 @@ class PipPickerTests(unittest.TestCase):
     window = fixtures.MainNoticesTests.window
     close_window = fixtures.MainNoticesTests.close_window
 
+    def test_picker_replaces_the_native_caption_without_losing_window_controls(self):
+        window = self.window([dict(room_id='1', uname='Main', live=True)])
+        pip = window.picture_in_picture
+        pip.manage()
+        dialog = pip.dialog
+        self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
+        if self.app.platformName() == 'windows':
+            import ctypes
+            from ctypes import wintypes
+            window_style = ctypes.windll.user32.GetWindowLongW
+            window_style.argtypes = (wintypes.HWND, ctypes.c_int)
+            self.assertFalse(window_style(int(dialog.winId()), -16) & 0x00C00000)  # WS_CAPTION
+        self.assertTrue(dialog.titlebar.close_button.isVisible())
+        self.assertEqual(dialog.columns.count(), 6)
+        self.assertTrue(dialog.search.isVisible())
+        handle = dialog.windowHandle()
+        with patch.object(handle, 'startSystemMove', return_value=True) as move:
+            QTest.mouseClick(dialog.titlebar, Qt.LeftButton, pos=dialog.titlebar.rect().center())
+            move.assert_called_once_with()
+        with patch.object(handle, 'startSystemResize', return_value=True) as resize:
+            QTest.mouseClick(dialog, Qt.LeftButton, pos=QPoint(dialog.width() - 1, dialog.height() - 1))
+            resize.assert_called_once_with(Qt.RightEdge | Qt.BottomEdge)
+        dialog.parallel.setChecked(True)
+        dialog.titlebar.close_button.click()
+        self.assertIsNone(pip.dialog)
+        self.assertFalse(pip.active)
+        self.assertFalse(pip.parallel_preference)
+
     def test_parallel_picker_keeps_the_main_wall_and_local_audio_independent(self):
         window = self.window([dict(room_id='1', uname='Main', live=True, muted=False, volume=35)])
         window.sidebar.add_room(dict(room_id='2', uname='Followed', live=True))
