@@ -242,6 +242,16 @@ class TilePresentation:
                 widget.update() if host._interactive_resize else widget.repaint()
         host.update()
 
+    def layout_video_area(self) -> tuple[int, int]:
+        host = self.host
+        # Fullscreen controls overlay the video. An ordinary tile reserves a bottom row.
+        fullscreen = bool(host.property('fullscreen'))
+        inset = 0 if fullscreen else 1
+        video_height = max(1, host.height() if fullscreen else host.height() - TILE_BAR_HEIGHT)
+        host.video.setGeometry(inset, inset, max(1, host.width() - inset * 2),
+                               max(1, video_height - inset))
+        return inset, video_height
+
     def layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
         host = self.host
@@ -283,12 +293,7 @@ class TilePresentation:
             host._bar_clock.stop()
             host._bar_animation.stop()
             host._bar_progress = host._bar_target = 0.0
-            host.bottom.setVisible(not compact)
-        video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
-        # 普通格子留边框，全屏视频贴齐窗口边缘。
-        inset = 0 if fullscreen or compact else 1
-        host.video.setGeometry(inset, inset, max(1, width - inset * 2),
-                               max(1, video_height - inset))
+        inset, video_height = self.layout_video_area()
         host._round_video()
         video_right = host.video.geometry().right() + 1
         host.stream_badge.move(10, 8)
@@ -327,6 +332,8 @@ class TilePresentation:
         if host.video_caption is not None:
             host.video_caption.sync_geometry()
         host._layout_bottom_controls()
+        if not fullscreen:
+            host.bottom.show()
         host._layout_cover()
         if host._interactive_resize:
             # Resizing existing HWNDs preserves their stacking order. Keep the
