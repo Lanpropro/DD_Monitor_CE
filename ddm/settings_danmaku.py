@@ -72,7 +72,21 @@ class DanmakuSettingsPage(QWidget):
         self.float_cell_mode.setAccessibleName(label.text())
         floating.grid.addWidget(label, 0, 0)
         floating.grid.addWidget(self.float_cell_mode, 0, 1, Qt.AlignRight)
-        floating.grid.addWidget(_hint('下次弹出时生效。若原格已有直播，关闭浮窗后继续播放。'), 1, 0, 1, 2)
+        keep_label = QLabel('关闭后保留直播格')
+        keep_label.setIndent(14)
+        self.float_keep_video_slots = ToggleSwitch()
+        self.float_keep_video_slots.setAccessibleName(keep_label.text())
+        self.float_keep_video_slots.setChecked(bool(settings.get('danmaku_float_keep_video_slots', False)))
+
+        def sync_float_close_option(mode):
+            keep_label.setEnabled(mode == 'reuse')
+            self.float_keep_video_slots.setEnabled(mode == 'reuse')
+
+        self.float_cell_mode.valueChanged.connect(sync_float_close_option)
+        sync_float_close_option(self.float_cell_mode.value())
+        floating.grid.addWidget(keep_label, 1, 0)
+        floating.grid.addWidget(self.float_keep_video_slots, 1, 1, Qt.AlignRight)
+        floating.grid.addWidget(_hint('开启后，关闭浮窗时空格也会保留为直播格。已有直播的格子始终保留。'), 2, 0, 1, 2)
         self.sections.add_section('danmaku_float', floating)
         blocking = SettingsSection('屏蔽管理')
         self.blocking_columns = SettingsColumns(respect_preference=False)
@@ -284,6 +298,7 @@ class DanmakuSettingsPage(QWidget):
         self.font_box.setCurrentFont(QFont(theme.danmaku_font_family()))
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.float_cell_mode.setValue('reserve')
+        self.float_keep_video_slots.setChecked(config_module.DEFAULT_SETTINGS['danmaku_float_keep_video_slots'])
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
@@ -310,6 +325,7 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font": family,
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_float_reuse_cell": self.float_cell_mode.value() == 'reuse',
+            "danmaku_float_keep_video_slots": self.float_keep_video_slots.isChecked(),
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
             "danmaku_blocked_users": self.blocked_users.users(),

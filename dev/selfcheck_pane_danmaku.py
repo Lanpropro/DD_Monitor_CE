@@ -132,12 +132,34 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertIs(panes.target(panel), other)
 
         panel.float_button.click()
-        slot.set_room(dict(room_id='7001', uname='新直播', live=True))
-        panes.floating[panel].window.close()
+        room = dict(room_id='7001', uname='新直播', live=True)
+        with patch.object(window, '_room_dict', return_value=room), patch.object(window, 'start_tile'):
+            slot.roomDropped.emit('7001')
+        with patch.object(window, '_sync_tile_playback') as playback:
+            panes.floating[panel].window.close()
+            playback.assert_not_called()
         self.assertFalse(panes.bindings())
         self.assertTrue(slot.isVisible())
         self.assertEqual(slot.room['room_id'], '7001')
         self.assertFalse(panel.isVisible())
+
+    def test_close_can_keep_the_empty_video_cells_created_by_a_merged_float(self):
+        window = self.wall_window()
+        window.settings.update(danmaku_float_reuse_cell=True, danmaku_float_keep_video_slots=True)
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, _other, *slots = wall.tiles[:4]
+        for tile in slots:
+            tile.set_room(None)
+        window.configure_wall_panes({2: source, 3: source})
+        panel, = panes.rendered()
+        panel.float_button.click()
+        self.assertTrue(all(tile.isVisible() for tile in slots))
+        panel.float_button.click()
+        self.assertFalse(panes.floating)
+        self.assertFalse(panes.bindings())
+        self.assertFalse(panel.isVisible())
+        self.assertEqual([wall._preset_widgets()[index] for index in (2, 3)], slots)
+        self.assertTrue(all(tile.isVisible() and not tile.room.get('room_id') for tile in slots))
 
     def test_video_menu_reuses_the_linked_panel_and_raises_an_open_float(self):
         window = self.wall_window()
@@ -192,11 +214,20 @@ class PaneDanmakuTests(unittest.TestCase):
 
     def test_float_cell_setting_round_trips_and_resets(self):
         from ddm.settings_danmaku import DanmakuSettingsPage
-        page = DanmakuSettingsPage({'danmaku_float_reuse_cell': True})
+        page = DanmakuSettingsPage({'danmaku_float_reuse_cell': True, 'danmaku_float_keep_video_slots': True})
         self.addCleanup(page.deleteLater)
         self.assertTrue(page.values()['danmaku_float_reuse_cell'])
+        self.assertTrue(page.values()['danmaku_float_keep_video_slots'])
+        self.assertTrue(page.float_keep_video_slots.isEnabled())
+        page.float_cell_mode.buttons['reserve'].click()
+        self.assertFalse(page.float_keep_video_slots.isEnabled())
+        page.float_cell_mode.buttons['reuse'].click()
+        self.assertTrue(page.float_keep_video_slots.isEnabled())
+        self.assertTrue(page.float_keep_video_slots.isChecked())
         page.reset()
         self.assertFalse(page.values()['danmaku_float_reuse_cell'])
+        self.assertFalse(page.values()['danmaku_float_keep_video_slots'])
+        self.assertFalse(page.float_keep_video_slots.isEnabled())
 
     def test_reuse_legacy_chat_reserves_its_video_backing_slot(self):
         window = self.wall_window()

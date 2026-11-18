@@ -345,10 +345,17 @@ class PaneDanmaku:
             return
         bindings = self.bindings()
         tiles = self.cell_tiles()
-        if floating.released and all(cell not in bindings and cell in tiles and not tiles[cell].room.get('room_id')
-                                     for cell in floating.released):
+        keep_video = notify and getattr(self.wall.window(), 'settings', {}).get('danmaku_float_keep_video_slots', False)
+        if floating.released and not keep_video and all(
+                cell not in bindings and cell in tiles and not tiles[cell].room.get('room_id')
+                for cell in floating.released):
             self.panels[floating.cell] = panel
             self.apply({**bindings, **floating.released})
+        elif floating.released:
+            self.wall._sync_danmaku_controls()
+            if notify:
+                self.wall.floatingDanmakuChanged.emit()
+            return
         else:
             self.wall.relayout(force=True)
         if notify:

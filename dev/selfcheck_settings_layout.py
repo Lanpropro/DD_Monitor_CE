@@ -568,7 +568,7 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_danmaku_sc_options_share_one_card_with_the_preview(self):
         page = self.page(2)
         self.assertEqual([key for key, _card, _wide in page.sections.entries],
-                         ['font_filter', 'danmaku_curve', 'blocking', 'sc_placement'])
+                         ['font_filter', 'danmaku_float', 'danmaku_curve', 'blocking', 'sc_placement'])
         card = page.sections.section('sc_placement')
         for control in (page.super_chat_enabled, page.super_chat_opacity,
                         page.super_chat_collapse_stepper, page.super_chat_scale,
@@ -591,6 +591,28 @@ class SettingsLayoutTests(unittest.TestCase):
         reopened = DanmakuSettingsPage(saved)
         self.assertEqual(reopened.values(), saved)
         reopened.deleteLater()
+
+    def test_danmaku_float_close_choice_is_a_subordinate_autosaved_switch(self):
+        page = self.page(2)
+        card = page.sections.section('danmaku_float')
+        mode, keep = page.float_cell_mode, page.float_keep_video_slots
+        self.assertTrue(card.isAncestorOf(mode) and card.isAncestorOf(keep))
+        self.assertFalse(keep.isEnabled())
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        mode.buttons['reuse'].click()
+        self.assertTrue(keep.isEnabled())
+        keep.click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {
+            'danmaku_float_reuse_cell': True, 'danmaku_float_keep_video_slots': True})
+        self.dialog.auto_save.acknowledge()
+        for width in (1200, 760):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertLess(mode.geometry().bottom(), keep.y())
+            self.assertTrue(card.rect().contains(keep.geometry()))
 
     def test_danmaku_large_font_and_single_column_keep_controls_in_bounds(self):
         page = self.page(2)
