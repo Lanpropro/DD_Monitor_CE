@@ -82,8 +82,7 @@ class PictureInPictureAudio(VolumePopup):
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(8)
         self.rows = {}
-        for index in self.controller.selection:
-            tile = self.controller.host.wall.tiles[index]
+        for index, tile in enumerate(self.controller.audio_tiles()):
             name = str(tile.room.get('uname') or tile.room.get('room_id'))
             row = AudioRow(name, index, lambda value, tile=tile: self._tile_volume(tile, value),
                            lambda muted, tile=tile: self._tile_mute(tile, muted), content)

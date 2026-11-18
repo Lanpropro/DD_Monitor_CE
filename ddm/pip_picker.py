@@ -1,9 +1,8 @@
 """Picture-in-picture room selection and composition dialog."""
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt
-from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
-from . import theme
+from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from .search import matches_text
-from .ui import ActionButton, Avatar, ElidedLabel, page_header
+from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, SelectControl, ToggleSwitch, page_header
 from .pip_geometry import FOCUS_LAYOUT
 from .pip_preview import CompositionPreview
 
@@ -16,7 +15,7 @@ class RoomChoice(QPushButton):
         self.setCheckable(True)
         self.setAutoDefault(False)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(64)
+        self.setMinimumHeight(64)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setToolTip(name + ' · ' + str(room['room_id']))
         self.setAccessibleName(self.toolTip())
@@ -28,7 +27,7 @@ class RoomChoice(QPushButton):
         self.avatar.set_pixmap_image(pixmap)
         box.addWidget(self.avatar, 0, Qt.AlignHCenter)
         label = ElidedLabel(display, self)
-        label.setStyleSheet(f'color: {theme.TEXT1};')
+        label.setObjectName('PipRoomName')
         label.setAlignment(Qt.AlignCenter)
         label.setTextFormat(Qt.PlainText)
         label.setAttribute(Qt.WA_TransparentForMouseEvents)
@@ -55,25 +54,44 @@ class PictureInPictureDialog(QDialog):
         self.setWindowTitle('组合画中画')
         self.setAttribute(Qt.WA_DeleteOnClose)
         available = self.screen().availableGeometry()
-        self.resize(min(520, available.width() - 48), min(720, available.height() - 80))
+        self.resize(min(560, available.width() - 48), min(740, available.height() - 80))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
         layout.addLayout(page_header('画中画', '选择画面组合；退出后恢复原监控室布局'))
         self.preview = CompositionPreview(self)
         self.preview.positionsSwapped.connect(self._swap_preview)
         layout.addWidget(self.preview)
-        self.columns = QComboBox(self)
+        options = QFrame(self)
+        options.setObjectName('PluginCard')
+        option_rows = QVBoxLayout(options)
+        option_rows.setContentsMargins(12, 10, 12, 10)
+        option_rows.setSpacing(8)
+        arrangement = QHBoxLayout()
+        arrangement.addWidget(QLabel('排列方式', options), 1)
+        self.columns = SelectControl(options)
         for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
                              ('单主＋五辅（6格）', FOCUS_LAYOUT)):
             self.columns.addItem(title, value)
         self.columns.setAccessibleName('画中画排列方式')
         self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
-        chat = controller.chat_cells(self.columns.currentData())
+        arrangement.addWidget(self.columns)
+        option_rows.addLayout(arrangement)
+        parallel_row = QHBoxLayout()
+        parallel_label = QLabel('与主窗口同时播放', options)
+        self.parallel = ToggleSwitch(parallel_label.text(), options)
+        self.parallel.setChecked(controller.parallel_preference)
+        self.parallel.setToolTip('主画面墙继续播放，小窗默认静音。')
+        parallel_label.setBuddy(self.parallel)
+        parallel_row.addWidget(parallel_label, 1)
+        parallel_row.addWidget(self.parallel)
+        option_rows.addLayout(parallel_row)
+        layout.addWidget(options)
+        chat = self._chat_cells()
         if chat and len(self._order) > 6 - len(chat):
             wall = {key for key, _room in controller._wall_candidates()}
             self._order = ([key for key in self._order if key in wall]
                            + [key for key in self._order if key not in wall])[:6 - len(chat)]
-        layout.addWidget(self.columns)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
         self.search.setPlaceholderText(controller.host.sidebar.search.placeholderText())
@@ -137,21 +155,20 @@ class PictureInPictureDialog(QDialog):
         choices.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll, 1)
-        self.hint = QLabel(self)
-        self.hint.setObjectName('SettingsHint')
-        self.hint.setWordWrap(True)
+        self.hint = HintLabel(parent=self)
         layout.addWidget(self.hint)
         footer = QHBoxLayout()
         cancel = ActionButton('取消', self)
         cancel.clicked.connect(self.reject)
-        footer.addWidget(cancel)
         footer.addStretch()
+        footer.addWidget(cancel)
         self.start = ActionButton('应用组合' if controller.active else '打开画中画', self)
         self.start.setObjectName('PrimaryButton')
         self.start.clicked.connect(self._apply)
         footer.addWidget(self.start)
         layout.addLayout(footer)
         self.columns.currentIndexChanged.connect(self._refresh)
+        self.parallel.toggled.connect(self._refresh)
         self._refresh()
         self._arrange_choices()
 
@@ -201,7 +218,7 @@ class PictureInPictureDialog(QDialog):
 
     def _swap_preview(self, first, second):
         selection = self._selected()
-        if self.controller.chat_cells(self.columns.currentData()):
+        if self._chat_cells():
             source, target = self._preview_choices[first], self._preview_choices[second]
             if source is None or target is None:
                 return
@@ -226,9 +243,10 @@ class PictureInPictureDialog(QDialog):
         if self._primary not in selection:
             self._primary = selection[0] if selection else None
         focus = self.columns.currentData() == FOCUS_LAYOUT
-        slots, aspects, primary = self.controller.composition(selection, self.columns.currentData(), self._primary)
+        slots, aspects, primary = self.controller.composition(selection, self.columns.currentData(), self._primary,
+                                                              parallel=self.parallel.isChecked())
         self._preview_choices = slots
-        chat = self.controller.chat_cells(self.columns.currentData())
+        chat = self._chat_cells()
         if chat:
             names = ['弹幕' if index in chat else self.checks[key].preview_name if key is not None else '未选择视频'
                      for index, key in enumerate(slots)]
@@ -248,7 +266,11 @@ class PictureInPictureDialog(QDialog):
 
     def _apply(self):
         selected = self._selected()
-        if self.controller.start(selected, self.columns.currentData(), self._primary):
+        if self.controller.start(selected, self.columns.currentData(), self._primary,
+                                 parallel=self.parallel.isChecked()):
             self.accept()
         else:
             self.hint.setText('所选直播间已变化或下播，请重新选择。')
+
+    def _chat_cells(self):
+        return self.controller.chat_cells(self.columns.currentData(), parallel=self.parallel.isChecked())

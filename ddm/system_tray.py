@@ -181,7 +181,7 @@ class SystemTray(QObject):
         self.window._fullscreen_cursor.stop()
         pip = getattr(self.window, 'picture_in_picture', None)
         if (not self.playback_suspended and self.window.settings.get("tray_pause_playback", True)
-                and not (pip is not None and pip.active)):
+                and not (pip is not None and pip.moves_main_wall)):
             self.playback_suspended = True
             for tile in self.window.wall.tiles:
                 if self.hold_playback(tile):
@@ -197,7 +197,8 @@ class SystemTray(QObject):
     def hold_playback(self, tile):
         # Pending recordings still need their initial stream resolution. Once
         # recording starts, its independent session survives the watching stop.
-        if not self.playback_suspended or tile in self.window._pending_capture:
+        if (not self.playback_suspended or tile in self.window._pending_capture
+                or tile.property('pictureInPictureIndependent')):
             return False
         if tile in (self.window.wall.picture_in_picture_tiles or []):
             return False

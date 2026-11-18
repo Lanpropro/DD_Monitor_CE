@@ -17,6 +17,86 @@ class PipPickerTests(unittest.TestCase):
     window = fixtures.MainNoticesTests.window
     close_window = fixtures.MainNoticesTests.close_window
 
+    def test_parallel_picker_keeps_the_main_wall_and_local_audio_independent(self):
+        window = self.window([dict(room_id='1', uname='Main', live=True, muted=False, volume=35)])
+        window.sidebar.add_room(dict(room_id='2', uname='Followed', live=True))
+        wall, pip = window.wall, window.picture_in_picture
+        main = wall.tiles[0]
+        parent, layout_id, old_tiles = wall.parentWidget(), wall.layout_id, list(wall.tiles)
+        pip.manage()
+        dialog = pip.dialog
+        self.assertFalse(dialog.parallel.isChecked())
+        dialog.parallel.setChecked(True)
+        dialog.checks['2'].setChecked(True)
+        with patch.object(window, '_stop_tile', wraps=window._stop_tile) as stop:
+            dialog.start.click()
+            QTest.qWait(60)
+            self.assertTrue(pip.active)
+            self.assertFalse(pip.moves_main_wall)
+            self.assertTrue(window.isVisible() and not window.isMinimized())
+            self.assertIs(wall.parentWidget(), parent)
+            self.assertEqual(wall.layout_id, layout_id)
+            self.assertEqual(wall.tiles, old_tiles)
+            self.assertTrue(wall.isVisible() and main.isVisible())
+            clones = pip.audio_tiles()
+            self.assertEqual([tile.room['room_id'] for tile in clones], ['1', '2'])
+            self.assertTrue(all(tile.muted for tile in clones))
+            self.assertIsNot(clones[0], main)
+            self.assertIsNot(clones[0].room, main.room)
+            self.assertTrue(window.current_state()['ui']['picture_in_picture']['parallel'])
+            pip.floating.audio_panel.rebuild()
+            pip.floating.audio_panel._tile_volume(clones[0], 68)
+            pip.floating.audio_panel._tile_mute(clones[0], False)
+            self.assertEqual((main.volume, main.muted), (35, False))
+            self.assertEqual((clones[0].volume, clones[0].muted), (68, False))
+            pip.swap_positions(*clones)
+            QTest.qWait(60)
+            self.assertEqual(pip.audio_tiles(), clones[::-1])
+            self.assertEqual(pip.audio_tiles()[1].volume, 68)
+            window._on_status_updated({'2': dict(live=False, viewers='', title='', live_known=True)})
+            self.assertFalse(clones[1].room['live'])
+            pip.floating.close()
+            self.assertFalse(pip.active)
+            self.assertEqual(wall.tiles, old_tiles)
+            self.assertIs(wall.parentWidget(), parent)
+            self.assertTrue(wall.isVisible())
+            self.assertNotIn(main, [call.args[0] for call in stop.call_args_list])
+        pip.manage()
+        self.assertTrue(pip.dialog.parallel.isChecked())
+        pip.dialog.reject()
+
+    def test_parallel_toggle_applies_only_on_confirmation_and_returns_to_shared_wall(self):
+        window = self.window([dict(room_id='1', uname='Main', live=False)])
+        wall, pip = window.wall, window.picture_in_picture
+        pip.manage()
+        pip.dialog.parallel.setChecked(True)
+        pip.dialog.reject()
+        self.assertFalse(pip.parallel_preference)
+        self.assertFalse(pip.active)
+
+        if self.app.platformName() != 'windows':
+            self.skipTest('Changing the mode while the native window is active requires Windows Qt')
+        self.assertTrue(pip.start([0]))
+        QTest.qWait(60)
+        self.assertTrue(pip.moves_main_wall)
+        pip.manage()
+        pip.dialog.parallel.setChecked(True)
+        pip.dialog.start.click()
+        QTest.qWait(60)
+        self.assertFalse(pip.moves_main_wall)
+        self.assertTrue(window.isVisible() and not window.isMinimized())
+        self.assertIsNot(pip.display_wall, wall)
+
+        pip.manage()
+        pip.dialog.parallel.setChecked(False)
+        pip.dialog.start.click()
+        QTest.qWait(60)
+        self.assertTrue(pip.moves_main_wall)
+        self.assertIs(pip.display_wall, wall)
+        self.assertFalse(pip.parallel_preference)
+        pip.restore(activate=True)
+        self.assertTrue(wall.isVisible())
+
     def test_vanity_room_search_survives_status_refresh_and_state_restore(self):
         from ddm import config
         from ddm.widgets import Sidebar

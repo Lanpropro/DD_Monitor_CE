@@ -11,6 +11,7 @@ class TileContextMenu:
         QMenu = menu_type
         """右键菜单：音量滑条 + 画质 + 声道 + 常规操作。"""
         host = self.host
+        independent = host.property('pictureInPictureIndependent')
         menu = QMenu(host)
 
         # 音量（菜单里嵌滑条）
@@ -59,20 +60,23 @@ class TileContextMenu:
             action.triggered.connect(lambda _checked=False, v=value: host.set_audio_channel(v))
         menu.addSeparator()
         menu.addAction("取消静音" if host.muted else "静音", host._toggle_mute).setData('mute')
-        menu.addAction("弹幕观看设置…", lambda: QTimer.singleShot(0, host,
-            lambda: host.danmaku_settings_menu.open_at(
-                host.danmaku_button, host.video_danmaku.settings))).setData('danmaku_settings')
+        if not independent:
+            menu.addAction("弹幕观看设置…", lambda: QTimer.singleShot(0, host,
+                lambda: host.danmaku_settings_menu.open_at(
+                    host.danmaku_button, host.video_danmaku.settings))).setData('danmaku_settings')
         menu.addAction("刷新重连", lambda: host.reloadRequested.emit(host.room)).setData('reload')
-        menu.addAction("全屏查看", lambda: host.fullscreenRequested.emit(host)).setData('fullscreen')
+        if not independent:
+            menu.addAction("全屏查看", lambda: host.fullscreenRequested.emit(host)).setData('fullscreen')
         if host.plugin_actions:
             # 插件加的一项占一行；组与组之间用分隔线断开，免得和本体的项混在一起
             menu.addSeparator()
             for label, callback in host.plugin_actions:
                 menu.addAction(label, callback).setData('plugins')
-        menu.addSeparator()
-        if not (host.property("pictureInPicture") or host.property("fullscreen")):
-            menu.addAction("切换为弹幕", host.paneEditRequested.emit).setData('switch_danmaku')
-        menu.addAction("关闭这一路", lambda: host.closeRequested.emit(host.room)).setData('close')
+        if not independent:
+            menu.addSeparator()
+            if not (host.property("pictureInPicture") or host.property("fullscreen")):
+                menu.addAction("切换为弹幕", host.paneEditRequested.emit).setData('switch_danmaku')
+            menu.addAction("关闭这一路", lambda: host.closeRequested.emit(host.room)).setData('close')
         from .tile_menu import arrange_menu
         arrange_menu(menu, host._video_danmaku_global_settings.get('tile_context_menu'))
         return menu

@@ -54,7 +54,8 @@ class FullscreenControl:
 
     def on_fullscreen(self, tile: Tile) -> None:
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         if tile not in host.wall.tiles or not tile.room.get("room_id"):
             return
         host._cancel_interactive_resize()

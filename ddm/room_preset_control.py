@@ -91,7 +91,8 @@ class RoomPresetController:
 
     def apply(self, preset_id):
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         if host._closing:
             return False
         if host.room_presets["version"] != 1:

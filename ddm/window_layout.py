@@ -61,7 +61,7 @@ class WindowLayout:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         host = self.host
         if host._applying_room_preset or (getattr(host, 'picture_in_picture', None)
-                                         and host.picture_in_picture.active):
+                                         and host.picture_in_picture.moves_main_wall):
             return
         # Side/header reparenting activates ancestor layouts synchronously.
         # Commit their final arrangement once; DPI and painting remain enabled.
@@ -184,7 +184,8 @@ class WindowLayout:
 
     def on_layout_changed(self, layout_id: str) -> None:
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         host._cancel_interactive_resize()
         panes_reset = host.wall.pane_danmaku.reset_preset(layout_id)
         want_portrait = layouts.is_portrait_layout(layout_id)

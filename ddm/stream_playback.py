@@ -135,7 +135,9 @@ class StreamPlayback:
                                   codec=codec, strict_codec=strict_codec)
 
         def current():
-            return (not host._closing and tile in host.wall.tiles
+            pip = getattr(host, 'picture_in_picture', None)
+            active = tile in host.wall.tiles or tile in getattr(pip, 'parallel_tiles', ())
+            return (not host._closing and active
                     and str(tile.room.get("room_id") or "") == room_id
                     and host._resolvers.get(tile) is resolver and not resolver.is_cancelled()
                     and host._codec_settings(tile)["bili_codec"] == codec)
@@ -276,10 +278,12 @@ class StreamPlayback:
             tile.set_status(str(error))
             tile.codec_probe_note = f"播放失败：{error}"
             return
-        host.recorder.on_resolved(tile)
-        if tile in host._pending_capture:
-            host._finish_pending_capture(tile)
-        host._emit_stream_resolved(tile, quality)
+        independent = tile.property('pictureInPictureIndependent') is True
+        if not independent:
+            host.recorder.on_resolved(tile)
+            if tile in host._pending_capture:
+                host._finish_pending_capture(tile)
+            host._emit_stream_resolved(tile, quality)
         if getattr(host, "_tray", None) is not None and host._tray.hold_playback(tile):
             host._stop_tile(tile)
             return
@@ -288,7 +292,8 @@ class StreamPlayback:
             tile.set_paused(True)
             player.set_paused(True)
         # 直播起来了：即时回放该开的就在这里开，不用用户手动点
-        host._sync_replay_scope()
+        if not independent:
+            host._sync_replay_scope()
 
     def auto_quality(self, player, quality: int) -> None:
         host = self.host
@@ -392,8 +397,9 @@ class StreamPlayback:
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()
-            host.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
-                              room=dict(tile.room or {}))
+            if tile.property('pictureInPictureIndependent') is not True:
+                host.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
+                                  room=dict(tile.room or {}))
         elif state == "connecting":
             tile.set_video_active(False)
             tile.set_status("连接中…", detail=host.playback_recovery.feedback_detail(tile))
@@ -441,8 +447,9 @@ class StreamPlayback:
             # 只作废、不强杀：terminate() 会带走线程本地存储和锁，主线程可能
             # 整个卡死（窗口不动也不退出，用户看到的就是「直接崩了」）
             resolver.cancel()
-        host.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
-                          room=dict(tile.room or {}))
+        if tile.property('pictureInPictureIndependent') is not True:
+            host.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
+                              room=dict(tile.room or {}))
 
     def match_sync_holds(self, tile):
         host = self.host

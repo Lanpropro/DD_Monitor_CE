@@ -154,7 +154,6 @@ class PictureInPictureWindow(QWidget):
         self._geometry_timer.setInterval(16)
         self._geometry_timer.timeout.connect(self._flush_geometry)
         self._surface_state = []
-        self.track_tiles(controller.host.wall.tiles)
         self._hover_timer = QTimer(self)
         self._hover_timer.setInterval(100)
         self._hover_timer.timeout.connect(self._poll_tools)
@@ -347,7 +346,7 @@ class PictureInPictureWindow(QWidget):
             return None
         if self.audio_tools.isVisible() and self.audio_tools.geometry().contains(point):
             return None
-        return next((tile for tile in self.controller.host.wall.visible_tiles()
+        return next((tile for tile in self.controller.display_wall.visible_tiles()
                      if tile.rect().contains(tile.mapFromGlobal(point))), None)
 
     def _set_reordering(self, enabled):
@@ -381,7 +380,7 @@ class PictureInPictureWindow(QWidget):
                     elif pressed == shortcuts.get('mute'):
                         tile.set_muted(not tile.muted)
                     else:
-                        for member in self.controller.host.wall.picture_in_picture_tiles:
+                        for member in self.controller.audio_tiles():
                             member.set_muted(member is not tile)
                     self.audio_feedback.display(tile)
                 return True
@@ -395,7 +394,7 @@ class PictureInPictureWindow(QWidget):
         preview = live.preview if live is not None else None
         if not isinstance(watched, QWidget) or watched.window() not in (self, preview):
             return False
-        wall = self.controller.host.wall
+        wall = self.controller.display_wall
         surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
                                  for surface in (tile, tile.video, tile.cover, tile.video_danmaku, tile.spinner, tile.pause_overlay)))
         if watched not in surfaces:

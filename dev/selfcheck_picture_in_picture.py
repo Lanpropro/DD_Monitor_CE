@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QFocusEvent, QMouseEvent, QPixmap, QRegion, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
@@ -1194,6 +1194,84 @@ def exercise_live_room_picker(app, native, directory):
         app.processEvents()
 
 
+def exercise_parallel(app, window, directory):
+    from selfcheck_mpv import ready
+
+    media = str(Path(directory) / 'parallel.mp4')
+    subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-hide_banner', '-loglevel', 'error',
+        '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30', '-t', '18', '-c:v', 'libx264',
+        '-preset', 'ultrafast', media], check=True, timeout=30)
+
+    class LocalResolver(QObject):
+        resolved = Signal(str, str, int, str, list)
+        failed = Signal(str, str)
+        finished = Signal()
+        headers = {}
+
+        def __init__(self, room_id, quality, parent, **_kwargs):
+            super().__init__(parent)
+            self.room_id, self.quality = room_id, quality
+            self.cancelled = False
+            self.running = False
+
+        def start(self):
+            self.running = True
+            QTimer.singleShot(0, self, self.complete)
+
+        def complete(self):
+            self.running = False
+            self.resolved.emit(self.room_id, media, self.quality, 'web', [])
+            self.finished.emit()
+
+        def cancel(self):
+            self.cancelled = True
+
+        def is_cancelled(self):
+            return self.cancelled
+
+        def isRunning(self):
+            return self.running
+
+    def wait_for_players(tiles):
+        deadline = time.monotonic() + 5
+        while not all(tile in window.players for tile in tiles) and time.monotonic() < deadline:
+            QTest.qWait(40)
+        assert all(tile in window.players for tile in tiles), [tile._status_text for tile in tiles]
+
+    pip, wall = window.picture_in_picture, window.wall
+    main = wall.tiles[0]
+    main.set_live(True)
+    main.set_muted(True)
+    window.sidebar.add_room(dict(room_id='3199', uname='Parallel extra', live=True))
+    def start_local(tile):
+        window.stream_playback.start_tile(tile, resolver_type=LocalResolver)
+
+    with patch.object(window, 'start_tile', side_effect=start_local):
+        window.start_tile(main)
+        wait_for_players([main])
+        main_player = window.players[main]
+        ready(app, main_player)
+        handle, generation = int(main.video.winId()), main_player.state_generation
+        main_parent = wall.parentWidget()
+        assert pip.start([0, '3199'], parallel=True)
+        panes = list(pip.parallel_tiles)
+        assert len(panes) == 2
+        wait_for_players(panes)
+        assert pip.audio_tiles() == panes
+        for pane in panes:
+            ready(app, window.players[pane])
+            assert pane.window() is pip.floating and pane.muted
+        assert window.players[panes[0]] is not main_player
+        assert wall.parentWidget() is main_parent and not window.isMinimized()
+        assert window.players[main] is main_player and main_player.state_generation == generation
+        pip.floating.close()
+        QTest.qWait(100)
+        assert not pip.active and all(pane not in window.players for pane in panes)
+        assert window.players[main] is main_player and main_player.state_generation == generation
+        assert int(main.video.winId()) == handle and wall.parentWidget() is main_parent
+        assert wall.isVisible() and window.isVisible() and not window.isMinimized()
+
+
 def main():
     app = QApplication([])
     native = '--native' in sys.argv or app.platformName() == 'windows'
@@ -1253,16 +1331,31 @@ def main():
             tray.window.setWindowState(tray.window.windowState() & ~Qt.WindowMinimized)
             tray.window.show()
         stack.enter_context(patch.object(SystemTray, 'restore', autospec=True, side_effect=restore_without_activation))
-        rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
-                      muted=True, volume=20 + index * 10) for index in range(4)]
-        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
-            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False,
-                'auto_update': False, 'recording_enabled': False, 'recording_replay_enabled': False}})
-        window.setAttribute(Qt.WA_ShowWithoutActivating)
-        window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
-        window.setGeometry(-12000, 0, 1100, 750)
-        window.show()
-        QTest.qWait(100)
+        def make_window():
+            rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
+                          muted=True, volume=20 + index * 10) for index in range(4)]
+            window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
+                state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False,
+                    'auto_update': False, 'recording_enabled': False, 'recording_replay_enabled': False}})
+            window.setAttribute(Qt.WA_ShowWithoutActivating)
+            window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            window.setGeometry(-12000, 0, 1100, 750)
+            window.show()
+            QTest.qWait(100)
+            return window
+
+        if native:
+            parallel_window = make_window()
+            try:
+                exercise_parallel(app, parallel_window, directory)
+            finally:
+                parallel_window.close()
+                app.processEvents()
+            if '--parallel-only' in sys.argv:
+                print('PASS: native independent PiP and main-wall playback without reconnect')
+                return
+
+        window = make_window()
         try:
             exercise(app, window, native, directory)
         finally:

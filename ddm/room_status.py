@@ -55,8 +55,9 @@ class RoomStatus:
                 return
         except RuntimeError:                 # 对象已被 Qt 回收
             host._poller = None
+        parallel = getattr(getattr(host, 'picture_in_picture', None), 'parallel_tiles', ())
         room_ids = list(dict.fromkeys(str(room.get("room_id")) for room in
-            host.sidebar.rooms() + [tile.room for tile in host.wall.tiles] if room.get("room_id")))
+            host.sidebar.rooms() + [tile.room for tile in (*host.wall.tiles, *parallel)] if room.get("room_id")))
         if not room_ids:
             return
         platform_ids = [rid for rid in room_ids if ":" in rid]
@@ -114,7 +115,9 @@ class RoomStatus:
             host.hover_preview.cancel()
         # 画面格可能直接持有侧栏条目的 room 字典。必须先记住两边旧状态，
         # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
-        tile_was_live = {tile: bool(tile.room.get("live")) for tile in host.wall.tiles}
+        parallel = getattr(getattr(host, 'picture_in_picture', None), 'parallel_tiles', ())
+        playback_tiles = (*host.wall.tiles, *parallel)
+        tile_was_live = {tile: bool(tile.room.get("live")) for tile in playback_tiles}
         item_was_live = {item: bool(item.room.get("live")) for item in host.sidebar._items}
         item_was_known = {item: bool(item.room.get("live_known", True))
                           for item in host.sidebar._items}
@@ -130,7 +133,7 @@ class RoomStatus:
         )
         faces: dict[str, str] = {}
         covers: dict[str, str] = {}
-        for tile in host.wall.tiles:
+        for tile in playback_tiles:
             info = status.get(str(tile.room.get("room_id") or ""))
             if not info:
                 continue
@@ -149,15 +152,16 @@ class RoomStatus:
                         or tile in host._retry_timers or tile._status_text not in ("未开播", "已下播")):
                     host._offline_tile(tile)
                 if was_live:
-                    host.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
-                                      room=dict(tile.room or {}))
+                    if tile not in parallel:
+                        host.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
+                                          room=dict(tile.room or {}))
                 else:
                     tile.set_status("未开播")
             elif not was_live and info["live"]:
                 print(f"[开播] {tile.room.get('uname')} 自动开始播放",
                       file=sys.stderr, flush=True)
-                host.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile,
-                                  room=dict(tile.room or {}))
+                if tile not in parallel:
+                    host.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile, room=dict(tile.room or {}))
                 if tile not in host._resolvers:
                     host.start_tile(tile)         # 已在取流的格子继续等待，不重复请求
         just_went_live: list = []

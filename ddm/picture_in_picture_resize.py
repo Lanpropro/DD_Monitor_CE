@@ -52,7 +52,7 @@ class LiveResize:
     def _surfaces(self):
         source = self.source
         yield source
-        layer = source.controller.host.wall._quick_danmaku_layer
+        layer = source.controller.display_wall._quick_danmaku_layer
         if layer is not None and layer.window.isVisible():
             yield layer.window
         for widget in QApplication.topLevelWidgets():
@@ -103,7 +103,7 @@ class LiveResize:
         # No screenshot, frame readback, second decoder or audio instance.
         desktop = QApplication.primaryScreen().virtualGeometry()
         self.source.move(desktop.left() - self.source.width() - 256, self.source.y())
-        for tile in self.source.controller.host.wall.visible_tiles():
+        for tile in self.source.controller.display_wall.visible_tiles():
             tile.video_danmaku.super_chat_overlay.sync(tile.video_danmaku)
         self.starting = False
         if not self.sync():
@@ -124,7 +124,7 @@ class LiveResize:
         if not self.finishing:
             self.finishing = True
             self.source.setGeometry(self.preview.geometry())
-            for tile in self.source.controller.host.wall.visible_tiles():
+            for tile in self.source.controller.display_wall.visible_tiles():
                 tile.video_danmaku.super_chat_overlay.sync(tile.video_danmaku)
             self.sync()
         if immediate:
