@@ -1398,7 +1398,6 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 }}
 #PipRoomChoice:hover, #PipRoomChoice:checked {{background: {CONTENT_HOVER};}}
 #PipRoomChoice:checked, #PipRoomChoice:focus {{border: 1px solid {ACCENT}; outline: none;}}
-#PipRoomName {{color: {TEXT1};}}
 #PipChoiceBadge {{background: {ACCENT}; color: white; border: none; border-radius: 8px;}}
 #PluginCard[pipDropTarget="true"] {{border: 1px solid {ACCENT};}}
 #LayoutCard:focus {{

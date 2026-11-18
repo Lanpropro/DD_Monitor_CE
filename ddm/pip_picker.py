@@ -1,6 +1,7 @@
 """Picture-in-picture room selection and composition dialog."""
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt
 from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from . import theme
 from .search import matches_text
 from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, SelectControl, ToggleSwitch, page_header
 from .pip_geometry import FOCUS_LAYOUT
@@ -27,7 +28,7 @@ class RoomChoice(QPushButton):
         self.avatar.set_pixmap_image(pixmap)
         box.addWidget(self.avatar, 0, Qt.AlignHCenter)
         label = ElidedLabel(display, self)
-        label.setObjectName('PipRoomName')
+        label.setStyleSheet(f'color: {theme.TEXT1};')
         label.setAlignment(Qt.AlignCenter)
         label.setTextFormat(Qt.PlainText)
         label.setAttribute(Qt.WA_TransparentForMouseEvents)
