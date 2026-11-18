@@ -50,7 +50,6 @@ class Host:
     def __init__(self, rooms=None, tiles=None):
         self._closing = self._refresh_queued = self._startup_status_complete = False
         self._poller = self._stats_poller = None
-        self._save_timer = Mock()
         self.wall = SimpleNamespace(tiles=tiles or [])
         self.sidebar = SimpleNamespace(rooms=lambda: rooms or [], set_refreshing=Mock(),
             refresh_frequent_order=Mock(), count_label=SimpleNamespace(setText=Mock()))
@@ -209,14 +208,12 @@ class RoomStatusTests(unittest.TestCase):
         host.sidebar.resort.assert_not_called()
         host._sync_replay_scope.assert_not_called()
         host.sync_danmaku.assert_not_called()
-        host._save_timer.start.assert_not_called()
         host.room_status.apply_status({'1001': {
             'live': False, 'title': '', 'uname': '', 'live_known': True,
         }})
         host.sidebar.resort.assert_called_once_with()
         host._sync_replay_scope.assert_called_once_with()
         host.sync_danmaku.assert_called_once_with()
-        host._save_timer.start.assert_called_once_with()
 
     def test_wall_only_live_status_change_keeps_sync_work(self):
         sidebar_room = {'room_id': '1001', 'live': True, 'live_known': True}

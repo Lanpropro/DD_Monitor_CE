@@ -1,7 +1,6 @@
 """Live-duration metadata delivery with isolated Qt windows and no live requests."""
 import time
 import unittest
-from unittest.mock import patch
 
 import selfcheck_main_notices as fixtures
 
@@ -18,9 +17,9 @@ class LiveElapsedTests(unittest.TestCase):
         tile.set_controls_visible(True)
         return window, tile
 
-    def status(self, window, *, live=True, start=0, known=True):
+    def status(self, window, *, live=True, start=0):
         window._on_status_updated({'7001': dict(live=live, title='Fixture', uname='Fixture',
-            viewers='', face='', cover_url='', live_start_ts=start, live_known=known)})
+            viewers='', face='', cover_url='', live_start_ts=start)})
 
     def test_late_start_time_starts_visible_clock_without_another_playing_event(self):
         window, tile = self.live_window()
@@ -65,8 +64,11 @@ class LiveElapsedTests(unittest.TestCase):
         self.status(window, start=int(time.time()) - 600)
         self.status(window, live=False)
         self.assertFalse(tile._elapsed_timer.isActive())
+        self.assertEqual(tile.cover.text(), '已下播')
         self.assertFalse(tile.room.get('live_start_ts'))
         self.assertFalse(window.sidebar._items[0].room.get('live_start_ts'))
+        self.assertNotIn('last_live_end_ts', tile.room)
+        self.assertNotIn('last_live_ends', window.current_state())
         self.assertTrue(tile.time_badge.isHidden())
         self.status(window)
         self.assertFalse(tile._elapsed_timer.isActive())
@@ -80,39 +82,16 @@ class LiveElapsedTests(unittest.TestCase):
         self.assertFalse(tile._elapsed_timer.isActive())
         self.assertTrue(tile.time_badge.isHidden())
 
-    def test_confirmed_end_is_displayed_saved_and_cleared_on_new_live(self):
+    def test_existing_end_time_metadata_is_ignored_on_startup(self):
         from ddm import config
-        window, tile = self.live_window()
-        item = window.sidebar._items[0]
-        end = int(time.time()) - 60
-        with patch('ddm.room_status.time.time', return_value=end):
-            self.status(window, live=False, known=False)
-            self.assertNotIn('last_live_end_ts', tile.room)
-            self.status(window, live=False)
-        self.assertEqual(tile.room['last_live_end_ts'], end)
-        self.assertEqual(item.room['last_live_end_ts'], end)
-        stamp = time.strftime('%Y-%m-%d %H:%M', time.localtime(end))
-        self.assertIn(f'约于 {stamp} 下播', tile.cover.text())
-        self.status(window, live=False)
-        self.assertEqual(tile.room['last_live_end_ts'], end)
-        saved = window.current_state()
-        self.assertEqual(saved['last_live_ends'], {'7001': end})
-        followed, wall = config.build_rooms(saved)
-        self.assertEqual(followed[0]['last_live_end_ts'], end)
-        self.assertEqual(wall[0]['last_live_end_ts'], end)
-        tile.set_room(wall[0])
-        self.assertNotIn(stamp, tile.cover.text())
-        self.status(window, live=False)
-        self.assertIn(stamp, tile.cover.text())
-        self.status(window)
-        self.assertNotIn('last_live_end_ts', tile.room)
-        self.assertEqual(window.current_state()['last_live_ends'], {})
-
-    def test_first_offline_observation_does_not_invent_end_time(self):
-        window = self.window([dict(room_id='7001', live=False, live_known=False)], offscreen=True)
+        rooms, wall = config.build_rooms({'rooms': ['7001'], 'wall': [{'room_id': '7001'}],
+                                          'last_live_ends': {'7001': 1_700_000_000}})
+        self.assertNotIn('last_live_end_ts', rooms[0])
+        self.assertNotIn('last_live_end_ts', wall[0])
+        window = self.window(wall, offscreen=True)
         self.status(window, live=False)
         self.assertEqual(window.wall.tiles[0].cover.text(), '未开播')
-        self.assertEqual(window.current_state()['last_live_ends'], {})
+        self.assertNotIn('last_live_ends', window.current_state())
 
 
 if __name__ == '__main__':
