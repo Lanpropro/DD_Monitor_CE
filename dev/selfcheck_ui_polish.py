@@ -9,9 +9,9 @@ from unittest.mock import patch
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QStyleOptionButton, QWidget
+from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionButton, QStyleOptionSlider, QWidget
 from ddm import config, theme
 from ddm.dialogs import DanmakuSettingsPage, TraySettingsPage
 from ddm.playback_badges import StreamBadge, TitleBadge
@@ -235,6 +235,41 @@ class UiPolishTests(unittest.TestCase):
         self.assertFalse(received)
         menu.scale.setChecked(False)
         self.assertEqual(received, [{'video_danmaku_scale': False}])
+
+    def test_tile_danmaku_menu_waits_for_use_and_tracks_theme(self):
+        from ddm.video_danmaku_settings import VideoDanmakuSettings
+        theme.apply('dark')
+        self.addCleanup(theme.apply, 'dark')
+        tile = Tile({'room_id': '1'})
+        self.addCleanup(tile.deleteLater)
+        self.assertIsNone(tile.findChild(VideoDanmakuSettings))
+        tile.apply_video_danmaku_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_speed=77, video_danmaku_size=36))
+        tile._set_video_danmaku_independent(True)
+        theme.apply('light')
+        self.assertIsNone(tile.findChild(VideoDanmakuSettings))
+
+        tile.danmaku_settings_button.click()
+        menu = tile.danmaku_settings_menu
+        self.addCleanup(menu.hide)
+        self.assertIs(menu.parentWidget(), tile)
+        self.assertTrue(menu.independent.isChecked())
+        self.assertEqual(menu.controls['video_danmaku_speed'].value(), 77)
+        slider = menu.controls['video_danmaku_size']
+        self.assertEqual(slider.value(), 36)
+        slider.setValue(40)
+        self.assertEqual(tile.video_danmaku.settings['video_danmaku_size'], 40)
+        stylesheet = menu.styleSheet()
+        for mode in ('light', 'dark', 'light'):
+            theme.apply(mode)
+            self.assertIs(tile.danmaku_settings_menu, menu)
+            self.assertEqual(menu.styleSheet(), stylesheet)
+            option = QStyleOptionSlider()
+            slider.initStyleOption(option)
+            handle = slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider)
+            image = slider.grab().toImage()
+            ratio = image.devicePixelRatio()
+            self.assertEqual(image.pixelColor(round(handle.center().x()*ratio), round(handle.center().y()*ratio)),
+                             QColor(theme.TEXT1))
 
     def test_menu_editor_and_runtime_keep_order_callbacks_and_visibility(self):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)

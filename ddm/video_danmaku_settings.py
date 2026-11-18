@@ -18,7 +18,7 @@ class VideoDanmakuSettings(QMenu):
         self.setObjectName("VideoDanmakuSettings")
         self.setStyleSheet(f"""
             QSlider::sub-page:horizontal {{ background: {theme.PINK}; }}
-            QSlider::handle:horizontal {{ background: {theme.TEXT1}; }}
+            QSlider::handle:horizontal {{ background: palette(window-text); }}
         """)
         holder = QWidget(self)
         grid = QGridLayout(holder)

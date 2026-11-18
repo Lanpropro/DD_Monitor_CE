@@ -112,8 +112,9 @@ class TileState:
             host._video_danmaku_global_settings = dict(settings)
         effective = {**host._video_danmaku_global_settings, **(host.video_danmaku_overrides or {})}
         host.video_danmaku.apply_settings(effective)
-        host.danmaku_settings_menu.apply_settings(
-            effective, independent=host.video_danmaku_overrides is not None)
+        menu = host._danmaku_settings_menu
+        if menu is not None:
+            menu.apply_settings(effective, independent=host.video_danmaku_overrides is not None)
 
     def set_video_danmaku_independent(self, enabled: bool) -> None:
         host = self.host

@@ -202,11 +202,8 @@ class Tile(QFrame):
                                        else "开启画面弹幕（默认 B）")
         self.danmaku_settings_button = DanmakuSettingsButton()
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
-        self.danmaku_settings_menu = VideoDanmakuSettings(self)
-        self.danmaku_settings_menu.settingsChanged.connect(self._change_video_danmaku_settings)
-        self.danmaku_settings_menu.independentChanged.connect(self._set_video_danmaku_independent)
+        self._danmaku_settings_menu = None
         self.apply_video_danmaku_settings()
-        self.danmaku_settings_menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
         self.danmaku_settings_button.clicked.connect(
             lambda: self.danmaku_settings_menu.open_at(self.danmaku_settings_button, self.video_danmaku.settings))
         # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
@@ -341,6 +338,18 @@ class Tile(QFrame):
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
         return self.state_control.toggle_video_danmaku(enabled)
+
+    @property
+    def danmaku_settings_menu(self):
+        if self._danmaku_settings_menu is None:
+            menu = VideoDanmakuSettings(self)
+            menu.apply_settings(self.video_danmaku.settings,
+                                independent=self.video_danmaku_overrides is not None)
+            menu.settingsChanged.connect(self._change_video_danmaku_settings)
+            menu.independentChanged.connect(self._set_video_danmaku_independent)
+            menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
+            self._danmaku_settings_menu = menu
+        return self._danmaku_settings_menu
 
     def _change_video_danmaku_settings(self, values: dict) -> None:
         return self.state_control.change_video_danmaku_settings(values)
