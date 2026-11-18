@@ -100,8 +100,12 @@ class RoomAddPanel(QFrame):
         '''))
         self.error.setStyleSheet(f'color:{theme.ERROR};')
 
+    def _sidebar_add_button(self):
+        navigation = self.sidebar.navigation
+        return navigation.collapsed_add_button if self.sidebar.collapsed else navigation.add_button
+
     def open(self, *, can_choose_followed=False, focus_on_close=None):
-        self._focus_on_close = focus_on_close
+        self._focus_on_close = self._sidebar_add_button() if focus_on_close is None else focus_on_close
         if not self.busy:
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
@@ -184,8 +188,6 @@ class RoomAddPanel(QFrame):
         self.hide()
         self.followed_toggle.setChecked(False)
         self.dismissed.emit()
-        if focus_target is None and self.sidebar.search.isVisible():
-            self.sidebar.search.setFocus(Qt.OtherFocusReason)
 
     def _import(self):
         self.close_editor()
@@ -203,8 +205,7 @@ class RoomAddPanel(QFrame):
         if sidebar.side == 'left':
             point = sidebar.mapTo(parent, QPoint(sidebar.width() + 4, 12))
         else:
-            button = (sidebar.navigation.collapsed_add_button if sidebar.collapsed
-                      else sidebar.navigation.add_button)
+            button = self._sidebar_add_button()
             point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
         icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
                                                  if not self.followed_toggle.isHidden() else 0)

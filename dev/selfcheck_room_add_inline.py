@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 from ddm import config, images, motion
 from ddm.sidebar_widgets import Sidebar
@@ -137,6 +137,34 @@ class InlineRoomAddTests(unittest.TestCase):
         self.pump()
         self.assertFalse(panel.isVisible())
         self.assertIs(self.app.focusWidget(), search)
+
+    def test_dismissing_add_panel_from_sidebar_plus_returns_focus_to_plus(self):
+        sidebar = self.host.sidebar
+        sidebar.addRoomClicked.connect(lambda: self.catalog.open_add_room(resolver_type=Resolver))
+        for collapsed in (False, True):
+            with self.subTest(collapsed=collapsed):
+                sidebar.set_collapsed(collapsed, animate=False)
+                self.pump()
+                button = sidebar.navigation.collapsed_add_button if collapsed else sidebar.navigation.add_button
+                self.assertTrue(button.isVisible())
+                QTest.mouseClick(button, Qt.LeftButton)
+                self.pump()
+                panel = self.catalog._add_panel
+                self.assertIs(self.app.focusWidget(), panel.entry)
+                focused = QSignalSpy(self.app.focusChanged)
+                QTest.mouseClick(panel.close_button, Qt.LeftButton)
+                self.pump()
+                self.assertFalse(panel.isVisible())
+                self.assertNotIn(sidebar.search, [focused.at(i)[1] for i in range(focused.count())])
+                self.assertIs(self.app.focusWidget(), button)
+
+        sidebar.set_collapsed(False, animate=False)
+        self.pump()
+        QTest.mouseClick(sidebar.navigation.add_button, Qt.LeftButton)
+        QTest.mouseClick(sidebar.search, Qt.LeftButton)
+        self.pump()
+        self.assertFalse(panel.isVisible())
+        self.assertIs(self.app.focusWidget(), sidebar.search)
 
     def test_live_filter_restores_saved_value_and_keeps_last_choice(self):
         wall = self.install_wall()
