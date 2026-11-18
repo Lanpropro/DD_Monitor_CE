@@ -102,6 +102,11 @@ FULLSCREEN_BAR_STYLE = '''
 #TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
     color: #fb7299;
 }
+#TileBottom[fullscreen="true"] #DanmakuComposer QLineEdit {
+    background: rgba(12, 16, 22, 0.62);
+    color: #ffffff;
+    placeholder-text-color: #edf1f5;
+}
 '''
 
 BG = mix(BASE, "#000000", 0.20)

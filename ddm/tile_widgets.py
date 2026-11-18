@@ -25,8 +25,8 @@ from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
 from .playback_badges import LoadingIndicator, PauseIndicator, StreamBadge, TimeBadge, TitleBadge
 from .playback_controls import (
-    DanmakuSettingsButton, DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, TileButton, VolumeButton,
-    VolumePopup
+    DanmakuSettingsButton, DanmakuToggleButton, PauseButton, PlaybackLabel, RecordingButton,
+    RefreshButton, TileButton, VolumeButton, VolumePopup, _paint_fullscreen_label
 )
 from .sidebar_drag import ROOM_MIME
 from .ui.labels import ElidedLabel
@@ -42,6 +42,12 @@ from .tile_state import TileState
 from .tile_controls import TileControls
 from .tile_presentation import TilePresentation
 from .tile_context_menu import TileContextMenu
+
+
+class PlaybackStatusLabel(ElidedLabel):
+    def paintEvent(self, event):
+        if not _paint_fullscreen_label(self):
+            super().paintEvent(event)
 
 
 class Tile(QFrame):
@@ -205,14 +211,14 @@ class Tile(QFrame):
         self.danmaku_settings_button.clicked.connect(
             lambda: self.danmaku_settings_menu.open_at(self.danmaku_settings_button, self.video_danmaku.settings))
         # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
-        self.recording_time = QLabel("")
+        self.recording_time = PlaybackLabel("")
         self.recording_time.setObjectName("TileTitle")
         self.recording_time.setToolTip("这一路已经录了多久")
         self.recording_time.setVisible(False)
         _ignore_mouse(self.recording_time)
         # 信息条中间：常驻状态（连接中 / 缓冲中 / 断流重连 / 已下播…）
         # 画面被 VLC 原生窗口盖住时，这里也一定看得见
-        self.status_label = ElidedLabel("")
+        self.status_label = PlaybackStatusLabel("")
         self.status_label.setObjectName("TileStatus")
         _ignore_mouse(self.status_label)
         _allow_shrink(self.status_label)
@@ -255,7 +261,7 @@ class Tile(QFrame):
         self._volume_hide_timer.setSingleShot(True)
         self._volume_hide_timer.setInterval(140)
         self._volume_hide_timer.timeout.connect(self._hide_volume_popup_if_outside)
-        self.volume_label = QLabel(str(self.volume))
+        self.volume_label = PlaybackLabel(str(self.volume))
         self.volume_label.setObjectName("TileTitle")
         self.volume_label.setFixedWidth(24)
         _ignore_mouse(self.volume_label)

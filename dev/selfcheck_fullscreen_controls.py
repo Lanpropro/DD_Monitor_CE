@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QPainter, QPalette, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 from ddm import app as app_module, skin_parts, theme
@@ -192,6 +192,52 @@ def check_skin_gradient(tile):
         skin_parts.configure({}, {})
 
 
+def check_control_contrast(app, tile):
+    def render(widget, backdrop):
+        image = QImage(widget.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(QColor(backdrop))
+        painter = QPainter(image)
+        widget.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+        painter.end()
+        return image
+
+    controls = (tile.pause_button, tile.volume_button, tile.volume_label, tile.status_label,
+                tile.danmaku_button, tile.danmaku_settings_button, tile.recording_button, tile.fullscreen_button)
+    status = tile.status_label.text()
+    tile.status_label.setText('Local playback status')
+    composer = QWidget(tile.bottom)
+    composer.setObjectName('DanmakuComposer')
+    composer.setGeometry(tile.bottom.width() // 2 - 90, 0, 180, 30)
+    composer.setStyleSheet('#DanmakuComposer QLineEdit {padding: 3px 6px;}')
+    editor = QLineEdit(composer)
+    editor.setPlaceholderText('Local input')
+    editor.setGeometry(composer.rect())
+    composer.show()
+    try:
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            app.processEvents()
+            for widget in controls:
+                white = render(widget, '#ffffff')
+                black = render(widget, '#101010')
+                coords = (
+                    (x, y) for x in range(2, widget.width() - 2)
+                    for y in range(2, widget.height() - 2))
+                samples = [(white.pixelColor(x, y), black.pixelColor(x, y)) for x, y in coords]
+                assert any(c.value() < 125 for c, _ in samples), (
+                    f'{type(widget).__name__} needs a visible edge against white')
+                assert any(c.value() > 135 for _, c in samples), (
+                    f'{type(widget).__name__} needs a visible glyph against dark video')
+                assert white.pixelColor(0, 0) == QColor('#ffffff')
+            pixel = render(editor, '#ffffff').pixelColor(editor.width() - 16, editor.height() // 2)
+            assert 80 < pixel.value() < 130, 'Only the composer field needs a translucent dark backing'
+            assert editor.palette().color(QPalette.PlaceholderText).value() > 220
+    finally:
+        tile.status_label.setText(status)
+        composer.hide()
+        composer.deleteLater()
+
+
 def main():
     app = QApplication([])
     badge = TimeBadge()
@@ -257,6 +303,7 @@ def main():
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
         check_transparent_bar(app, tile)
         check_skin_gradient(tile)
+        check_control_contrast(app, tile)
         if '--desktop' in sys.argv:
             with patch('ddm.motion.enabled', return_value=True):
                 tile.set_fullscreen_controls_hidden(True)
