@@ -1,5 +1,5 @@
 """Picture-in-picture room selection and composition dialog."""
-from PySide6.QtCore import QEvent, QRectF, QSignalBlocker, Qt
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, QSignalBlocker, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from . import theme
@@ -8,7 +8,8 @@ from .search import matches_text
 from .settings_window import SettingsTitleBar
 from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, ToggleSwitch, page_header
 from .pip_arrangements import PipArrangements
-from .pip_composition import FOCUS_LAYOUT, MAIN_LAYOUT
+from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, MAIN_LAYOUT
+from .pip_placement import initial_placement, placement_bounds
 from .pip_preview import CompositionPreview
 
 
@@ -56,6 +57,8 @@ class PictureInPictureDialog(QDialog):
         self.controller = controller
         self._order = list(controller.selected_choices())
         self._primary = controller.primary_choice()
+        self._placements = dict(zip(self._order, controller.placement)) if len(self._order) == len(controller.placement) else {}
+        self._vacancies = []
         self.setWindowTitle('组合画中画')
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -77,17 +80,14 @@ class PictureInPictureDialog(QDialog):
         layout.addWidget(self.titlebar)
         self.preview = CompositionPreview(self)
         self.preview.positionsSwapped.connect(self._swap_preview)
+        self.preview.positionChanged.connect(self._place_preview)
         layout.addWidget(self.preview)
         options = QFrame(self)
         options.setObjectName('PluginCard')
         option_rows = QVBoxLayout(options)
         option_rows.setContentsMargins(12, 10, 12, 10)
         option_rows.setSpacing(8)
-        chat = controller.chat_cells(FOCUS_LAYOUT, parallel=controller.parallel_preference)
-        mode = controller.columns
-        if mode == FOCUS_LAYOUT and len(self._order) < 6 - len(chat):
-            mode = 0
-        self.arrangements = PipArrangements(mode, options)
+        self.arrangements = PipArrangements(controller.columns, options)
         self.arrangements.setAccessibleName('画中画排列方式')
         option_rows.addWidget(self.arrangements)
         parallel_row = QHBoxLayout()
@@ -100,10 +100,6 @@ class PictureInPictureDialog(QDialog):
         parallel_row.addWidget(self.parallel)
         option_rows.addLayout(parallel_row)
         layout.addWidget(options)
-        if mode == FOCUS_LAYOUT and chat and len(self._order) > 6 - len(chat):
-            wall = {key for key, _room in controller._wall_candidates()}
-            self._order = ([key for key in self._order if key in wall]
-                           + [key for key in self._order if key not in wall])[:6 - len(chat)]
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
         self.search.setPlaceholderText(controller.host.sidebar.search.placeholderText())
@@ -180,7 +176,6 @@ class PictureInPictureDialog(QDialog):
         footer.addWidget(self.start)
         layout.addLayout(footer)
         self.arrangements.changed.connect(self._refresh)
-        self.parallel.toggled.connect(self._parallel_changed)
         self._refresh()
         self._arrange_choices()
         self.search.setFocus(Qt.OtherFocusReason)
@@ -257,17 +252,6 @@ class PictureInPictureDialog(QDialog):
 
     def _swap_preview(self, first, second):
         selection = self._selected()
-        if self._chat_cells():
-            source, target = self._preview_choices[first], self._preview_choices[second]
-            if source is None or target is None:
-                return
-            left, right = selection.index(source), selection.index(target)
-            selection[left], selection[right] = selection[right], selection[left]
-            self._order = selection
-            if first == 0 or second == 0:
-                self._primary = target if first == 0 else source
-            self._refresh()
-            return
         primary = selection.index(self._primary)
         selection[first], selection[second] = selection[second], selection[first]
         self._order = selection
@@ -275,34 +259,54 @@ class PictureInPictureDialog(QDialog):
             self._primary = selection[primary]
         self._refresh()
 
+    def _place_preview(self, index, rect):
+        self._placements[self._order[index]] = rect
+        self._refresh()
+
+    def _custom_placement(self, selection, aspects):
+        for key in list(self._placements):
+            if key not in selection:
+                self._vacancies.append(self._placements.pop(key))
+        if not self._placements and not self._vacancies:
+            self._placements = dict(zip(selection, initial_placement(aspects)))
+        for key, aspect in zip(selection, aspects):
+            if key in self._placements:
+                continue
+            occupied = [QRect(*value) for value in self._placements.values()]
+            slot = None
+            while self._vacancies and slot is None:
+                vacancy = QRect(*self._vacancies.pop(0))
+                if not any(vacancy.intersects(rect) for rect in occupied):
+                    size = QSize(max(1, round(vacancy.height() * aspect)), vacancy.height())
+                    size.scale(vacancy.size(), Qt.KeepAspectRatio)
+                    slot = QRect(vacancy.topLeft(), size)
+            if slot is None:
+                if occupied:
+                    bounds = placement_bounds(list(self._placements.values()))
+                    next_row = bounds.width() > bounds.height() * 2
+                    x, y = ((bounds.left(), bounds.bottom() + 1) if next_row
+                            else (bounds.right() + 1, bounds.top()))
+                    height = round(sum(rect.height() for rect in occupied) / len(occupied))
+                else:
+                    x, y, height = 0, 0, 240
+                slot = QRect(x, y, max(1, round(height * aspect)), height)
+            self._placements[key] = slot.getRect()
+        return tuple(self._placements[key] for key in selection)
+
     def _refresh(self, *_args):
         selection = self._selected()
         self._order = selection
         names = [self.checks[index].preview_name for index in selection]
         if self._primary not in selection:
             self._primary = selection[0] if selection else None
-        has_chat = bool(self.controller.chat_cells(FOCUS_LAYOUT, parallel=self.parallel.isChecked()))
-        mode = self.arrangements.update_context(len(selection), has_chat)
-        focus = mode == FOCUS_LAYOUT
-        slots, aspects, primary = self.controller.composition(selection, mode, self._primary,
-                                                              parallel=self.parallel.isChecked())
-        self._preview_choices = slots
-        chat = self._chat_cells()
-        if chat:
-            names = ['弹幕' if index in chat else self.checks[key].preview_name if key is not None else '未选择视频'
-                     for index, key in enumerate(slots)]
-            self.preview.set_panes(names, mode, aspects, primary,
-                                   locked=[index for index, key in enumerate(slots) if key is None])
-            required = 6 - len(chat)
-            self.start.setEnabled(len(selection) == required)
-            self.hint.setText(f'此布局需要 {required} 路视频＋{len(chat)} 格弹幕，当前选择 {len(selection)} 路视频。'
-                              '弹幕来源沿用监控室；取消一路视频后可从下方替换。')
-            return
-        self.preview.set_panes(names, mode, aspects, primary)
-        valid = bool(names) and (not focus or len(names) == 6)
-        self.start.setEnabled(valid)
-        if focus and len(names) != 6:
-            hint = '六格组合需要选择 6 路画面。'
+        mode = self.arrangements.update_context(len(selection))
+        aspects = self.controller.aspects_for(selection)
+        primary = selection.index(self._primary) if selection else 0
+        placement = self._custom_placement(selection, aspects) if mode == FREE_LAYOUT else ()
+        self.preview.set_panes(names, mode, aspects, primary, placement=placement)
+        self.start.setEnabled(bool(selection))
+        if mode == FREE_LAYOUT:
+            hint = '拖动画面自由摆放，靠近其他画面的边缘时自动吸附对齐。'
         elif len(names) > 1:
             hint = f'已选择 {len(names)} 路，拖到其他画面附近可吸附换位。'
         elif names:
@@ -313,19 +317,10 @@ class PictureInPictureDialog(QDialog):
             hint += '墙外直播仅在本次画中画中观看。'
         self.hint.setText(hint)
 
-    def _parallel_changed(self, enabled):
-        if enabled and self.arrangements.mode == FOCUS_LAYOUT and len(self._selected()) != 6:
-            self.arrangements.select(0)
-        else:
-            self._refresh()
-
     def _apply(self):
         selected = self._selected()
         if self.controller.start(selected, self.arrangements.mode, self._primary,
-                                 parallel=self.parallel.isChecked()):
+                                 parallel=self.parallel.isChecked(), placement=self.preview.placement):
             self.accept()
         else:
             self.hint.setText('所选直播间已变化或下播，请重新选择。')
-
-    def _chat_cells(self):
-        return self.controller.chat_cells(self.arrangements.mode, parallel=self.parallel.isChecked())

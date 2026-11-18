@@ -8,6 +8,7 @@ from .widget_support import TILE_BAR_HEIGHT, _repolish
 class WallPresentation:
     def __init__(self, host):
         self.host = host
+        self._pip_placement = ()
 
     def ensure_quick_danmaku_layer(self):
         host = self.host
@@ -34,7 +35,7 @@ class WallPresentation:
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
         return host._quick_danmaku_layer
 
-    def set_picture_in_picture(self, tiles, columns=0, aspects=None, primary=0):
+    def set_picture_in_picture(self, tiles, columns=0, aspects=None, primary=0, *, placement=()):
         host = self.host
         host.set_interactive_resize(False)
         host._clear()
@@ -44,6 +45,7 @@ class WallPresentation:
         host.picture_in_picture_columns = columns
         host.picture_in_picture_primary = primary
         host.picture_in_picture_aspects = aspects or []
+        self._pip_placement = placement
         selected = set(tiles or [])
         for tile in host.tiles:
             tile.setProperty('pictureInPicture', tile in selected)
@@ -59,8 +61,7 @@ class WallPresentation:
 
     def relayout_picture_in_picture(self):
         host = self.host
-        from .picture_in_picture import pane_rectangles
-        from .pip_composition import focus_chat_cells, focus_slots
+        from .pip_geometry import pane_rectangles
         host.setMinimumSize(0, 0)
         for panel in host.pane_danmaku.all_panels():
             panel.hide()
@@ -68,23 +69,16 @@ class WallPresentation:
         for border in host._pane_borders.values():
             border.hide()
         selected = host.picture_in_picture_tiles
-        chat = focus_chat_cells(host, host.picture_in_picture_columns)
-        slots = focus_slots(selected, chat, selected[host.picture_in_picture_primary]) if chat else selected
         for tile in host.tiles:
             tile.setVisible(tile in selected)
         window = host._quick_danmaku_layer.window if host._quick_danmaku_layer is not None else None
         if window is not None:
             window.begin_mask_batch()
         try:
-            rectangles = pane_rectangles(len(slots), host.rect(), host.picture_in_picture_columns,
-                    host.picture_in_picture_aspects, 0 if chat else host.picture_in_picture_primary)
-            widgets = {}
-            for index, (tile, rect) in enumerate(zip(slots, rectangles)):
-                widget = host.pane_danmaku.panels[index] if tile is None else tile
-                widget.setGeometry(rect)
-                widgets[index] = widget
-            if chat:
-                host.pane_danmaku.arrange(dict(enumerate(rectangles)), widgets, gap=0)
+            rectangles = pane_rectangles(len(selected), host.rect(), host.picture_in_picture_columns,
+                    host.picture_in_picture_aspects, host.picture_in_picture_primary, placement=self._pip_placement)
+            for tile, rect in zip(selected, rectangles):
+                tile.setGeometry(rect)
         finally:
             if window is not None:
                 window.end_mask_batch()

@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QSizePolicy, QToolButto
 
 from . import theme
 from .corner_geometry import continuous_path
-from .pip_composition import FOCUS_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
+from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
 from .pip_geometry import pane_rectangles
 
 
@@ -22,8 +22,8 @@ class PipArrangements(QWidget):
         row.setSpacing(6)
         self.group = QButtonGroup(self)
         self.buttons = {}
-        for value, name in ((0, '单画面'), (16, '并排'), (1, '上下'), (GRID_LAYOUT, '均分'),
-                            (MAIN_LAYOUT, '一主多辅'), (FOCUS_LAYOUT, '六格组合'),
+        for value, name in ((0, '自动'), (16, '并排'), (1, '上下'), (GRID_LAYOUT, '均分'),
+                            (MAIN_LAYOUT, '一主多辅'), (FREE_LAYOUT, '自定义'), (FOCUS_LAYOUT, '六格组合'),
                             (2, '两列'), (3, '三列')):
             button = QToolButton(self)
             button.setText(name)
@@ -44,20 +44,18 @@ class PipArrangements(QWidget):
             self._preference = mode
             self.changed.emit()
 
-    def update_context(self, count, has_chat):
-        context = (count, has_chat, self._preference)
+    def update_context(self, count):
+        context = (count, self._preference)
         if context == self._context:
             return self.mode
         self._context = context
-        modes = [16, 1] if count == 2 else [GRID_LAYOUT, MAIN_LAYOUT] if count >= 3 else []
-        if has_chat or count == 6 or self._preference == FOCUS_LAYOUT:
-            if count < 2:
-                modes.append(0)
+        modes = [0, 16, 1, FREE_LAYOUT] if count == 2 else (
+            [0, GRID_LAYOUT, MAIN_LAYOUT, FREE_LAYOUT] if count >= 3 else [])
+        if count == 6:
             modes.append(FOCUS_LAYOUT)
         if self._preference in (16, 1, 2, 3) and count > 1 and self._preference not in modes:
             modes.append(self._preference)
-        self.mode = self._preference if self._preference in modes else modes[0] if count >= 2 else 0
-        self.buttons[FOCUS_LAYOUT].setText('带弹幕六格' if has_chat else '六格组合')
+        self.mode = self._preference if self._preference in modes else 0
         for value, button in self.buttons.items():
             button.setVisible(value in modes)
             button.setChecked(value == self.mode)
@@ -78,7 +76,10 @@ class PipArrangements(QWidget):
             canvas.fill(Qt.transparent)
             painter = QPainter(canvas)
             painter.setRenderHint(QPainter.Antialiasing)
-            rectangles = pane_rectangles(6 if value == FOCUS_LAYOUT else count, QRect(1, 1, 38, 24), value)
+            if value == FREE_LAYOUT:
+                rectangles = [QRect(1, 8, 24, 15), QRect(25, 3, 13, 20)]
+            else:
+                rectangles = pane_rectangles(6 if value == FOCUS_LAYOUT else count, QRect(1, 1, 38, 24), value)
             for index, rect in enumerate(rectangles):
                 color = theme.ACCENT if index == 0 and value in (MAIN_LAYOUT, FOCUS_LAYOUT) else theme.TEXT2
                 painter.setPen(QPen(theme.qcolor(color), 1))

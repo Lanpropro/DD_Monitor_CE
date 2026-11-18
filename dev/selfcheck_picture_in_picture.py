@@ -19,9 +19,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
-from ddm.pip_composition import GRID_LAYOUT, MAIN_LAYOUT
+from ddm.pip_composition import FREE_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
 from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWindow,
-    FOCUS_LAYOUT, composition_aspect, composition_ratio, composition_rows, pane_rectangles, video_aspect)
+    FOCUS_LAYOUT, composition_ratio, pane_rectangles, video_aspect)
 
 
 def pointer(surface, kind, local, global_pos, button, buttons):
@@ -1017,7 +1017,7 @@ def exercise_focus(app, native, directory):
         pip.manage()
         assert pip.dialog._primary == 1
         pip.dialog.reject()
-        # Preserve the existing chat panes when the same six-cell layout enters PiP.
+        # Separate chat stays on the main wall while selected videos are presented in PiP.
         wall.set_layout('corner')
         window.configure_wall_panes({1: tiles[0], 2: tiles[4]})
         bindings = wall.pane_danmaku.state()
@@ -1029,19 +1029,18 @@ def exercise_focus(app, native, directory):
         pip.manage()
         dialog = pip.dialog
         assert set(dialog._selected()) == {0, 3, 4, 5}
-        assert [dialog.preview.labels[cell].text() for cell in (1, 2)] == ['弹幕', '弹幕']
+        assert len(dialog.preview.labels) == 4
         if native and os.environ.get('DDM_PIP_CHAT_PREVIEW_IMAGE'):
             QTest.qWait(30)
             dialog.grab().save(os.environ['DDM_PIP_CHAT_PREVIEW_IMAGE'])
         dialog.start.click()
         QTest.qWait(50)
-        assert pip.active and wall.has_danmaku
-        assert all(panel.isVisible() for panel in panels.values())
+        assert pip.active and not wall.has_danmaku
+        assert all(panel.isHidden() for panel in panels.values())
         pip.floating.resize_to_width(820)
         QTest.qWait(50)
-        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
         for cell, panel in panels.items():
-            assert panel.geometry() == expected[cell]
+            assert panel.isHidden()
             assert panel.body.document() is documents[cell]
         panels[1].add_message('Fixture', 'chat during PiP')
         assert 'chat before PiP' in panels[1].body.toPlainText()
@@ -1289,6 +1288,13 @@ def exercise_parallel(app, window, directory):
         assert [window.players[pane] for pane in panes[:2]] == retained
         assert pip.display_wall.picture_in_picture_primary == 1
         assert panes[1].height() > panes[2].height()
+        placement = ((0, 30, 320, 180), (320, 0, 152, 270), (0, 210, 286, 161))
+        assert pip.start([0, '3199', '3198'], FREE_LAYOUT, parallel=True, placement=placement)
+        QTest.qWait(80)
+        assert [tile.geometry() for tile in pip.audio_tiles()] == pane_rectangles(
+            3, pip.display_wall.rect(), FREE_LAYOUT, placement=placement)
+        assert [window.players[pane] for pane in panes[:2]] == retained
+        assert pip.state()['placement'] == placement
         pip.floating.close()
         QTest.qWait(100)
         assert not pip.active and all(pane not in window.players for pane in panes)
@@ -1312,13 +1318,19 @@ def main():
     for count in range(1, 17):
         for columns in (0, 1, 2, 3, 16):
             for aspects in ([16 / 9] * count, [9 / 16 if index % 2 else 4 / 3 for index in range(count)]):
-                aspect = composition_aspect(composition_rows(aspects, columns))
+                aspect = composition_ratio(aspects, columns)
                 area = QRect(0, 0, 1280, round(1280 / aspect))
                 rectangles = pane_rectangles(count, area, columns, aspects)
                 assert len(rectangles) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
                 assert not any(first.intersects(second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
-                assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height(), 'Partial final rows must fill their width, without vacant grid slots'
-                assert all(abs(rect.width() - rect.height() * ratio) <= 2 for rect, ratio in zip(rectangles, aspects))
+                if columns or count <= 2:
+                    assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height()
+                    assert all(abs(rect.width() - rect.height() * ratio) <= 2 for rect, ratio in zip(rectangles, aspects))
+                else:
+                    assert all(abs(rect.width() - rect.height() * ratio) <= 4
+                               for rect, ratio in zip(rectangles, aspects))
+                    areas = [rect.width() * rect.height() for rect in rectangles]
+                    assert max(areas) < 1.1 * min(areas)
     assert video_aspect(Mock(_prop=lambda name: {'w': 1440, 'h': 1080, 'dw': 1920, 'dh': 1080})) == 16 / 9
     assert video_aspect(Mock(_prop=lambda name: {'dw': 1920, 'dh': 1080, 'rotate': 90})) == 9 / 16
     assert video_aspect(Mock(_prop=lambda name: None)) is None

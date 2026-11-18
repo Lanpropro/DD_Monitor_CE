@@ -4,7 +4,8 @@ from statistics import median
 from PySide6.QtCore import QRect
 
 
-from .pip_composition import FOCUS_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
+from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
+from .pip_placement import fit_placement, initial_placement, placement_bounds
 
 
 def composition_rows(aspects, columns=0):
@@ -38,7 +39,13 @@ def _main_parts(aspects, primary):
     return sides, columns, composition_aspect(composition_rows(sides, columns))
 
 
-def composition_ratio(aspects, columns=0, primary=0):
+def composition_ratio(aspects, columns=0, primary=0, *, placement=()):
+    if columns == FREE_LAYOUT and placement:
+        bounds = placement_bounds(placement)
+        return bounds.width() / bounds.height()
+    if columns in (0, FREE_LAYOUT) and len(aspects) >= 3:
+        bounds = placement_bounds(initial_placement(aspects))
+        return bounds.width() / bounds.height()
     if columns == FOCUS_LAYOUT and len(aspects) == 6:
         _order, _values, top, bottom = _focus_parts(aspects, primary)
         return 1 / (1 / top + 1 / bottom)
@@ -64,10 +71,14 @@ def video_aspect(player):
     return None
 
 
-def pane_rectangles(count, area, columns=0, aspects=None, primary=0):
+def pane_rectangles(count, area, columns=0, aspects=None, primary=0, *, placement=()):
     if not count:
         return []
     aspects = aspects or [16 / 9] * count
+    if columns == FREE_LAYOUT and len(placement) == count:
+        return fit_placement(placement, area)[0]
+    if columns in (0, FREE_LAYOUT) and count >= 3:
+        return fit_placement(initial_placement(aspects), area)[0]
     aspect = composition_ratio(aspects, columns, primary)
     width = max(1, min(area.width(), round(area.height() * aspect)))
     height = max(1, min(area.height(), round(width / aspect)))

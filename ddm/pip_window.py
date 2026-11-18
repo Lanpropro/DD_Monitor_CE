@@ -263,8 +263,8 @@ class PictureInPictureWindow(QWidget):
             return self._live_resize.preview.saveGeometry()
         return super().saveGeometry()
 
-    def set_composition(self, aspects, columns, primary=0):
-        self.aspect = composition_ratio(aspects, columns, primary)
+    def set_composition(self, aspects, columns, primary=0, *, placement=()):
+        self.aspect = composition_ratio(aspects, columns, primary, placement=placement)
         minimum_height = max(48, math.ceil((self.tools.width() + 48) / self.aspect))
         self.setMinimumSize(round(minimum_height * self.aspect), minimum_height)
         screen = self.screen().availableGeometry()

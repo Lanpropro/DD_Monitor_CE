@@ -49,7 +49,7 @@ class PipPickerTests(unittest.TestCase):
         self.assertFalse(pip.parallel_preference)
 
     def test_layout_cards_adapt_and_preview_snaps_near_a_target(self):
-        from ddm.pip_composition import FOCUS_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
+        from ddm.pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
         from selfcheck_picture_in_picture import pointer
 
         window = self.window([dict(room_id='1', uname='Main', live=True)])
@@ -61,8 +61,10 @@ class PipPickerTests(unittest.TestCase):
         self.assertFalse(cards.isVisible())
         self.assertTrue(dialog.start.isEnabled())
         dialog.checks['2'].setChecked(True)
-        self.assertEqual({mode for mode, button in cards.buttons.items() if button.isVisible()}, {1, 16})
-        self.assertEqual(cards.mode, 16)
+        self.assertEqual({mode for mode, button in cards.buttons.items() if button.isVisible()},
+                         {0, 1, 16, FREE_LAYOUT})
+        self.assertEqual(cards.mode, 0)
+        cards.buttons[16].click()
 
         preview = dialog.preview
         source, target = preview.labels
@@ -78,8 +80,7 @@ class PipPickerTests(unittest.TestCase):
 
         dialog.checks['3'].setChecked(True)
         self.assertEqual({mode for mode, button in cards.buttons.items() if button.isVisible()},
-                         {GRID_LAYOUT, MAIN_LAYOUT})
-        self.assertEqual(cards.mode, GRID_LAYOUT)
+                         {0, 16, GRID_LAYOUT, MAIN_LAYOUT, FREE_LAYOUT})
         cards.buttons[MAIN_LAYOUT].click()
         self.assertEqual(cards.mode, MAIN_LAYOUT)
         primary = preview.labels[preview.primary].geometry()
@@ -133,6 +134,59 @@ class PipPickerTests(unittest.TestCase):
         pip.manage()
         self.assertTrue(pip.dialog.parallel.isChecked())
         pip.dialog.reject()
+
+    def test_custom_layout_moves_a_portrait_view_without_swapping_and_reuses_vacancy(self):
+        from ddm.pip_composition import FREE_LAYOUT
+        from ddm.pip_geometry import pane_rectangles
+        from selfcheck_picture_in_picture import pointer
+
+        window = self.window([dict(room_id='1', uname='Landscape', live=True)])
+        window.sidebar.add_rooms([dict(room_id=str(i), uname=f'Portrait {i}', live=True) for i in (2, 3)])
+        pip = window.picture_in_picture
+        with patch.object(pip, 'aspects_for', side_effect=lambda keys: [
+                16 / 9 if key == 0 else 9 / 16 for key in keys]):
+            pip.manage()
+            dialog = pip.dialog
+            dialog.checks['2'].setChecked(True)
+            dialog.arrangements.buttons[FREE_LAYOUT].click()
+            preview = dialog.preview
+            before = preview.placement
+            first, second = preview.labels
+            self.assertLess(first.height(), second.height())
+            start = second.rect().center()
+            pressed = second.mapToGlobal(start)
+            target = pressed + QPoint(7, 26)
+            pointer(second, QEvent.MouseButtonPress, start, pressed, Qt.LeftButton, Qt.LeftButton)
+            pointer(preview, QEvent.MouseMove, preview.mapFromGlobal(target), target, Qt.NoButton, Qt.LeftButton)
+            pointer(preview, QEvent.MouseButtonRelease, preview.mapFromGlobal(target), target, Qt.LeftButton, Qt.NoButton)
+            after = preview.placement
+            self.assertEqual(dialog._selected(), [0, '2'])
+            self.assertEqual(after[0], before[0])
+            self.assertEqual(after[1][0], after[0][0] + after[0][2])
+            self.assertNotEqual(after[1][1], before[1][1])
+            second = preview.labels[1]
+            start = second.rect().center()
+            pressed = second.mapToGlobal(start)
+            target = pressed + QPoint(25, 0)
+            pointer(second, QEvent.MouseButtonPress, start, pressed, Qt.LeftButton, Qt.LeftButton)
+            pointer(preview, QEvent.MouseMove, preview.mapFromGlobal(target), target, Qt.NoButton, Qt.LeftButton)
+            QTest.keyClick(preview, Qt.Key_Escape)
+            self.assertEqual(preview.placement, after)
+            self.assertIsNone(preview._ghost)
+            dialog.checks['2'].setChecked(False)
+            dialog.checks['3'].setChecked(True)
+            self.assertEqual(preview.placement, after)
+            dialog.parallel.setChecked(True)
+            dialog.start.click()
+            QTest.qWait(60)
+            self.assertTrue(pip.active)
+            self.assertEqual(pip.state()['placement'], after)
+            self.assertEqual([tile.geometry() for tile in pip.audio_tiles()], pane_rectangles(
+                2, pip.display_wall.rect(), FREE_LAYOUT, placement=after))
+            pip.manage()
+            self.assertEqual(pip.dialog.preview.placement, after)
+            pip.dialog.reject()
+            pip.restore()
 
     def test_parallel_toggle_applies_only_on_confirmation_and_returns_to_shared_wall(self):
         window = self.window([dict(room_id='1', uname='Main', live=False)])
@@ -203,41 +257,38 @@ class PipPickerTests(unittest.TestCase):
             window._on_status_updated({'douyu:6979222': dict(status, display_room_id='')})
             self.assertEqual(sidebar.visible_items(), [])
 
-    def test_focus_preview_reserves_chat_cells_and_migrates_old_six_video_choices(self):
+    def test_old_six_slot_wall_can_open_one_video_and_add_a_followed_room(self):
         from ddm.picture_in_picture import FOCUS_LAYOUT
-        window = self.window([dict(room_id=str(i + 1), uname=f'Room {i + 1}', live=False) for i in range(6)])
+        window = self.window([dict(room_id='1', uname='Wall', live=True)])
         wall, pip = window.wall, window.picture_in_picture
         wall.set_layout('corner')
-        window.configure_wall_panes({1: wall.tiles[0], 2: wall.tiles[4]})
-        window.sidebar.add_rooms([dict(room_id='7', uname='Old extra 7', live=True),
-                                  dict(room_id='8', uname='Old extra 8', live=True)])
-        pip.selection, pip.external_rooms = [0, 3, 4, 5], ['7', '8']
-        pip._choice_order = [0, '7', '8', 3, 4, 5]
+        window.configure_wall_panes({1: wall.tiles[0], 2: None})
+        window.sidebar.add_room(dict(room_id='7', uname='Followed', live=True))
+        pip.selection = list(range(6))
         pip.columns = FOCUS_LAYOUT
         pip.manage()
         dialog = pip.dialog
-        self.assertEqual(dialog._selected(), [0, 3, 4, 5])
-        self.assertEqual(len(dialog.preview.labels), 6)
-        self.assertEqual([dialog.preview.labels[i].text() for i in (1, 2)], ['弹幕', '弹幕'])
+        self.assertEqual(dialog._selected(), [0])
+        self.assertEqual(len(dialog.preview.labels), 1)
         self.assertTrue(dialog.start.isEnabled())
-        dialog._swap_preview(0, 3)
-        self.assertEqual(dialog.preview.labels[0].text(), dialog.checks[3].preview_name)
-        self.assertEqual([dialog.preview.labels[i].text() for i in (1, 2)], ['弹幕', '弹幕'])
-        order = dialog._selected()
-        dialog._swap_preview(1, 3)
-        self.assertEqual(dialog._selected(), order)
-        QTest.mousePress(dialog.preview.labels[1], Qt.LeftButton)
-        self.assertIsNone(dialog.preview._drag)
-        QTest.mouseRelease(dialog.preview.labels[1], Qt.LeftButton)
-        dialog.checks[0].setChecked(False)
-        self.assertFalse(dialog.start.isEnabled())
+        dialog.start.click()
+        QTest.qWait(60)
+        self.assertTrue(pip.moves_main_wall)
+        self.assertEqual(len(pip.audio_tiles()), 1)
+        self.assertEqual(pip.columns, 0)
+        pip.manage()
+        dialog = pip.dialog
         dialog.checks['7'].setChecked(True)
         self.assertTrue(dialog.start.isEnabled())
-        self.assertEqual(dialog.preview.labels[1].text(), '弹幕')
-        dialog.reject()
+        self.assertEqual(len(dialog.preview.labels), 2)
+        dialog.start.click()
+        QTest.qWait(60)
+        self.assertEqual([tile.room['room_id'] for tile in pip.audio_tiles()], ['1', '7'])
+        pip.restore(activate=True)
+        self.assertEqual(set(wall.pane_danmaku.bindings()), {1, 2})
 
-    def test_focus_pip_keeps_live_chat_documents_sources_and_restores_wall(self):
-        from ddm.picture_in_picture import FOCUS_LAYOUT, pane_rectangles
+    def test_pip_hides_separate_chat_and_restores_the_same_wall_documents(self):
+        from ddm.picture_in_picture import FOCUS_LAYOUT
         from selfcheck_video_danmaku import Client, Snapshot
         with patch('ddm.app.DanmakuClient', Client), patch('ddm.app.SuperChatSnapshot', Snapshot), \
                 patch('ddm.bili._cookies', return_value={}):
@@ -253,33 +304,23 @@ class PipPickerTests(unittest.TestCase):
             clients = dict(window._danmaku_clients)
             window._on_danmaku_message(clients['1'], dict(kind='danmaku', uname='Fixture', text='before PiP'))
             self.assertTrue(pip.start([0, 3, 4, 5], FOCUS_LAYOUT))
-            self.assertTrue(wall.has_danmaku)
-            self.assertEqual(len(wall.picture_in_picture_aspects), 6)
-            self.assertTrue(all(not panel.isHidden() for panel in panels.values()))
-            expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
+            QTest.qWait(60)
+            self.assertFalse(wall.has_danmaku)
+            self.assertEqual(len(wall.picture_in_picture_aspects), 4)
+            self.assertTrue(all(panel.isHidden() for panel in panels.values()))
             for cell, panel in panels.items():
-                self.assertEqual(panel.geometry(), expected[cell])
                 self.assertIs(panel.body.document(), documents[cell])
-            geometry = {cell: panel.geometry() for cell, panel in panels.items()}
-            window.danmaku_lifecycle.sync_danmaku()
-            self.assertEqual({cell: panel.geometry() for cell, panel in panels.items()}, geometry)
-            self.assertEqual(window._danmaku_clients, clients)
-            window._on_danmaku_message(clients['1'], dict(kind='danmaku', uname='Fixture', text='during PiP'))
-            self.assertIn('before PiP', panels[1].body.toPlainText())
-            self.assertIn('during PiP', panels[1].body.toPlainText())
             pip.swap_positions(wall.tiles[0], wall.tiles[3])
             self.assertIs(panes.target(panels[1]), wall.tiles[0])
             self.assertEqual(panes.state(), bindings)
             wall.resize(900, 540)
             wall.relayout(force=True)
-            expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
-            self.assertEqual(panels[1].geometry(), expected[1])
-            self.assertEqual(panels[2].geometry(), expected[2])
+            self.assertTrue(all(panel.isHidden() for panel in panels.values()))
             pip.restore(activate=False)
             self.assertEqual(panes.state(), bindings)
             for cell, panel in panels.items():
                 self.assertIs(panel.body.document(), documents[cell])
-            self.assertIn('during PiP', panels[1].body.toPlainText())
+            self.assertIn('before PiP', panels[1].body.toPlainText())
             self.assertTrue(wall.tiles[1].isHidden() and wall.tiles[2].isHidden())
 
     def test_focus_chat_preserves_shared_source_merged_document(self):
@@ -294,15 +335,16 @@ class PipPickerTests(unittest.TestCase):
         panel.add_message('Fixture', 'shared source history')
         document = panel.body.document()
         self.assertTrue(pip.start([0, 3, 4, 5], FOCUS_LAYOUT))
+        QTest.qWait(60)
         self.assertEqual(panes.rendered(), [panel])
-        self.assertFalse(panel.isHidden())
+        self.assertTrue(panel.isHidden())
         self.assertIs(panel.body.document(), document)
         self.assertEqual(set(next(iter(panes.groups.values()))), {1, 2})
         pip.restore(activate=False)
         self.assertIs(panel.body.document(), document)
         self.assertIn('shared source history', panel.body.toPlainText())
 
-    def test_focus_chat_requires_four_video_choices_before_allocating_extra_tiles(self):
+    def test_old_six_slot_mode_accepts_other_video_counts(self):
         from ddm.picture_in_picture import FOCUS_LAYOUT
         window = self.window([dict(room_id=str(i + 1), live=False) for i in range(6)])
         wall, pip = window.wall, window.picture_in_picture
@@ -310,11 +352,10 @@ class PipPickerTests(unittest.TestCase):
         window.configure_wall_panes({1: None, 2: None})
         window.sidebar.add_rooms([dict(room_id='7', live=True), dict(room_id='8', live=True)])
         window.start_tile.reset_mock()
-        self.assertFalse(pip.start([0, 3, 4, '7', '8'], FOCUS_LAYOUT))
-        self.assertFalse(pip._extra_tiles)
-        self.assertFalse(pip.active)
-        window.start_tile.assert_not_called()
-        self.assertTrue(pip.start([0, 3], 0))
+        self.assertTrue(pip.start([0, 3, 4, '7', '8'], FOCUS_LAYOUT))
+        QTest.qWait(60)
+        self.assertEqual(set(pip._extra_tiles), {'7', '8'})
+        self.assertEqual(len(wall.picture_in_picture_tiles), 5)
         self.assertFalse(wall.has_danmaku)
         self.assertTrue(all(panel.isHidden() for panel in wall.pane_danmaku.all_panels()))
         pip.restore(activate=False)
@@ -408,7 +449,7 @@ class PipPickerTests(unittest.TestCase):
         self.assertFalse(pip.active)
 
     def test_pip_picker_lists_wall_first_then_live_follows_without_allocating_players(self):
-        from ddm.picture_in_picture import FOCUS_LAYOUT
+        from ddm.pip_composition import FOCUS_LAYOUT, FREE_LAYOUT
         window = self.window([{'room_id': '1', 'uname': 'Wall', 'live': False},
                               {'room_id': '2', 'uname': 'Wall live', 'live': True}])
         window.settings['close_behavior'] = 'exit'
@@ -423,7 +464,7 @@ class PipPickerTests(unittest.TestCase):
         self.assertEqual([heading.text() for heading, _keys in dialog.sections], ['已入墙', '默认关注'])
         self.assertEqual(dialog._selected(), [0, 1])
         self.assertEqual({mode for mode, button in dialog.arrangements.buttons.items() if button.isVisible()},
-                         {1, 16})
+                         {0, 1, 16, FREE_LAYOUT})
         for rid in ('3', '4', '5', '6'):
             dialog.checks[rid].setChecked(True)
         dialog.arrangements.buttons[FOCUS_LAYOUT].click()

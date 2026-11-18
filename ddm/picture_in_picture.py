@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
 
 from . import follow_folders, theme
 from .search import matches_text
-from .pip_composition import MAIN_LAYOUT, focus_chat_cells, focus_slots
+from .pip_composition import FREE_LAYOUT, MAIN_LAYOUT
+from .pip_placement import validate_placement
 from .pip_parallel import ParallelPictureInPicture
 from .ui import ActionButton, Avatar, ElidedLabel, page_header
 
@@ -41,6 +42,7 @@ class PictureInPicture(QObject):
         self.external_rooms = list(saved.get('external_rooms', []))
         self.external_primary = saved.get('external_primary', '')
         self._choice_order = list(saved.get('choice_order', []))
+        self.placement = validate_placement(saved.get('placement'))
         self._extra_tiles = {}
         self._parallel = None
         self.parallel_preference = bool(saved.get('parallel', False))
@@ -101,9 +103,16 @@ class PictureInPicture(QObject):
             self.dialog.raise_()
             self.dialog.activateWindow()
             return
-        if not self.selection and not self.external_rooms:
-            capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
-            self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
+        if not self.active:
+            available = {key for _title, entries in self.candidate_groups() for key, _room in entries}
+            if not any(key in available for key in self.selected_choices()):
+                capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
+                self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
+                self.primary = None
+                self.external_rooms = []
+                self.external_primary = ''
+                self._choice_order = []
+                self.placement = ()
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()
@@ -195,18 +204,6 @@ class PictureInPicture(QObject):
         else:
             self.host.wall._drop_tile(tile)
 
-    def chat_cells(self, columns, *, parallel=False):
-        return () if parallel else focus_chat_cells(self.host.wall, columns)
-
-    def composition(self, selection, columns, primary=None, *, parallel=False):
-        aspects = self.aspects_for(selection)
-        chat = self.chat_cells(columns, parallel=parallel)
-        if chat:
-            values = dict(zip(selection, aspects))
-            slots = focus_slots(selection, chat, primary)
-            return slots, [values.get(key, 16 / 9) for key in slots], 0
-        return list(selection), aspects, selection.index(primary) if primary in selection else 0
-
     def aspects_for(self, selection):
         aspects = []
         for index in selection:
@@ -226,7 +223,8 @@ class PictureInPicture(QObject):
         return aspects
 
     def _refresh_aspects(self):
-        if not self.active or self.floating._gesture is not None or self.floating._reorder_drag is not None:
+        if (not self.active or self.columns == FREE_LAYOUT
+                or self.floating._gesture is not None or self.floating._reorder_drag is not None):
             return
         wall = self.display_wall
         if self._parallel is not None:
@@ -237,7 +235,8 @@ class PictureInPicture(QObject):
                        for tile, aspect in zip(tiles, wall.picture_in_picture_aspects)]
             primary = wall.picture_in_picture_primary
         else:
-            _slots, aspects, primary = self.composition(self.selection, self.columns, self.primary)
+            aspects = self.aspects_for(self.selection)
+            primary = self.selection.index(self.primary)
         if aspects == wall.picture_in_picture_aspects:
             return
         wall.picture_in_picture_aspects = aspects
@@ -254,27 +253,30 @@ class PictureInPicture(QObject):
             primary = selection.index(self.primary_choice())
             selection[first], selection[second] = selection[second], selection[first]
             self.start(selection, self.columns, selection[primary] if self.columns in (FOCUS_LAYOUT, MAIN_LAYOUT)
-                       else self.primary_choice(), parallel=True)
+                       else self.primary_choice(), parallel=True, placement=self.placement)
             return
         primary = self.selection.index(self.primary)
         self.selection[first], self.selection[second] = self.selection[second], self.selection[first]
         if self.columns in (FOCUS_LAYOUT, MAIN_LAYOUT):
             self.primary = self.selection[primary]
-        self.start(self.selection, self.columns, self.primary)
+        self.start(self.selection, self.columns, self.primary, placement=self.placement)
 
-    def start(self, selection, columns=0, primary=None, *, parallel=False):
+    def start(self, selection, columns=0, primary=None, *, parallel=False, placement=()):
         wall = self.host.wall
         candidates = {key: room for _title, entries in self.candidate_groups() for key, room in entries}
-        if not selection or (parallel and columns == FOCUS_LAYOUT and len(selection) != 6):
+        if not selection:
             return False
         for key in selection:
             if self.choice_for_index(key) not in candidates:
                 return False
-        chat = self.chat_cells(columns, parallel=parallel)
-        if chat and len({self.choice_for_index(key) for key in selection}) != 6 - len(chat):
-            return False
+        if columns == FOCUS_LAYOUT and len(selection) != 6:
+            columns = MAIN_LAYOUT if len(selection) >= 3 else 0
+        placement = validate_placement(placement, len(selection)) if columns == FREE_LAYOUT else ()
+        if columns == FREE_LAYOUT and not placement:
+            columns = 0
         if self.active and parallel != (self._parallel is not None):
             self.restore(activate=parallel, keep_dialog=True)
+        self.placement = placement
         if parallel:
             self._start_parallel(selection, columns, primary, candidates)
             return True
@@ -322,7 +324,7 @@ class PictureInPicture(QObject):
         else:
             self.floating.track_tiles(starting)
             self._minimums.update((tile, tile.minimumSize()) for tile in starting)
-        _slots, aspects, composition_primary = self.composition(selection, columns, primary)
+        aspects, composition_primary = self.aspects_for(selection), selection.index(primary)
         self.floating.show()
         self.floating.audio_panel.hide()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
@@ -331,7 +333,7 @@ class PictureInPicture(QObject):
                 self._remove_extra(rid)
         self.selection = [wall.tiles.index(tile) for tile in tiles]
         self.primary = wall.tiles.index(primary_tile) if primary_tile in tiles else self.selection[0]
-        self._queue_start(tiles, columns, aspects, composition_primary, starting, chat, opened)
+        self._queue_start(tiles, columns, aspects, composition_primary, starting, opened)
         return True
 
     def _open_window(self, count):
@@ -343,6 +345,9 @@ class PictureInPicture(QObject):
 
     def _start_parallel(self, selection, columns, primary, candidates):
         rooms = {str(candidates[key]['room_id']): candidates[key] for key in selection}
+        if columns == FREE_LAYOUT and len(rooms) != len(selection):
+            self.placement = ()
+            columns = 0
         primary_id = str(candidates[primary]['room_id']) if primary in selection else next(iter(rooms))
         if self._parallel is None:
             self._open_window(len(rooms))
@@ -358,13 +363,13 @@ class PictureInPicture(QObject):
         self.floating.show()
         self.floating.audio_panel.hide()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
-        self._queue_start(tiles, columns, aspects, list(rooms).index(primary_id), starting, (), False)
+        self._queue_start(tiles, columns, aspects, list(rooms).index(primary_id), starting, False)
 
-    def _queue_start(self, tiles, columns, aspects, composition_primary, starting, chat, opened):
+    def _queue_start(self, tiles, columns, aspects, composition_primary, starting, opened):
         """Yield once after showing the shell before touching native video panes."""
         self._start_serial += 1
         serial = self._start_serial
-        self._pending_start = (serial, list(starting), bool(chat), bool(opened))
+        self._pending_start = (serial, list(starting), bool(opened))
         if QApplication.platformName() != 'windows':
             self._apply_start(serial, tiles, columns, aspects, composition_primary)
             return
@@ -380,11 +385,11 @@ class PictureInPicture(QObject):
         wall = self.display_wall
         primary = (composition_primary if self._parallel is not None
                    else self.selection.index(self.primary))
-        wall.set_picture_in_picture(tiles, columns, aspects, primary)
-        self.floating.set_composition(aspects, columns, composition_primary)
+        wall.presentation_control.set_picture_in_picture(tiles, columns, aspects, primary, placement=self.placement)
+        self.floating.set_composition(aspects, columns, composition_primary, placement=self.placement)
         wall.show()
         self.host._tray.sync_picture_in_picture()
-        if pending[3]:
+        if pending[2]:
             QTimer.singleShot(0, self, self._minimize_host)
         self._start_next_tile(serial)
 
@@ -392,14 +397,12 @@ class PictureInPicture(QObject):
         pending = self._pending_start
         if self.floating is None or pending is None or pending[0] != serial:
             return
-        starting, chat, _opened = pending[1:]
+        starting = pending[1]
         if starting:
             self.host.start_tile(starting.pop(0))
             QTimer.singleShot(0, self, lambda: self._start_next_tile(serial))
             return
         self._pending_start = None
-        if chat:
-            self.host.sync_danmaku()
         self._sync_overlays()
         self._aspect_timer.start()
         self.host._save_timer.start()
@@ -484,4 +487,4 @@ class PictureInPicture(QObject):
         return dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
                     geometry=geometry, external_rooms=external,
                     external_primary=selected_primary if selected_primary in external else '',
-                    choice_order=choices, parallel=self.parallel_preference)
+                    choice_order=choices, parallel=self.parallel_preference, placement=self.placement)
