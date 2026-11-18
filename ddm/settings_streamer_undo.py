@@ -1,7 +1,8 @@
 """Bottom-anchored removal feedback for the streamer settings page."""
 from PySide6.QtCore import QEvent, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QScrollArea,
+                              QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
 from .corner_geometry import continuous_path
@@ -10,30 +11,64 @@ from .ui import ActionButton, Avatar, ElidedLabel
 
 class StreamerRemovalNotice(QWidget):
     undo_requested = Signal()
+    entry_undo_requested = Signal(str)
     expired = Signal()
 
     def __init__(self, parent):
         super().__init__(parent)
         self.setProperty('customControlSurface', True)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(16, 10, 12, 10)
+        self.rooms = {}
+        self.detail_rows = {}
+        self.expanded = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 10, 12, 10)
+        layout.setSpacing(8)
+        self.details = QScrollArea(self, objectName='StreamerUndoDetails')
+        self.details.setAccessibleName('本批已移除设置的主播')
+        self.details.setFrameShape(QFrame.NoFrame)
+        self.details.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.details.setWidgetResizable(True)
+        content = QWidget(objectName='StreamerUndoDetailContent')
+        self.details.viewport().setObjectName('StreamerUndoDetailViewport')
+        self.details.setWidget(content)
+        self.details.viewport().setAutoFillBackground(False)
+        content.setAutoFillBackground(False)
+        self.details.setStyleSheet(
+            '#StreamerUndoDetails, #StreamerUndoDetailViewport, #StreamerUndoDetailContent '
+            '{ background: transparent; }')
+        self.detail_layout = QVBoxLayout(content)
+        self.detail_layout.setContentsMargins(0, 0, 0, 0)
+        self.detail_layout.setSpacing(0)
+        self.detail_layout.setAlignment(Qt.AlignTop)
+        self.details.hide()
+        layout.addWidget(self.details)
+        self.header = QWidget(self)
+        layout.addWidget(self.header)
+        row = QHBoxLayout(self.header)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(16)
-        self.pile = QWidget(self)
+        self.pile = QWidget(self.header)
         self.pile.setFixedHeight(34)
         row.addWidget(self.pile)
         texts = QVBoxLayout()
         texts.setSpacing(3)
-        self.title = ElidedLabel('', self)
+        self.title = ElidedLabel('', self.header)
         self.title.setTextFormat(Qt.PlainText)
         texts.addWidget(self.title)
-        self.message = QLabel(self)
+        self.message = QLabel(self.header)
         self.message.setTextFormat(Qt.PlainText)
         texts.addWidget(self.message)
         row.addLayout(texts, 1)
-        self.undo_button = ActionButton('撤回', self)
+        self.undo_button = ActionButton('撤回', self.header)
         self.undo_button.setAutoDefault(False)
         self.undo_button.clicked.connect(self.undo_requested)
         row.addWidget(self.undo_button)
+        self.expand_button = QToolButton(self.header)
+        self.expand_button.setAutoRaise(True)
+        self.expand_button.setFixedSize(32, 34)
+        self.expand_button.clicked.connect(self.toggle_details)
+        self.expand_button.hide()
+        row.addWidget(self.expand_button)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self._expire)
@@ -42,10 +77,14 @@ class StreamerRemovalNotice(QWidget):
         self.hide()
 
     def present(self, rooms):
+        self.rooms = dict(rooms)
+        if len(rooms) < 2:
+            self.expanded = False
+        self._sync_details()
         for avatar in self.pile.findChildren(Avatar):
             avatar.hide()
             avatar.deleteLater()
-        faces = rooms[-3:]
+        faces = list(rooms.values())[-3:]
         self.pile.setFixedWidth(34 + 20 * (len(faces) - 1))
         self.pile.show()
         for index, room in enumerate(faces):
@@ -55,7 +94,7 @@ class StreamerRemovalNotice(QWidget):
             avatar.move(index * 20, 0)
             avatar.show()
         single = len(rooms) == 1
-        self.title.setText(rooms[0]['name'] if single else '')
+        self.title.setText(faces[0]['name'] if single else '')
         self.title.setVisible(single)
         self.message.setText('已移除主播设置' if single else f'已移除 {len(rooms)} 位主播的设置')
         self.setAccessibleName(self.message.text())
@@ -67,6 +106,7 @@ class StreamerRemovalNotice(QWidget):
         self.timer.start(10000)
 
     def confirm(self, count):
+        self._clear_details()
         if count == 0:
             self.hide()
             self.timer.stop()
@@ -79,6 +119,57 @@ class StreamerRemovalNotice(QWidget):
         self.reposition()
         self.timer.start(3000)
 
+    def toggle_details(self):
+        self.expanded = not self.expanded
+        self._sync_details()
+        self.reposition()
+
+    def _sync_details(self):
+        self.expand_button.setVisible(len(self.rooms) > 1)
+        self.expand_button.setArrowType(Qt.DownArrow if self.expanded else Qt.UpArrow)
+        text = '收起已移除的主播设置' if self.expanded else '展开已移除的主播设置'
+        self.expand_button.setAccessibleName(text)
+        self.expand_button.setToolTip(text)
+        for room_id in tuple(self.detail_rows):
+            if room_id not in self.rooms:
+                row = self.detail_rows.pop(room_id)
+                self.detail_layout.removeWidget(row)
+                row.hide()
+                row.deleteLater()
+        if self.expanded:
+            for room_id, room in self.rooms.items():
+                if room_id not in self.detail_rows:
+                    self._add_detail_row(room_id, room)
+
+    def _add_detail_row(self, room_id, room):
+        row = QWidget(self.details.widget())
+        row.setMinimumHeight(56)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(14)
+        avatar = Avatar(room['name'], len(self.detail_rows), size=34, parent=row)
+        if room.get('avatar'):
+            avatar.set_pixmap_image(QPixmap(room['avatar']))
+        layout.addWidget(avatar)
+        name = ' · '.join(part for part in (room['name'], room.get('platform')) if part)
+        title = ElidedLabel(name, row)
+        title.setTextFormat(Qt.PlainText)
+        title.setToolTip(name)
+        layout.addWidget(title, 1)
+        undo = ActionButton('撤回', row)
+        undo.setAccessibleName(f'撤回移除：{name}')
+        undo.setAutoDefault(False)
+        undo.clicked.connect(lambda _checked=False: self.entry_undo_requested.emit(room_id))
+        layout.addWidget(undo)
+        self.detail_rows[room_id] = row
+        self.detail_layout.addWidget(row)
+
+    def _clear_details(self):
+        self.expanded = False
+        self.rooms.clear()
+        self._sync_details()
+        self.details.hide()
+
     def _expire(self):
         focus = QApplication.focusWidget()
         if (self.isVisible() and not self.undo_button.isHidden()
@@ -86,12 +177,21 @@ class StreamerRemovalNotice(QWidget):
             self.timer.start(1000)
             return
         self.hide()
+        self._clear_details()
         self.expired.emit()
 
     def reposition(self):
         parent = self.parentWidget()
         width = max(1, min(640, parent.width() - 48))
-        height = max(56, self.sizeHint().height())
+        header_height = max(56, self.header.sizeHint().height() + 20)
+        detail_height = 0
+        if self.expanded:
+            rows = list(self.detail_rows.values())[:4]
+            preferred = sum(max(row.minimumHeight(), row.sizeHint().height()) for row in rows)
+            detail_height = min(preferred, max(0, parent.height() - header_height - 56))
+        self.details.setFixedHeight(detail_height)
+        self.details.setVisible(detail_height > 0)
+        height = header_height + (detail_height + 8 if detail_height else 0)
         self.setGeometry((parent.width() - width) // 2, parent.height() - height - 24, width, height)
 
     def eventFilter(self, watched, event):

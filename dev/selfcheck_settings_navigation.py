@@ -12,7 +12,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
 from PySide6.QtGui import QColor, QCursor, QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 from shiboken6 import isValid
 from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
@@ -212,6 +212,45 @@ class SettingsNavigationTests(unittest.TestCase):
         page.undo_notice._expire()
         page.undo_removal()
         self.assertNotIn('1003', page.entries)
+
+    def test_separate_removals_share_notice_with_selective_and_remaining_undo(self):
+        rows = {str(number): {'name': f'主播 {number}', 'volume': number - 1000}
+                for number in range(1001, 1007)}
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows), {}, preview=True,
+                                streamer_rooms={key: row['name'] for key, row in rows.items()})
+        self.addCleanup(dialog.deleteLater)
+        dialog.resize(920, 660)
+        dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
+        dialog.show()
+        APP.processEvents()
+        page = dialog.stack.currentWidget()
+        notice = page.undo_notice
+        for room_id in ('1004', '1002', '1006', '1001'):
+            page.cards[(room_id,)].remove_button.click()
+        self.assertEqual(list(notice.rooms), ['1004', '1002', '1006', '1001'])
+        self.assertEqual(notice.undo_button.text(), '全部撤回')
+        self.assertFalse(notice.expand_button.isHidden())
+        self.assertTrue(notice.details.isHidden())
+        bottom = notice.geometry().bottom()
+        notice.expand_button.click()
+        APP.processEvents()
+        self.assertFalse(notice.details.isHidden())
+        self.assertEqual(notice.geometry().bottom(), bottom)
+        self.assertEqual(list(notice.detail_rows), list(notice.rooms))
+        notice.detail_rows['1002'].findChild(QPushButton).click()
+        self.assertEqual(list(page.entries), ['1002', '1003', '1005'])
+        self.assertEqual(list(notice.detail_rows), ['1004', '1006', '1001'])
+        self.assertFalse(notice.details.isHidden())
+        page.add('1004')
+        page.cards[('1004',)].volume.setValue(88)
+        self.assertEqual(list(notice.detail_rows), ['1006', '1001'])
+        notice.undo_button.click()
+        self.assertEqual(list(page.entries), ['1001', '1002', '1003', '1005', '1006', '1004'])
+        self.assertEqual(page.entries['1004']['volume'], 88)
+        self.assertEqual(page.entries['1006'], rows['1006'])
+        self.assertFalse(page.removed_profiles)
+        self.assertTrue(notice.expand_button.isHidden())
+        self.assertTrue(notice.details.isHidden())
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button
