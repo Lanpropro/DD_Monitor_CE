@@ -1,5 +1,7 @@
 """Inline add integration with real controls, isolated data and deferred fake room lookups."""
 from contextlib import ExitStack
+import ctypes
+from ctypes import wintypes
 from pathlib import Path
 import sys
 import tempfile
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 from ddm import config, images, motion
 from ddm.sidebar_widgets import Sidebar
 from ddm.room_catalog import RoomCatalog
+from ddm.room_add_panel import RoomAddPanel
 from ddm.room_add_input import normalize_room_lines, normalize_room_text
 from ddm.avatar_widgets import circular_pixmap
 from ddm.room_placement import RoomPlacement
@@ -165,6 +168,58 @@ class InlineRoomAddTests(unittest.TestCase):
         self.pump()
         self.assertFalse(panel.isVisible())
         self.assertIs(self.app.focusWidget(), sidebar.search)
+
+    def test_native_panel_is_above_playback_before_first_show(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('requires Windows child-window stacking')
+        wall = self.install_wall()
+        tile = wall.tiles[0]
+        tile.set_room({'room_id': 'fixture', 'uname': '测试直播', 'live': True})
+        tile.video.winId()
+        tile.stream_badge.show()
+        tile.stream_badge.raise_()
+        self.assertTrue(tile.stream_badge.isVisible())
+        sidebar = self.host.sidebar
+        sidebar.addRoomClicked.connect(lambda: self.catalog.open_add_room(resolver_type=Resolver))
+
+        user32 = ctypes.windll.user32
+        user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetAncestor.restype = wintypes.HWND
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+        owner = int(self.host.winId())
+        playback = int(tile.stream_badge.winId())
+        while (parent := user32.GetAncestor(playback, 1)) != owner:  # GA_PARENT
+            self.assertTrue(parent)
+            playback = parent
+
+        show = RoomAddPanel.show
+        checked = []
+        painted = []
+        paint = RoomAddPanel.paintEvent
+
+        def check_first_show(panel):
+            self.assertTrue(panel.isHidden())
+            hwnd = int(panel.internalWinId())
+            self.assertTrue(hwnd)
+            self.assertEqual(user32.GetAncestor(hwnd, 1), owner)
+            previous = user32.GetWindow(playback, 3)  # GW_HWNDPREV
+            while previous and previous != hwnd:
+                previous = user32.GetWindow(previous, 3)
+            self.assertEqual(previous, hwnd, 'Native panel must be above the playback window before it is shown')
+            checked.append(panel)
+            show(panel)
+
+        def record_paint(panel, event):
+            painted.append(panel)
+            paint(panel, event)
+
+        with patch.object(RoomAddPanel, 'show', check_first_show), \
+                patch.object(RoomAddPanel, 'paintEvent', record_paint):
+            QTest.mouseClick(sidebar.navigation.add_button, Qt.LeftButton)
+        self.assertEqual(checked, [self.catalog._add_panel])
+        self.assertIn(self.catalog._add_panel, painted)
+        self.assertIs(self.app.focusWidget(), checked[0].entry)
 
     def test_live_filter_restores_saved_value_and_keeps_last_choice(self):
         wall = self.install_wall()

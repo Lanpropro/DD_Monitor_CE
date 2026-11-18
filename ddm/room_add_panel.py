@@ -127,9 +127,15 @@ class RoomAddPanel(QFrame):
             menu.addSeparator()
             menu.addAction('新建文件夹…').triggered.connect(lambda: _create_folder_for_dialog(self, self.folder_creator))
         self.fit_to_search()
-        self.show()
+        self.ensurePolished()
+        self.layout().activate()
+        if self.testAttribute(Qt.WA_NativeWindow):
+            self.winId()
+        # Stack the hidden native child above the playback surfaces before it maps.
         self.raise_()
+        self.show()
         self.entry.setFocus(Qt.OtherFocusReason)
+        self.repaint()
 
     def _toggle_followed(self, expanded):
         if expanded:
