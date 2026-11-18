@@ -72,6 +72,7 @@ DEFAULT_SETTINGS = {
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
     "default_volume": DEFAULT_VOLUME,
+    "streamer_defaults": {},
     "audio_follows_room": False,
     "hover_wheel_volume": False,
     "hover_wheel_volume_step": DEFAULT_HOVER_WHEEL_VOLUME_STEP,

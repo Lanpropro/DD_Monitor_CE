@@ -27,6 +27,7 @@ class Tile:
 
     def set_room(self, room):
         self.room = dict(room or {})
+        self.volume = self.room.pop('_streamer_initial_volume', self.volume)
         self.room.update(volume=self.volume, muted=self.muted, audio_channel=self.audio_channel)
 
 
@@ -84,6 +85,28 @@ class RoomPlacementTests(unittest.TestCase):
         host.recorder.stop.assert_called_once_with(target)
         host.sidebar.watch_history.select.assert_called_once_with('new')
         host._refresh_meta.assert_called_once_with()
+
+    def test_streamer_overrides_apply_on_entry_without_changing_catalog_or_swap(self):
+        target, other = Tile('old'), Tile('other')
+        host = Host(target, other)
+        chosen = dict(room_id='new', uname='New', live=True)
+        host.rooms['new'] = chosen
+        values = {'volume': 71, 'playback': 1440, 'recording': 1080}
+        host.settings['streamer_defaults'] = {'new': dict(values)}
+        host.placement.drop_room(target, 'new')
+        self.assertEqual((target.volume, target.room['_streamer_pending_height'],
+                          target.room['_streamer_recording_height']), (71, 1440, 1080))
+        self.assertEqual(chosen, dict(room_id='new', uname='New', live=True))
+        target.volume = 23
+        target.room.pop('_streamer_pending_height')
+        host.placement.drop_room(target, 'new')
+        self.assertEqual(target.volume, 23)
+        host.placement.drop_room(other, 'new')
+        self.assertNotIn('_streamer_pending_height', other.room)
+        self.assertEqual(host.settings['streamer_defaults']['new'], values)
+        host.placement.drop_room(other, 'old')
+        host.placement.drop_room(other, 'new')
+        self.assertEqual(other.volume, 71)
 
     def test_missing_room_and_same_room_do_not_restart(self):
         target = Tile('same')

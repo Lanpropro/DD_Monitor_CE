@@ -5,6 +5,7 @@ import time
 import requests
 from PySide6.QtCore import QThread, Signal
 from . import qt_lifecycle
+from .streamer_defaults import quality_tiers
 
 
 class StreamResolver(QThread):
@@ -32,6 +33,8 @@ class StreamResolver(QThread):
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self.login_required = False
         self.failure_quality_options = []
+        self.streamer_height = None
+        self.applied_streamer_quality = False
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -166,6 +169,9 @@ class StreamResolver(QThread):
             options = options or []
             if not isinstance(options, list):
                 raise TypeError("平台画质档位必须为列表")
+            if self.streamer_height is not None:
+                url, current, profile, headers = self._prefer_streamer_resolution(
+                    (url, current, profile, headers), options)
             if options:
                 print(f"[画质档位] {self.room_id}: "
                       + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
@@ -200,6 +206,41 @@ class StreamResolver(QThread):
         if self.platform is None:
             self.source_codec = api.codec_from_profile(profile)
         self.resolved.emit(self.room_id, url, current, profile, options)
+
+    def _prefer_streamer_resolution(self, fallback, options):
+        from . import bili as api
+
+        quality, source_codec, note = self.quality, self.source_codec, self.codec_probe_note
+        _, current, profile, _ = fallback
+        tiers = quality_tiers(self.room_id, options, self.streamer_height, allow_lower=True)
+        for target in tiers:
+            if self.is_cancelled():
+                raise api.Cancelled()
+            if target == current:
+                self.applied_streamer_quality = True
+                return fallback
+            try:
+                if self.platform is None:
+                    result = api.play_url(self.room_id, target, cancelled=self.is_cancelled,
+                                          source_offset=self.source_offset,
+                                          codec=api.codec_from_profile(profile) or self.codec,
+                                          allow_codec_fallback=not self.strict_codec)
+                else:
+                    self.quality = target
+                    result = self._platform_play_url()
+                url, actual, channel, headers = result
+                if int(actual) == target and isinstance(url, str) and url.strip() and isinstance(channel, str):
+                    self.applied_streamer_quality = True
+                    return url, target, channel, headers
+            except api.Cancelled:
+                raise
+            except Exception:  # A rejected preferred tier can fall back to the already valid source.
+                pass
+            finally:
+                self.quality = quality
+                if not self.applied_streamer_quality:
+                    self.source_codec, self.codec_probe_note = source_codec, note
+        return fallback
 
 
 class InfoResolver(QThread):

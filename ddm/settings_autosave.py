@@ -6,6 +6,8 @@ from PySide6.QtCore import QEvent, QObject, QTimer, Qt, Signal
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QDoubleSpinBox, QKeySequenceEdit, QLineEdit, QPlainTextEdit, QSlider, QSpinBox, QTextEdit, QWidget
 from shiboken6 import isValid
 
+from .settings_pages import PAGE_INDEX
+
 
 class SettingsAutoSave(QObject):
     requested = Signal(dict)
@@ -59,7 +61,7 @@ class SettingsAutoSave(QObject):
         if self.active:
             if hasattr(page, 'values'):
                 self.adopt('shortcuts' if index == 5 else 'settings', page.values())
-            if index == 7:
+            if index == PAGE_INDEX['plugins']:
                 self.confirmed['enabled_plugins'] = self.snapshot()['enabled_plugins']
             self.watch(page)
 

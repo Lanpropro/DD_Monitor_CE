@@ -15,6 +15,9 @@ class TileState:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         host = self.host
         host.room = dict(room or {})
+        volume = host.room.pop('_streamer_initial_volume', None)
+        if volume is not None:
+            host.volume = volume
         controls = getattr(host, '_plugin_controls', None)
         if controls is not None:
             controls.set_room(host.room)
@@ -71,6 +74,8 @@ class TileState:
         host.volume_slider.blockSignals(False)
         host.volume_label.setText(str(host.volume))
         host.volume_button.set_state(host.muted, host.volume, host.audio_channel)
+        if volume is not None:
+            host._sync_vertical_volume()
         host.set_status("" if host.room.get("live") else "未开播")
         host.stop_elapsed_timer()
         if host.room.get("live"):
@@ -378,7 +383,7 @@ class TileState:
 
     def set_quality(self, value: int) -> None:
         host = self.host
-        if getattr(host, "quality_locked", False) and value != 10000:
+        if getattr(host, "quality_locked", False) and value != host.quality:
             return
         host.quality = value
         host.actual_quality = 0

@@ -10,15 +10,19 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QListWidget,
 from . import motion, theme
 from .corner_geometry import continuous_path
 from .search import matches_text
+from .settings_pages import PAGE_INDEX, SETTINGS_PAGES
 from .sidebar_navigation import NavigationButton, PATHS
 
 
-GROUPS = ((0, 2, '基础偏好'), (2, 6, '观看与互动'), (6, 10, '系统与扩展'))
+GROUPS = ((0, PAGE_INDEX['danmaku'], '基础偏好'),
+          (PAGE_INDEX['danmaku'], PAGE_INDEX['tray'], '观看与互动'),
+          (PAGE_INDEX['tray'], len(SETTINGS_PAGES), '系统与扩展'))
 ICONS = {
     'general': PATHS['settings'],
     'appearance': '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
     'danmaku': '<path d="M4 4h16v14h-8l-5 3v-3H4ZM8 9h8M8 13h5"/>',
     'recording': '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>',
+    'streamer_defaults': '<circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/>',
     'notifications': '<path d="M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3ZM10 21h4M12 2v1"/>',
     'shortcuts': '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h1M11 9h1M16 9h1M6 12h1M11 12h1M16 12h1M7 16h10"/>',
     'tray': '<path d="M3 13v7h18v-7M12 3v11M8 10l4 4 4-4"/>',

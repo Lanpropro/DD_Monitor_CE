@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QLayout
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
 from .settings_process import _save_trace
+from .settings_pages import PAGE_INDEX
 
 
 class SettingsHost(QObject):
@@ -55,7 +56,7 @@ class SettingsHost(QObject):
     def _page_created(self, index, page):
         if index == 1:
             page.materialChanged.connect(self._material_changed)
-        if index == 8:
+        if index == PAGE_INDEX['updates']:
             page.saveRequested.disconnect(self.dialog._save)
             page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
 
@@ -124,8 +125,8 @@ class SettingsHost(QObject):
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
-        for index in (1, 3, 8):
-            page = self.dialog._loaded_pages.get(index)
+        for key in ('appearance', 'recording', 'updates'):
+            page = self.dialog._loaded_pages.get(PAGE_INDEX[key])
             if page is not None:
                 values.update(page.values())
         return values
@@ -165,14 +166,14 @@ class SettingsHost(QObject):
         values = {**changes.get('settings', {}), **self.values()}
         shortcuts = {**self.window.shortcuts, **changes.get('shortcuts', {})}
         enabled = self.dialog.enabled_plugins()
-        update = self.dialog._loaded_pages.get(8)
+        update = self.dialog._loaded_pages.get(PAGE_INDEX['updates'])
         update = SimpleNamespace(install_requested=bool(getattr(update, 'install_requested', False)),
                                  plan_path=getattr(update, 'plan_path', ''))
         self.pending_apply = SimpleNamespace(
             settings=lambda: values,
             shortcuts=lambda: shortcuts,
             enabled_plugins=lambda: enabled,
-            _loaded_pages={8: update},
+            _loaded_pages={PAGE_INDEX['updates']: update},
             update_page=update,
             restart_requested=self.dialog.restart_requested)
         _save_trace('host.collection.finished', collected)

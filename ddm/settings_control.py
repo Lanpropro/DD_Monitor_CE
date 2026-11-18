@@ -6,6 +6,7 @@ import time
 
 from . import config as config_module
 from .update_version import update_identity
+from .streamer_defaults import room_choices
 
 
 class SettingsControl:
@@ -19,7 +20,8 @@ class SettingsControl:
         session = getattr(host, '_settings_host', None)
         if session is not None:
             session.sync()
-        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context())
+        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(),
+                                          streamer_rooms=room_choices(host.sidebar.rooms()))
         return False
 
     def sc_preview_context(self):
@@ -120,6 +122,7 @@ class SettingsControl:
         dialog = SettingsDialog(host.settings if settings is None else settings,
                                 host.shortcuts if shortcuts is None else shortcuts, host,
                                 plugin_manager=host.plugins, update_page_factory=host._get_update_page,
+                                streamer_rooms=room_choices(host.sidebar.rooms()),
                                 **({'hosted': True} if hosted else {}))
         dialog.setProperty('settings_portrait', getattr(host, 'orientation', '') == 'portrait')
         def page_created(index, widget):

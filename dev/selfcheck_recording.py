@@ -798,6 +798,40 @@ def main():
         assert not tile.room.get("room_id")
         assert tile not in window._capture_quality and tile not in window._pending_capture
         assert not tile.quality_locked and tile.quality_button.isEnabled()
+
+        # A selected resolution uses the room's actual tiers even when the global lock is off.
+        tile.set_room({'room_id': '1001', 'live': True, '_streamer_recording_height': 1080})
+        tile.set_quality_options([{'qn': 400, 'desc': '1920x1080'}, {'qn': 250, 'desc': '720P'}])
+        tile.quality = tile.actual_quality = 250
+        tile.stream_url = str(source)
+        window.settings['recording_lock_quality'] = False
+        with patch.object(window, 'start_tile') as resolve, patch.object(
+                window.recorder, 'start', return_value=True) as record:
+            window._start_capture(tile, recording=True)
+            resolve.assert_called_once_with(tile)
+            assert tile.quality == 400 and tile.quality_locked
+            tile.set_quality(10000)
+            assert tile.quality == 400
+            record.assert_not_called()
+            tile.set_actual_quality(400)
+            window._finish_pending_capture(tile)
+            record.assert_called_once_with(tile, recording=True)
+            window._restore_capture_quality(tile)
+            assert tile.quality == 250 and not tile.quality_locked
+            assert resolve.call_count == 2
+
+        tile.set_actual_quality(250)
+        window.recorder.sessions[tile] = SimpleNamespace(recording=False, stopping=False)
+        with patch.object(window.recorder, 'stop') as stop, patch.object(window, 'start_tile') as resolve:
+            window._start_capture(tile, recording=True)
+            stop.assert_called_once_with(tile)
+            resolve.assert_not_called()
+            window.recorder.sessions.pop(tile)
+            window.capture_control.record_state_changed(tile)
+            resolve.assert_called_once_with(tile)
+            window.capture_control.toggle_recording(tile)
+            assert tile.quality == 250 and not tile.quality_locked
+            assert tile not in window._pending_capture
         window.close()
     print("FFmpeg 双格独立录制、设置、原画锁定、即时回放、满盘停止与断流续录：通过")
 

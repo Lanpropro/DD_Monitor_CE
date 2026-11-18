@@ -273,7 +273,7 @@ class MainWindow(QMainWindow):
         # 没显式指定布局（正式启动就是这样）时，先按配置里存的那套摆；
         # 新配置也就是第一次启动，用 FIRST_LAYOUT（1 主画面 + 5 小环绕）。
         self.wall = WallGrid(
-            wall_rooms if wall_rooms is not None else [],
+            [self.room_placement.prepare_wall_entry(room) for room in (wall_rooms or ())],
             layout_id if layout_id and layout_id != "auto"
             else self._saved_layout("landscape"), prepare_room=self._prepare_room,
             corner_ratios=ui.get("corner_ratios"), layout_ratios=ui.get("layout_ratios"),

@@ -838,7 +838,7 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_shortcut_wheel_and_pip_groups_are_separate_and_match_edit_style(self):
         page = self.page(5)
         self.assertEqual([key for key, _widget, _wide in page.sections.entries],
-                         ['home', 'general', 'wheel', 'pip'])
+                         ['home', 'general', 'fullscreen', 'wheel', 'pip'])
         for key in ('volume_up', 'volume_down'):
             edit = page._edits[key]
             self.assertIsInstance(edit, QLineEdit)
@@ -847,7 +847,7 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertIn('pip_volume_down', page.values())
 
     def test_tray_retains_menu_order_and_visibility(self):
-        page = self.page(6)
+        page = self.page(self.dialog.PAGE_INDEX['tray'])
         editor = page.tile_menu
         editor.move_before('reload', 'mute')
         editor.checks['reload'].setChecked(False)
@@ -918,7 +918,7 @@ class SettingsLayoutTests(unittest.TestCase):
 
     def test_tray_changes_drag_and_default_restore_use_existing_autosave(self):
         from ddm.tile_menu import MENU_ITEMS, menu_choices
-        page = self.page(6)
+        page = self.page(self.dialog.PAGE_INDEX['tray'])
         self.dialog.auto_save.start()
         requested = []
         self.dialog.auto_save.requested.connect(requested.append)
@@ -963,7 +963,7 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_separate_menu_sections_preserve_drafts_and_save_only_tray_edits(self):
         from ddm.tray_menu import tray_menu_choices
         from ddm.dialogs import TraySettingsPage
-        page = self.page(6)
+        page = self.page(self.dialog.PAGE_INDEX['tray'])
         self.dialog.auto_save.start()
         requested = []
         self.dialog.auto_save.requested.connect(requested.append)

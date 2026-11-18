@@ -2,6 +2,7 @@
 import sys
 from .room_catalog import RoomCatalog
 from .room_navigation import RoomNavigation
+from .streamer_defaults import room_defaults
 
 
 def _swap_audio_settings(first, second):
@@ -37,7 +38,6 @@ class RoomPlacement:
             print(f"拖入的直播间 {room_id} 查询失败")
             return
         host.sidebar.watch_history.select(str(room_id))
-        host._prepare_room(room)
         other = host._tile_of(room_id)
         if other is tile:
             return
@@ -46,6 +46,8 @@ class RoomPlacement:
             print(f"{room.get('uname')} ↔ 第 {position} 个格子",
                   file=sys.stderr, flush=True)
             return
+        if other is None:
+            room = self.prepare_wall_entry(room)
         to_start = []
         follows_room = other is not None and self._audio_follows_room()
         if other is not None and other is not tile:
@@ -207,6 +209,18 @@ class RoomPlacement:
             if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250)
         return room
 
+    def prepare_wall_entry(self, room: dict) -> dict:
+        room = self.prepare_room(dict(room))
+        defaults = room_defaults(self.host.settings, room.get('room_id'))
+        if 'playback' in defaults:
+            room['_streamer_playback'] = True
+            room['_streamer_pending_height'] = defaults['playback']
+        if 'recording' in defaults:
+            room['_streamer_recording_height'] = defaults['recording']
+        if 'volume' in defaults:
+            room['volume'] = room['_streamer_initial_volume'] = defaults['volume']
+        return room
+
     def room_dict(self, room_id: str) -> dict | None:
         return self.catalog.room_dict(room_id)
 
@@ -245,12 +259,12 @@ class RoomPlacement:
         from . import plugins as plugin_api
         host = self.host
         MAX_TILES = max_tiles
-        host._prepare_room(room)
         room_id = str(room.get("room_id"))
         host.sidebar.watch_history.select(room_id)
         if host._tile_of(room_id) is not None:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
+        room = self.prepare_wall_entry(room)
         candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
         panes = host.wall.pane_danmaku
         chat_cells = panes.bindings()

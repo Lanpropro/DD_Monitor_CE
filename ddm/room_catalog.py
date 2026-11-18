@@ -32,7 +32,7 @@ class RoomCatalog:
         host.sidebar.set_folders(saved.get("follow_folders") or [])
         for index, room in enumerate(wall):
             if index >= len(host.wall.tiles):
-                host.wall.add_room(room)
+                host.wall.add_room(host.room_placement.prepare_wall_entry(room))
                 continue
             tile = host.wall.tiles[index]
             if str(tile.room.get("room_id") or "") == str(room.get("room_id") or ""):
@@ -42,6 +42,7 @@ class RoomCatalog:
             host.recorder.stop(tile)
             host._pending_capture.pop(tile, None)
             host._stop_tile(tile)
+            room = host.room_placement.prepare_wall_entry(room)
             tile.set_volume(room["volume"])
             tile.set_audio_channel(room["audio_channel"])
             tile.set_muted(room["muted"])

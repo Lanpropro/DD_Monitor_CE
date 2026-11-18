@@ -17,7 +17,22 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QProcess, QTimer, qVersion
 from PySide6.QtWidgets import QApplication
+from ddm.settings_pages import PAGE_INDEX
 from ddm import config, settings_process
+
+
+def embedded_page_indices(action):
+    sequences = {
+        'embed-footer': ('plugins', 'general', 'plugins'),
+        'embed-shutdown': ('appearance',),
+        'embed-scroll': ('appearance', 'general', 'updates', 'appearance', 'updates'),
+        'embed-coordinates': ('appearance', 'general', 'updates', 'general', 'plugins', 'appearance', 'updates'),
+        'embed-appearance': ('appearance', 'general', 'appearance', 'plugins', 'appearance'),
+    }
+    keys = ('plugins',) if action.startswith('embed-restart-') else sequences.get(action, (
+        'appearance', 'general', 'tray', 'plugins', 'danmaku', 'recording', 'updates', 'shortcuts',
+        'appearance', 'general'))
+    return tuple(PAGE_INDEX[key] for key in keys)
 
 
 def child(action):
@@ -55,6 +70,17 @@ def child(action):
                     self.general_page.volume_slider.setValue(17)
                     theme.signals().changed.connect(report)
                 report(theme.mode())
+                return
+            if action == 'streamer-defaults':
+                index = self.PAGE_INDEX['streamer_defaults']
+                self.nav.setCurrentRow(index)
+                page = self._loaded_pages[index]
+                assert page.available.currentData() == '1001'
+                page.add_button.click()
+                page.playback.setCurrentIndex(page.playback.findData(1440))
+                page.recording.setCurrentIndex(page.recording.findData(1080))
+                page.volume.setValue(57)
+                self.reject()
                 return
             if action in ('preview-save', 'preview-sync-save'):
                 page = self.danmaku_page
@@ -112,12 +138,7 @@ def child(action):
             if action.startswith('embed-'):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
-                self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
-                                     (1,) if action == 'embed-shutdown' else
-                                     (1, 0, 8, 1, 8) if action == 'embed-scroll' else
-                                     (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
-                                     (1, 0, 1, 7, 1) if action == 'embed-appearance' else
-                                     (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 3, 8, 5, 1, 0))
+                self.sequence = iter(embedded_page_indices(action))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action in ('focus', 'zorder'):
@@ -271,7 +292,7 @@ def check_worker(app, action):
             assert pid != os.getpid()
             initial = dict(config.DEFAULT_SETTINGS, default_volume=42, seen_update_versions={'app': '0.5.1'})
             context = {'panel': {'size': [800, 450], 'cards': [{'message': '', 'collapsed': False}]}}
-            client.open(initial, {}, context)
+            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture'})
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
             assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -283,24 +304,28 @@ def check_worker(app, action):
                 combined = {}
                 for saved in saves:
                     combined.update(saved.get('settings', {}))
-                assert combined['default_volume'] == 17
-                if action == 'preview-save':
-                    assert combined['super_chat_position'] == [0.0, .6]
-                    assert combined['super_chat_panel_position'] == [1.0, .2]
-                    assert combined['super_chat_position_sync'] is False
-                if action == 'preview-sync-save':
-                    assert combined['super_chat_position'] == [1.0, .2]
-                    assert combined['super_chat_panel_position'] == [1.0, .2]
-                    assert combined.get('super_chat_position_sync', True) is True
-                assert combined['volume_normalization'] is True
-                assert combined['volume_normalization_curve']['preset'] == 'netflix'
-                if action == 'tray-save':
-                    assert combined['close_behavior'] == 'tray'
-                    assert combined['tray_pause_playback'] is False
-                assert 'appearance_mode' not in combined
-                assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
-            expected = ([3, {'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]]
-                        if clean else [] if action in ('cancel', 'tray-cancel') else [3])
+                if action == 'streamer-defaults':
+                    assert combined == {'streamer_defaults': {'1001': {
+                        'name': 'Fixture', 'playback': 1440, 'recording': 1080, 'volume': 57}}}
+                else:
+                    assert combined['default_volume'] == 17
+                    if action == 'preview-save':
+                        assert combined['super_chat_position'] == [0.0, .6]
+                        assert combined['super_chat_panel_position'] == [1.0, .2]
+                        assert combined['super_chat_position_sync'] is False
+                    if action == 'preview-sync-save':
+                        assert combined['super_chat_position'] == [1.0, .2]
+                        assert combined['super_chat_panel_position'] == [1.0, .2]
+                        assert combined.get('super_chat_position_sync', True) is True
+                    assert combined['volume_normalization'] is True
+                    assert combined['volume_normalization_curve']['preset'] == 'netflix'
+                    if action == 'tray-save':
+                        assert combined['close_behavior'] == 'tray'
+                        assert combined['tray_pause_playback'] is False
+                    assert 'appearance_mode' not in combined
+                    assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
+            expected = ([3, PAGE_INDEX[action.split('-')[1]]]
+                        if clean else [] if action in ('cancel', 'tray-cancel', 'streamer-defaults') else [3])
             assert pages == expected, (pages, expected)
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
@@ -309,7 +334,7 @@ def check_worker(app, action):
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
             messages.clear()
-            client.open(initial, {}, context)
+            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture'})
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert client.process.processId() == process_pid
             assert next(m['pid'] for m in messages if m['kind'] == 'painted') == pid
@@ -813,7 +838,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     output = ROOT / 'work/test-artifacts/host/settings-pages'
                     output.mkdir(parents=True, exist_ok=True)
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
-                if message['index'] == 8:
+                if message['index'] == PAGE_INDEX['updates']:
                     session.dialog.update_page.auto.setChecked(True)
                     if action == 'embed-install':
                         page = session.dialog.update_page
@@ -865,7 +890,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([1, 0, 8, 1, 8] if action == 'embed-scroll' else [7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 3, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == list(embedded_page_indices(action))
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 if action == 'embed-coordinates':
                     assert len({tuple(message['size']) for message in shells}) == len(shells)
@@ -881,7 +906,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     client.open(window.settings, window.shortcuts)
                     wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
                     assert client.process.processId() == process_pid, 'Reopen must reuse the worker'
-                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8])
+                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == list(embedded_page_indices(action))
                     assert getattr(window, '_settings_host', None) is None
                 assert not errors, errors
                 return
@@ -1051,7 +1076,7 @@ def check_nonblocking_online_close(app):
         dialog = SettingsDialog(config.DEFAULT_SETTINGS, {})
         page = online_ui.AppUpdatePage(config.DEFAULT_SETTINGS, dialog) if update else online_ui.OnlinePage(dialog)
         if not update:
-            dialog._loaded_pages[7] = SimpleNamespace(store_page=page)
+            dialog._loaded_pages[PAGE_INDEX['plugins']] = SimpleNamespace(store_page=page)
         def operation(cancelled, progress):
             entered.set()
             release.wait(3)
@@ -1127,6 +1152,10 @@ def main():
         check_finish_without_event_loop(app)
         print('PASS: settings hide before host cleanup; embedded surfaces and worker finish safely')
         return 0
+    if sys.argv[1:] == ['--streamer-defaults-only']:
+        check_worker(app, 'streamer-defaults')
+        print('PASS: streamer defaults room snapshot and worker autosave')
+        return 0
     if sys.argv[1:] == ['--theme-sync-only']:
         check_theme_sync(app)
         return 0
@@ -1171,7 +1200,7 @@ def main():
         print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
         return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'preview-save', 'preview-sync-save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
+                   'save', 'preview-save', 'preview-sync-save', 'cancel', 'tray-save', 'tray-cancel', 'streamer-defaults', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)

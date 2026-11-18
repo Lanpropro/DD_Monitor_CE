@@ -14,7 +14,7 @@ from .ui import page_header as _page_head, step_button as _step_button
 
 # 快捷键动作：键名 -> (显示名, 默认按键)
 # 按下的键用 QKeySequence 的字符串表示，组合键写成 "Alt+M" / "Ctrl+Shift+F"。
-from .shortcut_actions import configured_shortcuts
+from .shortcut_actions import SHORTCUT_ACTIONS, configured_shortcuts
 from .settings_general import (CodecSettingsPanel, CodecSettingsDialog, GeneralSettingsPage, TraySettingsPage)
 from .settings_notifications import (NotificationSwitch, NoticeBlurPreview, NotificationSettingsPage)
 from .settings_shortcuts import ShortcutSettingsPage
@@ -24,6 +24,8 @@ from .settings_plugins import (PluginRemovePrompt, PluginSettingsPage)
 from .settings_appearance import AppearanceSettingsPage
 
 
+from . import settings_pages
+from .settings_pages import PAGE_INDEX
 from .settings_window import SettingsWindow
 
 
@@ -33,13 +35,11 @@ class SettingsDialog(SettingsWindow):
     pageCreated = Signal(int, object)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
-    PAGES = [("general", "常规"), ("appearance", "外观"), ("danmaku", "弹幕"),
-             ("recording", "录制"), ("notifications", "通知"), ("shortcuts", "快捷键"),
-             ("tray", "托盘行为"), ("plugins", "插件"), ("updates", "软件更新"), ("diagnostics", "诊断与反馈")]
-    PAGE_INDEX = {key: index for index, (key, _label) in enumerate(PAGES)}
+    PAGES = settings_pages.SETTINGS_PAGES
+    PAGE_INDEX = settings_pages.PAGE_INDEX
 
     def __init__(self, settings: dict, shortcuts: dict, parent=None, plugin_manager=None, *, preview=False,
-                 update_page_factory=None, hosted=False):
+                 update_page_factory=None, hosted=False, streamer_rooms=None):
         super().__init__(parent)
         self.setProperty('skinPart', 'settings')
         self.set_material(settings)
@@ -89,23 +89,25 @@ class SettingsDialog(SettingsWindow):
         # Keep the public page properties so callers and settings validation
         # still use the same controls and value normalization.
         from .settings_diagnostics import DiagnosticsPage
+        from .settings_streamer_defaults import StreamerDefaultsPage
         self._page_factories = {
-            9: lambda: DiagnosticsPage(settings, self),
+            PAGE_INDEX['diagnostics']: lambda: DiagnosticsPage(settings, self),
+            PAGE_INDEX['streamer_defaults']: lambda: StreamerDefaultsPage(settings, streamer_rooms or {}),
             1: lambda: AppearanceSettingsPage(settings, skin_controller=getattr(parent, 'skin_controller', None)),
             2: lambda: DanmakuSettingsPage(settings),
             3: lambda: self._recording_settings_page(settings),
             4: lambda: NotificationSettingsPage(settings),
             5: lambda: ShortcutSettingsPage(self._initial_shortcuts, settings=settings),
-            6: lambda: TraySettingsPage(settings),
-            7: lambda: PluginSettingsPage(plugin_manager),
-            8: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
+            PAGE_INDEX['tray']: lambda: TraySettingsPage(settings),
+            PAGE_INDEX['plugins']: lambda: PluginSettingsPage(plugin_manager),
+            PAGE_INDEX['updates']: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
         }
         self._loaded_pages = {}
         if preview:
             # The appearance thumbnail needs the real controls, without creating
             # update/download workers or reading an installation result.
-            self._page_factories[7] = QWidget
-            self._page_factories[8] = QWidget
+            self._page_factories[PAGE_INDEX['plugins']] = QWidget
+            self._page_factories[PAGE_INDEX['updates']] = QWidget
         self.general_scroll = QScrollArea()
         self.general_scroll.setFrameShape(QFrame.NoFrame)
         self.general_scroll.setWidgetResizable(True)
@@ -202,7 +204,7 @@ class SettingsDialog(SettingsWindow):
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
                 page.materialChanged.connect(self.set_material)
-            elif index == 7 and not self._preview_only:
+            elif index == PAGE_INDEX['plugins'] and not self._preview_only:
                 from .online_ui import UpdateDot
                 from PySide6.QtWidgets import QTabBar
                 page.store_page.seen_versions = self.seen_versions
@@ -212,7 +214,7 @@ class SettingsDialog(SettingsWindow):
                 page.store_page.busyChanged.connect(self._update_save_button)
                 page.store_page.offersChanged.connect(self._mark_plugin_updates)
                 self._mark_plugin_updates(page.store_page.offers)
-            elif index == 8 and not self._preview_only:
+            elif index == PAGE_INDEX['updates'] and not self._preview_only:
                 page.saveRequested.connect(self._save)
                 page.busyChanged.connect(self._update_save_button)
                 page.releaseChecked.connect(self._mark_app_update)
@@ -228,8 +230,8 @@ class SettingsDialog(SettingsWindow):
     recording_page = property(lambda self: self._page(3))
     notification_page = property(lambda self: self._page(4))
     shortcut_page = property(lambda self: self._page(5))
-    plugin_page = property(lambda self: self._page(7))
-    update_page = property(lambda self: self._page(8))
+    plugin_page = property(lambda self: self._page(PAGE_INDEX['plugins']))
+    update_page = property(lambda self: self._page(PAGE_INDEX['updates']))
 
     def _remember_versions(self, versions):
         if any(self.seen_versions.get(key) != value for key, value in versions.items()):
@@ -237,7 +239,7 @@ class SettingsDialog(SettingsWindow):
             self.updatesViewed.emit(dict(self.seen_versions))
 
     def _mark_app_update(self, offer):
-        if offer and self.nav.currentRow() == 8:
+        if offer and self.nav.currentRow() == PAGE_INDEX['updates']:
             self._remember_versions({'app': update_identity(offer)})
         active = bool(offer and self.seen_versions.get('app') != update_identity(offer))
         self._mark_update_page('updates', active)
@@ -245,7 +247,7 @@ class SettingsDialog(SettingsWindow):
     def _mark_plugin_updates(self, offers):
         from .online_ui import plugin_update_offers
         updates = plugin_update_offers(self.plugin_page.store_page.manager, offers)
-        if self.nav.currentRow() == 7:
+        if self.nav.currentRow() == PAGE_INDEX['plugins']:
             self._remember_versions({offer['id']: offer['version'] for offer in updates})
         active = any(self.seen_versions.get(offer['id']) != offer['version'] for offer in updates)
         self._mark_update_page('plugins', active)
@@ -256,11 +258,11 @@ class SettingsDialog(SettingsWindow):
         if self._preview_only:
             self.confirm_button.hide()
             return
-        plugin, update = self._loaded_pages.get(7), self._loaded_pages.get(8)
+        plugin, update = self._loaded_pages.get(PAGE_INDEX['plugins']), self._loaded_pages.get(PAGE_INDEX['updates'])
         data = getattr(update, 'data_page', None)
         restart = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
         self.confirm_button.setText("迁移并重启" if getattr(data, 'target', None) is not None else "重启以应用")
-        self.confirm_button.setVisible(restart and self.nav.currentRow() in (7, 8))
+        self.confirm_button.setVisible(restart and self.nav.currentRow() in (PAGE_INDEX['plugins'], PAGE_INDEX['updates']))
         self.confirm_button.setEnabled(not (plugin is not None and plugin.store_page.jobs)
                                       and not (update is not None and update.jobs))
 
@@ -273,10 +275,10 @@ class SettingsDialog(SettingsWindow):
                 self.nav.setCurrentRow(1)
                 appearance.scroll.ensureWidgetVisible(appearance.parts_editor.status)
                 return
-        plugin = self._loaded_pages.get(7)
-        data = getattr(self._loaded_pages.get(8), 'data_page', None)
+        plugin = self._loaded_pages.get(PAGE_INDEX['plugins'])
+        data = getattr(self._loaded_pages.get(PAGE_INDEX['updates']), 'data_page', None)
         if data is not None and not data.prepare():
-            self.nav.setCurrentRow(8)
+            self.nav.setCurrentRow(PAGE_INDEX['updates'])
             self.update_page.scroll.ensureWidgetVisible(data.status)
             return
         self.restart_requested = (plugin is not None and plugin.needs_restart()) or getattr(data, 'target', None) is not None
@@ -291,10 +293,10 @@ class SettingsDialog(SettingsWindow):
         if self._preview_only:
             return super().done(result)
         self.stack.finish_transition()
-        if 7 in self._loaded_pages:
-            self._loaded_pages[7].store_page.stop()
-        if 8 in self._loaded_pages:
-            page = self._loaded_pages[8]
+        if PAGE_INDEX['plugins'] in self._loaded_pages:
+            self._loaded_pages[PAGE_INDEX['plugins']].store_page.stop()
+        if PAGE_INDEX['updates'] in self._loaded_pages:
+            page = self._loaded_pages[PAGE_INDEX['updates']]
             if result != QDialog.Accepted:
                 page.data_page.cancel_target()
             if self._update_page_factory is None:
@@ -316,9 +318,9 @@ class SettingsDialog(SettingsWindow):
             self.stack.show_page(index, animate=bool(QApplication.mouseButtons()))
             self.reset_button.setText("恢复本页默认")
             self.reset_button.hide()
-            if index == 7 and not self._preview_only:
+            if index == PAGE_INDEX['plugins'] and not self._preview_only:
                 self._mark_plugin_updates(self.plugin_page.store_page.offers)
-            elif index == 8 and not self._preview_only:
+            elif index == PAGE_INDEX['updates'] and not self._preview_only:
                 self._mark_app_update(self.update_page.offer)
             self._update_save_button()
 
@@ -331,13 +333,14 @@ class SettingsDialog(SettingsWindow):
     def settings(self) -> dict:
         values = dict(self._initial_settings)
         values.update(self.general_page.values())
-        for index in (1, 2, 3, 4, 6, 9):
+        for key in ('appearance', 'danmaku', 'recording', 'notifications', 'tray', 'diagnostics', 'streamer_defaults'):
+            index = PAGE_INDEX[key]
             if index in self._loaded_pages:
                 values.update(self._loaded_pages[index].values())
         if 5 in self._loaded_pages:
             values.update(self._loaded_pages[5].settings_values())
-        if 8 in self._loaded_pages:
-            values.update(self._loaded_pages[8].values())
+        if PAGE_INDEX['updates'] in self._loaded_pages:
+            values.update(self._loaded_pages[PAGE_INDEX['updates']].values())
         values['seen_update_versions'] = dict(self.seen_versions)
         return values
 
@@ -345,8 +348,8 @@ class SettingsDialog(SettingsWindow):
         return self._loaded_pages[5].values() if 5 in self._loaded_pages else dict(self._initial_shortcuts)
 
     def enabled_plugins(self):
-        if 7 in self._loaded_pages:
-            return self._loaded_pages[7].enabled_plugins()
+        if PAGE_INDEX['plugins'] in self._loaded_pages:
+            return self._loaded_pages[PAGE_INDEX['plugins']].enabled_plugins()
         enabled = self._plugin_manager.enabled if self._plugin_manager is not None else None
         return None if enabled is None else set(enabled)
 

@@ -17,6 +17,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThreadPool, QTime
 from PySide6.QtGui import QColor, QFont, QImage, QStandardItem, QStandardItemModel
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QListView, QSpinBox, QWidget
+from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_autosave import SettingsAutoSave
@@ -518,7 +519,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_real_dialog_is_observed_without_consuming_events_or_changing_values(self):
         baseline = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True)
-        baseline.nav.setCurrentRow(6)
+        baseline.nav.setCurrentRow(PAGE_INDEX['tray'])
         expected = baseline.settings()
         baseline.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
@@ -537,9 +538,9 @@ class CaptureTests(unittest.TestCase):
                 dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True)
                 dialog.show()
                 APP.processEvents()
-                dialog.nav.setCurrentRow(6)
+                dialog.nav.setCurrentRow(PAGE_INDEX['tray'])
                 APP.processEvents()
-                self.assertEqual(dialog.stack.currentIndex(), 6)
+                self.assertEqual(dialog.stack.currentIndex(), PAGE_INDEX['tray'])
                 self.assertFalse(APP._settings_paint_capture.eventFilter(dialog, QEvent(QEvent.User)))
                 self.assertEqual(dialog.settings(), expected)
             finally:
@@ -559,7 +560,7 @@ class CaptureTests(unittest.TestCase):
             records = [json.loads(line) for line in
                        (Path(temporary) / f'settings-performance-{os.getpid()}.jsonl').read_text(encoding='utf-8').splitlines()]
             self.assertTrue(any(record['phase'] == 'first-paint' for record in records))
-            self.assertTrue(any(record.get('page') == 6 for record in records))
+            self.assertTrue(any(record.get('page') == PAGE_INDEX['tray'] for record in records))
             self.assertTrue(any(record.get('function') == 'SettingsDialog.__init__' for record in records))
 
 

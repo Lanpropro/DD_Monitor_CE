@@ -14,6 +14,7 @@ from PySide6.QtGui import QColor, QCursor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
+from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_navigation import SettingsNavigation
@@ -46,8 +47,8 @@ class SettingsNavigationTests(unittest.TestCase):
 
     def test_grouped_search_keeps_page_indices_and_laziness(self):
         nav = self.dialog.nav
-        self.assertEqual(nav.count(), 10)
-        self.assertEqual(nav.item(9).data(Qt.UserRole), "diagnostics")
+        self.assertEqual(nav.count(), 11)
+        self.assertEqual(nav.item(PAGE_INDEX['diagnostics']).data(Qt.UserRole), "diagnostics")
         self.assertFalse(self.dialog._loaded_pages)
         self.assertEqual([nav.item(i).data(Qt.UserRole) for i in range(nav.count())],
                          [key for key, _label in self.dialog.PAGES])
@@ -65,12 +66,47 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertTrue(all(not nav.isRowHidden(i) for i in range(nav.count())))
         self.assertEqual(self.navigation.width(), SettingsNavigation.COMPACT_WIDTH)
         self.assertEqual(nav.item(3).toolTip(), '录制')
-        nav.item(8).setData(Qt.UserRole+1, True)
-        self.assertTrue(nav.item(8).data(Qt.UserRole+1))
+        nav.item(PAGE_INDEX['updates']).setData(Qt.UserRole+1, True)
+        self.assertTrue(nav.item(PAGE_INDEX['updates']).data(Qt.UserRole+1))
         self.assertFalse(self.navigation.grab().isNull())
         nav.setCurrentRow(2)
         self.assertEqual(self.dialog.stack.currentWidget(), self.dialog.danmaku_page)
         self.assertTrue(self.navigation.collapsed)
+
+    def test_streamer_defaults_can_search_add_save_and_remove_one_room(self):
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True,
+                                streamer_rooms={'1001': '主播甲', 'huya:1001': '主播乙'})
+        self.addCleanup(dialog.deleteLater)
+        dialog.auto_save.start()
+        sent = []
+        dialog.auto_save.requested.connect(sent.append)
+        dialog.navigation.search.setText('zbdlsz')
+        page_index = dialog.PAGE_INDEX['streamer_defaults']
+        self.assertEqual(page_index, PAGE_INDEX['shortcuts'] + 1)
+        self.assertEqual(dialog.navigation.heading(page_index), '观看与互动')
+        self.assertFalse(dialog.nav.isRowHidden(page_index))
+        dialog.nav.setCurrentRow(page_index)
+        page = dialog.stack.currentWidget()
+        self.assertFalse(page.playback.isEnabled())
+        page.search.setText('zby')
+        self.assertEqual(page.available.currentData(), 'huya:1001')
+        page.add_button.click()
+        page.playback.setCurrentIndex(page.playback.findData(1440))
+        page.recording.setCurrentIndex(page.recording.findData(2160))
+        page.volume.setValue(0)
+        dialog.auto_save.flush()
+        self.assertEqual(sent[-1]['settings']['streamer_defaults'],
+                         {'huya:1001': {'name': '主播乙', 'playback': 1440,
+                                        'recording': 2160, 'volume': 0}})
+        dialog.auto_save.acknowledge()
+        saved = dialog.settings()
+        saved_page = type(page)(saved, {})
+        self.addCleanup(saved_page.deleteLater)
+        self.assertEqual(saved_page.configured.currentData(), 'huya:1001')
+        self.assertEqual(saved_page.volume.value(), 0)
+        page.remove_button.click()
+        dialog.auto_save.flush()
+        self.assertEqual(sent[-1]['settings']['streamer_defaults'], {})
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button

@@ -9,7 +9,10 @@ import time
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QRect, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
-HOST_PAGES = {1: 'appearance', 3: 'recording', 7: 'plugins', 8: 'updates'}
+from .settings_pages import PAGE_INDEX
+
+
+HOST_PAGES = {PAGE_INDEX[key]: key for key in ('appearance', 'recording', 'plugins', 'updates')}
 
 
 def _save_trace(stage, started=None):
@@ -111,7 +114,7 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts, sc_preview_context=None):
+    def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None):
         portrait = getattr(self.parent(), 'orientation', '') == 'portrait'
         if self.closing:
             return
@@ -127,6 +130,7 @@ class SettingsProcess(QObject):
             'shortcuts': dict(shortcuts)}
         self.pending['sc_preview_context'] = sc_preview_context or {}
         self.pending['portrait'] = portrait
+        self.pending['streamer_rooms'] = streamer_rooms or {}
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
             self.pending['owner_hwnd'] = int(self.parent().window().winId())

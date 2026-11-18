@@ -15,6 +15,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
+from ddm.settings_pages import PAGE_INDEX
 from ddm import app_update_ui, app_updates, config, online, theme, update_install
 from ddm.app_updates import AppUpdates
 from ddm.dialogs import SettingsDialog
@@ -148,16 +149,16 @@ class UpdatePreview(QWidget):
             dialog = self.dialog = SettingsDialog(self.settings, {}, self,
                 plugin_manager=self.plugins, update_page_factory=self._get_update_page)
             for index in range(dialog.nav.count()):
-                dialog.nav.item(index).setHidden(index not in (7, 8))
+                dialog.nav.item(index).setHidden(index not in (PAGE_INDEX['plugins'], PAGE_INDEX['updates']))
             def created(index, widget):
-                if index == 7:
+                if index == PAGE_INDEX['plugins']:
                     widget.store_page.set_downloads(self.app_updates.plugin_downloads())
                     widget.store_page._catalog_ready(self._plugin_catalog_offers)
             dialog.pageCreated.connect(created)
             dialog.updatesViewed.connect(self.app_updates.remember_updates)
             dialog.finished.connect(self._settings_finished)
             dialog.open()
-        self.dialog.nav.setCurrentRow(7 if page == 'plugins' else 8)
+        self.dialog.nav.setCurrentRow(PAGE_INDEX[page])
         if page == 'plugins':
             self.dialog.plugin_page.tabs.setCurrentIndex(1)
         self.dialog.raise_()

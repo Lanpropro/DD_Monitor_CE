@@ -15,6 +15,7 @@ from shiboken6 import isValid
 from ddm import app as app_module
 from ddm.auto_quality import AUTO_QUALITY
 from ddm.codec_control import CodecControl
+from ddm.bili_workers import StreamResolver
 from ddm.stream_playback import StreamPlayback
 from ddm.wall_quality import WallQualityRequest, allows_wall_quality, wall_quality_request
 
@@ -151,6 +152,58 @@ class StreamPlaybackTests(unittest.TestCase):
         self.host.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.stack.close()
+
+    def test_first_stream_uses_selected_resolution_and_manual_change_removes_pending(self):
+        self.tile.room.update(_streamer_playback=True, _streamer_pending_height=1440)
+        self.assertEqual(self.host.apply_quality_policy(), [])
+        self.host.start_tile(self.tile)
+        resolver = self.host._resolvers[self.tile]
+        self.assertEqual(resolver.streamer_height, 1440)
+        resolver.applied_streamer_quality = True
+        resolver.resolved.emit('1001', 'preferred', 15000, 'web', [])
+        self.assertEqual(self.tile.quality, 15000)
+        self.assertNotIn('_streamer_pending_height', self.tile.room)
+        self.tile.room['_streamer_pending_height'] = 1440
+        self.host._sender_tile = lambda: self.tile
+        self.host.stream_playback.on_quality_changed(self.tile.room, 250)
+        self.assertIsNone(self.host._resolvers[self.tile].streamer_height)
+        self.assertEqual(self.tile.quality, 250)
+
+    def test_pending_recording_cannot_follow_a_replaced_room(self):
+        self.host._capture_quality[self.tile] = ('previous', 250)
+        self.host._pending_capture[self.tile] = True
+        self.host._restore_capture_quality.side_effect = self.host._capture_quality.pop
+        self.tile.room.update(_streamer_playback=True, _streamer_pending_height=1440)
+        self.host.start_tile(self.tile)
+        self.host._restore_capture_quality.assert_called_once_with(self.tile)
+        self.assertNotIn(self.tile, self.host._pending_capture)
+        self.assertEqual(self.host._resolvers[self.tile].streamer_height, 1440)
+
+    def test_resolver_tries_configured_resolution_then_lower_if_unavailable(self):
+        resolver = StreamResolver('test:1001', 1, self.host, platform=object())
+        resolver.streamer_height = 2160
+        tiers = [{'desc': '3840x2160', 'qn': 4}, {'desc': '2560x1440', 'qn': 3},
+                 {'desc': '1920x1080', 'qn': 1}]
+        attempted = []
+        def play():
+            attempted.append(resolver.quality)
+            if resolver.quality == 4:
+                raise ValueError('4K unavailable')
+            return 'preferred', 3, 'test', {}
+        with patch.object(resolver, '_platform_play_url', side_effect=play):
+            actual = resolver._prefer_streamer_resolution(('fallback', 1, 'test', {}), tiers)
+        self.assertEqual(attempted, [4, 3])
+        self.assertEqual(actual[:2], ('preferred', 3))
+        self.assertTrue(resolver.applied_streamer_quality)
+
+    def test_wall_quality_command_supersedes_first_streamer_request(self):
+        self.tile.room.update(_streamer_playback=True, _streamer_pending_height=1440)
+        self.host.start_tile(self.tile)
+        previous = self.host._resolvers[self.tile]
+        self.host.start_tile(self.tile, wall_quality=WallQualityRequest(720, (250, 80)))
+        self.assertTrue(previous.cancelled)
+        self.assertNotIn('_streamer_pending_height', self.tile.room)
+        self.assertIsNone(getattr(self.host._resolvers[self.tile], 'streamer_height', None))
 
     def test_module_import_does_not_load_host_widgets_or_player(self):
         result = subprocess.run([sys.executable, '-c', "import sys; import ddm.stream_playback; "

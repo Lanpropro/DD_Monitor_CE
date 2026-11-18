@@ -90,6 +90,7 @@ class Tile(QFrame):
         self.stream_codec = ""
         self.stream_headers: dict = {}
         self.room = dict(room)
+        self.room.pop('_streamer_initial_volume', None)
         self._cover_source = room.get("cover")
         self._status_text = ""
         self._status_detail = ""

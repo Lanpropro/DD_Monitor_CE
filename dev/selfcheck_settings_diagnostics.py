@@ -22,6 +22,7 @@ from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout
 import shiboken6
 
+from ddm.settings_pages import PAGE_INDEX
 from ddm import qt_lifecycle, theme
 from ddm.diagnostic_export import DiagnosticExport
 from ddm.settings_diagnostics import DiagnosticsPage
@@ -127,9 +128,8 @@ class DiagnosticSettingsTests(unittest.TestCase):
         dialog = SettingsDialog({'native_crash_dump': True}, {}, preview=True)
         self.addCleanup(dialog.close)
         self.addCleanup(dialog.deleteLater)
-        self.assertEqual(dialog.PAGE_INDEX['updates'], 8)
-        self.assertEqual(dialog.PAGE_INDEX['diagnostics'], 9)
-        page = dialog._page(9)
+        self.assertEqual(dialog.PAGE_INDEX['diagnostics'], dialog.PAGE_INDEX['updates'] + 1)
+        page = dialog._page(PAGE_INDEX['diagnostics'])
         self.assertTrue(page.dump_enabled.isChecked())
         self.assertFalse(page.include_dumps.isChecked())
         page.reset()
@@ -224,8 +224,8 @@ def diagnostic_worker():
             QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
-            self.nav.setCurrentRow(9)
-            page = self._page(9)
+            self.nav.setCurrentRow(PAGE_INDEX['diagnostics'])
+            page = self._page(PAGE_INDEX['diagnostics'])
             assert not page.include_dumps.isChecked()
             page.destination.setText(os.environ['DDM_DIAGNOSTIC_TEST_OUTPUT'])
             page.description.setPlainText('worker fixture')

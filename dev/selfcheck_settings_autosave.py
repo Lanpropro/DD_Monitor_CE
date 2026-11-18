@@ -12,6 +12,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
+from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 APP = None if '--worker' in sys.argv else QApplication.instance() or QApplication([])
@@ -144,11 +145,11 @@ class AutoSaveTests(unittest.TestCase):
         page = self.dialog.general_page
         from types import SimpleNamespace
         data = SimpleNamespace(target='fixture-destination', prepare=unittest.mock.Mock())
-        self.dialog._loaded_pages[8] = SimpleNamespace(data_page=data, values=lambda: {})
+        self.dialog._loaded_pages[PAGE_INDEX['updates']] = SimpleNamespace(data_page=data, values=lambda: {})
         page.volume_slider.setValue(7)
         self.dialog.auto_save.flush()
         data.prepare.assert_not_called()
-        self.dialog._loaded_pages.pop(8)
+        self.dialog._loaded_pages.pop(PAGE_INDEX['updates'])
 
     def test_same_process_applies_without_closing(self):
         import tempfile
@@ -202,7 +203,7 @@ class AutoSaveTests(unittest.TestCase):
                              status='已加载', reason='')
                 with patch.object(window.plugins, 'catalog', return_value=[entry]), \
                         patch('ddm.online_ui.OnlinePage.start'):
-                    dialog.nav.setCurrentRow(7)
+                    dialog.nav.setCurrentRow(PAGE_INDEX['plugins'])
                     dialog.plugin_page.checks['fixture'].setChecked(False)
                     dialog.auto_save.flush()
                 self.assertEqual(window.plugins.enabled, set())

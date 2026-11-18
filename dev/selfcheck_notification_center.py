@@ -65,7 +65,8 @@ class NotificationTests(unittest.TestCase):
         self.addCleanup(self.dispose, dialog)
         keys = [dialog.nav.item(i).data(Qt.UserRole) for i in range(dialog.nav.count())]
         self.assertEqual(keys, ['general', 'appearance', 'danmaku', 'recording',
-                                'notifications', 'shortcuts', 'tray', 'plugins', 'updates', 'diagnostics'])
+                                'notifications', 'shortcuts', 'streamer_defaults', 'tray',
+                                'plugins', 'updates', 'diagnostics'])
         self.assertFalse(dialog._loaded_pages)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['tray'])
         self.assertEqual(dialog.stack.currentIndex(), SettingsDialog.PAGE_INDEX['tray'])

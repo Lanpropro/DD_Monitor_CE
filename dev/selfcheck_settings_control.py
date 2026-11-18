@@ -76,6 +76,7 @@ class Host(QObject):
         self.settings = {'appearance_mode': 'dark', 'auto_update': False}
         self.shortcuts, self.state = {'focus': 'F'}, {}
         self.plugins = SimpleNamespace(enabled={'alpha'}, _platform_owner={'p': 'alpha'}, _removed=set())
+        self.sidebar = SimpleNamespace(rooms=lambda: [{'room_id': '1001', 'uname': '主播'}])
         self.wall = SimpleNamespace(tiles=[], _quick_danmaku_layer=Mock())
         self.players, self._codec_dialogs = {}, {}
         self._available_update, self._update_notice = None, Mock()
@@ -133,7 +134,8 @@ class SettingsControlTests(unittest.TestCase):
                 patch.object(host, '_sc_preview_context', return_value={'fixture': True}), \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}):
             self.assertFalse(host._open_sidebar_settings())
-        host._settings_process.open.assert_called_once_with(host.settings, host.shortcuts, {'fixture': True})
+        host._settings_process.open.assert_called_once_with(
+            host.settings, host.shortcuts, {'fixture': True}, streamer_rooms={'1001': '主播'})
 
     def test_process_is_reused_and_old_signal_entries_keep_host_parent(self):
         host = self.host
@@ -241,6 +243,7 @@ class SettingsControlTests(unittest.TestCase):
         self.assertIsInstance(dialog, Dialog)
         self.assertIs(dialog.parent(), host)
         self.assertEqual(dialog.initial_shortcuts, {'focus': 'G'})
+        self.assertEqual(dialog.options['streamer_rooms'], {'1001': '主播'})
         self.assertEqual(host.settings['seen_update_entry_versions'], {'app': '9.0', 'alpha': '2'})
         self.save.assert_called_once()
         preview = Mock()

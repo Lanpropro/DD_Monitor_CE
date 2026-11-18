@@ -59,7 +59,8 @@ def run_worker():
             self.foreign = None
             self.plugin_checks = {}
             self.painted = False
-            super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True,
+                             streamer_rooms=snapshot.get('streamer_rooms'))
             self.setProperty('settings_portrait', bool(snapshot.get('portrait', False)))
             self._auto_save_enabled = True
             self.auto_save.requested.connect(lambda changes: send({'kind': 'auto-save', 'changes': changes}))
