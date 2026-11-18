@@ -1,7 +1,7 @@
 """Picture-in-picture room selection and composition dialog."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QSignalBlocker, Qt
 from PySide6.QtGui import QPainter, QPen
-from PySide6.QtWidgets import QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from . import theme
 from .corner_geometry import continuous_path
 from .search import matches_text
@@ -11,6 +11,7 @@ from .pip_arrangements import PipArrangements
 from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, MAIN_LAYOUT
 from .pip_placement import initial_placement, placement_bounds
 from .pip_preview import CompositionPreview
+from .pip_toolbar import ToolbarPipPanel, resize_edges
 
 
 class RoomChoice(QPushButton):
@@ -58,10 +59,7 @@ class PictureInPictureDialog(QDialog):
         parent = controller.host if compact else (controller.floating or controller.host)
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.controller = controller
-        self._toolbar_anchor = None
-        self._toolbar_below = False
-        self._toolbar_position = None
-        self._drag_offset = None
+        self.toolbar_panel = None
         self._compact = compact
         self._order = list(controller.selected_choices())
         self._primary = controller.primary_choice()
@@ -237,52 +235,12 @@ class PictureInPictureDialog(QDialog):
                       max(area.top(), min(position.y(), area.bottom() + 1 - self.height())))
 
     def attach_to_toolbar(self, anchor, *, below):
-        self._toolbar_anchor = anchor
-        self._toolbar_below = below
-        self.controller.host.installEventFilter(self)
-        self.titlebar.installEventFilter(self)
-        return self._fit_to_main_window()
-
-    def _main_window_area(self):
-        host = self.controller.host
-        area = QRect(host.mapToGlobal(QPoint()), host.size())
-        screen = QApplication.screenAt(self._toolbar_anchor.mapToGlobal(self._toolbar_anchor.rect().center()))
-        if screen is not None:
-            visible = area.intersected(screen.availableGeometry())
-            if visible.isValid():
-                return visible
-        return area
-
-    def _fit_to_main_window(self):
-        available = self._main_window_area()
-        area = available.adjusted(8, 8, -8, -8)
-        self.layout().activate()
-        minimum = self.minimumSizeHint()
-        if not area.isValid() or minimum.boundedTo(area.size()) != minimum:
-            self.reject()
-            return False
-        self.resize(self.COMPACT_SIZE.boundedTo(area.size()))
-        if self._toolbar_position is None:
-            anchor = self._toolbar_anchor
-            rect = QRect(anchor.mapToGlobal(QPoint()), anchor.size())
-            self.place_near(rect, available, below=self._toolbar_below)
-        else:
-            position = self.controller.host.mapToGlobal(self._toolbar_position)
-            self.move(self._clamp_position(position, area))
-        return True
+        self.toolbar_panel = ToolbarPipPanel(self, anchor, below=below)
+        return self.toolbar_panel.attach()
 
     def mousePressEvent(self, event):
         if not self._compact and event.button() == Qt.LeftButton and self.windowHandle() is not None:
-            x, y = event.position().toPoint().toTuple()
-            edges = Qt.Edge(0)
-            if x < 8:
-                edges |= Qt.LeftEdge
-            elif x >= self.width() - 8:
-                edges |= Qt.RightEdge
-            if y < 8:
-                edges |= Qt.TopEdge
-            elif y >= self.height() - 8:
-                edges |= Qt.BottomEdge
+            edges = resize_edges(self, event.position().toPoint())
             if edges and self.windowHandle().startSystemResize(edges):
                 event.accept()
                 return
@@ -371,30 +329,7 @@ class PictureInPictureDialog(QDialog):
             grid.parentWidget().setVisible(bool(visible))
 
     def eventFilter(self, watched, event):
-        kind = event.type()
-        if self._toolbar_anchor is not None:
-            if watched is self.controller.host and self.isVisible():
-                if kind in (QEvent.Move, QEvent.Resize):
-                    self._fit_to_main_window()
-                elif kind == QEvent.Hide or (kind == QEvent.WindowStateChange and watched.isMinimized()):
-                    self.reject()
-            elif watched is self.titlebar:
-                if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                    self._drag_offset = event.globalPosition().toPoint() - self.pos()
-                    self.titlebar.grabMouse()
-                    return True
-                if kind == QEvent.MouseMove and self._drag_offset is not None and event.buttons() & Qt.LeftButton:
-                    position = event.globalPosition().toPoint() - self._drag_offset
-                    position = self._clamp_position(position, self._main_window_area().adjusted(8, 8, -8, -8))
-                    self._toolbar_position = self.controller.host.mapFromGlobal(position)
-                    self.move(position)
-                    return True
-                if kind in (QEvent.MouseButtonRelease, QEvent.UngrabMouse, QEvent.Hide) and self._drag_offset is not None:
-                    self._drag_offset = None
-                    if QWidget.mouseGrabber() is self.titlebar:
-                        self.titlebar.releaseMouse()
-                    return kind == QEvent.MouseButtonRelease
-        if watched is self.choice_viewport and kind == QEvent.Resize:
+        if watched is self.choice_viewport and event.type() == QEvent.Resize:
             self._arrange_choices()
         return super().eventFilter(watched, event)
 

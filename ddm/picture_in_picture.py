@@ -51,6 +51,9 @@ class PictureInPicture(QObject):
         self._pending_start = None
         self.pinned = bool(saved.get('pinned', True))
         self.geometry = saved.get('geometry', '')
+        size = saved.get('picker_size')
+        self.picker_size = (tuple(size) if isinstance(size, (tuple, list)) and len(size) == 2
+                            and all(type(value) is int and 0 < value <= 32767 for value in size) else ())
         self._video_aspects = {}
         self._aspect_timer = QTimer(self)
         self._aspect_timer.setInterval(1000)
@@ -98,6 +101,9 @@ class PictureInPicture(QObject):
                 button.update()
 
     def manage_from_sidebar(self):
+        if self.dialog is not None and self.dialog.toolbar_panel is not None:
+            self.dialog.reject()
+            return
         sidebar = self.host.sidebar
         anchor = sidebar.picture_in_picture_button
         if not anchor.isVisible():
@@ -129,8 +135,15 @@ class PictureInPicture(QObject):
         self._first_picker = False
         self.dialog = PictureInPictureDialog(self, compact=True) if anchor is not None else PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
-        if anchor is None or self.dialog.attach_to_toolbar(anchor, below=below):
+        if anchor is None:
             self.dialog.open()
+        elif self.dialog.attach_to_toolbar(anchor, below=below):
+            self.dialog.show()
+            self.dialog.activateWindow()
+
+    def remember_picker_size(self, size):
+        self.picker_size = (size.width(), size.height())
+        self.host._save_timer.start()
 
     def _finish_manage(self, _result):
         self.dialog = None
@@ -502,4 +515,5 @@ class PictureInPicture(QObject):
         return dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
                     geometry=geometry, external_rooms=external,
                     external_primary=selected_primary if selected_primary in external else '',
-                    choice_order=choices, parallel=self.parallel_preference, placement=self.placement)
+                    choice_order=choices, parallel=self.parallel_preference, placement=self.placement,
+                    picker_size=self.picker_size)

@@ -1,5 +1,6 @@
 """Isolated main-window checks for the PiP room picker and draggable preview."""
 import faulthandler
+import json
 import sys
 import unittest
 from unittest.mock import patch
@@ -8,7 +9,7 @@ import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPalette, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtWidgets import QMenu, QScrollArea, QWidget
 
 
 class PipPickerTests(unittest.TestCase):
@@ -57,7 +58,7 @@ class PipPickerTests(unittest.TestCase):
         pointer(header, QEvent.MouseButtonRelease, header.mapFromGlobal(outside), outside, Qt.LeftButton, Qt.NoButton)
         self.assertEqual(dialog.geometry().bottomRight(), bounds().bottomRight())
         moved_position = dialog.pos()
-        pip.manage_from_sidebar()
+        pip.manage(anchor=button)
         self.assertIs(pip.dialog, dialog)
         self.assertEqual(dialog.pos(), moved_position)
 
@@ -68,6 +69,111 @@ class PipPickerTests(unittest.TestCase):
         self.assertGreater(outer.verticalScrollBar().maximum(), 0)
         self.assertTrue(dialog.rect().contains(QRect(dialog.start.mapTo(dialog, QPoint()), dialog.start.size())))
         dialog.reject()
+
+    def test_toolbar_picker_dismisses_on_outside_click_or_lost_activation(self):
+        from PySide6.QtWidgets import QApplication
+
+        window = self.window([dict(room_id='1', uname='Wall', live=True)])
+        pip = window.picture_in_picture
+        button = window.sidebar.picture_in_picture_button
+        QTest.mouseClick(button, Qt.LeftButton)
+        dialog = pip.dialog
+        QTest.mouseClick(dialog.search, Qt.LeftButton)
+        QTest.keyClicks(dialog.search, 'Wall')
+        self.assertEqual(dialog.search.text(), 'Wall')
+        self.assertIs(pip.dialog, dialog)
+
+        menu = QMenu(dialog.search)
+        item = menu.addAction('Search action')
+        menu.popup(dialog.search.mapToGlobal(dialog.search.rect().bottomLeft()))
+        self.app.processEvents()
+        self.assertIs(QApplication.activePopupWidget(), menu)
+        QTest.mouseClick(menu.windowHandle(), Qt.LeftButton, pos=menu.actionGeometry(item).center())
+        self.assertFalse(menu.isVisible())
+        self.assertIs(pip.dialog, dialog)
+
+        QTest.mouseClick(window.windowHandle(), Qt.LeftButton, pos=QPoint(window.width() - 30, 60))
+        self.assertIsNone(pip.dialog)
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.assertIsNotNone(pip.dialog)
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.assertIsNone(pip.dialog)
+        self.assertFalse(pip.active)
+
+        QTest.mouseClick(button, Qt.LeftButton)
+        dialog = pip.dialog
+        other = QWidget()
+        other.show()
+        other.activateWindow()
+        QTest.qWait(60)
+        self.assertIsNot(QApplication.activeWindow(), dialog)
+        self.assertIsNone(pip.dialog)
+        other.close()
+
+    def test_toolbar_picker_remembers_resized_dimensions_after_reopen_and_restore(self):
+        from selfcheck_picture_in_picture import pointer
+
+        room = dict(room_id='1', uname='Wall', live=True)
+        window = self.window([room])
+        available = window.screen().availableGeometry()
+        window.move(available.topLeft() + QPoint(22, 22))
+        self.app.processEvents()
+        button = window.sidebar.picture_in_picture_button
+        pip = window.picture_in_picture
+        button.click()
+        dialog = pip.dialog
+
+        def drag(local, delta):
+            pressed = dialog.mapToGlobal(local)
+            target = pressed + delta
+            pointer(dialog, QEvent.MouseButtonPress, local, pressed, Qt.LeftButton, Qt.LeftButton)
+            pointer(dialog, QEvent.MouseMove, dialog.mapFromGlobal(target), target, Qt.NoButton, Qt.LeftButton)
+            pointer(dialog, QEvent.MouseButtonRelease, dialog.mapFromGlobal(target), target, Qt.LeftButton, Qt.NoButton)
+
+        original = dialog.geometry()
+        window._save_timer.stop()
+        drag(QPoint(dialog.width() - 7, dialog.height() - 7), QPoint(55, -34))
+        resized = dialog.geometry()
+        self.assertEqual(resized.topLeft(), original.topLeft())
+        self.assertEqual(resized.height(), original.height() - 34)
+        self.assertGreater(resized.width(), original.width())
+        self.assertTrue(window._save_timer.isActive())
+        drag(QPoint(6, 6), QPoint(36, 25))
+        self.assertEqual(dialog.geometry().bottomRight(), resized.bottomRight())
+        self.assertEqual(dialog.geometry().topLeft(), resized.topLeft() + QPoint(36, 25))
+        remembered = dialog.size()
+        self.assertEqual(pip.picker_size, remembered.toTuple())
+
+        drag(QPoint(dialog.width() - 4, dialog.height() // 2), QPoint(2000, 0))
+        bounds = QRect(window.mapToGlobal(QPoint()), window.size()).intersected(available).adjusted(8, 8, -8, -8)
+        self.assertEqual(dialog.geometry().right(), bounds.right())
+        self.assertEqual(dialog.height(), remembered.height())
+        remembered = dialog.size()
+        window.resize(390, 370)
+        self.app.processEvents()
+        small_bounds = QRect(window.mapToGlobal(QPoint()), window.size()).intersected(available).adjusted(8, 8, -8, -8)
+        self.assertEqual(dialog.size(), remembered.boundedTo(small_bounds.size()))
+        self.assertLess(dialog.height(), remembered.height())
+        self.assertEqual(pip.picker_size, remembered.toTuple())
+        dialog.reject()
+        window.resize(1000, 700)
+        self.app.processEvents()
+        button.click()
+        self.assertEqual(pip.dialog.size(), remembered)
+        pip.dialog.reject()
+
+        state = {'ui': json.loads(json.dumps(window.current_state()['ui']))}
+        state.update(plugins_enabled=[], settings={'close_behavior': 'exit'})
+        window.hide()
+        restored = fixtures.MainWindow([room], [room], layout_id='2x2', state=state)
+        self.addCleanup(self.close_window, restored)
+        restored.resize(window.size())
+        restored.move(window.pos())
+        restored.show()
+        self.app.processEvents()
+        restored.sidebar.picture_in_picture_button.click()
+        self.assertEqual(restored.picture_in_picture.dialog.size(), remembered)
+        restored.picture_in_picture.dialog.reject()
 
     def test_anchored_picker_flips_at_screen_edges(self):
         window = self.window([])
