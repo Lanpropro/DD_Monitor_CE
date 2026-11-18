@@ -131,9 +131,8 @@ class SettingsWindow(QDialog):
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
-        from .skin_parts import resolve_values, values_for
-        preview = getattr(self, '_settings_material_preview', None)
-        values = resolve_values('settings', preview[1], preview[0]) if preview is not None else values_for('settings')
+        from .settings_material_paint import glass_tint, window_background_tint
+        tint = window_background_tint(self)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -146,10 +145,10 @@ class SettingsWindow(QDialog):
             path = continuous_path(rect, 22)
         painter.setClipPath(path)
         from .settings_material import base_color
-        color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
-        from .settings_material_paint import glass_tint
-        color = glass_tint(self, values.get('background')) if self._native_glass else color
-        if not self._native_glass:
+        if self._native_glass:
+            color = glass_tint(self, tint)
+        else:
+            color = theme.qcolor(tint or base_color(self, 'background', theme.BG))
             color.setAlpha(255)
         painter.fillPath(path, color)
         if not self._native_corners:

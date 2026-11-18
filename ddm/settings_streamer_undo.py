@@ -1,13 +1,13 @@
 """Bottom-anchored removal feedback for the streamer settings page."""
-from PySide6.QtCore import QEvent, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QPainter, QPen, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QScrollArea,
                               QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
 from .corner_geometry import continuous_path
 from .settings_material import base_color
-from .settings_material_paint import glass_active, glass_tint
+from .settings_material_paint import glass_active, glass_tint, window_background_tint
 from .ui import ActionButton, Avatar, ElidedLabel
 
 
@@ -16,8 +16,10 @@ class StreamerRemovalNotice(QWidget):
     entry_undo_requested = Signal(str)
     expired = Signal()
 
-    def __init__(self, parent):
+    def __init__(self, parent, scroll):
         super().__init__(parent)
+        self.backdrop = scroll.viewport()
+        scroll.verticalScrollBar().valueChanged.connect(self.update)
         self.setProperty('customControlSurface', True)
         self.rooms = {}
         self.detail_rows = {}
@@ -201,10 +203,46 @@ class StreamerRemovalNotice(QWidget):
             self.reposition()
         return super().eventFilter(watched, event)
 
+    def _paint_glass_backdrop(self, painter):
+        offset = self.backdrop.mapFrom(self.parentWidget(), self.pos())
+        source = QRect(offset, self.size()).adjusted(-24, -24, 24, 24).intersected(self.backdrop.rect())
+        if source.isEmpty():
+            return
+        image = QImage(source.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        # The notice lives outside the scroll area, so this captures only the page behind it.
+        with QPainter(image) as capture:
+            self.backdrop.render(capture, QPoint(), QRegion(source), QWidget.DrawChildren)
+        # Downsample and interpolate back to soften page content while keeping the notice sharp.
+        soft = image.scaled(max(1, image.width() // 18), max(1, image.height() // 18),
+                            Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.drawImage(QRectF(source.translated(-offset)), soft)
+
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        tint = base_color(self, 'card', theme.CONTENT)
-        painter.setBrush(glass_tint(self, tint) if glass_active(self) else theme.qcolor(tint))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12))
+        rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
+        path = continuous_path(rect, 12)
+        edge = theme.qcolor(theme.BORDER_STRONG)
+        if self.window().property('settings_glass_enabled'):
+            layer = QImage(self.size(), QImage.Format_ARGB32_Premultiplied)
+            tint = window_background_tint(self)
+            if glass_active(self):
+                layer.fill(Qt.transparent)
+            else:
+                base = theme.qcolor(tint or base_color(self, 'background', theme.BG))
+                base.setAlpha(255)
+                layer.fill(base)
+            with QPainter(layer) as glass:
+                self._paint_glass_backdrop(glass)
+                glass.fillRect(self.rect(), glass_tint(self, tint))
+            # Replace the sharp page pixels inside the panel, retaining native backdrop alpha.
+            painter.setCompositionMode(QPainter.CompositionMode_Source)
+            painter.fillPath(path, QBrush(layer))
+            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            edge.setAlpha(max(edge.alpha(), 64))
+        else:
+            painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
+        painter.setPen(QPen(edge, 1))
+        painter.drawPath(path)

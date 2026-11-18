@@ -77,7 +77,7 @@ class StreamerDefaultsPage(QWidget):
         self.regroup_timer.setSingleShot(True)
         self.regroup_timer.timeout.connect(self._render_profiles)
         self.merge.toggled.connect(self._merge_changed)
-        self.undo_notice = StreamerRemovalNotice(self)
+        self.undo_notice = StreamerRemovalNotice(self, self.scroll)
         self.undo_notice.undo_requested.connect(self.undo_removal)
         self.undo_notice.entry_undo_requested.connect(self.undo_removal)
         self.undo_notice.expired.connect(self._clear_removal)

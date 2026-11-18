@@ -10,6 +10,13 @@ def glass_active(widget):
         or window.property('settingsGlassContent') and blur_available()))
 
 
+def window_background_tint(widget):
+    from .skin_parts import resolve_values, values_for
+    preview = getattr(widget.window(), '_settings_material_preview', None)
+    values = resolve_values('settings', preview[1], preview[0]) if preview is not None else values_for('settings')
+    return values.get('background')
+
+
 def glass_tint(widget, tint=None, *, card=False):
     from . import theme
     light = theme.is_light()

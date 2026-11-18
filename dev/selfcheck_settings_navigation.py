@@ -252,34 +252,59 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertTrue(notice.expand_button.isHidden())
         self.assertTrue(notice.details.isHidden())
 
-    def test_streamer_removal_notice_repaints_with_settings_glass(self):
+    @patch('ddm.settings_window.apply_blur', return_value=False)
+    def test_streamer_removal_notice_repaints_with_settings_glass(self, native_blur):
         self.dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
-        notice = self.dialog.stack.currentWidget().undo_notice
+        page = self.dialog.stack.currentWidget()
+        notice = page.undo_notice
         notice.present({'1001': {'name': '主播甲'}, '1002': {'name': '主播乙'}})
+        marker = QWidget(page.scroll.viewport())
+        marker.setStyleSheet('background: #ff0000;')
+        sample = QPoint(245, 6)
 
-        def fill_alpha():
+        def pixels():
             APP.processEvents()
             image = QImage(notice.size(), QImage.Format_ARGB32_Premultiplied)
             image.fill(Qt.transparent)
             with QPainter(image) as painter:
                 notice.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
-            return image.pixelColor(notice.width() // 2, 5).alpha()
+            return image
 
-        with patch('ddm.settings_window.apply_blur', side_effect=lambda _widget, enabled: bool(enabled)):
-            self.assertEqual(fill_alpha(), 255)
+        for expanded in (False, True):
+            if expanded:
+                notice.expand_button.click()
+                self.assertTrue(notice.details.isVisible())
+            with self.subTest(expanded=expanded):
+                solid = pixels()
+                self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 60})
+                glass = pixels()
+                self.assertEqual(glass.pixelColor(sample).alpha(), 255)
+                self.assertNotEqual(glass.pixelColor(sample), solid.pixelColor(sample))
+
+                # Colour from a stripe just outside the sampled point should spread into it.
+                stripe = notice.mapTo(page, sample + QPoint(4, -6))
+                marker.move(page.scroll.viewport().mapFrom(page, stripe))
+                marker.resize(16, 40)
+                marker.show()
+                self.assertGreater(pixels().pixelColor(sample).red(), glass.pixelColor(sample).red())
+                # The actual page composite must suppress the sharp edge, too.
+                composite = self.dialog.grab().toImage()
+                position = notice.mapTo(self.dialog, sample)
+                self.assertLess(abs(composite.pixelColor(position + QPoint(6, 0)).red()
+                                    - composite.pixelColor(position).red()), 45)
+                marker.hide()
+
+                self.dialog.set_material({'settings_glass_enabled': False})
+                self.assertEqual(pixels().pixelColor(sample), solid.pixelColor(sample))
+
+        native_blur.return_value = True
+        with patch('ddm.skin_parts.values_for', return_value={'background': '#326496'}):
             self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 60})
-            self.assertEqual(fill_alpha(), 153)
-            notice.expand_button.click()
-            self.assertTrue(notice.details.isVisible())
-            self.assertEqual(fill_alpha(), 153)
+            color = pixels().pixelColor(sample)
+            self.assertEqual(color.name(), '#326496')
+            self.assertEqual(color.alpha(), 153)
             self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': 80})
-            self.assertEqual(fill_alpha(), 204)
-            self.dialog.set_material({'settings_glass_enabled': False})
-            self.assertEqual(fill_alpha(), 255)
-
-        with patch('ddm.settings_window.apply_blur', return_value=False):
-            self.dialog.set_material({'settings_glass_enabled': True})
-            self.assertEqual(fill_alpha(), 255)
+            self.assertEqual(pixels().pixelColor(sample).alpha(), 204)
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button
