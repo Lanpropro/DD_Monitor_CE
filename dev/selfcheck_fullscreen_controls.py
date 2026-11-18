@@ -193,18 +193,14 @@ def check_skin_gradient(tile):
 
 
 def check_control_contrast(app, tile):
-    def render(widget, backdrop):
+    def render(widget, backdrop, flags=QWidget.DrawChildren):
         image = QImage(widget.size(), QImage.Format_ARGB32_Premultiplied)
         image.fill(QColor(backdrop))
         painter = QPainter(image)
-        widget.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+        widget.render(painter, QPoint(), QRegion(), flags)
         painter.end()
         return image
 
-    controls = (tile.pause_button, tile.volume_button, tile.volume_label, tile.status_label,
-                tile.danmaku_button, tile.danmaku_settings_button, tile.recording_button, tile.fullscreen_button)
-    status = tile.status_label.text()
-    tile.status_label.setText('Local playback status')
     composer = QWidget(tile.bottom)
     composer.setObjectName('DanmakuComposer')
     composer.setGeometry(tile.bottom.width() // 2 - 90, 0, 180, 30)
@@ -217,23 +213,26 @@ def check_control_contrast(app, tile):
         for mode in ('light', 'dark'):
             theme.apply(mode)
             app.processEvents()
-            for widget in controls:
-                white = render(widget, '#ffffff')
-                black = render(widget, '#101010')
-                coords = (
-                    (x, y) for x in range(2, widget.width() - 2)
-                    for y in range(2, widget.height() - 2))
-                samples = [(white.pixelColor(x, y), black.pixelColor(x, y)) for x, y in coords]
-                assert any(c.value() < 125 for c, _ in samples), (
-                    f'{type(widget).__name__} needs a visible edge against white')
-                assert any(c.value() > 135 for _, c in samples), (
-                    f'{type(widget).__name__} needs a visible glyph against dark video')
-                assert white.pixelColor(0, 0) == QColor('#ffffff')
+            bar = tile.bottom
+            alpha = render(bar, 'transparent', QWidget.DrawWindowBackground)
+            check_gradient(alpha, bar.width() // 2)
+            white = render(bar, '#ffffff')
+            dark = render(bar, '#101010')
+            for widget in (tile.pause_button, tile.fullscreen_button):
+                rect = widget.geometry()
+                x, y = rect.left() + 2, rect.center().y()
+                assert 85 < white.pixelColor(x, y).value() < 155, 'Local button group must dim bright video'
+                assert dark.pixelColor(x, y).value() < 40, 'Backing must blend into dark video'
+                assert any(dark.pixelColor(x, y).value() > 200 for x in range(rect.left(), rect.right())
+                           for y in range(rect.top(), rect.bottom())), 'Button must keep its light foreground'
+            # The pause glyph itself stays unoutlined when painted without its group.
+            icon = render(tile.pause_button, '#ffffff')
+            assert all(icon.pixelColor(x, y).value() > 230
+                       for x in range(icon.width()) for y in range(icon.height()))
             pixel = render(editor, '#ffffff').pixelColor(editor.width() - 16, editor.height() // 2)
             assert 80 < pixel.value() < 130, 'Only the composer field needs a translucent dark backing'
             assert editor.palette().color(QPalette.PlaceholderText).value() > 220
     finally:
-        tile.status_label.setText(status)
         composer.hide()
         composer.deleteLater()
 

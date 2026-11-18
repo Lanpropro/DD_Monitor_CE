@@ -3,48 +3,11 @@ import math
 
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPointF, QRectF, Qt, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QStyle, QStyleOption, QStyleOptionButton
+from PySide6.QtWidgets import QFrame, QPushButton, QStyle, QStyleOption, QStyleOptionButton
 
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .config import DEFAULT_VOLUME
-
-
-def _draw_glyph(painter, path, color, outline, width=0):
-    if outline:
-        painter.strokePath(path, QPen(QColor(13, 17, 22, 218), width + 1.8,
-                                      Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    if width:
-        painter.strokePath(path, QPen(color, width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-    else:
-        painter.fillPath(path, color)
-
-
-def _draw_fullscreen_text(painter, rect, text, font, metrics, color, *, centered):
-    x = rect.left()
-    if centered:
-        x += (rect.width() - metrics.horizontalAdvance(text)) / 2
-    baseline = rect.top() + (rect.height() - metrics.height()) / 2 + metrics.ascent()
-    path = QPainterPath()
-    path.addText(QPointF(x, baseline), font, text)
-    painter.setRenderHint(QPainter.Antialiasing)
-    _draw_glyph(painter, path, color, True)
-
-
-def _paint_fullscreen_label(label):
-    if not label.property('fullscreen'):
-        return False
-    painter = QPainter(label)
-    _draw_fullscreen_text(painter, label.contentsRect(), label.text(), label.font(),
-                          label.fontMetrics(), QColor('#ffffff'), centered=False)
-    painter.end()
-    return True
-
-
-class PlaybackLabel(QLabel):
-    def paintEvent(self, event):
-        if not _paint_fullscreen_label(self):
-            super().paintEvent(event)
 
 
 class TileButton(QPushButton):
@@ -86,14 +49,7 @@ class TileButton(QPushButton):
         else:
             self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
         painter.restore()
-        if self.property('fullscreen') and option.text and option.icon.isNull():
-            color = QColor('#fb7299' if self.property('recording') else '#ffffff')
-            if not self.isEnabled():
-                color.setAlpha(165)
-            _draw_fullscreen_text(painter, option.rect, option.text, self.font(),
-                                  option.fontMetrics, color, centered=True)
-        else:
-            self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
+        self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
         if focused:
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(QPen(QColor('#ffffff'), 1.2))
@@ -163,7 +119,11 @@ class VolumeButton(TileButton):
                  else QColor("#9499a0" if silent else "#f1f2f3"))
         if self.underMouse():
             color = QColor(theme.ACCENT)
-        outline = self.property('fullscreen')
+        pen = QPen(color, 1.7)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
         center = QRectF(self.rect()).center()
         # Center the speaker and its right-hand indicator as a single icon.
         left = center.x() - 11
@@ -176,15 +136,13 @@ class VolumeButton(TileButton):
         path.lineTo(left + 3.5, top + 8)
         path.lineTo(left, top + 8)
         path.closeSubpath()
+        painter.drawPath(path)
         if silent:
             # 静音：喇叭右边一个 ×（不再用斜线划掉整只喇叭）。
             cross = QPointF(left + 17, center.y())
-            path.moveTo(cross + QPointF(-3.5, -3.5))
-            path.lineTo(cross + QPointF(3.5, 3.5))
-            path.moveTo(cross + QPointF(-3.5, 3.5))
-            path.lineTo(cross + QPointF(3.5, -3.5))
-        _draw_glyph(painter, path, color, outline, 1.7)
-        if not silent:
+            painter.drawLine(cross + QPointF(-3.5, -3.5), cross + QPointF(3.5, 3.5))
+            painter.drawLine(cross + QPointF(-3.5, 3.5), cross + QPointF(3.5, -3.5))
+        else:
             self._paint_channel(painter, top, left)
 
     def _paint_channel(self, painter: QPainter, top: float, left: float) -> None:
@@ -207,7 +165,7 @@ class VolumeButton(TileButton):
             glyph.addText(QPointF(), font, label)
             bounds = glyph.boundingRect()
             glyph.translate(x - bounds.center().x(), top + 6 - bounds.center().y())
-            _draw_glyph(painter, glyph, colour, self.property('fullscreen'))
+            painter.fillPath(glyph, colour)
 
 
 
@@ -233,14 +191,9 @@ class RecordingButton(TileButton):
             self._paint_button(painter, option)
         else:
             self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        color = QColor(theme.ACCENT)
-        if self.property('fullscreen'):
-            _draw_fullscreen_text(painter, self.rect(), self.text(), self.font(),
-                                  self.fontMetrics(), color, centered=True)
-        else:
-            painter.setPen(color)
-            painter.setFont(self.font())
-            painter.drawText(self.rect(), Qt.AlignCenter, self.text())
+        painter.setPen(QColor(theme.ACCENT))
+        painter.setFont(self.font())
+        painter.drawText(self.rect(), Qt.AlignCenter, self.text())
 
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
@@ -314,6 +267,8 @@ class DanmakuSettingsButton(TileButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(QRectF(self.rect()).center())
+        painter.setPen(QPen(_icon_color(self), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
         path = QPainterPath()
         for index in range(32):
             angle = math.radians(index * 360 / 32 - 90)
@@ -324,8 +279,8 @@ class DanmakuSettingsButton(TileButton):
             else:
                 path.lineTo(point)
         path.closeSubpath()
-        path.addEllipse(QPointF(0, 0), 2.6, 2.6)
-        _draw_glyph(painter, path, _icon_color(self), self.property('fullscreen'), 1.6)
+        painter.drawPath(path)
+        painter.drawEllipse(QPointF(0, 0), 2.6, 2.6)
 
 
 class PauseButton(TileButton):
@@ -351,21 +306,23 @@ class PauseButton(TileButton):
         super().paintEvent(event)          # 背景交给样式表
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(_icon_color(self))
         center = QRectF(self.rect()).center()
-        path = QPainterPath()
         if self.paused:
             # ▶ 继续
+            path = QPainterPath()
             path.moveTo(center.x() - 10 / 3, center.y() - 6)
             path.lineTo(center.x() + 20 / 3, center.y())
             path.lineTo(center.x() - 10 / 3, center.y() + 6)
             path.closeSubpath()
+            painter.drawPath(path)
         else:
             # ⏸ 暂停
-            path.addRoundedRect(
+            painter.drawRoundedRect(
                 QRectF(center.x() - 5.2, center.y() - 6, 3.6, 12), 1.3, 1.3)
-            path.addRoundedRect(
+            painter.drawRoundedRect(
                 QRectF(center.x() + 1.6, center.y() - 6, 3.6, 12), 1.3, 1.3)
-        _draw_glyph(painter, path, _icon_color(self), self.property('fullscreen'))
 
 
 class RefreshButton(TileButton):
@@ -444,13 +401,17 @@ class DanmakuToggleButton(TileButton):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor(theme.ACCENT), 1.8)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
         x = self.width() - 10.5
         y = self.height() - 8.0
         path = QPainterPath()
         path.moveTo(x, y)
         path.lineTo(x + 2.6, y + 2.6)
         path.lineTo(x + 6.0, y - 3.6)
-        _draw_glyph(painter, path, QColor(theme.ACCENT), self.property('fullscreen'), 1.8)
+        painter.drawPath(path)
 
 
 def _draw_arrow_head(painter: QPainter, center, radius: float, angle: float,

@@ -537,7 +537,7 @@ if errorlevel 1 exit /b %errorlevel%
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_occlusion.py"
 if errorlevel 1 exit /b %errorlevel%
-"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_plugin_controls.py" ControlsTests.test_independent_fullscreen_moves_docked_input_and_preserves_drafts ControlsTests.test_danmaku_swap_docks_input_before_new_geometry ControlsTests.test_hot_swap_refreshes_native_audio_controls_at_final_geometry
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_plugin_controls.py" ControlsTests.test_independent_fullscreen_moves_docked_input_and_preserves_drafts ControlsTests.test_fullscreen_exit_first_bar_show_uses_restored_width ControlsTests.test_danmaku_swap_docks_input_before_new_geometry ControlsTests.test_hot_swap_refreshes_native_audio_controls_at_final_geometry
 exit /b %errorlevel%
 
 :wallReplacementCheck

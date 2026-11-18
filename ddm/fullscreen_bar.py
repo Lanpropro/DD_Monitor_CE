@@ -6,7 +6,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QTimer, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
@@ -19,6 +19,7 @@ class FullscreenBar(QWidget):
             # share this window instead of each requiring a separate HWND.
             self.setAttribute(Qt.WA_NativeWindow, True)
         self.setProperty('fullscreen', False)
+        self.contrast_groups = ()
         self._masked_labels = set()
         self._label_mask_pending = False
         self._tile_rect = QRect()
@@ -135,6 +136,20 @@ class FullscreenBar(QWidget):
         shade.setColorAt(.72, QColor(0, 0, 0, 68))
         shade.setColorAt(1, QColor(0, 0, 0, 146))
         painter.fillRect(self.rect(), shade)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(13, 17, 23, 118))
+        for group in self.contrast_groups:
+            bounds = QRect()
+            for widget in group:
+                if not widget.isHidden():
+                    bounds = bounds.united(widget.geometry())
+            if not bounds.isEmpty():
+                inset = self.rect().adjusted(3, 3, -3, -3)
+                surface = bounds.adjusted(-5, 0, 5, 0).intersected(inset)
+                painter.drawRoundedRect(QRectF(surface), 9, 9)
+        painter.restore()
 
     def _mask_label_windows(self, hide):
         if sys.platform != 'win32' or QApplication.platformName() != 'windows':
