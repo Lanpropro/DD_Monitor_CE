@@ -1450,7 +1450,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 }}
 #RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {CONTENT_HOVER};}}
 #RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
-#RoomPresetEntry QPushButton[deleteConfirm="true"] {{border-color: {ERROR};}}
+#RoomPresetEntry QPushButton#IconButton[deleteConfirm="true"] {{border-color: {ERROR};}}
 #RoomPresetEntry #LayoutCard {{
     background: transparent; border: none; padding: 0; color: {TEXT2};
 }}

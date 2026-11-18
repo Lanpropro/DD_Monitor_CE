@@ -218,6 +218,12 @@ def main():
                 QTest.mouseClick(delete, Qt.LeftButton)
                 assert panel.isVisible() and card.isHidden() and panel.window() is picker
                 assert any(item['id'] == discarded for item in window.room_presets['items'])
+                error_color = theme.qcolor(theme.ERROR)
+                for button in (cancel, confirm):
+                    button.setFocus()
+                    image = confirm.grab().toImage()
+                    assert image.pixelColor(image.width() // 2, 0) == error_color
+                    assert image.pixelColor(0, 0) != error_color
                 QTest.mouseClick(cancel, Qt.LeftButton)
                 assert panel.isHidden() and card.isVisible()
                 assert any(item['id'] == discarded for item in window.room_presets['items'])

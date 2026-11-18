@@ -8,7 +8,8 @@ os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QWidget
 from ddm import layouts
 from ddm.widgets import LayoutPicker, WallGrid
 
@@ -21,6 +22,27 @@ def resize_picker(picker, local, delta):
             (QEvent.MouseButtonRelease, pressed + delta, Qt.LeftButton, Qt.NoButton)):
         event = QMouseEvent(kind, QPointF(picker.mapFromGlobal(point)), QPointF(point), button, buttons, Qt.NoModifier)
         QApplication.sendEvent(picker, event)
+
+
+def check_picker_dismissal():
+    host = QWidget()
+    host.show()
+    picker = LayoutPicker('4x4', host)
+    picker.show()
+    outside = picker.frameGeometry().bottomRight() + QPoint(24, 24)
+
+    for target, kind in ((picker, QEvent.MouseButtonPress), (host, QEvent.MouseButtonPress),
+                         (host.windowHandle(), QEvent.MouseButtonPress),
+                         (host.windowHandle(), QEvent.NonClientAreaMouseButtonPress)):
+        picker.show()
+        event = QMouseEvent(kind, QPointF(target.mapFromGlobal(outside)), QPointF(outside),
+                            Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(target, event)
+        assert not picker.isVisible(), (target, kind)
+    picker.show()
+    QTest.keyClick(picker, Qt.Key_Escape)
+    assert not picker.isVisible()
+    host.close()
 
 
 def main():
@@ -103,6 +125,7 @@ def main():
             assert all(tile.add_room_button.isHidden() for tile in original_rooms), layout
     finally:
         occupied_wall.close()
+    check_picker_dismissal()
     print("PASS: sixteen-way geometry, existing rooms and empty-slot add buttons across layout switches")
 
 

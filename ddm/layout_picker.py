@@ -1,8 +1,8 @@
 """Layout presets and saved room combinations in one anchored popup."""
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QIcon
+from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, Signal
+from PySide6.QtGui import QFontMetrics, QIcon, QWindow
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QStyle,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QStyle,
     QStyleOptionToolButton, QStylePainter, QToolButton, QVBoxLayout, QWidget
 )
 
@@ -167,7 +167,9 @@ class LayoutPicker(QFrame):
             self._reflow()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and (edges := resize_edges(self, event.position().toPoint())):
+        point = event.position().toPoint()
+        if (event.button() == Qt.LeftButton and self.rect().contains(point)
+                and (edges := resize_edges(self, point))):
             self._resize_gesture = (edges, event.globalPosition().toPoint(), self.geometry())
             event.accept()
             return
@@ -202,10 +204,37 @@ class LayoutPicker(QFrame):
             self.unsetCursor()
         super().leaveEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        QApplication.instance().installEventFilter(self)
+
     def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
         self._resize_gesture = None
         self.unsetCursor()
         super().hideEvent(event)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.MouseButtonPress, QEvent.NonClientAreaMouseButtonPress):
+            # A popup grab can deliver clicks outside its bounds to the picker itself.
+            if (self._resize_gesture is None
+                    and not self.frameGeometry().contains(event.globalPosition().toPoint())
+                    and not self._owns_click_target(watched)):
+                self.close()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _owns_click_target(self, watched):
+        # Rename and error dialogs can extend past the picker.
+        if isinstance(watched, QWindow):
+            window = watched.transientParent()
+            while window is not None:
+                if window is self.windowHandle():
+                    return True
+                window = window.transientParent()
+        elif isinstance(watched, QWidget):
+            return watched is not self and self.isAncestorOf(watched)
+        return False
 
     def _refresh_icons(self, *_args):
         for cards in self._cards.values():
