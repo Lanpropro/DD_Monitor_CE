@@ -155,9 +155,11 @@ def check_palette_polish(window):
             assert (editor.palette().color(QPalette.PlaceholderText) == dark_placeholder) == (mode == 'dark')
             assert slider.palette().color(QPalette.PlaceholderText) == placeholder
             assert clipped in theme._pending_palette
+            assert clipped.property('appearanceLight') is False, 'Clipped rows can wait to change the selector'
         scroll.verticalScrollBar().setValue(400)
         QTest.qWait(20)
         assert clipped not in theme._pending_palette
+        assert clipped.property('appearanceLight') is True
         assert clipped.palette().color(QPalette.WindowText) == QColor('#F1F2F5')
     finally:
         for widget in widgets:

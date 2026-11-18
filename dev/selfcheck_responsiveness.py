@@ -288,6 +288,45 @@ class ProbeTests(unittest.TestCase):
             finally:
                 probe.stop()
 
+    def test_settings_theme_capture_records_only_the_first_paint_for_latest_choice(self):
+        from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+        from ddm import settings_appearance
+        from ddm.theme_capture import _install_settings_paint_capture
+        app = QApplication.instance() or QApplication([])
+
+        class AppearancePage(QWidget):
+            def __init__(self):
+                super().__init__()
+                layout = QVBoxLayout(self)
+                self.buttons = {mode: QPushButton(mode, self) for mode in ('dark', 'light')}
+                for button in self.buttons.values():
+                    layout.addWidget(button)
+
+            def _choose(self, mode):
+                self.buttons[mode].repaint()
+                self.buttons[mode].update()
+                return mode
+
+        with patch.object(settings_appearance, 'AppearanceSettingsPage', AppearancePage):
+            _install_settings_paint_capture(self.probe)
+        page = AppearancePage()
+        self.addCleanup(page.deleteLater)
+        page.show()
+        app.processEvents()
+        self.assertEqual(page._choose('dark'), 'dark')
+        self.assertEqual(page._choose('light'), 'light')
+        self.assertFalse(self.records(), 'Paint before the request returns must be ignored')
+        app.processEvents()
+        page.buttons['light'].repaint()
+        rows = self.records()
+        self.assertEqual([(row['phase'], row['mode']) for row in rows], [('settings-theme-paint', 'light')])
+        self.assertGreaterEqual(rows[0]['request_to_paint_ms'], rows[0]['returned_to_paint_ms'])
+        page._choose('dark')
+        page.hide()
+        page.show()
+        app.processEvents()
+        self.assertEqual(self.records(), rows, 'Hiding the page cancels an unfinished sample')
+
     def test_log_rotation_is_bounded(self):
         self.probe.handler.maxBytes = 300
         for index in range(30):

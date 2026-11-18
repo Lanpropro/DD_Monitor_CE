@@ -232,6 +232,11 @@ _mode = "dark"
 _light = False
 _styles = WeakKeyDictionary()
 _pending_palette = WeakKeyDictionary()
+_THUMB_TEXT_SELECTORS = ('NavThumbCover', 'NavThumbHint')
+_THEME_SELECTORS = frozenset((*_THUMB_TEXT_SELECTORS, 'NavigationButton', 'BadgeOff', 'Search',
+    'DanmakuInput', 'PrimaryButton', 'Sidebar', 'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom',
+    'TilePlaceholder', 'TileVolumePopup', 'PauseOverlay', 'DanmakuHeader', 'DanmakuCount',
+    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'))
 _signals = None
 _preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
 _applied_typography = None
@@ -332,16 +337,18 @@ def _refresh_widget_palette(widget, *, invalidate=False, defer=False):
     widget.style().polish(widget)
 
 
-def _set_theme_properties(widget):
-    # The light exceptions are installed once. Change the selector property,
-    # not hundreds of local stylesheets, and invalidate only affected widgets.
+def _set_theme_properties(widget, *, defer_thumb_text=False):
+    """Set the light selector, or return None when the first paint should set it."""
     name = widget.objectName()
-    if name not in ('NavigationButton', 'BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
-                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid') and not (
-                        widget.property('settingsGlassWindow') or widget.property('settingsGlassContent')):
-        return
+    if name not in _THEME_SELECTORS and not (widget.property('settingsGlassWindow')
+                                             or widget.property('settingsGlassContent')):
+        return False
     if widget.property('appearanceLight') != _light:
+        if (defer_thumb_text and name in _THUMB_TEXT_SELECTORS
+                and widget.visibleRegion().isEmpty()):
+            # Only their text colour changes. Qt can pick it up at first paint.
+            _pending_palette.setdefault(widget, False)
+            return None
         widget.setProperty('appearanceLight', _light)
         return True
     return False
@@ -435,6 +442,7 @@ class ThemeSignals(QObject):
             widget.setAttribute(Qt.WA_Hover, True)
         if kind == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
+                _set_theme_properties(widget)
                 _refresh_widget_palette(widget)
             from .skin_parts import paint_button
             if paint_button(widget):
@@ -549,15 +557,17 @@ def apply(value):
         source, colors, _last = _styles[widget]
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         styled = local_style(source, tuple(colors.items()) if source else (), extra)
-        properties_changed = _set_theme_properties(widget)
-        editor = isinstance(widget, QLineEdit)
-        if styled != widget.styleSheet():
+        style_changed = styled != widget.styleSheet()
+        properties_changed = _set_theme_properties(widget, defer_thumb_text=not (style_changed or typography_changed))
+        if style_changed:
             # Replacing local QSS already polishes the widget with its new properties.
             widget.setStyleSheet(styled)
             _pending_palette.pop(widget, None)
-        elif not typography_changed and (properties_changed or styled or editor):
-            # Qt's stylesheet polish invalidates the render rules and rebuilds the palette.
-            _refresh_widget_palette(widget, invalidate=editor, defer=True)
+        elif properties_changed is not None and not typography_changed:
+            editor = isinstance(widget, QLineEdit)
+            if properties_changed or styled or editor:
+                # Qt's stylesheet polish invalidates the render rules and rebuilds the palette.
+                _refresh_widget_palette(widget, invalidate=editor, defer=True)
         _styles[widget] = (source, colors, styled)
         if typography_changed:
             _refresh_widget_palette(widget, invalidate=True)
