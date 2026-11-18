@@ -2,7 +2,7 @@
 import math
 
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath
+from PySide6.QtGui import QPainter, QPainterPath
 from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from . import config, image_cache, theme
@@ -26,23 +26,26 @@ def size_text(value):
 class CachePie(QWidget):
     toggled = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, labels=LABELS, colors=cache_colors, title='图片缓存'):
         super().__init__(parent)
+        self.labels = labels
+        self.colors = colors
+        self.title = title
         self.setFixedSize(214, 214)
         self.setMouseTracking(True)
-        self.setAccessibleName('头像与封面缓存占用饼图，可通过旁边的复选框选择类别')
-        self.values = {kind: {'bytes': 0, 'files': 0} for kind in image_cache.KINDS}
+        self.setAccessibleName(title + '占用饼图，可通过复选框选择类别')
+        self.values = {kind: {'bytes': 0, 'files': 0} for kind in labels}
         self.selected = set()
 
     def segment_at(self, point):
-        delta = point - QPointF(self.rect().center())
+        delta = point - QPointF(self.width() / 2, self.height() / 2)
         radius = math.hypot(delta.x(), delta.y())
         if not 55 < radius < 95:
             return None
         total = sum(value['bytes'] for value in self.values.values())
         angle = (90 - math.degrees(math.atan2(-delta.y(), delta.x()))) % 360
         end = 0
-        for kind in image_cache.KINDS:
+        for kind in self.labels:
             end += 360 * self.values[kind]['bytes'] / max(1, total)
             if angle < end:
                 return kind
@@ -52,7 +55,7 @@ class CachePie(QWidget):
         kind = self.segment_at(event.position())
         self.setCursor(Qt.PointingHandCursor if kind and self.isEnabled() else Qt.ArrowCursor)
         total = sum(value['bytes'] for value in self.values.values())
-        self.setToolTip(f"{LABELS[kind]} · {size_text(self.values[kind]['bytes'])} · "
+        self.setToolTip(f"{self.labels[kind]} · {size_text(self.values[kind]['bytes'])} · "
                         f"{self.values[kind]['bytes'] / max(1, total):.1%}\n点击选择或取消" if kind else '')
 
     def mousePressEvent(self, event):
@@ -77,14 +80,17 @@ class CachePie(QWidget):
             painter.setBrush(theme.qcolor(theme.BORDER))
             painter.drawEllipse(rect)
         start = 90 * 16
-        for kind in image_cache.KINDS:
-            span = round(360 * 16 * self.values[kind]['bytes'] / max(1, total))
-            color = QColor(cache_colors()[kind])
+        consumed = 0
+        colors = self.colors()
+        for kind in self.labels:
+            consumed += self.values[kind]['bytes']
+            end = 90 * 16 - round(360 * 16 * consumed / max(1, total))
+            color = theme.qcolor(colors[kind])
             if self.selected and kind not in self.selected:
                 color.setAlpha(65)
             painter.setBrush(color)
-            painter.drawPie(rect, start, -span)
-            start -= span
+            painter.drawPie(rect, start, end - start)
+            start = end
         painter.restore()
         painter.setPen(theme.qcolor(theme.TEXT1))
         font = painter.font()
@@ -96,7 +102,7 @@ class CachePie(QWidget):
         font.setBold(False)
         painter.setFont(font)
         painter.setPen(theme.qcolor(theme.TEXT3))
-        painter.drawText(QRectF(35, 112, 144, 24), Qt.AlignCenter, '图片缓存' if total else '暂无图片缓存')
+        painter.drawText(QRectF(35, 112, 144, 24), Qt.AlignCenter, self.title if total else '暂无占用')
 
 
 class _Signals(QObject):

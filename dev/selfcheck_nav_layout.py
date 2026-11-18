@@ -235,7 +235,7 @@ def main() -> None:
     # 用户要求：主画面 + 2 小那里换行 + 小标题，把平分布局和大带小分开
     section_rows = [heading.text() for heading in picker._sections["普通布局"]]
     print(f"  普通布局里的小标题: {section_rows}")
-    assert section_rows == ["大带小"], f"应该有且只有「大带小」这一段：{section_rows}"
+    assert section_rows == ["均分", "大带小"], f"普通布局应分为「均分」和「大带小」：{section_rows}"
     big_small = [card.text() for card in picker._cards["普通布局"]
                  if card.property("layoutId") in ("main2", "left2_right1")]
     print(f"  镜像对: {big_small}")

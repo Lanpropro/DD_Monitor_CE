@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QObject, QThreadPool, Signal, Qt
+from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QObject, QPoint, QThreadPool, Signal, Qt
 from PySide6.QtGui import QFontDatabase, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -263,7 +263,10 @@ class ExtraCacheTests(unittest.TestCase):
         self.assertEqual(panel.selected(), set())
         self.assertFalse(panel.checks['logs'].isChecked())
         self.assertEqual(panel.values['emoticons']['files'], 1)
-        panel.checks['emoticons'].setChecked(True)
+        self.assertEqual(set(panel.pie.values), set(cache_cleanup.KINDS))
+        self.assertEqual(panel.pie.values['logs']['files'], 1)
+        QTest.mouseClick(panel.pie, Qt.LeftButton, pos=QPoint(107, 32))
+        self.assertEqual(panel.selected(), {'emoticons'})
         panel.checks['web-login'].setChecked(True)
         panel.selected_button.click()
         self.settle(panel)

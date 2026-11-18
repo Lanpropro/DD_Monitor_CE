@@ -2,9 +2,11 @@
 import os
 from pathlib import Path
 import sys
+from unittest.mock import Mock, patch
 
 os.environ["DDM_NO_SAVE"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from PySide6.QtCore import QRect
 from PySide6.QtWidgets import QApplication
 from ddm import layouts
 from ddm.widgets import LayoutPicker, WallGrid
@@ -15,6 +17,25 @@ def main():
     assert layouts.capacity("4x4") == 16
     picker = LayoutPicker("4x4")
     assert "4x4" in picker.card_ids()
+    screen = Mock(availableGeometry=lambda: QRect(0, 0, 540, 380))
+    with patch.object(LayoutPicker, 'screen', return_value=screen):
+        compact = LayoutPicker('corner')
+    compact.show()
+    app.processEvents()
+    bounds = compact.size()
+    assert bounds.width() <= 528 and bounds.height() <= 368
+    assert compact.scroll.verticalScrollBar().maximum() > 0
+    assert compact.scroll.horizontalScrollBar().maximum() == 0
+    assert compact.current_label.text().startswith('当前')
+    assert compact.reset_button.isVisible()
+    compact._tabs['竖屏布局'].click()
+    assert compact.size() == bounds and compact.group() == '竖屏布局'
+    assert not compact.reset_button.isVisible()
+    selected = []
+    compact.chosen.connect(selected.append)
+    compact._cards['竖屏布局'][0].click()
+    assert selected == [layouts.PORTRAIT_LAYOUTS[0]['id']]
+    assert not compact.isVisible()
     wall = WallGrid([], layout_id="3x3")
     wall.resize(1280, 800)
     wall.show()

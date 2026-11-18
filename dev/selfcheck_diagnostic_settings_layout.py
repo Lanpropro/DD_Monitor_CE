@@ -52,7 +52,7 @@ class DiagnosticLayoutTests(unittest.TestCase):
                     host, page = self.page(width, height, mode=mode, size=size)
                     self.assertEqual(page.sections.columns, 2 if width == 1100 else 1)
                     self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
-                    for button in (page.generate, page.summary, page.open_folder):
+                    for button in (page.generate, page.summary, page.open_folder, page.open_issue):
                         rect = button.rect()
                         top = button.mapTo(host, rect.topLeft())
                         bottom = button.mapTo(host, rect.bottomRight())
@@ -109,6 +109,16 @@ class DiagnosticLayoutTests(unittest.TestCase):
         self.assertTrue(wheel.isAccepted())
         self.assertGreater(page.description.verticalScrollBar().value(), 0)
         self.assertEqual(page.scroll.verticalScrollBar().value(), outer)
+
+    def test_issue_button_opens_the_template_picker_without_exporting(self):
+        _host, page = self.page(500, 850)
+        page.description.setPlainText('本地填写的诊断内容')
+        with patch('ddm.settings_diagnostics.QDesktopServices.openUrl') as browser, patch.object(page.export, 'start') as export:
+            page.open_issue.click()
+        browser.assert_called_once()
+        self.assertEqual(browser.call_args.args[0].toString(),
+                         'https://github.com/Lanpropro/DD_Monitor_CE/issues/new/choose')
+        export.assert_not_called()
 
 
 if __name__ == '__main__':

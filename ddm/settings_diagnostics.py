@@ -15,6 +15,9 @@ from .ui import ActionButton, SelectControl, SettingsProgressBar, ToggleSwitch, 
 from .settings_layout import SettingsColumns, SettingsSection
 
 
+ISSUE_URL = 'https://github.com/Lanpropro/DD_Monitor_CE/issues/new/choose'
+
+
 class DiagnosticDescription(QPlainTextEdit):
     def wheelEvent(self, event):
         super().wheelEvent(event)
@@ -31,7 +34,13 @@ class DiagnosticsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
-        outer.addLayout(page_header('诊断与反馈', '描述问题、导出记录，检查后手动发送给维护者。'))
+        header = QHBoxLayout()
+        header.addLayout(page_header('诊断与反馈', '描述问题、导出记录，检查后手动发送给维护者。'), 1)
+        self.open_issue = ActionButton('打开 Issue')
+        self.open_issue.setToolTip('在浏览器中选择 GitHub 问题模板')
+        self.open_issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUE_URL)))
+        header.addWidget(self.open_issue, 0, Qt.AlignTop)
+        outer.addLayout(header)
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)

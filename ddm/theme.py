@@ -1392,6 +1392,18 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
+#LayoutPresetScroll, #LayoutPresetScroll > QWidget, #LayoutPresetBoard {{
+    background: transparent; border: none;
+}}
+#LayoutPresetBoard #LayoutCard {{
+    border-color: {BORDER};
+    border-radius: {RADIUS_LG}px;
+}}
+#LayoutPresetBoard #LayoutCard:checked {{
+    background: {CONTENT_HOVER};
+    border-color: {ACCENT};
+}}
+#LayoutPresetBoard #LayoutCard:focus {{border-color: {ACCENT};}}
 #PipRoomChoice {{
     background: {CONTENT}; color: {TEXT1}; border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_MD}px; padding: 0;

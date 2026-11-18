@@ -9,7 +9,7 @@ from .follow_folders import default_folder
 from .room_add_followed import FollowedRoomPicker
 from .room_folder_controls import _add_folder_option, _create_folder_for_dialog
 from .sidebar_navigation import NavigationButton
-from .ui import ActionButton, DisclosureButton
+from .ui import ActionButton
 from .ui.labels import ElidedLabel
 
 
@@ -63,16 +63,17 @@ class RoomAddPanel(QFrame):
         self.import_button.setFixedSize(24, 24)
         self.import_button.clicked.connect(self._import)
         footer.addWidget(self.import_button)
+        self.followed_toggle = NavigationButton('从关注列表选择', 'follow')
+        self.followed_toggle.setFixedSize(24, 24)
+        self.followed_toggle.setCheckable(True)
+        self.followed_toggle.hide()
+        footer.addWidget(self.followed_toggle)
         footer.addStretch(1)
         self.submit_button = ActionButton('添加')
         self.submit_button.setObjectName('PrimaryButton')
         self.submit_button.clicked.connect(lambda: self.submitted.emit(self.entry.toPlainText(), self.folder_id))
         footer.addWidget(self.submit_button)
         box.addLayout(footer)
-        self.followed_toggle = DisclosureButton(self)
-        self.followed_toggle.setText('从关注列表选择')
-        self.followed_toggle.hide()
-        box.addWidget(self.followed_toggle)
         self.followed = FollowedRoomPicker(sidebar, self)
         self.followed.selected.connect(self.followed_selected.emit)
         self.followed.hide()
@@ -102,6 +103,7 @@ class RoomAddPanel(QFrame):
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
             self.followed.search.clear()
+            self.followed.live_only.setChecked(False)
             folders = self.sidebar.folder_state()
             selected = self.folder_id
             self.folder_names = {folder['name'] for folder in folders}
@@ -184,8 +186,6 @@ class RoomAddPanel(QFrame):
         parent = self.parentWidget()
         width = max(160, min(400, parent.width() - 16))
         height = 132 if self.error.isHidden() else 156
-        if not self.followed_toggle.isHidden():
-            height += self.followed_toggle.height() + 6
         if not self.followed.isHidden():
             expanded_height = max(0, min(280, parent.height() - height - 6))
             self.followed.setFixedHeight(expanded_height)
@@ -196,7 +196,9 @@ class RoomAddPanel(QFrame):
             button = (sidebar.navigation.collapsed_add_button if sidebar.collapsed
                       else sidebar.navigation.add_button)
             point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
-        folder_width = max(52, min(120, width - 20 - 24 - self.submit_button.sizeHint().width() - 18))
+        icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
+                                                 if not self.followed_toggle.isHidden() else 0)
+        folder_width = max(52, min(120, width - 20 - icon_space - self.submit_button.sizeHint().width() - 18))
         self.folder_button.setMaximumWidth(folder_width)
         if hasattr(self, '_folder_name'):
             self.folder_button.setText(self.folder_button.fontMetrics().elidedText(

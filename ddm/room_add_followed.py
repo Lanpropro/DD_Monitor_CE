@@ -1,6 +1,6 @@
 """Search and select followed rooms from the inline empty-slot editor."""
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
 
 from .room_choice import RoomChoice
 from .search import matches_text
@@ -22,7 +22,13 @@ class FollowedRoomPicker(QWidget):
         self.search.setAccessibleName(self.search.placeholderText())
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._arrange)
-        layout.addWidget(self.search)
+        filters = QHBoxLayout()
+        filters.setSpacing(8)
+        filters.addWidget(self.search, 1)
+        self.live_only = QCheckBox('直播中', self)
+        self.live_only.toggled.connect(self._arrange)
+        filters.addWidget(self.live_only)
+        layout.addLayout(filters)
         self.scroll = QScrollArea(self)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidgetResizable(True)
@@ -72,7 +78,7 @@ class FollowedRoomPicker(QWidget):
                 card.setMinimumHeight(54)
                 card.clicked.connect(lambda _checked, key=room_id: self.selected.emit(key))
                 terms = ' '.join((display, room_id, str(room.get('display_room_id') or ''), name))
-                cards.append((card, terms))
+                cards.append((card, terms, room))
             box.addWidget(holder)
             self.groups.append((holder, grid, cards))
         self.empty = QLabel(content)
@@ -88,6 +94,7 @@ class FollowedRoomPicker(QWidget):
             return
         columns = max(1, (self.scroll.viewport().width() - 16 + 6) // 106)
         words = self.search.text().split()
+        live_only = self.live_only.isChecked()
         has_results = False
         for holder, grid, cards in self.groups:
             while grid.count():
@@ -95,15 +102,16 @@ class FollowedRoomPicker(QWidget):
             for column in range(max(columns, grid.columnCount())):
                 grid.setColumnStretch(column, 1 if column < columns else 0)
             index = 0
-            for button, terms in cards:
-                matched = all(matches_text(terms, word) for word in words)
+            for button, terms, room in cards:
+                live = room.get('live') and room.get('live_known', True)
+                matched = (not live_only or live) and all(matches_text(terms, word) for word in words)
                 button.setVisible(matched)
                 if matched:
                     grid.addWidget(button, index // columns, index % columns)
                     index += 1
             holder.setVisible(bool(index))
             has_results |= bool(index)
-        self.empty.setText('没有匹配的关注主播' if words and self.groups else '暂无可入墙的关注主播')
+        self.empty.setText('没有匹配的关注主播' if (words or live_only) and self.groups else '暂无可入墙的关注主播')
         self.empty.setVisible(not has_results)
 
     def eventFilter(self, watched, event):

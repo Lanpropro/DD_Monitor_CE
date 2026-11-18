@@ -210,7 +210,7 @@ def danmaku_cell(layout_id: str) -> int | None:
     return None if not layout else layout.get("danmaku")
 
 
-def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
+def thumbnail(spec, size=(52, 34), danmaku: int | None = None, *, preset=False) -> QPixmap:
     """把布局画成缩略图。spec 为 None 时画成虚线自动网格，danmaku 是弹幕格下标。"""
     width, height = size
     pixmap = QPixmap(width, height)
@@ -225,9 +225,14 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
         cells = even_cells(2, 2)
 
     padding = 2.0
-    gap = 2.0
+    gap = 3.0 if preset else 2.0
     cell_width = (width - padding * 2 - gap * (cols - 1)) / cols
     cell_height = (height - padding * 2 - gap * (rows - 1)) / rows
+    if preset:
+        smallest = min((rowspan * colspan for _, _, rowspan, colspan in cells), default=1)
+        base = theme.qcolor(theme.CONTENT).name()
+        outline = theme.qcolor(theme.TEXT1).name()
+        main_outline = theme.mix(outline, theme.ACCENT, .28)
     for index, (row, col, rowspan, colspan) in enumerate(cells):
         x = padding + col * (cell_width + gap)
         y = padding + row * (cell_height + gap)
@@ -235,7 +240,7 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
         h = cell_height * rowspan + gap * (rowspan - 1)
         if spec and index == danmaku:
             # 弹幕格：主题色描边 + 三道横线
-            painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
+            painter.setBrush(theme.qcolor(theme.mix(base, theme.SUCCESS, .22) if preset else theme.ACCENT_SOFT))
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
             painter.drawRoundedRect(QRectF(x, y, w, h), 2.0, 2.0)
             painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
@@ -243,7 +248,12 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
                 line_y = y + h * (0.3 + line * 0.2)
                 painter.drawRect(QRectF(x + 2, line_y, max(1.0, w - 4), 1.0))
             continue
-        if spec:
+        if preset:
+            main = rowspan * colspan > smallest
+            fill = theme.mix(base, theme.ACCENT if main else outline, .27 if main else .14)
+            painter.setBrush(theme.qcolor(fill))
+            painter.setPen(QPen(theme.qcolor(main_outline if main else outline), 1.8))
+        elif spec:
             fill = theme.mix(theme.CONTENT, '#000000' if theme.is_light() else '#ffffff',
                              .08 if theme.is_light() else .40)
             painter.setBrush(theme.qcolor(fill))
