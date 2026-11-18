@@ -48,10 +48,12 @@ def main():
             empty = occupied_wall.tiles[2:]
             assert len(empty) == count - 2, layout
             assert all(not tile.room.get("room_id") for tile in empty), layout
-            assert all(tile.cover.text() == "拖入直播间" for tile in empty), layout
+            assert all(tile.add_room_button.isVisible() and tile.add_room_button.isEnabled()
+                       and "添加直播间" in tile.add_room_button.text() for tile in empty), layout
+            assert all(tile.add_room_button.isHidden() for tile in original_rooms), layout
     finally:
         occupied_wall.close()
-    print("PASS: sixteen-way geometry, existing rooms, empty slots and drop hints across layout switches")
+    print("PASS: sixteen-way geometry, existing rooms and empty-slot add buttons across layout switches")
 
 
 if __name__ == "__main__":
