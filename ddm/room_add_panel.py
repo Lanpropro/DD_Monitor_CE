@@ -1,19 +1,23 @@
 """In-window room entry anchored to the sidebar; never replaces search or follow content."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu,
     QPlainTextEdit, QVBoxLayout, QWidget)
 from . import theme
 from .continuous_corners import stylesheet
 from .follow_folders import default_folder
+from .room_add_followed import FollowedRoomPicker
 from .room_folder_controls import _add_folder_option, _create_folder_for_dialog
 from .sidebar_navigation import NavigationButton
-from .ui import ActionButton
+from .ui import ActionButton, DisclosureButton
 from .ui.labels import ElidedLabel
 
 
 class RoomAddPanel(QFrame):
     submitted = Signal(str, str)
     dismissed = Signal()
+    followed_requested = Signal()
+    followed_selected = Signal(str)
 
     def __init__(self, sidebar):
         super().__init__(sidebar.window())
@@ -65,6 +69,18 @@ class RoomAddPanel(QFrame):
         self.submit_button.clicked.connect(lambda: self.submitted.emit(self.entry.toPlainText(), self.folder_id))
         footer.addWidget(self.submit_button)
         box.addLayout(footer)
+        self.followed_toggle = DisclosureButton(self)
+        self.followed_toggle.setText('从关注列表选择')
+        self.followed_toggle.hide()
+        box.addWidget(self.followed_toggle)
+        self.followed = FollowedRoomPicker(sidebar, self)
+        self.followed.selected.connect(self.followed_selected.emit)
+        self.followed.hide()
+        box.addWidget(self.followed)
+        self.followed_toggle.toggled.connect(self._toggle_followed)
+        escape = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        escape.setContext(Qt.WidgetWithChildrenShortcut)
+        escape.activated.connect(self.close_editor)
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(self.fit_to_search)
@@ -81,8 +97,11 @@ class RoomAddPanel(QFrame):
         '''))
         self.error.setStyleSheet(f'color:{theme.ERROR};')
 
-    def open(self):
+    def open(self, *, can_choose_followed=False):
         if not self.busy:
+            self.followed_toggle.setChecked(False)
+            self.followed_toggle.setVisible(can_choose_followed)
+            self.followed.search.clear()
             folders = self.sidebar.folder_state()
             selected = self.folder_id
             self.folder_names = {folder['name'] for folder in folders}
@@ -103,6 +122,17 @@ class RoomAddPanel(QFrame):
         self.show()
         self.raise_()
         self.entry.setFocus(Qt.OtherFocusReason)
+
+    def _toggle_followed(self, expanded):
+        if expanded:
+            self.followed_requested.emit()
+        self.followed.setVisible(expanded)
+        if self.isVisible():
+            self.fit_to_search()
+        if expanded:
+            self.followed.search.setFocus(Qt.OtherFocusReason)
+        elif self.isVisible():
+            self.followed_toggle.setFocus(Qt.OtherFocusReason)
 
     def _select_folder(self, action):
         self.folder_id = action.data()
@@ -127,6 +157,8 @@ class RoomAddPanel(QFrame):
         self.entry.setReadOnly(busy)
         self.folder_button.setEnabled(not busy)
         self.import_button.setEnabled(not busy)
+        self.followed_toggle.setEnabled(not busy)
+        self.followed.setEnabled(not busy)
         self._update_count()
 
     def show_error(self, message):
@@ -138,6 +170,7 @@ class RoomAddPanel(QFrame):
     def close_editor(self):
         self._fit_timer.stop()
         self.hide()
+        self.followed_toggle.setChecked(False)
         self.dismissed.emit()
         if self.sidebar.search.isVisible():
             self.sidebar.search.setFocus(Qt.OtherFocusReason)
@@ -151,6 +184,12 @@ class RoomAddPanel(QFrame):
         parent = self.parentWidget()
         width = max(160, min(400, parent.width() - 16))
         height = 132 if self.error.isHidden() else 156
+        if not self.followed_toggle.isHidden():
+            height += self.followed_toggle.height() + 6
+        if not self.followed.isHidden():
+            expanded_height = max(0, min(280, parent.height() - height - 6))
+            self.followed.setFixedHeight(expanded_height)
+            height += expanded_height + 6
         if sidebar.side == 'left':
             point = sidebar.mapTo(parent, QPoint(sidebar.width() + 4, 12))
         else:
@@ -170,9 +209,6 @@ class RoomAddPanel(QFrame):
 
     def eventFilter(self, watched, event):
         if watched is self.entry and event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Escape:
-                self.close_editor()
-                return True
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.modifiers() & Qt.ControlModifier:
                 if self.submit_button.isEnabled():
                     self.submit_button.click()

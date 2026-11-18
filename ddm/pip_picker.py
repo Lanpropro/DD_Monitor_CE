@@ -1,55 +1,18 @@
 """Picture-in-picture room selection and composition dialog."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QSignalBlocker, Qt
 from PySide6.QtGui import QPainter, QPen
-from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
 from . import theme
 from .corner_geometry import continuous_path
 from .search import matches_text
 from .settings_window import SettingsTitleBar
-from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, ToggleSwitch, page_header
+from .ui import ActionButton, HintLabel, ToggleSwitch, page_header
 from .pip_arrangements import PipArrangements
 from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, MAIN_LAYOUT
 from .pip_placement import initial_placement, placement_bounds
 from .pip_preview import CompositionPreview
 from .pip_toolbar import ToolbarPipPanel, resize_edges
-
-
-class RoomChoice(QPushButton):
-    def __init__(self, room, name, index, pixmap, parent):
-        super().__init__(parent)
-        self.preview_name = name
-        self.setObjectName('PipRoomChoice')
-        self.setCheckable(True)
-        self.setAutoDefault(False)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(64)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setToolTip(name + ' · ' + str(room['room_id']))
-        self.setAccessibleName(self.toolTip())
-        box = QVBoxLayout(self)
-        box.setContentsMargins(5, 5, 5, 4)
-        box.setSpacing(3)
-        display = str(room.get('uname') or room['room_id'])
-        self.avatar = Avatar(display, index, size=28, parent=self)
-        self.avatar.set_pixmap_image(pixmap)
-        box.addWidget(self.avatar, 0, Qt.AlignHCenter)
-        label = ElidedLabel(display, self)
-        label.setStyleSheet(f'color: {theme.TEXT1};')
-        label.setAlignment(Qt.AlignCenter)
-        label.setTextFormat(Qt.PlainText)
-        label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        box.addWidget(label)
-        self.badge = QLabel('✓', self)
-        self.badge.setObjectName('PipChoiceBadge')
-        self.badge.setAlignment(Qt.AlignCenter)
-        self.badge.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.badge.setFixedSize(16, 16)
-        self.badge.hide()
-        self.toggled.connect(self.badge.setVisible)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.badge.move(self.width() - 20, 4)
+from .room_choice import RoomChoice
 
 
 class PictureInPictureDialog(QDialog):

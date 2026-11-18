@@ -14,6 +14,9 @@ from ddm import config, images, motion
 from ddm.sidebar_widgets import Sidebar
 from ddm.room_catalog import RoomCatalog
 from ddm.room_add_input import normalize_room_lines, normalize_room_text
+from ddm.room_choice import RoomChoice
+from ddm.room_placement import RoomPlacement
+from ddm.wall_widgets import WallGrid
 from selfcheck_room_add_entry import Resolver
 
 
@@ -67,6 +70,97 @@ class InlineRoomAddTests(unittest.TestCase):
         self.host.resize(480, 900)
         self.host.sidebar.set_side('top')
         self.pump()
+
+    def install_wall(self):
+        host = self.host
+        wall = WallGrid([], 'grid4', host)
+        self.box.replaceWidget(self.wall, wall)
+        self.wall.deleteLater()
+        self.wall = host.wall = wall
+        host.settings = {}
+        host.recorder = Mock()
+        host._stop_tile = Mock()
+        host.start_tile = Mock()
+        host.apply_quality_policy = Mock(return_value=[])
+        host._refresh_meta = Mock()
+        host._save_timer = Mock()
+        host._tile_of = lambda rid: next((tile for tile in wall.tiles if tile.room.get('room_id') == rid), None)
+        host.room_placement = RoomPlacement(host)
+        host._prepare_room = host.room_placement.prepare_room
+        host._on_room_added.side_effect = lambda room, **kwargs: self.catalog.on_room_added(
+            room, max_tiles=4, **kwargs)
+        wall.addRoomRequested.connect(lambda target: self.catalog.open_add_room(
+            target_tile=target, resolver_type=Resolver))
+        wall.show()
+        self.pump()
+        return wall
+
+    def test_empty_slot_expands_grouped_follows_and_places_offline_room_without_lookup(self):
+        wall = self.install_wall()
+        occupied = dict(room_id='old', uname='测试关注', live=False)
+        chosen = dict(room_id='huya:321', display_room_id='7654', uname='星空主播', live=False)
+        self.host.sidebar.add_rooms([chosen, dict(room_id='1002', uname='路人', live=True)])
+        folder = self.host.sidebar.create_folder('赛事')
+        self.host.sidebar.move_to_folder([chosen['room_id']], folder)
+        wall.tiles[0].set_room(dict(occupied))
+        target = wall.tiles[3]
+        panel = self.open()
+        self.assertTrue(panel.followed_toggle.isHidden())
+        panel.close_editor()
+        QTest.mouseClick(target.add_room_button, Qt.LeftButton)
+        self.pump()
+        self.assertIs(self.catalog._add_target, target)
+        self.assertTrue(panel.followed_toggle.isVisible())
+        self.assertTrue(panel.followed.isHidden())
+        panel.entry.setPlainText('https://live.bilibili.com/1003')
+        collapsed = panel.geometry()
+        QTest.mouseClick(panel.followed_toggle, Qt.LeftButton)
+        self.pump()
+        self.assertTrue(panel.followed.isVisible())
+        self.assertEqual(panel.y(), collapsed.y())
+        self.assertGreater(panel.height(), collapsed.height())
+        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        cards = panel.followed.findChildren(RoomChoice)
+        self.assertEqual({card.preview_name for card in cards}, {'星空主播', '路人'})
+        panel.followed.search.setText('xkzb 赛事')
+        self.assertEqual([card.preview_name for card in cards if card.isVisible()], ['星空主播'])
+        panel.followed.search.setText('7654')
+        card = next(card for card in cards if card.isVisible())
+        self.assertFalse(card.isCheckable())
+        QTest.mouseClick(card, Qt.LeftButton)
+        self.pump()
+        self.assertFalse(panel.isVisible())
+        self.assertEqual(target.room['room_id'], 'huya:321')
+        self.assertFalse(wall.tiles[1].room.get('room_id'))
+        self.assertFalse(Resolver.created)
+        self.host.start_tile.assert_called_once_with(target)
+        self.assertEqual(self.host.sidebar.folder_for('huya:321'), folder)
+        self.assertEqual(panel.entry.toPlainText(), 'https://live.bilibili.com/1003')
+
+    def test_followed_picker_scrolls_in_portrait_and_preserves_an_occupied_target(self):
+        wall = self.install_wall()
+        self.host.sidebar.add_rooms([dict(room_id=str(i), uname=f'关注 {i}', live=True) for i in range(100, 140)])
+        self.portrait()
+        target = wall.tiles[3]
+        target.add_room_button.click()
+        panel = self.catalog._add_panel
+        panel.followed_toggle.click()
+        self.pump()
+        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertGreater(panel.followed.scroll.verticalScrollBar().maximum(), 0)
+        search = panel.followed.search
+        search.setText('139')
+        self.pump()
+        card = next(card for card in panel.followed.findChildren(RoomChoice) if card.isVisible())
+        target.set_room(dict(room_id='other', uname='现有房间', live=False))
+        QTest.mouseClick(card, Qt.LeftButton)
+        self.assertEqual(target.room['room_id'], 'other')
+        self.assertTrue(panel.error.isVisible())
+        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.host._on_room_added.assert_not_called()
+        search.setFocus()
+        QTest.keyClick(search, Qt.Key_Escape)
+        self.assertFalse(panel.isVisible())
 
     def test_no_dialog_and_sidebar_query_or_wall_geometry_changes(self):
         self.host.sidebar.search.setText('原搜索')
