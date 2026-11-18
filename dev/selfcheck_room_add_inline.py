@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
@@ -63,6 +63,9 @@ class InlineRoomAddTests(unittest.TestCase):
     def pump(self):
         for _ in range(6):
             self.app.processEvents()
+
+    def panel_geometry(self, panel):
+        return QRect(self.host.mapFromGlobal(panel.mapToGlobal(QPoint())), panel.size())
 
     def open(self, target=None):
         self.catalog.open_add_room(target_tile=target, resolver_type=Resolver)
@@ -169,9 +172,9 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(panel.isVisible())
         self.assertIs(self.app.focusWidget(), sidebar.search)
 
-    def test_native_panel_is_above_playback_before_first_show(self):
+    def test_native_panel_composes_on_an_owned_surface_with_complete_border(self):
         if self.app.platformName() != 'windows':
-            self.skipTest('requires Windows child-window stacking')
+            self.skipTest('requires Windows window composition')
         wall = self.install_wall()
         tile = wall.tiles[0]
         tile.set_room({'room_id': 'fixture', 'uname': '测试直播', 'live': True})
@@ -187,39 +190,46 @@ class InlineRoomAddTests(unittest.TestCase):
         user32.GetAncestor.restype = wintypes.HWND
         user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
         user32.GetWindow.restype = wintypes.HWND
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        user32.GetWindowLongW.restype = ctypes.c_long
         owner = int(self.host.winId())
-        playback = int(tile.stream_badge.winId())
-        while (parent := user32.GetAncestor(playback, 1)) != owner:  # GA_PARENT
-            self.assertTrue(parent)
-            playback = parent
-
-        show = RoomAddPanel.show
-        checked = []
         painted = []
         paint = RoomAddPanel.paintEvent
 
-        def check_first_show(panel):
-            self.assertTrue(panel.isHidden())
-            hwnd = int(panel.internalWinId())
-            self.assertTrue(hwnd)
-            self.assertEqual(user32.GetAncestor(hwnd, 1), owner)
-            previous = user32.GetWindow(playback, 3)  # GW_HWNDPREV
-            while previous and previous != hwnd:
-                previous = user32.GetWindow(previous, 3)
-            self.assertEqual(previous, hwnd, 'Native panel must be above the playback window before it is shown')
-            checked.append(panel)
-            show(panel)
-
         def record_paint(panel, event):
-            painted.append(panel)
+            painted.append(event.rect())
             paint(panel, event)
 
-        with patch.object(RoomAddPanel, 'show', check_first_show), \
-                patch.object(RoomAddPanel, 'paintEvent', record_paint):
+        with patch.object(RoomAddPanel, 'paintEvent', record_paint):
             QTest.mouseClick(sidebar.navigation.add_button, Qt.LeftButton)
-        self.assertEqual(checked, [self.catalog._add_panel])
-        self.assertIn(self.catalog._add_panel, painted)
-        self.assertIs(self.app.focusWidget(), checked[0].entry)
+            self.pump()
+        panel = self.catalog._add_panel
+        self.assertTrue(panel.isWindow())
+        hwnd = int(panel.winId())
+        self.assertEqual(user32.GetAncestor(hwnd, 2), hwnd)  # GA_ROOT
+        self.assertEqual(user32.GetWindow(hwnd, 4), owner)  # GW_OWNER
+        self.assertTrue(user32.GetWindowLongW(hwnd, -20) & 0x00080000)  # WS_EX_LAYERED
+        self.assertEqual(painted[:1], [panel.rect()])
+        self.assertFalse(panel.entry.internalWinId() or panel.entry.viewport().internalWinId())
+        image = panel.grab().toImage()
+        scale = image.devicePixelRatioF()
+        self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+        # Both borders and the interior must exist in the same panel backing store.
+        self.assertGreater(image.pixelColor(0, round(28 * scale)).alpha(), 125)
+        self.assertGreater(image.pixelColor(round(28 * scale), 0).alpha(), 125)
+        self.assertEqual(image.pixelColor(round(24 * scale), round(30 * scale)).alpha(), 255)
+        self.pump()
+        self.assertIs(self.app.focusWidget(), panel.entry)
+
+        relative = self.panel_geometry(panel)
+        self.host.move(self.host.pos() + QPoint(31, 23))
+        self.pump()
+        self.assertEqual(self.panel_geometry(panel), relative)
+        self.host.resize(650, 540)
+        self.pump()
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
+        self.host.hide()
+        self.assertFalse(panel.isVisible())
 
     def test_live_filter_restores_saved_value_and_keeps_last_choice(self):
         wall = self.install_wall()
@@ -262,14 +272,14 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertEqual(panel.followed_toggle.accessibleName(), '从关注列表选择')
         self.assertTrue(panel.followed.isHidden())
         panel.entry.setPlainText('https://live.bilibili.com/1003')
-        collapsed = panel.geometry()
+        collapsed = self.panel_geometry(panel)
         QTest.mouseClick(panel.followed_toggle, Qt.LeftButton)
         self.pump()
         self.assertTrue(panel.followed.isVisible())
         self.assertFalse(panel.followed.live_only.isChecked())
-        self.assertEqual(panel.y(), collapsed.y())
+        self.assertEqual(self.panel_geometry(panel).y(), collapsed.y())
         self.assertGreater(panel.height(), collapsed.height())
-        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
         self.assertEqual({index.data() for index in self.choices(panel.followed)}, {'星空主播', '路人'})
         panel.followed.search.setText('xkzb 赛事')
         self.assertEqual([index.data() for index in self.choices(panel.followed)], ['星空主播'])
@@ -325,7 +335,7 @@ class InlineRoomAddTests(unittest.TestCase):
             self.pump()
             panel.followed.scroll.viewport().grab()
             self.assertEqual(crop.call_count, visible_crops)
-        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
         self.assertGreater(panel.followed.scroll.verticalScrollBar().maximum(), 0)
         search = panel.followed.search
         search.setText('139')
@@ -338,7 +348,7 @@ class InlineRoomAddTests(unittest.TestCase):
         QTest.keyClick(view, Qt.Key_Return)
         self.assertEqual(target.room['room_id'], 'other')
         self.assertTrue(panel.error.isVisible())
-        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
         self.host._on_room_added.assert_not_called()
         search.setFocus()
         QTest.keyClick(search, Qt.Key_Escape)
@@ -350,12 +360,12 @@ class InlineRoomAddTests(unittest.TestCase):
         wall, side = self.wall.geometry(), self.host.sidebar.geometry()
         panel = self.open()
         self.assertTrue(panel.isVisible())
-        self.assertFalse(panel.isWindow())
+        self.assertEqual(panel.isWindow(), self.app.platformName() == 'windows')
         self.assertIs(panel.parentWidget(), self.host)
         self.assertFalse(self.host.sidebar.search.isHidden())
-        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
         self.assertLessEqual(panel.submit_button.mapTo(panel, panel.submit_button.rect().bottomRight()).x(), panel.width())
-        self.assertGreater(panel.x(), self.host.sidebar.geometry().right())
+        self.assertGreater(self.panel_geometry(panel).x(), self.host.sidebar.geometry().right())
         panel.entry.setPlainText('1\n2\n3')
         self.pump()
         self.assertEqual(panel.submit_button.text(), '添加 3 个')
@@ -370,13 +380,13 @@ class InlineRoomAddTests(unittest.TestCase):
         self.portrait()
         wall, side = self.wall.geometry(), self.host.sidebar.geometry()
         panel = self.open()
-        initial = panel.geometry()
+        initial = self.panel_geometry(panel)
         self.assertIs(panel.parentWidget(), self.host)
         self.assertFalse(self.host.sidebar.search.isHidden())
         self.assertFalse(self.host.sidebar.scroll.isHidden())
         panel.entry.setPlainText('\n'.join(str(number) for number in range(100)))
         self.pump()
-        self.assertEqual(panel.geometry(), initial)
+        self.assertEqual(self.panel_geometry(panel), initial)
         self.assertEqual(self.wall.geometry(), wall)
         self.assertEqual(self.host.sidebar.geometry(), side)
         self.assertEqual(panel.entry.document().blockCount(), 100)
@@ -395,7 +405,7 @@ class InlineRoomAddTests(unittest.TestCase):
         self.open()
         self.assertTrue(panel.isVisible())
         self.assertEqual(panel.entry.toPlainText(), '1001\n1002')
-        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
         self.host.sidebar.set_collapsed(True, animate=False)
         self.pump()
         self.assertTrue(self.host.sidebar.collapsed)
@@ -403,7 +413,7 @@ class InlineRoomAddTests(unittest.TestCase):
         self.open()
         self.assertTrue(panel.isVisible())
         self.assertIs(panel.parentWidget(), self.host)
-        self.assertTrue(self.host.rect().contains(panel.geometry()))
+        self.assertTrue(self.host.rect().contains(self.panel_geometry(panel)))
         panel.close_editor()
         self.box.setDirection(QBoxLayout.LeftToRight)
         self.host.resize(1000, 800)
