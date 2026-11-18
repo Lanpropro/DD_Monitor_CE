@@ -18,10 +18,10 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QAbstractAnimation, Qt
+from PySide6.QtCore import QAbstractAnimation, QPoint, QSize, Qt
 from PySide6.QtGui import QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLineEdit, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
 from ddm.widgets import DanmakuPanel, WallGrid
@@ -48,6 +48,123 @@ class PaneDanmakuTests(unittest.TestCase):
                                  live=True, volume=20 + 10 * i, muted=bool(i % 2)) for i in range(4)], offscreen=True)
         window.settings["close_behavior"] = "exit"
         return window
+
+    def test_float_uses_the_same_panel_and_returns_the_composer_to_video(self):
+        from ddm.plugins import TileControl
+
+        class Composer(TileControl):
+            def __init__(self, context):
+                super().__init__(QLineEdit(context.parent), minimum_width=50)
+
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.plugins.register_tile_control('fixture', 'composer', Composer)
+        window.plugins.attach_tile(source)
+        window.configure_wall_panes({2: source, 3: source})
+        panel, = panes.rendered()
+        original_size, document = panel.size(), panel.body.document()
+        composer = source._plugin_controls
+        editor = composer.entries[0].control.widget
+        editor.setText('未发送草稿')
+        client = window._danmaku_clients['1001']
+        client.message.emit(dict(kind='danmaku', text='浮出前'))
+        self.assertIs(composer.widget.parentWidget(), panel.composer_bar)
+
+        panel.float_button.click()
+        floated = panes.floating[panel]
+        self.assertIs(panel.parentWidget(), floated.window)
+        self.assertTrue(floated.window.isVisible() and floated.slot.isVisible())
+        self.assertEqual(floated.window.size(), original_size)
+        self.assertIs(panel.body.document(), document)
+        self.assertIs(composer.widget.parentWidget(), source.bottom)
+        self.assertEqual(editor.text(), '未发送草稿')
+        self.assertIs(window._danmaku_clients['1001'], client)
+        client.message.emit(dict(kind='danmaku', text='浮出后'))
+        self.assertEqual([event['text'] for event in panel._blocks[-2:]], ['浮出前', '浮出后'])
+        handle = floated.window.windowHandle()
+        with patch.object(handle, 'startSystemMove', return_value=True) as move, \
+                patch.object(handle, 'startSystemResize', return_value=True) as resize:
+            QTest.mouseClick(panel.title, Qt.LeftButton)
+            QTest.mouseClick(floated.window, Qt.LeftButton, pos=QPoint(floated.window.width() - 2, 40))
+            move.assert_called_once_with()
+            resize.assert_called_once_with(Qt.RightEdge)
+        floated.window.resize(original_size + QSize(10, 30))
+        self.assertEqual(floated.window.size(), original_size + QSize(10, 30))
+        floated.slot.findChild(QPushButton).click()
+        self.assertFalse(panes.floating)
+        self.assertIs(panel.parentWidget(), wall)
+        self.assertIs(composer.widget.parentWidget(), panel.composer_bar)
+        self.assertEqual(editor.text(), '未发送草稿')
+        panel.float_button.click()
+        self.assertEqual(panes.floating[panel].window.size(), original_size)
+        wall._fullscreen_layout_pending = True
+        panes.floating[panel].window.close()
+        self.assertFalse(panes.floating[panel].window.isVisible())
+        wall._fullscreen_layout_pending = False
+        panes.finish_pending_returns()
+        self.assertFalse(panes.floating)
+
+        window.configure_wall_panes({1: source, 2: source})
+        diagonal = panes.panels[2]
+        diagonal.float_button.click()
+        self.assertIs(composer.widget.parentWidget(), source.bottom)
+        self.assertTrue(panes.panels[1].isVisible())
+        panes.floating[diagonal].window.close()
+
+    def test_reuse_float_cell_only_reclaims_an_empty_video_slot(self):
+        window = self.wall_window()
+        window.settings['danmaku_float_reuse_cell'] = True
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, other, _third, slot = wall.tiles[:4]
+        slot.set_room(None)
+        window.configure_wall_panes({3: source})
+        panel = panes.panels[3]
+        panel.float_button.click()
+        self.assertTrue(slot.isVisible())
+        self.assertFalse(panes.bindings())
+        self.assertIs(panes.target(panel), source)
+        self.assertIs(wall._preset_widgets()[3], slot)
+        panel.source_picker.choose(other)
+        self.assertIs(panes.target(panel), other)
+        panes.floating[panel].window.close()
+        self.assertIs(panes.panels[3], panel)
+        self.assertIs(panes.target(panel), other)
+
+        panel.float_button.click()
+        slot.set_room(dict(room_id='7001', uname='新直播', live=True))
+        panes.floating[panel].window.close()
+        self.assertFalse(panes.bindings())
+        self.assertTrue(slot.isVisible())
+        self.assertEqual(slot.room['room_id'], '7001')
+        self.assertFalse(panel.isVisible())
+
+    def test_float_cell_setting_round_trips_and_resets(self):
+        from ddm.settings_danmaku import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'danmaku_float_reuse_cell': True})
+        self.addCleanup(page.deleteLater)
+        self.assertTrue(page.values()['danmaku_float_reuse_cell'])
+        page.reset()
+        self.assertFalse(page.values()['danmaku_float_reuse_cell'])
+
+    def test_reuse_legacy_chat_reserves_its_video_backing_slot(self):
+        window = self.wall_window()
+        window.settings['danmaku_float_reuse_cell'] = True
+        wall, panes = window.wall, window.wall.pane_danmaku
+        wall.set_layout('dm_main2')
+        window.sync_danmaku()
+        panel = wall.danmaku
+        cell = panes.panel_cell(panel)
+        source = panes.target(panel)
+        panel.float_button.click()
+        self.assertTrue(panes.cell_tiles()[cell].isVisible())
+        self.assertIs(panes.target(panel), source)
+        panes.floating[panel].window.close()
+        self.assertIs(panes.panels[cell], panel)
+        panel.float_button.click()
+        panes.reset_preset(wall.layout_id)
+        self.assertFalse(panes.floating)
+        self.assertIs(panes.panels[cell], panel)
 
     def test_added_rooms_skip_chat_backing_slots_in_corner_layout(self):
         window = self.wall_window()
@@ -539,7 +656,15 @@ class PaneDanmakuTests(unittest.TestCase):
                 self.assertGreater(player._prop('time-pos') or 0, position)
                 self.assertTrue(all(window.wall.pane_danmaku.target(panel) is source
                                     for panel in window.wall.pane_danmaku.panels.values()))
+                panes = window.wall.pane_danmaku
+                panel, = panes.rendered()
+                panel.float_button.click()
+                self.assertTrue(panes.floating[panel].window.isVisible())
+                self.assertIs(player.player, core)
+                self.assertEqual(int(source.video.winId()), handle)
+                panes.floating[panel].window.close()
                 window.picture_in_picture.start([window.wall.tiles.index(source)])
+                pump(self.app, .3)
                 self.assertTrue(all(panel.isHidden() for panel in window.wall.pane_danmaku.all_panels()))
                 window.picture_in_picture.restore(activate=True)
                 self.assertEqual(len(window.wall.pane_danmaku.rendered()), 1)

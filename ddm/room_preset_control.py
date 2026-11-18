@@ -135,6 +135,7 @@ class RoomPresetController:
                 return False
         if host._fullscreen_tile is not None:
             host._exit_fullscreen()
+        host.wall.pane_danmaku.return_all_floating()
         host.hover_preview.cancel()
         host.wall._cancel_border_drag()
         host._pending_layout = ""

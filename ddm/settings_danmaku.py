@@ -65,6 +65,15 @@ class DanmakuSettingsPage(QWidget):
         grid.addWidget(self.keep_stepper, 2, 1, Qt.AlignRight)
         grid.addWidget(_hint('字体共用于弹幕格和画面弹幕；这里的字号仅控制弹幕格，也可在弹幕格底部调整。超过保留上限后移除最早的内容。'), 3, 0, 1, 2)
         self.sections.add_section('font_filter', font)
+        floating = SettingsSection('弹幕浮窗')
+        self.float_cell_mode = SegmentedControl((('reserve', '保留收回按钮'), ('reuse', '用于直播画面')),
+            'reuse' if settings.get('danmaku_float_reuse_cell', False) else 'reserve')
+        label = QLabel('浮出后原格子')
+        self.float_cell_mode.setAccessibleName(label.text())
+        floating.grid.addWidget(label, 0, 0)
+        floating.grid.addWidget(self.float_cell_mode, 0, 1, Qt.AlignRight)
+        floating.grid.addWidget(_hint('下次弹出时生效。若原格已有直播，关闭浮窗后继续播放。'), 1, 0, 1, 2)
+        self.sections.add_section('danmaku_float', floating)
         blocking = SettingsSection('屏蔽管理')
         self.blocking_columns = SettingsColumns(respect_preference=False)
         word_panel, user_panel = QWidget(), QWidget()
@@ -274,6 +283,7 @@ class DanmakuSettingsPage(QWidget):
 
         self.font_box.setCurrentFont(QFont(theme.danmaku_font_family()))
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
+        self.float_cell_mode.setValue('reserve')
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
@@ -299,6 +309,7 @@ class DanmakuSettingsPage(QWidget):
         return {
             "danmaku_font": family,
             "danmaku_font_size": int(self.size_spin.value()),
+            "danmaku_float_reuse_cell": self.float_cell_mode.value() == 'reuse',
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
             "danmaku_blocked_users": self.blocked_users.users(),

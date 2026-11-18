@@ -818,6 +818,7 @@ class MainWindow(QMainWindow):
             dialog.close()
         if self._fullscreen_tile is not None:
             self._exit_fullscreen()
+        self.wall.pane_danmaku.return_all_floating()
         self._fullscreen_cursor.stop()
         # 先关闭独立设置界面；迟到回调不得访问正在释放的播放器。
         self._closing = True

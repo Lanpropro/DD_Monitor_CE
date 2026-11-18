@@ -28,13 +28,13 @@ class DanmakuLifecycle:
             wall._sync_pane_borders(widgets, panes.dividers)
         wall.sync_sc_placement()
         targets = {}
-        if wall.has_danmaku:
-            for panel in wall.pane_danmaku.rendered():
-                tile = wall.pane_danmaku.target(panel)
+        for panel in panes.rendered():
+            if wall.has_danmaku or panel in panes.floating:
+                tile = panes.target(panel)
                 targets[panel] = tile.room if tile is not None else {}
         wanted = {str(tile.room['room_id']) for tile in wall.tiles
                   if tile.isVisible() and (tile.danmaku_button.isChecked() or
-                      wall.has_danmaku and host.settings.get('super_chat_enabled', True))
+                      (wall.has_danmaku or panes.floating) and host.settings.get('super_chat_enabled', True))
                   and tile.room.get('room_id') and (tile.room.get('live') or tile._player_active)}
         wanted.update(str(room['room_id']) for room in targets.values() if room.get('room_id'))
         primary = str(targets.get(wall.danmaku, {}).get('room_id') or '')

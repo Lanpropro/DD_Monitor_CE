@@ -99,6 +99,7 @@ class FullscreenControl:
         host._fullscreen_presentation.leave()
         switched = time.perf_counter()
         host._fullscreen_tile = None
+        host.wall.pane_danmaku.finish_pending_returns()
         host.refresh_theme()
         host._refresh_shortcuts()
         host._sync_fullscreen_audio()

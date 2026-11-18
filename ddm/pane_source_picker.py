@@ -215,7 +215,7 @@ class SourcePicker(QWidget):
                 layout = self.panel.header.layout()
                 self.covered = [layout.itemAt(index).widget() for index in range(layout.count())
                     if layout.itemAt(index).widget() is not None and
-                    layout.itemAt(index).widget() not in (self, self.panel.count) and
+                    layout.itemAt(index).widget() not in (self, self.panel.count, getattr(self.panel, 'float_button', None)) and
                     not layout.itemAt(index).widget().isHidden()]
             self.refresh()
             self.anchor.hide()
@@ -238,10 +238,9 @@ class SourcePicker(QWidget):
             self._settled()
 
     def choose(self, tile):
-        cell = next((cell for cell, panel in self.controller.panels.items() if panel is self.panel), None)
-        if cell is None or tile not in self.buttons:
+        if tile not in self.buttons:
             return
-        self.controller.request(cell, tile)
+        self.controller.choose_source(self.panel, tile)
         self.refresh()
         if self.controller.target(self.panel) is tile:
             self.set_expanded(False, animate=self.buttons[tile].pointer_activation)

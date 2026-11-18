@@ -144,6 +144,7 @@ class WallGrid(QWidget):
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
+        self.pane_danmaku.return_all_floating()
         self.set_interactive_resize(False)
         self._resize_on_show = False
         self._relayout_timer.stop()
@@ -268,10 +269,11 @@ class WallGrid(QWidget):
         return next((tile for tile in self.tiles if tile.room.get('room_id')), None)
 
     def sync_sc_placement(self):
-        targets = {self.pane_danmaku.target(panel) for panel in self.pane_danmaku.rendered()} if (
-            self.has_danmaku and self.fullscreen_tile is None) else set()
+        panes = self.pane_danmaku
+        docked = self.has_danmaku and self.fullscreen_tile is None
+        targets = {panes.target(panel) for panel in panes.rendered() if docked or panel in panes.floating}
         for tile in self.tiles:
-            tile.video_danmaku.set_sc_independent(self.has_danmaku)
+            tile.video_danmaku.set_sc_independent(self.has_danmaku or bool(panes.floating))
             tile.video_danmaku.set_sc_in_panel(tile in targets)
 
     def cell_of(self, tile: Tile):
@@ -320,7 +322,9 @@ class WallGrid(QWidget):
         while len(self.tiles) < target:
             self._make_tile({})
         while len(self.tiles) > target:
-            empty = next((tile for tile in reversed(self.tiles)
+            # Keep the backing tiles of custom cells in place, including an empty released slot.
+            removable = self.tiles[capacity:] if self.pane_danmaku.custom else self.tiles
+            empty = next((tile for tile in reversed(removable)
                           if not tile.room.get("room_id")), None)
             if empty is None:
                 break
@@ -350,21 +354,25 @@ class WallGrid(QWidget):
         return self.layout_control.relayout(force)
 
     def _sync_danmaku_controls(self) -> None:
-        desired = dict.fromkeys(self.pane_danmaku.all_panels())
+        panes = self.pane_danmaku
+        desired = dict.fromkeys(panes.all_panels())
         shared = {}
-        panels = sorted(self.pane_danmaku.rendered(),
+        floating_rooms = {str(tile.room['room_id']) for panel in panes.floating
+                          if (tile := panes.target(panel)) is not None}
+        panels = sorted((panel for panel in panes.rendered() if panel not in panes.floating),
                         key=lambda panel: (panel.geometry().bottom(), panel.geometry().right()), reverse=True)
         for panel in panels:
-            tile = self.pane_danmaku.target(panel) if self.has_danmaku and self.fullscreen_tile is None else None
+            tile = panes.target(panel) if self.has_danmaku and self.fullscreen_tile is None else None
             target = getattr(tile, '_plugin_controls', None)
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
-            if target is not None and not target._disposed and room not in shared:
+            if target is not None and not target._disposed and room not in shared and room not in floating_rooms:
                 desired[panel] = target
                 shared[room] = target
-        for panel in self.pane_danmaku.all_panels():
-            tile = self.pane_danmaku.target(panel)
+        for panel in panes.all_panels():
+            tile = panes.target(panel)
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
-            panel._linked_controls = shared.get(room)
+            panel._linked_controls = (getattr(tile, '_plugin_controls', None)
+                                      if room in floating_rooms else shared.get(room))
         # Detach all old owners first: two panels may exchange their input widgets.
         for panel, target in desired.items():
             previous = panel._tile_controls

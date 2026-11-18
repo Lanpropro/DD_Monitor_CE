@@ -63,8 +63,8 @@ class WallPresentation:
         host = self.host
         from .pip_geometry import pane_rectangles
         host.setMinimumSize(0, 0)
-        for panel in host.pane_danmaku.all_panels():
-            panel.hide()
+        for widget in host.pane_danmaku.wall_widgets():
+            widget.hide()
         host._divider_rects = {}
         for border in host._pane_borders.values():
             border.hide()

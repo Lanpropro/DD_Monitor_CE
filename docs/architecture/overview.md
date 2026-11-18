@@ -310,6 +310,8 @@ SelectControl由组合框继续持有唯一模型和选中值，关闭时仅绘�
 
 画面墙右键的格子类型、多个弹幕栏及来源绑定由 `ddm/pane_danmaku.py` 管理，关联跟随画面换位，并随布局与直播间组合保存。`ddm/pane_source_picker.py` 管理信号图标左侧的头像来源条、从右向左展开／收起、溢出滚动和缓存头像更新。
 
+`ddm/danmaku_float_window.py` 提供弹幕浮窗和墙内收回按钮。`PaneDanmaku` 管理现有面板的移出、归位以及浮出时原格是否可用于直播。接收仍由 `DanmakuLifecycle` 按房间共享，浮窗打开时发送控件由关联直播格底栏承接。
+
 弹幕连接共享、按需订阅及连接/SC 快照线程退役集中在 `ddm/danmaku_lifecycle.py`。主窗口保留旧入口与回调、按调用时构造器创建线程，继续拥有 Qt 对象、连接状态和退出等待；消息分发、账号凭据与 SC 展示策略保持原归属。
 
 播放状态浮标（LIVE/时长/标题/加载提示/暂停图标）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`PauseIndicator` 是静态透明图形，保留 Tile 原有状态驱动与鼠标穿透。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；加载动画生命周期不变。
