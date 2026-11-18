@@ -102,6 +102,26 @@ class InlineRoomAddTests(unittest.TestCase):
         return [index for row in range(model.rowCount()) for column in range(model.columnCount())
                 if (index := model.index(row, column)).data(Qt.UserRole)]
 
+    def test_live_filter_restores_saved_value_and_keeps_last_choice(self):
+        wall = self.install_wall()
+        self.host.state = {'ui': {'room_add_followed_live_only': True}}
+        self.catalog = RoomCatalog(self.host)
+        self.host.sidebar.add_rooms([dict(room_id='1002', uname='正在直播', live=True)])
+        panel = self.open(wall.tiles[0])
+        QTest.mouseClick(panel.followed_toggle, Qt.LeftButton)
+        self.pump()
+        self.assertTrue(panel.followed.live_only.isChecked())
+        self.assertEqual([index.data() for index in self.choices(panel.followed)], ['正在直播'])
+        self.host._save_timer.start.assert_not_called()
+        QTest.mouseClick(panel.followed.live_only, Qt.LeftButton)
+        self.assertFalse(self.catalog.followed_live_only)
+        self.host._save_timer.start.assert_called_once_with()
+        panel.close_editor()
+        self.open(wall.tiles[1])
+        QTest.mouseClick(panel.followed_toggle, Qt.LeftButton)
+        self.assertFalse(panel.followed.live_only.isChecked())
+        self.assertEqual({index.data() for index in self.choices(panel.followed)}, {'测试关注', '正在直播'})
+
     def test_empty_slot_expands_grouped_follows_and_places_offline_room_without_lookup(self):
         wall = self.install_wall()
         occupied = dict(room_id='old', uname='测试关注', live=False)
@@ -127,6 +147,7 @@ class InlineRoomAddTests(unittest.TestCase):
         QTest.mouseClick(panel.followed_toggle, Qt.LeftButton)
         self.pump()
         self.assertTrue(panel.followed.isVisible())
+        self.assertFalse(panel.followed.live_only.isChecked())
         self.assertEqual(panel.y(), collapsed.y())
         self.assertGreater(panel.height(), collapsed.height())
         self.assertTrue(self.host.rect().contains(panel.geometry()))
@@ -142,9 +163,19 @@ class InlineRoomAddTests(unittest.TestCase):
         index, = self.choices(panel.followed)
         self.assertEqual(index.data(Qt.UserRole), 'huya:321')
         view = panel.followed.scroll
-        QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=view.visualRect(index).center())
-        self.pump()
+        focused = []
+        def record_focus(_old, new):
+            focused.append(new)
+
+        self.app.focusChanged.connect(record_focus)
+        try:
+            QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=view.visualRect(index).center())
+            self.pump()
+        finally:
+            self.app.focusChanged.disconnect(record_focus)
         self.assertFalse(panel.isVisible())
+        self.assertNotIn(self.host.sidebar.search, focused)
+        self.assertIsNot(self.app.focusWidget(), self.host.sidebar.search)
         self.assertEqual(target.room['room_id'], 'huya:321')
         self.assertFalse(wall.tiles[1].room.get('room_id'))
         self.assertFalse(Resolver.created)
@@ -286,6 +317,7 @@ class InlineRoomAddTests(unittest.TestCase):
         Resolver.created[-1].complete()
         self.assertFalse(panel.isVisible())
         self.assertEqual(panel.entry.toPlainText(), '')
+        self.assertIsNot(self.app.focusWidget(), self.host.sidebar.search)
         self.assertIs(self.host._on_room_added.call_args.kwargs['target_tile'], target)
 
     def test_failure_reason_preserves_draft_and_allows_retry(self):

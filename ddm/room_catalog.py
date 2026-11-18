@@ -6,6 +6,8 @@ class RoomCatalog:
         self.host = host
         self._add_panel = None
         self._add_target = None
+        ui = getattr(host, 'state', {}).get('ui') or {}
+        self.followed_live_only = ui.get('room_add_followed_live_only') is True
 
     def sync_platform_rooms(self) -> None:
         from . import config as config_module
@@ -64,6 +66,8 @@ class RoomCatalog:
             self._add_panel.submitted.connect(self._submit_inline)
             self._add_panel.followed_requested.connect(self._load_followed)
             self._add_panel.followed_selected.connect(self._select_followed)
+            self._add_panel.followed.live_only.setChecked(self.followed_live_only)
+            self._add_panel.followed.live_only.toggled.connect(self._remember_followed_live_only)
         if not self._add_panel.busy:
             self._add_target = target_tile
             self._add_resolver_type = resolver_type or InfoResolver
@@ -75,6 +79,10 @@ class RoomCatalog:
     def _load_followed(self):
         occupied = {str(tile.room.get('room_id') or '') for tile in self.host.wall.tiles}
         self._add_panel.followed.load(occupied)
+
+    def _remember_followed_live_only(self, checked):
+        self.followed_live_only = checked
+        self.host._save_timer.start()
 
     def _select_followed(self, room_id):
         host, panel, target = self.host, self._add_panel, self._add_target
@@ -93,7 +101,7 @@ class RoomCatalog:
             panel.show_error('该主播已从关注列表移除')
             return
         host._on_room_added(dict(room), target_tile=target)
-        panel.close_editor()
+        panel.close_editor(focus_search=False)
         self._add_target = None
 
     def _submit_inline(self, text, folder_id):
@@ -123,7 +131,7 @@ class RoomCatalog:
         panel.set_busy(False)
         if success:
             panel.entry.clear()
-            panel.close_editor()
+            panel.close_editor(focus_search=self._add_target is None)
             self._add_target = None
         else:
             panel.show_error(message)

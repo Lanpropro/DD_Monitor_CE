@@ -772,6 +772,7 @@ class MainWindow(QMainWindow):
             ],
             "ui": {
                 "layout_picker_size": self.sidebar.presentation_control.layout_picker.size_state(),
+                "room_add_followed_live_only": self.room_placement.catalog.followed_live_only,
                 "picture_in_picture": self.picture_in_picture.state(),
                 "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,

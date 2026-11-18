@@ -103,7 +103,6 @@ class RoomAddPanel(QFrame):
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
             self.followed.search.clear()
-            self.followed.live_only.setChecked(False)
             folders = self.sidebar.folder_state()
             selected = self.folder_id
             self.folder_names = {folder['name'] for folder in folders}
@@ -169,12 +168,15 @@ class RoomAddPanel(QFrame):
         self.error.show()
         self.fit_to_search()
 
-    def close_editor(self):
+    def close_editor(self, *, focus_search=True):
+        focused = QApplication.focusWidget()
+        if not focus_search and focused is not None and self.isAncestorOf(focused):
+            self.window().setFocus(Qt.OtherFocusReason)
         self._fit_timer.stop()
         self.hide()
         self.followed_toggle.setChecked(False)
         self.dismissed.emit()
-        if self.sidebar.search.isVisible():
+        if focus_search and self.sidebar.search.isVisible():
             self.sidebar.search.setFocus(Qt.OtherFocusReason)
 
     def _import(self):
