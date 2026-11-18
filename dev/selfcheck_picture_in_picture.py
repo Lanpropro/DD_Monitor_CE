@@ -19,6 +19,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
+from ddm.pip_composition import GRID_LAYOUT, MAIN_LAYOUT
 from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWindow,
     FOCUS_LAYOUT, composition_aspect, composition_ratio, composition_rows, pane_rectangles, video_aspect)
 
@@ -915,6 +916,22 @@ def check_focus_geometry():
         assert all(rect.size() == QSize(320, 180) for index, rect in enumerate(rectangles) if index != primary)
 
 
+def check_adaptive_geometry():
+    for count in range(3, 17):
+        aspects = [16 / 9] * count
+        area = QRect(0, 0, 760, 490)
+        for mode in (GRID_LAYOUT, MAIN_LAYOUT):
+            rects = pane_rectangles(count, area, mode, aspects, primary=count - 1)
+            assert len(rects) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rects)
+            assert not any(a.intersects(b) for index, a in enumerate(rects) for b in rects[index + 1:])
+            if mode == GRID_LAYOUT:
+                assert max(rect.width() for rect in rects) - min(rect.width() for rect in rects) <= 1
+                assert max(rect.height() for rect in rects) - min(rect.height() for rect in rects) <= 1
+            else:
+                main = rects[-1]
+                assert all(main.width() * main.height() > rect.width() * rect.height() for rect in rects[:-1])
+
+
 def exercise_focus(app, native, directory):
     rooms = [dict(room_id=str(2200 + index), uname=f'Focus {index}', live=False, muted=True) for index in range(6)]
     window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x2',
@@ -948,7 +965,7 @@ def exercise_focus(app, native, directory):
         pip.manage()
         dialog = pip.dialog
         QTest.qWait(30)
-        assert dialog.columns.currentData() == FOCUS_LAYOUT
+        assert dialog.arrangements.mode == FOCUS_LAYOUT
         assert dialog._primary == 4 and not hasattr(dialog, 'primary_row')
         assert dialog.rect().contains(dialog.start.geometry()) and dialog.start.isVisible()
         dialog.checks[5].setChecked(False)
@@ -1074,7 +1091,7 @@ def exercise_live_room_picker(app, native, directory):
         dialog = pip.dialog
         for rid in ('3101', '3102', '3103', '3104'):
             dialog.checks[rid].setChecked(True)
-        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        dialog.arrangements.select(FOCUS_LAYOUT)
         drag_preview(dialog, '3102', 0)
         assert dialog.start.isEnabled() and dialog.preview.primary == 0
         expected_wall_selection = [key for key in dialog._selected() if isinstance(key, int)]
@@ -1154,7 +1171,7 @@ def exercise_live_room_picker(app, native, directory):
         # A follow can go offline while the non-modal picker is open.
         pip.manage()
         dialog = pip.dialog
-        dialog.columns.setCurrentIndex(dialog.columns.findData(0))
+        dialog.arrangements.select(0)
         for check in dialog.checks.values():
             check.setChecked(False)
         dialog.checks['3101'].setChecked(True)
@@ -1242,7 +1259,8 @@ def exercise_parallel(app, window, directory):
     main = wall.tiles[0]
     main.set_live(True)
     main.set_muted(True)
-    window.sidebar.add_room(dict(room_id='3199', uname='Parallel extra', live=True))
+    window.sidebar.add_rooms([dict(room_id=rid, uname=f'Parallel {rid}', live=True)
+                              for rid in ('3199', '3198')])
     def start_local(tile):
         window.stream_playback.start_tile(tile, resolver_type=LocalResolver)
 
@@ -1264,6 +1282,13 @@ def exercise_parallel(app, window, directory):
         assert window.players[panes[0]] is not main_player
         assert wall.parentWidget() is main_parent and not window.isMinimized()
         assert window.players[main] is main_player and main_player.state_generation == generation
+        retained = [window.players[pane] for pane in panes]
+        assert pip.start([0, '3199', '3198'], MAIN_LAYOUT, '3199', parallel=True)
+        panes = list(pip.parallel_tiles)
+        wait_for_players(panes)
+        assert [window.players[pane] for pane in panes[:2]] == retained
+        assert pip.display_wall.picture_in_picture_primary == 1
+        assert panes[1].height() > panes[2].height()
         pip.floating.close()
         QTest.qWait(100)
         assert not pip.active and all(pane not in window.players for pane in panes)
@@ -1281,6 +1306,7 @@ def main():
     app.setStyleSheet(theme.qss())
     check_quick_mask_batch()
     check_focus_geometry()
+    check_adaptive_geometry()
     if native:
         assert app.platformName() == 'windows'
     for count in range(1, 17):

@@ -1,11 +1,14 @@
 """Picture-in-picture room selection and composition dialog."""
-from PySide6.QtCore import QEvent, QSignalBlocker, Qt
+from PySide6.QtCore import QEvent, QRectF, QSignalBlocker, Qt
+from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from . import theme
+from .corner_geometry import continuous_path
 from .search import matches_text
 from .settings_window import SettingsTitleBar
-from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, SelectControl, ToggleSwitch, page_header
-from .pip_geometry import FOCUS_LAYOUT
+from .ui import ActionButton, Avatar, ElidedLabel, HintLabel, ToggleSwitch, page_header
+from .pip_arrangements import PipArrangements
+from .pip_composition import FOCUS_LAYOUT, MAIN_LAYOUT
 from .pip_preview import CompositionPreview
 
 
@@ -55,6 +58,9 @@ class PictureInPictureDialog(QDialog):
         self._primary = controller.primary_choice()
         self.setWindowTitle('组合画中画')
         self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setProperty('customControlSurface', True)
+        theme.signals().changed.connect(self.update)
         available = self.screen().availableGeometry()
         self.resize(min(560, available.width() - 48), min(740, available.height() - 80))
         layout = QVBoxLayout(self)
@@ -77,16 +83,13 @@ class PictureInPictureDialog(QDialog):
         option_rows = QVBoxLayout(options)
         option_rows.setContentsMargins(12, 10, 12, 10)
         option_rows.setSpacing(8)
-        arrangement = QHBoxLayout()
-        arrangement.addWidget(QLabel('排列方式', options), 1)
-        self.columns = SelectControl(options)
-        for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
-                             ('单主＋五辅（6格）', FOCUS_LAYOUT)):
-            self.columns.addItem(title, value)
-        self.columns.setAccessibleName('画中画排列方式')
-        self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
-        arrangement.addWidget(self.columns)
-        option_rows.addLayout(arrangement)
+        chat = controller.chat_cells(FOCUS_LAYOUT, parallel=controller.parallel_preference)
+        mode = controller.columns
+        if mode == FOCUS_LAYOUT and len(self._order) < 6 - len(chat):
+            mode = 0
+        self.arrangements = PipArrangements(mode, options)
+        self.arrangements.setAccessibleName('画中画排列方式')
+        option_rows.addWidget(self.arrangements)
         parallel_row = QHBoxLayout()
         parallel_label = QLabel('与主窗口同时播放', options)
         self.parallel = ToggleSwitch(parallel_label.text(), options)
@@ -97,8 +100,7 @@ class PictureInPictureDialog(QDialog):
         parallel_row.addWidget(self.parallel)
         option_rows.addLayout(parallel_row)
         layout.addWidget(options)
-        chat = self._chat_cells()
-        if chat and len(self._order) > 6 - len(chat):
+        if mode == FOCUS_LAYOUT and chat and len(self._order) > 6 - len(chat):
             wall = {key for key, _room in controller._wall_candidates()}
             self._order = ([key for key in self._order if key in wall]
                            + [key for key in self._order if key not in wall])[:6 - len(chat)]
@@ -177,11 +179,20 @@ class PictureInPictureDialog(QDialog):
         self.start.clicked.connect(self._apply)
         footer.addWidget(self.start)
         layout.addLayout(footer)
-        self.columns.currentIndexChanged.connect(self._refresh)
-        self.parallel.toggled.connect(self._refresh)
+        self.arrangements.changed.connect(self._refresh)
+        self.parallel.toggled.connect(self._parallel_changed)
         self._refresh()
         self._arrange_choices()
-        self.columns.setFocus(Qt.OtherFocusReason)
+        self.search.setFocus(Qt.OtherFocusReason)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 22)
+        painter.fillPath(path, theme.qcolor(theme.BG))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
+        painter.drawPath(path)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.windowHandle() is not None:
@@ -260,7 +271,7 @@ class PictureInPictureDialog(QDialog):
         primary = selection.index(self._primary)
         selection[first], selection[second] = selection[second], selection[first]
         self._order = selection
-        if self.columns.currentData() == FOCUS_LAYOUT and len(selection) == 6:
+        if self.arrangements.mode in (FOCUS_LAYOUT, MAIN_LAYOUT):
             self._primary = selection[primary]
         self._refresh()
 
@@ -270,35 +281,51 @@ class PictureInPictureDialog(QDialog):
         names = [self.checks[index].preview_name for index in selection]
         if self._primary not in selection:
             self._primary = selection[0] if selection else None
-        focus = self.columns.currentData() == FOCUS_LAYOUT
-        slots, aspects, primary = self.controller.composition(selection, self.columns.currentData(), self._primary,
+        has_chat = bool(self.controller.chat_cells(FOCUS_LAYOUT, parallel=self.parallel.isChecked()))
+        mode = self.arrangements.update_context(len(selection), has_chat)
+        focus = mode == FOCUS_LAYOUT
+        slots, aspects, primary = self.controller.composition(selection, mode, self._primary,
                                                               parallel=self.parallel.isChecked())
         self._preview_choices = slots
         chat = self._chat_cells()
         if chat:
             names = ['弹幕' if index in chat else self.checks[key].preview_name if key is not None else '未选择视频'
                      for index, key in enumerate(slots)]
-            self.preview.set_panes(names, self.columns.currentData(), aspects, primary,
+            self.preview.set_panes(names, mode, aspects, primary,
                                    locked=[index for index, key in enumerate(slots) if key is None])
             required = 6 - len(chat)
             self.start.setEnabled(len(selection) == required)
             self.hint.setText(f'此布局需要 {required} 路视频＋{len(chat)} 格弹幕，当前选择 {len(selection)} 路视频。'
                               '弹幕来源沿用监控室；取消一路视频后可从下方替换。')
             return
-        self.preview.set_panes(names, self.columns.currentData(), aspects, primary)
+        self.preview.set_panes(names, mode, aspects, primary)
         valid = bool(names) and (not focus or len(names) == 6)
         self.start.setEnabled(valid)
-        self.hint.setText('单主＋五辅需要选择6路画面；在预览中拖动交换位置。' if focus and len(names) != 6 else
-                          f'已选择 {len(names)} 路，可拖动预览交换位置；墙外直播仅在本次画中画中观看。'
-                          if self.checks else '暂无可选直播间，请先添加关注或画面。')
+        if focus and len(names) != 6:
+            hint = '六格组合需要选择 6 路画面。'
+        elif len(names) > 1:
+            hint = f'已选择 {len(names)} 路，拖到其他画面附近可吸附换位。'
+        elif names:
+            hint = '已选择 1 路。'
+        else:
+            hint = '请选择直播间。' if self.checks else '暂无可选直播间，请先添加关注或画面。'
+        if any(isinstance(key, str) for key in selection):
+            hint += '墙外直播仅在本次画中画中观看。'
+        self.hint.setText(hint)
+
+    def _parallel_changed(self, enabled):
+        if enabled and self.arrangements.mode == FOCUS_LAYOUT and len(self._selected()) != 6:
+            self.arrangements.select(0)
+        else:
+            self._refresh()
 
     def _apply(self):
         selected = self._selected()
-        if self.controller.start(selected, self.columns.currentData(), self._primary,
+        if self.controller.start(selected, self.arrangements.mode, self._primary,
                                  parallel=self.parallel.isChecked()):
             self.accept()
         else:
             self.hint.setText('所选直播间已变化或下播，请重新选择。')
 
     def _chat_cells(self):
-        return self.controller.chat_cells(self.columns.currentData(), parallel=self.parallel.isChecked())
+        return self.controller.chat_cells(self.arrangements.mode, parallel=self.parallel.isChecked())

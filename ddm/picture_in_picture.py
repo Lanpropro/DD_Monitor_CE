@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 
 from . import follow_folders, theme
 from .search import matches_text
-from .pip_composition import focus_chat_cells, focus_slots
+from .pip_composition import MAIN_LAYOUT, focus_chat_cells, focus_slots
 from .pip_parallel import ParallelPictureInPicture
 from .ui import ActionButton, Avatar, ElidedLabel, page_header
 
@@ -104,8 +104,6 @@ class PictureInPicture(QObject):
         if not self.selection and not self.external_rooms:
             capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
             self.selection = [index for index, _room in self._wall_candidates() if index < capacity]
-            if self.chat_cells(FOCUS_LAYOUT):
-                self.columns = FOCUS_LAYOUT
         self.dialog = PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
         self.dialog.open()
@@ -255,12 +253,12 @@ class PictureInPicture(QObject):
             selection = self.selected_choices()
             primary = selection.index(self.primary_choice())
             selection[first], selection[second] = selection[second], selection[first]
-            self.start(selection, self.columns, selection[primary] if self.columns == FOCUS_LAYOUT
+            self.start(selection, self.columns, selection[primary] if self.columns in (FOCUS_LAYOUT, MAIN_LAYOUT)
                        else self.primary_choice(), parallel=True)
             return
         primary = self.selection.index(self.primary)
         self.selection[first], self.selection[second] = self.selection[second], self.selection[first]
-        if self.columns == FOCUS_LAYOUT:
+        if self.columns in (FOCUS_LAYOUT, MAIN_LAYOUT):
             self.primary = self.selection[primary]
         self.start(self.selection, self.columns, self.primary)
 

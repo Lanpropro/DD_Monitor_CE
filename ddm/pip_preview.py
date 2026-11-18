@@ -7,6 +7,7 @@ from .pip_geometry import composition_ratio, pane_rectangles
 
 class CompositionPreview(QFrame):
     positionsSwapped = Signal(int, int)
+    SNAP_DISTANCE = 14
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,7 +22,7 @@ class CompositionPreview(QFrame):
         self._drag = None
         self._ghost = None
         self._drop_target = None
-        self.setAccessibleName('拖动预览画面交换位置')
+        self.setAccessibleName('拖动画面并吸附到目标位置')
 
     def set_panes(self, names, columns, aspects=None, primary=0, locked=()):
         self.cancel_drag()
@@ -39,7 +40,7 @@ class CompositionPreview(QFrame):
             label.setObjectName('PluginCard')
             label.setTextFormat(Qt.PlainText)
             label.setCursor(Qt.ArrowCursor if index in self.locked else Qt.OpenHandCursor)
-            label.setToolTip(label.text() if index in self.locked else label.text() + '\n拖到另一画面上交换位置')
+            label.setToolTip(label.text() if index in self.locked else label.text() + '\n靠近其他画面可吸附换位')
             label.installEventFilter(self)
             label.show()
         self._arrange()
@@ -68,6 +69,23 @@ class CompositionPreview(QFrame):
                 label.style().unpolish(label)
                 label.style().polish(label)
                 label.update()
+
+    def _snap_target(self, point, source):
+        hits = [index for index, label in enumerate(self.labels) if label.geometry().contains(point)]
+        if hits:
+            target = hits[0]
+            return target if target != source and target not in self.locked else None
+        candidates = []
+        for index, label in enumerate(self.labels):
+            if index == source or index in self.locked:
+                continue
+            bounds = label.geometry()
+            x = max(bounds.left() - point.x(), point.x() - bounds.right(), 0)
+            y = max(bounds.top() - point.y(), point.y() - bounds.bottom(), 0)
+            distance = x * x + y * y
+            if distance <= self.SNAP_DISTANCE ** 2:
+                candidates.append((distance, index))
+        return min(candidates)[1] if candidates else None
 
     def cancel_drag(self):
         self._drag = None
@@ -101,20 +119,23 @@ class CompositionPreview(QFrame):
                 self._ghost = QLabel(self)
                 self._ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
                 self._ghost.setPixmap(self.labels[source].grab())
-                self._ghost.setFixedSize(self.labels[source].size())
+                self._ghost.setScaledContents(True)
                 self._ghost.show()
             if self._ghost is not None:
                 point = self.mapFromGlobal(position)
-                self._ghost.move(point - offset)
+                target = self._snap_target(point, source)
+                label = self.labels[target] if target is not None else None
+                if label is not None:
+                    self._ghost.setGeometry(label.geometry().adjusted(2, 2, -2, -2))
+                else:
+                    self._ghost.setGeometry(QRect(point - offset, self.labels[source].size()))
                 self._ghost.raise_()
-                self._highlight(next((label for index, label in enumerate(self.labels)
-                    if index != source and index not in self.locked and label.geometry().contains(point)), None))
+                self._highlight(label)
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             source = self._drag[0]
             point = self.mapFromGlobal(event.globalPosition().toPoint())
-            target = next((index for index, label in enumerate(self.labels)
-                           if index not in self.locked and label.geometry().contains(point)), None)
+            target = self._snap_target(point, source)
             moved = self._ghost is not None
             self.cancel_drag()
             if moved and target is not None and target != source:

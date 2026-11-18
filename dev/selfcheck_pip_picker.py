@@ -30,7 +30,10 @@ class PipPickerTests(unittest.TestCase):
             window_style.argtypes = (wintypes.HWND, ctypes.c_int)
             self.assertFalse(window_style(int(dialog.winId()), -16) & 0x00C00000)  # WS_CAPTION
         self.assertTrue(dialog.titlebar.close_button.isVisible())
-        self.assertEqual(dialog.columns.count(), 6)
+        self.assertFalse(dialog.arrangements.isVisible())
+        image = dialog.grab().toImage()
+        self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+        self.assertEqual(image.pixelColor(image.width() // 2, 4).alpha(), 255)
         self.assertTrue(dialog.search.isVisible())
         handle = dialog.windowHandle()
         with patch.object(handle, 'startSystemMove', return_value=True) as move:
@@ -44,6 +47,44 @@ class PipPickerTests(unittest.TestCase):
         self.assertIsNone(pip.dialog)
         self.assertFalse(pip.active)
         self.assertFalse(pip.parallel_preference)
+
+    def test_layout_cards_adapt_and_preview_snaps_near_a_target(self):
+        from ddm.pip_composition import FOCUS_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
+        from selfcheck_picture_in_picture import pointer
+
+        window = self.window([dict(room_id='1', uname='Main', live=True)])
+        window.sidebar.add_rooms([dict(room_id=str(i), uname=f'Followed {i}', live=True) for i in (2, 3)])
+        window.picture_in_picture.columns = FOCUS_LAYOUT
+        window.picture_in_picture.manage()
+        dialog = window.picture_in_picture.dialog
+        cards = dialog.arrangements
+        self.assertFalse(cards.isVisible())
+        self.assertTrue(dialog.start.isEnabled())
+        dialog.checks['2'].setChecked(True)
+        self.assertEqual({mode for mode, button in cards.buttons.items() if button.isVisible()}, {1, 16})
+        self.assertEqual(cards.mode, 16)
+
+        preview = dialog.preview
+        source, target = preview.labels
+        start = source.rect().center()
+        bounds = target.geometry()
+        near = QPoint(bounds.right() + 6, bounds.center().y())
+        pointer(source, QEvent.MouseButtonPress, start, source.mapToGlobal(start), Qt.LeftButton, Qt.LeftButton)
+        pointer(preview, QEvent.MouseMove, near, preview.mapToGlobal(near), Qt.NoButton, Qt.LeftButton)
+        self.assertIs(preview._drop_target, target)
+        self.assertEqual(preview._ghost.geometry(), bounds.adjusted(2, 2, -2, -2))
+        pointer(preview, QEvent.MouseButtonRelease, near, preview.mapToGlobal(near), Qt.LeftButton, Qt.NoButton)
+        self.assertEqual(dialog._selected(), ['2', 0])
+
+        dialog.checks['3'].setChecked(True)
+        self.assertEqual({mode for mode, button in cards.buttons.items() if button.isVisible()},
+                         {GRID_LAYOUT, MAIN_LAYOUT})
+        self.assertEqual(cards.mode, GRID_LAYOUT)
+        cards.buttons[MAIN_LAYOUT].click()
+        self.assertEqual(cards.mode, MAIN_LAYOUT)
+        primary = preview.labels[preview.primary].geometry()
+        self.assertGreater(primary.height(), min(label.height() for label in preview.labels))
+        dialog.reject()
 
     def test_parallel_picker_keeps_the_main_wall_and_local_audio_independent(self):
         window = self.window([dict(room_id='1', uname='Main', live=True, muted=False, volume=35)])
@@ -381,10 +422,11 @@ class PipPickerTests(unittest.TestCase):
         self.assertEqual(list(dialog.checks), [0, 1, '3', '4', '5', '6'])
         self.assertEqual([heading.text() for heading, _keys in dialog.sections], ['已入墙', '默认关注'])
         self.assertEqual(dialog._selected(), [0, 1])
-        self.assertEqual(dialog.columns.count(), 6)
+        self.assertEqual({mode for mode, button in dialog.arrangements.buttons.items() if button.isVisible()},
+                         {1, 16})
         for rid in ('3', '4', '5', '6'):
             dialog.checks[rid].setChecked(True)
-        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        dialog.arrangements.buttons[FOCUS_LAYOUT].click()
         from selfcheck_picture_in_picture import drag_preview
         drag_preview(dialog, '4', 0)
         self.assertTrue(dialog.start.isEnabled())
@@ -429,9 +471,9 @@ class PipPickerTests(unittest.TestCase):
 
 
     def test_pip_preview_drag_swaps_positions_and_escape_or_outside_cancels(self):
-        from PySide6.QtWidgets import QComboBox
         from selfcheck_picture_in_picture import drag_preview, pointer
         from ddm.picture_in_picture import FOCUS_LAYOUT
+        from ddm.pip_composition import GRID_LAYOUT, MAIN_LAYOUT
         window = self.window([{'room_id': str(i), 'uname': f'Room {i}', 'live': False} for i in range(6)])
         window.settings['close_behavior'] = 'exit'
         window.wall.set_layout('3x2')
@@ -439,9 +481,8 @@ class PipPickerTests(unittest.TestCase):
         pip.manage()
         dialog = pip.dialog
         before = list(pip.selection)
-        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        dialog.arrangements.buttons[FOCUS_LAYOUT].click()
         self.assertFalse(hasattr(dialog, 'primary_row'))
-        self.assertEqual(len(dialog.findChildren(QComboBox)), 1)
         drag_preview(dialog, 1, 0)
         self.assertEqual(dialog._selected()[:2], [1, 0])
         self.assertEqual(dialog._primary, 1)
@@ -458,8 +499,8 @@ class PipPickerTests(unittest.TestCase):
         pointer(preview, QEvent.MouseButtonRelease, QPoint(-30, -30), outside, Qt.LeftButton, Qt.NoButton)
         self.assertEqual(dialog._selected()[:2], [1, 0])
         self.assertIsNone(QWidget.mouseGrabber())
-        for mode in (0, 16, 1, 2, 3):
-            dialog.columns.setCurrentIndex(dialog.columns.findData(mode))
+        for mode in (GRID_LAYOUT, MAIN_LAYOUT):
+            dialog.arrangements.buttons[mode].click()
             drag_preview(dialog, 2, 3)
             self.assertEqual(set(dialog._selected()), set(before))
         dialog.reject()

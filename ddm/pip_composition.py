@@ -1,6 +1,8 @@
 """Video choices and existing chat cells in the six-cell PiP composition."""
 
 FOCUS_LAYOUT = -1
+MAIN_LAYOUT = -2
+GRID_LAYOUT = -3
 
 
 def focus_chat_cells(wall, columns):
