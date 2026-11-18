@@ -81,6 +81,7 @@ class Tile(QFrame):
         self.setObjectName("Tile")
         #: 插件往本格右键菜单加的项目：[(显示文字, 回调), …]，由外层填
         self.plugin_actions: list = []
+        self.open_danmaku_float = None
         #: 当前这一路的取流结果，插件（录像等）从这里拿
         self.stream_url = ""
         self.stream_profile = ""

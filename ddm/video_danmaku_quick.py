@@ -21,6 +21,36 @@ def _owned_by(widget, owner):
     return False
 
 
+def _stack_below(window, anchors):
+    """Leave an owned overlay behind the lowest of its native occluders."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.GetTopWindow.argtypes = (wintypes.HWND,)
+    user32.GetTopWindow.restype = wintypes.HWND
+    user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+    user32.GetWindow.restype = wintypes.HWND
+    user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+    overlay = int(window.winId())
+    hwnd = user32.GetTopWindow(None)
+    above_anchor = False
+    remaining = set(anchors)
+    while hwnd:
+        if hwnd == overlay:
+            above_anchor = True
+        if hwnd in remaining:
+            remaining.remove(hwnd)
+            if not remaining:
+                if not above_anchor:
+                    return True
+                # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+                return bool(user32.SetWindowPos(overlay, hwnd, 0, 0, 0, 0, 0x13))
+        hwnd = user32.GetWindow(hwnd, 2)  # GW_HWNDNEXT
+    return False
+
+
 class _CommentImages(QQuickImageProvider):
     def __init__(self):
         super().__init__(QQuickImageProvider.Image)
@@ -300,6 +330,7 @@ class QuickDanmakuLayer(QObject):
         self._occlusion_timer = QTimer(self)
         self._occlusion_timer.setSingleShot(True)
         self._occlusion_timer.timeout.connect(self.show)
+        self._floating_stacked = False
         QApplication.instance().installEventFilter(self)
         parent.window().windowHandle().screenChanged.connect(self.reset_surface)
 
@@ -334,7 +365,9 @@ class QuickDanmakuLayer(QObject):
             if (isinstance(watched, QWidget) and watched.isWindow()
                     and _owned_by(watched, self.parent.window())
                     and kind in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.Close)):
-                self._occlusion_timer.start(0)
+                if not (self._floating_stacked and watched.property('floatingDanmaku')
+                        and kind in (QEvent.Move, QEvent.Resize)):
+                    self._occlusion_timer.start(0)
             return False
         if kind in (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange):
             self.reset_surface()
@@ -405,21 +438,39 @@ class QuickDanmakuLayer(QObject):
         clip = clip_owner.property('presentationMask') or clip_owner.mask()
         if not clip.isEmpty():
             region &= clip.translated(clip_owner.mapToGlobal(QPoint()) - origin)
-        for widget in QApplication.topLevelWidgets():
-            if (widget is owner or widget is self._presentation_window
-                    or not widget.isVisible() or not _owned_by(widget, owner)):
+        widgets = self._occluding_widgets()
+        settings = getattr(owner, '_settings_process', None)
+        self._floating_stacked = self._stack_below_floats(widgets, settings)
+        for widget in widgets:
+            if self._floating_stacked and widget.property('floatingDanmaku'):
                 continue
             geometry = widget.frameGeometry()
             region -= QRegion(QRect(geometry.topLeft() - origin, geometry.size()))
-        settings = getattr(owner, '_settings_process', None)
         # Native stacking reveals comments in sync with settings movement.
         # Keep rectangle clipping only when that ordering cannot be established:
         # cross-process rectangles can trail the actual window by several frames.
-        if (settings is not None and not settings.occlusion.isEmpty()
+        if (not self._floating_stacked and settings is not None and not settings.occlusion.isEmpty()
                 and not settings.stack_overlay_below(self.window)):
             region -= QRegion(settings.occlusion.translated(-origin))
-        self.window.setMask(region)
+        if region != self.window.mask():
+            self.window.setMask(region)
         return not region.isEmpty()
+
+    def _occluding_widgets(self):
+        owner = self.parent.window()
+        return [widget for widget in QApplication.topLevelWidgets()
+                if widget is not owner and widget is not self._presentation_window
+                and widget.isVisible() and not widget.isMinimized() and _owned_by(widget, owner)]
+
+    def _stack_below_floats(self, widgets, settings):
+        if QApplication.platformName() != 'windows':
+            return False
+        anchors = [int(widget.winId()) for widget in widgets if widget.property('floatingDanmaku')]
+        if not anchors:
+            return False
+        if settings is not None and settings.visible and not settings.closing and settings.window_hwnd:
+            anchors.append(settings.window_hwnd)
+        return _stack_below(self.window, anchors)
 
     def move_window(self):
         owner = self._presentation_window or self.parent
@@ -456,6 +507,9 @@ class QuickDanmakuLayer(QObject):
                 if not settings.window_hwnd:
                     self.window.hide()
                     return
+            if self._stack_below_floats(self._occluding_widgets(), settings):
+                return
+            if settings is not None and settings.visible and not settings.closing:
                 if settings.stack_overlay_below(self.window):
                     return
             self.window.raise_()

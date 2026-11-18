@@ -19,7 +19,7 @@ if NATIVE:
 
 import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QAbstractAnimation, QPoint, QSize, Qt
-from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtGui import QImage, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLineEdit, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
@@ -138,6 +138,57 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(slot.isVisible())
         self.assertEqual(slot.room['room_id'], '7001')
         self.assertFalse(panel.isVisible())
+
+    def test_video_menu_reuses_the_linked_panel_and_raises_an_open_float(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.configure_wall_panes({3: source})
+        panel = panes.panels[3]
+        menu = source.build_menu()
+        self.addCleanup(menu.deleteLater)
+        action = next(action for action in menu.actions() if action.data() == 'danmaku_float')
+        action.trigger()
+        floated = panes.floating[panel]
+        action.trigger()
+        self.assertEqual(list(panes.floating), [panel])
+        self.assertIs(panes.floating[panel], floated)
+        self.assertTrue(floated.window.isVisible())
+        floated.window.close()
+        self.assertIs(panes.panels[3], panel)
+        self.assertTrue(panel.isVisible())
+
+    def test_video_menu_opens_and_closes_without_creating_a_wall_slot(self):
+        window = self.wall_window()
+        window.settings['danmaku_float_reuse_cell'] = True
+        wall, panes = window.wall, window.wall.pane_danmaku
+        other, source = wall.tiles[:2]
+        window.configure_wall_panes({3: other})
+        docked = panes.panels[3]
+        before = panes.state()
+        menu = source.build_menu()
+        self.addCleanup(menu.deleteLater)
+        action = next(action for action in menu.actions() if action.text() == '打开弹幕浮窗')
+        with patch.object(window, '_sync_tile_playback') as playback:
+            action.trigger()
+            playback.assert_not_called()
+        panel, = panes.floating
+        self.assertIs(panes.target(panel), source)
+        self.assertTrue(docked.isVisible() and source.isVisible())
+        self.assertIs(panes.panels[3], docked)
+        self.assertIsNone(panes.floating[panel].slot)
+        client = window._danmaku_clients[source.room['room_id']]
+        client.message.emit(dict(kind='danmaku', text='来自右键选中的直播'))
+        self.assertIn('来自右键选中的直播', panel.body.toPlainText())
+        self.assertNotIn('来自右键选中的直播', docked.body.toPlainText())
+        with patch.object(window, '_sync_tile_playback') as playback:
+            panel.float_button.click()
+            playback.assert_not_called()
+        self.assertFalse(panes.floating)
+        self.assertNotIn(panel, panes.all_panels())
+        self.assertFalse(panel.isVisible())
+        self.assertEqual(panes.state(), before)
+        self.assertTrue(source.isVisible())
 
     def test_float_cell_setting_round_trips_and_resets(self):
         from ddm.settings_danmaku import DanmakuSettingsPage
@@ -264,6 +315,8 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(panel.font_controls.isHidden())
         self.assertIs(panes.target(panel), source)
         self.assertEqual(panel._linked_room_id, '1001')
+        self.assertLess(panel.float_button.geometry().right(), picker.x())
+        self.assertLess(picker.x() - panel.float_button.geometry().right(), 10)
         self.assertLessEqual(picker.geometry().right(), panel.count.x())
         self.assertLess(panel.count.x() - picker.geometry().right(), 10)
         self.assertEqual((backing.room, backing.volume, backing.muted), original)
@@ -336,7 +389,8 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(picker.expanded)
         self.assertTrue(panel.title.isHidden())
         self.assertTrue(panel.font_controls.isHidden())
-        self.assertEqual(picker.tray.x(), panel.header.layout().contentsMargins().left())
+        self.assertEqual(panel.float_button.x(), panel.header.layout().contentsMargins().left())
+        self.assertLess(panel.float_button.geometry().right(), picker.tray.x())
         panel.resize(700, 300)
         self.app.processEvents()
         self.assertTrue(panel.title.isVisible())
@@ -628,6 +682,67 @@ class PaneDanmakuTests(unittest.TestCase):
         invalid['layout']['panels'][0]['source'] = 3
         with self.assertRaises(ValueError):
             room_presets.validate(invalid)
+
+    @unittest.skipUnless(NATIVE, 'Windows native window stacking check')
+    def test_native_quick_layer_stays_below_moving_chat_without_mask_holes(self):
+        import ctypes
+        from ctypes import wintypes
+        from ddm.danmaku_float_window import DanmakuFloatWindow
+        from selfcheck_mpv import pump
+
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        origin = wall.mapToGlobal(QPoint())
+        layer = wall.ensure_quick_danmaku_layer()
+        group = layer.create_group(0, 0, wall.width(), wall.height())
+        image = QImage(100, 20, QImage.Format_ARGB32)
+        image.fill(QColor('white'))
+        layer.add(group, image, 45, 65, image.width(), image.height(), speed=30)
+        show = DanmakuFloatWindow.show
+
+        def show_offscreen(floating):
+            floating.setAttribute(Qt.WA_ShowWithoutActivating)
+            floating.move(origin + QPoint(32 + 20 * len(panes.floating), 40))
+            show(floating)
+
+        with patch.object(DanmakuFloatWindow, 'show', show_offscreen):
+            for source in wall.tiles[:2]:
+                panes.open_for_tile(source)
+        pump(self.app, .2)
+        floats = [floating.window for floating in panes.floating.values()]
+        self.assertEqual(len(floats), 2)
+        self.assertTrue(layer.window.isVisible())
+        overlay = int(layer.window.winId())
+        user32 = ctypes.windll.user32
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+
+        def assert_above_overlay(floating):
+            above = user32.GetWindow(overlay, 3)  # GW_HWNDPREV
+            handle = int(floating.winId())
+            while above and above != handle:
+                above = user32.GetWindow(above, 3)
+            self.assertEqual(above, handle)
+
+        for step in range(3):
+            floats[0].move(origin + QPoint(75 + step * 35, 55 + step * 12))
+            layer.raise_()
+            pump(self.app, .05)
+            for floating in floats:
+                assert_above_overlay(floating)
+                point = floating.mapToGlobal(floating.rect().center()) - origin
+                self.assertTrue(wall.rect().contains(point))
+                self.assertTrue(layer.window.mask().contains(point))
+        point = floats[0].mapToGlobal(floats[0].rect().center()) - origin
+        with patch('ddm.video_danmaku_quick._stack_below', return_value=False):
+            self.assertTrue(layer._update_occlusion())
+            self.assertFalse(layer.window.mask().contains(point))
+        self.assertTrue(layer._update_occlusion())
+        self.assertTrue(layer.window.mask().contains(point))
+        for floating in floats:
+            floating.close()
+        pump(self.app, .08)
+        self.assertTrue(layer.window.mask().contains(wall.rect().center()))
 
     @unittest.skipUnless(NATIVE, 'Windows native local MP4 check')
     def test_native_playback_core_and_hwnd_survive_type_changes_and_hot_swap(self):

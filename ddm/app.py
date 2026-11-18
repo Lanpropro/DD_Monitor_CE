@@ -331,6 +331,7 @@ class MainWindow(QMainWindow):
         self.wall.paneApplyRequested.connect(self._apply_pane_menu)
         self.wall.danmakuPanelCreated.connect(self._connect_danmaku_panel)
         self.wall.paneConfigurationChanged.connect(self._pane_configuration_changed)
+        self.wall.floatingDanmakuChanged.connect(self.sync_danmaku)
         for panel in self.wall.pane_danmaku.all_panels():
             self._connect_danmaku_panel(panel)
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面

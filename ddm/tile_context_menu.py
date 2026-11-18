@@ -65,6 +65,10 @@ class TileContextMenu:
             menu.addAction("弹幕观看设置…", lambda: QTimer.singleShot(0, host,
                 lambda: host.danmaku_settings_menu.open_at(
                     host.danmaku_button, host.video_danmaku.settings))).setData('danmaku_settings')
+            if (host.open_danmaku_float is not None and not host.property('pictureInPicture')
+                    and not host.property('fullscreen') and host.room.get('room_id')
+                    and host.room.get('supports_live_danmaku') is not False):
+                menu.addAction("打开弹幕浮窗", host.open_danmaku_float).setData('danmaku_float')
         menu.addAction("刷新重连", lambda: host.reloadRequested.emit(host.room)).setData('reload')
         if not independent:
             menu.addAction("全屏查看", lambda: host.fullscreenRequested.emit(host)).setData('fullscreen')
