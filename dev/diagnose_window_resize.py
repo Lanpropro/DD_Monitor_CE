@@ -1,4 +1,4 @@
-"""Opt-in, bounded native move/resize timings; buffer until mouse release."""
+"""Opt-in native geometry and timing for window resize and sidebar layout changes."""
 import ctypes
 from ctypes import wintypes
 from collections import Counter
@@ -89,10 +89,13 @@ class WindowResizeTrace:
                     nativeVisible=bool(user32.IsWindowVisible(hwnd))))
             return True
         user32.EnumChildWindows(root_hwnd, callback_type(collect_external), 0)
-        self.geometry_samples.append(dict(phase=phase,
+        sample = dict(phase=phase,
             atMs=round((time.perf_counter()-self.started)*1000, 3),
             scale=root.devicePixelRatioF(), nativeDpi=user32.GetDpiForWindow(root_hwnd),
-            windows=windows, externalWindows=external))
+            windows=windows, externalWindows=external)
+        if phase.startswith('sidebar-'):
+            sample['state'] = self.state()
+        self.geometry_samples.append(sample)
 
     def begin(self, window, source='native-resize'):
         self.flush()
@@ -195,6 +198,7 @@ class WindowResizeTrace:
         from PySide6.QtCore import QEvent
         from ddm.app import MainWindow
         from ddm.wall_widgets import WallGrid
+        from ddm.wall_presentation import WallPresentation
         from ddm.tile_widgets import Tile
         from ddm.video_surface import VideoSurface
         from ddm.fullscreen_bar import FullscreenBar
@@ -208,6 +212,7 @@ class WindowResizeTrace:
         from ddm.sidebar_portrait import PortraitSidebar
         from ddm.sidebar_navigation import SidebarNavigation
         from ddm.sidebar_presentation import SidebarPresentation
+        from ddm.sidebar_collapse import SidebarCollapse
         from ddm.sidebar_list import RoomListBox
         from ddm.workspace_controls import WorkspaceControls
 
@@ -255,6 +260,8 @@ class WindowResizeTrace:
                    (PortraitSidebar, ('adopt', 'release', 'sync', 'sync_density')),
                    (SidebarNavigation, ('sync', 'release', '_sort_tools')),
                    (SidebarPresentation, ('sync_appearance_row', 'sync_top_mode', 'apply_scroll_axis')),
+                   (SidebarCollapse, ('apply_collapsed_controls', 'finish_collapse')),
+                   (WallPresentation, ('set_sidebar_animating',)),
                    (RoomListBox, ('relayout',)),
                    (WorkspaceControls, ('sync_layout',)),
                    (WallGrid, ('resizeEvent', '_flush_resize', '_relayout_corner', '_relayout_preset', 'relayout', 'set_layout')),
@@ -276,24 +283,53 @@ class WindowResizeTrace:
         self.wrap(MainWindow, '_finish_interactive_resize', opens=True)
         for name in ('apply_orientation', 'on_layout_changed'):
             self.wrap(WindowLayout, name, opens=True)
+        self.wrap(SidebarCollapse, 'set_collapsed', opens=True)
         return self
+
+    def finish_sidebar(self, window):
+        from PySide6.QtCore import QTimer
+        self.sample_geometry('sidebar-returned')
+        gesture = self.gesture
+
+        def settled():
+            if self.window is window and self.gesture == gesture:
+                self.sample_geometry('sidebar-queued')
+                self.flush()
+
+        QTimer.singleShot(0, window, settled)
 
     def wrap(self, owner, name, *, opens=False, event_types=None):
         original = getattr(owner, name)
         trace = self
         samples_dpi = owner.__name__ == 'VideoSurface' and name == 'event'
         finishes_dpi = owner.__name__ == 'DpiEventBatch' and name == 'flush'
+        label = owner.__name__ + '.' + name
+        sidebar_toggle = label == 'SidebarCollapse.set_collapsed'
+        sidebar_settlement = label == 'WallPresentation.set_sidebar_animating'
         @functools.wraps(original)
         def measured(obj, *args, **kwargs):
             if event_types is not None and args[-1].type() not in event_types:
                 return original(obj, *args, **kwargs)
             opened = False
-            if opens and trace.window is None:
+            if sidebar_toggle:
+                sidebar = obj.host
+                window = sidebar.window()
+                collapsed = args[0] if args else kwargs.get('collapsed', sidebar.collapsed)
+                if (not trace.stack and sidebar.side == 'left' and sidebar.isVisible()
+                        and getattr(window, 'sidebar', None) is sidebar and collapsed != sidebar.collapsed
+                        and (trace.window is None or trace.source == label)):
+                    opened = trace.begin(window, label)
+                    if opened:
+                        trace.sample_geometry('sidebar-before')
+            elif opens and trace.window is None:
                 window = getattr(obj, 'host', obj)
                 if window.isVisible():
-                    opened = trace.begin(window, owner.__name__+'.'+name)
+                    opened = trace.begin(window, label)
             if trace.window is None or len(trace.calls) >= trace.MAX_CALLS:
                 return original(obj, *args, **kwargs)
+            if (sidebar_settlement and trace.source == 'SidebarCollapse.set_collapsed'
+                    and not (args[0] if args else kwargs.get('active'))):
+                trace.sample_geometry('sidebar-before-wall-settle')
             started = time.perf_counter()
             cpu_started = time.thread_time()
             frame = [0.0, 0.0]
@@ -308,7 +344,7 @@ class WindowResizeTrace:
                     trace.stack[-1][0] += elapsed
                     trace.stack[-1][1] += cpu
                 if len(trace.calls) < trace.MAX_CALLS:
-                    call = dict(method=owner.__name__+'.'+name, instance=id(obj),
+                    call = dict(method=label, instance=id(obj),
                         atMs=round((started-trace.started)*1000, 3),
                         elapsedMs=round(elapsed*1000, 3),
                         selfMs=round(max(0, elapsed-frame[0])*1000, 3),
@@ -324,7 +360,10 @@ class WindowResizeTrace:
                     trace.next_geometry_sample = time.perf_counter()+.15
                     trace.sample_geometry('dpi-propagation')
                 if opened:
-                    trace.flush()
+                    if sidebar_toggle:
+                        trace.finish_sidebar(window)
+                    else:
+                        trace.flush()
         self.originals.append((owner, name, original))
         setattr(owner, name, measured)
 

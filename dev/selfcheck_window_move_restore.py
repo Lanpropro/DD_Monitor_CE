@@ -432,6 +432,39 @@ class MoveRestoreTests(unittest.TestCase):
             rows = path.read_text().splitlines()
         self.assertEqual(len(rows), 2)
 
+    def test_resize_trace_keeps_sidebar_toggles_and_queued_geometry_separate(self):
+        from ddm.sidebar_collapse import SidebarCollapse
+        from dev.diagnose_window_resize import WindowResizeTrace
+        window = self.window
+        sidebar = window.sidebar
+        video = window.wall.tiles[0].video
+        hwnd = int(video.winId())
+        original = SidebarCollapse.set_collapsed
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            with WindowResizeTrace(path):
+                sidebar.set_collapsed(False)
+                self.assertFalse(path.exists(), 'Unchanged sidebar state needs no trace')
+                sidebar.set_collapsed(True)
+                sidebar.set_collapsed(False)  # Start a second operation before the first queued sample.
+                self.app.processEvents()
+                rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertIs(SidebarCollapse.set_collapsed, original)
+        self.assertEqual([row['source'] for row in rows], ['SidebarCollapse.set_collapsed'] * 2)
+        phases = ['sidebar-before', 'sidebar-before-wall-settle', 'sidebar-returned']
+        self.assertEqual([sample['phase'] for sample in rows[0]['geometrySamples']], phases)
+        self.assertEqual([sample['phase'] for sample in rows[1]['geometrySamples']], phases + ['sidebar-queued'])
+        for row in rows:
+            self.assertNotEqual(row['initial']['sidebar'][2], row['final']['sidebar'][2])
+            self.assertEqual(row['initial']['players'], row['final']['players'])
+            names = {call['method'] for call in row['calls']}
+            self.assertTrue({'SidebarCollapse.finish_collapse', 'SidebarCollapse.set_collapsed',
+                             'WallPresentation.set_sidebar_animating', 'WallGrid._flush_resize'} <= names)
+            for sample in row['geometrySamples']:
+                self.assertIn('wall', sample['state'])
+                self.assertTrue(any(node['hwnd'] == hwnd for node in sample['windows']))
+        self.assertEqual(int(video.internalWinId()), hwnd)
+
     def test_dpi_profile_is_opt_in_bounded_and_stops_on_flush(self):
         from dev.diagnose_window_resize import WindowResizeTrace
         previous = sys.getprofile()
