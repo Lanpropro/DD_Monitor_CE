@@ -242,6 +242,7 @@ class PaneDanmaku:
         panel.float_button.clicked.connect(lambda: self.toggle_floating(panel))
         layout = panel.header.layout()
         layout.insertWidget(layout.indexOf(panel.source_picker), panel.float_button)
+        panel.float_button.hide()
         panel.header.setContextMenuPolicy(Qt.CustomContextMenu)
         panel.header.customContextMenuRequested.connect(
             lambda point: self.menu(panel, panel.header.mapToGlobal(point)))

@@ -144,6 +144,7 @@ class SourcePicker(QWidget):
         else:
             self.anchor.sync('选择弹幕来源', 0, '', None)
         self.anchor.setChecked(selected is not None)
+        self.panel.float_button.setVisible(selected is not None or self.panel in controller.floating)
         self.empty.setVisible(not tiles)
         self._place()
 
@@ -163,15 +164,17 @@ class SourcePicker(QWidget):
         if self.covered is not None:
             avatars = max(self.SIZE, len(self.buttons) * self.STEP - 4)
             button = self.panel.float_button
+            float_width = 0 if button.isHidden() else button.width() + layout.spacing()
             controls = sum(max(widget.minimumWidth(), min(widget.maximumWidth(), widget.sizeHint().width()))
                            for widget in self.covered)
-            required = (left + controls + button.width() + layout.spacing() * (len(self.covered) + 2)
+            required = (left + controls + float_width + layout.spacing() * (len(self.covered) + 1)
                         + avatars + self.panel.count.width() + layout.contentsMargins().right())
             compact = header.width() < required
             for widget in self.covered:
                 widget.setVisible(not compact)
             layout.activate()
-            left = button.geometry().right() + 1 + layout.spacing()
+            left = max((widget.geometry().right() + 1 + layout.spacing()
+                        for widget in (*self.covered, button) if not widget.isHidden()), default=left)
         width = max(self.SIZE, self.panel.count.x() - layout.spacing() - left)
         self.tray.setGeometry(left, 0, width, header.height())
         self.scroll.setGeometry(0, (header.height() - self.SIZE) // 2, width, self.SIZE)

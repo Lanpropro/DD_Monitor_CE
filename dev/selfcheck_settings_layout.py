@@ -596,6 +596,9 @@ class SettingsLayoutTests(unittest.TestCase):
         page = self.page(2)
         card = page.sections.section('danmaku_float')
         mode, keep = page.float_cell_mode, page.float_keep_video_slots
+        mode_label = card.grid.itemAtPosition(0, 0).widget()
+        keep_label = card.grid.itemAtPosition(1, 0).widget()
+        self.assertEqual(keep_label.indent(), mode_label.indent())
         self.assertTrue(card.isAncestorOf(mode) and card.isAncestorOf(keep))
         self.assertFalse(keep.isEnabled())
         self.dialog.auto_save.start()
@@ -613,6 +616,7 @@ class SettingsLayoutTests(unittest.TestCase):
             settle()
             self.assertLess(mode.geometry().bottom(), keep.y())
             self.assertTrue(card.rect().contains(keep.geometry()))
+            self.assertEqual(keep_label.x(), mode_label.x())
 
     def test_danmaku_large_font_and_single_column_keep_controls_in_bounds(self):
         page = self.page(2)

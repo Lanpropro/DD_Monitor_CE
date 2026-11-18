@@ -73,7 +73,6 @@ class DanmakuSettingsPage(QWidget):
         floating.grid.addWidget(label, 0, 0)
         floating.grid.addWidget(self.float_cell_mode, 0, 1, Qt.AlignRight)
         keep_label = QLabel('关闭后保留直播格')
-        keep_label.setIndent(14)
         self.float_keep_video_slots = ToggleSwitch()
         self.float_keep_video_slots.setAccessibleName(keep_label.text())
         self.float_keep_video_slots.setChecked(bool(settings.get('danmaku_float_keep_video_slots', False)))

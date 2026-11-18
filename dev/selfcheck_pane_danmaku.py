@@ -315,12 +315,24 @@ class PaneDanmakuTests(unittest.TestCase):
         panel = window.wall.danmaku
         main = window.wall.tiles[window.wall.main_index()]
         self.assertIs(window.wall.pane_danmaku.target(panel), main)
+        self.assertFalse(panel.float_button.isHidden())
         window._on_close_tile(dict(main.room))
         self.assertIsNone(window.wall.pane_danmaku.target(panel))
         self.assertEqual(panel._linked_room_id, '')
         self.assertEqual(panel.source_picker.anchor.identity[0], '')
         self.assertFalse(panel.source_picker.anchor.isChecked())
         self.assertTrue(panel.source_picker.buttons)
+        self.assertTrue(panel.float_button.isHidden())
+
+        source = next(iter(panel.source_picker.buttons))
+        panel.source_picker.choose(source)
+        panel.float_button.click()
+        window._on_close_tile(dict(source.room))
+        self.assertFalse(panel.source_picker.anchor.isChecked())
+        self.assertTrue(panel.float_button.isVisible())
+        self.assertEqual(panel.float_button.kind, 'close')
+        panel.float_button.click()
+        self.assertTrue(panel.float_button.isHidden())
 
     def test_wall_menu_converts_restores_and_preserves_room_and_sound(self):
         window = self.wall_window()
@@ -339,6 +351,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(picker.expanded)
         self.assertEqual(set(picker.buttons), {wall.tiles[0], wall.tiles[2], wall.tiles[3]})
         self.assertIsNone(panes.target(panel))
+        self.assertTrue(panel.float_button.isHidden())
         QTest.mouseClick(picker.buttons[source], Qt.LeftButton)
         self.assertFalse(picker.expanded)
         self.assertTrue(picker.tray.isHidden())
@@ -346,6 +359,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(panel.font_controls.isHidden())
         self.assertIs(panes.target(panel), source)
         self.assertEqual(panel._linked_room_id, '1001')
+        self.assertTrue(panel.float_button.isVisible())
         self.assertLess(panel.float_button.geometry().right(), picker.x())
         self.assertLess(picker.x() - panel.float_button.geometry().right(), 10)
         self.assertLessEqual(picker.geometry().right(), panel.count.x())
