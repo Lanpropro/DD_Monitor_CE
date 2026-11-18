@@ -1248,6 +1248,48 @@ def exercise_live_room_picker(app, native, directory):
         app.processEvents()
 
 
+def check_resize_handoff(floating):
+    from ddm.window_capture import print_window
+
+    initial = floating.geometry()
+    for change in (128, -96):
+        bounds = floating.geometry()
+        local = floating.rect().bottomRight() - QPoint(3, 3)
+        start = floating.mapToGlobal(local)
+        delta = QPoint(change, round(change / floating.aspect))
+        pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+        pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        floating._flush_geometry()
+        live = floating._live_resize
+        assert live is not None and live.preview.isVisible() and live.thumbnails
+        QTest.qWait(60)
+        assert floating.size() == bounds.size()
+        apply = floating.setGeometry
+
+        def check_before_applying(rect):
+            frame = live.preview.frame.toImage()
+            assert live.preview.isVisible() and not live.thumbnails
+            assert not frame.isNull(), 'Freeze the composed frame before resizing the source'
+            assert frame.size() == live._client_rect(live.preview).size()
+            live.dwm.DwmFlush()
+            painted = print_window(int(live.preview.winId()), frame.width(), frame.height(), client_only=True)
+            for pane in (0, 1):
+                samples = [(frame.width() * (5 * pane + x) // 10, frame.height() * y // 5)
+                           for x in (1, 2, 3, 4) for y in (1, 2, 3, 4)]
+                colors = [frame.pixel(x, y) for x, y in samples]
+                assert len(set(colors)) > 4, 'The handoff frame must include both native videos'
+                assert [painted.pixel(x, y) for x, y in samples] == colors, 'Paint before exposing the native resize'
+            apply(rect)
+
+        with patch.object(floating, 'setGeometry', side_effect=check_before_applying) as apply_geometry:
+            pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
+            apply_geometry.assert_called_once()
+        assert floating.geometry() == live.preview.geometry()
+        QTest.qWait(140)
+        assert floating._live_resize is None
+    floating.setGeometry(initial)
+
+
 def exercise_parallel(app, window, directory):
     from selfcheck_mpv import ready
 
@@ -1319,6 +1361,7 @@ def exercise_parallel(app, window, directory):
         assert window.players[panes[0]] is not main_player
         assert wall.parentWidget() is main_parent and not window.isMinimized()
         assert window.players[main] is main_player and main_player.state_generation == generation
+        check_resize_handoff(pip.floating)
         retained = [window.players[pane] for pane in panes]
         assert pip.start([0, '3199', '3198'], MAIN_LAYOUT, '3199', parallel=True)
         panes = list(pip.parallel_tiles)
