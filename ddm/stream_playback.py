@@ -159,8 +159,8 @@ class StreamPlayback:
                     and host._resolvers.get(tile) is resolver and not resolver.is_cancelled()
                     and host._codec_settings(tile)["bili_codec"] == codec)
 
-        def fallback(reason, *, login_required=False):
-            if not login_required and len(wall_quality.tiers) > 1 and (not tile.paused or preserving_pause):
+        def fallback(reason):
+            if len(wall_quality.tiers) > 1 and (not tile.paused or preserving_pause):
                 lower = WallQualityRequest(wall_quality.ceiling, wall_quality.tiers[1:])
                 self.start_tile(tile, wall_quality=lower, resolver_type=resolver_type)
                 return True
@@ -224,7 +224,7 @@ class StreamPlayback:
             self._refreshing(tile, False)
             tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
             if wall_quality is not None:
-                if not fallback(reason, login_required=resolver.login_required):
+                if not fallback(reason):
                     self.resolve_failed(tile, reason, requested_quality=quality,
                                         login_required=resolver.login_required, retry=False)
                 return
@@ -396,7 +396,10 @@ class StreamPlayback:
                 return
         if login_required:
             tile.set_buffering(False)
-            tile.set_status(reason)
+            if retry:
+                tile.set_status(reason)
+            else:
+                tile.set_status("连接失败", detail=reason)
             kind = str(tile.room.get("room_id") or "").partition(":")[0]
             account = host._accounts.get(kind)
             already_warned = bool(account and account.get("_login_expired"))

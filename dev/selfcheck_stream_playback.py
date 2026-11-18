@@ -218,7 +218,8 @@ class StreamPlaybackTests(unittest.TestCase):
         self.host.start_tile(self.tile, wall_quality=request)
         first = self.host._resolvers[self.tile]
         self.assertEqual(first.quality, 20000)
-        first.failed.emit('1001', '4K CDN failed')
+        first.login_required = True
+        first.failed.emit('1001', '4K requires login')
         second = self.host._resolvers[self.tile]
         self.assertEqual(second.quality, 15000)
         with patch('ddm.media_sources.discard') as discard:
@@ -254,13 +255,17 @@ class StreamPlaybackTests(unittest.TestCase):
         self.host._schedule_retry.assert_not_called()
 
     def test_wall_resolution_exhaustion_without_a_picture_reports_failure(self):
-        self.host.start_tile(self.tile, wall_quality=WallQualityRequest(720, (250, 80)))
-        for quality in (250, 80):
-            resolver = self.host._resolvers[self.tile]
-            self.assertEqual(resolver.quality, quality)
-            resolver.failed.emit('1001', 'fixture unavailable')
-        self.assertFalse(self.host._resolvers)
-        self.tile.set_status.assert_called_with('连接失败')
+        for login_required in (False, True):
+            with self.subTest(login_required=login_required):
+                self.host.start_tile(self.tile, wall_quality=WallQualityRequest(720, (250, 80)))
+                for quality in (250, 80):
+                    resolver = self.host._resolvers[self.tile]
+                    self.assertEqual(resolver.quality, quality)
+                    resolver.login_required = login_required and quality == 80
+                    resolver.failed.emit('1001', 'fixture unavailable')
+                self.assertFalse(self.host._resolvers)
+                detail = {'detail': 'fixture unavailable'} if login_required else {}
+                self.tile.set_status.assert_called_with('连接失败', **detail)
         self.host._schedule_retry.assert_not_called()
 
     def test_wall_resolution_respects_a_recording_lock_set_during_the_request(self):
