@@ -83,6 +83,7 @@ RESIZE_SETTLE_MS = 150
 from .fullscreen_presentation import FullscreenPresentation
 from .app_accounts import AppAccounts
 from .app_shortcuts import AppShortcuts
+from .tile_controls import WallControlHover
 from .fullscreen_control import FullscreenControl
 from .app_notices import AppNotices
 
@@ -277,6 +278,7 @@ class MainWindow(QMainWindow):
             else self._saved_layout("landscape"), prepare_room=self._prepare_room,
             corner_ratios=ui.get("corner_ratios"), layout_ratios=ui.get("layout_ratios"),
             pane_layouts=ui.get("pane_layouts"))
+        self._wall_control_hover = WallControlHover(self.wall)
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()

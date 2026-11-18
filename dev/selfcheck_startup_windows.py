@@ -347,6 +347,44 @@ class StartupWindowsTests(unittest.TestCase):
             window.close()
             self.app.processEvents()
 
+    def test_wall_hover_shows_controls_before_native_enter_and_keeps_idle_hiding(self):
+        window = MainWindow([], [], layout_id='corner', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        window.move(-10000, -10000)
+        window.show()
+        self.app.processEvents()
+        first, second = window.wall.visible_tiles()[:2]
+        try:
+            with patch('ddm.tile_controls.QCursor') as cursor, \
+                    patch.object(window, 'isActiveWindow', return_value=True) as active:
+                for tile in (first, second):
+                    tile._normal_hover_active = False
+                    tile.set_controls_visible(False)
+                self.assertFalse(first._control_hover_timer.isActive())
+                cursor.pos.return_value = first.mapToGlobal(first.video.geometry().center())
+                active.return_value = False
+                QTest.qWait(75)
+                self.assertFalse(first.controls.isVisible())
+                active.return_value = True
+                QTest.qWait(75)
+                self.assertTrue(first.controls.isVisible())
+
+                first._control_last_move -= first.CONTROL_IDLE_SECONDS + 1
+                QTest.qWait(100)
+                self.assertFalse(first.controls.isVisible())
+                self.assertTrue(first._control_hover_timer.isActive())
+
+                cursor.pos.return_value = second.mapToGlobal(second.video.geometry().center())
+                QTest.qWait(100)
+                self.assertTrue(second.controls.isVisible())
+                self.assertFalse(first._control_hover_timer.isActive())
+
+                window.hide()
+                self.assertFalse(window._wall_control_hover.timer.isActive())
+        finally:
+            window.close()
+            self.app.processEvents()
+
     def test_normal_bars_do_not_filter_unrelated_wall_events(self):
         window = MainWindow([], [], layout_id='corner', state={
             'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
