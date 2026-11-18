@@ -31,7 +31,6 @@ class StreamerDefaultsPage(QWidget):
         self.qualities = {}
         self.requests = {}
         self.cards = {}
-        self.edited_room = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -59,7 +58,7 @@ class StreamerDefaultsPage(QWidget):
         label = QLabel('合并相同配置')
         self.merge = ToggleSwitch(label.text())
         self.merge.setChecked(bool(settings.get('streamer_defaults_merge_identical', False)))
-        self.merge.setToolTip('只合并显示；点击叠放头像切换要编辑的主播。')
+        self.merge.setToolTip('合并相同配置；未选头像时编辑整组，选中头像后单独编辑。')
         label.setBuddy(self.merge)
         heading.addWidget(label)
         heading.addWidget(self.merge)
@@ -90,16 +89,21 @@ class StreamerDefaultsPage(QWidget):
 
     def _render_profiles(self):
         groups = self._groups()
-        for key in set(self.cards).difference(groups):
+        selections = set()
+        for key in tuple(self.cards):
+            if key in groups:
+                continue
             card = self.cards.pop(key)
+            if len(key) > 1 and card.room_id is not None:
+                selections.add(card.room_id)
             self.profiles.removeWidget(card)
             card.hide()
             card.deleteLater()
         for index, group in enumerate(groups):
             card = self.cards.get(group)
             if card is None:
-                selected = self.edited_room if self.edited_room in group else next(
-                    (key for key in group if key in self.expanded), group[0])
+                selected = group[0] if len(group) == 1 else next(
+                    (key for key in group if key in selections), None)
                 card = self.cards[group] = StreamerProfileCard(self, group, selected)
             if self.profiles.indexOf(card) != index:
                 self.profiles.insertWidget(index, card)
@@ -115,12 +119,9 @@ class StreamerDefaultsPage(QWidget):
         if room is None or not room['followed'] or room_id in self.entries:
             return
         self.entries[room_id] = {'name': room['name']}
-        self.set_expanded(room_id, True)
+        self.expanded.add(room_id)
         self.picker.set_occupied(self.entries)
         self._render_profiles()
-        card = next(card for group, card in self.cards.items() if room_id in group)
-        if card.room_id != room_id:
-            card.select(room_id)
         QTimer.singleShot(0, self, lambda: self._scroll_to(room_id))
         self.changed.emit()
 
@@ -130,12 +131,11 @@ class StreamerDefaultsPage(QWidget):
                 self.scroll.ensureWidgetVisible(card, 0, 8)
                 break
 
-    def set_expanded(self, room_id, expanded):
+    def set_expanded(self, room_ids, expanded):
         if expanded:
-            self.edited_room = room_id
-            self.expanded.add(room_id)
+            self.expanded.update(room_ids)
         else:
-            self.expanded.discard(room_id)
+            self.expanded.difference_update(room_ids)
 
     def remove(self, room_id):
         self.entries.pop(room_id, None)
@@ -145,17 +145,20 @@ class StreamerDefaultsPage(QWidget):
         self._render_profiles()
         self.changed.emit()
 
-    def edit(self, room_id, field, value):
-        row = self.entries[room_id]
-        if row.get(field) == value:
-            return
-        if value is None:
-            row.pop(field, None)
-        else:
-            row[field] = value
-        self.edited_room = room_id
-        self.regroup_timer.start(0)
-        self.changed.emit()
+    def edit(self, field, values):
+        changed = False
+        for room_id, value in values.items():
+            row = self.entries[room_id]
+            if row.get(field) == value:
+                continue
+            if value is None:
+                row.pop(field, None)
+            else:
+                row[field] = value
+            changed = True
+        if changed:
+            self.regroup_timer.start(0)
+            self.changed.emit()
 
     def request_quality(self, room_id, *, refresh=False):
         if room_id in self.requests or (not refresh and room_id in self.qualities):
@@ -173,7 +176,7 @@ class StreamerDefaultsPage(QWidget):
 
     def _update_quality_views(self, room_id):
         for card in self.cards.values():
-            if card.room_id == room_id:
+            if room_id in card.editing_rooms:
                 card.update_quality()
 
     def values(self):

@@ -32,12 +32,14 @@ class RoomChoice(QPushButton):
         label.setAttribute(Qt.WA_TransparentForMouseEvents)
         box.addWidget(label)
         if platform_label:
-            platform = ElidedLabel(platform_label, self)
-            platform.setObjectName('SettingsHint')
+            from .room_artwork import platform_icon, room_platform
+
+            platform = QLabel(self, objectName='RoomChoicePlatform')
             platform.setAlignment(Qt.AlignCenter)
-            platform.setTextFormat(Qt.PlainText)
+            platform.setPixmap(platform_icon(room_platform(room)).pixmap(16, 16))
+            platform.setAccessibleName(platform_label)
             platform.setAttribute(Qt.WA_TransparentForMouseEvents)
-            box.addWidget(platform)
+            box.addWidget(platform, 0, Qt.AlignHCenter)
         self.badge = QLabel('✓', self)
         self.badge.setObjectName('PipChoiceBadge')
         self.badge.setAlignment(Qt.AlignCenter)

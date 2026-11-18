@@ -108,6 +108,17 @@ class StreamerProfileCard(QFrame):
         self.name = ElidedLabel('', self)
         self.name.setTextFormat(Qt.PlainText)
         header.addWidget(self.name, 1)
+        self.group_button = QPushButton('整组', self, objectName='IconButton')
+        self.group_button.setAutoDefault(False)
+        self.group_button.setCheckable(True)
+        self.group_button.setToolTip('调整合并卡片中的所有主播')
+        self.group_button.clicked.connect(lambda: self.select(None))
+        self.group_button.setVisible(len(members) > 1)
+        header.addWidget(self.group_button)
+        self.remove_button = QPushButton('移除设置', objectName='IconButton')
+        self.remove_button.setAutoDefault(False)
+        self.remove_button.clicked.connect(lambda: page.remove(self.room_id))
+        header.addWidget(self.remove_button)
         self.summary = QWidget()
         summary = QHBoxLayout(self.summary)
         summary.setContentsMargins(0, 0, 0, 0)
@@ -137,7 +148,7 @@ class StreamerProfileCard(QFrame):
             control.setAccessibleName(label)
             control.setMaximumWidth(285)
             control.currentIndexChanged.connect(
-                lambda _index, field=key, widget=control: self.page.edit(self.room_id, field, widget.currentData()))
+                lambda _index, field=key, widget=control: self._edit_quality(field, widget.currentData()))
             form.addRow(label, control)
         self.volume = QSpinBox()
         self.volume.setAccessibleName('默认音量')
@@ -153,27 +164,36 @@ class StreamerProfileCard(QFrame):
         actions.addWidget(self.status, 1)
         self.refresh_button = QPushButton('刷新画质', objectName='IconButton')
         self.refresh_button.setAutoDefault(False)
-        self.refresh_button.clicked.connect(lambda: page.request_quality(self.room_id, refresh=True))
+        self.refresh_button.clicked.connect(lambda: self._request_quality(refresh=True))
         actions.addWidget(self.refresh_button)
-        self.remove_button = QPushButton('移除设置', objectName='IconButton')
-        self.remove_button.setAutoDefault(False)
-        self.remove_button.clicked.connect(lambda: page.remove(self.room_id))
-        actions.addWidget(self.remove_button)
         form.addRow(actions)
         self._loading = False
         self.load()
 
+    @property
+    def editing_rooms(self):
+        return self.members if self.room_id is None else (self.room_id,)
+
     def _edit_volume(self, value):
         if not self._loading:
-            self.page.edit(self.room_id, 'volume', None if value < 0 else value)
+            self.page.edit('volume', dict.fromkeys(self.editing_rooms, None if value < 0 else value))
+
+    def _edit_quality(self, field, values):
+        self.page.edit(field, values if values is not None else dict.fromkeys(self.editing_rooms))
+
+    def _request_quality(self, *, refresh=False):
+        for room_id in self.editing_rooms:
+            self.page.request_quality(room_id, refresh=refresh)
 
     def _toggle(self):
-        self.page.set_expanded(self.room_id, not self.details.isVisibleTo(self))
+        self.page.set_expanded(self.editing_rooms, self.details.isHidden())
         self.sync_expanded()
 
     def select(self, room_id):
+        if len(self.members) > 1 and self.room_id == room_id:
+            room_id = None
         self.room_id = room_id
-        self.page.set_expanded(room_id, True)
+        self.page.set_expanded(self.editing_rooms, True)
         self.load()
 
     def load(self):
@@ -181,28 +201,34 @@ class StreamerProfileCard(QFrame):
             avatar.setChecked(key == self.room_id)
             if key == self.room_id:
                 avatar.raise_()
-        room = self.page.rooms[self.room_id]
-        name = ' · '.join(part for part in (room['name'], room.get('platform')) if part)
-        self.name.setText(name + (f'  ·  {len(self.members)} 位' if len(self.members) > 1 else ''))
+        if self.room_id is None:
+            name = f'编辑整组 · {len(self.members)} 位主播'
+        else:
+            room = self.page.rooms[self.room_id]
+            name = ' · '.join(part for part in (room['name'], room.get('platform')) if part)
+        self.name.setText(name)
         self.name.setToolTip(name)
+        self.group_button.setChecked(self.room_id is None)
+        self.remove_button.setEnabled(self.room_id is not None)
+        self.remove_button.setToolTip('先选择要移除设置的主播' if self.room_id is None else '移除该主播的独立设置')
         self._loading = True
-        self.volume.setValue(self.page.entries[self.room_id].get('volume', -1))
+        self.volume.setValue(self.page.entries[self.editing_rooms[0]].get('volume', -1))
         self._loading = False
         self.update_summary()
         self.sync_expanded()
 
     def sync_expanded(self):
-        expanded = self.room_id in self.page.expanded
+        expanded = any(room_id in self.page.expanded for room_id in self.editing_rooms)
         self.toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
         self.toggle.setAccessibleName('收起主播设置' if expanded else '展开主播设置')
         self.details.setVisible(expanded)
         self.summary.setVisible(not expanded)
         if expanded:
-            self.page.request_quality(self.room_id)
+            self._request_quality()
         self.update_quality()
 
     def update_summary(self):
-        values = self.page.entries[self.room_id]
+        values = self.page.entries[self.editing_rooms[0]]
         for key, view in self.summary_values.items():
             if key == 'volume':
                 value = f"{values['volume']}%" if 'volume' in values else '继承'
@@ -214,25 +240,44 @@ class StreamerProfileCard(QFrame):
             view.setToolTip(hint)
 
     def update_quality(self):
-        options, error = self.page.qualities.get(self.room_id, ([], ''))
-        pending = self.room_id in self.page.requests
-        self.status.setText('正在读取平台画质…' if pending else
-                            error or ('' if options else '暂无可用画质，直播开始后可刷新'))
+        rooms = self.editing_rooms
+        pending = any(room_id in self.page.requests for room_id in rooms)
+        catalogs = {room_id: self.page.qualities.get(room_id, ([], '')) for room_id in rooms}
         self.refresh_button.setEnabled(not pending)
+        available = False
         for key, control in (('playback', self.playback), ('recording', self.recording)):
-            selected = self.page.entries[self.room_id].get(key)
+            selected = {room_id: self.page.entries[room_id].get(key) for room_id in rooms}
+            saved = selected[rooms[0]]
             with QSignalBlocker(control):
                 control.clear()
                 control.addItem('继承', None)
                 index = 0
-                for choice in options:
-                    if key == 'recording' and choice['qn'] == -1:
-                        continue
-                    control.addItem(choice['label'], choice)
-                    if isinstance(selected, dict) and selected['qn'] == choice['qn']:
+                for label, choices in self._quality_choices(key, catalogs):
+                    available = True
+                    control.addItem(label, choices)
+                    if all(isinstance(selected[room_id], dict)
+                           and selected[room_id]['qn'] == choice['qn'] for room_id, choice in choices.items()):
                         index = control.count() - 1
-                if selected is not None and index == 0:
-                    control.addItem(f'{quality_label(selected)}（已保存）', selected)
+                if saved is not None and index == 0:
+                    control.addItem(f'{quality_label(saved)}（已保存）', selected)
                     index = control.count() - 1
                 control.setCurrentIndex(index)
                 control.setEnabled(not pending and control.count() > 1)
+        error = next((error for _choices, error in catalogs.values() if error), '')
+        empty = '暂无共同画质，可选中头像单独调整' if self.room_id is None else '暂无可用画质，直播开始后可刷新'
+        self.status.setText('正在读取平台画质…' if pending else error or ('' if available else empty))
+
+    def _quality_choices(self, field, catalogs):
+        options = {room_id: [choice for choice in choices if field != 'recording' or choice['qn'] != -1]
+                   for room_id, (choices, _) in catalogs.items()}
+        first = self.editing_rooms[0]
+        if self.room_id is not None:
+            return [(choice['label'], {first: choice}) for choice in options[first]]
+        by_label = {}
+        for room_id, choices in options.items():
+            labels = by_label[room_id] = {}
+            for choice in choices:
+                labels.setdefault(choice['label'].strip().casefold(), choice)
+        return [(choice['label'], {room_id: labels[key] for room_id, labels in by_label.items()})
+                for key, choice in by_label[first].items()
+                if all(key in labels for labels in by_label.values())]

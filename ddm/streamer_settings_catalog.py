@@ -9,7 +9,9 @@ from .streamer_defaults import native_quality_options
 def room_choices(host):
     sidebar = host.sidebar
     platforms = getattr(host.plugins, 'platforms', {})
-    folders = {folder['id']: folder['name'] for folder in getattr(sidebar, 'folders', ())}
+    folders = {folder['id']: (index, folder['name'])
+               for index, folder in enumerate(getattr(sidebar, 'folders', ()))}
+    default_folder = sidebar.default_folder()['id'] if folders else ''
     rooms = {str(room['room_id']): room for room in sidebar.rooms() if room.get('room_id')}
     saved = host.settings.get('streamer_defaults')
     choices = {}
@@ -23,9 +25,11 @@ def room_choices(host):
         kind = room_id.partition(':')[0] if ':' in room_id else 'bilibili'
         platform = platforms.get(kind)
         label = ('B 站' if platforms else '') if kind == 'bilibili' else getattr(platform, 'label', '') or kind
-        folder = sidebar.folder_for(room_id) if folders and room is not None else None
+        folder_id = (sidebar.folder_for(room_id) or default_folder) if folders and room is not None else ''
+        order, folder = folders.get(folder_id, (len(folders), ''))
         choices[room_id] = {
-            'name': str(name), 'platform': label, 'folder': folders.get(folder, ''),
+            'name': str(name), 'platform': label, 'folder': folder,
+            'folder_id': folder_id, 'folder_order': order,
             'display_room_id': str((room or {}).get('display_room_id') or ''),
             'live': bool(room and room.get('live') and room.get('live_known', True)),
             'followed': room is not None, 'avatar': room_avatar_path(room_id),

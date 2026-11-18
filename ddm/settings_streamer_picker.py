@@ -1,8 +1,8 @@
 """Followed-room search with picture-in-picture avatar cards."""
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                              QListView, QListWidget, QListWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                              QLineEdit, QScrollArea, QStyle, QVBoxLayout, QWidget)
 
 from .room_choice import RoomChoice
 from .search import matches_text
@@ -10,14 +10,22 @@ from .search import matches_text
 
 class StreamerPicker(QWidget):
     selected = Signal(str)
+    CARD_WIDTH = 110
+    SPACING = 6
 
     def __init__(self, rooms):
         super().__init__()
         self.rooms = rooms
         self.occupied = set()
-        self.items = {}
         self.buttons = {}
+        self.headings = {}
+        self.groups = {}
+        self.visible_groups = {}
         self.pending_faces = set()
+        self.columns = 0
+        followed = [(key, room) for key, room in rooms.items() if room['followed']]
+        followed.sort(key=lambda entry: entry[1].get('folder_order', 0))
+        self.card_height = 84 if any(room.get('platform') for _, room in followed) else 68
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         filters = QHBoxLayout()
@@ -33,36 +41,45 @@ class StreamerPicker(QWidget):
         self.empty = QLabel('暂无可添加的关注主播', objectName='SettingsHint')
         self.empty.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.empty)
-        self.view = QListWidget()
+        self.view = QScrollArea(objectName='StreamerFollowedList')
         self.view.setAccessibleName('可添加的关注主播')
         self.view.setFrameShape(QFrame.NoFrame)
-        self.view.setViewMode(QListView.IconMode)
-        self.view.setResizeMode(QListView.Adjust)
-        self.view.setMovement(QListView.Static)
-        self.view.setWrapping(True)
-        self.view.setVerticalScrollMode(QListView.ScrollPerPixel)
+        self.view.setWidgetResizable(True)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view.setSelectionMode(QListView.NoSelection)
-        self.visible_rooms = 0
-        height = 90 if any(room.get('platform') for room in rooms.values()) else 74
-        self.view.setGridSize(QSize(116, height))
+        self.content = QWidget(objectName='StreamerFollowedListContent')
+        self.view.viewport().setObjectName('StreamerFollowedListViewport')
+        self.view.setWidget(self.content)
+        self.view.viewport().setAutoFillBackground(False)
+        self.content.setAutoFillBackground(False)
+        self.view.setStyleSheet(
+            '#StreamerFollowedList, #StreamerFollowedListViewport, #StreamerFollowedListContent '
+            '{ background: transparent; }')
+        self.grid = QGridLayout(self.content)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(self.SPACING)
+        self.grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.face_timer = QTimer(self)
         self.face_timer.setSingleShot(True)
         self.face_timer.timeout.connect(self._load_visible_faces)
         self.view.verticalScrollBar().valueChanged.connect(self._queue_faces)
         self.view.viewport().installEventFilter(self)
         layout.addWidget(self.view)
-        for index, (room_id, room) in enumerate(rooms.items()):
-            if not room['followed']:
-                continue
+
+        for index, (room_id, room) in enumerate(followed):
+            folder = room.get('folder') or '未分组'
+            folder_id = room.get('folder_id') or folder
+            if folder_id not in self.groups:
+                self.groups[folder_id] = []
+                heading = QLabel(folder, self.content, objectName='SectionLabel')
+                heading.setTextFormat(Qt.PlainText)
+                self.headings[folder_id] = heading
+            self.groups[folder_id].append(room_id)
             self.pending_faces.add(room_id)
-            item = QListWidgetItem(self.view)
-            item.setSizeHint(QSize(110, height - 6))
             button = RoomChoice({'room_id': room_id, 'uname': room['name']}, room['name'],
-                                index, None, self.view, platform_label=room.get('platform', ''))
+                                index, None, self.content, platform_label=room.get('platform', ''))
+            button.setFixedWidth(self.CARD_WIDTH)
             button.clicked.connect(lambda _checked=False, key=room_id: self.selected.emit(key))
-            self.view.setItemWidget(item, button)
-            self.items[room_id], self.buttons[room_id] = item, button
+            self.buttons[room_id] = button
         self.search.textChanged.connect(self._filter)
         self.live_only.toggled.connect(self._filter)
         self._filter()
@@ -74,43 +91,64 @@ class StreamerPicker(QWidget):
     def _filter(self):
         words = self.search.text().split()
         live_only = self.live_only.isChecked()
-        self.visible_rooms = 0
-        for room_id, item in self.items.items():
-            room = self.rooms[room_id]
-            terms = ' '.join((room['name'], room_id, room.get('display_room_id', ''),
-                              room.get('folder', ''), room.get('platform', '')))
-            visible = (room_id not in self.occupied and (not live_only or room.get('live'))
-                       and all(matches_text(terms, word) for word in words))
-            item.setHidden(not visible)
-            self.buttons[room_id].setChecked(False)
-            self.visible_rooms += int(visible)
+        self.visible_groups = {}
+        for folder_id, members in self.groups.items():
+            matches = []
+            for room_id in members:
+                room = self.rooms[room_id]
+                terms = ' '.join((room['name'], room_id, room.get('display_room_id', ''),
+                                  room.get('folder', ''), room.get('platform', '')))
+                visible = (room_id not in self.occupied and (not live_only or room.get('live'))
+                           and all(matches_text(terms, word) for word in words))
+                self.buttons[room_id].setVisible(visible)
+                self.buttons[room_id].setChecked(False)
+                if visible:
+                    matches.append(room_id)
+            self.headings[folder_id].setVisible(bool(matches))
+            if matches:
+                self.visible_groups[folder_id] = matches
         self.empty.setText('没有匹配的关注主播' if words or live_only else '暂无可添加的关注主播')
-        self.empty.setVisible(not self.visible_rooms)
-        self.view.setVisible(self.visible_rooms > 0)
-        self._fit_height()
-        self._queue_faces()
+        self.empty.setVisible(not self.visible_groups)
+        self.view.setVisible(bool(self.visible_groups))
+        self._arrange()
 
-    def _fit_height(self):
-        grid = self.view.gridSize()
-        columns = max(1, (self.view.width() - 18) // grid.width())
-        rows = min(2, max(1, (self.visible_rooms + columns - 1) // columns))
-        self.view.setFixedHeight(rows * grid.height() + 2)
+    def _column_count(self):
+        scrollbar = self.view.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        width = self.view.contentsRect().width() - scrollbar
+        return max(1, (width + self.SPACING) // (self.CARD_WIDTH + self.SPACING))
+
+    def _arrange(self):
+        self.columns = self._column_count()
+        while self.grid.count():
+            self.grid.takeAt(0)
+        row = 0
+        for folder_id, members in self.visible_groups.items():
+            self.grid.addWidget(self.headings[folder_id], row, 0, 1, self.columns)
+            row += 1
+            for index, room_id in enumerate(members):
+                self.grid.addWidget(self.buttons[room_id], row + index // self.columns, index % self.columns)
+            row += (len(members) + self.columns - 1) // self.columns
+        heading_height = next(iter(self.headings.values())).sizeHint().height() if self.headings else 0
+        maximum_height = 2 * (self.card_height + self.SPACING + heading_height)
+        self.view.setFixedHeight(min(self.grid.sizeHint().height(), maximum_height))
+        self._queue_faces()
 
     def _queue_faces(self):
         self.face_timer.start(0)
 
     def _load_visible_faces(self):
-        viewport = self.view.viewport().rect()
+        viewport = self.view.viewport().rect().translated(-self.content.pos())
         for room_id in tuple(self.pending_faces):
-            item = self.items[room_id]
-            if not item.isHidden() and self.view.visualItemRect(item).intersects(viewport):
+            button = self.buttons[room_id]
+            if not button.isHidden() and button.geometry().intersects(viewport):
                 self.pending_faces.remove(room_id)
                 path = self.rooms[room_id].get('avatar')
                 if path:
-                    self.buttons[room_id].avatar.set_pixmap_image(QPixmap(path))
+                    button.avatar.set_pixmap_image(QPixmap(path))
 
     def eventFilter(self, watched, event):
         if watched is self.view.viewport() and event.type() in (QEvent.Resize, QEvent.Show):
-            self._fit_height()
+            if self._column_count() != self.columns:
+                self._arrange()
             self._queue_faces()
         return super().eventFilter(watched, event)

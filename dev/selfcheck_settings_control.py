@@ -142,6 +142,16 @@ class SettingsControlTests(unittest.TestCase):
         room = host._settings_process.open.call_args.kwargs['streamer_rooms']['1001']
         self.assertEqual((room['name'], room['followed']), ('主播', True))
 
+    def test_streamer_snapshot_includes_sidebar_folder_order_and_default_membership(self):
+        sidebar = self.host.sidebar
+        sidebar.folders = [{'id': 'music', 'name': '音乐'}, {'id': 'default', 'name': '关注'}]
+        sidebar.default_folder = lambda: sidebar.folders[1]
+        sidebar.folder_for = lambda room_id: 'music' if room_id == '1002' else ''
+        sidebar.rooms = lambda: [{'room_id': '1001'}, {'room_id': '1002'}]
+        rooms = self.host.settings_control.streamer_rooms()
+        self.assertEqual((rooms['1002']['folder_id'], rooms['1002']['folder_order']), ('music', 0))
+        self.assertEqual((rooms['1001']['folder'], rooms['1001']['folder_order']), ('关注', 1))
+
     def test_streamer_quality_reads_platform_in_worker_and_reuses_visible_tiers(self):
         host = self.host
         host._platform_info_running = set()
