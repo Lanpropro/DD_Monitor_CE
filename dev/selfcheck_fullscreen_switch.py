@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QRect, Qt
+from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -33,6 +34,8 @@ class HandoffEvents(QObject):
         self.bar_paint_rects = {}
         self.enter_bar_ready = []
         self.leave_bars_ready = []
+        self.source_covered = []
+        self.source_frames = []
         target.installEventFilter(self)
         for peer in peers:
             peer.installEventFilter(self)
@@ -49,6 +52,11 @@ class HandoffEvents(QObject):
             self.bar_paint_rects[watched] = QRect(watched.geometry())
         if watched in self.peers and event.type() == QEvent.Hide:
             self.native_cover.append(self.target.isWindow() and self.native_visible(self.target))
+        if watched is self.target and not watched.isWindow() and event.type() == QEvent.Hide:
+            cover = watched.parentWidget().findChild(QLabel, 'FullscreenEntryCover', Qt.FindDirectChildrenOnly)
+            self.source_covered.append(cover is not None and cover.geometry() == watched.geometry()
+                                       and self.native_visible(cover))
+            self.source_frames.append(cover is not None and not cover.pixmap().isNull())
         if watched is self.target and watched.isWindow():
             if event.type() == QEvent.Show:
                 self.enter.append(all(peer.isVisible() for peer in self.peers))
@@ -122,12 +130,29 @@ def main():
             before_windows = set(QApplication.topLevelWidgets())
             players = {tile: Mock() for tile in tiles}
             window.players = dict(players)
+            entry_cover_only = '--entry-cover-only' in sys.argv
+            if entry_cover_only:
+                frame = QImage(16, 9, QImage.Format_RGB32)
+                frame.fill(Qt.blue)
+                capture = stack.enter_context(patch('ddm.fullscreen_presentation.print_window',
+                                                    side_effect=[frame, QImage()]))
+                tiles[4].set_video_active(True)
+                tiles[0].set_video_active(True)
             for target in (tiles[4], tiles[0], tiles[1], tiles[8]):
                 handoff = HandoffEvents(target, [tile for tile in tiles if tile is not target], layer)
                 with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
                     window._on_fullscreen(target)
                     assert relayout.call_count == 0, 'Independent fullscreen must not relayout the playback wall'
                 assert handoff.enter and all(handoff.enter), 'Peers disappeared before the presentation was shown'
+                assert handoff.source_covered and all(handoff.source_covered), 'Original tile exposed before fullscreen'
+                if entry_cover_only:
+                    assert handoff.source_frames == [target is tiles[4]]
+                    QTest.qWait(80)
+                    assert window.wall.findChild(QLabel, 'FullscreenEntryCover') is None
+                    assert int(target.video.winId()) == video_handles[window.wall.tiles.index(target)]
+                    handoff.detach()
+                    window._exit_fullscreen()
+                    continue
                 assert handoff.enter_bar_ready and all(handoff.enter_bar_ready), 'Presentation shown before the rebuilt bar painted'
                 assert handoff.native_cover and all(handoff.native_cover), 'Peers hidden before fullscreen HWND became visible'
                 assert window.wall.visible_tiles() == [target]
@@ -141,6 +166,7 @@ def main():
                 assert target.parentWidget() is window.wall
                 assert all(shortcut.parent() is target for shortcut in window._window_shortcuts)
                 QTest.qWait(80)
+                assert window.wall.findChild(QLabel, 'FullscreenEntryCover') is None
                 assert window.geometry() == main_geometry and window.wall.geometry() == wall_geometry
                 assert window.sidebar.geometry() == sidebar_geometry
                 assert all(tile.geometry() == original for tile, original in zip(tiles, pane_geometries) if tile is not target)
@@ -177,6 +203,11 @@ def main():
                 if native:
                     assert int(window.winId()) == handles
                     assert [int(tile.video.winId()) for tile in tiles] == video_handles
+            if entry_cover_only:
+                assert capture.call_count == 2
+                window.players.clear()
+                print('PASS: native fullscreen entry covers the source until the presentation is visible')
+                return
             tiles[7].hide()
             window._on_fullscreen(tiles[0])
             window._exit_fullscreen()

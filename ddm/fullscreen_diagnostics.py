@@ -287,7 +287,7 @@ def install(path, *, profile_calls=False):
 
     for owner, names in ((MainWindow, ('sync_danmaku', 'refresh_theme', '_refresh_meta', '_upgrade_fullscreen_quality')),
             (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered')),
-            (FullscreenPresentation, ('enter', 'leave')),
+            (FullscreenPresentation, ('enter', '_show_entry_cover', 'leave')),
             (VideoDanmaku, ('_resize_comments', '_queue_comment_raster', '_apply_comment_rasters'))):
         for name in names:
             setattr(owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))

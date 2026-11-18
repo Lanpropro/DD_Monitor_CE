@@ -1,7 +1,10 @@
 """Present the existing tile as an owned window without resizing the playback wall."""
 from PySide6.QtCore import QEvent, QObject, QRect, Qt
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication, QLabel
 
 from .widget_support import _repolish
+from .window_capture import print_window
 
 
 class FullscreenPresentation(QObject):
@@ -20,6 +23,41 @@ class FullscreenPresentation(QObject):
             pane.video_danmaku.super_chat_overlay.set_presentation_changing(active)
 
     def enter(self, tile, geometry=None):
+        cover = self._show_entry_cover(tile)
+        try:
+            self._enter(tile, geometry)
+        finally:
+            if cover is not None:
+                # Keep the source covered through the current native show/raise calls.
+                cover.deleteLater()
+
+    def _show_entry_cover(self, tile):
+        if QApplication.platformName() != 'windows' or not tile.isVisible():
+            return None
+        cover = QLabel(tile.parentWidget())
+        cover.setObjectName('FullscreenEntryCover')
+        cover.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
+        cover.setAttribute(Qt.WA_NativeWindow, True)
+        cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        cover.setStyleSheet('#FullscreenEntryCover { background: #202124; border: none; }')
+        cover.setGeometry(tile.geometry())
+        video = tile.video
+        if tile._player_active and video.isVisible() and (hwnd := int(video.internalWinId())):
+            scale = video.devicePixelRatioF()
+            frame = print_window(hwnd, round(video.width() * scale), round(video.height() * scale),
+                                 client_only=True)
+            if not frame.isNull():
+                rect = video.geometry()
+                cover.setContentsMargins(rect.x(), rect.y(), tile.width() - rect.right() - 1,
+                                         tile.height() - rect.bottom() - 1)
+                cover.setPixmap(QPixmap.fromImage(frame))
+                cover.setScaledContents(True)
+        cover.show()
+        cover.raise_()
+        cover.repaint()
+        return cover
+
+    def _enter(self, tile, geometry):
         wall = self.window.wall
         geometry = QRect(geometry if geometry is not None else self.window.screen().geometry())
         self.tile = tile
