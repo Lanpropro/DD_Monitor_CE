@@ -102,6 +102,8 @@ def check_store_scroll(app, root):
 
 def check_store_browser(app, root):
     from types import SimpleNamespace
+    from ddm.plugin_store_ui import PluginStoreLogo
+    from selfcheck_plugin_cache import CATALOG_LOGO
     offers = [dict(id=f'browser_{index:03d}', name=f'插件 {63-index:02d}', version='1.1',
                    description='直播辅助 ' + ('录制工具' if index % 2 else '弹幕工具') + ' 长说明' * 30,
                    author='Alice' if index % 2 else 'Bob', available=True,
@@ -109,6 +111,8 @@ def check_store_browser(app, root):
     entries = [dict(offer, version='1.0', enabled=True, status='已加载', reason='') for offer in offers[:3]]
     offers[1]['version'] = '1.0'
     offers[2].update(available=False, reason='需要新版主程序')
+    offers[0]['icon_png'] = CATALOG_LOGO
+    offers[1]['icon_png'] = 'invalid data'
     offers[62].update(name='插件 99 ' + '很长的插件名称' * 30, author='Bob' * 60)
     manager = SimpleNamespace(catalog=lambda: entries, enabled=None,
                               plugins_dir=str(root / 'browser-plugins'), _removed=set())
@@ -121,6 +125,12 @@ def check_store_browser(app, root):
             page.show()
             app.processEvents()
             assert page.count.text() == '64 / 64 个插件'
+            logo = page._offer_cards['browser_000'].findChild(PluginStoreLogo, 'PluginStoreLogo')
+            generic = page._offer_cards['browser_001'].findChild(PluginStoreLogo, 'PluginStoreLogo')
+            assert logo.pixmap.width() == 40 and logo.pixmap.height() == 20
+            assert generic.pixmap.isNull() and logo.size() == generic.size()
+            image = logo.grab().toImage()
+            assert image.pixelColor(image.width() // 2, image.height() // 2).red() == 230
             assert page.scroll.horizontalScrollBar().maximum() == 0
             assert all(card.height() >= card.minimumSizeHint().height() for card in page._offer_cards.values()), \
                 'Plugin cards must reserve the complete text and action-row height'

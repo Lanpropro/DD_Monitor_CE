@@ -1,9 +1,11 @@
 """Plugin catalog browsing, details and install/update actions."""
 from pathlib import Path
 import time
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from .plugin_card_layout import PluginCardLayout
+from .plugin_catalog_api import decode_catalog_icon
 from . import config, online, plugin_updates, theme, version
 from .ui import ActionButton, SelectControl, SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot
@@ -11,9 +13,32 @@ from .update_offers import plugin_update_offers
 from .online_tasks import OnlinePage
 from .plugin_details_ui import PluginDetailsPanel
 from .search import matches_query
+from .settings_navigation import _icon
 
 # Compatibility export; details are now embedded widgets.
 PluginDetailsDialog = PluginDetailsPanel
+
+
+class PluginStoreLogo(QWidget):
+    def __init__(self, offer, parent):
+        super().__init__(parent)
+        self.setObjectName('PluginStoreLogo')
+        self.setFixedSize(36, 36)
+        self.pixmap = QPixmap()
+        data = decode_catalog_icon(offer.get('icon_png'))
+        if data:
+            self.pixmap.loadFromData(data, 'PNG')
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        if self.pixmap.isNull():
+            _icon(painter, 'plugins', QRectF(7, 7, 22, 22), theme.qcolor(theme.TEXT2))
+        else:
+            size = self.pixmap.size().scaled(QSize(32, 32), Qt.KeepAspectRatio)
+            rect = QRectF(0, 0, size.width(), size.height())
+            rect.moveCenter(QRectF(self.rect()).center())
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawPixmap(rect, self.pixmap, QRectF(self.pixmap.rect()))
 
 
 class PluginBrowserToolbar(QWidget):
@@ -232,7 +257,11 @@ class PluginStorePage(OnlinePage):
             body.setSpacing(12)
             summary = QVBoxLayout()
             summary.setSpacing(4)
-            body.addLayout(summary)
+            header = QHBoxLayout()
+            header.setSpacing(10)
+            header.addWidget(PluginStoreLogo(offer, card), 0, Qt.AlignTop)
+            header.addLayout(summary, 1)
+            body.addLayout(header)
             title = ElidedLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else ''))
             title.setObjectName('PluginName')
             title.setTextFormat(Qt.PlainText)

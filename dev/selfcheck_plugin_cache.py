@@ -1,4 +1,5 @@
 """Release ZIP discovery and verified catalog caching; synthetic requests and temporary packages only."""
+import base64
 import io
 import json
 from pathlib import Path
@@ -10,10 +11,15 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ddm import online
+from ddm.plugin_catalog_api import ICON_MAX_BYTES, decode_catalog_icon
 from selfcheck_online import Response, asset
 
 
-def package(plugin_id='new_plugin', version='1.0', **changes):
+CATALOG_LOGO = ('iVBORw0KGgoAAAANSUhEUgAAACgAAAAUCAYAAAD/Rn+7AAAANElEQVR4nO3OMQ0AAAjAMLyg'
+                'A/9OsAEqyDh29G901nwWdMCgQTpg0CAdMGiQDhg0SAcMXlugKBgKZpq8swAAAABJRU5ErkJggg==')
+
+
+def package(plugin_id='new_plugin', version='1.0', *, files=None, **changes):
     manifest = dict(id=plugin_id, name='新插件', description='来自包内清单', version=version,
                     min_app_version='0.7.3', author='community-author')
     manifest.update(changes)
@@ -21,6 +27,8 @@ def package(plugin_id='new_plugin', version='1.0', **changes):
     with zipfile.ZipFile(output, 'w') as archive:
         archive.writestr(f'{plugin_id}/plugin.json', json.dumps(manifest))
         archive.writestr(f'{plugin_id}/plugin.py', "raise RuntimeError('must not execute')")
+        for name, content in (files or {}).items():
+            archive.writestr(f'{plugin_id}/{name}', content)
     return output.getvalue()
 
 
@@ -84,6 +92,24 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(offer['min_app_version'], '0.8')
         self.assertTrue(offer['available'])
 
+    def test_optional_logo_comes_from_the_verified_zip(self):
+        png = base64.b64decode(CATALOG_LOGO)
+        logo = 'assets/logo.png'
+        oversized = png + b'\x00' * ICON_MAX_BYTES
+        dimensions = png[:16] + (4096).to_bytes(4, 'big') + png[20:]
+        for path, image, expected in ((logo, png, CATALOG_LOGO),
+                ('../assets/logo.png', png, ''), ('https://example.com/logo.png', png, ''),
+                ('missing.png', png, ''), (logo, b'not an image', ''),
+                (logo, oversized, ''), (logo, dimensions, ''), (None, png, '')):
+            with self.subTest(icon=path, size=len(image)):
+                content = package(files={logo: image}, icon=path)
+                offer, = online.plugin_catalog(Client([published([release(content=content)]), Response(content)]), '0.8')
+                self.assertTrue(offer['available'])
+                self.assertEqual(offer['icon_png'], expected)
+        self.assertEqual(decode_catalog_icon(CATALOG_LOGO), png)
+        self.assertEqual(decode_catalog_icon(base64.b64encode(dimensions).decode('ascii')), b'')
+        self.assertEqual(decode_catalog_icon('not base64!'), b'')
+
     def test_bad_candidate_does_not_hide_other_plugins(self):
         wrong = package('other_id')
         valid = package('valid_plugin')
@@ -138,6 +164,23 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class CacheTests(unittest.TestCase):
+    def test_old_cache_backfills_logo_and_keeps_it_offline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'catalog.json'
+            content = package(icon='icon.png', files={'icon.png': base64.b64decode(CATALOG_LOGO)})
+            online.cached_plugin_catalog(Client([published([release(content=content)]), Response(content)]), '0.8', path)
+            old = json.loads(path.read_text(encoding='utf-8'))
+            old['offers'][0].pop('icon_png')
+            path.write_text(json.dumps(old), encoding='utf-8')
+            self.assertNotIn('icon_png', online.load_plugin_cache(path)['offers'][0])
+            client = Client([Response(status_code=304), Response(content)])
+            offer, = online.cached_plugin_catalog(client, '0.8', path, force=True)
+            self.assertEqual(offer['icon_png'], CATALOG_LOGO)
+            self.assertEqual(len(client.calls), 2)
+            offline = Client([online.requests.ConnectionError('offline')])
+            offer, = online.cached_plugin_catalog(offline, '0.8', path, force=True)
+            self.assertEqual(offer['icon_png'], CATALOG_LOGO)
+
     def test_fresh_conditional_cache_and_offline_reuse(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'catalog.json'
