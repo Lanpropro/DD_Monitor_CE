@@ -13,6 +13,15 @@
 .intro{padding:28px 0 24px;display:flex;justify-content:space-between;align-items:end;gap:24px}.intro h1{font-size:36px;letter-spacing:-.04em;line-height:1.25}.intro p{font-size:14px;color:#4e617d;margin-top:9px}.top-nav{display:flex;gap:4px;border-radius:11px;padding:4px;background:#dde6f3;white-space:nowrap}
 .top-nav button,.filters button,.scenario button{border:0;border-radius:8px;color:#415777;background:transparent;padding:7px 12px;font-weight:600;font-size:13px}.top-nav button[aria-selected=true],.filters button[aria-pressed=true],.scenario button[aria-pressed=true]{background:#fff;color:#193d82;box-shadow:0 1px 3px #1c335d20}
 main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px}.section-head h2{font-size:20px;letter-spacing:-.025em}.section-head p,.desc{font-size:13px;color:#4e617d}.section-head:not(:first-child){margin-top:28px}
+.qt-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #d5e0ed}.qt-toolbar p{font-size:13px;color:#4e617d}.qt-toolbar .filters{flex-shrink:0}
+.qt-group+.qt-group{margin-top:16px}.qt-group h2{font-size:17px;margin-bottom:8px}
+.qt-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.qt-card{min-width:0;border:1px solid #d5e0ed;border-radius:10px;overflow:hidden;background:#fff}
+.qt-card figcaption{display:grid;gap:1px;padding:6px 10px}.qt-card strong{font-size:13px}.qt-card small{font-size:11px;color:#536884}
+.qt-swatch{margin:0 auto 8px;width:min(100% - 16px,288px);aspect-ratio:288/56;border-radius:5px;background-image:url("ui-control-library-qt.png");background-repeat:no-repeat;background-size:200% 1600%;background-position:var(--qt-x,0%) var(--qt-y)}
+#overview[data-theme-mode=light]{--qt-x:100%}
+@media(max-width:940px){.qt-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:400px){.qt-card figcaption{padding-inline:7px}.top-nav button{padding-inline:7px}}
 .pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.caption{display:flex;align-items:center;gap:7px;font-size:13px;color:#38506f;font-weight:650;padding:0 0 8px}.caption i{width:9px;height:9px;background:#334562;border-radius:50%}.caption i.light-dot{background:#fff;box-shadow:inset 0 0 0 1px #8da4c5}
 [data-theme=dark]{color-scheme:dark;--bg:#141b29;--rail:#192334;--surface:#202c40;--surface2:#2a3850;--line:#3a4a65;--ink:#f1f5fe;--muted:#acbad0;--accent:#a6c4ff;--accent-fill:#3c65bd;--accent-hover:#476fc3;--accent-pressed:#3258aa;--tint:#2a4066;--danger:#ffb1bb;--danger-bg:#492833;--good:#99e2bd;--good-bg:#18392f;--ring:#9dc0ff;--disabled:#9daac0;--disabled-bg:#293346;--shadow:#07112150;--edge:#203655ec;--edge-fade:#0b1424d9}
 [data-theme=light]{color-scheme:light;--bg:#f5f7fc;--rail:#edf2fa;--surface:#ffffff;--surface2:#eaf0f9;--line:#d7e1ef;--ink:#182941;--muted:#4c617e;--accent:#2455a9;--accent-fill:#2b59b3;--accent-hover:#234b9a;--accent-pressed:#1b3c80;--tint:#dce9ff;--danger:#a5273f;--danger-bg:#fde9ed;--good:#176345;--good-bg:#dff4e9;--ring:#2a60cb;--disabled:#62738b;--disabled-bg:#e6ecf5;--shadow:#25416e18;--edge:#e9f2fff5;--edge-fade:#e8f1ffe8}
@@ -46,14 +55,14 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 .component-showcase{padding:24px}.component-showcase h2{font-size:27px;line-height:1.25;letter-spacing:-.03em}.showcase-title{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.code{font:12px Consolas,monospace;color:#506988;overflow-wrap:anywhere;margin-top:4px}.kind{font-size:11px;white-space:nowrap;color:#4c6588;padding:2px 6px;border-radius:5px;background:#e9eff8}.kind.proposed{color:#76481a;background:#fef0db}.component-description{font-size:13px;color:#475e7c;margin:9px 0 18px}
 .specimens{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.specimen{color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:11px;overflow:hidden}.specimen figcaption{color:var(--muted);font-weight:650;font-size:12px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--rail)}
 .demo{min-height:174px;padding:16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:7px;min-width:0}.demo>*{max-width:100%}.demo .stepper output{width:37px}.demo .control.smaller{padding:0}.demo .short-input{width:min(100%,260px)}.bar{display:block;width:90px;height:5px;background:var(--surface2);border-radius:12px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent-fill)}.mini-card{font-size:11px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;box-shadow:0 3px 10px var(--shadow)}.mini-card p{color:var(--muted);margin:2px 0 0;font-size:10.5px}.avatar{display:inline-grid;place-items:center;overflow:hidden;flex:none;width:28px;height:28px;border-radius:50%;background:var(--tint);color:var(--accent);font-size:11px;font-weight:700}.avatar img{width:100%;height:100%;object-fit:cover}.avatar.pin{outline:2px solid var(--accent);outline-offset:2px}.menu-notice .bar{width:100%;margin-top:6px}
-.segment-example{display:grid;justify-items:center;gap:9px}.segment-stage{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap}
-.segment-example .segment{position:relative;isolation:isolate;display:inline-grid;grid-template-columns:repeat(3,1fr);padding:4px;border-radius:9px}
-.segment-example .indicator{position:absolute;inset-block:4px;left:4px;width:calc((100% - 14px)/3);background:var(--tint);border-radius:5px;box-shadow:0 1px 4px var(--shadow);pointer-events:none;z-index:-1;transform:translateX(0)}
-.segment-example .indicator[data-position="1"]{transform:translateX(calc(100% + 3px))}
+.segment-example{display:grid;justify-items:center;gap:9px}
+.segment-example .segment{position:relative;isolation:isolate;display:inline-grid;grid-template-columns:repeat(2,1fr);padding:4px;border-radius:9px}
+.segment-example .indicator{position:absolute;inset-block:4px;left:4px;width:calc((100% - 11px)/2);background:var(--tint);border-radius:5px;box-shadow:0 1px 4px var(--shadow);pointer-events:none;z-index:-1;transform:translateX(0);transition:none}
+.segment-example .segment:has([data-segment-choice=previous][aria-pressed=true]) .indicator{transform:translateX(calc(100% + 3px))}
 @media (prefers-reduced-motion:no-preference){.segment-example .indicator.is-sliding{transition:transform 150ms cubic-bezier(.77,0,.175,1)}}
-.segment-example .segment button{min-height:31px;padding:4px 7px;background:transparent;border-color:transparent;font-weight:600}.segment-example .segment button svg{width:13px;height:13px;margin-right:3px}.segment-example .segment button[aria-pressed=true]{color:var(--accent);background:transparent;font-weight:700}.segment-example .segment button:disabled{color:var(--disabled);background:transparent;opacity:.68;cursor:default}
-@media(hover:hover) and (pointer:fine){.segment-example .segment button:not(:disabled,[aria-pressed=true]):hover{background:var(--surface2)}}
-.segment-label{color:var(--muted);font-size:11px}.standalone-options{display:flex;align-items:center;gap:6px}.standalone-options .btn{min-width:76px}
+.segment-example .segment button{min-height:31px;padding:4px 11px;background:transparent;border-color:transparent;font-weight:600}.segment-example .segment button[aria-pressed=true]{color:var(--accent);background:transparent;font-weight:700}
+@media(hover:hover) and (pointer:fine){.segment-example .segment button:not([aria-pressed=true]):hover{background:var(--surface2)}}
+.segment-label{color:var(--muted);font-size:11px}
 .example-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}.example-tools .filters{flex-wrap:nowrap}.example-toggle{font-size:12px;color:#415777;background:#f4f7fb;border:1px solid #d5e0ed;border-radius:8px;padding:5px 9px}.example-toggle[aria-pressed=true]{background:#e8f0fd;color:#254d8d}.example-usage{font-size:13px;color:#415777;background:#f7f9fc;border:1px solid #dce6f3;border-radius:10px;padding:15px}.example-usage p+p{margin-top:9px}
 .example-notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:15px 0 0}.example-notes div{border-top:1px solid #dde6f2;padding-top:8px}.example-notes dt{font-size:12px;font-weight:650;color:#243a5d}.example-notes dd{margin:3px 0 0;color:#536884;font-size:12px}
 .mini-details{width:100%;min-width:0;font-size:11px;color:var(--ink)}.mini-details summary{cursor:pointer}.mini-details > div{margin-top:4px}.curve{width:90px;height:36px;color:var(--accent);overflow:visible}.chip{display:inline-flex;gap:4px;padding:3px 6px;border-radius:5px;background:var(--tint);color:var(--accent);font-size:11px}.chip.error{background:var(--danger-bg);color:var(--danger)}.color-dot{width:15px;height:15px;background:#739bfd;border-radius:100%;display:block}.ellipsis{max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;font-size:11px}.soft{color:var(--muted);font-size:11px}.short-input{min-width:0;width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;font-size:11px;padding:5px 6px}
@@ -68,25 +77,32 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 <body>
 <header class="mast"><div class="wrap head"><div class="brand"><img src="../../assets/logo.svg" alt="">DD 监控室</div><span class="draft">控件库 · 设计评审稿</span></div></header>
 <main class="wrap">
-<div class="intro"><div><h1>控件图鉴</h1><p>选择一个控件，查看它在深浅主题下的样式和操作反馈。</p></div>
+<div class="intro"><div><h1>控件图鉴</h1><p>查看软件里的实际控件，再试用候选设计。</p></div>
 <div class="top-nav" role="tablist" aria-label="设计稿视图">
-<button role="tab" id="tab-library" aria-controls="library" aria-selected="true">控件展示</button><button role="tab" id="tab-pages" aria-controls="pages" aria-selected="false" tabindex="-1">页面对照</button><button role="tab" id="tab-states" aria-controls="states" aria-selected="false" tabindex="-1">按钮状态</button>
+<button role="tab" id="tab-overview" aria-controls="overview" aria-selected="true">软件实装</button><button role="tab" id="tab-library" aria-controls="library" aria-selected="false" tabindex="-1">控件试样</button><button role="tab" id="tab-pages" aria-controls="pages" aria-selected="false" tabindex="-1">页面对照</button><button role="tab" id="tab-states" aria-controls="states" aria-selected="false" tabindex="-1">按钮状态</button>
 </div></div>
+<section id="overview" role="tabpanel" aria-labelledby="tab-overview" data-theme-mode="dark">
+<div class="qt-toolbar">
+<p>16 项 Qt 实装截图 · 默认外观</p>
+<div class="filters" role="group" aria-label="截图主题"><button type="button" data-qt-theme="dark" aria-pressed="true">深色</button><button type="button" data-qt-theme="light" aria-pressed="false">浅色</button></div>
+</div>
+<div id="qt-gallery"></div>
+</section>
 <section id="pages" role="tabpanel" aria-labelledby="tab-pages" hidden>
-<div class="section-head"><h2>常规设置</h2><p>同一配置 · 深浅主题同时预览</p></div>
+<div class="section-head"><h2>常规设置设计稿</h2><p>同一配置 · 深浅主题同时预览</p></div>
 <div id="settings-pair" class="pair"></div>
-<div class="section-head"><h2>播放格</h2><div class="scenario" role="group" aria-label="播放状态">
+<div class="section-head"><h2>播放格设计稿</h2><div class="scenario" role="group" aria-label="播放状态">
 <button data-scenario="playing" aria-pressed="true">播放中</button><button data-scenario="loading" aria-pressed="false">连接中</button><button data-scenario="error" aria-pressed="false">播放失败</button>
 </div></div>
 <div id="player-pair" class="pair"></div>
 <p class="section-notes">播放画面取自项目截图。切换状态可检查文字、遮罩以及重试反馈。<a class="note-link" href="../assets/screenshots/overview1_Landscape_mode.png">画面来源</a></p>
 </section>
-<section id="library" role="tabpanel" aria-labelledby="tab-library">
+<section id="library" role="tabpanel" aria-labelledby="tab-library" hidden>
 <div class="catalog-layout">
 <aside class="catalog-nav" aria-label="控件目录">
 <div class="catalog-toolbar">
 <input id="search" class="search" type="search" aria-label="搜索控件" placeholder="搜索控件名称或类名">
-<div class="filters" role="group" aria-label="按实现状态筛选"><button data-filter="all" aria-pressed="true">全部</button><button data-filter="current" aria-pressed="false">现有控件</button><button data-filter="proposed" aria-pressed="false">设计候选</button></div>
+<div class="filters" role="group" aria-label="按试样类型筛选"><button data-filter="all" aria-pressed="true">全部</button><button data-filter="current" aria-pressed="false">共用控件</button><button data-filter="proposed" aria-pressed="false">新增候选</button></div>
 <output id="count" class="count" aria-live="polite"></output>
 </div>
 <nav id="components" class="component-index" aria-label="控件条目"></nav>
@@ -95,7 +111,7 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 </div>
 </section>
 <section id="states" role="tabpanel" aria-labelledby="tab-states" hidden>
-<div class="section-head"><h2>按钮状态图</h2><p>固定样张可直接比较，也可用 Tab 查看实际焦点</p></div>
+<div class="section-head"><h2>按钮状态设计稿</h2><p>固定样张可直接比较，也可用 Tab 检查焦点样式</p></div>
 <div id="matrices"></div>
 </section>
 </main>

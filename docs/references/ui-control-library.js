@@ -42,6 +42,39 @@ const identity = '../../assets/logo.svg';
 const media = '../assets/screenshots/overview1_Landscape_mode.png';
 const themes = [['dark', '深色'], ['light', '浅色']];
 
+// Each item matches one row of ui-control-library-qt.png in capture order.
+const qtSamples = [
+  ['设置页', [
+    ['全部展开后的收起方式', '常规 › 关注与预览'],
+    ['关注列表刷新间隔', '常规 › 关注与预览'],
+    ['关注栏直播预览', '常规 › 关注与预览'],
+    ['新建格子的初始音量', '常规 › 播放与声音'],
+    ['直播源格式', '常规 › 编解码'],
+    ['本机解码方式', '常规 › 编解码'],
+    ['界面主题', '外观 › 主题'],
+    ['主题色', '外观 › 主题'],
+  ]],
+  ['播放格', [
+    ['暂停／继续', '底部信息条'],
+    ['格子音量', '底部信息条 · 宽格子'],
+    ['画面弹幕／观看设置', '底部信息条'],
+    ['录制', '底部信息条'],
+    ['全屏', '底部信息条'],
+    ['画质', '悬停时 · 右上角'],
+    ['重新连接', '悬停时 · 右上角'],
+    ['关闭这一路', '悬停时 · 右上角'],
+  ]],
+];
+
+function renderQtGallery() {
+  const lastRow = qtSamples.flatMap(([, items]) => items).length - 1;
+  let row = 0;
+  document.getElementById('qt-gallery').innerHTML = qtSamples.map(([area, items]) =>
+    `<section class="qt-group"><h2>${area}</h2><div class="qt-grid">${items.map(([title, location]) =>
+      `<figure class="qt-card"><figcaption><strong>${title}</strong><small>${location}</small></figcaption>
+      <div class="qt-swatch" role="img" aria-label="${title}的 Qt 截图" style="--qt-y:${(row++ / lastRow) * 100}%"></div></figure>`).join('')}</div></section>`).join('');
+}
+
 const settingsNav = [
   ['settings', '常规'], ['display', '外观'], ['chat', '弹幕'], ['circle', '录制'],
   ['bell', '通知'], ['keyboard', '快捷键'], ['folder', '主播独立设置'],
@@ -103,16 +136,12 @@ const dialogExample = (trigger, title, body, action) => `<span class="vertical-d
 const colorExample = dialogExample('选择颜色', '主题强调色',
   '<p>查看选中色和对应的十六进制值。</p><label class="swatch-row"><input type="color" value="#739bfd" aria-label="选取颜色" data-color><output>#739BFD</output></label>', '应用颜色');
 const segmentedExample = `<div class="segment-example">
-  <div class="segment-stage">
-    <div class="segment" role="group" aria-label="关注筛选" data-example-segment>
-      <span class="indicator" data-position="0" aria-hidden="true"></span>
-      ${button(icon('folder') + '全部', '', 'data-segment-choice="全部" aria-pressed="true"')}
-      ${button(icon('circle') + '直播中', '', 'data-segment-choice="直播中" aria-pressed="false"')}
-      ${button('未开播', '', 'data-segment-choice="未开播" disabled')}
-    </div>
-    <div class="standalone-options">${button(icon('refresh') + '刷新', '', 'data-example-refresh')}</div>
+  <div class="segment" role="group" aria-label="全部展开后的收起方式" data-example-segment>
+    <span class="indicator" aria-hidden="true"></span>
+    ${button('全部收起', '', 'data-segment-choice="all" aria-pressed="true"')}
+    ${button('恢复原状', '', 'data-segment-choice="previous" aria-pressed="false"')}
   </div>
-  <output class="segment-label" data-example-value aria-live="polite">当前筛选：全部</output>
+  <output class="segment-label" data-example-value aria-live="polite">当前选择：全部收起</output>
 </div>`;
 
 // Existing names are the public exports of ddm.ui. HTML samples use draft styling.
@@ -129,7 +158,7 @@ const components = [
   ['基础与承载', 'PinnedArc', '置顶标识', '头像周围的置顶层提示。', previewAvatar('遥', 'pin')],
   ['基础与承载', 'circular_pixmap', '圆形图片裁切', '用共享裁切函数生成头像图。', `<span class="avatar"><img src="${identity}" alt="圆形裁切示例"></span>`],
   ['筛选与表单', 'ToggleSwitch', '开关', '即时切换二选一设置。', toggle('自动刷新', true)],
-  ['筛选与表单', 'SegmentedControl', '分段选择', '点击「全部」或「直播中」，比较同一组选择在深浅主题中的反馈。', segmentedExample],
+  ['筛选与表单', 'SegmentedControl', '分段选择', '设置 › 常规 › 关注与预览 › 全部展开后的收起方式。', segmentedExample],
   ['筛选与表单', 'SelectControl', '下拉选择', '收起后显示当前值，支持键盘选择。', select('解码方式', ['自动', '软件解码'])],
   ['筛选与表单', 'FontSelectControl', '字体下拉', '用下拉表面承载字体选项。', select('字体', ['系统字体', '思源黑体'])],
   ['筛选与表单', 'step_button', '加减图标按钮', '步进操作的单个点击入口。', iconButton('minus', '减少') + iconButton('plus', '增加')],
@@ -195,9 +224,9 @@ function renderShowcase(component) {
   const [, name, label, description, preview, proposed] = component;
   showcase.dataset.activeComponent = name;
   const notes = name === 'SegmentedControl' ? `<dl class="example-notes">
-    <div><dt>共同底板</dt><dd>三个选项组成同一组，组外的「刷新」是独立动作。</dd></div>
+    <div><dt>共同底板</dt><dd>两个选项设置同一个行为，只选其一。</dd></div>
     <div><dt>选中块</dt><dd>独立的亮块和较重的文字表示当前选择。</dd></div>
-    <div><dt>不可用</dt><dd>「未开播」变淡，鼠标和键盘均无法选中。</dd></div>
+    <div><dt>实装对照</dt><dd>在「软件实装」查看该设置的当前外观。</dd></div>
   </dl>` : '';
   const specimens = `<div class="specimens">${themes.map(([theme, title]) =>
     `<figure class="specimen" data-theme="${theme}"><figcaption>${title}</figcaption><div class="demo">${preview}</div></figure>`).join('')}</div>`;
@@ -210,11 +239,11 @@ function renderShowcase(component) {
     </div>
     <div id="segment-preview">${specimens}${notes}</div>
     <div id="segment-usage" class="example-usage" hidden>
-      <p><strong>使用时机</strong>　用于同一范围内少量互斥选项。示例中三个选项筛选同一份关注列表。</p>
-      <p><strong>独立动作</strong>　刷新会重新读取列表，当前筛选保持，按钮文字变化表示刷新反馈。</p>
+      <p><strong>全部收起</strong>　收起所有关注文件夹。</p>
+      <p><strong>恢复原状</strong>　只收起本次全部展开前已收起的文件夹。无记录时全部收起。</p>
       <p><strong>键盘操作</strong>　Tab 移到可用选项，Enter 或 Space 立即选择。开启系统减少动态效果时选中块也立即更新。</p>
     </div>` : specimens;
-  showcase.innerHTML = `<header><div class="showcase-title"><h2>${label}</h2><span class="kind ${proposed ? 'proposed' : ''}">${proposed ? '设计候选' : '现有控件'}</span></div>
+  showcase.innerHTML = `<header><div class="showcase-title"><h2>${label}</h2><span class="kind ${proposed ? 'proposed' : ''}">${proposed ? '新增候选' : '候选样式'}</span></div>
     <div class="code">${name}</div><p class="component-description">${description}</p></header>${body}`;
 }
 
@@ -300,6 +329,7 @@ document.getElementById('settings-pair').innerHTML = themes.map(([theme, label])
 document.getElementById('player-pair').innerHTML = themes.map(([theme, label]) => player(theme, label)).join('');
 renderMatrices();
 renderCatalog();
+renderQtGallery();
 document.getElementById('search').addEventListener('input', renderCatalog);
 
 document.querySelector('.top-nav').addEventListener('keydown', event => {
@@ -331,6 +361,11 @@ document.addEventListener('click', event => {
   const clicked = event.target.closest('button');
   if (!clicked) return;
   if (clicked.matches('[role=tab]')) setTab(clicked);
+  if (clicked.matches('[data-qt-theme]')) {
+    document.getElementById('overview').dataset.themeMode = clicked.dataset.qtTheme;
+    document.querySelectorAll('[data-qt-theme]').forEach(button =>
+      button.setAttribute('aria-pressed', button === clicked));
+  }
   if (clicked.matches('[data-component]')) showComponent(clicked.dataset.component);
   if (clicked.matches('[data-filter]')) {
     document.querySelectorAll('[data-filter]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
@@ -380,22 +415,16 @@ document.addEventListener('click', event => {
     const choice = clicked.dataset.segmentChoice;
     document.querySelectorAll('[data-example-segment] .indicator').forEach(indicator => {
       indicator.classList.toggle('is-sliding', slidePreview && event.detail > 0);
-      indicator.dataset.position = choice === '直播中' ? '1' : '0';
     });
     document.querySelectorAll('[data-segment-choice]').forEach(option =>
       option.setAttribute('aria-pressed', option.dataset.segmentChoice === choice));
     document.querySelectorAll('[data-example-value]').forEach(output => {
-      output.textContent = '当前筛选：' + choice;
+      output.textContent = '当前选择：' + clicked.textContent;
     });
   } else if (clicked.parentElement.matches('.segment')) {
     [...clicked.parentElement.children].forEach(button => button.setAttribute('aria-pressed', button === clicked));
     const label = clicked.closest('.demo').querySelector('[data-stack-label]');
     if (label) label.textContent = clicked.textContent;
-  }
-  if (clicked.matches('[data-example-refresh]')) {
-    clicked.innerHTML = icon('check') + '已刷新';
-    clearTimeout(clicked.feedbackTimer);
-    clicked.feedbackTimer = setTimeout(() => { clicked.innerHTML = icon('refresh') + '刷新'; }, 850);
   }
   const action = clicked.dataset.playerAction;
   if (action === 'refresh') {

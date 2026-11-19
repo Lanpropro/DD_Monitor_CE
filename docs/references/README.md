@@ -30,7 +30,7 @@
 
 ## 控件库设计评审
 
-[控件图鉴与评审记录](ui-control-library-draft.md)对照 UI/UX 视频的十一项，展示现有公开控件、设计候选、设置与播放格深浅样板，以及按钮状态。
+[控件图鉴与评审记录](ui-control-library-draft.md)收录设置页和播放格的 16 项 Qt 实装截图，并对照 UI/UX 视频的十一项展示候选交互、深浅页面样板和按钮状态。
 
 2026-11-19 阅读 EasyUI 的组件目录和示例页，选用独立交互演示、用法分区与共享选中指示块作为图鉴参考。分段选择试样见[设计评审记录](ui-control-library-draft.md#easyui-展示参考)。 [EasyUI](https://easyui.site/)
 
