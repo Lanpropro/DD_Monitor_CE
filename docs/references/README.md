@@ -32,6 +32,8 @@
 
 [控件图鉴与评审记录](ui-control-library-draft.md)对照 UI/UX 视频的十一项，展示现有公开控件、设计候选、设置与播放格深浅样板，以及按钮状态。
 
+2026-11-19 阅读 EasyUI 的组件目录和示例页，选用独立交互演示、用法分区与共享选中指示块作为图鉴参考。分段选择试样见[设计评审记录](ui-control-library-draft.md#easyui-展示参考)。 [EasyUI](https://easyui.site/)
+
 ## 渐变颜色参考
 
 来源为用户于 2026-11-16 提供的[渐变网站](https://mudong-gradient.pages.dev/)和[配套视频](https://www.bilibili.com/video/BV12rWD6SEPy/)。视频作者为木东东东CG，标题为《什么是电影感的渐变？》。根据视频公开简介，同一组紫色与淡黄色端点可以形成不同的颜色过渡；设计时还应观察途中经过的中间色，并通过灰度检查明暗变化是否平顺。

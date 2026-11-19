@@ -105,6 +105,7 @@ const colorExample = dialogExample('选择颜色', '主题强调色',
 const segmentedExample = `<div class="segment-example">
   <div class="segment-stage">
     <div class="segment" role="group" aria-label="关注筛选" data-example-segment>
+      <span class="indicator" data-position="0" aria-hidden="true"></span>
       ${button(icon('folder') + '全部', '', 'data-segment-choice="全部" aria-pressed="true"')}
       ${button(icon('circle') + '直播中', '', 'data-segment-choice="直播中" aria-pressed="false"')}
       ${button('未开播', '', 'data-segment-choice="未开播" disabled')}
@@ -182,6 +183,7 @@ function renderMatrices() {
 }
 
 let selectedComponent = 'SegmentedControl';
+let slidePreview = true;
 
 function renderShowcase(component) {
   const showcase = document.getElementById('showcase');
@@ -197,10 +199,23 @@ function renderShowcase(component) {
     <div><dt>选中块</dt><dd>独立的亮块和较重的文字表示当前选择。</dd></div>
     <div><dt>不可用</dt><dd>「未开播」变淡，鼠标和键盘均无法选中。</dd></div>
   </dl>` : '';
+  const specimens = `<div class="specimens">${themes.map(([theme, title]) =>
+    `<figure class="specimen" data-theme="${theme}"><figcaption>${title}</figcaption><div class="demo">${preview}</div></figure>`).join('')}</div>`;
+  const body = name === 'SegmentedControl' ? `<div class="example-tools">
+    <div class="filters" role="group" aria-label="分段选择示例内容">
+      <button type="button" aria-controls="segment-preview" aria-pressed="true" data-segment-view="segment-preview">实时演示</button>
+      <button type="button" aria-controls="segment-usage" aria-pressed="false" data-segment-view="segment-usage">使用说明</button>
+    </div>
+    <button type="button" class="example-toggle" data-slide-preview aria-pressed="${slidePreview}">滑动动效${slidePreview ? '已开启' : '已关闭'}</button>
+    </div>
+    <div id="segment-preview">${specimens}${notes}</div>
+    <div id="segment-usage" class="example-usage" hidden>
+      <p><strong>使用时机</strong>　用于同一范围内少量互斥选项。示例中三个选项筛选同一份关注列表。</p>
+      <p><strong>独立动作</strong>　刷新会重新读取列表，当前筛选保持，按钮文字变化表示刷新反馈。</p>
+      <p><strong>键盘操作</strong>　Tab 移到可用选项，Enter 或 Space 立即选择。开启系统减少动态效果时选中块也立即更新。</p>
+    </div>` : specimens;
   showcase.innerHTML = `<header><div class="showcase-title"><h2>${label}</h2><span class="kind ${proposed ? 'proposed' : ''}">${proposed ? '设计候选' : '现有控件'}</span></div>
-    <div class="code">${name}</div><p class="component-description">${description}</p></header>
-    <div class="specimens">${themes.map(([theme, title]) =>
-      `<figure class="specimen" data-theme="${theme}"><figcaption>${title}</figcaption><div class="demo">${preview}</div></figure>`).join('')}</div>${notes}`;
+    <div class="code">${name}</div><p class="component-description">${description}</p></header>${body}`;
 }
 
 function showComponent(name) {
@@ -322,6 +337,20 @@ document.addEventListener('click', event => {
     renderCatalog();
   }
   if (clicked.matches('[data-scenario]')) showScenario(clicked.dataset.scenario);
+  if (clicked.matches('[data-segment-view]')) {
+    document.querySelectorAll('[data-segment-view]').forEach(button => {
+      const shown = button === clicked;
+      button.setAttribute('aria-pressed', shown);
+      document.getElementById(button.dataset.segmentView).hidden = !shown;
+    });
+    document.querySelector('[data-slide-preview]').hidden = clicked.dataset.segmentView !== 'segment-preview';
+  }
+  if (clicked.matches('[data-slide-preview]')) {
+    slidePreview = !slidePreview;
+    clicked.setAttribute('aria-pressed', slidePreview);
+    clicked.textContent = '滑动动效' + (slidePreview ? '已开启' : '已关闭');
+    if (!slidePreview) document.querySelectorAll('[data-example-segment] .indicator').forEach(indicator => indicator.classList.remove('is-sliding'));
+  }
   if (clicked.matches('[data-open-dialog]')) clicked.nextElementSibling.showModal();
   if (clicked.matches('[data-demo-retry]')) {
     const status = clicked.previousElementSibling;
@@ -349,6 +378,10 @@ document.addEventListener('click', event => {
   }
   if (clicked.matches('[data-segment-choice]')) {
     const choice = clicked.dataset.segmentChoice;
+    document.querySelectorAll('[data-example-segment] .indicator').forEach(indicator => {
+      indicator.classList.toggle('is-sliding', slidePreview && event.detail > 0);
+      indicator.dataset.position = choice === '直播中' ? '1' : '0';
+    });
     document.querySelectorAll('[data-segment-choice]').forEach(option =>
       option.setAttribute('aria-pressed', option.dataset.segmentChoice === choice));
     document.querySelectorAll('[data-example-value]').forEach(output => {

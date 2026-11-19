@@ -45,6 +45,10 @@
 
 思路来自[《10分钟讲解所有UI/UX概念》](https://www.bilibili.com/video/BV17vXGBaEhR/)和 [Kole Jain 原版](https://www.youtube.com/watch?v=EcbgbKtOELY)。播放格取自项目[已公开截图](../assets/screenshots/overview1_Landscape_mode.png)，作为叠层静帧示例。样板使用现有「常规」选项中的代表项，并排展示同一组值。
 
+## EasyUI 展示参考
+
+参考 EasyUI 独立组件页的演示与用法分区、可移动的选中指示块，以及切换状态时保持尺寸的按钮。分段选择先试做「实时演示／使用说明」和滑动开关。鼠标点选时只移动底板上的选中块，文字和按钮位置固定；键盘选择和系统减少动态效果即时切换。示例使用项目既有的浏览器设计稿。 [组件目录](https://easyui.site/components) · [SlidePagination](https://easyui.site/components/slide-pagination) · [Morphing Button](https://easyui.site/components/morphing-button)
+
 ## 请确认的设计决定
 
 1. 冷蓝主色与灰蓝面板是否适合 DD 监控室。分别检查深浅主题里的层级和强调程度。
