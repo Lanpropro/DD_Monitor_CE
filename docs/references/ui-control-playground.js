@@ -10,7 +10,7 @@ const labControls = [
     '设置新建播放格使用的默认音量。'],
   ['codec', '直播源格式', '常规 › 编解码', 188, 34, 18,
     '选择直播流编码偏好，可选 H.264、HEVC 和 AV1。'],
-  ['decoder', '本机解码方式', '常规 › 编解码', 200, 32, 8,
+  ['decoder', '本机解码方式', '常规 › 编解码', 209, 34, 8,
     '选择本机处理视频的方式，自动解码会优先使用可用的硬件。'],
   ['theme', '界面主题', '外观 › 主题', 238, 34, 18,
     '切换深色、浅色或跟随系统，此处会同步改变图鉴的预览主题。'],
@@ -282,6 +282,7 @@ function labRenderDetail(item) {
       sample.style.setProperty(paint[2], field.value);
       field.nextElementSibling.textContent = field.value.toUpperCase();
       if (paint[0] === 'accent') sample.querySelector('.lab-controls').style.removeProperty('--lab-accent');
+      if (paint[0] === 'surface' && item.id === 'decoder') sample.style.setProperty('--lab-picker-bg', field.value);
     } else if (field.name === 'state') {
       sample.dataset.state = field.value;
       sample.querySelector('fieldset').disabled = field.value === 'disabled';
