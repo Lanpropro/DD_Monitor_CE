@@ -134,6 +134,21 @@ class TilePlayer(QObject):
         if self.player is not None and not self._released:
             setattr(self.player, name.replace("-", "_"), value)
 
+    def request_video_frame(self):
+        if self.player is None or self._released or self.silent:
+            return None
+        session = self.play_session
+
+        def received(error, frame):
+            if not error and not self._released and self.play_session == session:
+                return frame
+            return None
+
+        try:
+            return self.player.command_async('screenshot-raw', 'video', callback=received)
+        except (OSError, RuntimeError, ValueError):
+            return None
+
     def _log(self, level, prefix, message):
         if (self.stream_profile == "douyu" and level in ("error", "fatal")
                 and prefix == "curl" and "transfer failed" in message):

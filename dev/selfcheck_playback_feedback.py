@@ -85,7 +85,7 @@ class FeedbackTests(unittest.TestCase):
         self.host._clear_freeze_recovery = self.recovery.clear_freeze
         self.host._on_picture_frozen = self.recovery.picture_frozen
         self.host._tile_of_player = lambda player: tile
-        self.host.plugins = SimpleNamespace(emit=Mock())
+        self.host.plugins = SimpleNamespace(emit=Mock(), platforms={})
         playback, codecs = StreamPlayback(self.host), CodecControl(self.host)
         tile.move(-10000, -10000)
         tile.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -119,6 +119,26 @@ class FeedbackTests(unittest.TestCase):
         finally:
             tile.close()
             tile.deleteLater()
+
+    def test_only_opted_in_wall_playback_requests_a_cover(self):
+        from ddm.stream_playback import StreamPlayback
+        room = {'room_id': 'm3u:test', 'platform': 'm3u'}
+        tile = Mock(room=room)
+        player = Mock()
+        provider = SimpleNamespace(capture_first_playback_cover=False)
+        host = SimpleNamespace(players={tile: player}, playback_recovery=Mock(), room_images=Mock(),
+                               plugins=SimpleNamespace(platforms={'m3u': provider}, emit=Mock()))
+        playback = StreamPlayback(host)
+        tile.property.return_value = False
+        playback.on_player_state(tile, 'connecting')
+        playback.on_player_state(tile, 'playing')
+        provider.capture_first_playback_cover = True
+        tile.property.return_value = True
+        playback.on_player_state(tile, 'playing')
+        host.room_images.capture_first_frame.assert_not_called()
+        tile.property.return_value = False
+        playback.on_player_state(tile, 'playing')
+        host.room_images.capture_first_frame.assert_called_once_with(room, player)
 
 
 if __name__ == '__main__':

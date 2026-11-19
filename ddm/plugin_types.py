@@ -89,6 +89,8 @@ class Platform:
     room_input_file_filter = ""  # 可选：添加直播间文件选择的 Qt 文件过滤器。
     room_input_presets = None  # 可选：room_input_presets() -> list[RoomInfo]，只返回本地预设。
     room_list = None  # 可选：room_list(room_id, cancelled) -> RoomList，在后台解析。
+    room_card_branding = None  # 可选：返回关注卡片的 avatar_path、badge_path 或 badge_from_avatar，以及 label。
+    capture_first_playback_cover = False  # 可选：复用首次上墙的有效画面作为关注卡片封面。
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""

@@ -4,6 +4,7 @@
 class RoomImages:
     def __init__(self, host):
         self.host = host
+        self._first_frame_jobs = {}
 
     def load_cached_covers(self, loader_type) -> None:
         """先把「上次那张封面」摆上（纯本地读文件，不联网、不等状态轮询）。
@@ -68,6 +69,30 @@ class RoomImages:
         host._start_avatar_loader(covers, host._on_room_cover, subdir="covers")
         host._load_room_banners(rooms)
 
+    def capture_first_frame(self, room, player):
+        """Save the first available playback frame to the usual room cover cache."""
+        from pathlib import Path
+        from .images import room_cover_path
+        from .image_workers import FirstFrameCover
+
+        host = self.host
+        room_id = str(room['room_id'])
+        if (host._closing or room_id in self._first_frame_jobs
+                or not any(str(entry['room_id']) == room_id for entry in host.sidebar.rooms())
+                or Path(room_cover_path(room_id)).is_file()):
+            return
+        frame = player.request_video_frame()
+        if frame is None:
+            return
+        job = FirstFrameCover(room_id, frame, host)
+        job.loaded.connect(host._on_room_cover)
+        job.finished.connect(lambda: self._first_frame_jobs.pop(room_id, None))
+        job.finished.connect(job.deleteLater)
+        self._first_frame_jobs[room_id] = job
+        host._avatar_loaders = [worker for worker in host._avatar_loaders if host._loader_running(worker)]
+        host._avatar_loaders.append(job)
+        job.start()
+
     def load_banners(self, rooms):
         host = self.host
         from .room_artwork import supports_banner
@@ -121,9 +146,9 @@ class RoomImages:
                 notice.set_room_avatar(room_id, pixmap)
         for item in host.sidebar._items:            # noqa: SLF001
             if str(item.room.get("room_id")) == str(room_id):
-                item.thumb.set_face(pixmap)
+                avatar = item.set_room_avatar(pixmap)
                 # 竖屏顶部横栏的头像排用的是同一张图（那边不走 NavItem）
-                host.sidebar.set_room_face(room_id, pixmap)
+                host.sidebar.set_room_face(room_id, avatar)
                 host.wall.pane_danmaku.refresh_sources()
                 return
 

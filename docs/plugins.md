@@ -275,6 +275,10 @@ class MyPlugin(api.Plugin):
 
 提供多频道来源的平台可以实现可选的 room_list(room_id, cancelled)。宿主在添加直播间的后台线程调用它，将 RoomList.rooms 中的 RoomInfo 显示在频道选择窗口。条目的 extra.import_group 可供分组筛选。用户选中后，宿主沿用关注导入流程保存卡片。RoomList.store 可接收已选房间 ID，在主线程保存播放所需的数据。用 choose=False 返回唯一房间可沿用普通添加和上墙流程。文件导入的平台可通过 room_input_file_filter 声明 Qt 文件过滤器，添加直播间面板会显示文件选择入口。
 
+平台可以实现 `room_card_branding(room_id) -> dict`。宿主在创建和恢复关注卡片时于界面线程调用，只读取本地元数据。可用键为 `avatar_path`（包内头像图的绝对路径）、`badge_path`（包内平台角标图的绝对路径）、`badge_from_avatar`（复用 `RoomInfo.face` 加载的头像）和 `label`（角标提示与无障碍名称）。没有专属标识时返回空字典。此接口只影响关注卡片的图像，平台归属和播放仍使用原来的 `kind`。
+
+将 `capture_first_playback_cover` 设为 `True` 可为缺少本地封面的关注卡片生成封面。宿主在画面墙进入正常视频播放时从当前播放器异步获取首张可用画面，保存到原有封面缓存。
+
 添加时使用平台的 `normalize` 标准化输入，后台 `room_info` 构建关注卡片。
 卡片拖入画面墙或右键“加入画面墙”后，后台 `play_url` 的结果交给 libmpv
 格子播放；请求头随流地址传给播放器。可选 `room_quality_options` 返回
