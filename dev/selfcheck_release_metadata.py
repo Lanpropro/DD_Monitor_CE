@@ -1,5 +1,6 @@
 """在线插件目录生成与本体发布脚本的更新元数据。"""
 import hashlib
+import ast
 import json
 from pathlib import Path
 import sys
@@ -13,8 +14,17 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.8'
-    assert version.VERSION_TAG == 'v0.8'
+    assert version.VERSION == '0.8.1'
+    assert version.VERSION_TAG == 'v0.8.1'
+    root = Path(__file__).resolve().parents[1]
+    context_tree = ast.parse((root / 'ddm/plugin_types.py').read_text(encoding='utf-8'))
+    context = next(node for node in context_tree.body if isinstance(node, ast.ClassDef) and node.name == 'PluginContext')
+    public_methods = {node.name for node in context.body if isinstance(node, ast.FunctionDef)}
+    assert {'register_sidebar_page', 'unregister_sidebar_page', 'start_sidebar_drag', 'cancel_sidebar_drag'} <= public_methods
+    api_tree = ast.parse((root / 'ddm/plugins.py').read_text(encoding='utf-8'))
+    assert any(isinstance(node, ast.ImportFrom) and node.module == 'danmaku_sources'
+               and any(item.name == 'ROOM_SUPPORTS_LIVE_DANMAKU' for item in node.names)
+               for node in api_tree.body), 'Release source must export the reviewed live danmaku capability'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     title, _, body = notes.partition('\n')
     assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
