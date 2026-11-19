@@ -147,6 +147,7 @@
       "selfcheck_dialog_modules",
       "selfcheck_wall_border",
       "selfcheck_fullscreen_controls",
+      "selfcheck_fullscreen_volume",
       "selfcheck_layout_16",
       "selfcheck_layout_growth_empty",
       "selfcheck_platform_logo_background",

@@ -181,7 +181,7 @@ Windows x64 检查进程的可选原生栈记录由 `build_native_crash.cmd` 编
 | [selfcheck_feedback_layout](../selfcheck_feedback_layout.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_audio](../selfcheck_fullscreen_audio.py) | 单项执行前核对 |
 | [selfcheck_fullscreen_capture](../selfcheck_fullscreen_capture.py) | 离屏单项；几何事件上限与过滤器回收、采集边界、异步观察者清理、返回／异常及嵌套退出；无账号／外网，不是实际性能证据 |
-| [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | 离屏：全屏方向键音量、调音量解除静音、上下限、输入隔离及保存 |
+| [selfcheck_fullscreen_volume](../selfcheck_fullscreen_volume.py) | `offline`；全屏滚轮与方向键、调音量解除静音、上下限、输入隔离及保存。Windows 原生滚轮另用 `--native-wheel` 单项验证。 |
 | [selfcheck_fullscreen_border](../selfcheck_fullscreen_border.py) | 单项执行前核对 |
 | [selfcheck_playback_badges](../selfcheck_playback_badges.py) | `smoke` / `offline` |
 | [selfcheck_playback_controls](../selfcheck_playback_controls.py) | `smoke` / `offline`；独立导入、旧类身份、音量边界与信号、按键交互、刷新显隐与父对象销毁、深浅主题及多缩放绘制；无媒体／账号／外网 |
