@@ -16,6 +16,15 @@ from .super_chat_model import SuperChatStore
 class DanmakuLifecycle:
     def __init__(self, host):
         self.host = host
+        self.recording_rooms = set()
+
+    def capture_changed(self) -> None:
+        rooms = {session.room_id for session in self.host.recorder.sessions.values()
+                 if getattr(session, 'wants_danmaku', False) and session.recording and not session.stopping
+                 and is_live_danmaku_source(session.room)}
+        if rooms != self.recording_rooms:
+            self.recording_rooms = rooms
+            self.sync_danmaku()
 
     def sync_danmaku(self) -> None:
         """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
@@ -38,6 +47,7 @@ class DanmakuLifecycle:
                       (wall.has_danmaku or panes.floating) and host.settings.get('super_chat_enabled', True))
                   and is_live_danmaku_source(tile.room) and (tile.room.get('live') or tile._player_active)}
         wanted.update(str(room['room_id']) for room in targets.values() if room.get('room_id'))
+        wanted.update(self.recording_rooms)
         primary = str(targets.get(wall.danmaku, {}).get('room_id') or '')
         if primary != host._danmaku_room:
             host._danmaku, host._danmaku_room = None, ''

@@ -9,6 +9,7 @@ from pathlib import Path
 
 class _Session:
     supports_replay = True
+    wants_danmaku = False
 
     def __init__(self, tile, settings: dict, recording: bool, folder: Path,
                  video_codec: str = ""):

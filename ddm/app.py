@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
         self.recorder = RecordingManager(self.settings, self, source_resolver=self._refresh_recording_source)
         self.recorder.noticeWithRoom.connect(self._record_notice)
         self.recorder.changed.connect(self._record_state_changed)
+        self.recorder.changed.connect(self.danmaku_lifecycle.capture_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
         self._pending_capture: dict[object, bool] = {}
 
