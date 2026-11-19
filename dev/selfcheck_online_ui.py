@@ -224,11 +224,22 @@ def check_plugin_page_boundaries(app, root):
 
 
 def check_installed_browser(app, root):
+    from base64 import b64decode
     from types import SimpleNamespace
+    from ddm.plugin_store_ui import PluginStoreLogo
+    from selfcheck_plugin_cache import CATALOG_LOGO, package
+
+    archive = root / 'installed-logo.zip'
+    archive.write_bytes(package('installed_00', icon='icon.png',
+                                files={'icon.png': b64decode(CATALOG_LOGO)}))
+    installer = PluginManager(plugins_dir=str(root / 'installed-logo'))
+    assert installer.install_zip(str(archive)) == 'installed_00'
+    icon = installer.catalog()[0]['icon_png']
+    assert icon == CATALOG_LOGO
     entries = [dict(id=f'installed_{index:02d}', name=f'插件 {15-index:02d}', version='1.0',
                     description='完整说明 ' * 60, enabled=index % 2 == 0,
                     status='已加载' if index % 2 == 0 else '未启用', reason='') for index in range(16)]
-    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80)
+    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80, icon_png=icon)
     offers = [dict(entry, version='1.1', author='Alice' if index % 2 else 'Bob' * 60,
                    available=True, notes='完整更新记录末尾') for index, entry in enumerate(entries[:3])]
     manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
@@ -248,6 +259,12 @@ def check_installed_browser(app, root):
             dialog.show()
             QTest.qWait(180)
             assert browser.count.text() == '16 / 16 个插件'
+            logo = page._installed_cards['installed_00'].findChild(PluginStoreLogo)
+            generic = page._installed_cards['installed_01'].findChild(PluginStoreLogo)
+            assert (logo.pixmap.width(), logo.pixmap.height()) == (40, 20)
+            assert generic.pixmap.isNull()
+            image = logo.grab().toImage()
+            assert image.pixelColor(image.width() // 2, image.height() // 2).red() == 230
             assert page.installed_scroll.horizontalScrollBar().maximum() == 0
             assert all(card.height() >= card.minimumSizeHint().height() for card in page._installed_cards.values()), \
                 'Installed cards must not squeeze text below its minimum height'

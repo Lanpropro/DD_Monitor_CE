@@ -1,10 +1,12 @@
 """Plugin package installation, removal and catalog; runtime manager owns loaded instances and settings."""
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
 import zipfile
 from .plugin_manifest import (PLUGIN_ID, PLUGIN_INVENTORY, RETIRED_BUNDLED_PLUGINS, RENAMED_PLUGINS, read_manifest)
+from .plugin_icons import package_icon
 
 
 class PluginPackages:
@@ -119,6 +121,7 @@ class PluginPackages:
                 "name": manifest["name"] if manifest else (str(plugin.name or folder) if plugin else folder),
                 "description": manifest["description"] if manifest else (str(plugin.description or "") if plugin else ""),
                 "version": manifest["version"] if manifest else (str(plugin.version or "") if plugin else ""),
+                "icon_png": package_icon(Path(host.plugins_dir) / folder, manifest.get("icon")) if manifest else "",
                 "enabled": host.enabled is None or folder in host.enabled,
                 "status": "已加载" if plugin else (
                     "已禁用" if reason == "配置里没有启用" else

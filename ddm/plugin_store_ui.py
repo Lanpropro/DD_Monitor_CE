@@ -5,7 +5,7 @@ from PySide6.QtCore import QEvent, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from .plugin_card_layout import PluginCardLayout
-from .plugin_catalog_api import decode_catalog_icon
+from .plugin_icons import decode_catalog_icon
 from . import config, online, plugin_updates, theme, version
 from .ui import ActionButton, SelectControl, SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot

@@ -11,7 +11,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ddm import online
-from ddm.plugin_catalog_api import ICON_MAX_BYTES, decode_catalog_icon
+from ddm.plugin_icons import ICON_MAX_BYTES, decode_catalog_icon
 from selfcheck_online import Response, asset
 
 

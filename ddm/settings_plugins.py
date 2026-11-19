@@ -270,7 +270,12 @@ class PluginSettingsPage(QWidget):
         body.setSpacing(12)
         summary = QVBoxLayout()
         summary.setSpacing(4)
-        body.addLayout(summary)
+        from .plugin_store_ui import PluginStoreLogo
+        header = QHBoxLayout()
+        header.setSpacing(10)
+        header.addWidget(PluginStoreLogo(entry, card), 0, Qt.AlignTop)
+        header.addLayout(summary, 1)
+        body.addLayout(header)
         title = ElidedLabel(entry["name"] + ("  v" + entry["version"] if entry["version"] else ""))
         title.setObjectName("PluginName")
         title.setTextFormat(Qt.PlainText)
