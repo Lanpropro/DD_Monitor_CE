@@ -132,9 +132,10 @@ def check_hover_shortcuts(app, window):
     with patch('ddm.app.QCursor.pos', return_value=point):
         assert window._tile_under_cursor() is second
         before = second.danmaku_button.isChecked()
+        first_before = first.danmaku_button.isChecked()
         QTest.keyClick(first.pause_button, Qt.Key_B)
         assert second.danmaku_button.isChecked() != before
-        assert not first.danmaku_button.isChecked()
+        assert first.danmaku_button.isChecked() == first_before
         QTest.keyClick(first.pause_button, Qt.Key_B)
         assert second.danmaku_button.isChecked() == before
         # 下拉框平时会吞掉字母键用于查找选项，窗口快捷键仍应先命中。
@@ -180,6 +181,8 @@ def check_hover_shortcuts(app, window):
         other.show()
         other.activateWindow()
         app.processEvents()
+        app.setActiveWindow(other)
+        assert app.activeWindow() is other
         QTest.keyClick(other, Qt.Key_B)
         assert second.danmaku_button.isChecked() == before
         other.close()
@@ -243,9 +246,10 @@ def check_danmaku_input(app, window):
             first.pause_button.setFocus()
             QTest.keyClick(first.pause_button, Qt.Key.Key_Return)
             assert second._bar_target == 0.0
-            assert not edit.hasFocus(), 'first Enter only restores the hidden bar'
+            assert edit.hasFocus(), 'Enter restores the hidden bar and focuses the input'
+            first.pause_button.setFocus()
             QTest.keyClick(first.pause_button, Qt.Key.Key_Enter)
-            assert edit.hasFocus()
+            assert edit.hasFocus() and confirmed_input == ['快捷输入']
             outside = window.mapToGlobal(QPoint(-100, -100))
             with patch('ddm.fullscreen_cursor.QCursor.pos', return_value=outside):
                 window._fullscreen_cursor.update_cursor()
@@ -331,10 +335,10 @@ def check_corner_empty_slots(app):
                     expected = tuple(not value for value in before[i]) if i == index else before[i]
                     assert (other.muted, other.danmaku_button.isChecked()) == expected, (index, i)
                 selected = (tile.muted, tile.danmaku_button.isChecked())
-                # 音量属于格子；新拖入房间的弹幕开关默认关闭。
+                # 音量属于格子；新拖入房间的弹幕开关默认开启。
                 if index:
                     window._on_room_dropped(tile, rooms[index]['room_id'])
-                    assert (tile.muted, tile.danmaku_button.isChecked()) == (selected[0], False)
+                    assert (tile.muted, tile.danmaku_button.isChecked()) == (selected[0], True)
                 current = (tile.muted, tile.danmaku_button.isChecked())
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_B)
                 QTest.keyClick(window.sidebar.settings_button, Qt.Key_M)
@@ -361,7 +365,7 @@ def main():
                        'load_cached_covers', 'load_cached_avatars'):
             stack.enter_context(patch.object(MainWindow, method))
         check_corner_empty_slots(app)
-        window = MainWindow([dict(room)], [dict(room), dict(room)], layout_id='2x2',
+        window = MainWindow([dict(room)], [dict(room), dict(room, room_id='1002')], layout_id='2x2',
                             state={'plugins_enabled': [], 'ui': {'shortcuts': {'mute': 'M', 'video_danmaku': 'D'}}})
         first, second = window.wall.tiles[:2]
         first_player = Mock()

@@ -1487,7 +1487,8 @@ class MainNoticesTests(unittest.TestCase):
         self.assertTrue(window._startup_status_complete)
 
     def test_b_targets_one_tile_remaps_and_preserves_typing(self):
-        window = self.window([{'room_id': '1001'}, {'room_id': '1001'}])
+        window = self.window([{'room_id': '1001', 'video_danmaku_enabled': False},
+                              {'room_id': '1002', 'video_danmaku_enabled': False}])
         first, second = window.wall.tiles[:2]
         cursor = self.stack.enter_context(patch.object(window, '_tile_under_cursor', return_value=second))
         self.assertEqual(window.shortcuts['video_danmaku'], 'B')

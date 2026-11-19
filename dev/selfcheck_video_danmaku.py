@@ -684,7 +684,7 @@ class Snapshot(QThread):
 
 
 def check_motion(app):
-    tile = Tile({"room_id": "1", "live": True})
+    tile = Tile({"room_id": "1", "live": True, "video_danmaku_enabled": False})
     tile.resize(900, 540)
     tile.show()
     app.processEvents()
@@ -851,7 +851,7 @@ def check_routing(app):
             patch.object(MainWindow, "start_tile"), \
             patch.object(MainWindow, "refresh_status"), patch.object(MainWindow, "refresh_stats"):
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id="2x2",
-                            state={"plugins_enabled": []})
+                            state={"plugins_enabled": [], "room_danmaku_switches": {"1003": False}})
         window.resize(1200, 760)
         window.show()
         app.processEvents()
@@ -859,8 +859,7 @@ def check_routing(app):
         try:
             for tile in window.wall.tiles:
                 tile.set_video_active(True)
-            for tile in (first, duplicate, second):
-                QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
+            window.sync_danmaku()
             assert len(window._danmaku_clients) == 2, "同直播间的两格应共用连接"
             client = window._danmaku_clients["1001"]
             assert client.parent() is window, "主窗口继续拥有连接的 Qt 生命周期"
@@ -883,7 +882,7 @@ def check_routing(app):
             client.message.emit({"text": "共享消息"})
             assert "共享消息" in window.wall.danmaku.body.toPlainText()
             first.danmaku_button.setChecked(False)
-            duplicate.danmaku_button.setChecked(False)
+            assert not duplicate.danmaku_button.isChecked()
             assert window._danmaku_clients["1001"] is client, "弹幕格仍需使用此连接"
             window.wall.set_layout("2x2")
             window.sync_danmaku()
