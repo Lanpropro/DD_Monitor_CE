@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 os.environ["DDM_NO_SAVE"] = "1"
@@ -12,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog
 from ddm import config, theme
 from ddm.app import MainWindow
+from ddm.danmaku_lifecycle import DanmakuLifecycle
 from ddm.widgets import Tile
 from selfcheck_video_danmaku import Client, Snapshot
 from dev.selfcheck_video_danmaku import wait_comment_raster
@@ -315,6 +317,46 @@ def check_outline_migration(app):
     print("PASS: outline settings migrate the legacy toggle and preserve zero on reload")
 
 
+def check_recording_subscriptions():
+    room = {'room_id': '1001', 'live': True}
+    tile = SimpleNamespace(room=room, _player_active=True, isVisible=lambda: True,
+                           danmaku_button=SimpleNamespace(isChecked=lambda: False))
+    normal = SimpleNamespace(room=room, room_id='1001', recording=True, stopping=False)
+    clip = SimpleNamespace(room=room, room_id='1001', wants_danmaku=True, recording=False, stopping=False)
+    host = SimpleNamespace(_closing=False, plugins=True, _danmaku_room='', _danmaku_clients={},
+        wall=SimpleNamespace(tiles=[tile], has_danmaku=False,
+                             danmaku=MagicMock(), sync_sc_placement=MagicMock()),
+        recorder=SimpleNamespace(sessions={'original': normal, 'clip': clip}))
+    starts = []
+
+    def subscribe(room_id):
+        starts.append(room_id)
+        host._danmaku_clients[room_id] = object()
+
+    host._ensure_danmaku_client = subscribe
+    host._stop_danmaku_client = host._danmaku_clients.pop
+    lifecycle = DanmakuLifecycle(host)
+    lifecycle.capture_changed()
+    assert not starts
+    clip.recording = True
+    lifecycle.capture_changed()
+    assert starts == ['1001']
+    lifecycle.sync_danmaku()
+    assert starts == ['1001']
+    tile.danmaku_button.isChecked = lambda: True
+    clip.stopping = True
+    lifecycle.capture_changed()
+    assert '1001' in host._danmaku_clients
+    tile.danmaku_button.isChecked = lambda: False
+    lifecycle.sync_danmaku()
+    assert not host._danmaku_clients
+    clip.stopping = False
+    room['supports_live_danmaku'] = False
+    lifecycle.capture_changed()
+    assert starts == ['1001']
+    print('PASS: active clip recording shares chat subscriptions and keeps native recordings independent')
+
+
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
@@ -322,6 +364,7 @@ def main():
     check_controls(app)
     check_overlay_mask(app)
     check_outline_migration(app)
+    check_recording_subscriptions()
 
 
 if __name__ == "__main__":

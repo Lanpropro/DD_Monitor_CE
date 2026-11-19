@@ -237,6 +237,7 @@ def segment_args(settings: dict, pattern: Path, video_codec: str = "", *,
 
 class _Session:
     supports_replay = True
+    wants_danmaku = False
 
     def __init__(self, tile, settings: dict, recording: bool, folder: Path,
                  video_codec: str = ""):
