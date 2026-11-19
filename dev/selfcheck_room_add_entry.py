@@ -268,9 +268,40 @@ class AddRoomEntryTests(unittest.TestCase):
         tile = window.wall.tiles[0]
         self.assertEqual(item.name_label._full_text, 'CCTV-5+')
         self.assertEqual(item.sub._full_text, '体育赛事')
-        self.assertEqual(item.badge.text(), '待播放')
+        self.assertEqual(item.badge.text(), '待检测')
         self.assertEqual((tile.room['uname'], tile.room['title']), ('CCTV-5+', '体育赛事'))
         self.assertEqual(window.current_state()['platform_rooms'][room_id]['playback_mode'], 'stream')
+
+    def test_iptv_poll_result_sorts_unwalled_card_and_preserves_local_playback(self):
+        from ddm.room_status import RoomStatus
+
+        room_id = 'm3u:preset:cctv5plus'
+        offline = dict(room_id='1001', uname='离线主播', live=False)
+        channel = dict(room_id=room_id, uname='CCTV-5+', live=False, live_known=False, live_from_playback=True)
+        sidebar = self.own(Sidebar([offline, channel], auto_compact=False))
+        sidebar.set_sort_mode('live')
+        host = SimpleNamespace(sidebar=sidebar, wall=SimpleNamespace(tiles=[]), settings={},
+                               hover_preview=Mock(**{'_room_id.return_value': ''}), _startup_status_complete=True,
+                               _load_room_banners=Mock(), _sync_replay_scope=Mock(), sync_danmaku=Mock(),
+                               _show_notice=Mock())
+        status = RoomStatus(host)
+        item = sidebar.items_control.items()[1]
+        self.assertEqual(item.room['room_id'], room_id)
+        status.apply_status({room_id: dict(live=True, live_known=True, title='', viewers='')})
+        self.assertEqual(item.badge.text(), '直播中')
+        self.assertIs(sidebar.items_control.items()[0], item)
+        host._show_notice.assert_not_called()
+
+        tile = Mock(room=dict(item.room), _player_active=True)
+        host.wall.tiles = [tile]
+        unknown = {room_id: dict(live=False, live_known=False, title='', viewers='')}
+        status.apply_status(unknown)
+        self.assertEqual(item.badge.text(), '直播中')
+        tile.set_live.assert_not_called()
+        host.wall.tiles = []
+        status.apply_status(unknown)
+        self.assertEqual((item.badge.text(), item.sub._full_text), ('待检测', '待检测'))
+        self.assertEqual(sidebar.items_control.items()[0].room['room_id'], '1001')
 
     def test_tv_preset_from_empty_tile_adds_follow_only_and_deduplicates(self):
         host = self.host()

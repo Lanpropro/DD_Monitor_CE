@@ -275,7 +275,7 @@ class NavItem(QFrame):
 
     def _live_text(self) -> str:
         if self.room.get("live_from_playback") and not self.room.get("live_known", False):
-            return "待播放"
+            return "待检测"
         return "直播中" if self.room.get("live") else "未开播"
 
     def set_live(self, live: bool) -> None:

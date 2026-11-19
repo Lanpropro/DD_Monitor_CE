@@ -158,7 +158,7 @@ class FeedbackTests(unittest.TestCase):
         playback = StreamPlayback(host)
         try:
             playback.on_player_state(tile, 'connecting')
-            self.assertEqual((item.badge.text(), item.sub._full_text), ('待播放', '待播放'))
+            self.assertEqual((item.badge.text(), item.sub._full_text), ('待检测', '待检测'))
             self.assertFalse(item.room['live'])
             playback.on_player_state(tile, 'playing')
             self.assertEqual((item.badge.text(), item.sub._full_text), ('直播中', '直播中'))
