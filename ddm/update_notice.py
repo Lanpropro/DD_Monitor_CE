@@ -232,11 +232,16 @@ class UpdateNotice(QFrame):
     def hideEvent(self, event):
         self.timer.stop()
         self._close_timer.stop()
-        notices = getattr(self.parentWidget(), '_notices', [])
+        parent = self.parentWidget()
+        notices = getattr(parent, '_notices', [])
         if self in notices:
             notices.remove(self)
         super().hideEvent(event)
         self._reflow()
+        # Refresh the mask after the surviving notices have reached their new positions.
+        layer = getattr(getattr(parent, 'wall', None), '_quick_danmaku_layer', None)
+        if layer is not None and not getattr(parent, '_closing', False):
+            layer.show()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
