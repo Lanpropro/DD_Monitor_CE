@@ -14,8 +14,8 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.8.1'
-    assert version.VERSION_TAG == 'v0.8.1'
+    assert version.VERSION == '0.8'
+    assert version.VERSION_TAG == 'v0.8'
     root = Path(__file__).resolve().parents[1]
     context_tree = ast.parse((root / 'ddm/plugin_types.py').read_text(encoding='utf-8'))
     context = next(node for node in context_tree.body if isinstance(node, ast.ClassDef) and node.name == 'PluginContext')
@@ -29,6 +29,8 @@ def main():
     title, _, body = notes.partition('\n')
     assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
     assert body.strip(), 'Current Release Markdown must include a body'
+    hotfix_notes = (root / 'docs/releases/RELEASE-v0.8-hotfix.1.md').read_text(encoding='utf-8')
+    assert hotfix_notes.startswith('# DD监控室CE v0.8-hotfix.1 更新说明')
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.7.3.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.7.3 更新说明')
     for feature in ('设置与外观', '弹幕、画面墙与播放', '更新、插件与诊断',
@@ -83,6 +85,7 @@ def main():
                 'id': 'community_tool', 'name': '社区工具', 'description': 'new ID', 'version': '1.0'}))
         assert build([community], 'community-tool-v1.0')['plugins'][0]['id'] == 'community_tool'
     source = (Path(__file__).resolve().parents[1] / 'dev/build_release.ps1').read_text(encoding='utf-8')
+    assert '"docs/releases/RELEASE-$ReleaseTag.md"' in source, 'Hotfix metadata must use its own reviewed notes'
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source

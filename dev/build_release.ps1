@@ -159,7 +159,7 @@ plugins_user\               插件目录（新插件含 plugin.json 和 plugin.p
 utils\                      配置目录（首次运行会生成 config.json）
 docs\                       文档与截图
 LICENSE / docs\NOTICE.md    许可与第三方声明
-docs\releases\RELEASE-$version.md 这一版改了什么
+docs\releases\RELEASE-$ReleaseTag.md 这一版改了什么
 
 说明
 ----
@@ -264,9 +264,13 @@ if (-not $SourceOnly) {
     # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
     # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
-    foreach ($file in @("LICENSE", "docs/NOTICE.md", "docs/releases/RELEASE-v$($version.TrimStart('v')).md")) {
+    foreach ($file in @("LICENSE", "docs/NOTICE.md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }
+    }
+    $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$ReleaseTag.md"
+    if (Test-Path -LiteralPath $releaseNotes) {
+        Copy-Item -LiteralPath $releaseNotes -Destination (Join-Path $exeDir "RELEASE-$version.md") -Force
     }
     $exeReadme = @"
 DD 监控室 $version（exe 便携版）
@@ -326,7 +330,6 @@ DDMonitorDiagnostics.exe 是独立诊断工具，软件无法启动时也可双�
         Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
         Write-Output "=== 压缩 exe 包 $exeZip ==="
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
-        $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$version.md"
         $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
         $remoteExeName = "DDMonitorCE-$version-exe.zip"
         @{ version = $version.TrimStart('v'); revision = $UpdateRevision; release_tag = $ReleaseTag; asset_name = $remoteExeName;
