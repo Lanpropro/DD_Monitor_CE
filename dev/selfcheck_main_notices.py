@@ -180,7 +180,8 @@ class MainNoticesTests(unittest.TestCase):
         window.start_tile.assert_called_once_with(target)
 
     def test_sidebar_switch_is_complete_before_return_and_repaint(self):
-        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        rooms = [dict(room_id=str(i), uname='Fixture') for i in range(12)]
+        window = self.window(rooms, wall_rooms=rooms[:4])
         sidebar, wall = window.sidebar, window.wall
         source = QPixmap(400, 225)
         source.fill(QColor('green'))
@@ -224,7 +225,8 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(sidebar._collapse_animating)
 
     def test_sidebar_final_paint_precedes_player_resize(self):
-        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
+        rooms = [dict(room_id=str(i), uname='Fixture') for i in range(12)]
+        window = self.window(rooms, wall_rooms=rooms[:4])
         sidebar, wall = window.sidebar, window.wall
         paints = []
 
@@ -1404,8 +1406,13 @@ class MainNoticesTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.addCleanup(theme.signals().changed.disconnect)
-        self.fixture_plugins = self.stack.enter_context(
-            tempfile.TemporaryDirectory(prefix='ddm-window-plugins-'))
+        root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix='ddm-window-')))
+        self.stack.enter_context(patch('ddm.config.DATA_ROOT', str(root)))
+        self.stack.enter_context(patch('ddm.config.CONFIG_PATH', str(root / 'config.json')))
+        self.stack.enter_context(patch('ddm.images.REPO', str(root)))
+        plugins = root / 'plugins_user'
+        plugins.mkdir()
+        self.fixture_plugins = str(plugins)
         self.stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', self.fixture_plugins))
         for method in ('_start_startup_tiles', 'start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
@@ -1416,8 +1423,10 @@ class MainNoticesTests(unittest.TestCase):
         self.stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))
         self.stack.enter_context(patch('ddm.images.load_cached_avatar', return_value=None))
 
-    def window(self, rooms, *, offscreen=False):
-        window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
+    def window(self, rooms, *, wall_rooms=None, offscreen=False):
+        if wall_rooms is None:
+            wall_rooms = rooms
+        window = MainWindow([dict(room) for room in rooms], [dict(room) for room in wall_rooms],
                             layout_id='2x2', state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         window.resize(1000, 700)
         if offscreen:
@@ -2075,8 +2084,10 @@ class MainNoticesTests(unittest.TestCase):
             notice.assert_not_called()
 
     def test_large_startup_snapshot_and_enrichment_do_not_notify(self):
-        window = self.window([{'room_id': str(index), 'live': False, 'live_known': False}
-                              for index in range(1001, 1061)])
+        rooms = [{'room_id': str(index), 'live': False, 'live_known': False}
+                 for index in range(1001, 1061)]
+        wall_rooms = rooms[:2] + rooms[-2:]
+        window = self.window(rooms, wall_rooms=wall_rooms)
         with patch.object(window, '_show_notice') as notice, patch.object(window.sidebar, 'play_live_alerts') as alerts:
             first = {str(index): self.status(True) for index in range(1001, 1031)}
             second = {str(index): self.status(True) for index in range(1031, 1061)}
@@ -2087,7 +2098,10 @@ class MainNoticesTests(unittest.TestCase):
             window._on_status_updated({**first, **second})
             notice.assert_not_called()
             alerts.assert_not_called()
-            self.assertTrue(all(item.room['live'] for item in window.sidebar._items))
+            self.assertEqual({item.room['room_id'] for item in window.sidebar._items if item.room['live']},
+                             first.keys() | second.keys())
+            self.assertEqual({tile.room['room_id'] for tile in window.wall.tiles if tile.room['live']},
+                             {room['room_id'] for room in wall_rooms})
 
     def test_status_avatar_changes_use_background_cache_loading(self):
         window = self.window([{'room_id': '1001', 'live': False}])

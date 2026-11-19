@@ -61,10 +61,14 @@ class SystemTrayTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         root = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix='ddm-tray-')))
+        self.stack.enter_context(patch.object(config, 'DATA_ROOT', str(root)))
         self.stack.enter_context(patch.object(config, 'CONFIG_PATH', str(root / 'config.json')))
+        self.stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(root / 'plugins_user')))
+        self.stack.enter_context(patch('ddm.images.REPO', str(root)))
         self.stack.enter_context(patch.dict(os.environ, {'DDM_NO_SAVE': ''}))
         self.stack.enter_context(patch.object(system_tray, 'QSystemTrayIcon', FakeTray))
         self.stack.enter_context(patch('ddm.app.QTimer.singleShot'))
+        self.stack.enter_context(patch.object(MainWindow, '_ensure_danmaku_client', return_value=None))
         FakeTray.supported = True
         self.windows = []
 
@@ -138,6 +142,8 @@ class SystemTrayTests(unittest.TestCase):
         window = self.window('tray')
         tile = window.wall.tiles[0]
         tile.set_room({'room_id': '123', 'uname': 'Fixture', 'live': True})
+        self.assertTrue(tile.danmaku_button.isChecked())
+        self.assertFalse(window._danmaku_clients)
         player, resolver = Mock(), Mock()
         window.players[tile] = player
         window._resolvers[tile] = resolver
