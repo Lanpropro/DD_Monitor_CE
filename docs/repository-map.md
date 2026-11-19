@@ -530,6 +530,7 @@
 - `docs/releases/RELEASE-v0.7.2-hotfix.2.md`
 - `docs/releases/RELEASE-v0.7.3.md`
 - `docs/releases/RELEASE-v0.8.md`
+- `docs/releases/RELEASE-v0.8-hotfix.1.md`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具

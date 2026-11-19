@@ -69,7 +69,7 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 75)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 76)])
         memory_case = next(line for line in content.splitlines() if line.startswith('| BUG-074 |'))
         self.assertEqual(memory_case.split('|')[3].strip(), '部分修复待验收')
         douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
@@ -179,22 +179,24 @@ class RepositoryMapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "docs/releases").mkdir(parents=True)
-            expected = {"LICENSE": "License", "NOTICE.md": "Notice",
-                        "RELEASE-vtest.md": "Release"}
             for path, content in (("LICENSE", "License"), ("docs/NOTICE.md", "Notice"),
-                                  ("docs/releases/RELEASE-vtest.md", "Release")):
+                                  ("docs/releases/RELEASE-vtest.md", "Release"),
+                                  ("docs/releases/RELEASE-vtest-hotfix.1.md", "Hotfix")):
                 (root / path).write_text(content, encoding="utf-8")
-            output = root / "portable"
-            output.mkdir()
             script = root / "copy-documents.ps1"
-            script.write_text('param($repo, $exeDir, $version)\n$ErrorActionPreference = "Stop"\n'
+            script.write_text('param($repo, $exeDir, $version, $ReleaseTag)\n$ErrorActionPreference = "Stop"\n'
                               + source[start:stop], encoding="utf-8-sig")
-            result = subprocess.run(["powershell", "-NoProfile", "-File", str(script),
-                                     "-repo", str(root), "-exeDir", str(output),
-                                     "-version", "vtest"], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual({p.name: p.read_text(encoding="utf-8")
-                              for p in output.iterdir()}, expected)
+            for tag, notes in (("vtest", "Release"), ("vtest-hotfix.1", "Hotfix")):
+                with self.subTest(tag=tag):
+                    output = root / tag
+                    output.mkdir()
+                    result = subprocess.run(["powershell", "-NoProfile", "-File", str(script),
+                                             "-repo", str(root), "-exeDir", str(output),
+                                             "-version", "vtest", "-ReleaseTag", tag], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual({p.name: p.read_text(encoding="utf-8")
+                                      for p in output.iterdir()},
+                                     {"LICENSE": "License", "NOTICE.md": "Notice", "RELEASE-vtest.md": notes})
 
 
 if __name__ == "__main__":
