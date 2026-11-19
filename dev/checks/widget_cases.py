@@ -29,7 +29,7 @@ def run_widget_cases(case, script, arguments=()):
 
     failed = []
     # Native cases share desktop focus; keep their original serial order.
-    workers = 1 if '--native' in arguments else 2
+    workers = 1 if '--native' in arguments or env.get('QT_QPA_PLATFORM') == 'windows' else 2
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for name, code, output in pool.map(run, names):
             print(output, end='', flush=True)

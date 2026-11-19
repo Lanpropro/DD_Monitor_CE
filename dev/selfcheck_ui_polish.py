@@ -142,12 +142,11 @@ class UiPolishTests(unittest.TestCase):
         overlay.apply_settings({**settings, 'video_danmaku_scale': False})
         self.assertEqual(overlay.font_pixels(), 40)
         event = {'id': 'test', 'message': 'readable', 'price': 30, 'uname': 'fixture'}
-        # A collapsed card fits at all strengths, isolating video scaling from crowding.
+        # SC retains the readable 90% minimum even when the viewport curve is smaller.
         sizes = [sc_placement_rects([event], 1280, 360, scale_with_video=True,
                                    scale_strength=value, collapsed=True)[1] for value in (0, 35, 100)]
         self.assertEqual(sizes[0], 1)
-        self.assertGreater(sizes[1], sizes[2])
-        self.assertEqual(sizes[2], .5)
+        self.assertEqual(sizes[1:], [.9, .9])
         self.assertIn('video_danmaku_scale_strength', config.VIDEO_DANMAKU_SETTING_KEYS)
         page = DanmakuSettingsPage(config.DEFAULT_SETTINGS)
         self.addCleanup(page.deleteLater)
@@ -206,7 +205,7 @@ class UiPolishTests(unittest.TestCase):
         self.assertEqual(overlay.font_pixels(), 32)
         event = {'id': 'curve', 'message': 'readable', 'price': 30, 'uname': 'fixture'}
         self.assertEqual(sc_placement_rects([event], 1280, 360, scale_with_video=True,
-                                          collapsed=True, scale_curve=points)[1], .8)
+                                          collapsed=True, scale_curve=points)[1], .9)
         self.assertIn('video_danmaku_scale_curve', config.VIDEO_DANMAKU_SETTING_KEYS)
         tile = Tile({'room_id': 'curve-fixture'})
         self.addCleanup(tile.deleteLater)

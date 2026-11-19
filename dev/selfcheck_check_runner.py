@@ -21,6 +21,15 @@ from ddm import check_diagnostics
 
 
 class CheckRunnerTests(unittest.TestCase):
+    def test_native_pip_lifecycle_checks_are_not_run_with_offscreen_backend(self):
+        suites = runner.load_suites()
+        workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
+        for name in ('selfcheck_picture_in_picture', 'selfcheck_pip_picker'):
+            self.assertIn(name, suites['native']['scripts'])
+            self.assertNotIn(name, suites['smoke']['scripts'])
+            self.assertNotIn(name, suites['offline']['scripts'])
+            self.assertIn('--script '+name+' --timeout 180', workflow)
+
     @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD exit status')
     def test_memory_entry_preserves_negative_native_exit_status(self):
         entry = (runner.ROOT / 'run.cmd').read_text(encoding='utf-8-sig').split(':nativeMemoryCheck\n', 1)[1].split(':diagnosticsCheck', 1)[0]
@@ -243,7 +252,6 @@ if __name__ == '__main__':
             'selfcheck_single_instance', 'selfcheck_drag_lifecycle', 'selfcheck_sidebar_hit_test',
             'selfcheck_room_placement', 'selfcheck_room_preset_control', 'selfcheck_window_layout', 'selfcheck_pane_danmaku',
             'selfcheck_video_caption',
-            'selfcheck_picture_in_picture', 'selfcheck_pip_picker',
             'selfcheck_room_status_controller', 'selfcheck_live_elapsed', 'selfcheck_room_images',
             'selfcheck_playback_badges', 'selfcheck_ui_polish', 'selfcheck_card_drop', 'selfcheck_settings_navigation', 'selfcheck_settings_layout', 'selfcheck_playback_controls',
             'selfcheck_widget_modules', 'selfcheck_functional_modules', 'selfcheck_sidebar_folder_control', 'selfcheck_sidebar_order', 'selfcheck_sidebar_presentation', 'selfcheck_dialog_modules', 'selfcheck_wall_border', 'selfcheck_responsiveness',

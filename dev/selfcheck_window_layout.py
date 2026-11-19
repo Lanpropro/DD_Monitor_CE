@@ -32,7 +32,7 @@ class Host:
         self.orientation, self._layout_by_orientation, self._pending_layout = 'landscape', {}, ''
         self.state, self._applying_room_preset, self._settling_resize = {}, False, False
         self.settings = {}
-        self.picture_in_picture = Mock(active=False)
+        self.picture_in_picture = Mock(active=False, moves_main_wall=False)
         self._root_layout, self._content, self.sidebar = Mock(), Mock(), Mock()
         self._root_layout.isEnabled.return_value = True
         self._root_layout.indexOf.side_effect = lambda widget: 0 if widget is self.sidebar else 1
@@ -121,10 +121,10 @@ class WindowLayoutTests(unittest.TestCase):
     def test_guard_and_exception_restore_root_layout_enabled_state(self):
         host = Host()
         for applying, pip in ((True, False), (False, True)):
-            host._applying_room_preset, host.picture_in_picture.active = applying, pip
+            host._applying_room_preset, host.picture_in_picture.moves_main_wall = applying, pip
             host._apply_orientation('portrait')
             host._root_layout.setEnabled.assert_not_called()
-        host._applying_room_preset = host.picture_in_picture.active = False
+        host._applying_room_preset = host.picture_in_picture.moves_main_wall = False
         for enabled in (True, False):
             host.orientation = 'landscape'
             host._root_layout.isEnabled.return_value = enabled

@@ -32,8 +32,6 @@
       "selfcheck_window_layout",
       "selfcheck_pane_danmaku",
       "selfcheck_video_caption",
-      "selfcheck_picture_in_picture",
-      "selfcheck_pip_picker",
       "selfcheck_room_status_controller",
       "selfcheck_live_elapsed",
       "selfcheck_room_images",
@@ -105,8 +103,6 @@
       "selfcheck_sidebar_hit_test",
       "selfcheck_room_placement",
       "selfcheck_pane_danmaku",
-      "selfcheck_picture_in_picture",
-      "selfcheck_pip_picker",
       "selfcheck_folder_drag",
       "selfcheck_folder_card_drag",
       "selfcheck_player_lifetime",
@@ -218,7 +214,9 @@
       "selfcheck_video_danmaku_quick",
       "selfcheck_settings_occlusion",
       "selfcheck_danmaku_render_thread",
-      "selfcheck_smooth_edges"
+      "selfcheck_smooth_edges",
+      "selfcheck_picture_in_picture",
+      "selfcheck_pip_picker"
     ]
   },
   "live": {

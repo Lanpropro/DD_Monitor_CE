@@ -2160,6 +2160,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def test_background_avatar_loader_uses_disk_cache_without_network(self):
         import threading
+        import time
         from ddm import images
         with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
             url = 'https://example.invalid/avatar.png'
@@ -2177,9 +2178,16 @@ class MainNoticesTests(unittest.TestCase):
             loader.loaded.connect(lambda rid, pixmap: loaded.append((rid, pixmap)))
             with patch.object(images, 'load_pixmap', side_effect=read), \
                     patch.object(images.requests, 'get', side_effect=AssertionError('Cache hit must not use network')):
-                loader.start()
-                self.assertTrue(loader.wait(3000))
-                self.app.processEvents()
+                try:
+                    loader.start()
+                    deadline = time.monotonic() + 5
+                    while loader.isRunning() and time.monotonic() < deadline:
+                        self.app.processEvents()
+                        time.sleep(.01)  # Release the GIL for the Python image workers.
+                    self.assertTrue(loader.isFinished())
+                    self.app.processEvents()
+                finally:
+                    loader.wait(15000)  # Keep the cache fixture alive until all worker handles close.
             self.assertEqual([rid for rid, _ in loaded], ['1001'])
             self.assertFalse(loaded[0][1].isNull())
             self.assertTrue(threads and all(t != threading.get_ident() for t in threads))

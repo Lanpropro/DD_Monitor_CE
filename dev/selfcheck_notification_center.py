@@ -346,23 +346,28 @@ class NotificationTests(unittest.TestCase):
         show_result(self.owner, '退出时不再写入')
         self.assertEqual(len(self.center.entries), 2)
 
-    def test_outside_close_removes_only_its_own_record(self):
+    def test_outside_close_marks_only_its_own_record_read(self):
         callback = Mock()
         show_result(self.owner, '重复文字', on_click=callback, persistent=True)
         first = self.owner._result_notice
+        first_entry = self.center.entries[-1]
         show_result(self.owner, '重复文字', persistent=True)
         second_entry = self.center.entries[-1]
         first.findChild(QPushButton, 'NoticeClose').click()
-        self.assertEqual(self.center.entries, [second_entry])
+        self.assertEqual(self.center.entries, [first_entry, second_entry])
+        self.assertFalse(first_entry.unread)
+        self.assertTrue(second_entry.unread)
         self.assertEqual(self.button._unread, 1)
         callback.assert_not_called()
 
-    def test_outside_body_click_marks_handled_with_or_without_action(self):
+    def test_outside_body_click_marks_history_read_with_or_without_action(self):
         for callback in (None, Mock()):
             show_result(self.owner, '外侧通知', on_click=callback, persistent=True)
             notice = self.owner._result_notice
+            entry = self.center.entries[-1]
             QTest.mouseClick(notice, Qt.LeftButton, pos=QPoint(8, 8))
-            self.assertFalse(self.center.entries)
+            self.assertIn(entry, self.center.entries)
+            self.assertFalse(entry.unread)
             self.assertEqual(self.button._unread, 0)
             if callback is not None:
                 callback.assert_called_once()
@@ -378,7 +383,7 @@ class NotificationTests(unittest.TestCase):
         notice.findChild(QPushButton, 'NoticeClose').click()
         self.assertEqual([entry.message for entry in self.center.entries], ['清空后新通知'])
 
-    def test_outside_update_action_removes_deduplicated_records_without_readding(self):
+    def test_outside_update_action_keeps_one_handled_deduplicated_record(self):
         notice = UpdateNotice(self.owner)
         self.addCleanup(self.dispose, notice)
         entry = self.center.add('版本更新', key=('update', 'test'))
@@ -386,9 +391,11 @@ class NotificationTests(unittest.TestCase):
         notice.track_history((self.center, entry))
         notice.show_offer({'version': 'test'}, persistent=True)
         notice.action.click()
-        self.assertFalse(self.center.entries)
+        self.assertEqual(self.center.entries, [entry])
+        self.assertFalse(entry.unread)
         self.center.add('版本更新', key=('update', 'test'))
-        self.assertFalse(self.center.entries)
+        self.assertEqual(self.center.entries, [entry])
+        self.assertFalse(entry.unread)
 
     def test_unread_indicator_open_read_and_new_while_open(self):
         self.assertEqual(self.center.title.text(), '通知')
@@ -666,7 +673,7 @@ class NotificationTests(unittest.TestCase):
             else:
                 self.assertIs(button.parentWidget(), sidebar._bar_row)
             sidebar.set_collapsed(True, animate=False)
-            self.assertEqual(button.isVisible(), side == 'left')
+            self.assertTrue(button.isVisible())
             sidebar.set_collapsed(False, animate=False)
             self.assertTrue(button.isVisible())
 
@@ -735,4 +742,7 @@ class NotificationTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    if len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        raise SystemExit(run_widget_cases(NotificationTests, __file__))
     unittest.main()
