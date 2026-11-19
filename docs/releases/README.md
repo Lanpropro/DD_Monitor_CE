@@ -9,7 +9,8 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [RELEASE-v0.7.3](RELEASE-v0.7.3.md) | 当前已发布版本（源码 `ddm/version.py`） |
+| [RELEASE-v0.7.3](RELEASE-v0.7.3.md) | 当前已发布版本 |
+| [RELEASE-v0.8](RELEASE-v0.8.md) | 0.8 本地候选说明，待人工验收 |
 | [UNRELEASED](UNRELEASED.md) | 下一版本累积记录；按条目追加，发布前汇总 |
 
 ## 本体版本
