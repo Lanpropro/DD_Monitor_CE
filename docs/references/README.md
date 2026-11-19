@@ -30,7 +30,7 @@
 
 ## 控件库设计评审
 
-[控件图鉴与评审记录](ui-control-library-draft.md)提供设置页和播放格 16 项控件的交互试样、详情参数和 Qt 实装对照，并收录深浅页面样板和按钮状态。
+[控件图鉴与评审记录](ui-control-library-draft.md)提供 30 项在用控件和组合的网页试样、详情参数与 Qt 对照，覆盖设置、播放格、工具和关注导航。
 
 2026-11-19 操作 EasyUI 的组件预览后，将多项总览、独立试用详情和参数说明用于图鉴。 [设计评审记录](ui-control-library-draft.md#easyui-展示参考) · [EasyUI](https://easyui.site/)
 

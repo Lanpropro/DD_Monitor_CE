@@ -547,9 +547,11 @@
 - `docs/features/README.md`
 - `docs/references/README.md`
 - `docs/references/ui-control-library-draft.md`
+- `docs/references/ui-control-library-qt-extra.png`
 - `docs/references/ui-control-library-qt.png`
 - `docs/references/ui-control-library.html`
 - `docs/references/ui-control-library.js`
+- `docs/references/ui-control-examples.js`
 - `docs/references/ui-control-playground.css`
 - `docs/references/ui-control-playground.js`
 - `docs/features/appearance-design.md`

@@ -34,8 +34,10 @@ const labControls = [
     '关闭当前播放格。试用区可再次点击恢复样例。'],
 ].map(([id, title, location, width, height, radius, usage], row) => ({
   id, title, location, width, height, radius, usage, row,
+  group: row < 8 ? '设置页' : '播放格',
+  area: row < 8 ? 'settings' : row < 13 ? 'bottom' : 'overlay',
   source: row < 6 ? 'ddm/settings_general.py' : row < 8 ? 'ddm/settings_appearance.py' : 'ddm/tile_widgets.py',
-}));
+})).concat(labAdditionalControls);
 
 const labPresets = [['', '默认'], ['#00a1d6', '蓝'], ['#20b976', '绿'], ['#8866ee', '紫'],
   ['#ef638e', '粉'], ['#f58b32', '橙']];
@@ -57,7 +59,7 @@ const labTransitions = {
 };
 
 const labButton = (label, glyph = '', text = '', attrs = '', primary = false) =>
-  `<button type="button" class="lab-control ${text ? '' : 'lab-icon-only'}" aria-label="${label}" title="${label}" ${attrs} ${primary ? 'data-primary' : ''}>
+  `<button type="button" class="lab-control ${text ? '' : 'lab-icon-only'}" aria-label="${label}" title="${label}" ${attrs} ${primary ? `data-primary data-lab-glyph="${glyph}"` : ''}>
     <span class="lab-glyph" ${primary ? 'data-icon-slot' : ''}>${glyph ? labIcon(glyph) : ''}</span><span class="lab-label">${text}</span>
   </button>`;
 
@@ -131,12 +133,13 @@ function labSetTheme(mode) {
 function labMount(host, item) {
   const { id, width, height, radius } = item;
   host.dataset.labDemo = id;
-  host.dataset.labArea = item.row < 8 ? 'settings' : item.row < 13 ? 'bottom' : 'overlay';
+  host.dataset.labArea = item.area;
   host.dataset.state = 'live';
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
-  const popupId = host.classList.contains('lab-detail-stage') ? 'lab-danmaku-detail' : 'lab-danmaku-card';
+  const popupId = `lab-${id}-${host.classList.contains('lab-detail-stage') ? 'detail' : 'card'}`;
+  const content = item.sheet ? labAdditionalExample(item, popupId) : labExample(item, popupId);
   host.innerHTML = `<fieldset aria-label="${item.title}">
-    <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${labExample(item, popupId)}</div></div>
+    <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${content}</div></div>
     </fieldset><output class="lab-status" aria-live="polite"></output>
     ${id === 'danmaku' ? `<div id="${popupId}" popover class="lab-danmaku-popup" role="group" aria-label="弹幕观看设置">
       ${labDanmakuParams.map(values => `<div class="lab-range-row"><span>${values[0]}</span>${labRange(...values)}</div>`).join('')}
@@ -147,6 +150,7 @@ function labMount(host, item) {
     </div>` : ''}`;
   const status = host.querySelector('.lab-status');
   const number = host.querySelector('.lab-step-value');
+  if (item.sheet) labBindAdditional(host, item, message => { status.textContent = message; });
   let iconChoice = 'default';
 
   function paintIcon(button, glyph) {
@@ -157,7 +161,8 @@ function labMount(host, item) {
 
   const main = host.querySelector('button[data-primary]:has([data-icon-slot])');
   if (main) main.dataset.labGlyph = id in labTransitions
-    ? labTransitions[id][Number(id === 'danmaku')][0] : id === 'reconnect' ? 'qt-reconnect' : '';
+    ? labTransitions[id][Number(id === 'danmaku')][0] : id === 'reconnect' ? 'qt-reconnect'
+      : main.dataset.labGlyph || '';
 
   host.setPreviewIcon = choice => {
     iconChoice = choice;
@@ -182,6 +187,7 @@ function labMount(host, item) {
   host.oninput = event => {
     event.stopPropagation();
     const input = event.target;
+    if (item.sheet) return;
     if (input.type === 'range') {
       const output = input.nextElementSibling;
       input.style.setProperty('--lab-level', `${(input.value - input.min) * 100 / (input.max - input.min)}%`);
@@ -279,13 +285,14 @@ const labNumberFields = item => [
 
 function labRenderDetail(item) {
   const numbers = labNumberFields(item);
+  const lastRow = labControls.filter(control => control.sheet === item.sheet).length - 1;
   labDetail.innerHTML = `<header class="lab-detail-head">
-    <div><h2 id="playground-name" tabindex="-1">${item.title}</h2><p>${item.row < 8 ? '设置页' : '播放格'} › ${item.location}</p></div>
+    <div><h2 id="playground-name" tabindex="-1">${item.title}</h2><p>${item.group} › ${item.location}</p></div>
     <a class="lab-link" href="#overview">返回总览</a></header>
     <div class="lab-detail-layout">
       <section class="lab-panel"><h3>实时预览</h3><div class="lab-demo lab-detail-stage"></div>
         <figure class="lab-reference"><figcaption>当前 Qt 外观</figcaption>
-          <div class="qt-swatch" role="img" aria-label="${item.title}的 Qt 截图" style="--qt-y:${item.row / (labControls.length - 1) * 100}%"></div></figure>
+          <div class="qt-swatch" data-sheet="${item.sheet || 'base'}" role="img" aria-label="${item.title}的 Qt 截图" style="--qt-y:${item.row / lastRow * 100}%"></div></figure>
         <div class="lab-source"><p>${item.usage}</p><code>${item.source}</code></div>
       </section>
       <section class="lab-panel"><div class="lab-props-head"><h3>预览参数</h3><button type="button" class="lab-reset">重置预览</button></div>
@@ -334,7 +341,8 @@ function labShowRoute() {
   labOpen = item;
   labGallery.hidden = Boolean(item);
   labDetail.hidden = !item;
-  labContext.textContent = item ? '网页交互试样 · 对照当前 Qt 外观' : '16 项软件在用控件 · 网页交互试样';
+  labContext.textContent = item ? '网页交互试样 · 对照当前 Qt 外观' : `${labControls.length} 项软件在用控件与组合`;
+  labOverview.querySelector('.lab-group-links').hidden = Boolean(item);
   if (item) {
     setTab(document.getElementById('tab-overview'));
     labRenderDetail(item);
@@ -347,8 +355,11 @@ function labShowRoute() {
   }
 }
 
-labGallery.innerHTML = ['设置页', '播放格'].map((area, index) =>
-  `<section class="qt-group"><h2>${area}</h2><div class="qt-grid">${labControls.slice(index * 8, index * 8 + 8).map(item =>
+const labGroups = [...new Set(labControls.map(item => item.group))];
+labOverview.querySelector('.lab-group-links').innerHTML = labGroups.map((area, index) =>
+  `<a class="lab-link" href="#lab-group-${index}">${area}</a>`).join('');
+labGallery.innerHTML = labGroups.map((area, index) =>
+  `<section class="qt-group" id="lab-group-${index}"><h2>${area}</h2><div class="qt-grid">${labControls.filter(item => item.group === area).map(item =>
     `<article class="qt-card"><header><div><h3>${item.title}</h3><small>${item.location}</small></div>
       <a class="lab-link" href="#control-${item.id}" aria-label="${item.title}详情">详情</a></header>
       <div class="lab-demo" data-lab-demo="${item.id}"></div></article>`).join('')}</div></section>`).join('');
