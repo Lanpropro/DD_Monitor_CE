@@ -45,6 +45,7 @@ class RoomInfo:
     cover_url: str = ""
     face: str = ""
     platform: str = "bilibili"
+    # 流媒体频道可在 extra 中声明 live_from_playback=True，由原生出画确认直播状态。
     extra: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:

@@ -483,9 +483,11 @@ class StreamPlayback:
             tile.set_video_active(True)
             tile.set_buffering(False)
             tile.set_status("")
+            player = host.players.get(tile)
+            if player is not None and tile.room.get("live_from_playback"):
+                host.room_status.confirm_playback_live(tile)
             tile.start_elapsed_timer()
             host.playback_recovery.reset_retry_after_playing(tile)
-            player = host.players.get(tile)
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()

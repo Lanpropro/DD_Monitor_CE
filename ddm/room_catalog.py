@@ -26,6 +26,13 @@ class RoomCatalog:
         for room in rooms:
             if not any(item["room_id"] == room["room_id"] for item in host.sidebar.rooms()):
                 host.sidebar.add_room(room)
+        for item in host.sidebar.items_control.items():
+            room = item.room
+            if self._restore_platform_room(room):
+                item.set_uname(room["uname"])
+                item.set_title(room["title"])
+            if room.get("live_from_playback"):
+                item.set_live(bool(room.get("live")))
         host.sidebar.items_control.refresh_room_card_branding(host.plugins)
         for key in ("import_order", "custom_order"):
             getattr(host.sidebar, "set_" + key)(saved[key])
@@ -48,7 +55,23 @@ class RoomCatalog:
             tile.set_audio_channel(room["audio_channel"])
             tile.set_muted(room["muted"])
             tile.set_room(room)
+        for tile in host.wall.tiles:
+            if self._restore_platform_room(tile.room):
+                tile.set_uname_title(tile.room["uname"], tile.room["title"])
         host._refresh_meta()
+
+    def _restore_platform_room(self, room: dict) -> bool:
+        platform = self.host.plugins.platform_for(str(room.get("room_id") or ""))
+        if platform is None:
+            return False
+        # 旧版网页卡片沿用当前平台的播放方式。
+        room.update(platform=platform.kind, playback_mode=platform.playback_mode)
+        restore = getattr(platform, "restore_follow_rooms", None)
+        if not callable(restore):
+            return False
+        labels = room.get("uname", ""), room.get("title", "")
+        restore([room])
+        return labels != (room.get("uname", ""), room.get("title", ""))
 
     def room_dict(self, room_id: str) -> dict | None:
         from . import bili
