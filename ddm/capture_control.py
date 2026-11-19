@@ -1,7 +1,7 @@
 """Recording/replay policy and tile state; the host owns sessions and shutdown."""
 import time
 from . import bili
-from .streamer_defaults import QUALITY_LABELS, quality_tiers
+from .streamer_defaults import QUALITY_LABELS, quality_tiers, source_quality_option
 
 
 class CaptureControl:
@@ -220,7 +220,7 @@ class CaptureControl:
         if previous is None:
             return
         tile.quality_locked = False
-        tile.quality_button.setEnabled(True)
+        tile.quality_button.setEnabled(source_quality_option(tile.quality_options) is None)
         room_id, before = previous
         if str(tile.room.get("room_id") or "") != room_id:
             return

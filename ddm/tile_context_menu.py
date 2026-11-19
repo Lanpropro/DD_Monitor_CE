@@ -1,6 +1,7 @@
 """Tile context menu; mutable state and Qt ownership stay with Tile."""
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QLabel, QMenu, QSlider, QVBoxLayout, QWidget, QWidgetAction
+from .streamer_defaults import source_quality_option
 
 
 class TileContextMenu:
@@ -35,7 +36,11 @@ class TileContextMenu:
         menu.addAction(wrapper)
         menu.addSeparator()
 
-        if host.room.get('room_id'):
+        if source_quality_option(host.quality_options) is not None:
+            quality = menu.addAction(f"画质 · {host._quality_text()}")
+            quality.setData('quality')
+            quality.setEnabled(False)
+        elif host.room.get('room_id'):
             quality_menu = menu.addMenu("画质")
             quality_menu.menuAction().setData('quality')
             for name, value in host._quality_choices():

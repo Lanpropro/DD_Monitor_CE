@@ -43,6 +43,7 @@ def decode_media_options(mode: str) -> tuple[str, ...]:
 class TilePlayer(QObject):
     stateChanged = Signal(str)
     pictureActivity = Signal()
+    videoResolutionChanged = Signal(str)
     autoQualityRequested = Signal(int)
     decoderFallback = Signal(str)
 
@@ -97,6 +98,8 @@ class TilePlayer(QObject):
         self.source_failure = ""
         self.state_generation = 0
         self.player = None
+        self.report_video_resolution = False
+        self._reported_video_resolution = ''
         self.decode_mode = "none" if self.silent else "auto"
         self._decode_key = None
         self._decode_tried: set[str] = set()
@@ -237,6 +240,7 @@ class TilePlayer(QObject):
         self.url = url
         self.stream_profile = profile
         self.play_session = uuid.uuid4().hex[:8]
+        self._reported_video_resolution = ''
         self.source_failure = ""
         self.paused = False
         self._decoder_error = False
@@ -563,6 +567,14 @@ class TilePlayer(QObject):
             self._stall_ticks = 0
             if self.state != "frozen":
                 self._set_state("playing")
+            if self.report_video_resolution:
+                params = self._prop('video-params') or {}
+                width, height = params.get('w'), params.get('h')
+                if width and height:
+                    resolution = f'{width}×{height}'
+                    if resolution != self._reported_video_resolution:
+                        self._reported_video_resolution = resolution
+                        self.videoResolutionChanged.emit(resolution)
             return
         if self._hls_proxy is not None and self._hls_proxy.live_ended.is_set():
             self._set_state("error")

@@ -5,7 +5,7 @@ import time
 import requests
 from PySide6.QtCore import QThread, Signal
 from . import qt_lifecycle
-from .streamer_defaults import quality_tiers
+from .streamer_defaults import quality_tiers, source_quality_option
 
 
 class StreamResolver(QThread):
@@ -191,7 +191,8 @@ class StreamResolver(QThread):
                 try:
                     options = self.platform.room_quality_options(self.room_id)
                     self.failure_quality_options = [dict(item) for item in options]
-                    if not any(int(item["qn"]) == 10000 for item in self.failure_quality_options):
+                    if (source_quality_option(self.failure_quality_options) is None
+                            and not any(int(item["qn"]) == 10000 for item in self.failure_quality_options)):
                         self.failure_quality_options.insert(0, {"qn": 10000, "desc": "最高可用"})
                 except Exception:  # A menu lookup must not replace the original playback error.
                     self.failure_quality_options = [{"qn": 10000, "desc": "最高可用"}]

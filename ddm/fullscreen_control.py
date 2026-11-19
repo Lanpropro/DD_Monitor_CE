@@ -4,6 +4,7 @@ import sys
 import time
 from . import layouts
 from .auto_quality import AUTO_QUALITY
+from .streamer_defaults import source_quality_option
 from .tile_widgets import Tile
 
 
@@ -42,6 +43,7 @@ class FullscreenControl:
     def upgrade_fullscreen_quality(self, tile: Tile) -> bool:
         host = self.host
         if (tile.quality == AUTO_QUALITY or tile in host._capture_quality or tile.room.get('_streamer_playback')
+                or source_quality_option(tile.quality_options) is not None
                 or getattr(tile, "quality_locked", False)):
             return False
         # 平台档位按画质从高到低排列，编号大小不代表跨平台的清晰度。

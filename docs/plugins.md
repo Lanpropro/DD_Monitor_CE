@@ -283,6 +283,7 @@ class MyPlugin(api.Plugin):
 卡片拖入画面墙或右键“加入画面墙”后，后台 `play_url` 的结果交给 libmpv
 格子播放；请求头随流地址传给播放器。可选 `room_quality_options` 返回
 `[{"qn": 10000, "desc": "原画"}]`，未实现时沿用原有菜单。
+画质由播放源决定时，返回单项 `[{"qn": 0, "desc": "源自适应"}]`。宿主在取到原生播放器报告的实际分辨率前显示这条说明，出画后显示宽高数值。两者均为只读。
 
 需要按来源编码选流的平台可实现可选方法
 `play_url_for_codec(room_id, quality=250, *, codec="avc")`，返回

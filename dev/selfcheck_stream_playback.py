@@ -43,6 +43,7 @@ class Resolver(QObject):
 class Player(QObject):
     stateChanged = Signal(str)
     pictureActivity = Signal()
+    videoResolutionChanged = Signal(str)
     autoQualityRequested = Signal(int)
     decoderFallback = Signal(str)
     PROFILE_HEADERS = {'web': {'Referer': 'fixture'}}
@@ -116,6 +117,20 @@ for name in ('_start_startup_tiles', 'start_all', 'apply_quality_policy', 'start
 
 
 class StreamPlaybackTests(unittest.TestCase):
+    def test_source_resolution_is_reported_only_to_the_active_tile(self):
+        self.tile.room['room_id'] = 'm3u:preset:fixture'
+        self.tile.quality_options = [{'qn': 0, 'desc': '源自适应'}]
+        self.tile.state_control = Mock()
+        self.host._play_on(self.tile, 'https://cdn.test/live.m3u8', 0, 'm3u')
+        player = self.host.players[self.tile]
+        self.assertTrue(player.report_video_resolution)
+        self.tile.state_control.set_source_resolution.assert_called_once_with('')
+        player.videoResolutionChanged.emit('1920×1080')
+        self.tile.state_control.set_source_resolution.assert_called_with('1920×1080')
+        self.host.players.pop(self.tile)
+        player.videoResolutionChanged.emit('1280×720')
+        self.tile.state_control.set_source_resolution.assert_called_with('1920×1080')
+
     def test_chzzk_uses_overseas_proxy_and_stops_relay(self):
         from ddm.player import TilePlayer
         from ddm.follow_folders import PLATFORM_NAMES
