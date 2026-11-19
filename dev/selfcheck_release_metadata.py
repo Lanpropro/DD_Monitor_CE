@@ -16,6 +16,7 @@ from ddm import online, version
 def main():
     assert version.VERSION == '0.8'
     assert version.VERSION_TAG == 'v0.8'
+    assert version.UPDATE_REVISION == 1
     root = Path(__file__).resolve().parents[1]
     context_tree = ast.parse((root / 'ddm/plugin_types.py').read_text(encoding='utf-8'))
     context = next(node for node in context_tree.body if isinstance(node, ast.ClassDef) and node.name == 'PluginContext')
@@ -28,7 +29,7 @@ def main():
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     title, _, body = notes.partition('\n')
     assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
-    assert body.strip(), 'Current Release Markdown must include a body'
+    assert '## 0.8 hotfix.1\n' in body and '## 0.8 首发正文\n' in body
     hotfix_notes = (root / 'docs/releases/RELEASE-v0.8-hotfix.1.md').read_text(encoding='utf-8')
     assert hotfix_notes.startswith('# DD监控室CE v0.8-hotfix.1 更新说明')
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.7.3.md').read_text(encoding='utf-8')

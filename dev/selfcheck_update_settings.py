@@ -131,9 +131,9 @@ class UpdateSettingsTests(unittest.TestCase):
             page.check_update()
         with (patch('ddm.app_update_ui.online.session') as session,
               patch('ddm.app_update_ui.online.app_release', return_value=offer) as release,
-              patch('ddm.app_update_ui.installed_revision', return_value=0)):
+              patch('ddm.app_update_ui.running_revision', return_value=1)):
             result = operations.pop()[0](lambda: False, Mock())
-            release.assert_called_once_with(session.return_value.__enter__.return_value, version.VERSION, 0)
+            release.assert_called_once_with(session.return_value.__enter__.return_value, version.VERSION, 1)
         page._check_ready(result)
         self.assertIs(page.offer, offer)
         with patch.object(page, 'start', side_effect=lambda operation, callback: operations.append((operation, callback))):
@@ -298,7 +298,7 @@ class UpdateSettingsTests(unittest.TestCase):
         dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True)
         try:
             # Preview mode substitutes an empty update page; load the real page for this check.
-            dialog._page_factories[8] = lambda: AppUpdatePage(dialog._initial_settings)
+            dialog._page_factories[dialog.PAGE_INDEX['updates']] = lambda: AppUpdatePage(dialog._initial_settings)
             dialog._auto_save_enabled = True
             dialog.auto_save.start()
             page = dialog.update_page

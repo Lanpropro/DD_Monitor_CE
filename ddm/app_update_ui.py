@@ -8,7 +8,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget
 from . import config, online, update_install, version
-from .update_version import installed_revision, release_label
+from .update_version import release_label, running_revision
 from .online_tasks import OnlinePage
 from .settings_layout import SettingsSection
 from .ui import ActionButton, HintLabel, ToggleSwitch, page_header
@@ -170,7 +170,7 @@ class AppUpdatePage(OnlinePage):
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
             with online.session() as client:
-                offer = online.app_release(client, version.VERSION, installed_revision(config.REPO, version.VERSION))
+                offer = online.app_release(client, version.VERSION, running_revision(config.REPO))
                 notes = ''
                 if offer is None:
                     try:

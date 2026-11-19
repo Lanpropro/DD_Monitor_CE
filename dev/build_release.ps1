@@ -37,7 +37,8 @@ if (-not (Test-Path $py)) { throw "没找到 Python 解释器（.venv 或 DD_Mon
 if (-not $OutDir) { $OutDir = Join-Path $repo "results" }
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
-$version = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.VERSION_TAG)").Trim()
+$sourceIdentity = (& $py -c "import json,sys; sys.path.insert(0,sys.argv[1]); from ddm import version; print(json.dumps(dict(tag=version.VERSION_TAG, revision=version.UPDATE_REVISION)))" $repo) | ConvertFrom-Json
+$version = $sourceIdentity.tag
 if (-not $version) { throw "读不到版本号（ddm/version.py）" }
 if (-not $ReleaseTag) { $ReleaseTag = $version }
 $releaseIdentity = (& $py -c "import json,sys; sys.path.insert(0,sys.argv[1]); from ddm.update_version import app_tag; print(json.dumps(app_tag(sys.argv[2])))" $repo $ReleaseTag) | ConvertFrom-Json
@@ -47,6 +48,8 @@ if ($releaseIdentity[1] -gt 0) {
         throw "Hotfix 标签与内部修订号不一致"
     }
     $UpdateRevision = $releaseIdentity[1]
+} elseif (-not $PSBoundParameters.ContainsKey('UpdateRevision')) {
+    $UpdateRevision = $sourceIdentity.revision
 }
 $display = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.DISPLAY_NAME)").Trim()
 if (-not $display) { $display = "DD监控室CE" }

@@ -80,15 +80,15 @@ EXE 默认启用独立设置进程，`DDM_SETTINGS_PROCESS=0` 可使用原设置
 
 ### 同版本 Hotfix
 
-本体按“版本号、内部修订号”依次比较。`ddm-build.json` 和 `app-update.json` 使用相同的非负整数 `revision`；缺少该字段的旧包按 0 处理。同一版本的修复包依次使用 1、2、3，升级到下一正式版本时可从 0 开始。后续修复默认递增版本号，或新建 `-hotfix.N` 标签与独立 Release；修改说明正文而不更换程序附件不算新修订。
+本体按版本号和内部修订号依次比较。`ddm-build.json` 和 `app-update.json` 使用相同的非负整数 `revision`。缺少该字段的旧包按 0 处理，同版本热修复依次使用 1、2、3。升级到下一正式版本时可从 0 开始。只修改说明正文时沿用当前修订号。源码版查询更新时使用 `ddm/version.py` 的 `UPDATE_REVISION`，默认打包也使用这个值。安装后的 EXE 使用包内构建记录。
 
-仅在维护者针对该次发布明确允许覆盖现有 Release 时，才使用下述例外方式，例如本体仍为 0.7.1：
+同版本热修复覆盖原 Release 附件，并将新修复追加到原版本说明。以 0.8 的第一个热修复为例：
 
 ```powershell
-powershell -File dev/build_release.ps1 -UpdateRevision 1
+powershell -File dev/build_release.ps1 -ReleaseTag v0.8 -UpdateRevision 1
 ```
 
-例外方式须递增修订号，将生成的 EXE ZIP 和 `app-update.json` 一起替换到原 Release；事前记录旧附件的名称、SHA-256 与源码提交，事后核对新附件、清单和包内 `ddm-build.json` 的提交及修订号。新程序源码提交可不同于原标签提交，必须在发布审核单记录这一差异及对应关系。执行前仍按[发布约定](releases/README.md#发布约定)准备候选包、检查和人工验收。默认方式使用独立正式标签：
+覆盖前归档线上正文、旧附件、SHA-256 与源码提交。替换时先确认新 EXE ZIP 可下载，再启用对应的 `app-update.json`。发布后核对原标签、构建提交、清单和包内 `ddm-build.json` 的提交及修订号。原标签仍记录首发源码，热修复源码由构建记录和发布审核单追溯。执行前按[发布约定](releases/README.md#发布约定)完成候选检查和人工验收。历史独立发布仍支持以下参数：
 
 ```powershell
 powershell -File dev/build_release.ps1 -ReleaseTag v0.7.1-hotfix.1

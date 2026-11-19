@@ -100,7 +100,7 @@ class AppUpdatesTests(unittest.TestCase):
         host._check_startup_update()
         self.assertIs(host._startup_update_task, task)
         with patch('ddm.online.session') as session, \
-                patch('ddm.app_updates.installed_revision', return_value=2), \
+                patch('ddm.app_updates.running_revision', return_value=2), \
                 patch('ddm.online.app_release', return_value={'version': '9.0'}) as release:
             client = session.return_value.__enter__.return_value
             self.assertEqual(task.operation(Mock(), Mock()), {'version': '9.0'})

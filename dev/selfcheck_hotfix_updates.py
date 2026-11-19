@@ -14,8 +14,8 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from ddm import online, update_install
-from ddm.update_version import app_tag, installed_revision, release_label, revision, update_identity, update_key
+from ddm import online, update_install, version
+from ddm.update_version import app_tag, installed_revision, release_label, revision, running_revision, update_identity, update_key
 from selfcheck_online import Client, Response, asset
 
 
@@ -107,6 +107,21 @@ class HotfixTests(unittest.TestCase):
                 path.write_text(json.dumps(build), encoding='utf-8-sig')
                 self.assertEqual(installed_revision(temporary, '0.7.1'), expected)
 
+    def test_running_source_and_frozen_update_use_their_own_revision(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(version, 'UPDATE_REVISION', 1):
+            published = manifest(1, version.VERSION)
+            with patch.object(sys, 'frozen', False, create=True):
+                self.assertEqual(running_revision(temporary), version.UPDATE_REVISION)
+                self.assertIsNone(self.check(published, version.VERSION, running_revision(temporary)))
+                self.assertIsNotNone(self.check(manifest(2, version.VERSION), version.VERSION, running_revision(temporary)))
+            with patch.object(sys, 'frozen', True, create=True):
+                self.assertEqual(running_revision(temporary), 0)
+                self.assertIsNotNone(self.check(published, version.VERSION, running_revision(temporary)))
+                (Path(temporary)/'ddm-build.json').write_text(json.dumps({
+                    'version': version.VERSION, 'revision': version.UPDATE_REVISION,
+                }), encoding='utf-8')
+                self.assertIsNone(self.check(published, version.VERSION, running_revision(temporary)))
+
     def test_same_version_install_stops_offering_and_rollback_restores_revision(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -143,21 +158,22 @@ class HotfixTests(unittest.TestCase):
     def test_release_parameters_resolve_revision_and_tag_together(self):
         source = (ROOT/'dev/build_release.ps1').read_text(encoding='utf-8-sig')
         parameters = source[source.index('param('):source.index('$ErrorActionPreference')]
-        logic = source[source.index('if (-not $ReleaseTag)'):source.index('$display =')]
+        logic = source[source.index('$sourceIdentity ='):source.index('$display =')]
         quote = lambda value: "'"+str(value).replace("'", "''")+"'"
         probe = parameters + "\n$ErrorActionPreference='Stop'\n$repo="+quote(ROOT)+"\n$py="+quote(sys.executable)
-        probe += "\n$version='v0.7.1'\n"+logic+"\n@{revision=$UpdateRevision;tag=$ReleaseTag} | ConvertTo-Json"
+        probe += "\n"+logic+"\n@{revision=$UpdateRevision;tag=$ReleaseTag} | ConvertTo-Json"
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)/'parameters.ps1'
             path.write_text(probe, encoding='utf-8-sig')
-            for arguments, expected in (([], 0), (['-UpdateRevision', '2'], 2),
-                                        (['-ReleaseTag', 'v0.7.1-hotfix.3'], 3)):
+            for arguments, expected in (([], version.UPDATE_REVISION), (['-UpdateRevision', '0'], 0),
+                                        (['-UpdateRevision', '2'], 2),
+                                        (['-ReleaseTag', version.VERSION_TAG+'-hotfix.3'], 3)):
                 result = subprocess.run(['powershell', '-NoProfile', '-File', str(path), *arguments],
                                         capture_output=True, encoding='utf-8')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)['revision'], expected)
             bad = subprocess.run(['powershell', '-NoProfile', '-File', str(path), '-ReleaseTag',
-                                  'v0.7.1-hotfix.2', '-UpdateRevision', '1'], capture_output=True)
+                                  version.VERSION_TAG+'-hotfix.2', '-UpdateRevision', '1'], capture_output=True)
             self.assertNotEqual(bad.returncode, 0)
 
 

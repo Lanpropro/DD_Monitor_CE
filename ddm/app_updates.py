@@ -3,7 +3,7 @@ import sys
 
 from . import config as config_module
 from . import version as version_module
-from .update_version import installed_revision, release_label, update_identity
+from .update_version import release_label, running_revision, update_identity
 
 
 class AppUpdates:
@@ -108,7 +108,7 @@ class AppUpdates:
         def check(cancelled, progress):
             with online.session() as client:
                 return online.app_release(client, version_module.VERSION,
-                    installed_revision(config_module.REPO, version_module.VERSION))
+                    running_revision(config_module.REPO))
         task = OnlineTask(check, None, host)
         host._startup_update_task = task
         task.succeeded.connect(host._startup_update_ready)

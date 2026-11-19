@@ -2,6 +2,9 @@
 import json
 from pathlib import Path
 import re
+import sys
+
+from . import version
 
 
 def version_key(value):
@@ -40,6 +43,13 @@ def installed_revision(root, current_version):
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return 0
+
+
+def running_revision(root):
+    """Use the build record for an EXE and the source revision in development."""
+    if getattr(sys, 'frozen', False):
+        return installed_revision(root, version.VERSION)
+    return version.UPDATE_REVISION
 
 
 def update_identity(offer):
