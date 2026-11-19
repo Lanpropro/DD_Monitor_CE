@@ -37,7 +37,7 @@ const labControls = [
   group: row < 8 ? '设置页' : '播放格',
   area: row < 8 ? 'settings' : row < 13 ? 'bottom' : 'overlay',
   source: row < 6 ? 'ddm/settings_general.py' : row < 8 ? 'ddm/settings_appearance.py' : 'ddm/tile_widgets.py',
-})).concat(labAdditionalControls);
+})).concat(labAdditionalControls, labApplicationControls);
 
 const labPresets = [['', '默认'], ['#00a1d6', '蓝'], ['#20b976', '绿'], ['#8866ee', '紫'],
   ['#ef638e', '粉'], ['#f58b32', '橙']];
@@ -137,7 +137,8 @@ function labMount(host, item) {
   host.dataset.state = 'live';
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
   const popupId = `lab-${id}-${host.classList.contains('lab-detail-stage') ? 'detail' : 'card'}`;
-  const content = item.sheet ? labAdditionalExample(item, popupId) : labExample(item, popupId);
+  const content = item.sheet === 'application' ? labAppExample(item, popupId)
+    : item.sheet === 'extra' ? labAdditionalExample(item, popupId) : labExample(item, popupId);
   host.innerHTML = `<fieldset aria-label="${item.title}">
     <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${content}</div></div>
     </fieldset><output class="lab-status" aria-live="polite"></output>
@@ -150,7 +151,8 @@ function labMount(host, item) {
     </div>` : ''}`;
   const status = host.querySelector('.lab-status');
   const number = host.querySelector('.lab-step-value');
-  if (item.sheet) labBindAdditional(host, item, message => { status.textContent = message; });
+  const report = message => { status.textContent = message; };
+  if (item.sheet === 'extra') labBindAdditional(host, item, report);
   let iconChoice = 'default';
 
   function paintIcon(button, glyph) {
@@ -158,6 +160,7 @@ function labMount(host, item) {
     const current = button.hasAttribute('data-primary') && iconChoice !== 'default' ? iconChoice : glyph;
     button.querySelector('.lab-glyph').innerHTML = current && current !== 'none' ? labIcon(current) : '';
   }
+  if (item.sheet === 'application') labBindApplication(host, item, report, paintIcon);
 
   const main = host.querySelector('button[data-primary]:has([data-icon-slot])');
   if (main) main.dataset.labGlyph = id in labTransitions
