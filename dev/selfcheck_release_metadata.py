@@ -29,6 +29,7 @@ def main():
     title, _, body = notes.partition('\n')
     assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
     assert body.strip(), 'Current Release Markdown must include a body'
+    assert '## 0.8 热修复 1\n' in body and '## 0.8 首发正文\n' in body
     hotfix_notes = (root / 'docs/releases/RELEASE-v0.8-hotfix.1.md').read_text(encoding='utf-8')
     assert hotfix_notes.startswith('# DD监控室CE v0.8-hotfix.1 更新说明')
     notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.7.3.md').read_text(encoding='utf-8')
