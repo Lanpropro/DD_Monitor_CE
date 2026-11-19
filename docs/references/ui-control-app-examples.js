@@ -47,7 +47,7 @@ const labApplicationControls = [
   ['notice-blur', '开播通知模糊预览', '通知 › 开播提醒', 234, 'settings_notifications.py', '开关直播封面，并调整背景模糊程度。'],
   ['streamer-profile', '主播独立设置卡', '主播设置 › 主播卡片', 288, 'settings_streamer_profiles.py', '在整组和单个主播间切换，修改画质和音量。'],
   ['startup-notice', '首次启动须知', '首次启动 › 用户须知', 200, 'user_notice.py', '滚动阅读试样，确认后查看反馈。'],
-  ['settings-material', '视觉效果与设置布局', '外观 › 视觉效果', 248, 'settings_material_editor.py', '切换毛玻璃、阴影、分段指示器和设置卡片布局，试调底色不透明度。'],
+  ['settings-material', '视觉效果与设置布局', '外观 › 视觉效果', 320, 'settings_material_editor.py', '切换毛玻璃、阴影、分段指示器和设置卡片布局，试调底色不透明度。'],
 ].map(([id, title, location, width, file, usage], row) => ({
   id, title, location, width, usage, height: id === 'pip-tools' ? 24 : id === 'account-menu' ? 34 : 32,
   radius: id === 'pip-tools' ? 12 : id === 'account-menu' ? 17 : 8, source: 'ddm/' + file,
