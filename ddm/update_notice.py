@@ -1,11 +1,12 @@
 """Update indicators and update notification presentation."""
+import os
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, Qt, QTimer, Signal, QVariantAnimation
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .update_version import release_label
-from .widget_support import _repolish
+from .widget_support import BRAND_ASSETS_DIR, _repolish
 
 
 class UpdateDot(QLabel):
@@ -60,10 +61,10 @@ class UpdateNotice(QFrame):
         layout.setSpacing(12)
         self.heading = QHBoxLayout()
         self.heading.setSpacing(10)
-        self.indicator = QLabel('↑', self)
+        self.indicator = QLabel(self)
         self.indicator.setFixedSize(28, 28)
-        self.indicator.setAlignment(Qt.AlignCenter)
-        self.indicator.setObjectName('NoticeIcon')
+        self.indicator.setPixmap(QPixmap(os.path.join(BRAND_ASSETS_DIR, 'logo.png')))
+        self.indicator.setScaledContents(True)
         self.heading.addWidget(self.indicator, 0, Qt.AlignTop)
         self.text_column = QWidget(self)
         self.text_column.setMinimumWidth(0)

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 from shiboken6 import isValid
@@ -162,6 +163,9 @@ class UpdateDownloadTests(unittest.TestCase):
         app_entry = dict(key='app', title='软件 v0.8', enabled=True)
         notice.set_updates([app_entry])
         notice.show_offer({'version': '0.8'}, persistent=True)
+        logo = QPixmap(str(Path(__file__).resolve().parents[1] / 'assets/logo.png'))
+        self.assertFalse(logo.isNull())
+        self.assertEqual(notice.indicator.pixmap().toImage(), logo.toImage())
         row, progress, download = notice._update_rows['app']
         settings = notice.settings_action
         requested, opened = [], []
@@ -175,6 +179,7 @@ class UpdateDownloadTests(unittest.TestCase):
             titles = [label.text() for label in notice.findChildren(QLabel)
                       if label.isVisible() and 'v0.8' in label.text()]
             self.assertEqual(titles, ['软件 v0.8 可更新'])
+            self.assertTrue(notice.indicator.isVisible())
             self.assertTrue(download.isVisible() and settings.isVisible())
             download_position = download.mapTo(notice, download.rect().center())
             settings_position = settings.mapTo(notice, settings.rect().center())
