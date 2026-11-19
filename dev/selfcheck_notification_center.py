@@ -405,6 +405,39 @@ class NotificationTests(unittest.TestCase):
         self.center.add('收起后抵达')
         self.assertEqual(self.button._unread, 1)
 
+    def test_menu_header_and_card_metadata_follow_active_history(self):
+        self.open()
+        empty_height = self.center.height()
+        self.assertTrue(self.center.empty.isVisible())
+        self.assertEqual(self.center.summary.text(), '本次启动 · 0 条')
+        self.assertLess(empty_height, 200)
+
+        entry = self.center.add('更新已准备好', kind='update', callback=Mock())
+        self.app.processEvents()
+        row = self.center.rows[entry]
+        self.assertEqual(self.center.summary.text(), '本次启动 · 1 条')
+        self.assertFalse(self.center.empty.isVisible())
+        self.assertGreater(self.center.height(), empty_height)
+        self.assertLess(self.center.height(), 300)
+        self.assertEqual(row.category.text(), '版本更新')
+        self.assertEqual(row.timestamp.text(), entry.time[:5])
+        self.assertEqual(row.timestamp.toolTip(), entry.time)
+        self.assertLess(row.timestamp.geometry().bottom(), row.message.y())
+
+        clear = self.center.clear_button
+        self.assertEqual(clear.text(), '')
+        self.assertEqual(clear.accessibleName(), '清空通知')
+        with patch.object(motion, 'enabled', return_value=True):
+            QTest.mouseClick(clear, Qt.LeftButton)
+        self.assertFalse(self.center.isVisible())
+        self.assertFalse(self.button.isChecked())
+        self.assertFalse(self.center.entries)
+        self.open()
+        self.app.processEvents()
+        self.assertTrue(self.center.empty.isVisible())
+        self.assertEqual(self.center.summary.text(), '本次启动 · 0 条')
+        self.assertEqual(self.center.height(), empty_height)
+
     def test_child_dialog_notifications_reach_the_same_session(self):
         dialog = QWidget(self.owner, Qt.Dialog)
         dialog.show()

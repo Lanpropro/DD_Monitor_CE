@@ -236,7 +236,7 @@ _THUMB_TEXT_SELECTORS = ('NavThumbCover', 'NavThumbHint')
 _THEME_SELECTORS = frozenset((*_THUMB_TEXT_SELECTORS, 'NavigationButton', 'BadgeOff', 'Search',
     'DanmakuInput', 'PrimaryButton', 'Sidebar', 'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom',
     'TilePlaceholder', 'TileVolumePopup', 'PauseOverlay', 'DanmakuHeader', 'DanmakuCount',
-    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid'))
+    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid', 'HistoryNoticeGlyph'))
 _signals = None
 _preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
 _applied_typography = None
@@ -890,17 +890,39 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     background: transparent;
     border: none;
 }}
+#NotificationHeader {{
+    background: transparent; border-bottom: 1px solid {BORDER};
+}}
+#NotificationTitle {{color: {TEXT1}; font-size: {FONT_HEADING}px; font-weight: 600;}}
+#NotificationSummary {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
+#NotificationClear {{background: transparent; border: 1px solid transparent;}}
+#NotificationClear:hover {{background: {CONTENT_HOVER};}}
+#NotificationClear:focus {{border: 1px solid {ACCENT};}}
+#NotificationEmpty {{
+    color: {TEXT2}; padding: 8px 12px;
+}}
 #HistoryNotice {{
-    background: {ELEVATED};
-    border: 1px solid rgba(131, 131, 145, 0.31);
-    border-radius: {RADIUS_LG}px;
+    background: transparent;
+    border: none;
 }}
 #HistoryNotice #NoticeHeading {{color: {TEXT1}; font-weight: 600;}}
 #HistoryNotice #NoticeText {{color: {TEXT2}; font-weight: 400;}}
 #HistoryNotice #NoticeDescription {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
-#HistoryNotice #NoticeIcon {{
+#HistoryNoticeGlyph {{
     color: {ACCENT}; background: {ACCENT_SOFT}; border-radius: {RADIUS_MD}px; font-weight: 600;
 }}
+#HistoryNoticeGlyph[noticeKind="live"] {{
+    color: {PINK}; background: rgba(251, 114, 153, 0.14);
+}}
+#HistoryNoticeGlyph[noticeKind="warning"] {{
+    color: #F2B15F; background: rgba(242, 177, 95, 0.16);
+}}
+#HistoryNoticeGlyph[noticeKind="error"] {{
+    color: #FF9297; background: rgba(238, 99, 108, 0.15);
+}}
+#HistoryNoticeGlyph[noticeKind="live"][appearanceLight="true"] {{color: #A62955;}}
+#HistoryNoticeGlyph[noticeKind="warning"][appearanceLight="true"] {{color: #8A5100;}}
+#HistoryNoticeGlyph[noticeKind="error"][appearanceLight="true"] {{color: #A32332;}}
 #HistoryNotice #PrimaryButton {{
     padding: 5px 14px; min-height: 22px; border-radius: {RADIUS_MD}px;
 }}

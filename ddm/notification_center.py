@@ -8,12 +8,72 @@ import sys
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextOption
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton,
-                               QLayout, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QPushButton,
+                               QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
 
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .dock_feedback import icon_color
+
+
+def _draw_bell(painter, color):
+    painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    painter.setBrush(Qt.NoBrush)
+    path = QPainterPath()
+    path.moveTo(-6, 4)
+    path.lineTo(-4.5, 1)
+    path.lineTo(-4.5, -2)
+    path.cubicTo(-4.5, -8, 4.5, -8, 4.5, -2)
+    path.lineTo(4.5, 1)
+    path.lineTo(6, 4)
+    path.closeSubpath()
+    painter.drawPath(path)
+    painter.drawArc(QRectF(-2, 4, 4, 4), 180 * 16, 180 * 16)
+
+
+class _NotificationBell(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(38, 38)
+
+    def paintEvent(self, _event):
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.fillPath(continuous_path(QRectF(self.rect()), 11), theme.qcolor(theme.ACCENT_SOFT))
+            painter.translate(self.width() / 2, self.height() / 2)
+            painter.scale(1.23, 1.23)
+            _draw_bell(painter, theme.qcolor(theme.ACCENT))
+
+
+class _ClearNotificationsButton(QPushButton):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setObjectName('NotificationClear')
+        self.setFixedSize(32, 32)
+        self.setAccessibleName('清空通知')
+        self.setToolTip('清空通知')
+        self.setCursor(Qt.PointingHandCursor)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.translate(self.width() / 2, self.height() / 2)
+            painter.setPen(QPen(icon_color(self), 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            path = QPainterPath()
+            path.moveTo(-7, -4)
+            path.lineTo(7, -4)
+            path.moveTo(-2, -4)
+            path.lineTo(-2, -7)
+            path.lineTo(2, -7)
+            path.lineTo(2, -4)
+            path.moveTo(-5, -2)
+            path.lineTo(-4, 7)
+            path.lineTo(4, 7)
+            path.lineTo(5, -2)
+            painter.drawPath(path)
+            for x in (-1.5, 1.5):
+                painter.drawLine(QPointF(x, 0), QPointF(x, 4))
 
 
 def live_notice_action(parent):
@@ -61,6 +121,8 @@ class NoticeMessage(QTextEdit):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.document().setDocumentMargin(0)
+        # Keep width measurement outside the live text layout and owned by this widget.
+        self._measurement_document = self.document().clone(self)
         policy = QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         policy.setHeightForWidth(True)
         self.setSizePolicy(policy)
@@ -69,7 +131,8 @@ class NoticeMessage(QTextEdit):
         return self.toPlainText()
 
     def heightForWidth(self, width):
-        document = self.document().clone()
+        document = self._measurement_document
+        document.setDefaultFont(self.document().defaultFont())
         document.setTextWidth(max(1, width))
         return math.ceil(document.size().height())
 
@@ -82,58 +145,74 @@ class NoticeMessage(QTextEdit):
 
 class NoticeRow(QFrame):
     removed = Signal(object)
+    TYPES = {'live': ('开播提醒', '●'), 'warning': ('需要留意', '!'),
+             'error': ('操作失败', '!'), 'update': ('版本更新', '↑')}
 
     def __init__(self, entry, parent):
         super().__init__(parent)
         self.entry = entry
         self.setObjectName('HistoryNotice')
+        self.setProperty('customControlSurface', True)
         self.setToolTip(entry.file_path)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 12, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(8)
         header = QHBoxLayout()
-        header.setSpacing(10)
+        header.setSpacing(8)
         self.avatars = {}
+        category, symbol = self.TYPES.get(entry.kind, ('操作提示', 'i'))
+        from .room_artwork import RoomArtwork, add_platform_logos, style_room_notice
         if entry.rooms:
             from .images import load_cached_avatar, load_room_avatar
             from .avatar_widgets import Avatar
-            strip = QWidget(self)
-            avatars = QHBoxLayout(strip)
-            avatars.setContentsMargins(0, 0, 0, 0)
-            avatars.setSpacing(4)
+            identity = QWidget(self)
+            identity_layout = QVBoxLayout(identity)
+            identity_layout.setContentsMargins(0, 0, 0, 0)
+            identity_layout.setSpacing(4)
+            strip = QWidget(identity)
+            strip.setFixedSize(28 + 12 * (len(entry.rooms) - 1), 28)
             for index, room in enumerate(entry.rooms[:3]):
                 room_id = str(room.get('room_id', ''))
-                avatar = Avatar(str(room.get('uname') or '?'), index, size=28)
+                avatar = Avatar(str(room.get('uname') or '?'), index, size=28, parent=strip)
                 pixmap = load_cached_avatar(room.get('face')) if room.get('face') else None
                 if pixmap is None:
                     pixmap = load_room_avatar(room_id)
                 if pixmap is not None:
                     avatar.set_pixmap_image(pixmap)
-                avatars.addWidget(avatar)
+                avatar.move(index * 12, 0)
                 self.avatars[room_id] = avatar
-            header.addWidget(strip, 0, Qt.AlignTop)
+            identity_layout.addWidget(strip, 0, Qt.AlignHCenter)
+            platforms = QHBoxLayout()
+            platforms.setAlignment(Qt.AlignHCenter)
+            platforms.setSpacing(2)
+            add_platform_logos(platforms, entry.rooms, identity)
+            identity_layout.addLayout(platforms)
+            header.addWidget(identity, 0, Qt.AlignTop)
         else:
-            symbol, color = {'live': ('●', theme.PINK), 'warning': ('!', '#e8b86d'),
-                             'update': ('↑', theme.ACCENT)}.get(entry.kind, ('i', theme.ACCENT))
             icon = QLabel(symbol)
-            icon.setObjectName('NoticeIcon')
+            icon.setObjectName('HistoryNoticeGlyph')
+            icon.setProperty('noticeKind', entry.kind)
+            icon.setProperty('appearanceLight', theme.is_light())
             icon.setFixedSize(28, 28)
             icon.setAlignment(Qt.AlignCenter)
-            icon.setStyleSheet('color: ' + color + ';')
             header.addWidget(icon, 0, Qt.AlignTop)
         content = QVBoxLayout()
-        content.setSpacing(4)
-        category = {'live': '开播提醒', 'warning': '需要留意', 'update': '版本更新'}.get(entry.kind, '操作提示')
+        content.setSpacing(6)
         self.category = QLabel(category)
         self.category.setObjectName('NoticeHeading')
+        self.category.setWordWrap(True)
         category_row = QHBoxLayout()
-        from .room_artwork import RoomArtwork, add_platform_logos, style_room_notice
+        category_row.setSpacing(4)
         self.artwork = RoomArtwork(entry.rooms)
         theme.signals().changed.connect(self._refresh_artwork_theme)
-        add_platform_logos(category_row, entry.rooms, self)
         category_row.addWidget(self.category)
         category_row.addStretch()
+        self.timestamp = QLabel(entry.time[:5])
+        self.timestamp.setObjectName('NoticeDescription')
+        self.timestamp.setToolTip(entry.time)
+        self.timestamp.setAccessibleName(entry.time)
+        category_row.addWidget(self.timestamp)
         content.addLayout(category_row)
         self.message = NoticeMessage(entry.message)
         self.message.setObjectName('NoticeText')
@@ -146,25 +225,24 @@ class NoticeRow(QFrame):
         self.remove_button.setObjectName('NoticeClose')
         self.remove_button.setFixedSize(24, 24)
         self.remove_button.setToolTip('删除这条通知')
+        self.remove_button.setAccessibleName('删除这条通知')
         self.remove_button.clicked.connect(self.remove)
         header.addWidget(self.remove_button, 0, Qt.AlignTop)
         layout.addLayout(header)
-        footer = QHBoxLayout()
-        timestamp = QLabel(entry.time)
-        timestamp.setObjectName('NoticeDescription')
-        footer.addWidget(timestamp)
-        footer.addStretch()
-        if entry.callback is not None:
-            self.action = QPushButton(entry.action)
-            self.action.setObjectName('PrimaryButton')
-            self.action.clicked.connect(self.activate)
-            footer.addWidget(self.action)
-        if entry.secondary_callback is not None:
-            self.secondary_action = QPushButton(entry.secondary_action)
-            self.secondary_action.setObjectName('IconButton')
-            self.secondary_action.clicked.connect(self.activate_secondary)
-            footer.addWidget(self.secondary_action)
-        layout.addLayout(footer)
+        if entry.callback is not None or entry.secondary_callback is not None:
+            footer = QHBoxLayout()
+            footer.addStretch()
+            if entry.callback is not None:
+                self.action = QPushButton(entry.action)
+                self.action.setObjectName('PrimaryButton')
+                self.action.clicked.connect(self.activate)
+                footer.addWidget(self.action)
+            if entry.secondary_callback is not None:
+                self.secondary_action = QPushButton(entry.secondary_action)
+                self.secondary_action.setObjectName('IconButton')
+                self.secondary_action.clicked.connect(self.activate_secondary)
+                footer.addWidget(self.secondary_action)
+            layout.addLayout(footer)
         self._paper = None
         self._progress = 0.0
         self.animation = motion.paper_animation(self, self._frame, self.finish_removal)
@@ -227,13 +305,17 @@ class NoticeRow(QFrame):
 
     def paintEvent(self, event):
         if self._paper is None:
-            super().paintEvent(event)
             from .room_artwork import paint_room_background, notice_frost, notice_source
             source = notice_source(self, self.artwork)
-            if source is not None:
-                painter = QPainter(self)
-                paint_room_background(painter, self.rect(), source, theme.RADIUS_LG,
-                                      focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
+            with QPainter(self) as painter:
+                painter.setRenderHint(QPainter.Antialiasing)
+                painter.setBrush(theme.qcolor(theme.ELEVATED))
+                painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+                rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
+                painter.drawPath(continuous_path(rect, theme.RADIUS_LG))
+                if source is not None:
+                    paint_room_background(painter, self.rect(), source, theme.RADIUS_LG,
+                                          focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
             return
         painter = QPainter(self)
         motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
@@ -242,10 +324,12 @@ class NoticeRow(QFrame):
 
 class NotificationCenter(QFrame):
     changed = Signal()
+    RADIUS = 16
 
     def __init__(self, button):
         super().__init__(button, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setObjectName('NotificationCenter')
+        self.setAccessibleName('通知')
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         self.button = button
@@ -255,25 +339,41 @@ class NotificationCenter(QFrame):
         self._owner = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
-        heading = QHBoxLayout()
+        layout.setSpacing(10)
+        self.heading = QFrame()
+        self.heading.setObjectName('NotificationHeader')
+        heading = QHBoxLayout(self.heading)
+        heading.setContentsMargins(10, 8, 8, 8)
+        heading.setSpacing(8)
+        heading.addWidget(_NotificationBell())
+        labels = QVBoxLayout()
+        labels.setSpacing(1)
         title = self.title = QLabel('通知')
-        title.setObjectName('PluginName')
-        heading.addWidget(title, 1)
-        self.clear_button = QPushButton('清空')
-        self.clear_button.setObjectName('IconButton')
+        title.setObjectName('NotificationTitle')
+        labels.addWidget(title)
+        self.summary = QLabel()
+        self.summary.setObjectName('NotificationSummary')
+        self.summary.setWordWrap(True)
+        labels.addWidget(self.summary)
+        heading.addLayout(labels, 1)
+        self.clear_button = _ClearNotificationsButton(self.heading)
         self.clear_button.clicked.connect(self.clear)
+        self.clear_button.clicked.connect(self.hide)
         heading.addWidget(self.clear_button)
         close = QPushButton('×')
         close.setObjectName('NoticeClose')
-        close.setFixedSize(24, 24)
+        close.setFixedSize(28, 28)
         close.setToolTip('收起通知面板')
+        close.setAccessibleName('收起通知面板')
         close.clicked.connect(self.hide)
         heading.addWidget(close)
-        layout.addLayout(heading)
-        self.empty = QLabel('本次启动还没有通知')
+        layout.addWidget(self.heading)
+        self.empty = QLabel('暂无通知')
         self.empty.setAlignment(Qt.AlignCenter)
-        self.empty.setObjectName('NoticeDescription')
-        layout.addWidget(self.empty)
+        self.empty.setObjectName('NotificationEmpty')
+        self.empty.setWordWrap(True)
+        self.empty.setMinimumHeight(78)
+        layout.addWidget(self.empty, 1)
         self.scroll = QScrollArea()
         self.scroll.setObjectName('NotificationScroll')
         self.scroll.viewport().setObjectName('NotificationViewport')
@@ -354,9 +454,14 @@ class NotificationCenter(QFrame):
                 self._remove(entry)
 
     def _sync(self):
-        self.empty.setVisible(not self.entries)
-        self.scroll.setVisible(bool(self.entries))
-        self.clear_button.setEnabled(bool(self.entries))
+        count = len(self.entries)
+        self.summary.setText(f'本次启动 · {count} 条')
+        self.empty.setVisible(not count)
+        self.scroll.setVisible(bool(count))
+        self.clear_button.setEnabled(bool(count))
+        if self.isVisible():
+            self.layout().activate()
+            self.reposition()
         self.changed.emit()
 
     def showEvent(self, event):
@@ -366,7 +471,6 @@ class NotificationCenter(QFrame):
                 self._add_row(entry)
         self._owner = self.button.window()
         QApplication.instance().installEventFilter(self)
-        self.reposition()
         self._sync()
         super().showEvent(event)
 
@@ -389,7 +493,7 @@ class NotificationCenter(QFrame):
     def reposition(self):
         owner = self.button.window()
         bounds = owner.screen().availableGeometry()
-        width = min(420, owner.width() - 24, bounds.width() - 24)
+        width = max(180, min(420, owner.width() - 24, bounds.width() - 24))
         anchor = self.button.mapToGlobal(QPoint(self.button.width(), self.button.height() + 8))
         left = max(bounds.left() + 12, owner.mapToGlobal(QPoint(12, 0)).x())
         right = min(bounds.right() - 12, owner.mapToGlobal(QPoint(owner.width() - 12, 0)).x())
@@ -399,22 +503,31 @@ class NotificationCenter(QFrame):
         below = bounds.bottom() - anchor.y() - 12
         upwards = dock and (above >= 120 or above > below)
         x = max(left, min(top.x()+8 if dock else anchor.x()-width, right-width))
-        height = min(480, max(120, above if upwards else below))
-        self.resize(max(180, width), height)
+        height = min(self._preferred_height(), max(120, above if upwards else below))
+        self.resize(width, height)
         y = top.y()-height-8 if upwards else anchor.y()
         self.move(x, max(bounds.top()+12, min(y, bounds.bottom()-height-12)))
+
+    def _preferred_height(self):
+        layout = self.layout()
+        margins = layout.contentsMargins()
+        height = margins.top() + margins.bottom() + self.heading.sizeHint().height() + layout.spacing()
+        if not self.entries:
+            return height + self.empty.minimumHeight()
+        row_height = 54 + 2 * self.title.fontMetrics().lineSpacing()
+        return min(480, height + len(self.entries) * row_height)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(theme.qcolor(theme.ELEVATED))
+        painter.setBrush(theme.qcolor(theme.BG))
         painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12))
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         path = QPainterPath()
-        path.addPath(continuous_path(QRectF(self.rect()), 12))
+        path.addPath(continuous_path(QRectF(self.rect()), self.RADIUS))
         from PySide6.QtGui import QRegion
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
@@ -458,18 +571,7 @@ class NotificationButton(QPushButton):
         if hasattr(self, '_dock_feedback'):
             self._dock_feedback.transform(painter)
         color = icon_color(self) if self.property('dockRail') else theme.qcolor(theme.TEXT2)
-        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.setBrush(Qt.NoBrush)
-        path = QPainterPath()
-        path.moveTo(-6, 4)
-        path.lineTo(-4.5, 1)
-        path.lineTo(-4.5, -2)
-        path.cubicTo(-4.5, -8, 4.5, -8, 4.5, -2)
-        path.lineTo(4.5, 1)
-        path.lineTo(6, 4)
-        path.closeSubpath()
-        painter.drawPath(path)
-        painter.drawArc(QRectF(-2, 4, 4, 4), 180 * 16, 180 * 16)
+        _draw_bell(painter, color)
         if self._unread:
             painter.setPen(QPen(theme.qcolor(theme.ELEVATED), 1))
             painter.setBrush(theme.qcolor(theme.PINK))
