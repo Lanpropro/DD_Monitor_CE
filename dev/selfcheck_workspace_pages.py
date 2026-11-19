@@ -95,6 +95,16 @@ class WorkspacePageTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.record.show_workspace(page)
 
+    def test_workspace_player_belongs_to_its_video_surface(self):
+        video = QWidget()
+        player = self.record.create_workspace_player(video)
+        self.assertIs(player.parent(), video)
+        self.assertIs(player.video_widget, video)
+        player.release()
+        self.manager.unload()
+        with self.assertRaises(RuntimeError):
+            self.record.create_workspace_player(video)
+
 
 if __name__ == '__main__':
     unittest.main()

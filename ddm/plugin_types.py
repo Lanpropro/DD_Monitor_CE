@@ -369,6 +369,13 @@ class PluginContext:
                 controls.bind_pages(self._manager._workspace_pages)
         return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
 
+    def create_workspace_player(self, video_widget):
+        """Create a native player for a plugin workspace video surface on the GUI thread."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        from .player import TilePlayer
+        return TilePlayer(video_widget, parent=video_widget)
+
     def credentials(self, platform) -> CredentialSnapshot | None:
         return self._manager.credentials(platform)
 
