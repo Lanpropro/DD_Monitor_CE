@@ -294,20 +294,25 @@ class SettingsNavigationTests(unittest.TestCase):
                     else:
                         self.assertEqual(actual, expected)
 
-        # The mask only weakens page content under the shared glass surface.
-        marker = QWidget(page.scroll.viewport())
-        marker.setStyleSheet('background: #ff0000;')
-        marker.setGeometry(0, 0, 20, 24)
-        marker.move(page.scroll.viewport().mapFrom(page, notice.mapTo(page, QPoint(235, -10))))
-        inside = notice.mapTo(self.dialog, QPoint(245, 8))
-        outside = notice.mapTo(self.dialog, QPoint(245, -4))
+        class Marker(QWidget):
+            def paintEvent(self, _event):
+                with QPainter(self) as painter:
+                    for x in range(0, self.width(), 8):
+                        painter.fillRect(x, 0, 4, self.height(), QColor('#ff0000'))
+
+        # Text-sized edges should disappear while the broad tint remains visible.
+        marker = Marker(page.scroll.viewport())
+        marker.resize(128, 48)
+        marker.move(page.scroll.viewport().mapFrom(page, notice.mapTo(page, QPoint(200, -12))))
+        inside = notice.mapTo(self.dialog, QPoint(249, 8))
+        outside = notice.mapTo(self.dialog, QPoint(249, -6))
         before = self.dialog.grab().toImage()
         marker.show()
         after = self.dialog.grab().toImage()
-        inside_delta = after.pixelColor(inside).red() - before.pixelColor(inside).red()
-        outside_delta = after.pixelColor(outside).red() - before.pixelColor(outside).red()
-        self.assertLess(0, inside_delta)
-        self.assertLess(inside_delta * 2, outside_delta)
+        gap = QPoint(4, 0)
+        self.assertGreater(after.pixelColor(outside).red() - after.pixelColor(outside + gap).red(), 100)
+        self.assertGreater(after.pixelColor(inside).red() - before.pixelColor(inside).red(), 8)
+        self.assertLessEqual(abs(after.pixelColor(inside).red() - after.pixelColor(inside + gap).red()), 6)
 
     def test_header_button_collapses_and_expands_without_changing_edits_or_page(self):
         button = self.navigation.rail_button

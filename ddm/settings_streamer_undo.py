@@ -1,6 +1,6 @@
 """Bottom-anchored removal feedback for the streamer settings page."""
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QImage, QPainter, QPixmap, QRegion
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QScrollArea,
                               QToolButton, QVBoxLayout, QWidget)
 
@@ -13,8 +13,10 @@ class StreamerRemovalNotice(SettingsSurface):
     entry_undo_requested = Signal(str)
     expired = Signal()
 
-    def __init__(self, parent):
+    def __init__(self, parent, scroll):
         super().__init__(parent)
+        self._backdrop_view = scroll.viewport()
+        scroll.verticalScrollBar().valueChanged.connect(self.update)
         self.rooms = {}
         self.detail_rows = {}
         self.expanded = False
@@ -196,17 +198,38 @@ class StreamerRemovalNotice(SettingsSurface):
             self._reposition()
         return super().eventFilter(watched, event)
 
+    def _paint_blurred_content(self, painter):
+        view = self._backdrop_view
+        offset = view.mapFrom(self.parentWidget(), self.pos())
+        scale = 32
+        padding = 2 * scale
+        area = QRect(offset, self.size()).adjusted(-padding, -padding, padding, padding)
+        sample = area.intersected(view.rect())
+        if sample.isEmpty():
+            return
+        image = QImage(sample.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        # Capture the scroll viewport alone. The floating notice is its sibling.
+        with QPainter(image) as capture:
+            view.render(capture, QPoint(), QRegion(sample), QWidget.DrawChildren)
+        blurred = image.scaled(max(1, image.width() // scale), max(1, image.height() // scale),
+                               Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        painter.setOpacity(.75)
+        painter.drawImage(QRectF(sample.translated(-offset)), blurred)
+
     def _paint_glass_fill(self, painter, path):
-        # Mix the covered page pixels back toward the existing window tint.
-        # The native glass stays visible and empty parts of the page keep their colour.
-        mask = 180
-        painter.save()
-        painter.setCompositionMode(QPainter.CompositionMode_DestinationOut)
-        painter.fillPath(path, QColor(0, 0, 0, mask))
+        layer = QImage(self.size(), QImage.Format_ARGB32_Premultiplied)
+        tint = Qt.transparent
         if self.window().property('settingsGlassWindow'):
-            base = glass_tint(self, window_background_tint(self))
-            base.setAlpha(round(base.alpha() * mask / 255))
-            painter.setCompositionMode(QPainter.CompositionMode_Plus)
-            painter.fillPath(path, base)
+            tint = glass_tint(self, window_background_tint(self))
+        layer.fill(tint)
+        with QPainter(layer) as backdrop:
+            self._paint_blurred_content(backdrop)
+
+        # Replace the original pixels so sharp text cannot show through the blur.
+        painter.save()
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillPath(path, QBrush(layer))
         painter.restore()
         super()._paint_glass_fill(painter, path)
