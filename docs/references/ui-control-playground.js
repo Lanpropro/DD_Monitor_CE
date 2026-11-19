@@ -2,9 +2,9 @@
 const labControls = [
   ['collapse', '全部展开后的收起方式', '常规 › 关注与预览', 170, 34, 18,
     '收起全部关注文件夹，或恢复本次全部展开前的状态。'],
-  ['interval', '关注列表刷新间隔', '常规 › 关注与预览', 178, 32, 8,
+  ['interval', '关注列表刷新间隔', '常规 › 关注与预览', 180, 34, 8,
     '用加减按钮或数字输入调整轮询间隔，范围为 1–30 分钟。'],
-  ['preview', '关注栏直播预览', '常规 › 关注与预览', 46, 23, 14,
+  ['preview', '关注栏直播预览', '常规 › 关注与预览', 44, 26, 13,
     '开启后，在关注栏的直播间上悬停会显示播放预览。'],
   ['initial-volume', '新建格子的初始音量', '常规 › 播放与声音', 214, 28, 6,
     '设置新建播放格使用的默认音量。'],
@@ -12,25 +12,25 @@ const labControls = [
     '选择直播流编码偏好，可选 H.264、HEVC 和 AV1。'],
   ['decoder', '本机解码方式', '常规 › 编解码', 209, 34, 8,
     '选择本机处理视频的方式，自动解码会优先使用可用的硬件。'],
-  ['theme', '界面主题', '外观 › 主题', 238, 34, 18,
+  ['theme', '界面主题', '外观 › 主题', 260, 34, 17,
     '切换深色、浅色或跟随系统，此处会同步改变图鉴的预览主题。'],
-  ['palette', '主题色', '外观 › 主题', 207, 28, 14,
+  ['palette', '主题色', '外观 › 主题', 201, 28, 8,
     '在默认主题色与预设颜色间切换，详情可直接调任意强调色。'],
-  ['pause', '暂停／继续', '底部信息条', 32, 28, 8,
+  ['pause', '暂停／继续', '底部信息条', 34, 26, 13,
     '切换当前播放格的暂停状态，再点一次继续。'],
-  ['volume', '格子音量', '底部信息条 · 宽格子', 172, 28, 7,
+  ['volume', '格子音量', '底部信息条 · 宽格子', 166, 26, 13,
     '点击扬声器静音或取消静音，也可以拖动滑块独立调整音量。'],
-  ['danmaku', '画面弹幕／观看设置', '底部信息条', 71, 28, 7,
+  ['danmaku', '画面弹幕／观看设置', '底部信息条', 68, 26, 13,
     '左侧开关控制画面弹幕，齿轮打开弹幕观看设置。'],
-  ['record', '录制', '底部信息条', 76, 28, 7,
+  ['record', '录制', '底部信息条', 64, 26, 13,
     '在开始和停止录制之间切换，浏览器样例会显示当前状态。'],
-  ['fullscreen', '全屏', '底部信息条', 32, 28, 7,
+  ['fullscreen', '全屏', '底部信息条', 28, 26, 13,
     '切换进入与退出全屏的按钮状态。'],
-  ['quality', '画质', '悬停时 · 右上角', 102, 28, 8,
+  ['quality', '画质', '悬停时 · 右上角', 40, 26, 13,
     '选择单路直播的画质。直播中的可选档位由平台提供。'],
-  ['reconnect', '重新连接', '悬停时 · 右上角', 32, 28, 8,
+  ['reconnect', '重新连接', '悬停时 · 右上角', 32, 26, 13,
     '重新连接这一路，试用区会依次呈现连接中与已连接。'],
-  ['close', '关闭这一路', '悬停时 · 右上角', 32, 28, 8,
+  ['close', '关闭这一路', '悬停时 · 右上角', 26, 26, 13,
     '关闭当前播放格。试用区可再次点击恢复样例。'],
 ].map(([id, title, location, width, height, radius, usage], row) => ({
   id, title, location, width, height, radius, usage, row,
@@ -39,18 +39,26 @@ const labControls = [
 
 const labPresets = [['', '默认'], ['#00a1d6', '蓝'], ['#20b976', '绿'], ['#8866ee', '紫'],
   ['#ef638e', '粉'], ['#f58b32', '橙']];
+const labTileGlyphs = {
+  'qt-pause': '<rect x="5" y="4" width="5" height="16" rx="1.7" fill="currentColor"/><rect x="14" y="4" width="5" height="16" rx="1.7" fill="currentColor"/>',
+  'qt-volume': '<path d="M2 10h4l5-4v12l-5-4H2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><text x="14.5" y="14.8" fill="var(--lab-accent)" font-weight="700" font-size="7.5">LR</text>',
+  'qt-mute': '<path d="M2 10h4l5-4v12l-5-4H2zm13-1 6 6m0-6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>',
+  'qt-reconnect': '<path d="M4 12A8 8 0 0 1 17 6m3 6a8 8 0 0 1-13 6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m15 2 5 6-8-1zm-6 20-5-6 8 1z" fill="currentColor"/>',
+};
+const labIcon = glyph => labTileGlyphs[glyph]
+  ? `<svg viewBox="0 0 24 24" aria-hidden="true">${labTileGlyphs[glyph]}</svg>` : icon(glyph);
 const labTransitions = {
-  pause: [['pause', '', '播放中'], ['play', '', '已暂停']],
-  volume: [['volume', '', '声音已开启'], ['mute', '', '已静音']],
-  danmaku: [['chat', '弹', '画面弹幕已关闭'], ['check', '弹', '画面弹幕已开启']],
-  record: [['circle', '录制', '已停止录制'], ['circle', '停止', '正在录制']],
-  fullscreen: [['fullscreen', '', '已退出全屏'], ['minimize', '', '已进入全屏']],
+  pause: [['qt-pause', '', '播放中'], ['play', '', '已暂停']],
+  volume: [['qt-volume', '', '声音已开启'], ['qt-mute', '', '已静音']],
+  danmaku: [['', '弹', '画面弹幕已关闭'], ['', '弹', '画面弹幕已开启']],
+  record: [['', '● 录制', '已停止录制'], ['', '● REC', '正在录制']],
+  fullscreen: [['fullscreen', '', '已退出全屏'], ['fullscreen', '', '已进入全屏']],
   close: [['close', '', '已恢复播放格'], ['plus', '', '已关闭，点击可恢复']],
 };
 
 const labButton = (label, glyph = '', text = '', attrs = '', primary = false) =>
   `<button type="button" class="lab-control ${text ? '' : 'lab-icon-only'}" aria-label="${label}" title="${label}" ${attrs} ${primary ? 'data-primary' : ''}>
-    <span class="lab-glyph" ${primary ? 'data-icon-slot' : ''}>${glyph ? icon(glyph) : ''}</span><span class="lab-label">${text}</span>
+    <span class="lab-glyph" ${primary ? 'data-icon-slot' : ''}>${glyph ? labIcon(glyph) : ''}</span><span class="lab-label">${text}</span>
   </button>`;
 
 const labFlip = (id, label, active = false) => {
@@ -68,17 +76,17 @@ const labChoice = (label, values) => `<div class="lab-choice" role="group" aria-
 </div>`;
 
 const labRange = (label, min, max, value, unit = '', primary = false) =>
-  `<label class="lab-range"><input type="range" aria-label="${label}" min="${min}" max="${max}" value="${value}" ${primary ? 'data-primary' : ''}>
+  `<label class="lab-range"><input type="range" aria-label="${label}" min="${min}" max="${max}" value="${value}" style="--lab-level:${(value - min) * 100 / (max - min)}%" ${primary ? 'data-primary' : ''}>
     <output data-unit="${unit}">${value}${unit}</output></label>`;
 
 const labDanmakuParams = [['显示区域', 10, 100, 50, '%'], ['不透明度', 10, 100, 80, '%'],
   ['字体大小', 12, 64, 28, ' px'], ['弹幕速度', 50, 200, 100, '%'], ['描边宽度', 0, 6, 0, ' px']];
 
-function labExample({ id, title }) {
+function labExample({ id, title }, popupId) {
   switch (id) {
     case 'collapse': return labChoice(title, [['all', '全部收起'], ['previous', '恢复原状']]);
     case 'interval': return labButton('减少一分钟', 'minus', '', 'data-lab-step="-1"')
-      + `<input class="lab-control lab-step-value" type="number" min="1" max="30" value="1" aria-label="${title}" data-primary><span class="lab-unit">分钟</span>`
+      + `<label class="lab-step-field"><input class="lab-control lab-step-value" type="number" min="1" max="30" value="1" aria-label="${title}" data-primary><span>分钟</span></label>`
       + labButton('增加一分钟', 'plus', '', 'data-lab-step="1"');
     case 'preview': return `<label class="lab-switch" data-primary><input type="checkbox" role="switch" aria-label="${title}" checked>
       <span class="lab-track" aria-hidden="true"></span></label>`;
@@ -94,9 +102,9 @@ function labExample({ id, title }) {
       </div>`;
     case 'volume': return labFlip(id, '静音／取消静音') + labRange(title, 0, 100, 40);
     case 'danmaku': return labFlip(id, '切换画面弹幕', true)
-      + labButton('弹幕观看设置', 'settings', '', 'data-lab-dialog');
+      + labButton('弹幕观看设置', 'settings', '', `popovertarget="${popupId}"`);
     case 'quality': return labSelect(title, ['原画', '蓝光', '超清 720P', '流畅']);
-    case 'reconnect': return labButton(title, 'refresh', '', 'data-lab-reconnect', true);
+    case 'reconnect': return labButton(title, 'qt-reconnect', '', 'data-lab-reconnect', true);
     default: return labFlip(id, title);
   }
 }
@@ -123,14 +131,20 @@ function labSetTheme(mode) {
 function labMount(host, item) {
   const { id, width, height, radius } = item;
   host.dataset.labDemo = id;
+  host.dataset.labArea = item.row < 8 ? 'settings' : item.row < 13 ? 'bottom' : 'overlay';
   host.dataset.state = 'live';
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
+  const popupId = host.classList.contains('lab-detail-stage') ? 'lab-danmaku-detail' : 'lab-danmaku-card';
   host.innerHTML = `<fieldset aria-label="${item.title}">
-    <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${labExample(item)}</div></div>
+    <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${labExample(item, popupId)}</div></div>
     </fieldset><output class="lab-status" aria-live="polite"></output>
-    ${id === 'danmaku' ? `<dialog class="lab-dialog" aria-label="弹幕观看设置"><h4>弹幕观看设置</h4>
+    ${id === 'danmaku' ? `<div id="${popupId}" popover class="lab-danmaku-popup" role="group" aria-label="弹幕观看设置">
       ${labDanmakuParams.map(values => `<div class="lab-range-row"><span>${values[0]}</span>${labRange(...values)}</div>`).join('')}
-      <form method="dialog"><button class="lab-control">完成</button></form></dialog>` : ''}`;
+      <div class="lab-range-row"><span>弹幕颜色</span><label class="lab-control lab-danmaku-color"><input type="color" value="#ffffff" aria-label="弹幕颜色"><output>#FFFFFF</output></label></div>
+      <label class="lab-danmaku-check"><input type="checkbox" checked>弹幕随屏幕缩放</label>
+      <label class="lab-danmaku-check"><input type="checkbox">独立调整此格弹幕</label>
+      <button class="lab-control lab-danmaku-more" type="button" popovertarget="${popupId}" popovertargetaction="hide" data-lab-more>更多弹幕设置</button>
+    </div>` : ''}`;
   const status = host.querySelector('.lab-status');
   const number = host.querySelector('.lab-step-value');
   let iconChoice = 'default';
@@ -138,12 +152,12 @@ function labMount(host, item) {
   function paintIcon(button, glyph) {
     button.dataset.labGlyph = glyph;
     const current = button.hasAttribute('data-primary') && iconChoice !== 'default' ? iconChoice : glyph;
-    button.querySelector('.lab-glyph').innerHTML = current && current !== 'none' ? icon(current) : '';
+    button.querySelector('.lab-glyph').innerHTML = current && current !== 'none' ? labIcon(current) : '';
   }
 
   const main = host.querySelector('button[data-primary]:has([data-icon-slot])');
   if (main) main.dataset.labGlyph = id in labTransitions
-    ? labTransitions[id][Number(id === 'danmaku')][0] : id === 'reconnect' ? 'refresh' : '';
+    ? labTransitions[id][Number(id === 'danmaku')][0] : id === 'reconnect' ? 'qt-reconnect' : '';
 
   host.setPreviewIcon = choice => {
     iconChoice = choice;
@@ -170,10 +184,19 @@ function labMount(host, item) {
     const input = event.target;
     if (input.type === 'range') {
       const output = input.nextElementSibling;
+      input.style.setProperty('--lab-level', `${(input.value - input.min) * 100 / (input.max - input.min)}%`);
       output.textContent = input.value + output.dataset.unit;
+      if (id === 'volume') {
+        if (Number(input.value) > 0) main.setAttribute('aria-pressed', 'false');
+        paintIcon(main, labTransitions.volume[Number(input.value) === 0 ? 1 : 0][0]);
+      }
       status.textContent = `${input.getAttribute('aria-label')} ${output.value}`;
     } else if (input.type === 'checkbox') {
-      status.textContent = input.checked ? '已开启直播预览' : '已关闭直播预览';
+      const label = input.getAttribute('aria-label') || input.parentElement.textContent.trim();
+      status.textContent = (input.checked ? '已开启' : '已关闭') + label;
+    } else if (input.type === 'color') {
+      input.nextElementSibling.textContent = input.value.toUpperCase();
+      status.textContent = '弹幕颜色 ' + input.value.toUpperCase();
     } else if (input.tagName === 'SELECT') {
       status.textContent = `已选 ${input.value}`;
     }
@@ -199,11 +222,12 @@ function labMount(host, item) {
       const active = clicked.getAttribute('aria-pressed') !== 'true';
       const [glyph, text, feedback] = labTransitions[id][Number(active)];
       clicked.setAttribute('aria-pressed', active);
-      paintIcon(clicked, glyph);
+      const silent = id === 'volume' && Number(host.querySelector('input').value) === 0;
+      paintIcon(clicked, silent ? 'qt-mute' : glyph);
       clicked.querySelector('.lab-label').textContent = text;
       status.textContent = feedback;
-    } else if (clicked.hasAttribute('data-lab-dialog')) {
-      host.querySelector('dialog').showModal();
+    } else if (clicked.hasAttribute('data-lab-more')) {
+      status.textContent = '已触发更多弹幕设置';
     } else if (clicked.hasAttribute('data-lab-reconnect')) {
       clicked.disabled = true;
       clicked.setAttribute('aria-busy', 'true');
@@ -223,6 +247,11 @@ const labPaintFields = [
   ['accent', '强调色', '--lab-accent'], ['surface', '控件底色', '--lab-surface'],
   ['ink', '文字／图标色', '--lab-ink'], ['hover', '悬停底色', '--lab-hover'],
 ];
+const labExtraSurface = {
+  collapse: '--lab-segment', codec: '--lab-segment', theme: '--lab-segment',
+  decoder: '--lab-picker-bg', quality: '--lab-menu', danmaku: '--lab-menu',
+  'initial-volume': '--lab-track-bg', volume: '--lab-track-bg',
+};
 
 function labSyncColors() {
   const sample = labDetail.querySelector('.lab-detail-stage');
@@ -244,7 +273,7 @@ const labNumberFields = item => [
   ['height', '高度 (px)', 18, 58, item.height],
   ['radius', '圆角 (px)', 0, 30, item.radius],
   ['font', '字号 (px)', 10, 24, 13],
-  ['icon-size', '图标大小 (px)', 10, 30, 15],
+  ['icon-size', '图标大小 (px)', 10, 30, item.id === 'volume' ? 20 : 15],
   ['motion', '动效时长 (ms)', 0, 500, 120],
 ];
 
@@ -282,7 +311,7 @@ function labRenderDetail(item) {
       sample.style.setProperty(paint[2], field.value);
       field.nextElementSibling.textContent = field.value.toUpperCase();
       if (paint[0] === 'accent') sample.querySelector('.lab-controls').style.removeProperty('--lab-accent');
-      if (paint[0] === 'surface' && item.id === 'decoder') sample.style.setProperty('--lab-picker-bg', field.value);
+      if (paint[0] === 'surface' && labExtraSurface[item.id]) sample.style.setProperty(labExtraSurface[item.id], field.value);
     } else if (field.name === 'state') {
       sample.dataset.state = field.value;
       sample.querySelector('fieldset').disabled = field.value === 'disabled';
