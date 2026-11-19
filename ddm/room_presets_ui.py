@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, Q
 from . import layouts, room_presets, theme
 from .corner_geometry import continuous_path
 from .sidebar_navigation import NavigationButton
-from .ui import ElidedLabel
 
 
 def thumbnail(snapshot):
@@ -46,8 +45,9 @@ class RoomPresetsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         bar = QHBoxLayout()
-        self.summary = ElidedLabel("保存布局、主播位置和每格声音")
+        self.summary = QLabel("保存布局、主播位置和每格声音")
         self.summary.setObjectName("SectionLabel")
+        self.summary.setWordWrap(True)
         bar.addWidget(self.summary, 1)
         self.save_button = QPushButton("保存当前组合…")
         self.save_button.setObjectName("PrimaryButton")
@@ -232,7 +232,9 @@ class RoomPresetsPage(QWidget):
         self._name_changed()
         self.name_form.show()
         self.save_button.hide()
-        self.name_edit.setFocus()
+        # A popup can give the editor Qt focus without owning Windows IME focus.
+        self.picker.activateWindow()
+        self.name_edit.setFocus(Qt.OtherFocusReason)
 
     def _name_changed(self):
         self._overwrite_id = None

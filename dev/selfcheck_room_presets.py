@@ -11,7 +11,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QPalette
+from PySide6.QtGui import QFont, QFontDatabase, QInputMethodEvent, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
@@ -109,14 +109,23 @@ def main():
             assert page.isVisible() and not picker.reset_button.isVisible()
             with patch('ddm.room_presets_ui.QInputDialog.getText', side_effect=AssertionError('Save must stay inline')):
                 QTest.mouseClick(page.save_button, Qt.LeftButton)
+                app.processEvents()
                 assert page.name_form.isVisible() and picker.isVisible()
                 assert page.name_edit.window() is picker
+                assert page.summary.contentsRect().height() >= page.summary.fontMetrics().height(), 'Section text is clipped'
+                assert app.focusWindow() is picker.windowHandle() and app.focusObject() is page.name_edit
                 QTest.mouseClick(page.confirm_save, Qt.LeftButton)
                 assert page.name_hint.text() and not window.room_presets['items']
-                page.name_edit.setText('  比赛  ')
+                app.sendEvent(app.focusObject(), QInputMethodEvent('bisai', []))
+                assert not page.name_edit.text() and picker.isVisible()
+                commit = QInputMethodEvent()
+                commit.setCommitString('  比赛  ')
+                app.sendEvent(app.focusObject(), commit)
+                assert page.name_edit.text() == '  比赛  '
                 QTest.keyClick(page.name_edit, Qt.Key_Return)
             assert not page.name_form.isVisible() and picker.isVisible()
             key = window.room_presets['items'][0]['id']
+            assert window.room_presets['items'][0]['name'] == '比赛'
             assert page.cards[key].isChecked()
             assert page.cards[key].parentWidget().property('current') is True
             assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
