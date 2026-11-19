@@ -299,6 +299,17 @@ class PictureInPictureDialog(QDialog):
 
     def _swap_preview(self, first, second):
         selection = self._selected()
+        if self.controller.chat_cells(self.columns.currentData()):
+            source, target = self._preview_choices[first], self._preview_choices[second]
+            if source is None or target is None:
+                return
+            left, right = selection.index(source), selection.index(target)
+            selection[left], selection[right] = selection[right], selection[left]
+            self._order = selection
+            if first == 0 or second == 0:
+                self._primary = target if first == 0 else source
+            self._refresh()
+            return
         primary = selection.index(self._primary)
         selection[first], selection[second] = selection[second], selection[first]
         self._order = selection

@@ -232,6 +232,18 @@ class PictureInPicture(QObject):
         else:
             self.host.wall._drop_tile(tile)
 
+    def chat_cells(self, columns):
+        return focus_chat_cells(self.host.wall, columns)
+
+    def composition(self, selection, columns, primary=None):
+        aspects = self.aspects_for(selection)
+        chat = self.chat_cells(columns)
+        if chat:
+            values = dict(zip(selection, aspects))
+            slots = focus_slots(selection, chat, primary)
+            return slots, [values.get(key, 16 / 9) for key in slots], 0
+        return list(selection), aspects, selection.index(primary) if primary in selection else 0
+
     def aspects_for(self, selection):
         aspects = []
         for index in selection:

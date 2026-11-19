@@ -31,6 +31,8 @@
 
 模块职责与状态所有权见[架构总览](architecture/overview.md#10-详细模块职责)。
 
+网页登录职责：`ddm/account_browser.py`只管理本应用临时浏览器与回环控制连接；`ddm/browser_account_worker.py`处理取消、身份确认和关注读取；`ddm/browser_account_dialog.py`负责交互、加密保存和会话接线。平台接口解析留在独立插件，OAuth仍由原模块负责。浏览器只在用户发起登录且保存会话不可用时启动，结束或取消后释放，不读取个人浏览器资料。
+
 ## 已跟踪的其他文件：逐项标注
 
 - `ddm/cache_cleanup.py`：固定缓存类别、HTTP清理请求及历史日志边界。

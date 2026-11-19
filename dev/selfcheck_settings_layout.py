@@ -1127,5 +1127,113 @@ class AppearanceEditorTests(unittest.TestCase):
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+class AppearanceEditorTests(unittest.TestCase):
+    def test_embedded_controls_keep_values_scene_links_and_narrow_geometry(self):
+        from copy import deepcopy
+        from types import SimpleNamespace
+        from PySide6.QtCore import QObject, Signal
+        from PySide6.QtWidgets import QWidget
+        from ddm.dialogs import AppearanceSettingsPage
+        from ddm.skin_preview import SkinPreview
+        from ddm.ui import SelectControl, SettingsSlider, SettingsSurface, SettingsValueLabel, ToggleSwitch
+
+        class Layer(QObject):
+            frameReady = Signal()
+            path, image, mask = 'fixture.mp4', None, 35
+
+        class Controller(QObject):
+            changed = Signal()
+            override, error = None, ''
+
+        owner = QWidget()
+        owner.settings = deepcopy(config.DEFAULT_SETTINGS)
+        owner.settings['skin_background'] = 'fixture.mp4'
+        owner.skin_controller = Controller(owner)
+        owner.skin_controller.window = owner
+        owner.skin_controller.layer = Layer(owner)
+
+        def set_skin(values):
+            owner.settings.update(values)
+            owner.skin_controller.layer.mask = values['skin_mask']
+            owner.skin_controller.layer.path = values['skin_background']
+            owner.skin_controller.changed.emit()
+
+        owner.set_skin = set_skin
+        owner.set_skin_parts = lambda values: owner.settings.update(skin_parts=values)
+        # Native playback and recursive screenshots are outside this layout check.
+        with patch.object(SkinPreview, 'capture_interface'):
+            page = AppearanceSettingsPage(owner.settings, skin_controller=owner.skin_controller)
+            page.setProperty('settingsGlassWindow', True)
+            page.setStyleSheet(theme.qss())
+            page.show()
+            try:
+                editor = page.parts_editor
+                background = editor.background_controls
+                self.assertEqual(editor.findChildren(SettingsSurface), [editor.editor_card])
+                self.assertTrue(editor.editor_card.isAncestorOf(editor.preview))
+                self.assertTrue(editor.editor_card.isAncestorOf(background.choose))
+                self.assertIsInstance(editor.scenes, SelectControl)
+                self.assertIsInstance(background.video_toggle, ToggleSwitch)
+                self.assertIsInstance(background.mask_slider, SettingsSlider)
+                self.assertIsInstance(background.mask_label, SettingsValueLabel)
+                for mode in ('light', 'dark'):
+                    theme.apply(mode)
+                    for width, columns in ((1100, 2), (540, 1)):
+                        page.resize(width, 850)
+                        settle()
+                        self.assertEqual(editor.sections.columns, columns)
+                        self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                        preview = editor.sections.section('preview')
+                        controls = editor.sections.section('controls')
+                        if columns == 2:
+                            self.assertEqual(preview.y(), controls.y())
+                            self.assertLess(preview.geometry().right(), controls.x())
+                        else:
+                            self.assertLess(preview.geometry().bottom(), controls.y())
+                        for index, part in enumerate(('background', 'settings', 'layout_menu')):
+                            editor.scenes.setCurrentIndex((index + 1) % 3)
+                            editor.scenes.setCurrentIndex(index)
+                            settle()
+                            self.assertEqual(editor.part.currentData(), part)
+                            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                            reset = background.clear if part == 'background' else editor.builtin_button
+                            self.assertTrue(reset.isVisible())
+                            self.assertTrue(editor.scenes.parentWidget() is reset.parentWidget())
+                            self.assertLess(reset.geometry().right(), editor.scenes.x())
+                            self.assertEqual(reset.geometry().center().y(), editor.scenes.geometry().center().y())
+                            self.assertEqual(reset.width(), 180)
+                            self.assertEqual(background.clear.isVisible(), part == 'background')
+                            self.assertEqual(editor.builtin_button.isVisible(), part != 'background')
+                        editor._select_part('buttons.settings')
+                        self.assertEqual(editor.scenes.currentIndex(), 0)
+                editor._select_part('background')
+                self.assertTrue(background.video_toggle.isVisible())
+                background.video_toggle.click()
+                self.assertFalse(owner.settings['skin_video_enabled'])
+                background.mask_slider.setValue(47)
+                self.assertEqual(owner.settings['skin_mask'], 47)
+                self.assertEqual(background.mask_label.text(), '47%')
+                self.assertEqual(background.mask_slider.width(), theme.SETTINGS_SLIDER_WIDTH)
+                background.clear.click()
+                self.assertEqual(owner.settings['skin_background'], '')
+                self.assertEqual(owner.settings['skin_mask'], 35)
+                self.assertTrue(owner.settings['skin_video_enabled'])
+                owner.settings['skin_parts'] = {'settings': {'radius': 13}, 'layout_menu': {'radius': 12}}
+                editor._select_part('settings')
+                editor.builtin_button.click()
+                self.assertEqual(owner.settings['skin_parts'], {
+                    'settings': {'radius': 13, 'builtin': True}, 'layout_menu': {'radius': 12}})
+                owner.skin_controller.layer.path = 'fixture.png'
+                background.sync()
+                self.assertTrue(background.video_row.isHidden())
+                self.assertTrue(background.video_toggle.isHidden())
+            finally:
+                page.close()
+                page.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                owner.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 if __name__ == '__main__':
     unittest.main()

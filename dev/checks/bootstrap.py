@@ -33,6 +33,7 @@ def install_native_stack():
 
 
 def main():
+    native_stack = install_native_stack()
     path = Path(sys.argv.pop(1)).resolve()
     sys.argv[0] = str(path)
     sys.path[:0] = [str(path.parent), str(Path(__file__).resolve().parents[2])]

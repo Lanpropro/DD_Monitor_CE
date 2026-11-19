@@ -326,6 +326,9 @@ class PluginStorePage(OnlinePage):
         position = self.scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
+        minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 220
+        columns = 2 if self.scroll.viewport().width() >= minimum * 2 + self.cards.spacing() else 1
+        self.cards.set_columns(columns)
         for offer in visible:
             self.cards.addWidget(self._offer_cards[offer['id']])
         self.cards.fit_columns(self.scroll.viewport().width() - 4)
