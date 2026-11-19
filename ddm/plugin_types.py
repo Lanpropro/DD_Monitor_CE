@@ -288,6 +288,7 @@ class PluginContext:
             controls.remove(self.name, control_id)
 
     def _clear_workspace_controls(self):
+        self.cancel_sidebar_drag()
         pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
         if pages is not None:
             pages.remove_owner(self.name)
@@ -312,9 +313,29 @@ class PluginContext:
         return True
 
     def unregister_sidebar_page(self, page_id):
+        self.cancel_sidebar_drag()
         pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
         if pages is not None:
             pages.remove(self.name, page_id)
+
+    def start_sidebar_drag(self, source, mime, pixmap, hotspot, global_pos, *, on_finished):
+        """Use the follow-card drag visual for an in-app plugin card; False if busy/headless.
+
+        on_finished runs once after drop/cancel and input release, while source is valid.
+        The source retains MIME ownership until completion. No Windows OLE loop is entered.
+        """
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        session = getattr(getattr(self.window, 'sidebar', None), 'drag_session', None)
+        if session is None:
+            return False
+        return session.start(source, mime, pixmap, hotspot, global_pos,
+                             plugin_owner=self.name, on_finished=on_finished)
+
+    def cancel_sidebar_drag(self):
+        session = getattr(getattr(self.window, 'sidebar', None), 'drag_session', None)
+        if session is not None and session.plugin_owner == self.name:
+            session.cancel()
 
     def show_workspace(self, widget, *, manages_content=False) -> bool:
         """Replace the central content with one embedded page; close the previous page."""

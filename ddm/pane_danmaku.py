@@ -5,6 +5,7 @@ from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QMenu
 
 from . import layouts
+from .danmaku_sources import is_live_danmaku_source
 
 
 @dataclass
@@ -87,15 +88,15 @@ class PaneDanmaku:
     def automatic_target(self):
         if not self.custom:
             tile = self.wall.danmaku_target_tile()
-            return tile if tile is not None and tile.room.get('room_id') else None
+            return tile if tile is not None and is_live_danmaku_source(tile.room) else None
         tiles = self.cell_tiles()
         visible = {cell: tile for cell, tile in tiles.items() if cell not in self.bindings()}
         main = self.wall.main_index()
         if main is not None and main < len(self.wall.tiles):
             tile = self.wall.tiles[main]
-            if tile in visible.values() and tile.room.get('room_id'):
+            if tile in visible.values() and is_live_danmaku_source(tile.room):
                 return tile
-        return next((tile for tile in visible.values() if tile.room.get('room_id')), None)
+        return next((tile for tile in visible.values() if is_live_danmaku_source(tile.room)), None)
 
     def target(self, panel):
         floating = self.floating.get(panel)
@@ -109,7 +110,7 @@ class PaneDanmaku:
             if source is None:
                 return self.automatic_target()
         visible = [tile for cell, tile in self.cell_tiles().items() if cell not in self.bindings()]
-        return source if source in visible and source.room.get('room_id') else None
+        return source if source in visible and is_live_danmaku_source(source.room) else None
 
     def panel_cell(self, panel):
         return next((cell for cell, item in self.panels.items() if item is panel), None)
@@ -466,16 +467,20 @@ class PaneDanmaku:
             self.choose_source(panel, tile)
 
     def room_dropped(self, panel, room_id):
+        source = next((tile for tile in self.cell_tiles().values()
+                       if str(tile.room.get('room_id') or '') == str(room_id)), None)
+        if source is not None and not is_live_danmaku_source(source.room):
+            return
         if not self.custom and panel not in self.floating:
             self.wall._on_danmaku_room_dropped(room_id)
             return
-        source = next((tile for tile in self.cell_tiles().values()
-                       if str(tile.room.get('room_id') or '') == str(room_id)), None)
         if source is None or self.cell_for_tile(source) in self.bindings():
             return
         self.choose_source(panel, source)
 
     def choose_source(self, panel, source):
+        if not is_live_danmaku_source(source.room):
+            return
         floating = self.floating.get(panel)
         if floating is not None and (floating.cell is None or floating.released):
             floating.source = source
@@ -507,6 +512,8 @@ class PaneDanmaku:
         return menu
 
     def request(self, cell, source=None, *, video=False):
+        if not video and source not in (None, -1) and not is_live_danmaku_source(source.room):
+            return
         bindings = dict(self.bindings())
         if video:
             bindings.pop(cell, None)

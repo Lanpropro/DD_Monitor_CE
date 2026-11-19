@@ -28,6 +28,50 @@ def settle():
 
 
 class WorkspaceControlTests(unittest.TestCase):
+    def test_plugin_card_drag_shows_ghost_and_releases_owner_on_cancel(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QListView
+        source=QListView(self.host)
+        source.show()
+        mime=QMimeData()
+        mime.setData('application/x-test-card',b'fixture')
+        pixmap=QPixmap(100,60)
+        pixmap.fill(Qt.red)
+        done=Mock()
+        session=self.sidebar.drag_session
+        try:
+            self.assertTrue(self.context.start_sidebar_drag(source,mime,pixmap,QPoint(20,30),
+                source.mapToGlobal(QPoint(20,30)),on_finished=done))
+            self.assertTrue(session.ghost.isVisible())
+            self.assertIs(session.area,source)
+            self.assertEqual(session.plugin_owner,'workspace-test')
+            self.assertFalse(self.context.start_sidebar_drag(source,mime,pixmap,QPoint(),QPoint(),on_finished=Mock()))
+            self.context._clear_workspace_controls()
+            done.assert_called_once()
+            self.assertFalse(session.active)
+            self.assertIsNone(session.ghost)
+            self.assertIsNone(QWidget.mouseGrabber())
+            self.assertIsNone(QWidget.keyboardGrabber())
+        finally:
+            session.cancel()
+            source.deleteLater()
+
+    def test_plugin_card_drag_source_hide_cancels_once(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QPixmap
+        source=QWidget(self.host)
+        source.show()
+        done=Mock()
+        self.context.start_sidebar_drag(source,QMimeData(),QPixmap(20,20),QPoint(),QPoint(),on_finished=done)
+        source.hide()
+        self.context.cancel_sidebar_drag()
+        done.assert_called_once()
+        self.assertFalse(self.sidebar.drag_session.active)
+        source.deleteLater()
+
     def test_sidebar_extension_search_keeps_follow_query_and_header(self):
         from unittest.mock import Mock
         self.sidebar.search.setText('示例主播1')

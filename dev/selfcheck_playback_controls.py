@@ -100,6 +100,51 @@ assert not any(name in sys.modules for name in (
         self.assertIn('声道：右', button.toolTip())
         self.assertIn('取消静音', button.toolTip())
 
+    def test_tile_audio_sync_updates_all_controls_without_audio_signals(self):
+        from ddm.tile_widgets import Tile
+        tile = Tile({'room_id': 'fixture'}, self.owner)
+        self.owner.layout().addWidget(tile)
+        signals = []
+        tile.muteToggled.connect(lambda *_: signals.append('mute'))
+        tile.volumeChanged.connect(lambda *_: signals.append('volume'))
+        for muted, volume, channel in ((True, 25, 3), (False, 70, 4)):
+            tile.muted, tile.volume, tile.audio_channel = muted, volume, channel
+            tile.sync_audio_ui()
+            self.assertEqual((tile.volume_button.muted, tile.volume_button.level,
+                              tile.volume_button.audio_channel), (muted, volume, channel))
+            self.assertEqual(tile.volume_slider.value(), volume)
+            self.assertEqual(tile.vertical_volume.value(), volume)
+            self.assertEqual(tile.volume_label.text(), str(volume))
+        self.assertFalse(signals)
+
+    def test_host_swap_keeps_actual_volume_icons_in_sync_with_players(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from ddm.tile_widgets import Tile
+        from ddm.room_placement import RoomPlacement
+        source = Tile({'room_id': 'fixture-live', 'live': True}, self.owner)
+        target = Tile({'room_id': 'fixture-vod', 'watchlater_bvid': 'fixture-vod'}, self.owner)
+        for tile in (source, target):
+            self.owner.layout().addWidget(tile)
+        source.set_volume(25)
+        source.set_muted(True)
+        target.set_volume(70)
+        target.set_muted(False)
+        players = {tile: SimpleNamespace(volume=tile.volume, muted=tile.muted,
+                    set_volume=lambda value, t=tile: setattr(players[t], 'volume', value),
+                    set_muted=lambda value, t=tile: setattr(players[t], 'muted', value),
+                    set_audio_channel=Mock(), reapply_audio_channel=Mock())
+                   for tile in (source, target)}
+        host = SimpleNamespace(wall=SimpleNamespace(tiles=[source, target], relayout=Mock()),
+                               players=players, _refresh_meta=Mock())
+        self.assertTrue(RoomPlacement(host).hot_swap(source, target))
+        self.assertFalse(source.muted)
+        self.assertTrue(target.muted)
+        for tile in (source, target):
+            self.assertEqual(tile.muted, players[tile].muted)
+            self.assertEqual(tile.volume_button.muted, players[tile].muted)
+            self.assertEqual(tile.volume_button.level, players[tile].volume)
+
     def test_pause_orientation_and_toggle_states(self):
         pause = ui.PauseButton(self.owner)
         pause.set_paused(True)

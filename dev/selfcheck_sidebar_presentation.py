@@ -70,6 +70,46 @@ class SidebarPresentationTests(unittest.TestCase):
         sidebar.set_side('left')
         self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(pip))
 
+    def test_plugin_content_stays_below_host_search_and_filters_after_orientation_switch(self):
+        from PySide6.QtGui import QIcon
+        content=QPushButton('视频内容')
+        pages=self.sidebar.plugin_pages
+        pages.add('fixture','order',content,'观看顺序',QIcon())
+        for turn in range(3):
+            if turn:
+                self.sidebar.set_side('top')
+                self.sidebar.set_side('left')
+            pages.select(('fixture','order'))
+            layout=self.sidebar._layout
+            self.assertLess(layout.indexOf(self.sidebar.search),layout.indexOf(self.sidebar.navigation.filters))
+            self.assertLess(layout.indexOf(self.sidebar.navigation.filters),layout.indexOf(content))
+            self.assertLess(layout.indexOf(content),layout.indexOf(self.sidebar.scroll))
+            self.assertLess(layout.indexOf(content),layout.indexOf(self.sidebar.account_row))
+            self.assertFalse(content.isHidden())
+            self.assertFalse(self.sidebar.navigation.filters.isHidden())
+            self.assertTrue(self.sidebar.scroll.isHidden())
+            pages.select()
+            self.assertTrue(content.isHidden())
+            self.assertFalse(self.sidebar.scroll.isHidden())
+
+    def test_plugin_sync_repairs_displaced_content_once_without_replacing_host_controls(self):
+        from PySide6.QtGui import QIcon
+        content=QPushButton('视频内容')
+        pages=self.sidebar.plugin_pages
+        pages.add('fixture','order',content,'观看顺序',QIcon())
+        pages.select(('fixture','order'))
+        layout=self.sidebar._layout
+        host_controls=(self.sidebar.navigation.header,self.sidebar.search,self.sidebar.navigation.filters)
+        layout.removeWidget(content)
+        layout.insertWidget(0,content)
+        pages.sync()
+        self.assertLess(layout.indexOf(self.sidebar.navigation.filters),layout.indexOf(content))
+        self.assertLess(layout.indexOf(content),layout.indexOf(self.sidebar.scroll))
+        before=[layout.itemAt(i) for i in range(layout.count())]
+        pages.sync()
+        self.assertEqual(before,[layout.itemAt(i) for i in range(layout.count())])
+        self.assertEqual(host_controls,(self.sidebar.navigation.header,self.sidebar.search,self.sidebar.navigation.filters))
+
     def test_navigation_mode_skips_matching_style_and_refreshes_changed_dock_or_size(self):
         button = self.sidebar.layout_button
         button.set_navigation_mode(True)

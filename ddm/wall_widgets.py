@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QGridLayout, QStyle, QStyleOption, Q
 from . import layouts, resize_layout, theme
 from .wall_border import WallBorderInteraction, WallPaneBorder, WallResizePreview
 from .danmaku_widgets import DanmakuPanel
+from .danmaku_sources import is_live_danmaku_source
 from .tile_widgets import Tile
 from .widget_support import TILE_BAR_HEIGHT, _repolish
 from .wall_layout import WallLayout
@@ -267,8 +268,9 @@ class WallGrid(QWidget):
             return self.pane_danmaku.target(self.danmaku)
         main = self.main_index()
         if main is not None and 0 <= main < len(self.tiles):
-            return self.tiles[main]
-        return next((tile for tile in self.tiles if tile.room.get('room_id')), None)
+            tile = self.tiles[main]
+            return tile if is_live_danmaku_source(tile.room) else None
+        return next((tile for tile in self.tiles if is_live_danmaku_source(tile.room)), None)
 
     def sync_sc_placement(self):
         panes = self.pane_danmaku
@@ -313,7 +315,7 @@ class WallGrid(QWidget):
         """把一路直播拖到弹幕格上：等于把弹幕换到那一格去。"""
         tile = next((item for item in self.tiles
                      if str(item.room.get("room_id") or "") == str(room_id)), None)
-        if tile is not None:
+        if tile is not None and is_live_danmaku_source(tile.room):
             self.move_danmaku_to_tile(tile)
 
     def ensure_slots(self) -> None:

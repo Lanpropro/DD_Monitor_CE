@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QScroll
 from . import motion, theme
 from .avatar_widgets import Avatar
 from .corner_geometry import continuous_path
+from .danmaku_sources import is_live_danmaku_source
 
 
 class SourceAvatar(QPushButton):
@@ -117,7 +118,7 @@ class SourcePicker(QWidget):
     def refresh(self):
         controller = self.controller
         tiles = [(cell, tile) for cell, tile in controller.cell_tiles().items()
-                 if cell not in controller.bindings() and tile.room.get('room_id')]
+                 if cell not in controller.bindings() and is_live_danmaku_source(tile.room)]
         faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in
                  controller.wall.window().sidebar.items()} if hasattr(controller.wall.window(), 'sidebar') else {}
         selected = controller.target(self.panel)

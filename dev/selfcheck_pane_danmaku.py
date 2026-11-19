@@ -65,6 +65,80 @@ class PaneDanmakuTests(unittest.TestCase):
         self.app.sendEvent(panel, drop)
         self.assertTrue(drop.isAccepted())
 
+    def test_live_source_capability_preserves_offline_rooms(self):
+        from ddm import plugins as api
+        from ddm.danmaku_sources import is_live_danmaku_source
+        self.assertEqual(api.ROOM_SUPPORTS_LIVE_DANMAKU, 'supports_live_danmaku')
+        self.assertTrue(is_live_danmaku_source(dict(room_id='1001', live=False)))
+        self.assertTrue(is_live_danmaku_source(dict(room_id='1001', supports_live_danmaku=True)))
+        self.assertFalse(is_live_danmaku_source(dict(room_id='1001', supports_live_danmaku=False)))
+        self.assertFalse(is_live_danmaku_source(dict(room_id='')))
+        self.assertFalse(is_live_danmaku_source(None))
+
+    def test_live_source_opt_out_filters_picker_and_subscription(self):
+        window = self.wall_window()
+        wall = window.wall
+        source = wall.tiles[0]
+        source.set_room({**source.room, 'live':False, 'supports_live_danmaku':False})
+        window.configure_wall_panes({3: source})
+        panes = wall.pane_danmaku
+        panel = panes.panels[3]
+        panel.source_picker.refresh()
+        self.assertNotIn(source, panel.source_picker.buttons)
+        self.assertIsNone(panes.target(panel))
+        window.sync_danmaku()
+        self.assertNotIn('1001', window._danmaku_clients)
+
+    def test_automatic_source_and_direct_requests_skip_opted_out_tiles(self):
+        window = self.wall_window()
+        wall = window.wall
+        source = wall.tiles[0]
+        source.set_room({**source.room, 'supports_live_danmaku':False})
+        window.configure_wall_panes({3: None})
+        panes = wall.pane_danmaku
+        panel = panes.panels[3]
+        self.assertIs(panes.automatic_target(), wall.tiles[1])
+        changes = []
+        wall.paneApplyRequested.connect(changes.append)
+        panes.request(3, source)
+        panes.room_dropped(panel, '1001')
+        panes.choose_source(panel, source)
+        self.assertFalse(changes)
+
+    def test_legacy_source_opt_out_does_not_select_a_different_main(self):
+        window = self.wall_window()
+        wall = window.wall
+        wall.set_layout('dm_main2')
+        main = wall.tiles[wall.main_index()]
+        main.set_room({**main.room, 'supports_live_danmaku':False})
+        self.assertIsNone(wall.danmaku_target_tile())
+        self.assertIsNone(wall.pane_danmaku.automatic_target())
+        with patch.object(wall, 'move_danmaku_to_tile') as move:
+            wall.pane_danmaku.room_dropped(wall.danmaku, main.room['room_id'])
+        move.assert_not_called()
+
+    def test_replacing_selected_live_with_opt_out_then_restoring_updates_sources(self):
+        window = self.wall_window()
+        source = window.wall.tiles[0]
+        original = dict(source.room)
+        window.configure_wall_panes({3:source})
+        panes = window.wall.pane_danmaku
+        panel = panes.panels[3]
+        source.set_room({**original, 'supports_live_danmaku':False})
+        source.set_video_active(True)
+        source.danmaku_button.setChecked(True)
+        window.sync_danmaku()
+        panes.refresh_sources()
+        self.assertIsNone(panes.target(panel))
+        self.assertNotIn(source, panel.source_picker.buttons)
+        self.assertNotIn('1001', window._danmaku_clients)
+        source.set_room(original)
+        window.sync_danmaku()
+        panes.refresh_sources()
+        self.assertIs(panes.target(panel),source)
+        self.assertIn(source,panel.source_picker.buttons)
+        self.assertIn('1001', window._danmaku_clients)
+
     def test_float_uses_the_same_panel_and_returns_the_composer_to_video(self):
         from ddm.plugins import TileControl
 

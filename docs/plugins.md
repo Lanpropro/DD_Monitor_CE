@@ -299,6 +299,12 @@ class MyPlugin(api.Plugin):
 平台请求必须有超时；本体分别处理平台与 B 站房间，不会把前缀房间号传给
 B 站取流、在线人数或弹幕接口。宿主通过平台可选的 `preview_url` 和 `danmaku_client` 接入悬停预览与弹幕；具体能力由已安装插件提供。
 
+点播等非直播媒体可在格子房间字典中声明
+`room[api.ROOM_SUPPORTS_LIVE_DANMAKU] = False`（字段名 `supports_live_danmaku`）。
+本体据此排除弹幕栏来源候选、自动选择、直接指定和拖放，并停止对应实时弹幕订阅。
+未声明的既有直播房间继续可选，包括尚未开播的房间；不按 `live=False` 一概排除。
+此能力仅限制实时直播弹幕来源，不控制插件按视频时间轴提供的历史弹幕。
+
 卡片基本资料与格子位置随配置保存，启动时状态为待刷新，后台恢复播放。
 禁用或删除插件后保留关注与位置，在格子提示启用插件。
 国内直播平台安装在 `plugins_user/domestic_live`，支持虎牙、斗鱼和抖音；
@@ -520,3 +526,10 @@ context.notify("【示例主播（房间 120）】发送失败：登录失效，
 `context.register_sidebar_page(page_id, widget, title=..., icon=...)` 在展开的左侧关注栏添加一个插件页面入口，返回是否注册成功；无窗口宿主返回 `False`。使用前检查接口是否存在，版本号不保证包含此开发接口。`unregister_sidebar_page(page_id)` 撤掉该入口。可选 `on_filter(text)` 接收共享搜索框的查询；本体保存并恢复关注与各插件页的搜索词，不修改关注标题或上方控件结构，只切换下方内容。
 
 本体 `sidebar_pages` 持有所属插件、入口和当前页，负责关注/插件页切换、收起/横栏回退及插件卸载时的所有权清理；页面注册后成为 Sidebar 子控件，注销后隐藏并解除父对象，由插件负责停止请求、定时器和删除。页面内容和本地排序由插件唯一持有，不写入本体直播关注集合。该接口不替换中央工作区，也不改变画面墙拖放协议。
+
+
+## 侧栏卡片拖影（开发接口）
+
+`context.start_sidebar_drag(source, mime, pixmap, hotspot, global_pos, on_finished=callback)` 复用关注卡片的应用内拖动会话，先显示拖影再返回True；忙碌或无GUI时返回False。插件可在True返回后隐藏原位。该路径不进入Windows OLE；需要跨应用拖放的功能继续自行使用原生拖动。使用前检查方法是否存在。
+
+源控件持有MIME直到回调；`on_finished`在放下或取消、释放输入捕获和会话状态后调用一次（源对象仍有效时）。`cancel_sidebar_drag()`只取消当前插件拥有的会话；页面注销、插件卸载或源控件隐藏会取消并释放鼠标/键盘。若source为QAbstractScrollArea，会话滚轮/位置采样使用该控件。平台视频协议与列表排序仍由插件处理。

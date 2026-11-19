@@ -9,6 +9,7 @@ from PySide6.QtCore import QTimer
 from . import bili
 from . import config as config_module
 from . import plugins as plugin_api
+from .danmaku_sources import is_live_danmaku_source
 from .super_chat_model import SuperChatStore
 
 
@@ -35,7 +36,7 @@ class DanmakuLifecycle:
         wanted = {str(tile.room['room_id']) for tile in wall.tiles
                   if tile.isVisible() and (tile.danmaku_button.isChecked() or
                       (wall.has_danmaku or panes.floating) and host.settings.get('super_chat_enabled', True))
-                  and tile.room.get('room_id') and (tile.room.get('live') or tile._player_active)}
+                  and is_live_danmaku_source(tile.room) and (tile.room.get('live') or tile._player_active)}
         wanted.update(str(room['room_id']) for room in targets.values() if room.get('room_id'))
         primary = str(targets.get(wall.danmaku, {}).get('room_id') or '')
         if primary != host._danmaku_room:

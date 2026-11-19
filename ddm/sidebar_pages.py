@@ -70,6 +70,15 @@ class SidebarPages(QObject):
             return
         active = self.current is not None
         for key, (widget, button, _title, _handler) in self.entries.items():
+            if key == self.current:
+                # Portrait restoration reseats host controls, leaving extension
+                # pages at their previous index. Keep the active page inside the
+                # content slot, after the host filters and before the follow list.
+                layout = sidebar._layout
+                if not (layout.indexOf(sidebar.navigation.filters)
+                        < layout.indexOf(widget) < layout.indexOf(sidebar.scroll)):
+                    layout.removeWidget(widget)
+                    layout.insertWidget(layout.indexOf(sidebar.scroll), widget, 1)
             widget.setVisible(available and key == self.current)
             button.setVisible(available)
             button.setChecked(key == self.current)
