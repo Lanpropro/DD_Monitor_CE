@@ -164,7 +164,7 @@
   padding-inline: 5px;
 }
 .lab-choice .lab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.lab-choice .lab-control[aria-pressed=true] { color: var(--lab-accent); }
+.lab-choice .lab-control[aria-pressed=true] { color: var(--lab-ink); font-weight: 600; }
 .lab-choice-indicator {
   --choice-fill: color-mix(in srgb, var(--lab-accent) 20%, var(--lab-card));
   position: absolute; z-index: -1; pointer-events: none;
@@ -1003,6 +1003,7 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
   .qt-card .lab-link { font-size: 11px; padding-inline: 2px; }
   .qt-card .lab-demo { --lab-font: 11px; }
   .lab-choice .lab-control { padding-inline: 3px; }
+  .qt-card [data-lab-demo=theme] .lab-choice .lab-label { white-space: normal; text-wrap: balance; }
   .lab-detail-head { align-items: start; }
   .lab-danmaku-popup { position-area: none; inset: auto 10px 10px; width: auto; margin: 0; }
   .qt-toolbar { flex-wrap: wrap; }
