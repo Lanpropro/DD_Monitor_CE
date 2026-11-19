@@ -895,9 +895,6 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #NotificationTitle {{color: {TEXT1}; font-size: {FONT_HEADING}px; font-weight: 600;}}
 #NotificationSummary {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
-#NotificationClear {{background: transparent; border: 1px solid transparent;}}
-#NotificationClear:hover {{background: {CONTENT_HOVER};}}
-#NotificationClear:focus {{border: 1px solid {ACCENT};}}
 #NotificationEmpty {{
     color: {TEXT2}; padding: 8px 12px;
 }}

@@ -28,7 +28,8 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton, ElidedLabel, BarIconButton, ToggleSwitch, SegmentedControl, SelectControl, SettingsSurface, DisclosureButton, SettingsProgressBar)
+                    DanmakuToggleButton, ElidedLabel, BarIconButton, NavigationButton, ToggleSwitch,
+                    SegmentedControl, SelectControl, SettingsSurface, DisclosureButton, SettingsProgressBar)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -271,13 +272,14 @@ assert not any(name in sys.modules for name in (
             theme.apply('dark')
 
     def test_exports_reuse_original_classes_and_keep_old_imports(self):
-        from ddm import avatar_widgets, motion, widgets
+        from ddm import avatar_widgets, motion, sidebar_navigation, widgets
         from ddm.ui import labels, toolbar
         self.assertIs(widgets.ElidedLabel, labels.ElidedLabel)
         self.assertIs(widgets.BarIconButton, toolbar.BarIconButton)
         for module, names in (
                 (avatar_widgets, ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap')),
                 (motion, ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack')),
+                (sidebar_navigation, ('NavigationButton',)),
                 (widgets, ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
                            'PauseButton', 'RefreshButton', 'DanmakuToggleButton', 'ElidedLabel', 'BarIconButton'))):
             for name in names:

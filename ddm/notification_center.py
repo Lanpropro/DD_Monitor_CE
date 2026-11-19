@@ -17,6 +17,7 @@ from .dock_feedback import icon_color
 from .settings_backdrop import apply_blur
 from .settings_material import normalize as normalize_material
 from .settings_material_paint import glass_active, glass_tint, paint_glass_border, window_background_tint
+from .ui import NavigationButton
 
 
 def _draw_bell(painter, color):
@@ -46,37 +47,6 @@ class _NotificationBell(QWidget):
             painter.translate(self.width() / 2, self.height() / 2)
             painter.scale(1.23, 1.23)
             _draw_bell(painter, theme.qcolor(theme.ACCENT))
-
-
-class _ClearNotificationsButton(QPushButton):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setObjectName('NotificationClear')
-        self.setFixedSize(32, 32)
-        self.setAccessibleName('清空通知')
-        self.setToolTip('清空通知')
-        self.setCursor(Qt.PointingHandCursor)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        with QPainter(self) as painter:
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.translate(self.width() / 2, self.height() / 2)
-            painter.setPen(QPen(icon_color(self), 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            path = QPainterPath()
-            path.moveTo(-7, -4)
-            path.lineTo(7, -4)
-            path.moveTo(-2, -4)
-            path.lineTo(-2, -7)
-            path.lineTo(2, -7)
-            path.lineTo(2, -4)
-            path.moveTo(-5, -2)
-            path.lineTo(-4, 7)
-            path.lineTo(4, 7)
-            path.lineTo(5, -2)
-            painter.drawPath(path)
-            for x in (-1.5, 1.5):
-                painter.drawLine(QPointF(x, 0), QPointF(x, 4))
 
 
 def live_notice_action(parent):
@@ -367,17 +337,13 @@ class NotificationCenter(QFrame):
         self.summary.setWordWrap(True)
         labels.addWidget(self.summary)
         heading.addLayout(labels, 1)
-        self.clear_button = _ClearNotificationsButton(self.heading)
+        self.clear_button = NavigationButton('清空通知', 'clear', self.heading)
         self.clear_button.clicked.connect(self.clear)
         self.clear_button.clicked.connect(self.hide)
         heading.addWidget(self.clear_button)
-        close = QPushButton('×')
-        close.setObjectName('NoticeClose')
-        close.setFixedSize(28, 28)
-        close.setToolTip('收起通知面板')
-        close.setAccessibleName('收起通知面板')
-        close.clicked.connect(self.hide)
-        heading.addWidget(close)
+        self.close_button = NavigationButton('收起通知面板', 'close', self.heading)
+        self.close_button.clicked.connect(self.hide)
+        heading.addWidget(self.close_button)
         layout.addWidget(self.heading)
         self.empty = QLabel('暂无通知')
         self.empty.setAlignment(Qt.AlignCenter)

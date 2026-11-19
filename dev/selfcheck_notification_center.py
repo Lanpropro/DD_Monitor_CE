@@ -20,7 +20,7 @@ from ddm.dialogs import NotificationSettingsPage, SettingsDialog
 from ddm.notification_center import NotificationButton, remember_result
 from ddm.online_ui import show_result, UpdateNotice
 from ddm.widgets import Sidebar
-from ddm.ui import SegmentedControl, SettingsSlider, SettingsValueLabel
+from ddm.ui import NavigationButton, SegmentedControl, SettingsSlider, SettingsValueLabel
 from ddm.settings_layout import SettingsSection
 
 
@@ -425,8 +425,17 @@ class NotificationTests(unittest.TestCase):
         self.assertLess(row.timestamp.geometry().bottom(), row.message.y())
 
         clear = self.center.clear_button
+        close = self.center.close_button
+        self.assertIsInstance(clear, NavigationButton)
+        self.assertIsInstance(close, NavigationButton)
+        self.assertEqual(clear.size(), close.size())
+        self.assertEqual(clear.objectName(), close.objectName())
         self.assertEqual(clear.text(), '')
         self.assertEqual(clear.accessibleName(), '清空通知')
+        QTest.keyClick(close, Qt.Key_Space)
+        self.assertFalse(self.center.isVisible())
+        self.assertEqual(self.center.entries, [entry])
+        self.open()
         with patch.object(motion, 'enabled', return_value=True):
             QTest.mouseClick(clear, Qt.LeftButton)
         self.assertFalse(self.center.isVisible())
@@ -437,6 +446,31 @@ class NotificationTests(unittest.TestCase):
         self.assertTrue(self.center.empty.isVisible())
         self.assertEqual(self.center.summary.text(), '本次启动 · 0 条')
         self.assertEqual(self.center.height(), empty_height)
+
+    def test_menu_header_buttons_share_hover_surface(self):
+        self.addCleanup(theme.apply, theme.mode())
+        self.owner.settings = {'settings_glass_enabled': True}
+        self.center.add('操作完成')
+        with patch('ddm.notification_center.apply_blur', return_value=True):
+            self.open()
+
+        def surface_pixel(button):
+            self.app.processEvents()
+            image = button.grab().toImage()
+            scale = image.devicePixelRatio()
+            return image.pixelColor(round(5 * scale), round(button.height() / 2 * scale))
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            hovered = []
+            for button in (self.center.clear_button, self.center.close_button):
+                with self.subTest(mode=mode, button=button.accessibleName()):
+                    QTest.mouseMove(self.center, QPoint(5, self.center.height() // 2))
+                    idle = surface_pixel(button)
+                    QTest.mouseMove(button, button.rect().center())
+                    hovered.append(surface_pixel(button))
+                    self.assertNotEqual(idle, hovered[-1])
+            self.assertEqual(*hovered)
 
     def test_menu_glass_follows_saved_setting_and_compositor_support(self):
         self.owner.settings = {'settings_glass_enabled': False, 'settings_glass_opacity': 40}

@@ -29,6 +29,7 @@
 | `TileButton`、`VolumeButton`、`RecordingButton` | 播放格按钮、音量、录制控件 | `ddm/playback_controls.py` |
 | `SidebarToggleButton`、`PauseButton`、`RefreshButton`、`DanmakuToggleButton` | 已有侧栏/播放控制按钮 | `ddm/playback_controls.py` |
 | `ElidedLabel`、`BarIconButton` | 省略文字、工具条按钮 | `ddm/ui/labels.py`、`ddm/ui/toolbar.py` |
+| `NavigationButton` | 功能轨及弹出面板使用的图标按钮，统一悬停与键盘焦点反馈 | `ddm/sidebar_navigation.py` |
 | `continuous_path` | 矩形表面的连续圆角路径；保留圆形、胶囊及明确的直角 | `ddm/corner_geometry.py` |
 | `ScaleCurveControl` | SC / 弹幕可拖动控制点的缩放曲线与比例示例 | `ddm/ui/scale_curve.py`；计算规则见 `ddm/viewport_scale.py` |
 | `ToggleSwitch` | 设置行右侧的开关，保留 Qt 点击、空格键、焦点及禁用语义 | `ddm/ui/selection.py`；`NotificationSwitch` 保留兼容子类 |
@@ -56,7 +57,7 @@
 | 需要的表现 | 先查看 | 适用边界 |
 | --- | --- | --- |
 | 播放格的暂停、刷新、音量、弹幕和录制图标 | `ddm.ui` 中的播放控制按钮；实现在 `ddm/playback_controls.py` | 连同按钮状态、信号和格子生命周期使用，尚无独立通用图标包 |
-| 工具栏图标按钮 | `BarIconButton`、`ddm/ui/toolbar.py` | 由页面提供具体动作与提示 |
+| 工具栏图标按钮 | `BarIconButton`、`NavigationButton` | 后者复用侧栏功能轨和功能中心的图标、状态反馈，供通知菜单等弹出面板使用 |
 | 对话框、菜单和设置页切换动效 | `AnimatedDialog`、`AnimatedMenu`、`SlidingTabs`、`SettingsStack`；实现在 `ddm/motion.py` | 遵循系统动画开关，仍由原 Qt 宿主持有 |
 | 设置开关、分段选项与数值步进反馈 | `ToggleSwitch`、`SegmentedControl`、`StepperControl` | 复用控件自身的状态和反馈，不在页面另建动画状态 |
 
