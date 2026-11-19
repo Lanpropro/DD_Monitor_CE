@@ -2,7 +2,7 @@
 const labAdditionalControls = [
   ['cache-action', '刷新统计', '数据与存储 › 图片缓存', 100, 34, 17, 'ddm/cache_settings.py', '重新统计缓存用量。这里返回模拟结果。'],
   ['update-progress', '下载进度', '软件更新 › 下载', 192, 32, 4, 'ddm/update_progress_ui.py', '拖动示例控制条可查看进度条在不同数值下的绘制。'],
-  ['plugin-disclosure', '插件详情展开条', '插件 › 插件商店', 125, 34, 8, 'ddm/plugin_store_ui.py', '展开插件卡片的说明和作者信息。'],
+  ['plugin-disclosure', '插件详情展开条', '插件 › 插件商店', 90, 34, 8, 'ddm/plugin_store_ui.py', '展开插件卡片的说明和作者信息。'],
   ['danmaku-font', '弹幕字体', '弹幕 › 弹幕字体与记录', 180, 34, 8, 'ddm/settings_danmaku.py', '输入字体名称后选择。试样使用几种 Windows 本地字体。'],
   ['danmaku-color', '弹幕颜色', '播放格 › 弹幕观看设置', 188, 34, 17, 'ddm/ui/color_dialog.py', '在 RGB 滑块、数值和 HEX 之间同步，确认后应用。'],
   ['scale-curve', '弹幕缩放曲线', '弹幕 › 画面弹幕缩放', 266, 34, 8, 'ddm/ui/scale_curve.py', '拖动节点调整比例。720 px 对应 100%，保持固定。'],
@@ -89,17 +89,19 @@ function labAdditionalExample(item, popupId) {
       sample = choices([['已安装', '已安装插件'], ['插件商店', '浏览插件商店']], '<p class="lab-extra-copy" data-extra-content>已安装插件</p>');
       break;
     case 'settings-nav':
-      sample = `<div class="lab-mini-settings">${choices([['常规', '播放与声音'], ['外观', '主题']])}
-        <section><strong data-extra-heading>常规</strong><small>设置当前分类的选项</small><p data-extra-content>播放与声音</p></section></div>`;
+      sample = `<div class="lab-mini-settings"><div class="lab-mini-nav">
+        <strong>设置</strong><input class="lab-control" type="search" placeholder="搜索设置分类" aria-label="搜索设置分类" data-extra-nav-search>
+        <small>基础偏好</small>${choices([['常规', '播放与声音'], ['外观', '主题']])}<small>DD监控室CE</small></div>
+        <section><strong data-extra-heading>常规</strong><small data-extra-description>设置播放与声音</small><p data-extra-content>播放与声音</p></section></div>`;
       break;
     case 'sidebar-toggle':
       sample = `${labButton(title, '', '«', 'data-extra-switch aria-pressed="false"', true)}`;
       break;
     case 'sidebar-filter':
-      sample = choices([['全部直播间', '全部直播间', 'display'], ['仅显示直播中', '仅显示直播中', 'circle']]);
+      sample = choices([['全部直播间', '全部直播间', 'qt-tabs'], ['仅显示直播中', '仅显示直播中', 'qt-live']]);
       break;
     case 'sidebar-multi':
-      sample = labButton('多选直播间', 'check', '', 'data-extra-switch aria-pressed="false"', true);
+      sample = labButton('多选直播间', 'qt-check-stack', '', 'data-extra-switch aria-pressed="false"', true);
       break;
     case 'avatar-strip':
       sample = `<div class="lab-avatar-strip" role="group" aria-label="${title}">
@@ -211,7 +213,13 @@ function labBindAdditional(host, item, report) {
       demo.querySelector('progress').value = field.value;
       demo.querySelector('output').textContent = field.value + '%';
     }
-    if (field.matches('input[type=search]')) {
+    if (field.matches('[data-extra-nav-search]')) {
+      const query = field.value.trim();
+      demo.querySelectorAll('[data-extra-choice]').forEach(button => {
+        button.hidden = !button.textContent.trim().includes(query);
+      });
+    }
+    if (field.matches('.lab-font-popup input[type=search]')) {
       const terms = field.value.toLowerCase().trim().split(/\s+/);
       const options = [...demo.querySelectorAll('[data-extra-font-choice]')];
       options.forEach(option => {
@@ -223,7 +231,7 @@ function labBindAdditional(host, item, report) {
   });
   demo.addEventListener('keydown', event => {
     const target = event.target;
-    if (target.matches('input[type=search]') && ['ArrowDown', 'Enter'].includes(event.key)) {
+    if (target.matches('.lab-font-popup input[type=search]') && ['ArrowDown', 'Enter'].includes(event.key)) {
       const first = demo.querySelector('[data-extra-font-choice]:not([hidden])');
       if (first) {
         event.preventDefault();
@@ -233,7 +241,7 @@ function labBindAdditional(host, item, report) {
     }
     const group = target.closest('.lab-extra-choices');
     if (!group || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
-    const choices = [...group.querySelectorAll('button:not(:disabled)')];
+    const choices = [...group.querySelectorAll('button:not(:disabled,[hidden])')];
     if (!choices.length) return;
     event.preventDefault();
     const delta = ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1;
@@ -265,7 +273,11 @@ function labBindAdditional(host, item, report) {
       const content = demo.querySelector('[data-extra-content]');
       if (content) content.textContent = button.dataset.extraChoice;
       const heading = demo.querySelector('[data-extra-heading]');
-      if (heading) heading.textContent = button.textContent.trim();
+      if (heading) {
+        heading.textContent = button.textContent.trim();
+        demo.querySelector('[data-extra-description]').textContent = button.dataset.extraChoice === '主题'
+          ? '设置主题、背景与界面分区样式' : '设置播放与声音';
+      }
       if (!content) report('已选 ' + button.dataset.extraChoice);
     } else if (button.matches('[data-extra-switch]')) {
       const active = button.getAttribute('aria-pressed') !== 'true';

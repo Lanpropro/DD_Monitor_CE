@@ -47,8 +47,34 @@ const labTileGlyphs = {
   'qt-mute': '<path d="M2 10h4l5-4v12l-5-4H2zm13-1 6 6m0-6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>',
   'qt-reconnect': '<path d="M4 12A8 8 0 0 1 17 6m3 6a8 8 0 0 1-13 6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m15 2 5 6-8-1zm-6 20-5-6 8 1z" fill="currentColor"/>',
 };
-const labIcon = glyph => labTileGlyphs[glyph]
-  ? `<svg viewBox="0 0 24 24" aria-hidden="true">${labTileGlyphs[glyph]}</svg>` : icon(glyph);
+const labQtGlyphs = {
+  'qt-grid': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  'qt-tabs': '<rect x="3" y="8" width="17" height="12" rx="2"/><path d="M6 5h11m-7 6 5 3-5 3z"/>',
+  'qt-live': '<path d="M7 8a6 6 0 0 0 0 8m10-8a6 6 0 0 1 0 8M4 5a10 10 0 0 0 0 14m16-14a10 10 0 0 1 0 14"/><circle cx="12" cy="12" r="2.5" fill="#fb7299" stroke="none"/>',
+  'qt-check-stack': '<rect x="4" y="7" width="13" height="13" rx="2"/><path d="m7 13 2 2 4-5M8 4h10a2 2 0 0 1 2 2v10"/>',
+  'qt-swap': '<path d="M3 8h17l-4-4m5 12H4l4 4"/>',
+  'qt-return': '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M15 12H8m4-4-4 4 4 4"/>',
+  'qt-caption': '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h10m-10 4h7"/>',
+  'qt-lock': '<rect x="6" y="10" width="12" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+  'qt-bili': '<rect x="3.5" y="8" width="17" height="12" rx="2.5"/><path d="m8 8-2-4m10 4 2-4m-9 9v2m6-2v2"/>',
+  'qt-image': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 8 9m-2-5 4-4 3 3"/><circle cx="15" cy="8" r="1"/>',
+  'qt-image-off': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 3 18 18"/>',
+  'qt-trash': '<path d="M4 7h16m-13 0 1 13h8l1-13M9 7V4h6v3m-5 3v6m4-6v6"/>',
+  star: '<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.3-5.7-3-5.7 3 1.1-6.3-4.6-4.5 6.4-.9z"/>',
+  heart: '<path d="M12 21 3.5 12.5C-2 6 7 0 12 7c5-7 14-1 8.5 5.5z"/>',
+  game: '<path d="M7 7h10c3 0 4 3 5 10 0 3-3 3-5 0l-2-2H9l-2 2c-2 3-5 3-5 0 1-7 2-10 5-10zM6 10v5m-2.5-2.5h5M17 11h.01M19 14h.01"/>',
+  music: '<path d="M9 17V5l11-2v12M9 9l11-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="17" cy="16" rx="3" ry="2"/>',
+};
+const labPlatformIcons = {
+  'platform-bili': 'bilibili.ico', 'platform-huya': 'huya.png', 'platform-douyu': 'douyu.ico',
+};
+const labIcon = glyph => labPlatformIcons[glyph]
+  ? `<img src="../../assets/platforms/${labPlatformIcons[glyph]}" alt="">`
+  : labTileGlyphs[glyph]
+  ? `<svg viewBox="0 0 24 24" aria-hidden="true">${labTileGlyphs[glyph]}</svg>`
+  : labQtGlyphs[glyph]
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${labQtGlyphs[glyph]}</svg>`
+    : icon(glyph);
 const labTransitions = {
   pause: [['qt-pause', '', '播放中'], ['play', '', '已暂停']],
   volume: [['qt-volume', '', '声音已开启'], ['qt-mute', '', '已静音']],
@@ -135,6 +161,7 @@ function labMount(host, item) {
   host.dataset.labDemo = id;
   host.dataset.labArea = item.area;
   host.dataset.state = 'live';
+  delete host.dataset.customRadius;
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
   const popupId = `lab-${id}-${host.classList.contains('lab-detail-stage') ? 'detail' : 'card'}`;
   const content = item.sheet === 'application' ? labAppExample(item, popupId)
@@ -149,6 +176,11 @@ function labMount(host, item) {
       <label class="lab-danmaku-check"><input type="checkbox">独立调整此格弹幕</label>
       <button class="lab-control lab-danmaku-more" type="button" popovertarget="${popupId}" popovertargetaction="hide" data-lab-more>更多弹幕设置</button>
     </div>` : ''}`;
+  const fieldset = host.querySelector('fieldset');
+  if (!fieldset.querySelector('[data-primary]')) {
+    const first = fieldset.querySelector('button, input, select, textarea, [tabindex]');
+    (first?.closest('.lab-switch') || first)?.setAttribute('data-primary','');
+  }
   const status = host.querySelector('.lab-status');
   const number = host.querySelector('.lab-step-value');
   const report = message => { status.textContent = message; };
@@ -259,7 +291,7 @@ const labPaintFields = [
 const labExtraSurface = {
   collapse: '--lab-segment', codec: '--lab-segment', theme: '--lab-segment',
   decoder: '--lab-picker-bg', quality: '--lab-menu', danmaku: '--lab-menu',
-  'initial-volume': '--lab-track-bg', volume: '--lab-track-bg',
+  'initial-volume': '--lab-track-bg', volume: '--lab-track-bg', 'pip-audio': '--lab-audio-button-bg',
 };
 
 function labSyncColors() {
@@ -320,15 +352,22 @@ function labRenderDetail(item) {
     if (paint) {
       sample.style.setProperty(paint[2], field.value);
       field.nextElementSibling.textContent = field.value.toUpperCase();
-      if (paint[0] === 'accent') sample.querySelector('.lab-controls').style.removeProperty('--lab-accent');
+      if (paint[0] === 'accent') {
+        sample.querySelector('.lab-controls').style.removeProperty('--lab-accent');
+        sample.style.setProperty('--lab-tile-focus',field.value);
+      }
+      if (paint[0] === 'ink') sample.style.setProperty('--lab-tile-hover-ink', field.value);
       if (paint[0] === 'surface' && labExtraSurface[item.id]) sample.style.setProperty(labExtraSurface[item.id], field.value);
     } else if (field.name === 'state') {
       sample.dataset.state = field.value;
-      sample.querySelector('fieldset').disabled = field.value === 'disabled';
+      const fieldset = sample.querySelector('fieldset');
+      fieldset.disabled = field.value === 'disabled';
+      fieldset.inert = fieldset.disabled;
     } else if (field.name === 'icon') {
       sample.setPreviewIcon(field.value);
     } else if (field.validity.valid && field.value !== '') {
       sample.style.setProperty(`--lab-${field.name}`, field.value + (field.name === 'motion' ? 'ms' : 'px'));
+      if (field.name === 'radius') sample.dataset.customRadius = '';
     }
   });
   labDetail.querySelector('.lab-reset').addEventListener('click', () => {

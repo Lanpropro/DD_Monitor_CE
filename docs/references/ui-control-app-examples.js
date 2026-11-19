@@ -1,14 +1,14 @@
 // Matches the Windows Qt capture rows in ui-control-library-qt-application.png.
 const labApplicationControls = [
   ['room-search', '关注搜索框', '关注栏 › 搜索主播／房间号', 217, 'room_add_followed.py', '输入中文、拼音或房间号，查看结果与空态。'],
-  ['room-add', '批量添加直播间', '关注栏 › 添加与导入', 232, 'room_add_panel.py', '每行一个房间号或直播间链接。选择文件夹后试用数量与错误反馈。'],
-  ['room-picker', '关注直播间选择器', '添加直播间 › 从关注列表选择', 234, 'room_add_followed.py', '搜索关注项、筛选直播中并选择一项。'],
+  ['room-add', '批量添加直播间', '关注栏 › 添加与导入', 280, 'room_add_panel.py', '每行一个房间号或直播间链接。选择文件夹后试用数量与错误反馈。'],
+  ['room-picker', '关注直播间选择器', '添加直播间 › 从关注列表选择', 280, 'room_add_followed.py', '搜索关注项、筛选直播中并选择一项。'],
   ['follow-import', '导入关注列表', '添加与导入 › 导入关注', 232, 'follow_import_ui.py', '核对复选、已关注禁用和导入数量。'],
   ['follow-card', '关注卡片多选', '关注列表 › 多选管理', 212, 'sidebar_item.py', '选择卡片，查看主播标题和开播状态。'],
   ['folder-head', '关注文件夹标题', '关注列表 › 文件夹', 204, 'sidebar_folders.py', '展开或收起文件夹，也可进入行内重命名。'],
   ['folder-edit', '文件夹名称与图标', '关注列表 › 新建／编辑文件夹', 244, 'folder_icons.py', '填写名称、选择颜色，确认后立即显示。'],
   ['function-hub', '功能中心', '侧栏 › 功能中心', 233, 'workspace_controls.py', '搜索功能、切换固定状态，或打开插件管理入口。'],
-  ['account-menu', '账号行与账号菜单', '关注栏底部 › 账号', 195, 'account_widgets.py', '打开账号操作菜单。示例使用虚构账号。'],
+  ['account-menu', '账号行与账号菜单', '关注栏底部 › 账号', 245, 'account_widgets.py', '打开账号操作菜单。示例使用虚构账号。'],
   ['layout-picker', '画面墙布局预设', '画面墙 › 布局预设', 238, 'layout_picker.py', '选择布局卡片，比较格子排列和选中态。'],
   ['room-preset', '保存直播间组合', '布局预设 › 我的组合', 232, 'room_presets_ui.py', '输入组合名并试用保存、取消及反馈。'],
   ['wall-remove', '移除画面选择', '画面墙 › 清空画面墙', 243, 'wall_removal.py', '选择未开播或全部直播，移除后可撤回。'],
@@ -45,15 +45,65 @@ const labApplicationControls = [
   ['theme-editor', '主题自定义值', '外观 › 主题', 240, 'settings_theme_editor.py', '填写颜色值，切换字体并调整界面字号。'],
   ['skin-parts', '界面分区预览', '外观 › 界面美化', 230, 'skin_preview.py', '切换场景，点击分区后试换底色。'],
   ['notice-blur', '开播通知模糊预览', '通知 › 开播提醒', 234, 'settings_notifications.py', '开关直播封面，并调整背景模糊程度。'],
-  ['streamer-profile', '主播独立设置卡', '主播设置 › 主播卡片', 236, 'settings_streamer_profiles.py', '在整组和单个主播间切换，修改画质和音量。'],
+  ['streamer-profile', '主播独立设置卡', '主播设置 › 主播卡片', 288, 'settings_streamer_profiles.py', '在整组和单个主播间切换，修改画质和音量。'],
   ['startup-notice', '首次启动须知', '首次启动 › 用户须知', 200, 'user_notice.py', '滚动阅读试样，确认后查看反馈。'],
   ['settings-material', '视觉效果与设置布局', '外观 › 视觉效果', 248, 'settings_material_editor.py', '切换毛玻璃、阴影、分段指示器和设置卡片布局，试调底色不透明度。'],
 ].map(([id, title, location, width, file, usage], row) => ({
-  id, title, location, width, usage, height: id === 'pip-tools' ? 24 : 32, radius: id === 'pip-tools' ? 12 : 8, source: 'ddm/' + file,
+  id, title, location, width, usage, height: id === 'pip-tools' ? 24 : id === 'account-menu' ? 34 : 32,
+  radius: id === 'pip-tools' ? 12 : id === 'account-menu' ? 17 : 8, source: 'ddm/' + file,
   row, sheet: 'application', area: 'settings',
   group: row < 9 || (row >= 36 && row < 38) ? '添加与关注'
     : (row < 22 || (row >= 38 && row < 42)) ? '画面墙与播放' : '系统与设置',
 }));
+
+const labSkinScenes = [
+  [
+    [10,10,154,500,'关注栏','sidebar'], [19,18,102,25,'DD监控室CE'], [130,18,25,25,'«','buttons'],
+    [19,51,40,25,'排序','buttons'], [72,51,40,25,'◐','buttons'], [114,51,40,25,'↻','buttons'],
+    [19,86,136,29,'文件夹 · 3','sidebar'], ...[125,223,321].map(y => [23,y,128,85,'关注卡片']),
+    [19,425,82,29,'布局预设','buttons'], [107,425,48,29,'设置','buttons'],
+    [19,465,62,29,'导入关注','buttons'], [87,465,68,29,'添加直播间','buttons'],
+    ...[[176,10,405,324],[591,10,199,157],[591,177,199,157],[176,344,199,166],[384,344,197,166],[591,344,199,166]]
+      .flatMap(([x,y,w,h]) => [[x,y,w,h,'直播画面'],[x+2,y+h-33,w-4,31,'Ⅱ　◖　弹幕　⛶','controls']]),
+  ],
+  [
+    [25,20,750,480,'','settings'], [36,34,155,452,'分类','sidebar'], [207,34,550,388,'内容区','settings'],
+    ...['常规','外观','弹幕','录制','快捷键','插件'].map((label,i) => [47,53+i*49,132,34,label]),
+    ...['设置页面','颜色模式','背景与美化','常规设置'].map((label,i) => [227,60+i*55,505,35,label]),
+    [535,442,100,32,'取消','buttons'], [646,442,100,32,'保存','buttons'],
+  ],
+  [
+    [30,60,460,390,'对话框','settings'], [55,84,410,40,'添加直播间／导入关注'],
+    [55,155,410,40,'房间号或直播间链接'], [55,215,410,40,'选择文件夹'],
+    [520,60,245,130,'菜单','controls'], [530,77,225,31,'右键菜单'], [530,114,225,31,'账号菜单'],
+    [520,205,245,130,'布局预设／直播间组合','settings'], [520,355,245,95,'提示','buttons'],
+  ],
+];
+const labLayoutOptions = {
+  普通布局: [['单画面','1'],['上下两分','1 2'],['左右两分','1,2'],['四分','1,2 3,4']],
+  弹幕布局: [['主画面 + 弹幕','1,d'],['上 1 大 + 小 + 弹幕','1,1 2,d'],
+    ['主画面 + 1 小 + 弹幕','1,2,d'],['主画面 + 2 小 + 弹幕','1,2,d 1,3,d']],
+  竖屏布局: [['主画面 + 2 小','1,1 2,3'],['主画面 + 4 小','1,1 2,3 4,5'],
+    ['主画面 + 6 小','1,1 2,3 4,5 6,7'],['主画面 + 2 小 + 弹幕','1,1 2,3 d,d']],
+};
+
+function labLayoutSwatch(spec) {
+  const rows = spec.split(' ').map(row => row.split(','));
+  const grid = rows.map(row => '"' + row.map(cell => 'tile' + cell).join(' ') + '"').join(' ');
+  return `<div class="lab-qt-layout-swatch" style='grid-template-areas:${grid}' aria-hidden="true">
+    ${[...new Set(rows.flat())].map(cell => `<i style="grid-area:tile${cell}" ${cell === 'd' ? 'class="lab-qt-layout-chat"' : ''}></i>`).join('')}</div>`;
+}
+
+function labSkinScene(regions, scene) {
+  return `<div class="lab-qt-skin-scene" data-app-skin-scene="${scene}" ${scene ? 'hidden' : ''}>
+    ${regions.map(([x,y,w,h,label,part]) => {
+      const style = `left:${x / 8}%;top:${y * 100 / 520}%;width:${w / 8}%;height:${h * 100 / 520}%`;
+      return part
+        ? `<button type="button" class="lab-control" style="${style}" aria-label="${label || '设置窗口'}" title="${label || '设置窗口'}" data-app-action="skin-part"
+          data-app-part="${part}" aria-pressed="${label === '关注栏'}"><span class="lab-label">${label}</span></button>`
+        : `<span class="lab-qt-skin-static" aria-hidden="true" style="${style}">${label}</span>`;
+    }).join('')}</div>`;
+}
 
 function labAppExample(item, popupId) {
   const b = (text, action, primary = false, glyph = '') =>
@@ -77,131 +127,200 @@ function labAppExample(item, popupId) {
   const popupButton = (label, body, glyph = '') =>
     `${labButton(label, glyph, glyph ? '' : label, `popovertarget="${popupId}"`, true)}
       <div class="lab-extra-popup lab-app-popup" id="${popupId}" popover aria-label="${label}">${body}</div>`;
-  const line = (label, control) => `<label class="lab-app-line"><span>${label}</span>${control}</label>`;
-  const searchRows = `
-    <button class="lab-app-row lab-control" data-app-action="room" data-app-find="小岚 xiaolan xl 10001" data-app-live><i></i>小岚<span>直播中</span></button>
-    <button class="lab-app-row lab-control" data-app-action="room" data-app-find="阿海 ahai ah 10002"><i></i>阿海<span>未开播</span></button>
-    <small data-app-empty hidden>没有匹配的关注</small>`;
+  const line = (label, control) => `<div class="lab-app-line"><span>${label}</span>${control}</div>`;
+  const roomRows = `<div class="lab-qt-room-grid">
+    <button class="lab-app-row lab-control" data-app-action="room" data-app-find="小岚 xiaolan xl 10001" data-app-live><i>小</i><span>小岚</span></button>
+    <button class="lab-app-row lab-control" data-app-action="room" data-app-find="阿海 ahai ah 10002"><i>阿</i><span>阿海</span></button>
+    <small data-app-empty hidden>没有匹配的关注</small></div>`;
+  const importRow = (name, caption, checked, disabled = false) => `<label class="lab-app-check lab-qt-import-row">
+    <i class="lab-app-avatar">${name[0]}</i><span><strong>${name}</strong><small>${caption}</small></span>
+    <input type="checkbox" aria-label="${name}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : 'data-app-import'}></label>`;
+  const sectionHead = (title, close = '') => `<header class="lab-qt-section-head"><strong>${title}</strong>${close}</header>`;
   const searchBox = label => field(label, 'search', `placeholder="${label}" data-app-search data-primary`);
   const panes = (count, selectAction = '') => `<div class="lab-app-panes" style="--pane-columns:${count === 4 ? 2 : count}">
     ${Array.from({length:count}, (_, i) => selectAction
-      ? `<button class="lab-control" type="button" data-app-action="${selectAction}" aria-pressed="${i === 0}">${['小岚','阿海','星河','画面 4'][i]}</button>`
+      ? `<button class="lab-control" type="button" draggable="true" data-app-action="${selectAction}" aria-pressed="${i === 0}">${['小岚','阿海','星河','画面 4'][i]}</button>`
       : '<span></span>').join('')}</div>`;
   let html;
   switch (item.id) {
-    case 'room-search': html = searchBox('搜索主播 / 房间号') + searchRows; break;
+    case 'room-search':
+      html = searchBox('搜索关注主播 / 房间号') + `<div data-app-search-results hidden>${roomRows}</div>`; break;
     case 'room-add':
-      html = `<textarea class="lab-app-field" rows="2" aria-label="房间号或链接" placeholder="房间号或链接，每行一个" data-app-room-input data-primary>10001</textarea>
-        <div class="lab-app-choice">${select(['默认分组','收藏'], '添加到文件夹')}${b('添加 1 个','room-add')}</div>`; break;
+      html = `<div class="lab-qt-inline-add" data-app-room-editor>
+        <div class="lab-qt-inline-entry"><textarea class="lab-app-field" rows="2" aria-label="房间号或链接" placeholder="房间号或链接，每行一个" data-app-room-input data-primary>10001</textarea>
+          ${b('关闭添加','room-editor-close',false,'close')}</div>
+        <small class="lab-qt-error" data-app-room-error hidden></small>
+        <div class="lab-app-choice">${select(['默认分组','收藏'], '添加到文件夹')}${b('导入关注','report',false,'update')}${b('添加 1 个','room-add')}</div>
+        </div><div data-app-room-reopen hidden>${b('添加直播间','room-editor-open')}</div>`; break;
     case 'room-picker':
-      html = `<div class="lab-app-choice">${searchBox('搜索关注主播 / 房间号')}${check('直播中', false, 'data-app-filter-live')}</div>${searchRows}`; break;
+      html = `<div class="lab-app-choice lab-qt-room-filter">${searchBox('搜索关注主播 / 房间号')}${check('直播中', false, 'data-app-filter-live')}</div>
+        <small class="lab-qt-room-group">默认分组</small>${roomRows}`; break;
     case 'follow-import':
-      html = `${choice(['哔哩哔哩','其他平台'])}<div class="lab-app-stack">${check('小岚',true,'data-app-import')}${check('阿海',false,'data-app-import')}
-        ${check('星河 · 已关注', true, 'disabled')}${b('导入所选','import',true)}</div>`; break;
+      html = `<div class="lab-qt-portal">${sectionHead('导入关注')}${choice(['哔哩哔哩','其他平台'])}<div class="lab-app-stack">
+        ${importRow('小岚','直播中 · 午后直播',true)}${importRow('阿海','未开播 · 聊天',false)}
+        ${importRow('星河','已关注',true,true)}</div><div class="lab-qt-actions">${b('导入所选','import',true)}</div></div>`; break;
     case 'follow-card':
-      html = `<label class="lab-app-follow" data-primary><input type="checkbox" checked aria-label="选中小岚"><i>小</i><span><strong>小岚</strong><small>午后直播</small></span><small>直播中</small></label>`; break;
+      html = `<label class="lab-app-follow" data-primary><input type="checkbox" checked aria-label="选中小岚">
+        <span><strong>小岚</strong><small>午后直播</small></span><span class="lab-qt-card-foot">${labIcon('qt-bili')}<small>直播中</small></span></label>`; break;
     case 'folder-head':
-      html = `${b('默认分组 ▾','folder-toggle',true)}<div data-app-folder-content>${searchRows}</div>
-        ${b('重命名','folder-name')}${field('文件夹名称','text','data-app-folder-edit hidden')}`; break;
+      html = `<div class="lab-app-choice lab-qt-folder-head">${labButton('默认分组','folder','默认分组',
+        'data-app-action="folder-toggle" aria-expanded="true"',true)}${b('重命名','folder-name',false,'more')}</div>
+        ${field('文件夹名称','text','data-app-folder-edit hidden')}<div data-app-folder-content>${roomRows}</div>`; break;
     case 'folder-edit':
-      html = dialog('编辑文件夹','编辑文件夹', `${line('名称',field('文件夹名称','text','value="默认分组" data-app-value'))}
-        ${line('图标颜色',field('图标颜色','color','value="#00a1d6" data-app-folder-color'))}${b('取消','cancel')}${b('确定','save')}`)
-        + '<div class="lab-app-folder-preview"><span aria-hidden="true">▰</span> <span>默认分组</span></div>'; break;
+      html = dialog('编辑文件夹','修改文件夹图标', `<div class="lab-qt-icon-current"><span>${labIcon('folder')}</span>
+        ${field('文件夹名称','text','value="默认分组" data-app-value')}</div>
+        <small>内置图标</small><div class="lab-qt-icon-grid">${[['文件夹','folder'],['星标','star'],['爱心','heart'],
+          ['游戏','game'],['音乐','music'],['视频','qt-tabs']].map(([label,glyph],i) =>
+          labButton(label,glyph,label,`data-app-action="folder-icon" data-app-folder-glyph="${glyph}" aria-pressed="${i===0}"`)).join('')}</div>
+        <div class="lab-app-choice">${labPresets.slice(1).map(([color,label]) =>
+          `<button type="button" class="lab-control lab-swatch-dot" style="--swatch:${color}" aria-label="${label}" data-app-action="folder-color" data-app-color="${color}"></button>`).join('')}</div>
+        ${line('自定义颜色',field('图标颜色','color','value="#00a1d6" data-app-folder-color'))}
+        <div class="lab-qt-actions">${b('恢复默认','folder-reset')}${b('取消','cancel')}${b('保存','save')}</div>`)
+        + `<div class="lab-app-folder-preview"><span aria-hidden="true">${labIcon('folder')}</span><span>默认分组</span></div>`; break;
     case 'function-hub':
-      html = popupButton('功能中心', `${searchBox('搜索功能、插件')}
-        <div class="lab-app-stack" data-app-find="插件商店 chajianshangdian cjsd">${b('插件商店 / 管理插件','report')}${check('固定常用',false)}</div>
-        <div class="lab-app-stack" data-app-find="插件功能 chajiangongneng cjgn">${b('插件功能','report')}</div><small data-app-empty hidden>暂无匹配功能</small>`, 'box'); break;
+      html = popupButton('功能中心', `${sectionHead('功能中心',b('关闭功能中心','popup-close',false,'close'))}${searchBox('搜索功能、插件')}
+        <small data-app-count>2 / 2 个功能 · 可固定常用入口到侧栏</small>
+        <div class="lab-qt-hub-row" data-app-find="插件商店 chajianshangdian cjsd">${b('插件商店 / 管理插件','report')}${b('固定为常用','toggle',false,'pin')}</div>
+        <div class="lab-qt-hub-row" data-app-find="插件功能 chajiangongneng cjgn">${b('插件功能','report')}${b('固定为常用','toggle',false,'pin')}</div>
+        <small data-app-empty hidden>没有匹配的功能</small>`, 'qt-grid'); break;
     case 'account-menu':
-      html = popupButton('示例账号 ⋯', `<p class="lab-app-note">哔哩哔哩 · 示例账号</p>
-        ${b('管理账号','report')}${b('切换账号','report')}${b('退出登录','report')}`); break;
+      html = `<button class="lab-control lab-qt-account" type="button" data-primary data-lab-glyph="qt-bili" popovertarget="${popupId}" aria-label="示例账号">
+          <span class="lab-app-avatar">示</span><span><strong>示例账号</strong><small>ID: 10001</small></span>
+          <span class="lab-glyph" data-icon-slot>${labIcon('qt-bili')}</span><span aria-hidden="true">›</span></button>
+        <div class="lab-extra-popup lab-app-popup" id="${popupId}" popover aria-label="账号菜单">
+        ${b('选择平台并登录','report')}${b('退出登录','report')}</div>`; break;
     case 'layout-picker':
-      html = `<div class="lab-app-choice lab-layouts">${[1,2,4].map((count,index) =>
-        `<button class="lab-control lab-layout-card" data-app-choice="layout" aria-pressed="${index===0}" ${index ? '' : 'data-primary'}>${panes(count)}${count} 画面</button>`).join('')}</div>`; break;
+      html = `<div class="lab-qt-portal">${sectionHead('布局预设','<small data-app-layout-current>当前：单画面</small>')}
+        ${choice(['普通布局','弹幕布局','竖屏布局'],'布局分类')}
+        <small class="lab-qt-room-group" data-app-layout-group>均分</small>
+        <div class="lab-app-choice lab-layouts">${labLayoutOptions.普通布局.map(([label,spec],index) =>
+          `<button class="lab-control lab-layout-card" data-app-choice="layout" aria-label="${label}" aria-pressed="${index===0}" ${index ? '' : 'data-primary'}>${labLayoutSwatch(spec)}<span>${label}</span></button>`).join('')}</div>
+        <div class="lab-qt-actions">${b('恢复默认比例','layout-reset')}</div></div>`; break;
     case 'room-preset':
-      html = dialog('保存当前组合…','保存当前组合', `${line('组合名称',field('组合名称','text','placeholder="输入当前组合的名称" data-app-value'))}
-        ${b('取消','cancel')}${b('保存','save')}`); break;
+      html = `<div class="lab-qt-preset-head"><small>保存布局、主播位置和每格声音</small>${b('保存当前组合…','open',true)}</div>
+        <div class="lab-qt-preset-form" data-app-preset-form hidden>${line('组合名称',field('组合名称','text','placeholder="输入名称" data-app-value'))}
+        ${b('保存','save')}${b('取消','cancel')}</div><p class="lab-qt-preset-list" data-app-preset-list>尚未保存直播间组合</p>`; break;
     case 'wall-remove':
-      html = `${check('小岚 · 直播中',false,'data-app-pane')}${check('阿海 · 未开播',false,'data-app-pane data-app-offline')}
+      html = `<div class="lab-qt-portal">${sectionHead('移除画面')}<small>双画面 · 点击格子选择移除</small>
+        <div class="lab-qt-removal-panes">${check('小岚 · 直播中',false,'data-app-pane')}${check('阿海 · 未开播',false,'data-app-pane data-app-offline')}</div>
         ${choice(['选择未开播','选择全部直播','取消选择'],'remove-scope', -1)}
-        <div class="lab-app-choice">${b('撤回上次移除','undo')}${b('移除所选','remove',true)}</div>`; break;
+        <small data-app-selection>已选 0 路 · 移除后保留空位及关注列表</small>
+        <div class="lab-qt-actions">${b('撤回上次移除','undo')}${b('移除所选','remove',true)}</div></div>`; break;
     case 'wall-quick':
-      html = `${line('整体音量',labRange('整体音量',0,100,48,'',true))}
-        ${line('画质',select(['选择画质','原画','超清 720P','流畅'], '画质'))}${toggle('画面弹幕',true)}${toggle('弹幕浮窗',false)}`; break;
+      html = `<div class="lab-qt-portal">${line('整体音量',labRange('整体音量',0,100,48,'',true))}
+        ${line('画质',select(['选择画质','原画','超清 720P','流畅'], '画质'))}${toggle('画面弹幕',false)}${toggle('弹幕浮窗',false)}</div>`; break;
     case 'pip-composer':
       html = choice(['一列','两列'],'pip-columns',1) + panes(2,'pip-primary'); break;
     case 'pip-tools':
-      html = `<div class="lab-app-choice">${b('选择画面组合','report',true,'display')}${b('调整画面位置','toggle',false,'panel')}
-        ${b('置顶画中画','toggle',false,'pin')}${b('返回监控室','report',false,'minimize')}${b('关闭画中画','report',false,'close')}</div>`; break;
+      html = `<div class="lab-app-choice">${b('选择画面组合','report',true,'qt-grid')}${b('调整画面位置','toggle',false,'qt-swap')}
+        ${b('置顶画中画','toggle',false,'pin')}${b('返回监控室','report',false,'qt-return')}${b('关闭画中画','report',false,'close')}</div>`; break;
     case 'pip-audio':
-      html = `<div class="lab-app-choice">${b('小岚静音','mute',true,'qt-volume')}${labRange('小岚音量',0,100,40,'%')}</div>`; break;
+      html = `<div class="lab-app-choice lab-qt-audio-row"><span class="lab-app-avatar" title="小岚">小</span>
+        ${b('小岚静音','mute',true,'qt-volume')}${labRange('小岚音量',0,100,40,'%')}</div>`; break;
     case 'volume-popup':
       html = popupButton('音量', `<div class="lab-app-vertical">${labRange('音量',0,100,40)}</div>`, 'qt-volume'); break;
     case 'stream-state':
-      html = `<div class="lab-stream-status">${labIcon('display')}<span data-app-stream>连接中…</span></div>${select(['连接中…','缓冲中…','直播中','已暂停','已下播'],'播放状态')}`; break;
+      html = `<div class="lab-stream-status">${labIcon('qt-bili')}<span data-app-stream>连接中…</span></div>${select(['连接中…','缓冲中…','播放中','已暂停','播放失败','已下播'],'播放状态')}`; break;
     case 'stream-info':
-      html = dialog('直播流信息','直播流信息', `<p>示例直播间 · 直播源参数</p>
-        <dl class="lab-app-stats"><dt>视频编码</dt><dd>H.264</dd><dt>分辨率</dt><dd>1920×1080</dd><dt>帧率</dt><dd>60 fps</dd></dl>${b('关闭','cancel')}`); break;
+      html = dialog('直播流信息','直播流信息', `<p>小岚 · 10001</p>
+        <dl class="lab-app-stats">${[['播放状态','播放中'],['封装格式','flv'],['播放内核','libmpv'],
+          ['视频信息','1920×1080 · 60 FPS · H.264'],['音频信息','AAC · 48 kHz · 立体声'],['流编码器','未知'],
+          ['流服务器','示例'],['缓冲长度','2 秒'],['解码统计','60 FPS · 丢帧 0 / 0'],['视频码率','5 Mbps'],
+          ['下载速率','5.2 Mbps']].map(([term,value]) => `<dt>${term}</dt><dd>${value}</dd>`).join('')}</dl>
+        <div class="lab-qt-actions">${b('关闭','cancel')}</div>`); break;
     case 'caption-tools':
-      html = `<p data-app-caption>字幕预览</p><div class="lab-app-choice">
-        ${b('字幕显示内容','caption-mode',true,'display')}${b('减小字号','caption-smaller',false,'minus')}
-        ${b('增大字号','caption-larger',false,'plus')}${b('恢复位置与大小','caption-reset',false,'refresh')}${b('锁定字幕位置','toggle',false,'pin')}</div>`; break;
+      html = `<div class="lab-app-choice lab-qt-caption-tools">
+        ${b('字幕显示内容','caption-mode',true,'qt-caption')}${b('减小字号','caption-smaller',false,'minus')}
+        ${b('增大字号','caption-larger',false,'plus')}${b('恢复位置与大小','caption-reset',false,'refresh')}${b('锁定字幕位置','toggle',false,'qt-lock')}</div><p data-app-caption>字幕预览</p>`; break;
     case 'danmaku-panel':
-      html = `<div class="lab-app-choice">${b('回到底部','bottom',true)}${check('跟随',true,'data-app-follow')}${labRange('弹幕字号',8,32,13,' px')}</div>
+      html = `<div class="lab-qt-chat"><header class="lab-qt-chat-head"><strong><i></i>弹幕</strong>${labRange('弹幕字号',8,32,13,'',true)}
+        ${b('跟随新弹幕','follow-comments',false,'qt-live')}</header>
         <div class="lab-app-comments" data-app-comments tabindex="0">小岚：晚上好<br>阿海：欢迎来到直播间</div>
-        ${field('输入示例弹幕','text','placeholder="输入示例弹幕" data-app-value')}`; break;
+        <div class="lab-qt-chat-footer">${field('输入示例弹幕','text','placeholder="弹幕内容" data-app-value')}${b('回到底部','bottom',false,'down')}</div></div>`; break;
     case 'super-chat':
       html = `<article class="lab-app-sc" data-app-sc><div class="lab-app-sc-head"><span class="lab-app-avatar" aria-hidden="true">小</span>
         <span>小岚<strong>¥30</strong></span><small>剩 0:30</small>${b('展开／收起','sc-toggle',true,'down')}${b('关闭','sc-close',false,'close')}</div>
         <p>感谢直播，今天也很开心！</p></article>${b('恢复示例','sc-restore')}`; break;
     case 'shortcut-edit':
-      html = `<div class="lab-app-shortcut">${line('静音',field('静音快捷键','text','value="M" readonly data-app-shortcut data-primary'))}
-        ${toggle('启用',true,'data-app-shortcut-enable')}${b('恢复','shortcut-reset')}</div>`; break;
+      html = `<div class="lab-app-shortcut"><label for="${popupId}-key">静音</label><div class="lab-qt-key-field">
+        ${field('静音快捷键','text',`id="${popupId}-key" value="M" readonly data-app-shortcut data-primary`)}
+        ${b('清除快捷键','shortcut-clear',false,'close')}</div>${toggle('启用',true,'data-app-shortcut-enable')}${b('恢复','shortcut-reset')}</div>`; break;
     case 'settings-caption':
-      html = `<div class="lab-app-choice" data-app-title><strong>设置 › 常规</strong>${b('关闭设置','settings-close',true,'close')}</div>
-        ${b('恢复示例','settings-restore')}`; break;
+      html = `<div class="lab-qt-titlebar" data-app-title><strong>设置</strong>${b('关闭设置','settings-close',true,'close')}</div>
+        <div data-app-title-closed hidden>${b('重新打开设置','settings-restore')}</div>`; break;
     case 'close-choice':
-      html = dialog('关闭窗口','关闭窗口', `<p>关闭窗口后，你希望程序如何运行？</p>${check('记住我的选择',false,'data-app-remember')}
-        <div class="lab-app-choice">${b('隐藏到托盘','close-choice')}${b('退出程序','close-choice')}</div>`); break;
+      html = dialog('关闭窗口','关闭窗口', `<p>关闭窗口后，你希望程序如何运行？</p>
+        <p class="lab-qt-hint">隐藏后的播放行为可在设置 → 托盘行为中调整，录制会继续运行。双击托盘图标可恢复窗口。</p>
+        <div class="lab-qt-actions">${check('记住我的选择',false,'data-app-remember')}
+        ${labButton('隐藏到托盘','','隐藏到托盘','data-app-action="close-choice" data-lab-primary-tone autofocus')}${b('退出程序','close-choice')}</div>`); break;
     case 'cache-pie':
-      html = `<div class="lab-app-cache">${b('图片缓存 100 MB','cache-segment',true)}<div>
+      html = `<div class="lab-app-cache"><button type="button" class="lab-control" data-primary data-app-action="cache-segment" aria-label="图片缓存占用饼图">
+        <strong>100.0 MB</strong><small>合计</small></button><div>
         ${check('头像 75 MB',false,'data-app-cache')}${check('封面 25 MB',false,'data-app-cache')}
-        ${b('清理所选','cache-clear')}` + '</div></div>'; break;
+        ${b('清理所选','cache-clear')}</div></div>`; break;
     case 'skin-library':
-      html = `${choice(['默认背景','导入预览'],'skin')}${field('导入背景','file','accept="image/*" data-app-skin hidden')}
-        <div class="lab-app-skin-preview" data-app-skin-preview>默认背景</div>`; break;
+      html = `<div class="lab-app-choice lab-qt-library">
+        ${labButton('默认背景','qt-image-off','','data-app-choice="skin" aria-pressed="true"',true)}
+        ${labButton('导入背景','update','','data-app-choice="skin" aria-pressed="false"')}
+        </div>${field('导入背景文件','file','accept="image/*,video/*" data-app-skin hidden')}
+        <div class="lab-app-skin-preview" data-app-skin-preview hidden>默认背景</div>`; break;
     case 'blocked-users':
-      html = `<div class="lab-app-choice">${field('用户 UID','text','placeholder="输入数字 UID" inputmode="numeric" data-app-value data-primary')}
-        ${b('添加','block-add')}</div><select size="2" class="lab-control lab-app-field" aria-label="已屏蔽用户" data-app-list><option>10001</option></select>${b('移除所选','block-remove')}`; break;
+      html = `<select size="3" class="lab-control lab-app-field" aria-label="已屏蔽用户" data-app-list><option>10001</option></select>
+        <div class="lab-app-choice lab-qt-block-row">${select(['哔哩哔哩','虎牙','斗鱼'],'屏蔽用户所属平台')}
+        ${field('用户 UID','text','placeholder="B站 UID（数字）" inputmode="numeric" data-app-value data-primary')}
+        ${b('添加','block-add')}${b('移除所选','block-remove')}</div><small class="lab-qt-hint">仅检查格式，不查询账号资料。</small>`; break;
     case 'audio-response':
-      html = `<svg viewBox="0 0 230 58" class="lab-app-response" aria-label="时间响应预览"><path d="M3 8H227M3 28H227M3 50H227" class="lab-curve-grid"></path><path class="lab-curve-line" d="M4 8H52L71 47H104Q150 47 224 8"></path></svg>
-        ${line('恢复时间',field('恢复时间（秒）','number','min="1" max="30" step=".1" value="8" data-app-response data-primary'))}`; break;
+      html = `<svg viewBox="0 0 250 100" class="lab-app-response" aria-label="音量均衡时间响应曲线">
+        <rect x="25" y="17" width="213" height="65" rx="4"/><path d="M25 24H238M25 48H238M25 72H238M78 17V82M130 17V82M183 17V82" class="lab-curve-grid"/>
+        <text x="6" y="11">增益 dB</text><text x="10" y="28">0</text><text x="8" y="52">-3</text><text x="8" y="75">-6</text>
+        <text x="25" y="94">0s</text><text x="127" y="94">8s</text><text x="218" y="94">16s</text>
+        <path class="lab-curve-line"/>${['压低时间','保持时间','恢复时间'].map((label,i) =>
+          `<circle r="4" tabindex="0" role="slider" aria-label="${label}" aria-valuemin="0" aria-valuemax="30" data-app-response-point="${i}"/>`).join('')}</svg>
+        ${line('压低时间',field('压低时间（秒）','number','min=".1" max="30" step=".1" value="2" data-app-response-part'))}
+        ${line('保持时间',field('保持时间（秒）','number','min="0" max="30" step=".1" value="2" data-app-response-part'))}
+        ${line('恢复时间',field('恢复时间（秒）','number','min=".1" max="30" step=".1" value="8" data-app-response-part data-app-response data-primary'))}`; break;
     case 'menu-order':
       html = `<div class="lab-app-order" data-app-order>${['音量','画质','当前窗口编解码设置'].map((label,index) =>
-        `<div draggable="true" class="lab-app-order-row">${toggle(label,true)}${b('上移','up',index===0,'down')}${b('下移','down',false,'down')}</div>`).join('')}</div>`; break;
+        `<div draggable="true" class="lab-app-order-row" tabindex="0" aria-label="${label}，用 Alt 和方向键排序"><span aria-hidden="true">≡</span>
+          ${toggle(label,true)}<div class="lab-qt-reorder-keys">${b('上移','up',index===0,'down')}${b('下移','down',false,'down')}</div></div>`).join('')}</div>`; break;
     case 'notices':
-      html = popupButton('通知 · 1 条未读', `<p>通知 · 本次启动</p><div data-app-notice><p>示例直播间开播了</p>${b('标记已读','read')}</div>${b('清空通知','clear-notices')}`, 'bell'); break;
+      html = popupButton('通知 · 1 条未读', `<header class="lab-qt-notice-head"><span>${labIcon('bell')}</span>
+        <div><strong>通知</strong><small>本次启动 · 1 条</small></div>${b('清空通知','clear-notices',false,'qt-trash')}
+        ${b('关闭通知','popup-close',false,'close')}</header><article class="lab-qt-notice-card" data-app-notice>
+        <div><i></i><strong>开播提醒</strong><time>23:52</time>${b('删除这条通知','clear-notices',false,'close')}</div>
+        <p>示例直播间开播了</p><div class="lab-qt-actions">${labButton('查看详情','','查看详情','data-app-action="read" data-lab-primary-tone')}</div></article>`, 'bell'); break;
     case 'update-notice':
-      html = `<article class="lab-app-note" data-app-update><strong>版本更新</strong><p>发现新版本</p>
-        <div class="lab-app-choice">${b('查看更新','report',true)}${b('关闭','update-close',false,'close')}</div></article>${b('恢复提醒','update-restore')}`; break;
+      html = `<article class="lab-qt-notice-card" data-app-update><header class="lab-qt-update-head"><img src="${identity}" alt="">
+        <div><strong>版本更新</strong><p>发现新版本</p><small>查看更新说明，选择是否安装。</small></div>
+        ${b('关闭提醒','update-close',false,'close')}</header><div class="lab-qt-actions">${b('查看更新','report',true)}</div>
+        </article><div data-app-update-closed hidden>${b('恢复提醒','update-restore')}</div>`; break;
     case 'tray-layout':
-      html = `<button class="lab-control lab-app-tray" data-app-action="restore" data-primary>${panes(2)}点击恢复主窗口</button>`; break;
+      html = `<button class="lab-control lab-app-tray" data-app-action="restore" aria-label="点击恢复主窗口" data-primary>
+        <span class="lab-qt-tray-tiles"><span>视频 · 小岚</span><span>弹幕 · 弹幕</span></span><small>蓝：视频　粉：弹幕　灰：空格</small></button>`; break;
     case 'record-path':
       html = `<div class="lab-app-choice lab-app-path">${field('保存目录','text','value="C:/示例/录制" data-app-value data-primary')}
         ${b('浏览…','path')}</div>`; break;
     case 'diagnostic-form':
       html = `<select size="2" class="lab-control lab-app-field" aria-label="附加图片" data-app-list data-primary><option>示例截图.png</option></select>
-        <div class="lab-app-choice">${b('添加示例图片','diagnostic-add')}${b('移除所选','list-remove')}</div>${b('导出诊断包','diagnostic-export')}`; break;
+        <div class="lab-app-choice">${b('添加图片','diagnostic-add')}${b('移除所选','list-remove')}</div>
+        <div class="lab-qt-actions">${b('导出诊断包','diagnostic-export')}</div>`; break;
     case 'smart-folder':
       html = dialog('编辑智能文件夹','编辑智能文件夹', `${line('名称',field('智能文件夹名称','text','value="直播中" data-app-value'))}
-        <div class="lab-app-choice">${check('默认分组',true,'data-app-smart')}${check('收藏',false,'data-app-smart')}</div>
-        ${line('显示方式',select(['匹配时移入显示','在两处显示'],'显示方式'))}
+        <div class="lab-app-line"><span>来源文件夹</span><details class="lab-qt-smart-source"><summary>默认分组</summary>
+        <div class="lab-app-choice">${check('默认分组',true,'data-app-smart')}${check('收藏',false,'data-app-smart')}</div></details></div>
+        ${line('显示方式',select(['匹配时移入显示，不匹配时回到原处','保留原处，同时在智能文件夹显示'],'显示方式'))}
         ${line('开播状态',select(['开播','未开播','全部状态'],'开播状态'))}
         ${line('卡片排序',select(['自定义','常看优先'],'卡片排序'))}
         <div class="lab-app-choice">${check('哔哩哔哩')}${check('虎牙')}${b('取消','cancel')}${b('保存','save')}</div>`); break;
     case 'account-platform':
-      html = choice(['B站','虎牙','斗鱼'],'账号平台'); break;
+      html = `<div class="lab-app-choice lab-qt-platforms" role="group" aria-label="账号平台">
+        ${[['B站','platform-bili'],['虎牙','platform-huya'],['斗鱼','platform-douyu']].map(([name,glyph],index) =>
+          labButton(name,glyph,name,`data-app-choice="账号平台" aria-pressed="${!index}"`,index===0)).join('')}</div>`; break;
     case 'danmaku-source':
-      html = popupButton('选择弹幕来源', `<div class="lab-app-choice lab-app-source">${avatar('小岚','source')}${avatar('阿海','source')}</div>`, 'display'); break;
+      html = `<header class="lab-qt-chat-head lab-qt-source-head"><strong><i></i>弹幕</strong>
+        ${labRange('弹幕字号',8,32,13,'',true)}${b('弹出弹幕栏','report',false,'panel')}
+        ${popupButton('选择弹幕来源', `<div class="lab-app-choice lab-app-source">${avatar('小岚','source')}${avatar('阿海','source')}</div>`, 'qt-tabs')}
+        ${b('跟随新弹幕','toggle',false,'qt-live')}</header>`; break;
     case 'comment-actions':
       html = popupButton('小岚：晚上好', `<div class="lab-app-choice">${b('复制','comment-copy')}${b('+1','report')}
         ${b('屏蔽弹幕','report')}${b('屏蔽用户','report')}</div>`); break;
@@ -210,7 +329,7 @@ function labAppExample(item, popupId) {
         ${b('弹幕浮窗','chat-float',true)}<div data-app-float-slot hidden>${b('收回弹幕栏','chat-return')}</div>`; break;
     case 'caption-placement':
       html = `<div class="lab-app-caption-stage"><button class="lab-control" type="button" data-primary
-        data-app-caption-move aria-label="字幕位置，使用方向键移动">今天和大家一起享受游戏。</button></div>
+        data-app-caption-move aria-label="字幕位置，使用方向键移动"><small>今日はみんなとゲームを楽しみます。</small><span>今天和大家一起享受游戏。</span></button></div>
         ${labRange('字幕大小',10,24,14,' px')}${b('恢复位置与大小','caption-place-reset')}`; break;
     case 'theme-editor':
       html = `<div class="lab-app-choice lab-swatches" role="group" aria-label="主题色">${labPresets.map(([color, label],index) => `
@@ -219,36 +338,50 @@ function labAppExample(item, popupId) {
           ${index ? `style="--swatch:${color}"` : ''}>${index ? '' : label}</button>`).join('')}</div>
         ${line('自定义色值',field('自定义色值','text','placeholder="#RRGGBB" maxlength="7" data-app-theme-color data-primary'))}
         ${line('界面字体',select(['系统默认','微软雅黑','等宽字体'],'界面字体'))}
-        ${line('界面字号',field('界面字号','number','min="11" max="20" value="13" data-app-theme-size'))}
+        ${line('界面字号',`<span class="lab-qt-number-step">${b('减小界面字号','theme-size-down',false,'minus')}
+        ${field('界面字号','number','min="11" max="20" value="13" data-app-theme-size')}<span>px</span>
+        ${b('增大界面字号','theme-size-up',false,'plus')}</span>`)}
         <div class="lab-app-note" data-app-theme-sample>关注列表 · 示例主播</div>`; break;
     case 'skin-parts':
-      html = `${select(['主界面','设置页面','菜单与提示'],'预览场景')}
-        <div class="lab-app-choice" data-app-skin-areas>${b('关注栏','skin-part',true)}${b('控制区','skin-part')}${b('播放区','skin-part')}</div>
+      html = `${select(['主界面','设置页面','布局预设'],'预览场景')}
+        <div data-app-skin-areas>${labSkinScenes.map(labSkinScene).join('')}</div>
         ${line('分区底色',field('分区底色','color','value="#007ba8" data-app-part-color'))}`; break;
     case 'notice-blur':
       html = `<div class="lab-app-blur" data-app-blur data-banner="true"><span></span><p>开播提醒<br>示例主播开播了</p></div>
         ${toggle('使用直播封面',true,'data-app-banner')}${labRange('模糊程度',0,32,16)}`; break;
     case 'streamer-profile':
-      html = `<div class="lab-app-choice lab-app-source">${avatar('小岚','profile-room',true)}${avatar('阿海','profile-room')}${b('展开设置','profile-expand')}</div>
-        <div class="lab-app-note" data-app-profile>编辑整组 · 2 位主播</div>
-        <div data-app-profile-form hidden>${line('默认播放画质',select(['继承','原画','超清 720P'],'默认播放画质'))}
-        ${line('录制画质',select(['继承','原画','超清 720P'],'录制画质'))}${labRange('默认音量',0,100,40,'%')}</div>`; break;
+      html = `<div class="lab-qt-portal lab-qt-profile"><div class="lab-qt-profile-head">
+        ${labButton('展开主播设置','down','','data-app-action="profile-expand" aria-expanded="false"',true)}
+        <span class="lab-qt-profile-avatars lab-app-source">${avatar('小岚','profile-room')}${avatar('阿海','profile-room')}</span>
+        <span data-app-profile>编辑整组 · 2 位主播</span>${b('移除设置','profile-remove')}</div>
+        <div class="lab-qt-profile-summary" data-app-profile-summary>
+        ${[['播放画质','play','继承'],['录制画质','circle','继承'],['音量','volume','40%']].map(([label,glyph,value]) =>
+          `<span title="${label}">${labIcon(glyph)}<output>${value}</output></span>`).join('')}</div>
+        <div class="lab-qt-profile-form" data-app-profile-form hidden>
+          ${line('默认播放画质',select(['继承','原画','超清 720P'],'默认播放画质'))}
+          ${line('录制画质',select(['继承','原画','超清 720P'],'录制画质'))}
+          ${line('默认音量',field('默认音量','number','min="-1" max="100" value="40" data-app-profile-volume'))}
+          <div class="lab-qt-actions">${b('刷新画质','profile-refresh')}</div></div></div>`; break;
     case 'startup-notice':
       html = dialog('阅读用户须知','用户须知', `<div class="lab-app-reading" tabindex="0">
-        <p>DD 监控室 CE 是免费开源软件。请从项目官方渠道获取软件与更新。</p>
-        <p>本软件独立于第三方直播平台。使用登录和插件功能前，请了解各自来源和权限。</p>
-        <p>请遵守平台规则，尊重主播及其他权利人的权益。</p></div>${b('我已阅读并确认','notice-confirm')}`); break;
+        <p>欢迎使用 <strong>DD监控室CE</strong>。使用前，请阅读以下说明。</p>
+        <strong>1. 开源与免费</strong><p>本软件是一款免费、开源的软件，遵循 GNU LGPL 2.1 开源许可证。</p>
+        <strong>2. 官方获取渠道</strong><p>请通过项目官方发布页面获取软件及更新。</p>
+        <strong>3. 第三方平台与插件</strong><p>本软件独立于第三方直播平台。登录和安装插件前请了解来源和权限。</p>
+        <strong>4. 使用与反馈</strong><p>请遵守平台规则，尊重主播及其他权利人的权益。</p></div>
+        <div class="lab-qt-actions">${b('我已阅读并确认','notice-confirm')}</div>`); break;
     case 'settings-material':
-      html = `<div class="lab-app-material" data-app-material data-glass="false" data-shadows="true" data-columns="自动">
-        <span>常规</span><span>外观</span></div>
-        ${toggle('启用毛玻璃效果',false,'data-app-glass')}
+      html = `<div class="lab-qt-portal">${sectionHead('视觉效果')}
+        ${toggle('启用毛玻璃效果',false,'data-app-glass')}<small class="lab-qt-hint">底色不透明度在开启时生效。</small>
         <div data-app-opacity hidden>${line('底色不透明度',labRange('底色不透明度',0,100,70,'%'))}</div>
-        ${toggle('滑动分段指示器',true,'data-app-segment-motion')}${toggle('禁用卡片与控件阴影',false,'data-app-no-shadows')}
-        ${line('设置卡片布局',select(['自动','单列','双列'],'设置卡片布局'))}
-        <div class="lab-app-choice lab-app-material-segment" data-app-material-segment>${choice(['常规','外观'],'设置分类')}</div>`; break;
+        ${toggle('滑动分段指示器',false,'data-app-segment-motion')}${toggle('禁用卡片与控件阴影',false,'data-app-no-shadows')}
+        ${line('设置卡片布局',select(['自动','单列','双列'],'设置卡片布局'))}</div>
+        <div class="lab-app-material" data-app-material data-glass="false" data-shadows="true" data-columns="自动">
+        <span>常规</span><span>外观</span></div>
+        <div class="lab-app-choice lab-app-material-segment" data-app-material-segment data-motion="false">${choice(['常规','外观'],'设置分类')}</div>`; break;
     case 'plugin-remove':
-      html = dialog('删除插件','删除这个插件？', `<p>将删除插件“示例插件”及其文件。</p>
-        <div class="lab-app-choice">${b('取消','cancel')}${b('删除','delete')}</div>`);
+      html = dialog('删除插件','删除这个插件？', `<p>将删除插件“示例插件”及其文件。<br>已加载的插件将在重启后停止运行。</p>
+        <div class="lab-qt-actions">${labButton('取消','','取消','data-app-action="cancel" autofocus')}${b('删除','delete')}</div>`);
   }
   return `<div class="lab-app">${html}</div>`;
 }
@@ -277,9 +410,81 @@ function labBindApplication(host, item, report, paintIcon) {
   let dragged;
   const popupTrigger = select('button[popovertarget]');
   if (item.id === 'notices') popupTrigger.dataset.appUnread = 'true';
+  const curve = select('.lab-app-response');
+  const responseFields = all('[data-app-response-part]');
+  function updateResponse() {
+    const [attack,hold,release] = responseFields.map(field => Number(field.value));
+    const x = time => 25 + 213 * time / Math.max(16,attack+hold+release+2);
+    const a = x(attack), h = x(attack+hold), r = x(attack+hold+release);
+    curve.querySelector('.lab-curve-line').setAttribute('d', `M25 24 C${x(attack*.25)} 64 ${x(attack*.5)} 71 ${a} 72 H${h} C${x(attack+hold+release*.18)} 42 ${x(attack+hold+release*.48)} 29 ${r} 26 L238 24`);
+    all('[data-app-response-point]').forEach((point,index) => {
+      point.setAttribute('cx',[a,h,r][index]);
+      point.setAttribute('cy',index===2 ? '26' : '72');
+      point.setAttribute('aria-valuenow',responseFields[index].value);
+    });
+  }
+  if (curve) {
+    all('[data-app-response-point]').forEach((point,index) => {
+      const field = responseFields[index];
+      let start;
+      const set = value => {
+        field.value = Math.max(Number(field.min),Math.min(Number(field.max),Math.round(value*10)/10));
+        field.dispatchEvent(new Event('input',{bubbles:true}));
+      };
+      point.addEventListener('pointerdown',event => {
+        point.setPointerCapture(event.pointerId);
+        start = [event.clientX,Number(field.value)];
+      });
+      point.addEventListener('pointermove',event => {
+        if (point.hasPointerCapture(event.pointerId)) set(start[1] + (event.clientX-start[0]) * 20 / curve.getBoundingClientRect().width);
+      });
+      point.addEventListener('keydown',event => {
+        if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        set(Number(field.value) + (event.key==='ArrowRight' ? .1 : -.1));
+      });
+    });
+    updateResponse();
+  }
   const caption = select('[data-app-caption-move]');
   const skinAreas = select('[data-app-skin-areas]');
   const material = select('[data-app-material]');
+  const cache = select('.lab-app-cache');
+  if (cache) {
+    cache.addEventListener('input', () => {
+      cache.dataset.selected = all('[data-app-cache]').map(check => check.checked ? '1' : '0').join('');
+    });
+  }
+  const folderColor = select('[data-app-folder-color]');
+  const presetForm = select('[data-app-preset-form]');
+  const profileForm = select('[data-app-profile-form]');
+  const profileValues = profileForm ? {小岚: ['继承','继承','40'], 阿海: ['继承','继承','-1']} : null;
+  let profileRoom;
+  const profileFields = () => [...profileForm.querySelectorAll('select,input')];
+  function showProfile(expanded) {
+    profileForm.hidden = !expanded;
+    select('[data-app-profile-summary]').hidden = expanded;
+    const button = select('[data-app-action=profile-expand]');
+    button.setAttribute('aria-expanded', expanded);
+    button.setAttribute('aria-label', expanded ? '收起主播设置' : '展开主播设置');
+    button.title = button.getAttribute('aria-label');
+    const values = profileValues[profileRoom || '小岚'];
+    profileFields().forEach((field,index) => { field.value = values[index]; });
+    all('[data-app-profile-summary] output').forEach((output,index) => {
+      output.value = index === 2 ? (values[index] === '-1' ? '继承' : values[index] + '%') : values[index];
+    });
+  }
+  const updateSelection = () => {
+    const count = all('[data-app-pane]:checked').length;
+    const summary = select('[data-app-selection]');
+    if (summary) {
+      summary.textContent = `已选 ${count} 路 · 移除后保留空位及关注列表`;
+      const remove = select('[data-app-action=remove]');
+      setLabel(remove, count ? `移除所选 ${count} 路` : '移除所选');
+      remove.disabled = count === 0;
+    }
+  };
+  let folderGlyph = 'folder';
   let skinPart;
   if (caption) {
     const stage = caption.parentElement;
@@ -322,12 +527,17 @@ function labBindApplication(host, item, report, paintIcon) {
   }
 
   function filter() {
-    const terms = (select('[data-app-search]')?.value || '').toLowerCase().trim().split(/\s+/);
+    const query = (select('[data-app-search]')?.value || '').toLowerCase().trim();
+    const terms = query.split(/\s+/);
     const live = select('[data-app-filter-live]')?.checked;
     const rows = all('[data-app-find]');
     rows.forEach(row => { row.hidden = !terms.every(term => row.dataset.appFind.includes(term)) || Boolean(live && !row.hasAttribute('data-app-live')); });
     const empty = select('[data-app-empty]');
     if (empty) empty.hidden = rows.some(row => !row.hidden);
+    const results = select('[data-app-search-results]');
+    if (results) results.hidden = !query;
+    const count = select('[data-app-count]');
+    if (count) count.textContent = `${rows.filter(row => !row.hidden).length} / ${rows.length} 个功能 · 可固定常用入口到侧栏`;
   }
 
   function updateRooms() {
@@ -335,6 +545,7 @@ function labBindApplication(host, item, report, paintIcon) {
     const button = select('[data-app-action="room-add"]');
     setLabel(button, unique.length ? `添加 ${unique.length} 个` : '添加');
     button.disabled = !unique.length;
+    select('[data-app-room-error]').hidden = true;
     return unique;
   }
 
@@ -369,6 +580,16 @@ function labBindApplication(host, item, report, paintIcon) {
   demo.addEventListener('input', ({target}) => {
     if (target.matches('[data-app-search],[data-app-filter-live]')) filter();
     if (target.matches('[data-app-room-input]')) updateRooms();
+    if (target.matches('[data-app-smart]')) {
+      const selected = all('[data-app-smart]:checked');
+      select('.lab-qt-smart-source summary').textContent = selected.length > 1
+        ? `已选择 ${selected.length} 个文件夹`
+        : selected[0]?.closest('label').textContent.trim() || '全部关注';
+    }
+    if (profileForm?.contains(target) && target.validity.valid && target.value !== '') {
+      const index = profileFields().indexOf(target);
+      for (const name of profileRoom ? [profileRoom] : Object.keys(profileValues)) profileValues[name][index] = target.value;
+    }
     if (target.type === 'range') {
       target.style.setProperty('--lab-level', `${(target.value - target.min) * 100 / (target.max - target.min)}%`);
       const output = target.nextElementSibling;
@@ -387,12 +608,7 @@ function labBindApplication(host, item, report, paintIcon) {
         select('[data-app-theme-sample]').style.fontFamily = fonts[target.selectedIndex];
       }
       if (skinAreas) {
-        const areas = [['关注栏','控制区','播放区'],['分类','内容区','按钮'],['菜单','提示','对话框']];
-        [...skinAreas.children].forEach((button, index) => {
-          setLabel(button, areas[target.selectedIndex][index]);
-          button.removeAttribute('aria-pressed');
-          button.style.removeProperty('--lab-surface');
-        });
+        [...skinAreas.children].forEach((scene,index) => { scene.hidden = index !== target.selectedIndex; });
         skinPart = null;
       }
       report('已选 ' + target.value);
@@ -409,13 +625,12 @@ function labBindApplication(host, item, report, paintIcon) {
       if (target.matches('[data-app-segment-motion]')) select('[data-app-material-segment]').dataset.motion = target.checked;
       report((target.checked ? '已选 ' : '已取消 ') + (target.getAttribute('aria-label') || target.closest('label')?.textContent.trim() || ''));
     }
-    if (target.matches('[data-app-response]') && target.validity.valid && target.value) {
-      const end = 102 + Number(target.value) * 4;
-      select('.lab-curve-line').setAttribute('d', `M4 8H52L71 47H104Q${end} 47 ${Math.min(224,end+35)} 8H224`);
-      report('恢复时间 ' + target.value + ' 秒');
+    if (target.matches('[data-app-response-part]') && target.validity.valid && target.value) {
+      updateResponse();
+      report(target.getAttribute('aria-label') + ' ' + target.value + ' 秒');
     }
     if (target.matches('[data-app-folder-color]')) {
-      target.closest('dialog')?.style.setProperty('--lab-accent', target.value);
+      select('.lab-qt-icon-current > span').style.color = target.value;
       report('图标颜色 ' + target.value.toUpperCase());
     }
     if (target.matches('[data-app-part-color]') && skinPart) {
@@ -436,12 +651,17 @@ function labBindApplication(host, item, report, paintIcon) {
 
   demo.addEventListener('change', ({target}) => {
     if (!target.matches('[data-app-skin]') || !target.files[0]) return;
-    const image = new Image();
     const url = URL.createObjectURL(target.files[0]);
-    image.onload = image.onerror = () => URL.revokeObjectURL(url);
-    image.src = url;
-    image.alt = '导入的本地背景预览';
-    select('[data-app-skin-preview]').replaceChildren(image);
+    const video = target.files[0].type.startsWith('video/');
+    const media = video ? document.createElement('video') : new Image();
+    media.addEventListener(video ? 'loadeddata' : 'load', () => URL.revokeObjectURL(url), {once:true});
+    media.addEventListener('error', () => URL.revokeObjectURL(url), {once:true});
+    media.src = url;
+    if (video) { media.controls = true; media.muted = true; }
+    else media.alt = '导入的本地背景预览';
+    const preview = select('[data-app-skin-preview]');
+    preview.replaceChildren(media);
+    preview.hidden = false;
     report('已更新试样背景');
     target.value = '';
   });
@@ -472,22 +692,39 @@ function labBindApplication(host, item, report, paintIcon) {
       line.textContent = '示例：' + field.value.trim();
       panel.append(line);
       field.value = '';
-      if (select('[data-app-follow]').checked) panel.scrollTop = panel.scrollHeight;
+      if (select('[data-app-action=follow-comments]').getAttribute('aria-pressed') !== 'false') panel.scrollTop = panel.scrollHeight;
       report('已添加到网页预览');
+    }
+    if (event.key === 'Enter' && presetForm?.contains(field)) select('[data-app-action=save]').click();
+    if (event.key === 'Escape' && presetForm?.contains(field)) select('[data-app-action=cancel]').click();
+    if (event.key === 'Enter' && item.id === 'blocked-users' && field.matches('[data-app-value]')) select('[data-app-action=block-add]').click();
+    if (event.altKey && ['ArrowUp','ArrowDown'].includes(event.key) && field.matches('.lab-app-order-row')) {
+      event.preventDefault();
+      const down = event.key === 'ArrowDown';
+      move(field, down ? field.nextElementSibling : field.previousElementSibling, down);
+      field.focus();
     }
   });
 
   demo.addEventListener('dragstart', event => {
-    dragged = event.target.closest('.lab-app-order-row');
+    dragged = event.target.closest('.lab-app-order-row,[data-app-action=pip-primary]');
     if (dragged) event.dataTransfer.setData('text/plain', dragged.textContent.trim());
   });
   demo.addEventListener('dragover', event => {
-    if (dragged && event.target.closest('.lab-app-order-row')) event.preventDefault();
+    if (dragged && event.target.closest('.lab-app-order-row,[data-app-action=pip-primary]')) event.preventDefault();
   });
   demo.addEventListener('drop', event => {
-    const target = event.target.closest('.lab-app-order-row');
+    const target = event.target.closest('.lab-app-order-row,[data-app-action=pip-primary]');
     if (!dragged || !target) return;
     event.preventDefault();
+    if (target.matches('[data-app-action=pip-primary]')) {
+      if (dragged === target) return;
+      const order = [...target.parentElement.children];
+      [order[order.indexOf(dragged)], order[order.indexOf(target)]] = [target, dragged];
+      target.parentElement.append(...order);
+      report('已交换画面位置');
+      return;
+    }
     move(dragged, target, event.clientY > target.getBoundingClientRect().y + target.offsetHeight / 2);
   });
   demo.addEventListener('dragend', () => { dragged = null; });
@@ -503,10 +740,26 @@ function labBindApplication(host, item, report, paintIcon) {
       button.closest('.lab-app-choice').querySelectorAll('button').forEach(option => option.setAttribute('aria-pressed', option === button));
       if (selection === 'remove-scope') all('[data-app-pane]').forEach(pane => { pane.checked = !pane.disabled &&
         (label === '选择全部直播' || (label === '选择未开播' && pane.hasAttribute('data-app-offline'))); });
+      if (selection === 'remove-scope') updateSelection();
+      if (selection === 'layout') select('[data-app-layout-current]').textContent = '当前：' + label;
+      if (selection === '布局分类') {
+        select('[data-app-layout-group]').textContent = label === '普通布局' ? '均分' : label;
+        all('[data-app-choice=layout]').forEach((card,index) => {
+          const [name,spec] = labLayoutOptions[label][index];
+          card.firstElementChild.outerHTML = labLayoutSwatch(spec);
+          card.lastElementChild.textContent = name;
+          card.setAttribute('aria-label',name);
+          card.setAttribute('aria-pressed',select('[data-app-layout-current]').textContent === '当前：' + name);
+        });
+      }
       if (selection === 'pip-columns') select('.lab-app-panes').style.setProperty('--pane-columns', label === '一列' ? 1 : 2);
       if (selection === 'skin') {
-        if (label === '导入预览') select('[data-app-skin]').click();
-        else select('[data-app-skin-preview]').textContent = '默认背景';
+        if (label === '导入背景') select('[data-app-skin]').click();
+        else {
+          const preview = select('[data-app-skin-preview]');
+          preview.textContent = '默认背景';
+          preview.hidden = true;
+        }
       }
       if (selection === '主题色') {
         const field = select('[data-app-theme-color]');
@@ -519,8 +772,15 @@ function labBindApplication(host, item, report, paintIcon) {
     const action = button.dataset.appAction;
     const input = select('[data-app-value]');
     switch (action) {
-      case 'open': dialog.showModal(); break;
-      case 'cancel': dialog.close(); report('已取消'); break;
+      case 'open':
+        if (presetForm) { presetForm.hidden = false; input.focus(); }
+        else dialog.showModal();
+        break;
+      case 'cancel':
+        if (presetForm) { presetForm.hidden = true; select('[data-app-action=open]').focus(); }
+        else dialog.close();
+        report('已取消');
+        break;
       case 'delete': dialog.close(); report('已确认删除示例插件'); break;
       case 'save': {
         const name = input.value.trim();
@@ -528,23 +788,39 @@ function labBindApplication(host, item, report, paintIcon) {
         const folder = select('.lab-app-folder-preview');
         if (folder) {
           folder.lastElementChild.textContent = name;
-          folder.firstElementChild.style.color = select('[data-app-folder-color]').value;
+          folder.firstElementChild.innerHTML = labIcon(folderGlyph);
+          folder.firstElementChild.style.color = folderColor.value;
         }
-        dialog.close();
+        if (presetForm) {
+          presetForm.hidden = true;
+          select('[data-app-preset-list]').textContent = name;
+          select('[data-app-action=open]').focus();
+        } else dialog.close();
         report('已保存 ' + name);
         break;
       }
       case 'room-add': {
         const lines = updateRooms();
         const valid = lines.every(value => /^\d+$/.test(value) || /^https?:\/\/[^\s]+$/i.test(value));
+        const error = select('[data-app-room-error]');
+        error.hidden = valid;
+        error.textContent = '请输入房间号或链接';
         report(valid ? `已准备添加 ${lines.length} 个直播间` : '请输入房间号或链接');
+        break;
+      }
+      case 'room-editor-open':
+      case 'room-editor-close': {
+        const open = action === 'room-editor-open';
+        select('[data-app-room-editor]').hidden = !open;
+        select('[data-app-room-reopen]').hidden = open;
+        if (open) select('[data-app-room-input]').focus();
         break;
       }
       case 'import': report('已选 ' + all('[data-app-import]:checked').length + ' 项'); break;
       case 'folder-toggle': {
         const list = select('[data-app-folder-content]');
         list.hidden = !list.hidden;
-        setLabel(button, button.textContent.trim().replace(/ [▾▸]$/, '') + (list.hidden ? ' ▸' : ' ▾'));
+        button.setAttribute('aria-expanded', !list.hidden);
         report(list.hidden ? '文件夹已收起' : '文件夹已展开');
         break;
       }
@@ -556,10 +832,34 @@ function labBindApplication(host, item, report, paintIcon) {
         field.select();
         break;
       }
+      case 'folder-icon':
+        folderGlyph = button.dataset.appFolderGlyph;
+        all('[data-app-folder-glyph]').forEach(icon => icon.setAttribute('aria-pressed', icon === button));
+        select('.lab-qt-icon-current > span').innerHTML = labIcon(folderGlyph);
+        break;
+      case 'folder-reset':
+        select('[data-app-folder-glyph=folder]').click();
+        folderColor.value = '#00a1d6';
+        folderColor.dispatchEvent(new Event('input',{bubbles:true}));
+        break;
+      case 'folder-color':
+        folderColor.value = button.dataset.appColor;
+        folderColor.dispatchEvent(new Event('input',{bubbles:true}));
+        break;
+      case 'popup-close': popup.hidePopover(); break;
+      case 'layout-reset': report('已恢复当前布局默认比例'); break;
+      case 'theme-size-down':
+      case 'theme-size-up': {
+        const size = select('[data-app-theme-size]');
+        size.value = Math.max(Number(size.min), Math.min(Number(size.max), Number(size.value) + (action === 'theme-size-up' ? 1 : -1)));
+        size.dispatchEvent(new Event('input',{bubbles:true}));
+        break;
+      }
       case 'remove': {
         const selected = all('[data-app-pane]:checked:not(:disabled)');
         if (selected.length) lastRemoved = selected;
         selected.forEach(pane => { pane.disabled = true; pane.checked = false; pane.closest('label').hidden = true; });
+        updateSelection();
         report(selected.length ? '已移除 ' + selected.length + ' 路' : '请选择画面');
         break;
       }
@@ -567,6 +867,7 @@ function labBindApplication(host, item, report, paintIcon) {
         lastRemoved.forEach(pane => { pane.disabled = false; pane.closest('label').hidden = false; });
         report(lastRemoved.length ? '已撤回移除' : '暂无可撤回记录');
         lastRemoved = [];
+        updateSelection();
         break;
       case 'pip-primary':
         all('[data-app-action="pip-primary"]').forEach(pane => pane.setAttribute('aria-pressed', pane === button));
@@ -589,6 +890,14 @@ function labBindApplication(host, item, report, paintIcon) {
         report('已回到底部');
         break;
       }
+      case 'follow-comments': {
+        const follow = button.getAttribute('aria-pressed') !== 'false';
+        button.setAttribute('aria-pressed', !follow);
+        const list = select('[data-app-comments]');
+        if (!follow) list.scrollTop = list.scrollHeight;
+        report(follow ? '已暂停跟随' : '已继续跟随');
+        break;
+      }
       case 'sc-toggle':
         select('[data-app-sc] p').hidden = toggle(button);
         report(select('[data-app-sc] p').hidden ? '醒目留言已收起' : '醒目留言已展开');
@@ -596,8 +905,18 @@ function labBindApplication(host, item, report, paintIcon) {
       case 'sc-close':
       case 'sc-restore': select('[data-app-sc]').hidden = action === 'sc-close'; report(action === 'sc-close' ? '已关闭' : '已恢复'); break;
       case 'settings-close':
-      case 'settings-restore': select('[data-app-title]').hidden = action === 'settings-close'; report(action === 'settings-close' ? '设置窗口已关闭' : '设置示例已恢复'); break;
-      case 'shortcut-reset': select('[data-app-shortcut]').value = 'M'; report('已恢复默认快捷键'); break;
+      case 'settings-restore': {
+        const closed = action === 'settings-close';
+        select('[data-app-title]').hidden = closed;
+        select('[data-app-title-closed]').hidden = !closed;
+        report(closed ? '设置窗口已关闭' : '设置示例已恢复');
+        break;
+      }
+      case 'shortcut-clear':
+      case 'shortcut-reset':
+        select('[data-app-shortcut]').value = action === 'shortcut-clear' ? '' : 'M';
+        report(action === 'shortcut-clear' ? '快捷键已清除' : '已恢复默认快捷键');
+        break;
       case 'close-choice':
         dialog.close();
         report('已选 ' + label + (select('[data-app-remember]').checked ? ' · 记住选择' : ''));
@@ -606,11 +925,16 @@ function labBindApplication(host, item, report, paintIcon) {
         const checks = all('[data-app-cache]');
         if (event.detail) {
           const rect = button.getBoundingClientRect();
-          const angle = (Math.atan2(event.clientX - rect.x - rect.width / 2, rect.y + rect.height / 2 - event.clientY) * 180 / Math.PI + 360) % 360;
+          const x = event.clientX - rect.x - rect.width / 2;
+          const y = rect.y + rect.height / 2 - event.clientY;
+          const radius = Math.hypot(x,y) / (rect.width / 2);
+          if (radius <= .57 || radius >= 1) break;
+          const angle = (Math.atan2(x,y) * 180 / Math.PI + 360) % 360;
           checks[angle < 270 ? 0 : 1].click();
         } else {
           const checked = !checks.every(entry => entry.checked);
           checks.forEach(entry => { entry.checked = checked; });
+          cache.dataset.selected = checked ? '11' : '00';
           report(checked ? '已选择缓存分类' : '已取消选择');
         }
         break;
@@ -618,6 +942,7 @@ function labBindApplication(host, item, report, paintIcon) {
       case 'cache-clear': {
         const checked = all('[data-app-cache]:checked');
         checked.forEach(entry => { entry.checked = false; });
+        cache.dataset.selected = '00';
         report(checked.length ? '已完成示例清理 · ' + checked.length + ' 项' : '请选择缓存分类');
         break;
       }
@@ -638,7 +963,13 @@ function labBindApplication(host, item, report, paintIcon) {
       case 'read': select('[data-app-notice]').dataset.read = 'true'; clearUnread(); report('已标记为已读'); break;
       case 'clear-notices': select('[data-app-notice]').hidden = true; clearUnread(); popup.hidePopover(); report('暂无通知'); break;
       case 'update-close':
-      case 'update-restore': select('[data-app-update]').hidden = action === 'update-close'; report(action === 'update-close' ? '提醒已关闭' : '提醒已恢复'); break;
+      case 'update-restore': {
+        const closed = action === 'update-close';
+        select('[data-app-update]').hidden = closed;
+        select('[data-app-update-closed]').hidden = !closed;
+        report(closed ? '提醒已关闭' : '提醒已恢复');
+        break;
+      }
       case 'restore': report('已触发恢复主窗口'); break;
       case 'path': input.value = 'D:/示例/直播录制'; report('已选示例目录'); break;
       case 'diagnostic-add': addListValue('示例附件.png'); break;
@@ -648,6 +979,8 @@ function labBindApplication(host, item, report, paintIcon) {
         popup.hidePopover();
         popupTrigger.title = '弹幕来源：' + label;
         popupTrigger.setAttribute('aria-label', popupTrigger.title);
+        popupTrigger.querySelector('.lab-label').textContent = label[0];
+        paintIcon(popupTrigger,'');
         report('弹幕来源：' + label);
         break;
       case 'comment-copy':
@@ -667,22 +1000,30 @@ function labBindApplication(host, item, report, paintIcon) {
       }
       case 'skin-part':
         skinPart = button;
-        [...skinAreas.children].forEach(part => part.setAttribute('aria-pressed', part === button));
+        all('[data-app-part]').forEach(part => part.setAttribute('aria-pressed', part === button));
         report('已选 ' + label);
         break;
       case 'profile-room': {
         const wasSelected = button.getAttribute('aria-pressed') === 'true';
         all('[data-app-action=profile-room]').forEach(room => room.setAttribute('aria-pressed', !wasSelected && room === button));
+        profileRoom = wasSelected ? null : label;
         select('[data-app-profile]').textContent = wasSelected ? '编辑整组 · 2 位主播' : '编辑 ' + label;
-        select('[data-app-profile-form]').hidden = false;
+        showProfile(true);
         break;
       }
-      case 'profile-expand': {
-        const form = select('[data-app-profile-form]');
-        form.hidden = !form.hidden;
-        setLabel(button, form.hidden ? '展开设置' : '收起设置');
+      case 'profile-expand':
+        showProfile(profileForm.hidden);
         break;
-      }
+      case 'profile-remove':
+        for (const room of profileRoom ? [profileRoom] : Object.keys(profileValues)) {
+          profileValues[room] = ['继承','继承','-1'];
+        }
+        showProfile(!profileForm.hidden);
+        report('已移除示例主播设置');
+        break;
+      case 'profile-refresh':
+        report('已刷新示例画质');
+        break;
       case 'notice-confirm': dialog.close(); report('已确认示例须知'); break;
       case 'report': if (popup?.matches(':popover-open')) popup.hidePopover(); report('已触发 ' + label); break;
       case 'room': report('已选择 ' + button.dataset.appFind.split(' ')[0]); break;
@@ -692,15 +1033,22 @@ function labBindApplication(host, item, report, paintIcon) {
     const popup = select('[popover]');
     popupTrigger.setAttribute('popovertargetaction', 'show');
     popupTrigger.addEventListener('pointerenter', event => {
-      if (event.pointerType === 'mouse' && !popup.matches(':popover-open')) popup.showPopover({source:popupTrigger});
+      if (event.pointerType === 'mouse' && !popupTrigger.matches(':disabled') && !popup.matches(':popover-open')) popup.showPopover({source:popupTrigger});
     });
   }
   if (item.id === 'comment-actions') {
     popupTrigger.addEventListener('contextmenu', event => {
-      if (popupTrigger.disabled) return;
+      if (popupTrigger.matches(':disabled')) return;
       event.preventDefault();
       const popup = select('[popover]');
       if (!popup.matches(':popover-open')) popup.showPopover({source:popupTrigger});
     });
+  }
+  if (item.id === 'wall-remove') {
+    demo.addEventListener('change', event => { if (event.target.matches('[data-app-pane]')) updateSelection(); });
+    updateSelection();
+  }
+  if (item.id === 'notices') {
+    select('[popover]').addEventListener('toggle', event => { if (event.newState === 'open') clearUnread(); });
   }
 }
