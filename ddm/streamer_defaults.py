@@ -30,6 +30,13 @@ def room_defaults(settings, room_id):
     return values
 
 
+def source_quality_option(options):
+    """A sole zero entry describes source-controlled quality without a manual tier."""
+    if options and len(options) == 1 and options[0].get('qn') == 0:
+        return options[0]
+    return None
+
+
 def native_quality_options(options):
     choices = {}
     for item in options or ():

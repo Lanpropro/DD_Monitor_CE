@@ -6,6 +6,7 @@ from PySide6.QtCore import QTimer
 from . import bili
 from . import plugins as plugin_api
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
+from .streamer_defaults import source_quality_option
 from .tile_widgets import Tile
 from .wall_quality import WallQualityRequest, allows_wall_quality
 
@@ -16,9 +17,15 @@ class StreamPlayback:
 
     @staticmethod
     def _refreshing(tile, active):
+        fixed = source_quality_option(tile.quality_options) is not None
+        if active and fixed:
+            tile.state_control.set_source_resolution('')
         tile.reload_button.set_refreshing(active)
-        tile.reload_button.setToolTip('正在重新获取直播地址和画质…' if active else '重新连接这一路')
-        tile.quality_button.setText('获取画质…' if active else tile._quality_text())
+        if active:
+            tile.reload_button.setToolTip('正在重新获取直播地址…' if fixed else '正在重新获取直播地址和画质…')
+        else:
+            tile.reload_button.setToolTip('重新连接这一路')
+        tile.quality_button.setText('获取画质…' if active and not fixed else tile._quality_text())
         tile._layout_controls()
 
     def start_startup_tiles(self) -> None:
@@ -311,9 +318,14 @@ class StreamPlayback:
                 host._on_player_state(host._tile_of_player(p), state))
             player.pictureActivity.connect(
                 lambda p=player: host._on_picture_activity(host._tile_of_player(p)))
+            player.videoResolutionChanged.connect(
+                lambda resolution, p=player: self.on_video_resolution(p, resolution))
             player.autoQualityRequested.connect(lambda qn, p=player: host._on_auto_quality(p, qn))
             player.decoderFallback.connect(lambda mode, p=player: host._on_decoder_fallback(p, mode))
             host.players[tile] = player
+        player.report_video_resolution = source_quality_option(tile.quality_options) is not None
+        if player.report_video_resolution:
+            tile.state_control.set_source_resolution('')
         player.freeze_watch = bool(host.settings.get("freeze_watch", True))
         player.set_volume_normalization(bool(host.settings.get("volume_normalization", False)), host.settings.get('volume_normalization_curve'))
         player.set_volume(int(tile.volume))
@@ -361,6 +373,12 @@ class StreamPlayback:
         # 直播起来了：即时回放该开的就在这里开，不用用户手动点
         if not independent:
             host._sync_replay_scope()
+
+    def on_video_resolution(self, player, resolution: str) -> None:
+        host = self.host
+        tile = host._tile_of_player(player)
+        if tile is not None and not host._closing:
+            tile.state_control.set_source_resolution(resolution)
 
     def auto_quality(self, player, quality: int) -> None:
         host = self.host
