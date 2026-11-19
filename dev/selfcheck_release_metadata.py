@@ -124,6 +124,10 @@ def main():
         assert not (root / 'out/plugins_user').exists()
         assert not (root / 'out/videos').exists()
     assert 'user_notice_accepted = $true' in source
+    for entry in ("$env:LOCALAPPDATA = $probeProfile", "$env:DDM_NO_SAVE = '1'",
+                  '$env:LOCALAPPDATA = $previousProbeLocalAppData',
+                  '$env:DDM_NO_SAVE = $previousProbeNoSave'):
+        assert entry in source, 'Frozen probes must isolate and restore real-session environment'
     assert 'if ($version -eq "v0.3.1")' in source
     assert '$exeDir = Join-Path $OutDir $display' in source
     assert '--onedir --name $display' in source

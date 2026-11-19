@@ -299,15 +299,29 @@ DDMonitorDiagnostics.exe 是独立诊断工具，软件无法启动时也可双�
        plugins_enabled = @(); settings = @{ auto_update = $false } } |
         ConvertTo-Json -Depth 4
     [System.IO.File]::WriteAllText($testConfig, $probeJson, (New-Object System.Text.UTF8Encoding($false)))
-    $proc = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
-    Start-Sleep -Seconds 20
-    $alive = -not $proc.HasExited
-    if ($alive) { Stop-Process -Id $proc.Id -Force }
+    $probeProfile = Join-Path $OutDir ('.probe-profile-' + [guid]::NewGuid().ToString('N'))
+    if ((Split-Path $probeProfile -Parent) -ne $OutDir) { throw "自检用户目录路径越界" }
+    New-Item -ItemType Directory -Path $probeProfile | Out-Null
+    $previousProbeLocalAppData = $env:LOCALAPPDATA
+    $previousProbeNoSave = $env:DDM_NO_SAVE
+    try {
+        # Isolate the singleton and data-location registry from the real desktop session.
+        $env:LOCALAPPDATA = $probeProfile
+        $env:DDM_NO_SAVE = '1'
+        $proc = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
+        Start-Sleep -Seconds 20
+        $alive = -not $proc.HasExited
+        if ($alive) { Stop-Process -Id $proc.Id -Force }
+    } finally {
+        $env:LOCALAPPDATA = $previousProbeLocalAppData
+        $env:DDM_NO_SAVE = $previousProbeNoSave
+    }
     # 等进程真的收工再往下走：句柄还开着的时候 Remove-Item 会静默失败，
     # 上一次就把验证用的 logs 留在了交付目录里（zip 里倒是干净的）。
     try { $null = $proc.WaitForExit(5000) } catch { }
     Start-Sleep -Milliseconds 300
     Remove-Item -LiteralPath $testConfig -Force
+    Remove-Item -LiteralPath $probeProfile -Recurse -Force
     $log = Get-ChildItem $logDir -Filter "ddm-*.log" -ErrorAction SilentlyContinue | Select-Object -First 1
     $started = $false
     if ($log) {
