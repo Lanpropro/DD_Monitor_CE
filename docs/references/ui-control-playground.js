@@ -381,7 +381,10 @@ function labRenderDetail(item) {
         sample.querySelector('.lab-controls').style.removeProperty('--lab-accent');
         sample.style.setProperty('--lab-tile-focus',field.value);
       }
-      if (paint[0] === 'ink') sample.style.setProperty('--lab-tile-hover-ink', field.value);
+      if (paint[0] === 'ink') {
+        sample.style.setProperty('--lab-tile-hover-ink', field.value);
+        sample.style.setProperty('--lab-choice-custom-ink', field.value);
+      }
       if (paint[0] === 'surface' && labExtraSurface[item.id]) sample.style.setProperty(labExtraSurface[item.id], field.value);
     } else if (field.name === 'state') {
       sample.dataset.state = field.value;

@@ -64,8 +64,7 @@
   --lab-hover: #3b3e42;
   --lab-ink: #f1f2f5;
   --lab-line: #83839129;
-  --lab-segment: #222428;
-  --lab-card: #3c4044;
+  --lab-segment: #303337;
 }
 #overview[data-theme-mode=light] .lab-demo[data-lab-area=settings]:not([data-lab-demo=decoder]) {
   --lab-surface: #fff;
@@ -73,7 +72,6 @@
   --lab-ink: #202630;
   --lab-line: #d7dde7;
   --lab-segment: #edf0f4;
-  --lab-card: #fff;
 }
 .lab-demo {
   position: relative;
@@ -151,31 +149,40 @@
 .lab-label:empty, .lab-glyph:empty { display: none; }
 .lab-choice {
   --lab-choice-gap: 2px;
-  --lab-choice-inset: 2px;
+  --lab-choice-inset: 4px;
+  --lab-choice-radius: 999px;
   position: relative; isolation: isolate; min-width: 0;
   display: grid; grid-template-columns: repeat(var(--lab-choice-count), minmax(0,1fr));
   gap: var(--lab-choice-gap); padding: var(--lab-choice-inset);
+  border-radius: var(--lab-choice-radius);
   background: var(--lab-segment);
+  box-shadow: 0 2px 5px #0002;
 }
+.lab-demo[data-custom-radius] .lab-choice { --lab-choice-radius: var(--lab-radius); }
 .lab-choice .lab-control {
   border-color: transparent;
+  border-radius: var(--lab-choice-radius);
   background: transparent;
+  color: var(--lab-choice-custom-ink, color-mix(in srgb, var(--lab-ink) 78%, var(--lab-segment)));
   min-height: calc(var(--lab-height, 30px) - 10px);
   padding-inline: 5px;
+  font-weight: 600;
 }
 .lab-choice .lab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.lab-choice .lab-control[aria-pressed=true] { color: var(--lab-ink); font-weight: 600; }
+.lab-choice .lab-control[aria-pressed=true] {
+  background: transparent;
+  color: var(--lab-choice-custom-ink, color-mix(in srgb, var(--lab-accent) 55%, var(--lab-ink)));
+  font-weight: 700;
+}
 .lab-choice-indicator {
-  --choice-fill: color-mix(in srgb, var(--lab-accent) 20%, var(--lab-card));
   position: absolute; z-index: -1; pointer-events: none;
   inset-block: var(--lab-choice-inset); left: var(--lab-choice-inset);
   width: calc((100% - 2 * var(--lab-choice-inset) - (var(--lab-choice-count) - 1) * var(--lab-choice-gap)) / var(--lab-choice-count));
   transform: translateX(calc(var(--lab-choice-index, 0) * (100% + var(--lab-choice-gap))));
   transition: none;
-  border-radius: var(--lab-radius, 7px);
-  background: linear-gradient(color-mix(in srgb, var(--choice-fill) 92%, white),
-      color-mix(in srgb, var(--choice-fill) 92%, black));
-  box-shadow: 0 1px 2px #0003;
+  border-radius: var(--lab-choice-radius);
+  background: color-mix(in srgb, var(--lab-accent) 22%, var(--lab-segment));
+  box-shadow: inset 0 1px 0 #ffffff18;
 }
 @media (prefers-reduced-motion: no-preference) {
   body:has(#segment-motion:checked) .lab-choice-indicator.is-sliding {
