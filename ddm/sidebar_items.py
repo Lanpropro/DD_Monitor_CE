@@ -119,6 +119,7 @@ class SidebarItems:
         host = self.host
         NavItem = item_type
         item = NavItem(room, len(host._items), parent=host.list_box)
+        self.apply_room_card_branding(item)
         room_id = str(room.get("room_id"))
         if room_id and room_id not in host.import_order:
             host.import_order.append(room_id)     # 「导入顺序」排序用
@@ -143,6 +144,26 @@ class SidebarItems:
         item.resize(host.list_box.width(), item_height)
         item.show()
         return item
+
+    @staticmethod
+    def apply_room_card_branding(item, manager=None):
+        if manager is None:
+            from .plugins import manager as active_manager
+            manager = active_manager()
+        platform = manager.platforms.get(item.room.get('platform')) if manager is not None else None
+        artwork = getattr(platform, 'room_card_branding', None)
+        if callable(artwork) and (branding := artwork(str(item.room['room_id']))):
+            item.set_room_card_branding(branding)
+            return True
+        return False
+
+    def refresh_room_card_branding(self, manager):
+        changed = False
+        for item in self.host._items:
+            changed = self.apply_room_card_branding(item, manager) or changed
+        if changed:
+            self.host._sync_count()
+            self.host.refresh_strip()
 
     def add_room(self, room: dict) -> bool:
         host = self.host
@@ -251,7 +272,7 @@ class SidebarItems:
                      if ":" in str(item.room.get("room_id", "")) else "bilibili"
                      for item in host._items}
         for item in host._items:
-            show = len(platforms) > 1 and getattr(host, "show_platform_logos", True)
+            show = (len(platforms) > 1 or item.has_station_badge) and getattr(host, "show_platform_logos", True)
             changed = item.platform_badge.property("showPlatform") != show
             if changed:
                 item.platform_badge.setProperty("showPlatform", show)

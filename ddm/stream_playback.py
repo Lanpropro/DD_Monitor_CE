@@ -472,6 +472,9 @@ class StreamPlayback:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()
             if tile.property('pictureInPictureIndependent') is not True:
+                platform = host.plugins.platforms.get(tile.room.get('platform'))
+                if player is not None and getattr(platform, 'capture_first_playback_cover', False):
+                    host.room_images.capture_first_frame(tile.room, player)
                 host.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
                                   room=dict(tile.room or {}))
         elif state == "connecting":

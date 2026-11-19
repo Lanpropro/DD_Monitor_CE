@@ -26,6 +26,7 @@ class RoomCatalog:
         for room in rooms:
             if not any(item["room_id"] == room["room_id"] for item in host.sidebar.rooms()):
                 host.sidebar.add_room(room)
+        host.sidebar.items_control.refresh_room_card_branding(host.plugins)
         for key in ("import_order", "custom_order"):
             getattr(host.sidebar, "set_" + key)(saved[key])
         host.sidebar.apply_pins(saved["pinned"])

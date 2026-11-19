@@ -1,14 +1,14 @@
 """Sidebar item implementation; shared sidebar state stays with its owner."""
-import os
 from PySide6.QtCore import QMimeData, QPoint, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QWidget
 from . import motion, theme
 from .corner_geometry import continuous_path
+from .room_artwork import fit_station_avatar, platform_icon, room_platform
 from .sidebar_drag import NAV_MIME, ROOM_MIME
 from .ui.labels import ElidedLabel
 from .widget_support import (
-    BRAND_ASSETS_DIR, NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT,
+    NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT,
     PORTRAIT_LIST_HEIGHT, _allow_shrink, _ignore_mouse, _repolish
 )
 from .live_alert import LiveAlert
@@ -114,17 +114,14 @@ class NavItem(QFrame):
             self.badge.setText("待刷新")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
-        platform = room.get("platform") or str(room.get("room_id", "")).partition(":")[0]
+        platform = room_platform(room)
         labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube", "chzzk": "CHZZK"}
         label = "B站" if str(room.get("room_id", "")).isdigit() else labels.get(platform, platform)
-        if str(room.get("room_id", "")).isdigit():
-            platform = "bilibili"
-        icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
-                                 "huya.png" if platform == "huya" else platform + ".ico")
-        if not os.path.isfile(icon_path):
-            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms", "generic.svg")
         self.platform_badge = QLabel()
-        self.platform_badge.icon = QIcon(icon_path)
+        self.platform_badge.icon = platform_icon(platform)
+        self._branded_avatar = None
+        self._badge_from_avatar = False
+        self.has_station_badge = False
         self.platform_badge.setObjectName("NavPlatformBadge")
         self.platform_badge.setAlignment(Qt.AlignCenter)
         self.platform_badge.setToolTip(label)
@@ -134,6 +131,38 @@ class NavItem(QFrame):
         _ignore_mouse(self.platform_badge)
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge, self.platform_badge)
         self.setToolTip("")
+
+    def set_room_card_branding(self, branding):
+        self._badge_from_avatar = bool(branding.get('badge_from_avatar'))
+        avatar_path = branding.get('avatar_path')
+        if avatar_path:
+            avatar = QPixmap(avatar_path)
+            if not avatar.isNull():
+                self._branded_avatar = fit_station_avatar(avatar)
+                self.thumb.set_face(self._branded_avatar)
+        badge_path = branding.get('badge_path')
+        if badge_path:
+            self._set_station_badge(QIcon(badge_path))
+        label = branding.get('label')
+        if label:
+            self.platform_badge.setToolTip(label)
+            self.platform_badge.setAccessibleName(label)
+
+    def set_room_avatar(self, pixmap):
+        avatar = pixmap if self._badge_from_avatar else self._branded_avatar or pixmap
+        if self._badge_from_avatar and avatar is not None and not avatar.isNull():
+            self._set_station_badge(QIcon(avatar))
+            avatar = fit_station_avatar(avatar)
+        self.thumb.set_face(avatar)
+        return avatar
+
+    def _set_station_badge(self, icon):
+        if icon.isNull():
+            return
+        self.has_station_badge = True
+        self.platform_badge.icon = icon
+        size = 12 if self.thumb._compact_thumb() else 20
+        self.platform_badge.setPixmap(icon.pixmap(size, size))
 
     def set_on_wall(self, on_wall: bool) -> None:
         """标出这一路已经在画面墙中；蓝色与粉色开播状态互不混淆。"""
