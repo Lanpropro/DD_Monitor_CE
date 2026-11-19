@@ -1,4 +1,6 @@
 """Discover official Release ZIPs, inspect their manifests and cache verified offers."""
+import base64
+import binascii
 from pathlib import Path
 import re
 import json
@@ -18,6 +20,44 @@ from .file_ops import replace_directory
 CATALOG_CHECK_SECONDS = 15 * 60
 CATALOG_CACHE_VERSION = 2
 PLUGIN_ARCHIVE = re.compile(r'([a-z][a-z0-9_-]*)-v?(\d+(?:\.\d+){0,3})\.zip')
+ICON_MAX_BYTES = 64 * 1024
+ICON_MAX_PIXELS = 512
+_PNG_IHDR = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR'
+_PACKAGE_METADATA = ('name', 'description', 'min_app_version', 'author', 'icon_png')
+
+
+def _valid_icon(data):
+    return (33 <= len(data) <= ICON_MAX_BYTES and data.startswith(_PNG_IHDR)
+            and all(0 < int.from_bytes(data[offset:offset + 4], 'big') <= ICON_MAX_PIXELS
+                    for offset in (16, 20)))
+
+
+def _package_icon(folder, name):
+    if (not isinstance(name, str) or not name.lower().endswith('.png')
+            or any(char in name for char in ('\\', ':', '\x00', '\r', '\n'))
+            or any(part in ('', '.', '..') for part in name.split('/'))):
+        return ''
+    try:
+        folder = folder.resolve()
+        path = (folder / name).resolve()
+        if not path.is_relative_to(folder) or not path.is_file():
+            return ''
+        with path.open('rb') as source:
+            data = source.read(ICON_MAX_BYTES + 1)
+    except OSError:
+        return ''
+    return base64.b64encode(data).decode('ascii') if _valid_icon(data) else ''
+
+
+def decode_catalog_icon(value):
+    """Validate the cached thumbnail again before passing it to the image decoder."""
+    if not isinstance(value, str) or not 0 < len(value) <= 4 * ((ICON_MAX_BYTES + 2) // 3):
+        return b''
+    try:
+        data = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return b''
+    return data if _valid_icon(data) else b''
 
 
 def _package_metadata(path, plugin_id, plugin_version):
@@ -28,7 +68,8 @@ def _package_metadata(path, plugin_id, plugin_version):
             path, manifest_reader=read_manifest, directory_replace=replace_directory)
         if installed != plugin_id:
             raise ValueError('安装包 ID 与附件文件名不一致')
-        manifest = read_manifest(str(Path(temporary) / installed), installed)
+        folder = Path(temporary) / installed
+        manifest = read_manifest(str(folder), installed)
         if manifest['version'] != plugin_version:
             raise ValueError('安装包版本与附件文件名不一致')
         version_key(manifest['version'])
@@ -38,7 +79,8 @@ def _package_metadata(path, plugin_id, plugin_version):
         if not isinstance(author, str):
             raise ValueError('插件作者必须是字符串')
         return {key: manifest[key] for key in ('name', 'description')} | {
-            'min_app_version': minimum, 'author': author}
+            'min_app_version': minimum, 'author': author,
+            'icon_png': _package_icon(folder, manifest.get('icon'))}
 
 
 def plugin_catalog(client, current_version, cache=None):
@@ -68,15 +110,16 @@ def plugin_catalog(client, current_version, cache=None):
     for plugin_id, (plugin_version, asset, release) in candidates.items():
         offer = {'id': plugin_id, 'name': plugin_id, 'description': '',
                  'version': plugin_version, 'min_app_version': '0.3',
-                 'notes': release.get('body') or '', 'author': '',
+                 'notes': release.get('body') or '', 'author': '', 'icon_png': '',
                  'release_url': release.get('html_url', ''), 'available': True, 'cached': False}
         try:
             info = api.asset_info(asset, api.PLUGIN_REPOSITORY)
             previous = saved.get(plugin_id, {})
             if (previous.get('version') == plugin_version and
                     all(previous.get(key) == info[key] for key in ('url', 'sha256', 'size')) and
+                    all(key in previous for key in _PACKAGE_METADATA) and
                     (previous.get('available') or previous.get('reason', '').startswith('请先更新本体至 '))):
-                offer.update({key: previous[key] for key in ('name', 'description', 'min_app_version', 'author')})
+                offer.update({key: previous[key] for key in _PACKAGE_METADATA})
             else:
                 with tempfile.TemporaryDirectory(prefix='ddm-catalog-') as temporary:
                     path = api.download(info, Path(temporary) / 'plugin.zip', client)
