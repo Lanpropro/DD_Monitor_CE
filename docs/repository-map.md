@@ -550,6 +550,8 @@
 - `docs/references/ui-control-library-qt.png`
 - `docs/references/ui-control-library.html`
 - `docs/references/ui-control-library.js`
+- `docs/references/ui-control-playground.css`
+- `docs/references/ui-control-playground.js`
 - `docs/features/appearance-design.md`
 - `docs/bug-cases.md`
 - `docs/features/customization-plan.md`

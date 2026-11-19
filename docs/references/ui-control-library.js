@@ -42,39 +42,6 @@ const identity = '../../assets/logo.svg';
 const media = '../assets/screenshots/overview1_Landscape_mode.png';
 const themes = [['dark', '深色'], ['light', '浅色']];
 
-// Each item matches one row of ui-control-library-qt.png in capture order.
-const qtSamples = [
-  ['设置页', [
-    ['全部展开后的收起方式', '常规 › 关注与预览'],
-    ['关注列表刷新间隔', '常规 › 关注与预览'],
-    ['关注栏直播预览', '常规 › 关注与预览'],
-    ['新建格子的初始音量', '常规 › 播放与声音'],
-    ['直播源格式', '常规 › 编解码'],
-    ['本机解码方式', '常规 › 编解码'],
-    ['界面主题', '外观 › 主题'],
-    ['主题色', '外观 › 主题'],
-  ]],
-  ['播放格', [
-    ['暂停／继续', '底部信息条'],
-    ['格子音量', '底部信息条 · 宽格子'],
-    ['画面弹幕／观看设置', '底部信息条'],
-    ['录制', '底部信息条'],
-    ['全屏', '底部信息条'],
-    ['画质', '悬停时 · 右上角'],
-    ['重新连接', '悬停时 · 右上角'],
-    ['关闭这一路', '悬停时 · 右上角'],
-  ]],
-];
-
-function renderQtGallery() {
-  const lastRow = qtSamples.flatMap(([, items]) => items).length - 1;
-  let row = 0;
-  document.getElementById('qt-gallery').innerHTML = qtSamples.map(([area, items]) =>
-    `<section class="qt-group"><h2>${area}</h2><div class="qt-grid">${items.map(([title, location]) =>
-      `<figure class="qt-card"><figcaption><strong>${title}</strong><small>${location}</small></figcaption>
-      <div class="qt-swatch" role="img" aria-label="${title}的 Qt 截图" style="--qt-y:${(row++ / lastRow) * 100}%"></div></figure>`).join('')}</div></section>`).join('');
-}
-
 const settingsNav = [
   ['settings', '常规'], ['display', '外观'], ['chat', '弹幕'], ['circle', '录制'],
   ['bell', '通知'], ['keyboard', '快捷键'], ['folder', '主播独立设置'],
@@ -226,7 +193,7 @@ function renderShowcase(component) {
   const notes = name === 'SegmentedControl' ? `<dl class="example-notes">
     <div><dt>共同底板</dt><dd>两个选项设置同一个行为，只选其一。</dd></div>
     <div><dt>选中块</dt><dd>独立的亮块和较重的文字表示当前选择。</dd></div>
-    <div><dt>实装对照</dt><dd>在「软件实装」查看该设置的当前外观。</dd></div>
+    <div><dt>实装对照</dt><dd>在<a href="#control-collapse">该设置的详情</a>查看当前 Qt 外观。</dd></div>
   </dl>` : '';
   const specimens = `<div class="specimens">${themes.map(([theme, title]) =>
     `<figure class="specimen" data-theme="${theme}"><figcaption>${title}</figcaption><div class="demo">${preview}</div></figure>`).join('')}</div>`;
@@ -329,7 +296,6 @@ document.getElementById('settings-pair').innerHTML = themes.map(([theme, label])
 document.getElementById('player-pair').innerHTML = themes.map(([theme, label]) => player(theme, label)).join('');
 renderMatrices();
 renderCatalog();
-renderQtGallery();
 document.getElementById('search').addEventListener('input', renderCatalog);
 
 document.querySelector('.top-nav').addEventListener('keydown', event => {
@@ -361,11 +327,6 @@ document.addEventListener('click', event => {
   const clicked = event.target.closest('button');
   if (!clicked) return;
   if (clicked.matches('[role=tab]')) setTab(clicked);
-  if (clicked.matches('[data-qt-theme]')) {
-    document.getElementById('overview').dataset.themeMode = clicked.dataset.qtTheme;
-    document.querySelectorAll('[data-qt-theme]').forEach(button =>
-      button.setAttribute('aria-pressed', button === clicked));
-  }
   if (clicked.matches('[data-component]')) showComponent(clicked.dataset.component);
   if (clicked.matches('[data-filter]')) {
     document.querySelectorAll('[data-filter]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
