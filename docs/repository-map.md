@@ -546,6 +546,9 @@
 - `docs/README.md`
 - `docs/features/README.md`
 - `docs/references/README.md`
+- `docs/references/ui-control-library-draft.md`
+- `docs/references/ui-control-library.html`
+- `docs/references/ui-control-library.js`
 - `docs/features/appearance-design.md`
 - `docs/bug-cases.md`
 - `docs/features/customization-plan.md`
