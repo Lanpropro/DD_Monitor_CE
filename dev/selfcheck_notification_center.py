@@ -210,16 +210,28 @@ class NotificationTests(unittest.TestCase):
         notice.findChild(QPushButton, 'NoticeClose').click()
         self.assertEqual([entry.message for entry in self.center.entries], ['清空后新通知'])
 
-    def test_outside_update_action_removes_deduplicated_records_without_readding(self):
+    def test_outside_update_settings_keeps_read_record_until_explicit_deletion(self):
         notice = UpdateNotice(self.owner)
         self.addCleanup(self.dispose, notice)
-        entry = self.center.add('版本更新', key=('update', 'test'))
-        self.assertIs(self.center.add('版本更新', key=('update', 'test')), entry)
+        key = ('update', 'test')
+        entry = self.center.add('版本更新', kind='update', key=key)
+        self.assertIs(self.center.add('版本更新', kind='update', key=key), entry)
         notice.track_history((self.center, entry))
         notice.show_offer({'version': 'test'}, persistent=True)
-        notice.action.click()
+        notice.set_updates([{'key': 'app', 'title': '软件更新'}])
+        self.assertTrue(entry.unread)
+        self.assertEqual(self.button._unread, 1)
+        notice.settings_action.click()
+        self.assertFalse(notice.isVisible())
+        self.assertIs(self.center.add('版本更新', kind='update', key=key), entry)
+        self.assertEqual(self.center.entries, [entry])
+        self.assertFalse(entry.unread)
+        self.assertEqual(self.button._unread, 0)
+
+        self.open()
+        self.center.rows[entry].remove_button.click()
         self.assertFalse(self.center.entries)
-        self.center.add('版本更新', key=('update', 'test'))
+        self.assertIsNone(self.center.add('版本更新', kind='update', key=key))
         self.assertFalse(self.center.entries)
 
     def test_unread_indicator_open_read_and_new_while_open(self):

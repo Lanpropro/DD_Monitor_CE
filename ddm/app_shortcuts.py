@@ -13,6 +13,7 @@ class AppShortcuts(QObject):
 
     def refresh_shortcuts(self) -> None:
         host = self.host
+        self._fullscreen_wheel_remainder = 0
         if not hasattr(host, '_shortcut_wheel_filter'):
             QApplication.instance().installEventFilter(self)
             host._shortcut_wheel_filter = True
@@ -48,6 +49,8 @@ class AppShortcuts(QObject):
         if event.type() != QEvent.Wheel:
             return False
         host = self.host
+        if event.modifiers() == Qt.NoModifier and host._fullscreen_tile is not None:
+            return self._fullscreen_wheel(host._fullscreen_tile, watched, event)
         window = watched.window() if hasattr(watched, 'window') else None
         if window is not host and window is not host._fullscreen_tile:
             return False
@@ -72,6 +75,35 @@ class AppShortcuts(QObject):
         if tile is None:
             return False
         tile.set_volume(tile.volume + (10 if delta > 0 else -10))
+        event.accept()
+        return True
+
+    def _fullscreen_wheel(self, tile, watched, event):
+        # Windows can deliver an embedded video's wheel to its Qt surface or
+        # fullscreen owner. Use the event position even if the cursor has moved.
+        surfaces = (tile, tile.video, tile.cover, tile.video_danmaku)
+        if watched not in surfaces or event.buttons() != Qt.NoButton:
+            return False
+        point = tile.mapFromGlobal(event.globalPosition().toPoint())
+        if (not tile.video.geometry().contains(point)
+                or (tile.childAt(point) or tile) not in surfaces
+                or QApplication.activePopupWidget() or QApplication.activeModalWidget()
+                or isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
+                or tile.plugin_interaction_active()):
+            return False
+
+        angle = event.angleDelta()
+        # 120 angle units per notch; use 40 pixels per step for pixel-only scrolling.
+        delta = angle.y() if not angle.isNull() else event.pixelDelta().y() * 3
+        if event.phase() == Qt.ScrollBegin:
+            self._fullscreen_wheel_remainder = 0
+        total = self._fullscreen_wheel_remainder + delta
+        steps = int(total / 120)
+        self._fullscreen_wheel_remainder = 0 if event.phase() == Qt.ScrollEnd else total - steps * 120
+        if not delta:
+            return False
+        if steps:
+            tile.set_volume(tile.volume + steps * 10)
         event.accept()
         return True
 

@@ -11,6 +11,15 @@ class TileState:
     def __init__(self, host):
         self.host = host
 
+    def restore_video_danmaku(self) -> None:
+        host = self.host
+        room = host.room
+        rid = str(room.get("room_id") or "")
+        enabled = bool(rid) and host.room_danmaku_switches.setdefault(
+            rid, bool(room.get("video_danmaku_enabled", True)))
+        room["video_danmaku_enabled"] = enabled
+        host.danmaku_button.setChecked(enabled)
+
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         host = self.host
@@ -33,8 +42,7 @@ class TileState:
         host.set_paused(False)
         host.set_video_active(False)
         host.set_buffering(False)
-        # 开关属于当前房间；新主播默认关闭，换位则恢复该房间保存的开关。
-        host.danmaku_button.setChecked(bool(host.room.get("video_danmaku_enabled", False)))
+        self.restore_video_danmaku()
         host._layout_areas()
 
         if empty:
@@ -77,6 +85,8 @@ class TileState:
     def toggle_video_danmaku(self, enabled: bool) -> None:
         host = self.host
         host.room["video_danmaku_enabled"] = bool(enabled)
+        if rid := str(host.room.get("room_id") or ""):
+            host.room_danmaku_switches[rid] = enabled
         host.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if enabled
                                        else "开启画面弹幕（默认 B）")
         host.video_danmaku.set_enabled(enabled)
