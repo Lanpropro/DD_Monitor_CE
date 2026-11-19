@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QRect, QTimer, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from shiboken6 import isValid
 from ddm import config, theme
@@ -31,25 +32,21 @@ if sys.argv[1:] == ['--portrait-worker']:
         def showEvent(self, event):
             super().showEvent(event)
             self._probe_ready = True
-            QTimer.singleShot(20, self.prepare_report)
+            QTimer.singleShot(20, self.report)
 
         def event(self, event):
             result = super().event(event)
             if (event.type() == QEvent.DynamicPropertyChange
                     and event.propertyName() == b'settings_portrait'
                     and getattr(self, '_probe_ready', False)):
-                QTimer.singleShot(20, self.prepare_report)
+                QTimer.singleShot(20, self.report)
             return result
-
-        def prepare_report(self):
-            self.resize(1400, 850)
-            QTimer.singleShot(20, self.report)
 
         def report(self):
             print(settings_process.PREFIX + json.dumps(dict(
                 kind='layout-probe', portrait=bool(self.property('settings_portrait')),
                 columns=self.general_page.sections.columns,
-                width=self.width(), height=self.height(),
+                geometry=self.frameGeometry().getRect(),
                 preference=self.settings()['settings_card_layout'])), flush=True)
 
     dialogs.SettingsDialog = ProbeDialog
@@ -136,8 +133,10 @@ class SettingsCardLayoutTests(unittest.TestCase):
         settle()
         self.assertEqual(columns.columns, 2)
 
-    def test_in_process_dialog_uses_portrait_host_with_wide_shell(self):
+    def test_in_process_dialog_fits_narrow_portrait_work_area_and_controls(self):
         from ddm.settings_control import SettingsControl
+        theme.configure_appearance({'appearance_font': theme.danmaku_font_family()})
+        APP.setStyleSheet(theme.qss())
         owner = QWidget()
         owner.orientation = 'portrait'
         owner.settings = dict(config.DEFAULT_SETTINGS)
@@ -148,18 +147,39 @@ class SettingsCardLayoutTests(unittest.TestCase):
         owner._get_update_page = Mock()
         owner._remember_updates = Mock()
         owner.set_appearance = Mock()
-        with patch('ddm.settings_autosave_apply.bind_dialog'):
+        area = QRect(-800, 80, 540, 1280)
+        with patch('ddm.settings_autosave_apply.bind_dialog'), \
+                patch.object(SettingsControl, 'streamer_rooms', return_value={}), \
+                patch.object(owner, 'screen', return_value=SimpleNamespace(availableGeometry=lambda: area)):
             dialog = SettingsControl(owner).create_settings_dialog(
                 dialog_class=lambda *args, **kwargs: SettingsDialog(*args, preview=True, **kwargs))
         try:
             dialog.setAttribute(Qt.WA_DontShowOnScreen)
-            dialog.resize(1400, 850)
             dialog.show()
             settle()
             self.assertTrue(dialog.property('settings_portrait'))
-            self.assertGreater(dialog.width(), dialog.height())
+            self.assertTrue(area.contains(dialog.frameGeometry()), dialog.frameGeometry())
+            self.assertTrue(dialog.navigation.collapsed)
             self.assertEqual(dialog.general_page.sections.columns, 1)
             self.assertEqual(dialog.settings()['settings_card_layout'], 'auto')
+            viewport = dialog.general_scroll.viewport()
+            page = dialog.general_page
+            toggle = page._checks['default_muted']
+            for control in (toggle, page.volume_slider, page.poll_stepper,
+                            page.compact_threshold_stepper, page.codec_editor):
+                dialog.general_scroll.ensureWidgetVisible(control)
+                settle()
+                origin = control.mapTo(viewport, control.rect().topLeft())
+                self.assertGreaterEqual(origin.x(), 0, control)
+                self.assertLess(origin.x() + control.width() - 1, viewport.width(), control)
+            dialog.general_scroll.ensureWidgetVisible(toggle)
+            previous = toggle.isChecked()
+            QTest.mouseClick(toggle, Qt.LeftButton)
+            self.assertNotEqual(toggle.isChecked(), previous)
+            dialog.set_host_layout(False, (0, 0, 1920, 1080))
+            settle()
+            self.assertFalse(dialog.navigation.collapsed)
+            self.assertEqual(dialog.width(), 1200)
         finally:
             dispose(dialog)
             dispose(owner)
@@ -204,19 +224,24 @@ class SettingsCardLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='ddm-portrait-worker-') as directory, \
                 patch.object(config, 'REPO', directory), \
                 patch.object(settings_process, 'worker_command', return_value=command), \
-                patch.object(settings_process, '_allow_foreground'):
+                patch.object(settings_process, '_allow_foreground'), \
+                patch.object(owner, 'screen', return_value=SimpleNamespace(
+                    availableGeometry=lambda: QRect(100, 50, 1920, 1080))):
             try:
                 client.open(dict(config.DEFAULT_SETTINGS), {})
                 wait_for(lambda: any(row['portrait'] and row['columns'] == 1 for row in messages))
-                self.assertTrue(all(row['width'] > row['height'] for row in messages))
+                self.assertLess(messages[-1]['geometry'][2], 1040)
                 owner.orientation = 'landscape'
                 client.open(dict(config.DEFAULT_SETTINGS), {})
                 wait_for(lambda: any(not row['portrait'] and row['columns'] == 2 for row in messages))
+                self.assertEqual(messages[-1]['geometry'][2], 1200)
                 before = len(messages)
-                client._send(dict(kind='host-state', portrait=True,
+                narrow = QRect(-800, 80, 700, 1280)
+                client._send(dict(kind='host-state', portrait=True, work_area=narrow.getRect(),
                     values={'settings_card_layout': 'auto'}, material_background='',
                     save_enabled=True, action_visible=False, save_text='', marks={}))
                 wait_for(lambda: any(row['portrait'] and row['columns'] == 1 for row in messages[before:]))
+                self.assertTrue(narrow.contains(QRect(*messages[-1]['geometry'])))
                 self.assertTrue(all(row['preference'] == 'auto' for row in messages))
             finally:
                 client.finish()

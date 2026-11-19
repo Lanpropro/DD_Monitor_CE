@@ -63,7 +63,7 @@ def run_worker():
                              streamer_rooms=snapshot.get('streamer_rooms'))
             self.streamerQualityRequested.connect(lambda room_id, token: send({
                 'kind': 'streamer-quality', 'room_id': room_id, 'token': token}))
-            self.setProperty('settings_portrait', bool(snapshot.get('portrait', False)))
+            self.set_host_layout(bool(snapshot.get('portrait', False)), snapshot.get('work_area'))
             self._auto_save_enabled = True
             self.auto_save.requested.connect(lambda changes: send({'kind': 'auto-save', 'changes': changes}))
             self.occlusion_timer = QTimer(self)
@@ -269,7 +269,7 @@ def run_worker():
                 self.dialog._host_save_error = message['state'] == 'error'
                 SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])
             elif kind == 'host-state' and self.dialog is not None:
-                self.dialog.setProperty('settings_portrait', bool(message.get('portrait', False)))
+                self.dialog.set_host_layout(bool(message.get('portrait', False)), message.get('work_area'))
                 self.dialog.host_values = message['values']
                 if theme.configure_appearance(message['values']):
                     theme.apply(theme.mode())
@@ -310,7 +310,7 @@ def run_worker():
                 self.dialog.reject()
             elif kind == 'focus' and self.dialog is not None:
                 if 'portrait' in message:
-                    self.dialog.setProperty('settings_portrait', bool(message['portrait']))
+                    self.dialog.set_host_layout(bool(message['portrait']), message.get('work_area'))
                 QTimer.singleShot(0, self.dialog,
                                   lambda dialog=self.dialog: host_api._activate_dialog(dialog))
             elif kind == 'open' and self.dialog is None:

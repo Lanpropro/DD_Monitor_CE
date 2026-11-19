@@ -46,6 +46,7 @@ class SettingsDialog(SettingsWindow):
         self.set_material(settings)
         self._created_at = time.perf_counter()
         self._paint_logged = False
+        self._compact_navigation_for_width = False
         from .config import DEFAULT_SETTINGS
         # Part artwork and per-tile video danmaku are saved by their own editors.
         self._initial_settings = {key: settings.get(key, default) for key, default in DEFAULT_SETTINGS.items()
@@ -58,10 +59,7 @@ class SettingsDialog(SettingsWindow):
         self.setWindowTitle("设置")
         self.restart_requested = False
         self.seen_versions = dict(settings.get('seen_update_versions') or {})
-        available = self.screen().availableGeometry()
-        self.setMinimumSize(760, 520)
-        self.resize(min(1040 if settings.get('settings_card_layout') == 'vertical' else 1200,
-                        available.width() - 48), min(800, available.height() - 72))
+        self._fit_settings_window(initial=True)
 
         root = self.body_layout
         root.setContentsMargins(0, 0, 0, 0)
@@ -148,6 +146,19 @@ class SettingsDialog(SettingsWindow):
         if preview:
             return
         self._update_save_button()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        navigation = getattr(self, 'navigation', None)
+        if navigation is None:
+            return
+        if self.width() < 560:
+            if not navigation.collapsed:
+                self._compact_navigation_for_width = True
+                navigation.set_collapsed(True, animate=False)
+        elif self._compact_navigation_for_width:
+            self._compact_navigation_for_width = False
+            navigation.set_collapsed(False, animate=False)
 
     def _recording_settings_page(self, settings):
         page = RecordingSettingsPage(settings)

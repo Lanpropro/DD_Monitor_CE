@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication, QLayout
 
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
-from .settings_process import _save_trace
+from .settings_process import _save_trace, host_layout_context
 from .settings_pages import PAGE_INDEX
 
 
@@ -132,9 +132,9 @@ class SettingsHost(QObject):
         return values
 
     def sync(self):
-        portrait = getattr(self.window, 'orientation', '') == 'portrait'
-        self.stack.setProperty('settings_portrait', portrait)
-        state = {'kind': 'host-state', 'values': self.values(), 'portrait': portrait,
+        context = host_layout_context(self.window)
+        self.stack.setProperty('settings_portrait', context['portrait'])
+        state = {'kind': 'host-state', 'values': self.values(), **context,
                  'material_background': self.stack.property('settings_backdrop_path') or '',
                  'save_enabled': self.dialog.confirm_button.isEnabled(),
                  'action_visible': not self.dialog.confirm_button.isHidden(),

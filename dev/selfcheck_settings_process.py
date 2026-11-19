@@ -660,8 +660,8 @@ def check_host_save_validation():
     from ddm.settings_host import SettingsHost
     default_dialog = SettingsDialog(config.DEFAULT_SETTINGS, {}, preview=True)
     available = default_dialog.screen().availableGeometry()
-    assert default_dialog.width() == max(760, min(1200, available.width() - 48))
-    assert default_dialog.height() == max(520, min(800, available.height() - 72))
+    assert default_dialog.width() == min(1200, available.width() - 48)
+    assert default_dialog.height() == min(800, available.height() - 72)
     default_dialog.deleteLater()
     dialog = Mock()
     dialog.confirm_button.isEnabled.return_value = True

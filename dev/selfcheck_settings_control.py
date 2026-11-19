@@ -41,6 +41,7 @@ class Dialog(QObject):
         self.initial_settings, self.initial_shortcuts, self.options = settings, shortcuts, options
         self.seen_versions, self._loaded_pages = {}, {}
         self.nav, self.plugin_page, self._mark_update_page = Mock(), Mock(), Mock()
+        self.set_host_layout = Mock()
         self.exec = Mock(return_value=self.Rejected)
         self.settings = Mock(return_value={})
         self.shortcuts = Mock(return_value=shortcuts)
@@ -323,6 +324,7 @@ class SettingsControlTests(unittest.TestCase):
         dialog = self.host._create_settings_dialog({'default_volume': 17}, {}, hosted=True)
         self.assertIsInstance(dialog, Dialog)
         self.assertTrue(dialog.options['hosted'])
+        dialog.set_host_layout.assert_called_once_with(portrait=False)
         self.assertEqual(dialog.initial_settings['default_volume'], 17)
 
     def test_accept_cancel_and_failure_always_release_dialog(self):

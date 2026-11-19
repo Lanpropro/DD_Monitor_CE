@@ -143,7 +143,9 @@ class SettingsControl:
                                 plugin_manager=host.plugins, update_page_factory=host._get_update_page,
                                 streamer_rooms=self.streamer_rooms(),
                                 **({'hosted': True} if hosted else {}))
-        dialog.setProperty('settings_portrait', getattr(host, 'orientation', '') == 'portrait')
+        from .settings_process import host_layout_context
+        dialog.set_host_layout(**host_layout_context(host))
+
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
             if key == 'danmaku':

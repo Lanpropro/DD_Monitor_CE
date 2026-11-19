@@ -31,6 +31,15 @@ def _allow_foreground(pid):
         return ctypes.windll.user32.AllowSetForegroundWindow(ctypes.c_ulong(pid))
 
 
+def host_layout_context(window):
+    """Send the host screen work area in Qt logical coordinates."""
+    from PySide6.QtWidgets import QWidget
+    context = {'portrait': getattr(window, 'orientation', '') == 'portrait'}
+    if isinstance(window, QWidget):
+        context['work_area'] = window.screen().availableGeometry().getRect()
+    return context
+
+
 def _activate_dialog(dialog):
     from PySide6.QtWidgets import QApplication
     from .settings_performance import measure
@@ -115,12 +124,12 @@ class SettingsProcess(QObject):
         self.start_timer.start(10000)
 
     def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None):
-        portrait = getattr(self.parent(), 'orientation', '') == 'portrait'
         if self.closing:
             return
+        context = host_layout_context(self.parent())
         if self.visible:
             _allow_foreground(self.worker_pid)
-            self._send({'kind': 'focus', 'portrait': portrait})
+            self._send({'kind': 'focus', **context})
             return
         if self.pending is not None:
             return
@@ -129,7 +138,7 @@ class SettingsProcess(QObject):
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
         self.pending['sc_preview_context'] = sc_preview_context or {}
-        self.pending['portrait'] = portrait
+        self.pending.update(context)
         self.pending['streamer_rooms'] = streamer_rooms or {}
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):

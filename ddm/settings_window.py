@@ -1,5 +1,5 @@
 """Frameless settings shell and its draggable, accessible window header."""
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
@@ -69,12 +69,19 @@ class SettingsTitleBar(QWidget):
 
 
 class SettingsWindow(QDialog):
+    PORTRAIT_WIDTH = 840
+    SINGLE_COLUMN_WIDTH = 1040
+    DEFAULT_WIDTH = 1200
+    DEFAULT_HEIGHT = 800
+
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setProperty('settingsGlassWindow', True)
         self.setProperty('appearanceLight', theme.is_light())
         self.setProperty('customControlSurface', True)
+        self._host_work_area = None
+        self._layout_restore_width = None
         self._native_corners = False
         self._native_glass = False
         from .settings_focus import SettingsInputFocus
@@ -100,14 +107,50 @@ class SettingsWindow(QDialog):
         from .settings_material import apply_properties
         previous = self.property('settings_card_layout')
         if apply_properties(self, values):
-            if previous is not None and previous != self.property('settings_card_layout') and not self.isMaximized():
-                if self.property('settings_card_layout') == 'vertical':
-                    self._layout_restore_width = self.width()
-                    self.resize(min(self.width(), 1040), self.height())
-                elif getattr(self, '_layout_restore_width', None) is not None:
-                    self.resize(min(self._layout_restore_width, self.screen().availableGeometry().width() - 48), self.height())
-                    self._layout_restore_width = None
+            if previous is not None and previous != self.property('settings_card_layout'):
+                self._fit_settings_window()
             self._sync_frame()
+
+    def set_host_layout(self, portrait, work_area=None):
+        area = QRect(*work_area) if work_area is not None else (self._host_work_area or self.screen().availableGeometry())
+        previous = self._host_work_area
+        if previous == area and self.property('settings_portrait') == portrait:
+            return
+        self.setProperty('settings_portrait', portrait)
+        self._host_work_area = area
+        self._fit_settings_window(initial=previous is None,
+                                  center=previous is None or not previous.intersects(area))
+
+    def _fit_settings_window(self, *, initial=False, center=False):
+        if self.isMaximized():
+            return
+        area = self._host_work_area or self.screen().availableGeometry()
+        bounds = area.adjusted(24, 36, -24, -36)
+        mode = self.property('settings_card_layout')
+        width, height = self.width(), self.height()
+        if initial:
+            width = self.SINGLE_COLUMN_WIDTH if mode == 'vertical' else self.DEFAULT_WIDTH
+            height = self.DEFAULT_HEIGHT
+        limit = None
+        if self.property('settings_portrait') and mode != 'horizontal':
+            limit = self.PORTRAIT_WIDTH
+        elif mode == 'vertical':
+            limit = self.SINGLE_COLUMN_WIDTH
+        if limit is not None and width > limit:
+            if self._layout_restore_width is None:
+                self._layout_restore_width = width
+            width = limit
+        elif limit is None and self._layout_restore_width is not None:
+            width, self._layout_restore_width = self._layout_restore_width, None
+        self.setMinimumSize(min(760, bounds.width()), min(520, bounds.height()))
+        self.resize(min(width, bounds.width()), min(height, bounds.height()))
+        if self._host_work_area is None:
+            return
+        if center:
+            self.move(bounds.center() - self.rect().center())
+        else:
+            self.move(max(bounds.left(), min(self.x(), bounds.right() - self.width() + 1)),
+                      max(bounds.top(), min(self.y(), bounds.bottom() - self.height() + 1)))
 
     def showEvent(self, event):
         super().showEvent(event)
