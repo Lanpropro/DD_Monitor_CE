@@ -224,7 +224,6 @@ class AppUpdates:
             parts.append('软件有新版 v' + release_label(app_offer))
         if plugin_offers:
             parts.append(f'{len(plugin_offers)} 个插件可更新')
-        host._update_notice.title.setText(' · '.join(parts))
         entries = ([dict(key='app', title='软件 v' + release_label(app_offer),
                          enabled=bool(getattr(sys, 'frozen', False)),
                          hint='' if getattr(sys, 'frozen', False) else '源码版请通过仓库更新')]

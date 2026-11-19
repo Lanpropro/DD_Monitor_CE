@@ -156,6 +156,63 @@ class UpdateDownloadTests(unittest.TestCase):
         notice.deleteLater()
         theme.apply('dark')
 
+    def test_single_update_notice_uses_one_headline_and_horizontal_actions(self):
+        notice = UpdateNotice(self.host)
+        self.addCleanup(theme.apply, 'dark')
+        app_entry = dict(key='app', title='软件 v0.8', enabled=True)
+        notice.set_updates([app_entry])
+        notice.show_offer({'version': '0.8'}, persistent=True)
+        row, progress, download = notice._update_rows['app']
+        settings = notice.settings_action
+        requested, opened = [], []
+        notice.updateRequested.connect(requested.append)
+        notice.activated.connect(lambda: opened.append(True))
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            notice._resize_to_content()
+            self.app.processEvents()
+            titles = [label.text() for label in notice.findChildren(QLabel)
+                      if label.isVisible() and 'v0.8' in label.text()]
+            self.assertEqual(titles, ['软件 v0.8 可更新'])
+            self.assertTrue(download.isVisible() and settings.isVisible())
+            download_position = download.mapTo(notice, download.rect().center())
+            settings_position = settings.mapTo(notice, settings.rect().center())
+            self.assertLess(download_position.x(), settings_position.x())
+            self.assertLessEqual(abs(download_position.y() - settings_position.y()), 1)
+            self.assertLessEqual(notice.height(), 150)
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                notice.grab().save(str(Path(directory) / f'update-toast-{mode}.png'))
+
+        QTest.mouseClick(notice.windowHandle(), Qt.LeftButton,
+                         pos=download.mapTo(notice, download.rect().center()))
+        self.assertEqual(requested, ['app'])
+        self.assertFalse(opened)
+        self.host.resize(316, 500)
+        notice.set_transfer('app', dict(phase='downloading', percent=25, received=25, total=100))
+        self.app.processEvents()
+        self.assertTrue(progress.bar.isVisible() and settings.isVisible())
+        self.assertEqual(progress.bar.value(), 25)
+        self.assertTrue(notice.rect().contains(settings.geometry()))
+        self.assertTrue(notice.rect().contains(progress.bar.mapTo(notice, progress.bar.rect().bottomRight())))
+
+        notice.set_transfer('app', dict(phase='ready', percent=100, received=100, total=100))
+        self.assertTrue(download.isVisible())
+        self.assertEqual(download.text(), '重启以应用')
+        notice.set_updates([app_entry, dict(key='plugin', title='插件 v1.0')])
+        self.assertIs(notice._update_rows['app'][2], download)
+        self.assertTrue(notice.updates_scroll.isVisible())
+        self.assertIs(row.parentWidget(), notice.updates_container)
+        notice.set_updates([app_entry])
+        self.assertIs(row.parentWidget(), notice)
+        self.assertTrue(notice.updates_scroll.isHidden())
+        self.app.processEvents()
+        QTest.mouseClick(notice.windowHandle(), Qt.LeftButton,
+                         pos=settings.mapTo(notice, settings.rect().center()))
+        self.assertEqual(opened, [True])
+        self.assertEqual(requested, ['app'])
+
     def test_pointer_click_settings_edges_and_card_never_downloads(self):
         notice = UpdateNotice(self.host)
         notice.set_updates([dict(key='first', title='插件一'), dict(key='second', title='插件二')])

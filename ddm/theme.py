@@ -931,6 +931,11 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     color: {TEXT1};
     font-weight: 600;
 }}
+#NoticeText[updateHeadline="true"] {{
+    color: {TEXT1};
+    font-size: {FONT_BODY}px;
+    font-weight: 600;
+}}
 #NoticeDescription {{
     color: {TEXT3};
     font-size: {FONT_CAPTION}px;
@@ -1172,6 +1177,15 @@ QPushButton#IconButton:pressed {{
     background: {style_mix("CONTENT", "#000000", 0.12)};
     border: 1px solid {ACCENT};
     color: {TEXT1};
+}}
+#IconButton[noticePrimary="true"][updateReady="false"]:!disabled {{
+    background: {ACCENT_SOFT};
+    border: 1px solid {ACCENT};
+    color: {ACCENT};
+    font-weight: 600;
+}}
+#IconButton[noticePrimary="true"][updateReady="false"]:!disabled:hover {{
+    background: {CONTENT_HOVER};
 }}
 #PrimaryButton {{
     background: {ACCENT};

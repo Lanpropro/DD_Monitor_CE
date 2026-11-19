@@ -60,8 +60,11 @@ class Notice(QObject):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title, self.show_offer, self.track_history = Mock(), Mock(), Mock()
-        self.set_updates = Mock()
+        self.show_offer, self.track_history = Mock(), Mock()
+        self._update_rows = {}
+
+    def set_updates(self, entries):
+        self._update_rows = {entry['key']: entry for entry in entries}
 
 
 class AppUpdatesTests(unittest.TestCase):
@@ -212,14 +215,20 @@ class AppUpdatesTests(unittest.TestCase):
         self.assertIs(host._update_notice, notice)
         self.assertIs(notice.parent(), host)
         self.assertEqual(notice.show_offer.call_count, 2)
-        self.assertIn('1 个插件可更新', notice.title.setText.call_args.args[0])
+        self.assertEqual([entry['title'] for entry in notice._update_rows.values()],
+                         ['软件 v9.0 热修复', 'Fixture v2'])
         center = host.sidebar.notification_button.center
+        self.assertIn('1 个插件可更新', center.add.call_args.args[0])
         key = center.add.call_args.kwargs['key']
         self.assertEqual(key, ('update', update_identity(host._available_update), (('fixture', '2'),)))
         notice.activated.emit()
         host.open_settings.assert_called_with('updates')
         host.settings['seen_update_versions'] = {'app': update_identity(host._available_update)}
-        center.add.call_args.kwargs['callback']()
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+        self.assertIs(host._update_notice, notice)
+        self.assertEqual(list(notice._update_rows), ['fixture'])
+        center.add.call_args.kwargs['secondary_callback']()
         host.open_settings.assert_called_with('plugins')
         notice.track_history.assert_called_with((center, center.add.return_value))
 
