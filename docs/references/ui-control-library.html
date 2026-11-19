@@ -10,7 +10,7 @@
 *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}a{color:inherit}button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #3778f5;outline-offset:3px}
 [hidden]{display:none!important}h1,h2,h3,p,figure{margin:0}svg{width:17px;height:17px;flex:none;vertical-align:middle}
 .wrap{width:min(1440px,100% - 80px);margin:auto}.mast{background:#fff;border-bottom:1px solid #dce4ef}.head{padding:24px 0 21px;display:flex;align-items:center;justify-content:space-between;gap:24px}
-.brand{display:flex;align-items:center;gap:11px;font-size:14px;font-weight:700;color:#263957}.brand img{width:27px;height:27px;object-fit:contain}.draft{font-size:12px;color:#536681;border:1px solid #dbe4f0;border-radius:20px;padding:4px 11px}
+.brand{display:flex;align-items:center;gap:11px;font-size:14px;font-weight:700;color:#263957;white-space:nowrap}.brand img{width:27px;height:27px;object-fit:contain}
 .intro{padding:28px 0 24px;display:flex;justify-content:space-between;align-items:end;gap:24px}.intro h1{font-size:36px;letter-spacing:-.04em;line-height:1.25}.intro p{font-size:14px;color:#4e617d;margin-top:9px}.top-nav{display:flex;gap:4px;border-radius:11px;padding:4px;background:#dde6f3;white-space:nowrap}
 .top-nav button,.filters button,.scenario button{border:0;border-radius:8px;color:#415777;background:transparent;padding:7px 12px;font-weight:600;font-size:13px}.top-nav button[aria-selected=true],.filters button[aria-pressed=true],.scenario button[aria-pressed=true]{background:#fff;color:#193d82;box-shadow:0 1px 3px #1c335d20}
 main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px}.section-head h2{font-size:20px;letter-spacing:-.025em}.section-head p,.desc{font-size:13px;color:#4e617d}.section-head:not(:first-child){margin-top:28px}
@@ -52,11 +52,11 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 .segment-example .segment{position:relative;isolation:isolate;display:inline-grid;grid-template-columns:repeat(2,1fr);padding:4px;border-radius:9px}
 .segment-example .indicator{position:absolute;inset-block:4px;left:4px;width:calc((100% - 11px)/2);background:var(--tint);border-radius:5px;box-shadow:0 1px 4px var(--shadow);pointer-events:none;z-index:-1;transform:translateX(0);transition:none}
 .segment-example .segment:has([data-segment-choice=previous][aria-pressed=true]) .indicator{transform:translateX(calc(100% + 3px))}
-@media (prefers-reduced-motion:no-preference){.segment-example .indicator.is-sliding{transition:transform 150ms cubic-bezier(.77,0,.175,1)}}
+@media (prefers-reduced-motion:no-preference){body:has(#segment-motion:checked) .segment-example .indicator.is-sliding{transition:transform 150ms cubic-bezier(.77,0,.175,1)}}
 .segment-example .segment button{min-height:31px;padding:4px 11px;background:transparent;border-color:transparent;font-weight:600}.segment-example .segment button[aria-pressed=true]{color:var(--accent);background:transparent;font-weight:700}
 @media(hover:hover) and (pointer:fine){.segment-example .segment button:not([aria-pressed=true]):hover{background:var(--surface2)}}
 .segment-label{color:var(--muted);font-size:11px}
-.example-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}.example-tools .filters{flex-wrap:nowrap}.example-toggle{font-size:12px;color:#415777;background:#f4f7fb;border:1px solid #d5e0ed;border-radius:8px;padding:5px 9px}.example-toggle[aria-pressed=true]{background:#e8f0fd;color:#254d8d}.example-usage{font-size:13px;color:#415777;background:#f7f9fc;border:1px solid #dce6f3;border-radius:10px;padding:15px}.example-usage p+p{margin-top:9px}
+.example-tools{margin-bottom:12px}.example-tools .filters{display:inline-flex;flex-wrap:nowrap}.example-usage{font-size:13px;color:#415777;background:#f7f9fc;border:1px solid #dce6f3;border-radius:10px;padding:15px}.example-usage p+p{margin-top:9px}
 .example-notes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:15px 0 0}.example-notes div{border-top:1px solid #dde6f2;padding-top:8px}.example-notes dt{font-size:12px;font-weight:650;color:#243a5d}.example-notes dd{margin:3px 0 0;color:#536884;font-size:12px}
 .mini-details{width:100%;min-width:0;font-size:11px;color:var(--ink)}.mini-details summary{cursor:pointer}.mini-details > div{margin-top:4px}.curve{width:90px;height:36px;color:var(--accent);overflow:visible}.chip{display:inline-flex;gap:4px;padding:3px 6px;border-radius:5px;background:var(--tint);color:var(--accent);font-size:11px}.chip.error{background:var(--danger-bg);color:var(--danger)}.color-dot{width:15px;height:15px;background:#739bfd;border-radius:100%;display:block}.ellipsis{max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;font-size:11px}.soft{color:var(--muted);font-size:11px}.short-input{min-width:0;width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;font-size:11px;padding:5px 6px}
 .draft-dialog{width:min(340px,calc(100% - 40px));max-width:none;padding:18px;border-radius:13px;border:1px solid var(--line);color:var(--ink);background:var(--surface);box-shadow:0 14px 42px var(--shadow)}.draft-dialog::backdrop{background:#131d337a}.draft-dialog[open]{animation:dialog-in .16s ease-out}@keyframes dialog-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.draft-dialog h4{font-size:17px;margin:0}.draft-dialog p{color:var(--muted);font-size:13px;margin:6px 0 16px}.dialog-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:12px}.swatch-row{display:flex;align-items:center;gap:9px;padding:8px;background:var(--bg);border-radius:7px;font:12px Consolas,monospace}.swatch-row input{width:34px;height:24px;border:0;background:transparent;padding:0}.vertical-demo{display:grid;gap:6px;justify-items:center}.mini-empty{text-align:center}.mini-empty svg{color:var(--muted);margin-bottom:2px}.mini-empty strong{display:block;font-size:11px}.mini-empty .btn{min-height:24px;margin-top:6px;padding:2px 6px}
@@ -68,7 +68,13 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 </style>
 </head>
 <body>
-<header class="mast"><div class="wrap head"><div class="brand"><img src="../../assets/logo.svg" alt="">DD 监控室</div><span class="draft">控件库 · 设计评审稿</span></div></header>
+<header class="mast"><div class="wrap head">
+  <div class="brand"><img src="../../assets/logo.svg" alt="">DD 监控室</div>
+  <label class="lab-global-motion">
+    <span>滑动分段指示器</span>
+    <span class="lab-switch"><input id="segment-motion" type="checkbox" role="switch"><span class="lab-track" aria-hidden="true"></span></span>
+  </label>
+</div></header>
 <main class="wrap">
 <div class="intro"><div><h1>控件图鉴</h1><p>直接试用来自设置页和播放格的控件，打开详情调参数。</p></div>
 <div class="top-nav" role="tablist" aria-label="设计稿视图">

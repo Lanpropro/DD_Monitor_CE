@@ -32,6 +32,8 @@
 
 [控件图鉴与评审记录](ui-control-library-draft.md)提供 78 项在用控件和组合的网页试样、详情参数与 Qt 对照。实装入口、试用操作与对照边界见[逐项核对清单](ui-control-coverage.md)。
 
+在 Windows 上双击仓库根目录的 [open-control-library.cmd](../../open-control-library.cmd)，用默认浏览器离线打开控件图鉴。
+
 2026-11-19 操作 EasyUI 的组件预览后，将多项总览、独立试用详情和参数说明用于图鉴。 [设计评审记录](ui-control-library-draft.md#easyui-展示参考) · [EasyUI](https://easyui.site/)
 
 ## 渐变颜色参考

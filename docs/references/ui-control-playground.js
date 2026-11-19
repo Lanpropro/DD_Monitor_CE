@@ -98,16 +98,11 @@ const labSelect = (label, values) => `<select class="lab-control lab-select" ari
   ${values.map(value => `<option>${value}</option>`).join('')}
 </select>`;
 
-const labChoice = (label, values, attrs = '') => `<div class="lab-choice" role="group" aria-label="${label}" style="--lab-choice-count:${values.length}" ${attrs}>
+const labChoice = (label, values) => `<div class="lab-choice" role="group" aria-label="${label}" style="--lab-choice-count:${values.length}">
   ${values.map(([value, text], index) => labButton(text, '', text,
     `data-lab-choice="${value}" aria-pressed="${index === 0}"`, index === 0)).join('')}
   <span class="lab-choice-indicator" aria-hidden="true"></span>
 </div>`;
-
-const labChoiceDemo = (label, values) => `<div class="lab-choice-demo">${labChoice(label, values, 'data-motion="false"')}
-  <label class="lab-choice-setting"><span>滑动分段指示器</span>
-    <span class="lab-switch"><input type="checkbox" role="switch" data-lab-slide><span class="lab-track" aria-hidden="true"></span></span>
-  </label></div>`;
 
 function labChooseSegment(group, selected, pointer = false) {
   const buttons = [...group.querySelectorAll('[data-lab-choice]')];
@@ -126,17 +121,17 @@ const labDanmakuParams = [['显示区域', 10, 100, 50, '%'], ['不透明度', 1
 
 function labExample({ id, title }, popupId) {
   switch (id) {
-    case 'collapse': return labChoiceDemo(title, [['all', '全部收起'], ['previous', '恢复原状']]);
+    case 'collapse': return labChoice(title, [['all', '全部收起'], ['previous', '恢复原状']]);
     case 'interval': return labButton('减少一分钟', 'minus', '', 'data-lab-step="-1"')
       + `<label class="lab-step-field"><input class="lab-control lab-step-value" type="number" min="1" max="30" value="1" aria-label="${title}" data-primary><span>分钟</span></label>`
       + labButton('增加一分钟', 'plus', '', 'data-lab-step="1"');
     case 'preview': return `<label class="lab-switch" data-primary><input type="checkbox" role="switch" aria-label="${title}" checked>
       <span class="lab-track" aria-hidden="true"></span></label>`;
     case 'initial-volume': return labRange(title, 0, 100, 40, '', true);
-    case 'codec': return labChoiceDemo(title, [['avc', 'H.264'], ['hevc', 'HEVC'], ['av1', 'AV1']]);
+    case 'codec': return labChoice(title, [['avc', 'H.264'], ['hevc', 'HEVC'], ['av1', 'AV1']]);
     case 'decoder': return labSelect(title, ['自动解码（推荐）', '兼容硬解（回传内存）', '软件解码（CPU）',
       'D3D11VA 显卡解码', 'DXVA2 显卡解码（旧设备）']);
-    case 'theme': return labChoiceDemo(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
+    case 'theme': return labChoice(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
     case 'palette': return `<div class="lab-swatches" role="group" aria-label="${title}">
       ${labPresets.map(([color, label], index) => `<button type="button" class="lab-control ${index ? 'lab-swatch-dot' : ''}"
         aria-label="${label}" title="${label}" aria-pressed="${index === 0}" data-lab-choice="${color}"
@@ -237,9 +232,7 @@ function labMount(host, item) {
     event.stopPropagation();
     const input = event.target;
     if (item.sheet) return;
-    if (input.matches('[data-lab-slide]')) {
-      host.querySelector('.lab-choice').dataset.motion = input.checked;
-    } else if (input.type === 'range') {
+    if (input.type === 'range') {
       const output = input.nextElementSibling;
       input.style.setProperty('--lab-level', `${(input.value - input.min) * 100 / (input.max - input.min)}%`);
       output.textContent = input.value + output.dataset.unit;

@@ -497,6 +497,7 @@
 - `CONTRIBUTING.md`
 - `LICENSE`
 - `README.md`
+- `open-control-library.cmd`
 
 ### 检查入口与分类
 

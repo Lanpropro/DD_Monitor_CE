@@ -157,15 +157,6 @@
   gap: var(--lab-choice-gap); padding: var(--lab-choice-inset);
   background: var(--lab-segment);
 }
-.lab-choice-demo { display: grid; gap: 3px; min-width: 0; }
-.lab-choice-setting {
-  display: flex; align-items: center; justify-content: space-between; gap: 5px;
-  padding-inline: 4px; color: var(--lab-muted); font-size: .8em; cursor: pointer;
-}
-.lab-choice-setting .lab-switch { width: 30px; flex: 0 0 30px; }
-.lab-choice-setting .lab-track { height: 14px; }
-.qt-card .lab-demo:has(.lab-choice-demo) { padding-bottom: 8px; }
-.qt-card .lab-demo:has(.lab-choice-demo) .lab-status { clip-path: inset(50%); }
 .lab-choice .lab-control {
   border-color: transparent;
   background: transparent;
@@ -187,7 +178,7 @@
   box-shadow: 0 1px 2px #0003;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .lab-choice[data-motion=true] .lab-choice-indicator.is-sliding {
+  body:has(#segment-motion:checked) .lab-choice-indicator.is-sliding {
     transition: transform var(--lab-motion, 250ms) cubic-bezier(.77,0,.175,1);
   }
 }
@@ -361,6 +352,15 @@
   .lab-switch:hover:has(input:checked:enabled) .lab-track { background: color-mix(in srgb, var(--lab-accent) 72%, var(--lab-hover)); }
 }
 .lab-switch:has(input:disabled) { cursor: default; }
+.lab-global-motion {
+  --lab-accent: #00a1d6;
+  --lab-hover: #dce9f4;
+  --lab-line: #c4d1e1;
+  --lab-surface: #e6edf5;
+  display: inline-flex; align-items: center; gap: 8px;
+  color: #263957; font-size: 13px; white-space: nowrap; cursor: pointer;
+}
+.lab-global-motion .lab-switch { width: 44px; flex: 0 0 44px; }
 .lab-demo[data-lab-demo=interval] .lab-controls {
   gap: 0;
   padding-inline: 2px;

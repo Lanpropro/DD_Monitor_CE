@@ -179,7 +179,6 @@ function renderMatrices() {
 }
 
 let selectedComponent = 'SegmentedControl';
-let slidePreview = true;
 
 function renderShowcase(component) {
   const showcase = document.getElementById('showcase');
@@ -202,7 +201,6 @@ function renderShowcase(component) {
       <button type="button" aria-controls="segment-preview" aria-pressed="true" data-segment-view="segment-preview">实时演示</button>
       <button type="button" aria-controls="segment-usage" aria-pressed="false" data-segment-view="segment-usage">使用说明</button>
     </div>
-    <button type="button" class="example-toggle" data-slide-preview aria-pressed="${slidePreview}">滑动动效${slidePreview ? '已开启' : '已关闭'}</button>
     </div>
     <div id="segment-preview">${specimens}${notes}</div>
     <div id="segment-usage" class="example-usage" hidden>
@@ -339,13 +337,6 @@ document.addEventListener('click', event => {
       button.setAttribute('aria-pressed', shown);
       document.getElementById(button.dataset.segmentView).hidden = !shown;
     });
-    document.querySelector('[data-slide-preview]').hidden = clicked.dataset.segmentView !== 'segment-preview';
-  }
-  if (clicked.matches('[data-slide-preview]')) {
-    slidePreview = !slidePreview;
-    clicked.setAttribute('aria-pressed', slidePreview);
-    clicked.textContent = '滑动动效' + (slidePreview ? '已开启' : '已关闭');
-    if (!slidePreview) document.querySelectorAll('[data-example-segment] .indicator').forEach(indicator => indicator.classList.remove('is-sliding'));
   }
   if (clicked.matches('[data-open-dialog]')) clicked.nextElementSibling.showModal();
   if (clicked.matches('[data-demo-retry]')) {
@@ -375,7 +366,7 @@ document.addEventListener('click', event => {
   if (clicked.matches('[data-segment-choice]')) {
     const choice = clicked.dataset.segmentChoice;
     document.querySelectorAll('[data-example-segment] .indicator').forEach(indicator => {
-      indicator.classList.toggle('is-sliding', slidePreview && event.detail > 0);
+      indicator.classList.toggle('is-sliding', event.detail > 0);
     });
     document.querySelectorAll('[data-segment-choice]').forEach(option =>
       option.setAttribute('aria-pressed', option.dataset.segmentChoice === choice));
