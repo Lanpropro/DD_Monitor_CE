@@ -217,12 +217,6 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual([entry.message for entry in self.center.entries], ['被总开关隐藏的通知'])
         self.assertFalse(hasattr(self.owner, '_result_notice'))
 
-    def test_notification_master_switch_hides_float_but_keeps_history(self):
-        self.owner.settings = {'notifications_enabled': False}
-        show_result(self.owner, '被总开关隐藏的通知')
-        self.assertEqual([entry.message for entry in self.center.entries], ['被总开关隐藏的通知'])
-        self.assertFalse(hasattr(self.owner, '_result_notice'))
-
     def test_notification_settings_cards_fit_themes_and_small_dialog(self):
         previous = theme.mode()
         self.addCleanup(theme.apply, previous)

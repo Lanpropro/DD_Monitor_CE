@@ -69,8 +69,6 @@ class WallPresentation:
         for border in host._pane_borders.values():
             border.hide()
         selected = host.picture_in_picture_tiles
-        chat = focus_chat_cells(host, host.picture_in_picture_columns)
-        slots = focus_slots(selected, chat, selected[host.picture_in_picture_primary]) if chat else selected
         for tile in host.tiles:
             tile.setVisible(tile in selected)
         window = host._quick_danmaku_layer.window if host._quick_danmaku_layer is not None else None

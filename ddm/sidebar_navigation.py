@@ -344,11 +344,6 @@ class SidebarNavigation(QObject):
                                   else '全部折叠文件夹')
             fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
         menu.addSeparator()
-        menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
-        fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
-                              else '全部折叠文件夹')
-        fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
-        menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
         menu.popup(self.manage_button.mapToGlobal(QPoint(0, self.manage_button.height()+4)))
