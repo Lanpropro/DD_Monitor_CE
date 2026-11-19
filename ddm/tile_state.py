@@ -8,17 +8,17 @@ from .widget_support import QUALITY_CHOICES, QUALITY_NAMES, WATCHING_TEXT, _repo
 
 
 class TileState:
-    def __init__(self, host, room_danmaku_switches=None):
+    def __init__(self, host):
         self.host = host
-        self.room_danmaku_switches = room_danmaku_switches if room_danmaku_switches is not None else {}
 
     def restore_video_danmaku(self) -> None:
-        room = self.host.room
+        host = self.host
+        room = host.room
         rid = str(room.get("room_id") or "")
-        enabled = bool(rid) and self.room_danmaku_switches.setdefault(
+        enabled = bool(rid) and host.room_danmaku_switches.setdefault(
             rid, bool(room.get("video_danmaku_enabled", True)))
         room["video_danmaku_enabled"] = enabled
-        self.host.danmaku_button.setChecked(enabled)
+        host.danmaku_button.setChecked(enabled)
 
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
@@ -86,7 +86,7 @@ class TileState:
         host = self.host
         host.room["video_danmaku_enabled"] = bool(enabled)
         if rid := str(host.room.get("room_id") or ""):
-            self.room_danmaku_switches[rid] = enabled
+            host.room_danmaku_switches[rid] = enabled
         host.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if enabled
                                        else "开启画面弹幕（默认 B）")
         host.video_danmaku.set_enabled(enabled)

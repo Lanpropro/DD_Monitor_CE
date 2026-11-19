@@ -76,7 +76,7 @@ class Tile(QFrame):
         self.menu_control = TileContextMenu(self)
         self.presentation_control = TilePresentation(self)
         self.controls_control = TileControls(self)
-        self.state_control = TileState(self, room_danmaku_switches)
+        self.state_control = TileState(self)
         self.setObjectName("Tile")
         #: 插件往本格右键菜单加的项目：[(显示文字, 回调), …]，由外层填
         self.plugin_actions: list = []
@@ -88,6 +88,7 @@ class Tile(QFrame):
         self.stream_codec = ""
         self.stream_headers: dict = {}
         self.room = dict(room)
+        self.room_danmaku_switches = room_danmaku_switches if room_danmaku_switches is not None else {}
         self._cover_source = room.get("cover")
         self._status_text = ""
         self._interactive_resize = False
