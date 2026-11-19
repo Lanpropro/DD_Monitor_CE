@@ -409,6 +409,27 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertTrue(self.dialog.isVisible())
             self.assertEqual(int(self.dialog.winId()), hwnd)
 
+    @patch('ddm.settings_window.apply_blur', return_value=True)
+    def test_zero_glass_opacity_preserves_navigation_hit_area(self, _blur):
+        self.page(self.dialog.PAGE_INDEX['appearance'])
+        nav = self.dialog.nav
+        index = self.dialog.PAGE_INDEX['recording']
+        row = nav.visualItemRect(nav.item(index))
+        point = nav.viewport().mapTo(self.dialog, QPoint(row.right() - 16, row.center().y()))
+
+        for opacity, expected in ((50, 128), (1, 3), (0, 1)):
+            self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': opacity})
+            settle()
+            image = self.dialog.grab().toImage()
+            scale = image.devicePixelRatio()
+            self.assertEqual(self.dialog.property('settings_glass_opacity'), opacity)
+            self.assertEqual(image.pixelColor(int(point.x() * scale), int(point.y() * scale)).alpha(), expected)
+            if not self.dialog._native_corners:
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+
+        QTest.mouseClick(self.dialog.windowHandle(), Qt.LeftButton, pos=point)
+        self.assertEqual(nav.currentRow(), index)
+
     def test_native_frame_has_no_second_inner_corner_and_is_opaque(self):
         from PySide6.QtGui import QColor, QImage, QPainter
         from ddm.settings_window import SettingsWindow

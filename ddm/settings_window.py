@@ -190,6 +190,9 @@ class SettingsWindow(QDialog):
         from .settings_material import base_color
         if self._native_glass:
             color = glass_tint(self, tint)
+            if color.alpha() == 0:
+                # Windows passes mouse input through fully transparent layered pixels.
+                color.setAlpha(1)
         else:
             color = theme.qcolor(tint or base_color(self, 'background', theme.BG))
             color.setAlpha(255)
