@@ -102,6 +102,17 @@ const dialogExample = (trigger, title, body, action) => `<span class="vertical-d
 </span>`;
 const colorExample = dialogExample('选择颜色', '主题强调色',
   '<p>查看选中色和对应的十六进制值。</p><label class="swatch-row"><input type="color" value="#739bfd" aria-label="选取颜色" data-color><output>#739BFD</output></label>', '应用颜色');
+const segmentedExample = `<div class="segment-example">
+  <div class="segment-stage">
+    <div class="segment" role="group" aria-label="关注筛选" data-example-segment>
+      ${button(icon('folder') + '全部', '', 'data-segment-choice="全部" aria-pressed="true"')}
+      ${button(icon('circle') + '直播中', '', 'data-segment-choice="直播中" aria-pressed="false"')}
+      ${button('未开播', '', 'data-segment-choice="未开播" disabled')}
+    </div>
+    <div class="standalone-options">${button(icon('refresh') + '刷新', '', 'data-example-refresh')}</div>
+  </div>
+  <output class="segment-label" data-example-value aria-live="polite">当前筛选：全部</output>
+</div>`;
 
 // Existing names are the public exports of ddm.ui. HTML samples use draft styling.
 const components = [
@@ -117,7 +128,7 @@ const components = [
   ['基础与承载', 'PinnedArc', '置顶标识', '头像周围的置顶层提示。', previewAvatar('遥', 'pin')],
   ['基础与承载', 'circular_pixmap', '圆形图片裁切', '用共享裁切函数生成头像图。', `<span class="avatar"><img src="${identity}" alt="圆形裁切示例"></span>`],
   ['筛选与表单', 'ToggleSwitch', '开关', '即时切换二选一设置。', toggle('自动刷新', true)],
-  ['筛选与表单', 'SegmentedControl', '分段选择', '有限的互斥选项常驻显示。', segment('筛选状态', ['全部', '直播中'])],
+  ['筛选与表单', 'SegmentedControl', '分段选择', '点击「全部」或「直播中」，比较同一组选择在深浅主题中的反馈。', segmentedExample],
   ['筛选与表单', 'SelectControl', '下拉选择', '收起后显示当前值，支持键盘选择。', select('解码方式', ['自动', '软件解码'])],
   ['筛选与表单', 'FontSelectControl', '字体下拉', '用下拉表面承载字体选项。', select('字体', ['系统字体', '思源黑体'])],
   ['筛选与表单', 'step_button', '加减图标按钮', '步进操作的单个点击入口。', iconButton('minus', '减少') + iconButton('plus', '增加')],
@@ -170,25 +181,58 @@ function renderMatrices() {
     }).join('')}</tr>`).join('')}</tbody></table></div>`).join('');
 }
 
+let selectedComponent = 'SegmentedControl';
+
+function renderShowcase(component) {
+  const showcase = document.getElementById('showcase');
+  if (!component) {
+    showcase.innerHTML = '<p class="desc">没有匹配的控件。</p>';
+    delete showcase.dataset.activeComponent;
+    return;
+  }
+  const [, name, label, description, preview, proposed] = component;
+  showcase.dataset.activeComponent = name;
+  const notes = name === 'SegmentedControl' ? `<dl class="example-notes">
+    <div><dt>共同底板</dt><dd>三个选项组成同一组，组外的「刷新」是独立动作。</dd></div>
+    <div><dt>选中块</dt><dd>独立的亮块和较重的文字表示当前选择。</dd></div>
+    <div><dt>不可用</dt><dd>「未开播」变淡，鼠标和键盘均无法选中。</dd></div>
+  </dl>` : '';
+  showcase.innerHTML = `<header><div class="showcase-title"><h2>${label}</h2><span class="kind ${proposed ? 'proposed' : ''}">${proposed ? '设计候选' : '现有控件'}</span></div>
+    <div class="code">${name}</div><p class="component-description">${description}</p></header>
+    <div class="specimens">${themes.map(([theme, title]) =>
+      `<figure class="specimen" data-theme="${theme}"><figcaption>${title}</figcaption><div class="demo">${preview}</div></figure>`).join('')}</div>${notes}`;
+}
+
+function showComponent(name) {
+  const component = components.find(([, id]) => id === name);
+  if (!component) return;
+  selectedComponent = name;
+  document.querySelectorAll('[data-component]').forEach(button => {
+    if (button.dataset.component === name) button.setAttribute('aria-current', 'true');
+    else button.removeAttribute('aria-current');
+  });
+  renderShowcase(component);
+}
+
 function renderCatalog() {
   const search = document.getElementById('search').value.trim().toLowerCase();
   const filter = document.querySelector('[data-filter][aria-pressed=true]').dataset.filter;
   const results = components.filter(([group, name, label, description, , proposed]) =>
-    (filter === 'all' || proposed === (filter === 'proposed') || (!proposed && filter === 'current')) &&
+    (filter === 'all' || Boolean(proposed) === (filter === 'proposed')) &&
     `${group} ${name} ${label} ${description}`.toLowerCase().includes(search));
-  const groups = new Map();
+  const groups = new Map([['筛选与表单', []]]);
   for (const component of results) {
     const category = component[0];
     if (!groups.has(category)) groups.set(category, []);
     groups.get(category).push(component);
   }
   document.getElementById('count').textContent = `显示 ${results.length} / ${components.length} 项`;
-  document.getElementById('components').innerHTML = [...groups].map(([group, items]) =>
-    `<section class="catalog-group"><h3>${group}</h3><div class="component-grid">${items.map(([, name, label, description, preview, proposed]) =>
-      `<article class="component" data-component="${name}">
-        <header><div class="card-title">${label}<span class="kind ${proposed ? 'proposed' : ''}">${proposed ? '设计候选' : '现有'}</span></div><div class="code">${name}</div><p>${description}</p></header>
-        <div class="dual-demo">${themes.map(([theme, title]) => `<div class="demo" role="group" aria-label="${title} ${label}" data-theme="${theme}">${preview}</div>`).join('')}</div>
-      </article>`).join('')}</div></section>`).join('') || '<p class="desc">没有匹配的控件。</p>';
+  document.getElementById('components').innerHTML = [...groups].filter(([, items]) => items.length).map(([group, items]) =>
+    `<section class="catalog-group"><h3>${group}</h3>${items.map(([, name, label]) =>
+      `<button type="button" data-component="${name}">${label}</button>`).join('')}</section>`).join('');
+  const current = results.find(([, name]) => name === selectedComponent) ?? results[0];
+  if (current) showComponent(current[1]);
+  else renderShowcase();
 }
 
 const playerState = {muted: false, paused: false, chat: true};
@@ -272,6 +316,7 @@ document.addEventListener('click', event => {
   const clicked = event.target.closest('button');
   if (!clicked) return;
   if (clicked.matches('[role=tab]')) setTab(clicked);
+  if (clicked.matches('[data-component]')) showComponent(clicked.dataset.component);
   if (clicked.matches('[data-filter]')) {
     document.querySelectorAll('[data-filter]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
     renderCatalog();
@@ -302,10 +347,22 @@ document.addEventListener('click', event => {
       output.textContent = bounded + output.dataset.unit;
     });
   }
-  if (clicked.parentElement.matches('.segment')) {
+  if (clicked.matches('[data-segment-choice]')) {
+    const choice = clicked.dataset.segmentChoice;
+    document.querySelectorAll('[data-segment-choice]').forEach(option =>
+      option.setAttribute('aria-pressed', option.dataset.segmentChoice === choice));
+    document.querySelectorAll('[data-example-value]').forEach(output => {
+      output.textContent = '当前筛选：' + choice;
+    });
+  } else if (clicked.parentElement.matches('.segment')) {
     [...clicked.parentElement.children].forEach(button => button.setAttribute('aria-pressed', button === clicked));
     const label = clicked.closest('.demo').querySelector('[data-stack-label]');
     if (label) label.textContent = clicked.textContent;
+  }
+  if (clicked.matches('[data-example-refresh]')) {
+    clicked.innerHTML = icon('check') + '已刷新';
+    clearTimeout(clicked.feedbackTimer);
+    clicked.feedbackTimer = setTimeout(() => { clicked.innerHTML = icon('refresh') + '刷新'; }, 850);
   }
   const action = clicked.dataset.playerAction;
   if (action === 'refresh') {
