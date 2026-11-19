@@ -1,5 +1,6 @@
 """Tint over the live compositor blur; never substitute a wallpaper image."""
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QLinearGradient, QPen
 
 
 def glass_active(widget):
@@ -29,6 +30,17 @@ def glass_tint(widget, tint=None, *, card=False):
     opacity = 70 if opacity is None else int(opacity)
     color.setAlpha(round(255 * opacity / 100))
     return color
+
+
+def paint_glass_border(painter, path):
+    from . import theme
+    rect = path.boundingRect()
+    edge = QLinearGradient(rect.topLeft(), rect.bottomRight())
+    edge.setColorAt(0, QColor(255, 255, 255, 87 if theme.is_light() else 15))
+    edge.setColorAt(1, QColor(255, 255, 255, 36 if theme.is_light() else 8))
+    painter.setPen(QPen(edge, 1))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawPath(path)
 
 
 def sync_text_contrast(root):

@@ -14,6 +14,9 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLayou
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .dock_feedback import icon_color
+from .settings_backdrop import apply_blur
+from .settings_material import normalize as normalize_material
+from .settings_material_paint import glass_active, glass_tint, paint_glass_border, window_background_tint
 
 
 def _draw_bell(painter, color):
@@ -309,13 +312,20 @@ class NoticeRow(QFrame):
             source = notice_source(self, self.artwork)
             with QPainter(self) as painter:
                 painter.setRenderHint(QPainter.Antialiasing)
-                painter.setBrush(theme.qcolor(theme.ELEVATED))
-                painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
                 rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
-                painter.drawPath(continuous_path(rect, theme.RADIUS_LG))
+                path = continuous_path(rect, theme.RADIUS_LG)
+                glass = glass_active(self)
+                if glass:
+                    painter.fillPath(path, glass_tint(self, card=True))
+                else:
+                    painter.setBrush(theme.qcolor(theme.ELEVATED))
+                    painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+                    painter.drawPath(path)
                 if source is not None:
                     paint_room_background(painter, self.rect(), source, theme.RADIUS_LG,
                                           focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
+                if glass:
+                    paint_glass_border(painter, path)
             return
         painter = QPainter(self)
         motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
@@ -337,6 +347,7 @@ class NotificationCenter(QFrame):
         self._seen_keys = set()
         self.rows = {}
         self._owner = None
+        self._native_glass = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -465,14 +476,21 @@ class NotificationCenter(QFrame):
         self.changed.emit()
 
     def showEvent(self, event):
+        self._owner = self.button.window()
         for entry in self.entries:
             entry.unread = False
             if entry not in self.rows:
                 self._add_row(entry)
-        self._owner = self.button.window()
         QApplication.instance().installEventFilter(self)
         self._sync()
         super().showEvent(event)
+        values = normalize_material(getattr(self._owner, 'settings', {}))
+        enabled = values['settings_glass_enabled']
+        self.setProperty('settings_glass_enabled', enabled)
+        self.setProperty('settings_glass_opacity', values['settings_glass_opacity'])
+        # DWM blurs the content behind the popup HWND, including native video.
+        self._native_glass = apply_blur(self, enabled)
+        self.update()
 
     def hideEvent(self, event):
         QApplication.instance().removeEventFilter(self)
@@ -518,11 +536,17 @@ class NotificationCenter(QFrame):
         return min(480, height + len(self.entries) * row_height)
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(theme.qcolor(theme.BG))
-        painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS))
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.Antialiasing)
+            path = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS)
+            if glass_active(self):
+                painter.fillPath(path, glass_tint(self, window_background_tint(self)))
+                painter.fillPath(path, glass_tint(self, card=True))
+                paint_glass_border(painter, path)
+            else:
+                painter.setBrush(theme.qcolor(theme.BG))
+                painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
+                painter.drawPath(path)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
