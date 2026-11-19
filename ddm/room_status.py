@@ -108,6 +108,20 @@ class RoomStatus:
         if host._poller is None:            # 列表是空的，没真的开轮询
             host.sidebar.set_refreshing(False)
 
+    def confirm_playback_live(self, tile) -> None:
+        """原生播放器已出画，同步用播放确认状态的关注卡片。"""
+        sidebar = self.host.sidebar
+        room_id = tile.room["room_id"]
+        for item in sidebar.items_control.items():
+            if item.room["room_id"] == room_id and not (item.room.get("live") and item.room.get("live_known")):
+                item.room["live_known"] = True
+                item.set_live(True)
+                sidebar._folder_pending.discard(room_id)
+                sidebar.resort()
+                break
+        tile.room["live_known"] = True
+        tile.set_live(True)
+
     def apply_status(self, status: dict) -> None:
         host = self.host
         preview_status = status.get(host.hover_preview._room_id())

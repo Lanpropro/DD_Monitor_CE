@@ -427,13 +427,6 @@ class MainWindow(QMainWindow):
         self.refresh_skin()
         self._restore_platform_accounts()
         self._sync_platform_rooms()
-        # 旧版虎牙网页卡片升级为格子播放；保留原关注、排序和置顶。
-        for room in self.sidebar.rooms() + [tile.room for tile in self.wall.tiles]:
-            platform = self.plugins.platform_for(str(room.get("room_id") or ""))
-            if platform is not None:
-                room.update(platform=platform.kind, playback_mode=platform.playback_mode)
-                if callable(getattr(platform, "restore_follow_rooms", None)):
-                    platform.restore_follow_rooms([room])
         self.sidebar.browser_url_resolver = self._room_browser_url
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:

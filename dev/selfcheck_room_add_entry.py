@@ -240,6 +240,38 @@ class AddRoomEntryTests(unittest.TestCase):
         done.assert_called_once_with(True, '')
         host._on_room_added.assert_called_once_with(room.as_dict(), folder_id='', target_tile=target)
 
+    def test_legacy_channel_restores_existing_card_and_wall_labels(self):
+        from ddm.app import MainWindow
+        from ddm.plugins import Platform, PluginManager
+
+        room_id = 'test:preset:cctv5plus'
+
+        class StationPlatform(Platform):
+            kind = 'test'
+
+            def matches(self, value):
+                return value == room_id
+
+            def restore_follow_rooms(self, rooms):
+                for room in rooms:
+                    room.update(uname='CCTV-5+', title='体育赛事', live_from_playback=True)
+
+        def load(manager):
+            manager.platforms['test'] = StationPlatform()
+            manager._platform_owner['test'] = 'test'
+
+        state = {'rooms': [room_id], 'wall': [{'room_id': room_id}], 'plugins_enabled': ['test']}
+        rooms, wall = config.build_rooms(state)
+        with patch.object(PluginManager, 'load', load), patch('ddm.app.QTimer.singleShot'):
+            window = self.own(MainWindow(rooms, wall, layout_id='1x1', state=state))
+        item = window.sidebar.items_control.items()[0]
+        tile = window.wall.tiles[0]
+        self.assertEqual(item.name_label._full_text, 'CCTV-5+')
+        self.assertEqual(item.sub._full_text, '体育赛事')
+        self.assertEqual(item.badge.text(), '待播放')
+        self.assertEqual((tile.room['uname'], tile.room['title']), ('CCTV-5+', '体育赛事'))
+        self.assertEqual(window.current_state()['platform_rooms'][room_id]['playback_mode'], 'stream')
+
     def test_tv_preset_from_empty_tile_adds_follow_only_and_deduplicates(self):
         host = self.host()
         host.resize(760, 530)

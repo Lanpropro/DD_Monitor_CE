@@ -101,15 +101,14 @@ class NavItem(QFrame):
         self.name_label = ElidedLabel(room.get("uname") or room.get("room_id", ""))
         self.name_label.setObjectName("NavName")
         self.name_label.setProperty("cardMode", True)
-        self.sub = ElidedLabel(room.get("title") or
-                               ("直播中" if room.get("live") else "未开播"))
+        self.sub = ElidedLabel(room.get("title") or self._live_text())
         self.sub.setObjectName("NavSub")
         self.sub.setProperty("cardMode", True)
         _ignore_mouse(self.name_label)
         _allow_shrink(self.name_label)
         _ignore_mouse(self.sub)
         _allow_shrink(self.sub)
-        self.badge = QLabel("直播中" if room.get("live") else "未开播")
+        self.badge = QLabel(self._live_text())
         if room.get("platform") in ("huya", "douyu", "douyin", "twitch", "youtube") and not room.get("live_known", True):
             self.badge.setText("待刷新")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
@@ -274,9 +273,14 @@ class NavItem(QFrame):
         self.setProperty("sortSelected", selected)
         _repolish(self)
 
+    def _live_text(self) -> str:
+        if self.room.get("live_from_playback") and not self.room.get("live_known", False):
+            return "待播放"
+        return "直播中" if self.room.get("live") else "未开播"
+
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
-        text = "直播中" if live else "未开播"
+        text = self._live_text()
         name = "BadgeLive" if live else "BadgeOff"
         changed = self.badge.text() != text or self.badge.objectName() != name
         self.badge.setText(text)
@@ -294,7 +298,7 @@ class NavItem(QFrame):
     def set_title(self, title: str) -> None:
         """更新卡片上的直播间名，并同步悬停时的完整提示。"""
         self.room["title"] = title or ""
-        text = title or "未开播"
+        text = title or self._live_text()
         if self.sub._full_text != text:
             self.sub.setText(text)
             self.thumb._layout_overlay()

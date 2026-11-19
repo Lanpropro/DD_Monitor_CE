@@ -140,6 +140,38 @@ class FeedbackTests(unittest.TestCase):
         playback.on_player_state(tile, 'playing')
         host.room_images.capture_first_frame.assert_called_once_with(room, player)
 
+    def test_channel_card_becomes_live_after_playback_only(self):
+        from ddm.room_status import RoomStatus
+        from ddm.sidebar_item import NavItem
+        from ddm.stream_playback import StreamPlayback
+
+        room = dict(room_id='m3u:test', live=False, live_known=False, live_from_playback=True)
+        item = NavItem(dict(room), 0)
+        other = NavItem(dict(room_id='1001', live=False), 1)
+        tile = Mock(room=dict(room))
+        tile.property.return_value = False
+        host = SimpleNamespace(players={tile: Mock()}, playback_recovery=Mock(),
+                               plugins=SimpleNamespace(platforms={}, emit=Mock()),
+                               sidebar=SimpleNamespace(items_control=SimpleNamespace(items=lambda: [item, other]),
+                                                       _folder_pending={room['room_id']}, resort=Mock()))
+        host.room_status = RoomStatus(host)
+        playback = StreamPlayback(host)
+        try:
+            playback.on_player_state(tile, 'connecting')
+            self.assertEqual((item.badge.text(), item.sub._full_text), ('待播放', '待播放'))
+            self.assertFalse(item.room['live'])
+            playback.on_player_state(tile, 'playing')
+            self.assertEqual((item.badge.text(), item.sub._full_text), ('直播中', '直播中'))
+            self.assertTrue(item.room['live_known'] and tile.room['live_known'])
+            playback.on_player_state(tile, 'buffering')
+            playback.on_player_state(tile, 'playing')
+            self.assertEqual(item.badge.text(), '直播中')
+            self.assertEqual(other.badge.text(), '未开播')
+            host.sidebar.resort.assert_called_once_with()
+        finally:
+            item.deleteLater()
+            other.deleteLater()
+
 
 if __name__ == '__main__':
     if sys.argv[1:] == ['--native-feedback']:
