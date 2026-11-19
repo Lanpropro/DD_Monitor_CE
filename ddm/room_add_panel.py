@@ -1,7 +1,7 @@
 """In-window room entry anchored to the sidebar; never replaces search or follow content."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QKeySequence, QPainter, QPen, QShortcut
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QMenu,
     QPlainTextEdit, QVBoxLayout, QWidget)
 from shiboken6 import isValid
 from . import theme
@@ -19,6 +19,7 @@ class RoomAddPanel(QFrame):
     dismissed = Signal()
     followed_requested = Signal()
     followed_selected = Signal(str)
+    preset_selected = Signal(dict, str)
 
     def __init__(self, sidebar):
         windows = QApplication.platformName() == 'windows'
@@ -73,6 +74,15 @@ class RoomAddPanel(QFrame):
         self.followed_toggle.setCheckable(True)
         self.followed_toggle.hide()
         footer.addWidget(self.followed_toggle)
+        self.preset_button = ActionButton('电视预设')
+        self.preset_button.setToolTip('选择频道并添加到关注')
+        self.preset_menu = QMenu(self.preset_button)
+        self.preset_button.setMenu(self.preset_menu)
+        self.preset_button.hide()
+        footer.addWidget(self.preset_button)
+        self.file_button = None
+        self._file_filters = []
+        self._footer = footer
         footer.addStretch(1)
         self.submit_button = ActionButton('添加')
         self.submit_button.setObjectName('PrimaryButton')
@@ -179,6 +189,9 @@ class RoomAddPanel(QFrame):
         self.import_button.setEnabled(not busy)
         self.followed_toggle.setEnabled(not busy)
         self.followed.setEnabled(not busy)
+        self.preset_button.setEnabled(not busy)
+        if self.file_button is not None:
+            self.file_button.setEnabled(not busy)
         self._update_count()
 
     def show_error(self, message):
@@ -212,6 +225,30 @@ class RoomAddPanel(QFrame):
         self.close_editor()
         self.sidebar.import_button.click()
 
+    def set_file_filters(self, filters):
+        self._file_filters = list(dict.fromkeys(filters))
+        if self._file_filters and self.file_button is None:
+            self.file_button = ActionButton('选文件')
+            self.file_button.setToolTip('选择可导入的播放列表文件')
+            self.file_button.clicked.connect(self._choose_files)
+            self._footer.insertWidget(2, self.file_button)
+        if self.file_button is not None:
+            self.file_button.setVisible(bool(self._file_filters))
+
+    def set_presets(self, rooms):
+        self.preset_menu.clear()
+        for room in rooms:
+            action = self.preset_menu.addAction(room['uname'])
+            action.triggered.connect(lambda _checked=False, item=room:
+                                     self.preset_selected.emit(item, self.folder_id))
+        self.preset_button.setVisible(bool(rooms))
+
+    def _choose_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, '选择播放列表', '', ';;'.join(self._file_filters))
+        if paths:
+            text = self.entry.toPlainText().strip()
+            self.entry.setPlainText('\n'.join([text, *paths] if text else paths))
+
     def fit_to_search(self):
         sidebar = self.sidebar
         parent = self.parentWidget()
@@ -228,7 +265,11 @@ class RoomAddPanel(QFrame):
             point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
         icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
                                                  if not self.followed_toggle.isHidden() else 0)
-        folder_width = max(52, min(120, width - 20 - icon_space - self.submit_button.sizeHint().width() - 18))
+        file_width = (self.file_button.sizeHint().width() + 6
+                      if self.file_button is not None and not self.file_button.isHidden() else 0)
+        preset_width = self.preset_button.sizeHint().width() + 6 if not self.preset_button.isHidden() else 0
+        used = 38 + icon_space + file_width + preset_width + self.submit_button.sizeHint().width()
+        folder_width = max(52, min(120, width - used))
         self.folder_button.setMaximumWidth(folder_width)
         if hasattr(self, '_folder_name'):
             self.folder_button.setText(self.folder_button.fontMetrics().elidedText(

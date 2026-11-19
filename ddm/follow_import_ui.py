@@ -156,9 +156,10 @@ class FollowImportDelegate(QStyledItemDelegate):
 
     checkChanged = Signal()
 
-    def __init__(self, existing, parent):
+    def __init__(self, existing, parent, *, channels=False):
         super().__init__(parent)
         self.existing = existing
+        self.channels = channels
 
     def sizeHint(self, option, index):
         listing = self.parent()
@@ -207,20 +208,23 @@ class FollowImportDelegate(QStyledItemDelegate):
         font.setBold(False)
         painter.setFont(font)
         metrics = QFontMetrics(font)
-        status = ('待识别' if not room.get('room_id') else '状态待刷新' if room.get('live_known') is False
-                  else '直播中' if room['live'] else '未开播')
-        if room.get('follow_resolve_error'):
-            status += ' · 识别失败'
-        elif room.get('title'):
-            status += ' · ' + room['title']
+        if self.channels:
+            status = ' · '.join(filter(None, (room.get('import_group'), room.get('import_source'))))
+        else:
+            status = ('待识别' if not room.get('room_id') else '状态待刷新' if room.get('live_known') is False
+                      else '直播中' if room['live'] else '未开播')
+            if room.get('follow_resolve_error'):
+                status += ' · 识别失败'
+            elif room.get('title'):
+                status += ' · ' + room['title']
         if str(room['room_id']) in self.existing:
-            badge = '已关注'
+            badge = '已添加' if self.channels else '已关注'
             width = metrics.horizontalAdvance(badge)
             painter.setPen(theme.qcolor(theme.TEXT2))
             painter.drawText(QRect(right - width, name_rect.bottom() + 3, width, metrics.height()),
                              Qt.AlignVCenter, badge)
             right -= width + 12
-        painter.setPen(theme.qcolor(theme.PINK if room.get('live') else theme.TEXT2))
+        painter.setPen(theme.qcolor(theme.PINK if room.get('live') and not self.channels else theme.TEXT2))
         status_rect = QRect(left, name_rect.bottom() + 3, max(0, right - left), metrics.height())
         painter.drawText(status_rect, Qt.AlignVCenter,
                          metrics.elidedText(status, Qt.ElideRight, status_rect.width()))

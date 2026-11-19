@@ -1,6 +1,7 @@
 """Public plugin contracts, platform values and per-plugin context."""
 import sys
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from .plugin_credentials import CredentialSnapshot
 
@@ -62,6 +63,16 @@ class RoomInfo:
         return payload
 
 
+@dataclass
+class RoomList:
+    """Result of resolving a playlist in the room-entry worker."""
+
+    rooms: list[RoomInfo]
+    choose: bool = True
+    warning: str = ''
+    store: Callable[[list[str]], None] | None = None
+
+
 class Platform:
     """一个站的接入实现。流模式需要 ``matches`` / ``room_info`` / ``play_url``。
 
@@ -75,6 +86,9 @@ class Platform:
     kind = ""
     label = ""
     room_input_hint = ""  # 可选：添加直播间窗口显示的输入支持说明，由插件提供。
+    room_input_file_filter = ""  # 可选：添加直播间文件选择的 Qt 文件过滤器。
+    room_input_presets = None  # 可选：room_input_presets() -> list[RoomInfo]，只返回本地预设。
+    room_list = None  # 可选：room_list(room_id, cancelled) -> RoomList，在后台解析。
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""

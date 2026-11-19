@@ -80,7 +80,7 @@ ALL_EVENTS = (
 )
 
 
-from .plugin_types import (LoginRequiredError, StreamCodecUnavailable, StreamSource, RoomInfo, Platform, DanmakuSender, PluginContext, Plugin)
+from .plugin_types import (LoginRequiredError, StreamCodecUnavailable, StreamSource, RoomInfo, RoomList, Platform, DanmakuSender, PluginContext, Plugin)
 from .plugin_packages import PluginPackages
 
 

@@ -271,6 +271,10 @@ class MyPlugin(api.Plugin):
 
 ### 格子播放与关注卡片
 
+平台可以实现 `room_input_presets() -> list[RoomInfo]`。宿主在打开添加直播间面板时读取预设，此方法在界面线程运行，直接返回本地频道元数据。预设卡片使用稳定房间 ID，平台的 `matches`、`room_info` 和 `play_url` 应支持这些 ID。用户点选后，宿主按当前文件夹导入关注卡片；从空格打开时也只添加到关注。
+
+提供多频道来源的平台可以实现可选的 room_list(room_id, cancelled)。宿主在添加直播间的后台线程调用它，将 RoomList.rooms 中的 RoomInfo 显示在频道选择窗口。条目的 extra.import_group 可供分组筛选。用户选中后，宿主沿用关注导入流程保存卡片。RoomList.store 可接收已选房间 ID，在主线程保存播放所需的数据。用 choose=False 返回唯一房间可沿用普通添加和上墙流程。文件导入的平台可通过 room_input_file_filter 声明 Qt 文件过滤器，添加直播间面板会显示文件选择入口。
+
 添加时使用平台的 `normalize` 标准化输入，后台 `room_info` 构建关注卡片。
 卡片拖入画面墙或右键“加入画面墙”后，后台 `play_url` 的结果交给 libmpv
 格子播放；请求头随流地址传给播放器。可选 `room_quality_options` 返回

@@ -7,6 +7,8 @@ import requests
 
 def extract_room_input(text: str) -> str:
     text = text.strip()
+    if re.fullmatch(r'[a-z][a-z0-9_]*:https?://[^\s<>"\']+', text, re.IGNORECASE):
+        return text  # Explicit platform prefix on an otherwise ambiguous source URL.
     urls = re.findall(r'https?://[^\s<>"\'【】“”‘’]+', text, re.IGNORECASE)
     if len(urls) > 1:
         raise ValueError('检测到多个链接，请每次添加一个直播间')

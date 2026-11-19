@@ -283,7 +283,8 @@ class AppAccounts:
         host._open_account_dialog(host._follow_platforms(), import_follows=True)
 
     def import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0) -> None:
+                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0,
+                                 on_complete=None) -> None:
         host = self.host
         if host._closing or getattr(host, "_follow_import_timer", None) is not None:
             return
@@ -316,6 +317,8 @@ class AppAccounts:
             host._finish_follow_import(selected, added_rooms, folder_id=folder_id,
                                        move_existing=move_existing, folder_room_ids=folder_room_ids,
                                        pending_count=pending_count)
+            if on_complete is not None:
+                on_complete()
 
         timer.timeout.connect(import_batch)
         import_batch()
