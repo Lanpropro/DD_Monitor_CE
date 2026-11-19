@@ -58,6 +58,19 @@ class RoomAddBatch(QObject):
             QTimer.singleShot(0, self._next)
             return
         platform = host.plugins.platform_for(room_id)
+        if callable(getattr(platform, 'room_list', None)):
+            from .room_list_import import RoomListImport
+            def list_added(added, skipped, error):
+                self.added += added
+                self.skipped += skipped
+                if error:
+                    self.failures.append((room_id, error))
+                else:
+                    self.target_tile = None
+                QTimer.singleShot(0, self._next)
+            RoomListImport(host, platform.room_list, room_id, folder_id=self.folder_id,
+                           target_tile=self.target_tile, on_complete=list_added).start()
+            return
         if ':' in room_id and '://' not in room_id and platform is None:
             self.failures.append((room_id, '请启用对应的平台插件并重启'))
             QTimer.singleShot(0, self._next)

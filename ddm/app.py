@@ -1470,8 +1470,9 @@ class MainWindow(QMainWindow):
         return self.account_control.open_import_follows()
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0) -> None:
-        return self.account_control.import_selected_follows(selected, folder_id=folder_id, removed_ids=removed_ids, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count)
+                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0,
+                                 on_complete=None) -> None:
+        return self.account_control.import_selected_follows(selected, folder_id=folder_id, removed_ids=removed_ids, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count, on_complete=on_complete)
 
     def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
                               folder_room_ids=None, pending_count):

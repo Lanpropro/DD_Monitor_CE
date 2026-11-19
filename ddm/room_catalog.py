@@ -67,6 +67,7 @@ class RoomCatalog:
             self._add_panel.submitted.connect(self._submit_inline)
             self._add_panel.followed_requested.connect(self._load_followed)
             self._add_panel.followed_selected.connect(self._select_followed)
+            self._add_panel.preset_selected.connect(self._select_preset)
             self._add_panel.followed.live_only.setChecked(self.followed_live_only)
             self._add_panel.followed.live_only.toggled.connect(self._remember_followed_live_only)
         if not self._add_panel.busy:
@@ -75,6 +76,14 @@ class RoomCatalog:
         hints = [getattr(platform, 'room_input_hint', '') for platform in host.plugins.platforms.values()]
         self._add_panel.entry.setToolTip('房间号或直播间链接，每行一个；Ctrl+Enter 添加'
                                        + ''.join('；' + hint for hint in hints if hint))
+        self._add_panel.set_file_filters([platform.room_input_file_filter
+            for platform in host.plugins.platforms.values() if getattr(platform, 'room_input_file_filter', '')])
+        presets = []
+        for platform in host.plugins.platforms.values():
+            provider = getattr(platform, 'room_input_presets', None)
+            if callable(provider):
+                presets.extend(room.as_dict() for room in provider())
+        self._add_panel.set_presets(presets)
         target = self._add_target
         self._add_panel.open(can_choose_followed=target is not None,
                              focus_on_close=target.add_room_button if target is not None else None)
@@ -86,6 +95,21 @@ class RoomCatalog:
     def _remember_followed_live_only(self, checked):
         self.followed_live_only = checked
         self.host._save_timer.start()
+
+    def _select_preset(self, room, folder_id):
+        host, panel = self.host, self._add_panel
+        if host._closing or panel.busy:
+            return
+        if getattr(host, '_follow_import_timer', None) is not None:
+            panel.show_error('正在导入关注，请稍后重试')
+            return
+        if any(item['room_id'] == room['room_id'] for item in host.sidebar.rooms()):
+            panel.show_error(f'{room["uname"]} 已在关注列表')
+            return
+        panel.error.hide()
+        panel.fit_to_search()
+        host._import_selected_follows([room], folder_id=folder_id, on_complete=self._load_followed
+                                      if panel.followed_toggle.isChecked() else None)
 
     def _select_followed(self, room_id):
         host, panel, target = self.host, self._add_panel, self._add_target
@@ -169,6 +193,16 @@ class RoomCatalog:
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = host.plugins.platform_for(room_id)
+        if callable(getattr(platform, 'room_list', None)):
+            from .room_list_import import RoomListImport
+            def list_added(_added, _skipped, message):
+                if on_complete is not None:
+                    on_complete(not message, message)
+                elif message:
+                    QMessageBox.warning(host, '导入频道', message)
+            RoomListImport(host, platform.room_list, room_id, folder_id=folder_id,
+                           target_tile=target_tile, on_complete=list_added).start()
+            return
         if ":" in room_id and not (short_link or profile_link):
             if platform is None:
                 if on_complete is not None:
