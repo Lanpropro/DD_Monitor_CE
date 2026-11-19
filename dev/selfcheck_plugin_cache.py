@@ -73,6 +73,17 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(offer['available'])
         self.assertEqual(len(client.calls), 2)
 
+    def test_discover_a_plugin_that_replaces_a_bundle(self):
+        content = package('youtube_live', version='0.1', min_app_version='0.8',
+                          replaces='global_live', platforms=['youtube'],
+                          inherit_settings=['show_platform_logo'])
+        item = release('youtube_live', version='0.1', content=content)
+        client = Client([published([item]), Response(content)])
+        offer, = online.plugin_catalog(client, '0.8')
+        self.assertEqual(offer['id'], 'youtube_live')
+        self.assertEqual(offer['min_app_version'], '0.8')
+        self.assertTrue(offer['available'])
+
     def test_bad_candidate_does_not_hide_other_plugins(self):
         wrong = package('other_id')
         valid = package('valid_plugin')

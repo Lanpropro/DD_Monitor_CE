@@ -23,7 +23,7 @@ PLUGIN_ARCHIVE = re.compile(r'([a-z][a-z0-9_-]*)-v?(\d+(?:\.\d+){0,3})\.zip')
 def _package_metadata(path, plugin_id, plugin_version):
     # Reuse the installer's package/path limits without loading plugin code.
     with tempfile.TemporaryDirectory(prefix='ddm-catalog-check-') as temporary:
-        host = SimpleNamespace(plugins_dir=temporary, enabled=None)
+        host = SimpleNamespace(plugins_dir=temporary, enabled=None, plugin_settings={})
         installed = PluginPackages(host).install_zip(
             path, manifest_reader=read_manifest, directory_replace=replace_directory)
         if installed != plugin_id:
