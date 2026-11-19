@@ -305,8 +305,11 @@ class UpdateNotice(QFrame):
     def dismiss(self, animate=True, *, handled=False):
         if handled:
             for center, entry in self._history_entries:
-                entry.unread = False
-                center._sync()
+                if entry.kind == 'update':
+                    entry.unread = False
+                    center._sync()
+                else:
+                    center._remove(entry)
             self._history_entries.clear()
         self.timer.stop()
         if (animate and self.isVisible() and self.parentWidget().isVisible()

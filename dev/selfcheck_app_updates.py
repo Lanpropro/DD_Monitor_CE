@@ -5,12 +5,12 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import isValid
 from ddm import online_ui
 from ddm.app import MainWindow
@@ -18,7 +18,7 @@ from ddm.app_updates import AppUpdates
 from ddm.update_version import update_identity
 
 
-class Host(QObject):
+class Host(QWidget):
     def __init__(self):
         super().__init__()
         self._closing = False
@@ -52,16 +52,6 @@ class Task(QObject):
         super().__init__(parent)
         self.operation, self.callback = operation, callback
         self.start = Mock()
-
-
-class Notice(QObject):
-    activated = Signal()
-    updateRequested = Signal(str)
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title, self.show_offer, self.track_history = Mock(), Mock(), Mock()
-        self.set_updates = Mock()
 
 
 class AppUpdatesTests(unittest.TestCase):
@@ -205,23 +195,38 @@ class AppUpdatesTests(unittest.TestCase):
         host = self.host
         host._available_update = {'version': '9.0', 'revision': 2}
         host._plugin_update_offers = [{'id': 'fixture', 'name': 'Fixture', 'version': '2'}]
-        with patch.object(online_ui, 'UpdateNotice', Notice):
-            host._show_update_notice()
-            notice = host._update_notice
-            host._show_update_notice()
+        start = self.stack.enter_context(patch.object(host.app_updates, 'start_notice_update'))
+        show_offer = self.stack.enter_context(patch.object(online_ui.UpdateNotice, 'show_offer', autospec=True))
+        host._show_update_notice()
+        notice = host._update_notice
+        host._show_update_notice()
         self.assertIs(host._update_notice, notice)
         self.assertIs(notice.parent(), host)
-        self.assertEqual(notice.show_offer.call_count, 2)
-        self.assertIn('1 个插件可更新', notice.title.setText.call_args.args[0])
+        self.assertEqual(show_offer.call_count, 2)
+        self.assertIn('1 个插件可更新', notice.title.text())
         center = host.sidebar.notification_button.center
-        key = center.add.call_args.kwargs['key']
-        self.assertEqual(key, ('update', update_identity(host._available_update), (('fixture', '2'),)))
-        notice.activated.emit()
-        host.open_settings.assert_called_with('updates')
+        mixed = center.add.call_args.kwargs
+        self.assertEqual(mixed['key'], ('update', update_identity(host._available_update), (('fixture', '2'),)))
+        self.assertEqual(notice._history_entries, {(center, center.add.return_value)})
+        notice.settings_action.click()
+        host.open_settings.assert_called_once_with('updates')
+        start.assert_not_called()
+
         host.settings['seen_update_versions'] = {'app': update_identity(host._available_update)}
-        center.add.call_args.kwargs['callback']()
-        host.open_settings.assert_called_with('plugins')
-        notice.track_history.assert_called_with((center, center.add.return_value))
+        self.assertEqual(mixed['action'], '下载更新')
+        mixed['callback']()
+        start.assert_called_once_with('fixture')
+        host.open_settings.assert_called_once_with('updates')
+        self.assertIs(host._update_notice, notice)
+        plugins = center.add.call_args.kwargs
+        self.assertEqual(plugins['key'], ('update', '', (('fixture', '2'),)))
+        notice.settings_action.click()
+        self.assertEqual(mixed['secondary_action'], '查看设置详情')
+        mixed['secondary_callback']()
+        plugins['secondary_callback']()
+        self.assertEqual(host.open_settings.call_args_list,
+                         [call('updates'), call('plugins'), call('updates'), call('plugins')])
+        start.assert_called_once_with('fixture')
 
     def test_failure_is_silent_during_close(self):
         output = io.StringIO()
