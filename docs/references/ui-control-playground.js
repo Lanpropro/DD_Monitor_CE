@@ -98,10 +98,24 @@ const labSelect = (label, values) => `<select class="lab-control lab-select" ari
   ${values.map(value => `<option>${value}</option>`).join('')}
 </select>`;
 
-const labChoice = (label, values) => `<div class="lab-choice" role="group" aria-label="${label}">
+const labChoice = (label, values, attrs = '') => `<div class="lab-choice" role="group" aria-label="${label}" style="--lab-choice-count:${values.length}" ${attrs}>
   ${values.map(([value, text], index) => labButton(text, '', text,
     `data-lab-choice="${value}" aria-pressed="${index === 0}"`, index === 0)).join('')}
+  <span class="lab-choice-indicator" aria-hidden="true"></span>
 </div>`;
+
+const labChoiceDemo = (label, values) => `<div class="lab-choice-demo">${labChoice(label, values, 'data-motion="false"')}
+  <label class="lab-choice-setting"><span>滑动分段指示器</span>
+    <span class="lab-switch"><input type="checkbox" role="switch" data-lab-slide><span class="lab-track" aria-hidden="true"></span></span>
+  </label></div>`;
+
+function labChooseSegment(group, selected, pointer = false) {
+  const buttons = [...group.querySelectorAll('[data-lab-choice]')];
+  const indicator = group.querySelector('.lab-choice-indicator');
+  indicator.classList.toggle('is-sliding', pointer);
+  indicator.style.setProperty('--lab-choice-index', buttons.indexOf(selected));
+  buttons.forEach(button => button.setAttribute('aria-pressed', button === selected));
+}
 
 const labRange = (label, min, max, value, unit = '', primary = false) =>
   `<label class="lab-range"><input type="range" aria-label="${label}" min="${min}" max="${max}" value="${value}" style="--lab-level:${(value - min) * 100 / (max - min)}%" ${primary ? 'data-primary' : ''}>
@@ -112,17 +126,17 @@ const labDanmakuParams = [['显示区域', 10, 100, 50, '%'], ['不透明度', 1
 
 function labExample({ id, title }, popupId) {
   switch (id) {
-    case 'collapse': return labChoice(title, [['all', '全部收起'], ['previous', '恢复原状']]);
+    case 'collapse': return labChoiceDemo(title, [['all', '全部收起'], ['previous', '恢复原状']]);
     case 'interval': return labButton('减少一分钟', 'minus', '', 'data-lab-step="-1"')
       + `<label class="lab-step-field"><input class="lab-control lab-step-value" type="number" min="1" max="30" value="1" aria-label="${title}" data-primary><span>分钟</span></label>`
       + labButton('增加一分钟', 'plus', '', 'data-lab-step="1"');
     case 'preview': return `<label class="lab-switch" data-primary><input type="checkbox" role="switch" aria-label="${title}" checked>
       <span class="lab-track" aria-hidden="true"></span></label>`;
     case 'initial-volume': return labRange(title, 0, 100, 40, '', true);
-    case 'codec': return labChoice(title, [['avc', 'H.264'], ['hevc', 'HEVC'], ['av1', 'AV1']]);
+    case 'codec': return labChoiceDemo(title, [['avc', 'H.264'], ['hevc', 'HEVC'], ['av1', 'AV1']]);
     case 'decoder': return labSelect(title, ['自动解码（推荐）', '兼容硬解（回传内存）', '软件解码（CPU）',
       'D3D11VA 显卡解码', 'DXVA2 显卡解码（旧设备）']);
-    case 'theme': return labChoice(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
+    case 'theme': return labChoiceDemo(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
     case 'palette': return `<div class="lab-swatches" role="group" aria-label="${title}">
       ${labPresets.map(([color, label], index) => `<button type="button" class="lab-control ${index ? 'lab-swatch-dot' : ''}"
         aria-label="${label}" title="${label}" aria-pressed="${index === 0}" data-lab-choice="${color}"
@@ -145,14 +159,14 @@ const labSystemTheme = window.matchMedia('(prefers-color-scheme: light)');
 let labOpen;
 let labTheme = 'dark';
 
-function labSetTheme(mode) {
+function labSetTheme(mode, slidingGroup = null) {
   labTheme = mode;
   const effective = mode === 'system' ? labSystemTheme.matches ? 'light' : 'dark' : mode;
   labOverview.dataset.themeMode = effective;
   labOverview.querySelectorAll('[data-qt-theme]').forEach(button =>
     button.setAttribute('aria-pressed', button.dataset.qtTheme === effective));
-  labOverview.querySelectorAll('[data-lab-demo="theme"] [data-lab-choice]').forEach(button =>
-    button.setAttribute('aria-pressed', button.dataset.labChoice === mode));
+  labOverview.querySelectorAll('[data-lab-demo="theme"] .lab-choice').forEach(group =>
+    labChooseSegment(group, group.querySelector(`[data-lab-choice="${mode}"]`), group === slidingGroup));
   labSyncColors();
 }
 
@@ -223,7 +237,9 @@ function labMount(host, item) {
     event.stopPropagation();
     const input = event.target;
     if (item.sheet) return;
-    if (input.type === 'range') {
+    if (input.matches('[data-lab-slide]')) {
+      host.querySelector('.lab-choice').dataset.motion = input.checked;
+    } else if (input.type === 'range') {
       const output = input.nextElementSibling;
       input.style.setProperty('--lab-level', `${(input.value - input.min) * 100 / (input.max - input.min)}%`);
       output.textContent = input.value + output.dataset.unit;
@@ -243,15 +259,31 @@ function labMount(host, item) {
     }
   };
 
+  host.onkeydown = event => {
+    const group = event.target.closest('.lab-choice');
+    if (!group || !['ArrowLeft','ArrowRight'].includes(event.key)) return;
+    const buttons = [...group.querySelectorAll('button:enabled')];
+    const index = buttons.indexOf(event.target);
+    if (index === -1) return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const next = buttons[(index + offset + buttons.length) % buttons.length];
+    next.focus();
+    next.click();
+  };
+
   host.onclick = event => {
     event.stopPropagation();
     const clicked = event.target.closest('button');
     if (!clicked) return;
     if (clicked.hasAttribute('data-lab-choice')) {
-      host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
       const value = clicked.dataset.labChoice;
-      if (id === 'theme') labSetTheme(value);
+      const group = clicked.closest('.lab-choice');
+      const pointer = event.detail > 0;
+      if (id === 'theme') labSetTheme(value, pointer ? group : null);
+      else if (group) labChooseSegment(group, clicked, pointer);
       if (id === 'palette') {
+        host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
         const surface = host.querySelector('.lab-controls');
         if (value) surface.style.setProperty('--lab-accent', value);
         else surface.style.removeProperty('--lab-accent');
@@ -289,7 +321,7 @@ const labPaintFields = [
   ['ink', '文字／图标色', '--lab-ink'], ['hover', '悬停底色', '--lab-hover'],
 ];
 const labExtraSurface = {
-  collapse: '--lab-segment', codec: '--lab-segment', theme: '--lab-segment',
+  collapse: '--lab-segment', codec: '--lab-segment', theme: '--lab-segment', 'settings-material': '--lab-segment',
   decoder: '--lab-picker-bg', quality: '--lab-menu', danmaku: '--lab-menu',
   'initial-volume': '--lab-track-bg', volume: '--lab-track-bg', 'pip-audio': '--lab-audio-button-bg',
 };
@@ -315,7 +347,7 @@ const labNumberFields = item => [
   ['radius', '圆角 (px)', 0, 30, item.radius],
   ['font', '字号 (px)', 10, 24, 13],
   ['icon-size', '图标大小 (px)', 10, 30, item.id === 'volume' ? 20 : 15],
-  ['motion', '动效时长 (ms)', 0, 500, 120],
+  ['motion', '动效时长 (ms)', 0, 500, ['collapse','codec','theme','settings-material'].includes(item.id) ? 250 : 120],
 ];
 
 function labRenderDetail(item) {

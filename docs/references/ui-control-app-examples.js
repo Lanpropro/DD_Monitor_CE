@@ -374,11 +374,13 @@ function labAppExample(item, popupId) {
       html = `<div class="lab-qt-portal">${sectionHead('视觉效果')}
         ${toggle('启用毛玻璃效果',false,'data-app-glass')}<small class="lab-qt-hint">底色不透明度在开启时生效。</small>
         <div data-app-opacity hidden>${line('底色不透明度',labRange('底色不透明度',0,100,70,'%'))}</div>
-        ${toggle('滑动分段指示器',false,'data-app-segment-motion')}${toggle('禁用卡片与控件阴影',false,'data-app-no-shadows')}
+        ${toggle('滑动分段指示器',false,'data-app-segment-motion')}
+        <small class="lab-qt-hint">鼠标切换时滑动选中底片，系统关闭动画时直接切换。</small>
+        ${toggle('禁用卡片与控件阴影',false,'data-app-no-shadows')}
         ${line('设置卡片布局',select(['自动','单列','双列'],'设置卡片布局'))}</div>
         <div class="lab-app-material" data-app-material data-glass="false" data-shadows="true" data-columns="自动">
         <span>常规</span><span>外观</span></div>
-        <div class="lab-app-choice lab-app-material-segment" data-app-material-segment data-motion="false">${choice(['常规','外观'],'设置分类')}</div>`; break;
+        ${labChoice('设置分类', [['general','常规'],['appearance','外观']], 'data-app-material-segment data-motion="false"')}`; break;
     case 'plugin-remove':
       html = dialog('删除插件','删除这个插件？', `<p>将删除插件“示例插件”及其文件。<br>已加载的插件将在重启后停止运行。</p>
         <div class="lab-qt-actions">${labButton('取消','','取消','data-app-action="cancel" autofocus')}${b('删除','delete')}</div>`);
