@@ -388,7 +388,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_live_platforms](../selfcheck_live_platforms.py) | 单项执行前核对 |
 | [selfcheck_platform_login_expiry](../selfcheck_platform_login_expiry.py) | 单项执行前核对 |
 | [selfcheck_platform_logo_background](../selfcheck_platform_logo_background.py) | `offline` |
-| [selfcheck_platform_reauthentication](../selfcheck_platform_reauthentication.py) | 单项执行前核对；强制重新登录路由与目标平台会话清理 |
+| [selfcheck_platform_reauthentication](../selfcheck_platform_reauthentication.py) | `offline`；使用替身账号和空白网页，校验内嵌页挂载后再加载及强制登录只重置目标平台 |
 | [selfcheck_failed_stream_quality](../selfcheck_failed_stream_quality.py) | 单项执行前核对；取流失败后的平台画质菜单 |
 | [selfcheck_platform_offline_tiles](../selfcheck_platform_offline_tiles.py) | `offline` |
 | [selfcheck_platform_storage](../selfcheck_platform_storage.py) | 单项执行前核对 |
