@@ -636,6 +636,8 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-extended { display: grid; gap: 5px; justify-items: center; min-width: 0; }
 .lab-extended > .lab-control { width: 100%; }
 .lab-extended .lab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.qt-card [data-lab-demo=cache-action] { padding-bottom: 31px; }
+[data-lab-demo=cache-action] .lab-status { white-space: normal; }
 .lab-extra-copy { color: var(--lab-muted); font-size: .9em; text-align: center; }
 .lab-extra-choices { display: flex; justify-content: center; gap: 5px; min-width: 0; max-width: 100%; }
 [data-lab-demo=sidebar-filter] .lab-extra-choices .lab-control { padding-inline: 4px; }
@@ -699,14 +701,24 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-color-dialog::backdrop { background: #10182788; }
 .lab-color-dialog p { color: var(--lab-muted); font-size: .9em; }
 .lab-color-preview { margin: 12px 0; padding: 20px 6px; text-align: center; background: #141921; border-radius: 8px; }
+.lab-color-presets { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.lab-color-presets > span { flex: none; color: var(--lab-muted); }
+.lab-color-presets .lab-swatches { justify-content: flex-start; gap: 8px; }
+.lab-color-presets .lab-swatch-dot { width: 24px; min-height: 24px; border: 1px solid var(--lab-menu-line); }
+.lab-color-presets .lab-swatch-dot:focus-visible { outline: 2px solid var(--lab-accent); outline-offset: 3px; }
 .lab-extra-rgb { display: grid; grid-template-columns: 36px minmax(0,1fr) 58px; gap: 8px; align-items: center; margin-bottom: 6px; }
 .lab-extra-rgb input:not([type=range]) {
   min-width: 0; padding: 4px; border: 1px solid var(--lab-line); border-radius: 6px;
   color: var(--lab-ink); background: var(--lab-surface);
 }
 .lab-extra-rgb [data-extra-hex] { grid-column: 2 / -1; }
-.lab-color-actions { display: grid; grid-template-columns: auto 1fr auto auto; gap: 5px; margin-top: 12px; }
-.lab-color-actions [data-extra-apply] { border-color: var(--lab-accent); }
+.lab-color-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.lab-color-actions .lab-control { min-width: 64px; border-color: var(--lab-menu-line); }
+.lab-color-actions [data-extra-apply]:enabled {
+  --lab-surface: var(--lab-accent);
+  --lab-hover: color-mix(in srgb, var(--lab-accent) 92%, black);
+  border-color: transparent; color: var(--lab-accent-ink); font-weight: 700;
+}
 [data-extra-color-open]::before {
   content: ""; width: 14px; height: 14px; flex: none; background: var(--lab-dialog-color, #fff);
   border: 1px solid var(--lab-line);

@@ -1,10 +1,10 @@
 // Captures are ordered as the rows in ui-control-library-qt-extra.png.
 const labAdditionalControls = [
-  ['cache-action', '刷新统计', '数据与存储 › 图片缓存', 100, 34, 17, 'ddm/cache_settings.py', '重新统计缓存用量。这里返回模拟结果。'],
+  ['cache-action', '刷新统计', '数据与存储 › 图片缓存', 100, 34, 17, 'ddm/cache_settings.py', '模拟重新统计缓存用量，并显示结果和本次耗时。'],
   ['update-progress', '下载进度', '软件更新 › 下载', 192, 32, 4, 'ddm/update_progress_ui.py', '拖动示例控制条可查看进度条在不同数值下的绘制。'],
   ['plugin-disclosure', '插件详情展开条', '插件 › 插件商店', 90, 34, 8, 'ddm/plugin_store_ui.py', '展开插件卡片的说明和作者信息。'],
   ['danmaku-font', '弹幕字体', '弹幕 › 弹幕字体与记录', 180, 34, 8, 'ddm/settings_danmaku.py', '输入字体名称后选择。试样使用几种 Windows 本地字体。'],
-  ['danmaku-color', '弹幕颜色', '播放格 › 弹幕观看设置', 188, 34, 17, 'ddm/ui/color_dialog.py', '在 RGB 滑块、数值和 HEX 之间同步，确认后应用。'],
+  ['danmaku-color', '弹幕颜色', '播放格 › 弹幕观看设置', 188, 34, 17, 'ddm/ui/color_dialog.py', '选择预设色，或用 RGB 和 HEX 微调，确认后应用。'],
   ['scale-curve', '弹幕缩放曲线', '弹幕 › 画面弹幕缩放', 266, 34, 8, 'ddm/ui/scale_curve.py', '拖动节点调整比例。720 px 对应 100%，保持固定。'],
   ['plugin-tabs', '插件页签', '插件 › 已安装／插件商店', 175, 34, 17, 'ddm/settings_plugins.py', '在已安装与插件商店之间切换。'],
   ['settings-nav', '设置分类与页头', '设置 › 左侧分类', 246, 30, 8, 'ddm/settings_navigation.py', '切换分类，查看页面标题、说明和分组面板。'],
@@ -23,6 +23,9 @@ const labFontOptions = [
   ['Microsoft YaHei UI', '微软雅黑 weiruanyahei wryh'], ['Segoe UI', ''],
   ['SimSun', '宋体 songti st'], ['KaiTi', '楷体 kaiti kt'], ['SimHei', '黑体 heiti ht'],
 ];
+
+const labDanmakuColors = [['#FFFFFF', '白色'], ['#FFCF66', '暖黄'], ['#8CE99A', '浅绿'],
+  ['#73DAFF', '天蓝'], ['#C5A8FF', '淡紫'], ['#FF9AB5', '浅粉']];
 
 const labCurveDefault = () => [0, 90, 180, 360, 540, 720, 1080, 1440]
   .map(height => [height, Math.max(10, Math.round(100 * (Math.max(1, height) / 720) ** .35))]);
@@ -62,15 +65,20 @@ function labAdditionalExample(item, popupId) {
     case 'danmaku-color':
       sample = `${button('#FFFFFF', 'data-extra-color-open')}
         <dialog class="lab-color-dialog" aria-label="弹幕颜色">
-          <h3>弹幕颜色</h3><p>调整 RGB 或输入 HEX 色值，确认后应用</p>
+          <h3>弹幕颜色</h3><p>选择预设色，或用 RGB 和 HEX 微调。</p>
           <div class="lab-color-preview">这是一条弹幕预览</div>
+          <div class="lab-color-presets" role="group" aria-label="预设色"><span aria-hidden="true">预设色</span>
+            <div class="lab-swatches">${labDanmakuColors.map(([color, label]) => `<button type="button"
+              class="lab-control lab-swatch-dot" style="--swatch:${color}" data-extra-color-preset="${color}"
+              aria-label="${label}" title="${label} ${color}" aria-pressed="false"></button>`).join('')}</div>
+          </div>
           ${['红 R', '绿 G', '蓝 B'].map((label, index) => `<label class="lab-extra-rgb"><span>${label}</span>
             <input type="range" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label}">
             <input type="number" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label} 数值">
           </label>`).join('')}
           <label class="lab-extra-rgb">HEX<input type="text" maxlength="7" aria-label="HEX 色值" data-extra-hex></label>
-          <div class="lab-color-actions">${button('恢复白色', 'data-extra-white')}
-            <span></span>${button('取消', 'data-extra-cancel')}${button('确定', 'data-extra-apply')}</div>
+          <div class="lab-color-actions">${labButton('取消', '', '取消', 'data-extra-cancel')}
+            ${labButton('确定', '', '确定', 'data-extra-apply')}</div>
         </dialog>`;
       break;
     case 'scale-curve':
@@ -129,13 +137,16 @@ function labBindColorDialog(demo, report) {
   const confirm = dialog.querySelector('[data-extra-apply]');
   const preview = dialog.querySelector('.lab-color-preview');
   const channels = [...dialog.querySelectorAll('[data-extra-channel]')];
+  const presets = dialog.querySelectorAll('[data-extra-color-preset]');
   let applied = '#FFFFFF';
   function sync(value) {
+    value = value.toUpperCase();
     const valid = /^#[0-9A-F]{6}$/i.test(value);
     hex.setAttribute('aria-invalid', !valid);
     confirm.disabled = !valid;
+    presets.forEach(preset => preset.setAttribute('aria-pressed', valid && preset.dataset.extraColorPreset === value));
     if (!valid) return;
-    hex.value = value.toUpperCase();
+    hex.value = value;
     channels.forEach(field => {
       const index = Number(field.dataset.extraChannel) * 2 + 1;
       field.value = parseInt(value.slice(index, index + 2), 16);
@@ -143,7 +154,7 @@ function labBindColorDialog(demo, report) {
     preview.style.color = value;
   }
   opener.onclick = () => { sync(applied); dialog.showModal(); };
-  dialog.querySelector('[data-extra-white]').onclick = () => sync('#FFFFFF');
+  presets.forEach(preset => preset.addEventListener('click', () => sync(preset.dataset.extraColorPreset)));
   dialog.querySelector('[data-extra-cancel]').onclick = () => dialog.close();
   confirm.onclick = () => {
     applied = hex.value;
@@ -253,9 +264,19 @@ function labBindAdditional(host, item, report) {
     const button = event.target.closest('button');
     if (!button) return;
     if (button.matches('[data-extra-refresh]')) {
-      report('正在统计…');
+      const started = performance.now();
+      const label = button.querySelector('.lab-label');
       button.disabled = true;
-      window.setTimeout(() => { button.disabled = false; report('统计完成 · 24.8 MB'); }, 450);
+      button.setAttribute('aria-busy', 'true');
+      label.textContent = '统计中…';
+      report('正在统计图片缓存…');
+      window.setTimeout(() => {
+        const elapsed = ((performance.now() - started) / 1000).toFixed(1);
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        label.textContent = '刷新统计';
+        report(`统计完成 · 24.8 MB · 耗时 ${elapsed} 秒`);
+      }, 900);
     } else if (button.matches('[data-extra-disclosure]')) {
       const opened = button.getAttribute('aria-expanded') !== 'true';
       button.setAttribute('aria-expanded', opened);

@@ -40,11 +40,11 @@
 
 | 试样 | 软件入口 | 可核对的操作或表现 | 源码 | 详情标识 | 实装外观与状态核对记录 |
 | --- | --- | --- | --- | --- | --- |
-| 刷新统计 | 数据与存储 › 图片缓存 | 重新统计缓存用量。这里返回模拟结果。 | [cache_settings.py](../../ddm/cache_settings.py) | `#control-cache-action` | 圆头刷新按钮、统计中禁用和完成提示。 |
+| 刷新统计 | 数据与存储 › 图片缓存 | 网页模拟重新统计缓存用量，并显示本次耗时。 | [cache_settings.py](../../ddm/cache_settings.py) | `#control-cache-action` | 网页按钮显示统计中并禁用，完成后显示结果和耗时。 |
 | 下载进度 | 软件更新 › 下载 | 拖动示例控制条可查看进度条在不同数值下的绘制。 | [update_progress_ui.py](../../ddm/update_progress_ui.py) | `#control-update-progress` | 圆角进度填充，网页滑杆用于改变演示数值。 |
 | 插件详情展开条 | 插件 › 插件商店 | 展开插件卡片的说明和作者信息。 | [plugin_store_ui.py](../../ddm/plugin_store_ui.py) | `#control-plugin-disclosure` | 详情条右箭头、展开方向和内容区。 |
 | 弹幕字体 | 弹幕 › 弹幕字体与记录 | 输入字体名称后选择。试样使用几种 Windows 本地字体。 | [settings_danmaku.py](../../ddm/settings_danmaku.py) | `#control-danmaku-font` | 字体下拉、搜索区域、当前项和选取反馈。 |
-| 弹幕颜色 | 播放格 › 弹幕观看设置 | 在 RGB 滑块、数值和 HEX 之间同步，确认后应用。 | [ui/color_dialog.py](../../ddm/ui/color_dialog.py) | `#control-danmaku-color` | 色样和色值、RGB／HEX 联动、确认与取消。 |
+| 弹幕颜色 | 播放格 › 弹幕观看设置 | 在网页中选择预设色或用 RGB 和 HEX 微调，确认后应用。 | [ui/color_dialog.py](../../ddm/ui/color_dialog.py) | `#control-danmaku-color` | 网页试样包含六个预设色、RGB／HEX 联动、实底确定和次级取消。 |
 | 弹幕缩放曲线 | 弹幕 › 画面弹幕缩放 | 拖动节点调整比例。720 px 对应 100%，保持固定。 | [ui/scale_curve.py](../../ddm/ui/scale_curve.py) | `#control-scale-curve` | 坐标网格、固定基准点、节点拖动和重置。 |
 | 插件页签 | 插件 › 已安装／插件商店 | 在已安装与插件商店之间切换。 | [settings_plugins.py](../../ddm/settings_plugins.py) | `#control-plugin-tabs` | 分开的圆头页签和当前页签轮廓。 |
 | 设置分类与页头 | 设置 › 左侧分类 | 切换分类，查看页面标题、说明和分组面板。 | [settings_navigation.py](../../ddm/settings_navigation.py) | `#control-settings-nav` | 搜索框、分类导航、页头及内容卡片层级。 |
