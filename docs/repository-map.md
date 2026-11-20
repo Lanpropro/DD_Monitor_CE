@@ -286,6 +286,7 @@
 - `dev/selfcheck_oauth_accounts.py`
 - `dev/selfcheck_oauth_guide.py`
 - `dev/selfcheck_offline_badges.py`
+- `dev/selfcheck_official_announcement.py`
 - `dev/selfcheck_online.py`
 - `dev/selfcheck_online_ui.py`
 - `dev/selfcheck_orientation_layout.py`
@@ -532,6 +533,7 @@
 - `docs/releases/RELEASE-v0.7.3.md`
 - `docs/releases/RELEASE-v0.8.md`
 - `docs/releases/RELEASE-v0.8-hotfix.1.md`
+- `docs/releases/announcement.json`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具

@@ -57,6 +57,7 @@ if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
 if /i "%~1"=="--check-wall-removal" goto wallRemovalCheck
 if /i "%~1"=="--check-continuous-corners" goto continuousCornersCheck
 if /i "%~1"=="--check-hotfix-updates" goto hotfixUpdatesCheck
+if /i "%~1"=="--check-startup-announcements" goto startupAnnouncementsCheck
 if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
 if /i "%~1"=="--check-update-progress" goto updateProgressCheck
 if /i "%~1"=="--preview-updates" goto updatePreview
@@ -290,6 +291,13 @@ set "QT_QPA_PLATFORM=offscreen"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_drag_diagnostics.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_folder_drag
+exit /b %errorlevel%
+
+:startupAnnouncementsCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_user_notice
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_official_announcement
 exit /b %errorlevel%
 
 :hotfixUpdatesCheck

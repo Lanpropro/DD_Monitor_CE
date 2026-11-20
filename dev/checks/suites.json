@@ -127,6 +127,8 @@
       "selfcheck_theme_latency",
       "selfcheck_brand_assets",
       "selfcheck_release_metadata",
+      "selfcheck_user_notice",
+      "selfcheck_official_announcement",
       "selfcheck_hotfix_updates",
       "selfcheck_app_updates",
       "selfcheck_button_feedback",

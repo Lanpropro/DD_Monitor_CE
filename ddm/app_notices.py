@@ -5,6 +5,17 @@ from pathlib import Path
 class AppNotices:
     def __init__(self, host):
         self.host = host
+        self.official_announcement = None
+
+    def check_official_announcement(self):
+        if self.host._closing or self.official_announcement is not None:
+            return
+        from .official_announcement import OfficialAnnouncement
+        self.official_announcement = OfficialAnnouncement(self.host)
+
+    def cancel_official_announcement(self):
+        if self.official_announcement is not None:
+            self.official_announcement.cancel()
 
     def record_notice(self, message: str, room=None) -> None:
         host = self.host

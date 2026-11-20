@@ -12,6 +12,21 @@
 | [RELEASE-v0.8-hotfix.1](RELEASE-v0.8-hotfix.1.md) | 早期独立稿，修订 1 正文已并入 0.8 |
 | [UNRELEASED](UNRELEASED.md) | 下一版本累积记录；按条目追加，发布前汇总 |
 
+## 官方公告
+
+维护者在官方仓库的 `main` 分支编辑 [announcement.json](announcement.json)。它独立于软件更新与 Release 附件。填入一条公告后，支持此接口的软件在启动时检查一次。例子如下。
+
+```json
+{
+  "id": "service-maintenance-20261121",
+  "title": "服务维护通知",
+  "body": "维护将在周末进行。\n恢复时间以公告原文为准。",
+  "link": "https://github.com/Lanpropro/DD_Monitor_CE"
+}
+```
+
+每条新公告使用新的 `id`，允许英文字母、数字、下划线和连字符。标题与正文使用纯文本，`link` 可省略，填写时使用 HTTPS。编辑同一 `id` 不会再次提示已经收到该公告的用户。撤下公告时将文件内容改为 `null`。
+
 ## 本体版本
 
 | 版本 | 说明 |

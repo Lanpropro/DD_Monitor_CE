@@ -742,6 +742,7 @@ class MainWindow(QMainWindow):
             "version": config_module.STATE_VERSION,
             "room_presets": deepcopy(self.room_presets),
             "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
+            "official_announcement_id": self.state.get("official_announcement_id", ""),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),
             "sessdata": cookies.get("SESSDATA", ""),
             "bili_jct": cookies.get("bili_jct", ""),
@@ -834,6 +835,7 @@ class MainWindow(QMainWindow):
             self._plugin_downloads.stop()
         self._watch_history_timer.stop()
         self._startup_update_timer.stop()
+        self.notice_control.cancel_official_announcement()
         if self._startup_update_task is not None:
             self._startup_update_task.requestInterruption()
         if self._startup_plugin_task is not None:
@@ -1696,6 +1698,8 @@ def main(argv: list[str] | None = None) -> int:
     ticker.timeout.connect(watchdog.tick)
     ticker.start()
     window.show_initial_maximized()
+    if not os.environ.get("DDM_NO_SAVE"):
+        QTimer.singleShot(0, window, window.notice_control.check_official_announcement)
     if instance is not None:
         instance.set_restore(lambda: restore_main_window(window))
     if config_module.DATA_MIGRATION_ERROR:

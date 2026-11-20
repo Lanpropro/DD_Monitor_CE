@@ -119,7 +119,8 @@ class NoticeMessage(QTextEdit):
 class NoticeRow(QFrame):
     removed = Signal(object)
     TYPES = {'live': ('开播提醒', '●'), 'warning': ('需要留意', '!'),
-             'error': ('操作失败', '!'), 'update': ('版本更新', '↑')}
+             'error': ('操作失败', '!'), 'update': ('版本更新', '↑'),
+             'announcement': ('官方公告', 'i')}
 
     def __init__(self, entry, parent):
         super().__init__(parent)
@@ -584,7 +585,8 @@ def remember_result(parent, message, *, kind='info', on_click=None, file_path=No
         message = message + Path(str(file_path).replace('\\', '/')).name
     else:
         callback = on_click
-        action = live_notice_action(parent) if kind == 'live' else ('前往登录' if '登录' in message else '查看详情')
+        action = live_notice_action(parent) if kind == 'live' else (
+            '前往登录' if kind != 'announcement' and '登录' in message else '查看详情')
     center = sidebar.notification_button.center
     entry = center.add(message, kind=kind, callback=callback, action=action, rooms=rooms,
                        key=notice_key, replace=notice_key is not None, file_path=file_path)

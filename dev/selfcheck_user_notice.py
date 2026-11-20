@@ -24,7 +24,7 @@ def main():
         state = {"version": 1, "rooms": ["123"], "settings": {"default_volume": 30}}
         original = deepcopy(state)
         rejected = real_dialog()
-        QTimer.singleShot(0, rejected.close)
+        QTimer.singleShot(0, rejected.window_header.close_button.click)
         dismissed = deepcopy(state)
         with patch.object(user_notice, "UserNoticeDialog", return_value=rejected), \
                 patch.dict(os.environ):
@@ -37,6 +37,14 @@ def main():
 
         accepted = real_dialog()
         assert accepted.content.isReadOnly() and accepted.content.openExternalLinks()
+        accepted.resize(360, 420)
+        accepted.show()
+        app.processEvents()
+        assert accepted.width() == 360
+        assert accepted.content.verticalScrollBar().maximum() > 0
+        assert accepted.confirm_button.isVisible()
+        assert accepted.confirm_button.mapTo(accepted, accepted.confirm_button.rect().bottomRight()).y() < accepted.height()
+        accepted.hide()
         text = accepted.content.toPlainText()
         for content in ("开源与免费", "GNU LGPL 2.1", "不收取", "第三方平台与插件", "使用与反馈"):
             assert content in text
@@ -70,11 +78,17 @@ def main():
         assert config.load()["user_notice_accepted"] is True
 
     with ExitStack() as stack:
+        data_root = stack.enter_context(tempfile.TemporaryDirectory(prefix="ddm-user-notice-main-"))
+        stack.enter_context(patch.object(config, "DATA_ROOT", data_root))
+        stack.enter_context(patch("ddm.plugins.DEFAULT_PLUGINS_DIR", data_root))
+        stack.enter_context(patch.object(app_module, "SystemTray"))
         for method in ("refresh_status", "refresh_stats", "refresh_account", "load_room_avatars",
                        "load_cached_covers", "load_cached_avatars", "start_all"):
             stack.enter_context(patch.object(app_module.MainWindow, method))
-        window = app_module.MainWindow([], [], state={"plugins_enabled": [], "user_notice_accepted": True})
+        window = app_module.MainWindow([], [], state={"plugins_enabled": [], "user_notice_accepted": True,
+                                                     "official_announcement_id": "notice-1"})
         assert window.current_state()["user_notice_accepted"] is True
+        assert window.current_state()["official_announcement_id"] == "notice-1"
         window.close()
 
     # 真正的启动入口：关闭须知正常构建、显示主窗口，并记住已显示。
@@ -87,6 +101,9 @@ def main():
             patch.object(config, "save") as save, \
             patch.object(user_notice, "UserNoticeDialog", return_value=closing), \
             patch("ddm.update_install.clean_previous"), \
+            patch("ddm.legacy_cleanup.start_legacy_cleanup"), \
+            patch("ddm.on_demand_diagnostics.DiagnosticEndpoint"), \
+            patch.dict(os.environ), \
             patch.object(app_module.overlay, "module_paths", return_value=[]), \
             patch.object(app_module, "QTimer"), \
             patch.object(app_module.watchdog, "start"), \
@@ -95,6 +112,7 @@ def main():
             patch.object(app_module.os, "_exit", side_effect=SystemExit(0)), \
             patch.object(app_module, "MainWindow") as window, \
             patch.object(app_module.TilePlayer, "backend_version", return_value="test"):
+        os.environ.pop("DDM_NO_SAVE", None)
         window.return_value._update_plan = ""
         window.return_value._restart_requested = False
         try:
@@ -104,7 +122,9 @@ def main():
         else:
             raise AssertionError("main must complete its normal event loop and shutdown")
         window.assert_called_once()
-        window.return_value.showMaximized.assert_called_once()
+        window.return_value.show_initial_maximized.assert_called_once()
+        app_module.QTimer.singleShot.assert_called_once_with(
+            0, window.return_value, window.return_value.notice_control.check_official_announcement)
         save.assert_called_once_with(unconfirmed)
         assert unconfirmed["user_notice_accepted"] is True
     print("PASS: notice content, confirmation persistence, repeated launch and normal startup after dismissal")
