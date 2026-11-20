@@ -68,7 +68,7 @@
 | 批量添加直播间 | 关注栏 › 添加与导入 | 每行一个房间号或直播间链接。选择文件夹后试用数量与错误反馈。 | [room_add_panel.py](../../ddm/room_add_panel.py) | `#control-room-add` | 行内带描边面板、关闭与导入按钮、文件夹和计数主按钮。 |
 | 关注直播间选择器 | 添加直播间 › 从关注列表选择 | 搜索关注项、筛选直播中并选择一项。 | [room_add_followed.py](../../ddm/room_add_followed.py) | `#control-room-picker` | 搜索与直播中复选并列、文件夹标题、两列头像卡片。 |
 | 导入关注列表 | 添加与导入 › 导入关注 | 核对复选、已关注禁用和导入数量。 | [follow_import_ui.py](../../ddm/follow_import_ui.py) | `#control-follow-import` | 头像、状态副标题、右侧勾选和已关注禁用。 |
-| 关注卡片多选 | 关注列表 › 多选管理 | 选择卡片，查看主播标题和开播状态。 | [sidebar_item.py](../../ddm/sidebar_item.py) | `#control-follow-card` | 实际卡片层级、右上角选择标记、平台图标与粉色直播牌。 |
+| 关注卡片多选 | 关注列表 › 多选管理 | 选择卡片，查看主播标题和开播状态。在详情拖动把手试用排序。 | [sidebar_item.py](../../ddm/sidebar_item.py) | `#control-follow-card` | 卡片层级、选择标记、直播牌，以及快速改向时的弹簧让位。 |
 | 关注文件夹标题 | 关注列表 › 文件夹 | 展开或收起文件夹，也可进入行内重命名。 | [sidebar_folders.py](../../ddm/sidebar_folders.py) | `#control-folder-head` | 圆头文件夹标题、文件夹图标、展开和行内改名。 |
 | 文件夹名称与图标 | 关注列表 › 新建／编辑文件夹 | 填写名称、选择颜色，确认后立即显示。 | [folder_icons.py](../../ddm/folder_icons.py) | `#control-folder-edit` | 当前图标、内置图标网格、色点、保存和恢复操作。 |
 | 功能中心 | 侧栏 › 功能中心 | 搜索功能、切换固定状态，或打开插件管理入口。 | [workspace_controls.py](../../ddm/workspace_controls.py) | `#control-function-hub` | 搜索浮层、结果数量、条目与固定图标。 |

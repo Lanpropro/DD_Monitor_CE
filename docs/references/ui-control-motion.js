@@ -84,7 +84,7 @@ class GalleryMotion {
   };
 }
 
-function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 4 }) {
+function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 4, axis = 'x' }) {
   let gesture;
   let suppressClick = false;
   const point = event => ({ x: event.clientX, y: event.clientY, time: event.timeStamp });
@@ -95,7 +95,7 @@ function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 
     const origin = point(event);
     gesture = { id: event.pointerId, origin, last: origin, vx: 0, vy: 0, moved: false };
     event.target.closest('button').setPointerCapture(event.pointerId);
-    if (threshold === 0) grab();
+    if (threshold === 0) grab(event);
   });
 
   function update(event) {
@@ -103,8 +103,8 @@ function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 
     const next = point(event);
     const dx = next.x - gesture.origin.x;
     const dy = next.y - gesture.origin.y;
-    if (!gesture.moved && (threshold ? Math.abs(dx) < threshold : dx === 0 && dy === 0)) return;
-    if (!gesture.moved && threshold) grab();
+    if (!gesture.moved && (threshold ? Math.abs(axis === 'y' ? dy : dx) < threshold : dx === 0 && dy === 0)) return;
+    if (!gesture.moved && threshold) grab(event);
     gesture.moved = true;
     const dt = Math.max(0.008, (next.time - gesture.last.time) / 1000);
     gesture.vx = (next.x - gesture.last.x) / dt;
@@ -136,6 +136,97 @@ function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 
     event.stopImmediatePropagation();
     event.preventDefault();
   }, true);
+}
+
+function galleryBindFollowOrder(list, getDuration, report) {
+  // One unit is 100 pixels, so the spring's 0.001-unit settle tolerance is subpixel.
+  const unit = 100;
+  const motions = new Map([...list.children].map(row => [
+    row, new GalleryMotion(row, 0, offset => { row.style.transform = `translateY(${offset * unit}px)`; }),
+  ]));
+  let drag;
+
+  function reorder(rows, source, target) {
+    if (source === target) return;
+    const handle = rows[source].querySelector('button');
+    if (source < target) rows[target].after(rows[source]);
+    else rows[target].before(rows[source]);
+    handle.focus({ preventScroll: true });
+    report('已调整关注卡片顺序');
+  }
+
+  function finish(vy, cancelled) {
+    if (!drag) return;
+    const { rows, source, target, offsets, row, settings } = drag;
+    const selected = motions.get(row);
+    const top = offsets[source] + selected.position * unit;
+    const movingPastEdge = (vy < 0 && top <= offsets[0]) || (vy > 0 && top >= offsets.at(-1));
+    selected.velocity = cancelled || movingPastEdge ? 0 : galleryClamp(vy / unit, -8, 8);
+    if (!cancelled) reorder(rows, source, target);
+    const newOffsets = rows.map(card => card.offsetTop);
+    rows.forEach((card, index) => {
+      const motion = motions.get(card);
+      motion.position += (offsets[index] - newOffsets[index]) / unit;
+      motion.paint(motion.position);
+      motion.spring(0, settings);
+    });
+    delete row.dataset.followDragging;
+    drag = null;
+  }
+
+  galleryTrackDrag(list, {
+    axis: 'y',
+    canStart: event => Boolean(event.target.closest('[data-follow-grab]:enabled')),
+    grab: event => {
+      const handle = event.target.closest('[data-follow-grab]');
+      const row = handle.parentElement;
+      const rows = [...list.children];
+      const source = rows.indexOf(row);
+      const motion = motions.get(row);
+      motion.pause();
+      const offsets = rows.map(card => card.offsetTop);
+      drag = { row, handle, pointer: event.pointerId, rows, source, target: source, offsets,
+        centers: rows.map((card, index) => offsets[index] + card.offsetHeight / 2), start: motion.position * unit,
+        height: row.offsetHeight, settings: { duration: getDuration(), bounce: 0 } };
+      row.dataset.followDragging = '';
+    },
+    move: (dx, dy) => {
+      if (!drag) return;
+      const { row, rows, source, offsets, centers, settings, start, height } = drag;
+      const top = galleryClamp(offsets[source] + start + dy, offsets[0], offsets.at(-1));
+      const center = top + height / 2;
+      motions.get(row).place((top - offsets[source]) / unit);
+      // Hit testing uses stable row midpoints, even while their painted positions are moving.
+      const target = centers.filter((midpoint, index) => index !== source && center >= midpoint).length;
+      if (target === drag.target) return;
+      drag.target = target;
+      const order = [...rows];
+      order.splice(source, 1);
+      order.splice(target, 0, row);
+      order.forEach((card, index) => {
+        if (card !== row) motions.get(card).spring((offsets[index] - offsets[rows.indexOf(card)]) / unit, settings);
+      });
+    },
+    release: (vx, vy, cancelled) => finish(vy, cancelled),
+  });
+
+  list.addEventListener('keydown', event => {
+    const handle = event.target.closest('[data-follow-grab]');
+    if (!handle) return;
+    if (drag && event.key === 'Escape') {
+      event.preventDefault();
+      const { handle: captured, pointer } = drag;
+      finish(0, true);
+      if (captured.hasPointerCapture(pointer)) captured.releasePointerCapture(pointer);
+    } else if (!drag && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+      event.preventDefault();
+      const rows = [...list.children];
+      const source = rows.indexOf(handle.parentElement);
+      const target = galleryClamp(source + (event.key === 'ArrowDown' ? 1 : -1), 0, rows.length - 1);
+      motions.forEach(motion => motion.place(0));
+      reorder(rows, source, target);
+    }
+  });
 }
 
 const gallerySegments = new WeakMap();

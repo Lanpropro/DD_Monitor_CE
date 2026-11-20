@@ -4,7 +4,7 @@ const labApplicationControls = [
   ['room-add', '批量添加直播间', '关注栏 › 添加与导入', 280, 'room_add_panel.py', '每行一个房间号或直播间链接。选择文件夹后试用数量与错误反馈。'],
   ['room-picker', '关注直播间选择器', '添加直播间 › 从关注列表选择', 280, 'room_add_followed.py', '搜索关注项、筛选直播中并选择一项。'],
   ['follow-import', '导入关注列表', '添加与导入 › 导入关注', 232, 'follow_import_ui.py', '核对复选、已关注禁用和导入数量。'],
-  ['follow-card', '关注卡片多选', '关注列表 › 多选管理', 212, 'sidebar_item.py', '选择卡片，查看主播标题和开播状态。'],
+  ['follow-card', '关注卡片多选', '关注列表 › 多选管理', 212, 'sidebar_item.py', '选择卡片，查看主播标题和开播状态。在详情中拖动卡片把手试用排序。'],
   ['folder-head', '关注文件夹标题', '关注列表 › 文件夹', 204, 'sidebar_folders.py', '展开或收起文件夹，也可进入行内重命名。'],
   ['folder-edit', '文件夹名称与图标', '关注列表 › 新建／编辑文件夹', 244, 'folder_icons.py', '填写名称、选择颜色，确认后立即显示。'],
   ['function-hub', '功能中心', '侧栏 › 功能中心', 233, 'workspace_controls.py', '搜索功能、切换固定状态，或打开插件管理入口。'],
@@ -105,7 +105,7 @@ function labSkinScene(regions, scene) {
     }).join('')}</div>`;
 }
 
-function labAppExample(item, popupId) {
+function labAppExample(item, popupId, detail) {
   const b = (text, action, primary = false, glyph = '') =>
     labButton(text, glyph, glyph ? '' : text, `data-app-action="${action}"`, primary);
   const avatar = (name, action, primary = false) =>
@@ -159,9 +159,20 @@ function labAppExample(item, popupId) {
       html = `<div class="lab-qt-portal">${sectionHead('导入关注')}${choice(['哔哩哔哩','其他平台'])}<div class="lab-app-stack">
         ${importRow('小岚','直播中 · 午后直播',true)}${importRow('阿海','未开播 · 聊天',false)}
         ${importRow('星河','已关注',true,true)}</div><div class="lab-qt-actions">${b('导入所选','import',true)}</div></div>`; break;
-    case 'follow-card':
-      html = `<label class="lab-app-follow" data-primary><input type="checkbox" checked aria-label="选中小岚">
-        <span><strong>小岚</strong><small>午后直播</small></span><span class="lab-qt-card-foot">${labIcon('qt-bili')}<small>直播中</small></span></label>`; break;
+    case 'follow-card': {
+      const card = (name, caption, chosen = false) => `<label class="lab-app-follow" ${chosen ? 'data-primary' : ''}>
+        <input type="checkbox" ${chosen ? 'checked' : ''} aria-label="选中${name}">
+        <span><strong>${name}</strong><small>${caption}</small></span>
+        <span class="lab-qt-card-foot">${labIcon('qt-bili')}<small>直播中</small></span></label>`;
+      html = detail ? `<p class="lab-qt-hint">拖动把手排序，或按 Alt + ↑ / ↓。</p>
+        <div class="lab-follow-order" role="group" aria-label="关注卡片排序">${[
+          ['小岚','午后直播'], ['阿海','电台聊天'], ['星河','游戏实况'],
+        ].map(([name, caption], index) => `<div class="lab-follow-order-row">${card(name, caption, index === 0)}
+          <button type="button" class="lab-control" data-follow-grab
+            aria-label="调整${name}的位置" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"><span aria-hidden="true">⠿</span></button></div>`).join('')}</div>`
+        : card('小岚', '午后直播', true);
+      break;
+    }
     case 'folder-head':
       html = `<div class="lab-app-choice lab-qt-folder-head">${labButton('默认分组','folder','默认分组',
         'data-app-action="folder-toggle" aria-expanded="true"',true)}${b('重命名','folder-name',false,'more')}</div>
@@ -389,6 +400,13 @@ function labBindApplication(host, item, report, paintIcon) {
   const demo = host.querySelector('.lab-app');
   const select = selector => demo.querySelector(selector);
   const all = selector => [...demo.querySelectorAll(selector)];
+  const followOrder = select('.lab-follow-order');
+  if (followOrder) {
+    galleryBindFollowOrder(followOrder, () => {
+      const duration = host.style.getPropertyValue('--lab-motion');
+      return duration ? parseFloat(duration) / 1000 : 0.18;
+    }, report);
+  }
   const toggle = button => {
     const selected = button.getAttribute('aria-pressed') !== 'true';
     button.setAttribute('aria-pressed', selected);

@@ -716,6 +716,15 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
 .lab-app-follow input[type=checkbox]:not([role=switch]) { position: absolute; top: 8px; right: 9px; width: 18px; height: 18px; border-radius: 50%; }
 .lab-app-follow span { display: grid; min-width: 0; }
 .lab-app-follow small { color: var(--lab-muted); font-size: .85em; }
+.lab-follow-order { display: grid; gap: 5px; }
+.lab-follow-order-row { position: relative; }
+.lab-follow-order-row[data-follow-dragging] { z-index: 1; }
+.lab-follow-order-row [data-follow-grab] {
+  position: absolute; right: 8px; top: 50%; translate: 0 -50%;
+  min-width: 24px; min-height: 24px; padding: 0 4px; cursor: grab; touch-action: none; user-select: none;
+}
+.lab-follow-order-row[data-follow-dragging] [data-follow-grab] { cursor: grabbing; }
+.lab-detail-stage:has(.lab-follow-order) { padding-bottom: 31px; }
 .lab-app-panes { display: grid; grid-template-columns: repeat(var(--pane-columns),minmax(0,1fr)); gap: 2px; }
 .lab-app-panes .lab-control, .lab-app-panes span {
   min-height: 15px; padding: 0 3px; border-radius: 3px; background: var(--lab-surface);

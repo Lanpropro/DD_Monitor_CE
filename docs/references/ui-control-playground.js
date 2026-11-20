@@ -164,8 +164,9 @@ function labMount(host, item) {
   host.dataset.state = 'live';
   delete host.dataset.customRadius;
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
-  const popupId = `lab-${id}-${host.classList.contains('lab-detail-stage') ? 'detail' : 'card'}`;
-  const content = item.sheet === 'application' ? labAppExample(item, popupId)
+  const detail = host.classList.contains('lab-detail-stage');
+  const popupId = `lab-${id}-${detail ? 'detail' : 'card'}`;
+  const content = item.sheet === 'application' ? labAppExample(item, popupId, detail)
     : item.sheet === 'extra' ? labAdditionalExample(item, popupId) : labExample(item, popupId);
   host.innerHTML = `<fieldset aria-label="${item.title}">
     <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${content}</div></div>
@@ -343,7 +344,7 @@ const labNumberFields = item => [
   ...(labSegmentIds.includes(item.id) ? [
     ['duration', '弹簧响应时长（秒）', 0, 2, gallerySpringDefaults.duration, 0.01],
     ['bounce', '弹性（bounce）', 0, 0.9, gallerySpringDefaults.bounce, 0.01],
-  ] : [['motion', '动效时长 (ms)', 0, 500, 120]]),
+  ] : [['motion', '动效时长 (ms)', 0, 500, item.id === 'follow-card' ? 180 : 120]]),
 ];
 
 function labRenderDetail(item) {
