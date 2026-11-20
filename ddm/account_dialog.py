@@ -2,7 +2,7 @@
 import os
 from copy import deepcopy
 
-from PySide6.QtCore import QThread, QUrl, Qt, Signal
+from PySide6.QtCore import QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QGridLayout, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
@@ -96,9 +96,8 @@ class AccountPlatformDialog(QDialog):
             self.layout_box.addLayout(toolbar)
         self._update_platform_labels()
         self.pages = QStackedWidget(self)
-        if import_follows:
-            # WebEngine promotes this ancestor; do it before the visible HWND exists.
-            self.pages.setAttribute(Qt.WA_NativeWindow)
+        # WebEngine promotes this ancestor; do it before the visible HWND exists.
+        self.pages.setAttribute(Qt.WA_NativeWindow)
         self.layout_box.addWidget(self.pages, 1)
         self.select_platform(platform_kind)
 
@@ -310,7 +309,7 @@ class AccountPlatformDialog(QDialog):
                                PlatformFollowDialog)
                 page = dialog_type(self.providers[kind], self.pages, owner=self.owner,
                                    login_only=not self.import_follows, embedded=True,
-                                   defer_login=auto_read)
+                                   defer_login=auto_read or dialog_type is PlatformFollowDialog)
                 page.accountCleared.connect(self.owner._clear_platform_account)
                 page.accountCleared.connect(lambda _kind: self._update_platform_labels())
                 page.busyChanged.connect(self._busy)
@@ -318,10 +317,6 @@ class AccountPlatformDialog(QDialog):
                 page.readFailed.connect(lambda _reason, p=page: self._platform_failed(p))
                 self._platform_pages[kind] = page
                 if (self.reauthenticate and kind == self._reauthenticate_kind
-                        and dialog_type is PlatformFollowDialog):
-                    page._forget()
-                    self.reauthenticate = False
-                elif (self.reauthenticate and kind == self._reauthenticate_kind
                         and dialog_type is BrowserAccountDialog):
                     page._cookies = []
                     self.reauthenticate = False
@@ -345,11 +340,20 @@ class AccountPlatformDialog(QDialog):
                 else:
                     page.status.setText("请在官方页面完成登录，然后点击「读取关注」" if self.import_follows else
                                         "请在官方页面完成登录，然后点击「确认登录」")
-                if hasattr(page, "browser"):
-                    page.browser.load(QUrl(page._login_url))
             self._set_page(page)
+            if isinstance(page, PlatformFollowDialog):
+                QTimer.singleShot(0, self, lambda: self._load_platform_login(page))
             if reread:
                 page._read()
+
+    def _load_platform_login(self, page):
+        if self.page is not page or self._closing_result is not None or not self.isVisible():
+            return
+        if self.reauthenticate and self.kind == self._reauthenticate_kind:
+            self.reauthenticate = False
+            page._forget()
+        else:
+            page.browser.load(QUrl(page._login_url))
 
     def _platform_failed(self, page):
         if self._closing_result is None and self.page.property("loading"):

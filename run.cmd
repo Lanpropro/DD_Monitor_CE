@@ -145,6 +145,8 @@ exit /b %errorlevel%
 :browserAccountsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_browser_accounts
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_platform_reauthentication
 exit /b %errorlevel%
 
 :updateInstallCheck
