@@ -187,7 +187,8 @@ class TilePresentation:
         host = self.host
         host.cover.setGeometry(host.video.rect())
         button = host.add_room_button
-        button.setVisible(not host.room.get("room_id") and not host.property('pictureInPicture'))
+        button.setVisible(not host.room.get("room_id") and not host.property('pictureInPicture')
+                          and not host.property('roomDropOnly'))
         if not button.isHidden():
             button.adjustSize()
             button.move(max(0, (host.video.width() - button.width()) // 2),

@@ -369,6 +369,17 @@ class PluginContext:
                 controls.bind_pages(self._manager._workspace_pages)
         return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
 
+    def workspace_background_mask(self) -> int:
+        """Return the effective host background-mask strength as a percentage."""
+        controller = getattr(self.window, 'skin_controller', None)
+        return controller.layer.mask if controller is not None else 0
+
+    @property
+    def workspace_background_changed(self):
+        """Host signal for changes to the effective background, if available."""
+        controller = getattr(self.window, 'skin_controller', None)
+        return controller.changed if controller is not None else None
+
     def create_workspace_player(self, video_widget):
         """Create a native player for a plugin workspace video surface on the GUI thread."""
         if not self._active:

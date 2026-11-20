@@ -518,6 +518,10 @@ context.notify("【示例主播（房间 120）】发送失败：登录失效，
 
 `context.create_plugin_widget(plugin_id, capability, parent, **options)` 在 GUI 线程调用已启用插件的 `create_embedded_widget(capability, parent, caller, **options)`。各提供方定义能力名称和选项。提供方缺失或不支持该能力时返回 `None`。提供的控件以调用方传入的容器为父对象，调用方在关闭页面时负责关闭并释放控件。
 
+`context.workspace_background_mask()` 返回本体生效的背景蒙版强度（0 到 100）。关闭蒙版时返回 0。功能页可监听 `context.workspace_background_changed` 更新蒙版强度，无背景控制器时该信号为 `None`。可同时监听 `theme.signals().changed` 更新蒙版颜色。
+
+使用本体 `Tile` 的功能页可以将 `roomDropOnly` 动态属性设为 `True`，保留关注卡片拖放并关闭空状态的添加按钮和右键菜单。
+
 同一时刻只显示一个功能页；切换会关闭上一页，原有 QAction/关闭信号随之同步。需要自己管理内容显隐的旧功能页（如比赛二路）使用 manages_content=True，仅复用互斥与宿主布局；保留其原有播放/嵌入/收尾流程。页随主内容区调整大小，主窗口临时隐藏后仍保持当前页，插件卸载恢复画面墙。注册为可选中状态的功能入口互斥，防止旧的延迟切换覆盖最后选择。
 
 左侧关注图标会正常关闭当前功能页并返回画面墙；若页面在 `closeEvent` 中拒绝关闭，则保留页面及其选中图标。只在关注栏中搜索或浏览不会退出功能页，导航选中状态跟随实际显示的内容。关闭页面不应取消插件的后台任务。

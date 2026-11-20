@@ -804,6 +804,8 @@ class Tile(QFrame):
     # ---- 右键菜单 ----
     def contextMenuEvent(self, event) -> None:
         if not self.room.get("room_id"):
+            if self.property('roomDropOnly'):
+                return
             menu = QMenu(self)
             menu.addAction("切换为弹幕", self.paneEditRequested.emit).setData('switch_danmaku')
             from .tile_menu import arrange_menu

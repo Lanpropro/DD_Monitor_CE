@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -95,6 +96,14 @@ class WorkspacePageTests(unittest.TestCase):
         self.assertTrue(self.wall.isVisible())
         with self.assertRaises(RuntimeError):
             self.record.show_workspace(page)
+
+    def test_workspace_background_mask_uses_effective_host_value(self):
+        self.assertEqual(self.record.workspace_background_mask(), 0)
+        layer = SimpleNamespace(mask=65)
+        self.host.skin_controller = SimpleNamespace(layer=layer)
+        self.assertEqual(self.record.workspace_background_mask(), 65)
+        layer.mask = 0
+        self.assertEqual(self.record.workspace_background_mask(), 0)
 
     def test_workspace_player_belongs_to_its_video_surface(self):
         video = QWidget()
