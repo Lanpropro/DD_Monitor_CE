@@ -559,6 +559,7 @@
 - `docs/references/ui-control-app-examples.js`
 - `docs/references/ui-control-playground.css`
 - `docs/references/ui-control-playground.js`
+- `docs/references/ui-control-types.js`
 - `docs/features/appearance-design.md`
 - `docs/bug-cases.md`
 - `docs/features/customization-plan.md`

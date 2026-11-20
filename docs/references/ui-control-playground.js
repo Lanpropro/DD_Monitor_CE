@@ -36,8 +36,22 @@ const labControls = [
   id, title, location, width, height, radius, usage, row,
   group: row < 8 ? '设置页' : '播放格',
   area: row < 8 ? 'settings' : row < 13 ? 'bottom' : 'overlay',
-  source: row < 6 ? 'ddm/settings_general.py' : row < 8 ? 'ddm/settings_appearance.py' : 'ddm/tile_widgets.py',
+  source: row < 4 ? 'ddm/settings_general.py' : row < 6 ? 'ddm/settings_codec_editor.py'
+    : row < 8 ? 'ddm/settings_appearance.py' : 'ddm/tile_widgets.py',
 })).concat(labAdditionalControls, labApplicationControls);
+
+const labControlById = new Map(labControls.map(item => [item.id, item]));
+const labTypeById = new Map();
+for (const [title, ids, usages = []] of labSharedTypes) {
+  const type = { title, examples: ids.map(id => labControlById.get(id)), usages };
+  ids.forEach(id => labTypeById.set(id, type));
+}
+for (const item of labControls) {
+  if (!labTypeById.has(item.id)) labTypeById.set(item.id, { title: item.title, examples: [item], usages: [] });
+}
+const labCatalog = [...new Set(labTypeById.values())]
+  .sort((a, b) => labControls.indexOf(a.examples[0]) - labControls.indexOf(b.examples[0]));
+const labPlaybackType = labTypeById.get('pause');
 
 const labPresets = [['', '默认'], ['#00a1d6', '蓝'], ['#20b976', '绿'], ['#8866ee', '紫'],
   ['#ef638e', '粉'], ['#f58b32', '橙']];
@@ -167,12 +181,13 @@ function labMount(host, item) {
   delete host.dataset.customRadius;
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
   const detail = host.classList.contains('lab-detail-stage');
+  const playbackStatus = host.closest('.lab-playback-preview')?.querySelector('.lab-playback-status');
   const popupId = `lab-${id}-${detail ? 'detail' : 'card'}`;
   const content = item.sheet === 'application' ? labAppExample(item, popupId, detail)
     : item.sheet === 'extra' ? labAdditionalExample(item, popupId) : labExample(item, popupId);
   host.innerHTML = `<fieldset aria-label="${item.title}">
     <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${content}</div></div>
-    </fieldset><output class="lab-status" aria-live="polite"></output>
+    </fieldset>${playbackStatus ? '' : '<output class="lab-status" aria-live="polite"></output>'}
     ${id === 'danmaku' ? `<div id="${popupId}" popover class="lab-danmaku-popup" role="group" aria-label="弹幕观看设置">
       ${labDanmakuParams.map(values => `<div class="lab-range-row"><span>${values[0]}</span>${labRange(...values)}</div>`).join('')}
       <div class="lab-range-row"><span>弹幕颜色</span><label class="lab-control lab-danmaku-color"><input type="color" value="#ffffff" aria-label="弹幕颜色"><output>#FFFFFF</output></label></div>
@@ -189,7 +204,7 @@ function labMount(host, item) {
     const first = fieldset.querySelector('button, input, select, textarea, [tabindex]');
     (first?.closest('.lab-switch') || first)?.setAttribute('data-primary','');
   }
-  const status = host.querySelector('.lab-status');
+  const status = playbackStatus || host.querySelector('.lab-status');
   const number = host.querySelector('.lab-step-value');
   const report = message => { status.textContent = message; };
   if (item.sheet === 'extra') labBindAdditional(host, item, report);
@@ -315,6 +330,15 @@ function labMount(host, item) {
   };
 }
 
+function labMountPlayback(preview, selected) {
+  const region = (area, label) => `<div class="lab-playback-${area}" role="group" aria-label="${label}">${labPlaybackType.examples
+    .filter(item => item.area === area)
+    .map(item => `<div class="lab-demo${item === selected ? ' lab-detail-stage' : ''}" data-lab-demo="${item.id}"></div>`).join('')}</div>`;
+  preview.innerHTML = `<div class="lab-playback-screen">${region('overlay', '播放格右上角')}</div>
+    ${region('bottom', '播放格底部信息条')}<output class="lab-playback-status" aria-live="polite"></output>`;
+  preview.querySelectorAll('[data-lab-demo]').forEach(host => labMount(host, labControlById.get(host.dataset.labDemo)));
+}
+
 const labPaintFields = [
   ['accent', '强调色', '--lab-accent'], ['surface', '控件底色', '--lab-surface'],
   ['ink', '文字／图标色', '--lab-ink'], ['hover', '悬停底色', '--lab-hover'],
@@ -354,13 +378,19 @@ const labNumberFields = item => [
 ];
 
 function labRenderDetail(item) {
+  const type = labTypeById.get(item.id);
+  const playback = type === labPlaybackType;
   const numbers = labNumberFields(item);
   const lastRow = labControls.filter(control => control.sheet === item.sheet).length - 1;
   labDetail.innerHTML = `<header class="lab-detail-head">
-    <div><h2 id="playground-name" tabindex="-1">${item.title}</h2><p>${item.group} › ${item.location}</p></div>
+    <div><h2 id="playground-name" tabindex="-1">${type.title}</h2><p>${item.group} › ${item.location}</p></div>
     <a class="lab-link" href="#overview">返回总览</a></header>
+    ${type.examples.length > 1 ? `<nav class="lab-use-cases" aria-label="同类控件的实装用法">${type.examples.map(example =>
+      `<a href="#control-${example.id}"${example === item ? ' aria-current="page"' : ''}><strong>${example.title}</strong><small>${example.location}</small></a>`
+    ).join('')}</nav>` : ''}
     <div class="lab-detail-layout">
-      <section class="lab-panel"><h3>实时预览</h3><div class="lab-demo lab-detail-stage"></div>
+      <section class="lab-panel"><h3>${type.title === item.title ? '实时预览' : item.title}</h3>
+        ${playback ? '<div class="lab-playback-preview"></div>' : '<div class="lab-demo lab-detail-stage"></div>'}
         <figure class="lab-reference"><figcaption>当前 Qt 外观</figcaption>
           <div class="qt-swatch" data-sheet="${item.sheet || 'base'}" role="img" aria-label="${item.title}的 Qt 截图" style="--qt-y:${item.row / lastRow * 100}%"></div></figure>
         <div class="lab-source"><p>${item.usage}</p><code>${item.source}</code></div>
@@ -376,10 +406,13 @@ function labRenderDetail(item) {
         <p class="lab-motion-note">时长为 0 时即时切换。系统「减少动态效果」始终生效。</p>
         ${labSegmentIds.includes(item.id) ? '<p class="lab-motion-note">开启页顶开关后，可连续点选或水平拖动底片。</p>' : ''}
       </section>
-    </div>`;
+    </div>
+    ${type.usages.length ? `<section class="lab-panel lab-use-sources"><h3>其他实装位置</h3><ul>${type.usages.map(([name, source]) =>
+      `<li>${name} <a class="lab-link" href="../../ddm/${source}">源码</a></li>`).join('')}</ul></section>` : ''}`;
+  if (playback) labMountPlayback(labDetail.querySelector('.lab-playback-preview'), item);
   const sample = labDetail.querySelector('.lab-detail-stage');
   const form = labDetail.querySelector('.lab-form');
-  labMount(sample, item);
+  if (!playback) labMount(sample, item);
   labSetTheme(labTheme);
   form.addEventListener('submit', event => event.preventDefault());
   form.addEventListener('input', event => {
@@ -397,6 +430,7 @@ function labRenderDetail(item) {
         sample.style.setProperty('--lab-choice-custom-ink', field.value);
       }
       if (paint[0] === 'surface' && labExtraSurface[item.id]) sample.style.setProperty(labExtraSurface[item.id], field.value);
+      if (paint[0] === 'hover' && playback) sample.style.setProperty('--lab-playback-hover', field.value);
     } else if (field.name === 'state') {
       sample.dataset.state = field.value;
       const fieldset = sample.querySelector('fieldset');
@@ -418,17 +452,18 @@ function labRenderDetail(item) {
   labDetail.querySelector('.lab-reset').addEventListener('click', () => {
     form.reset();
     labMount(sample, item);
+    if (playback) labDetail.querySelector('.lab-playback-status').textContent = '';
     labSetTheme(labTheme);
   });
 }
 
 function labShowRoute() {
-  const item = labControls.find(({ id }) => location.hash === `#control-${id}`);
+  const item = location.hash.startsWith('#control-') ? labControlById.get(location.hash.slice(9)) : undefined;
   const previous = labOpen;
   labOpen = item;
   labGallery.hidden = Boolean(item);
   labDetail.hidden = !item;
-  labContext.textContent = item ? '网页交互试样 · 对照当前 Qt 外观' : `${labControls.length} 项软件在用控件与组合`;
+  labContext.textContent = item ? '网页交互试样 · 对照当前 Qt 外观' : `${labCatalog.length} 类控件 · ${labControls.length} 个实装场景`;
   labOverview.querySelector('.lab-group-links').hidden = Boolean(item);
   if (item) {
     setTab(document.getElementById('tab-overview'));
@@ -436,21 +471,34 @@ function labShowRoute() {
     document.getElementById('playground-name').focus({ preventScroll: true });
     window.scrollTo(0, 0);
   } else if (previous) {
-    const link = labGallery.querySelector(`[href="#control-${previous.id}"]`);
-    link.focus({ preventScroll: true });
-    link.scrollIntoView({ block: 'nearest' });
+    const first = labTypeById.get(previous.id).examples[0];
+    const link = labGallery.querySelector(`[href="#control-${first.id}"]`);
+    link?.focus({ preventScroll: true });
+    link?.scrollIntoView({ block: 'nearest' });
   }
 }
 
 const labGroups = [...new Set(labControls.map(item => item.group))];
 labOverview.querySelector('.lab-group-links').innerHTML = labGroups.map((area, index) =>
   `<a class="lab-link" href="#lab-group-${index}">${area}</a>`).join('');
-labGallery.innerHTML = labGroups.map((area, index) =>
-  `<section class="qt-group" id="lab-group-${index}"><h2>${area}</h2><div class="qt-grid">${labControls.filter(item => item.group === area).map(item =>
-    `<article class="qt-card"><header><div><h3>${item.title}</h3><small>${item.location}</small></div>
-      <a class="lab-link" href="#control-${item.id}" aria-label="${item.title}详情">详情</a></header>
-      <div class="lab-demo" data-lab-demo="${item.id}"></div></article>`).join('')}</div></section>`).join('');
-labControls.forEach(item => labMount(labGallery.querySelector(`[data-lab-demo="${item.id}"]`), item));
+function labRenderGallery() {
+  labGallery.innerHTML = labGroups.map((area, index) =>
+    `<section class="qt-group" id="lab-group-${index}"><h2>${area}</h2><div class="qt-grid">${labCatalog
+      .filter(type => type.examples[0].group === area).map(type => {
+        const item = type.examples[0];
+        const playback = type === labPlaybackType;
+        return `<article class="qt-card${playback ? ' qt-card-playback' : ''}" data-lab-type="${item.id}">
+          <header><div><h3>${type.title}</h3><small>${type.examples.length > 1 ? `${type.examples.length} 个使用场景` : item.location}</small></div>
+          <a class="lab-link" href="#control-${item.id}" aria-label="${type.title}详情">详情</a></header>
+          ${playback ? '<div class="lab-playback-preview"></div>' : '<div class="lab-demo"></div>'}</article>`;
+      }).join('')}</div></section>`).join('');
+  labGallery.querySelectorAll('[data-lab-type]').forEach(card => {
+    const item = labControlById.get(card.dataset.labType);
+    if (labTypeById.get(item.id) === labPlaybackType) labMountPlayback(card.querySelector('.lab-playback-preview'));
+    else labMount(card.querySelector('.lab-demo'), item);
+  });
+}
+labRenderGallery();
 
 labOverview.querySelectorAll('[data-qt-theme]').forEach(button =>
   button.addEventListener('click', () => labSetTheme(button.dataset.qtTheme)));
