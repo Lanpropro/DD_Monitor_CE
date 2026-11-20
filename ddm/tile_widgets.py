@@ -351,6 +351,11 @@ class Tile(QFrame):
             self._danmaku_settings_menu = menu
         return self._danmaku_settings_menu
 
+    @danmaku_settings_menu.setter
+    def danmaku_settings_menu(self, menu):
+        # Match Sync replaces this menu while the tile's existing actions keep using it.
+        self._danmaku_settings_menu = menu
+
     def _change_video_danmaku_settings(self, values: dict) -> None:
         return self.state_control.change_video_danmaku_settings(values)
 

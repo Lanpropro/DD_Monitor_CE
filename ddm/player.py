@@ -409,6 +409,16 @@ class TilePlayer(QObject):
             self._watch.start()
             self._picture_watch.start()
 
+    def playback_timing(self):
+        """Return the current media position and, when available, its seekable duration."""
+        return self._prop('time-pos'), self._prop('duration') if self._prop('seekable', False) else None
+
+    def seek_to(self, seconds):
+        if self.player is None or not self._prop('seekable', False):
+            return False
+        self.player.command('seek', seconds, 'absolute+exact')
+        return True
+
     @property
     def actual_decoder(self) -> str:
         return str(self._prop("hwdec-current", "等待首帧"))

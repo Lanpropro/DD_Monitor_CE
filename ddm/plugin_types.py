@@ -376,6 +376,15 @@ class PluginContext:
         from .player import TilePlayer
         return TilePlayer(video_widget, parent=video_widget)
 
+    def create_plugin_widget(self, plugin_id, capability, parent, **options):
+        """Create an embedded widget provided by an enabled plugin on the GUI thread."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        for plugin in self._manager.plugins:
+            if plugin.context.name == plugin_id:
+                return plugin.create_embedded_widget(capability, parent, self, **options)
+        return None
+
     def credentials(self, platform) -> CredentialSnapshot | None:
         return self._manager.credentials(platform)
 
@@ -456,6 +465,10 @@ class Plugin:
         """本体播报事件。只读，别在这里改 ``payload`` 里的对象。"""
 
     # ---- 界面 ----
+    def create_embedded_widget(self, capability, parent, caller, **options):
+        """Optionally supply a child widget to another plugin."""
+        return None
+
     def recording_settings(self, parent):
         """Optional recording-page widget, parent-owned; persist through plugin APIs.
 
