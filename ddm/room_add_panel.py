@@ -10,7 +10,7 @@ from .follow_folders import default_folder
 from .room_add_followed import FollowedRoomPicker, PresetRoomPicker
 from .room_folder_controls import _add_folder_option, _create_folder_for_dialog
 from .sidebar_navigation import NavigationButton
-from .ui import ActionButton, DisclosureButton
+from .ui import ActionButton
 from .ui.labels import ElidedLabel
 
 
@@ -74,9 +74,9 @@ class RoomAddPanel(QFrame):
         self.followed_toggle.setCheckable(True)
         self.followed_toggle.hide()
         footer.addWidget(self.followed_toggle)
-        self.preset_button = DisclosureButton()
-        self.preset_button.setText('电视预设')
-        self.preset_button.setToolTip('展开电视频道和播放列表文件入口')
+        self.preset_button = NavigationButton('电视预设', 'tv')
+        self.preset_button.setFixedSize(24, 24)
+        self.preset_button.setCheckable(True)
         self.preset_button.hide()
         footer.addWidget(self.preset_button)
         self._file_filters = []
@@ -278,7 +278,7 @@ class RoomAddPanel(QFrame):
             point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
         icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
                                                  if not self.followed_toggle.isHidden() else 0)
-        preset_width = self.preset_button.sizeHint().width() + 6 if not self.preset_button.isHidden() else 0
+        preset_width = self.preset_button.width() + 6 if not self.preset_button.isHidden() else 0
         used = 38 + icon_space + preset_width + self.submit_button.sizeHint().width()
         folder_width = max(52, min(120, width - used))
         self.folder_button.setMaximumWidth(folder_width)

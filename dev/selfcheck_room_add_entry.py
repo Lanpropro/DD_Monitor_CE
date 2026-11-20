@@ -203,6 +203,9 @@ class AddRoomEntryTests(unittest.TestCase):
         panel.preset_button.click()
         self.assertTrue(panel.presets.file_button.isVisible())
         self.assertTrue(panel.presets.isAncestorOf(panel.presets.file_button))
+        self.assertEqual(panel.presets.file_button.text(), '')
+        self.assertEqual(panel.presets.file_button.kind, 'open_folder')
+        self.assertEqual(panel.presets.file_button.accessibleName(), '选择本地播放列表')
         self.assertTrue(panel.presets.search.isHidden())
         observed = []
         def select(dialog):
@@ -332,11 +335,16 @@ class AddRoomEntryTests(unittest.TestCase):
         panel = catalog._add_panel
         self.assertTrue(panel.followed_toggle.isVisible())
         self.assertTrue(panel.preset_button.isVisible())
+        self.assertEqual(panel.preset_button.text(), '')
+        self.assertEqual(panel.preset_button.kind, 'tv')
+        self.assertEqual(panel.preset_button.accessibleName(), '电视预设')
+        self.assertEqual(panel.preset_button.size(), panel.followed_toggle.size())
         self.assertLess(panel.followed_toggle.x(), panel.preset_button.x())
         collapsed_height = panel.height()
         panel.followed_toggle.click()
         self.assertTrue(panel.followed.isVisible())
         panel.preset_button.click()
+        self.assertTrue(panel.preset_button.isChecked())
         self.assertTrue(panel.followed.isHidden())
         self.assertTrue(panel.presets.isVisible())
         self.assertGreater(panel.height(), collapsed_height)
