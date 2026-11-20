@@ -443,12 +443,12 @@ class PipPickerTests(unittest.TestCase):
         window = self.window([])
         sidebar = window.sidebar
         room = dict(room_id='douyu:6979222', uname='测试主播', platform='douyu',
-                    playback_mode='stream', uid=6657, title='标题含6657', live=True)
+                    playback_mode='stream', uid=6657, title='直播回顾', live=True)
         sidebar.add_room(room)
         sidebar.search.setText('6657')
         self.assertEqual(sidebar.visible_items(), [])
         with patch('ddm.bili.requests.get', side_effect=AssertionError('Search must not access the network')):
-            status = dict(live=True, uname='测试主播', title='标题含6657', viewers='', face='', display_room_id='6657')
+            status = dict(live=True, uname='测试主播', title='直播回顾', viewers='', face='', display_room_id='6657')
             window._on_status_updated({'douyu:6979222': status})
             self.assertEqual([item.room['room_id'] for item in sidebar.visible_items()], ['douyu:6979222'])
             for query in ('6657', '6979222', '测试 6657'):
@@ -862,7 +862,8 @@ class PipPickerTests(unittest.TestCase):
         dialog = window.picture_in_picture.dialog
         for query in ('小明', 'xiaoming', 'XM', 'xiao ming', 'xiaoming 9101',
                       '音乐区', 'yinyuequ', 'YYQ xm', 'chongqing', 'cqzb',
-                      'ALICE', 'dcz', 'dcccz', '9102', 'Morning', '深夜音乐', 'missing'):
+                      'ALICE', 'dcz', 'dcccz', '9102', 'Morning', '深夜音乐',
+                      'shenyeyinyue', '9101 深夜', 'missing'):
             with self.subTest(query=query):
                 sidebar.search.setText(query)
                 expected = {str(item.room['room_id']) for item in sidebar.visible_items()}
@@ -871,6 +872,8 @@ class PipPickerTests(unittest.TestCase):
                           if not button.isHidden()}
                 self.assertEqual(actual, expected)
                 self.assertEqual(dialog._selected(), [0])
+        dialog.search.setText('Morning')
+        self.assertFalse(dialog.checks['9103'].isHidden())
         dialog.search.clear()
         dialog.search.setFocus()
         QTest.keyClicks(dialog.search, 'XM')

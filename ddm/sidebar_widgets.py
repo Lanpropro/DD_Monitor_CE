@@ -236,7 +236,7 @@ class Sidebar(QFrame):
 
         self.search = QLineEdit()
         self.search.setObjectName("Search")
-        self.search.setPlaceholderText("搜索主播 / 房间号")
+        self.search.setPlaceholderText("搜索主播 / 房间号 / 标题")
         self.search.setToolTip("支持中文、全拼和拼音首字母；多个词用空格分隔")
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤

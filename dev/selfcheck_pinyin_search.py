@@ -117,7 +117,7 @@ def main():
     assert not matches_text('Alice', 'al ice'), 'Keep the original English substring rule'
     rooms = [dict(room_id='9101', uname='小明', title='深夜音乐', live=True),
              dict(room_id='9102', uname='重庆主播', title='小明', live=False),
-             dict(room_id='9103', uname='Alice', title='Morning Coffee', live=True),
+             dict(room_id='9103', display_room_id='70342', uname='Alice', title='Morning Coffee', live=True),
              dict(room_id='9104', uname='大橙橙橙子', title='', live=True),
              dict(room_id='9105', uname='大东彦', title='', live=True)]
     with patch('ddm.app.QTimer.singleShot'):
@@ -135,13 +135,23 @@ def main():
             dialog.search_edit.setText(query)
             return {dialog.list.item(i).data(Qt.UserRole)['room_id'] for i in range(dialog.list.count())
                     if not dialog.list.item(i).isHidden()}
-        for query, ids in [('xiaoming', {'9101'}), ('xm', {'9101'}),
+        for query, ids in [('xiaoming', {'9101', '9102'}), ('xm', {'9101', '9102'}),
                            ('xiaoming 9101', {'9101'}), ('yinyuequ', {'9101'}),
                            ('yyq', {'9101'}), ('ALICE', {'9103'}),
-                           ('Morning', set()), ('shenyeyinyue', set()),
-                           ('深夜音乐', set()), ('9102', {'9102'}),
+                           ('Morning', {'9103'}), ('shenyeyinyue', {'9101'}),
+                           ('深夜音乐', {'9101'}), ('xiaoming 深夜', {'9101'}),
+                           ('70342 coffee', {'9103'}), ('9102', {'9102'}),
                            ('dcz', {'9104'}), ('dcccz', {'9104'}), ('ddy', {'9105'})]:
             assert sidebar(query) == ids, query
+        assert sidebar('小明') == {'9101', '9102'}
+        window.sidebar.navigation.set_live_only(True)
+        assert sidebar('小明') == {'9101'}
+        window.sidebar.navigation.set_live_only(False)
+
+        assert sidebar('Evening') == set()
+        window.room_status.apply_status({'9103': dict(live=True, title='Evening Coffee')})
+        assert sidebar('Evening') == {'9103'}, 'Title changes must update the active search'
+        assert sidebar('Morning') == set()
         for query, ids in [('xiaoming', {'9101'}), ('XM', {'9101'}),
                            ('xiao ming', {'9101'}), ('chongqing', {'9102'}),
                            ('cqzb', {'9102'}), ('Alice', {'9103'}),

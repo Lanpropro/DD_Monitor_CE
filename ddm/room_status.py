@@ -190,6 +190,8 @@ class RoomStatus:
             was_live = item_was_live[item]
             item.room["live_known"] = info.get("live_known", True)
             if info["title"]:
+                if info["title"] != item.room.get("title") and host.sidebar.filter_text:
+                    filter_changed = True
                 item.set_title(info["title"])
             if info.get("uname"):
                 item.set_uname(info["uname"])

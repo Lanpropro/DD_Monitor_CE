@@ -273,7 +273,8 @@ class PictureInPictureDialog(QDialog):
     def _matches(self, button, words):
         room = self.rooms[button.choice]
         text = ' '.join((str(room.get('uname') or ''), str(room['room_id']),
-                         str(room.get('display_room_id') or ''), button.folder_names))
+                         str(room.get('display_room_id') or ''), str(room.get('title') or ''),
+                         button.folder_names))
         return all(matches_text(text, word) for word in words)
 
     def _arrange_choices(self, *, top_only=False):
