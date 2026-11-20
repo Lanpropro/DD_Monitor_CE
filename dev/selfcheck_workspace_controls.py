@@ -365,6 +365,41 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertFalse(active(self.sidebar.navigation.follow_button))
         page.allow_close = True
 
+    def test_current_rail_icon_closes_page_without_retriggering_action(self):
+        page, button, action, wall = self.open_page()
+        calls = []
+        action.triggered.connect(calls.append)
+        QTest.mouseClick(button, Qt.LeftButton)
+        settle()
+        self.assertTrue(page.isHidden())
+        self.assertTrue(wall.isVisible())
+        self.assertFalse(action.isChecked())
+        self.assertEqual(calls, [])
+        self.assertIs(self.sidebar.navigation.active_button, self.sidebar.navigation.follow_button)
+
+    def test_current_rail_icon_and_function_center_respect_close_refusal(self):
+        page, button, action, wall = self.open_page()
+        page.allow_close = False
+        calls = []
+        action.triggered.connect(calls.append)
+        QTest.keyClick(button, Qt.Key_Space)
+        settle()
+        self.assertTrue(page.isVisible())
+        self.assertTrue(active(button))
+        self.assertTrue(action.isChecked())
+        panel = self.sidebar.workspace_controls
+        panel._rows[('workspace-test', 'page')][1].click()
+        settle()
+        self.assertTrue(page.isVisible())
+        self.assertTrue(wall.isHidden())
+        self.assertEqual(calls, [])
+        page.allow_close = True
+        panel._rows[('workspace-test', 'page')][1].click()
+        settle()
+        self.assertTrue(page.isHidden())
+        self.assertTrue(wall.isVisible())
+        self.assertEqual(calls, [])
+
     def test_page_close_and_replacement_keep_navigation_in_sync(self):
         page, button, action, wall = self.open_page()
         page.close()

@@ -317,8 +317,17 @@ class WorkspaceControls(QFrame):
 
     def _launch(self, identity):
         self.popup.hide()
-        self.entries[identity][1].click()
+        button = self.entries[identity][1]
+        if not self._close_page_from(button):
+            button.click()
         self._sync_rows()
+
+    def _close_page_from(self, button):
+        if self.page_button() is not button:
+            return False
+        if not self.pages.close_active():
+            self._sync_page_selection()
+        return True
 
     def _open_store(self):
         self.popup.hide()
@@ -343,21 +352,34 @@ class WorkspaceControls(QFrame):
         self.search.setFocus(Qt.PopupFocusReason)
 
     def eventFilter(self, watched, event):
-        if watched is self.popup and event.type() == QEvent.MouseButtonPress:
+        kind = event.type()
+        if (kind in (QEvent.MouseButtonRelease, QEvent.KeyRelease)
+                and watched is self.page_button() and watched.isDown()):
+            mouse_click = (kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton
+                           and watched.rect().contains(event.position().toPoint()))
+            key_click = (kind == QEvent.KeyRelease and event.key() in (Qt.Key_Space, Qt.Key_Select)
+                         and not event.isAutoRepeat())
+            if mouse_click or key_click:
+                watched.setDown(False)
+                if mouse_click:
+                    attach(watched).transition(1.1 if watched.underMouse() else 1.0)
+                self._close_page_from(watched)
+                return True
+        if watched is self.popup and kind == QEvent.MouseButtonPress:
             point = self.launcher.mapFromGlobal(event.globalPosition().toPoint())
             if self.launcher.rect().contains(point):
                 # Qt closes an outside-clicked popup before replaying the press.
                 # The same press on our toggle must only close, never reopen it.
                 self.popup.setAttribute(Qt.WA_NoMouseReplay)
-        elif watched is self.popup and event.type() == QEvent.Hide:
+        elif watched is self.popup and kind == QEvent.Hide:
             self.launcher.setChecked(False)
             navigation = self.sidebar.navigation
             if navigation.active_button is self.launcher:
                 previous = self._before_center
                 navigation.activate(previous if previous in navigation.buttons() else navigation.follow_button)
-        elif watched is self.sidebar and event.type() in (QEvent.Hide, QEvent.Close, QEvent.Resize):
+        elif watched is self.sidebar and kind in (QEvent.Hide, QEvent.Close, QEvent.Resize):
             self.popup.hide()
-        elif event.type() in (QEvent.EnabledChange, QEvent.ActionChanged):
+        elif kind in (QEvent.EnabledChange, QEvent.ActionChanged):
             if any(widget is watched for _priority, widget in self.entries.values()):
                 self._sync_rows()
         return super().eventFilter(watched, event)
