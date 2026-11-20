@@ -97,7 +97,8 @@ const curve = '<svg class="curve" viewBox="0 0 100 40" aria-label="缩放曲线�
 const dialogExample = (trigger, title, body, action) => `<span class="vertical-demo">
   ${button(trigger, '', 'data-open-dialog')}
   <dialog class="draft-dialog" aria-label="${title}"><h4>${title}</h4>${body}
-    <form method="dialog" class="dialog-actions"><button class="btn" value="cancel">取消</button><button class="btn primary" value="apply">${action}</button></form>
+    <form method="dialog" class="dialog-actions"><button class="btn" value="cancel" data-dialog-action="cancel">取消</button>
+      <button class="btn" value="apply" data-dialog-action="confirm">${action}</button></form>
   </dialog>
 </span>`;
 const colorExample = dialogExample('选择颜色', '主题强调色',

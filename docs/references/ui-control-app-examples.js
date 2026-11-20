@@ -108,6 +108,8 @@ function labSkinScene(regions, scene) {
 function labAppExample(item, popupId, detail) {
   const b = (text, action, primary = false, glyph = '') =>
     labButton(text, glyph, glyph ? '' : text, `data-app-action="${action}"`, primary);
+  const dialogAction = (text, action, kind, attrs = '') =>
+    labButton(text, '', text, `data-app-action="${action}" data-dialog-action="${kind}" ${attrs}`);
   const avatar = (name, action, primary = false) =>
     labButton(name, '', name[0], `data-app-action="${action}" aria-pressed="false"`, primary);
   const field = (label, type = 'text', attrs = '') =>
@@ -187,7 +189,7 @@ function labAppExample(item, popupId, detail) {
         <div class="lab-app-choice">${labPresets.map(([color,label]) =>
           `<button type="button" class="lab-control lab-swatch-dot" style="--swatch:${color}" aria-label="${label}" data-app-action="folder-color" data-app-color="${color}"></button>`).join('')}</div>
         ${line('自定义颜色',field('图标颜色','color','value="#00a1d6" data-app-folder-color'))}
-        <div class="lab-qt-actions">${b('恢复默认','folder-reset')}${b('取消','cancel')}${b('保存','save')}</div>`)
+        <div class="lab-qt-actions">${b('恢复默认','folder-reset')}${dialogAction('取消','cancel','cancel')}${dialogAction('保存','save','confirm')}</div>`)
         + `<div class="lab-app-folder-preview"><span aria-hidden="true">${labIcon('folder')}</span><span>默认分组</span></div>`; break;
     case 'function-hub':
       html = popupButton('功能中心', `${sectionHead('功能中心',b('关闭功能中心','popup-close',false,'close'))}${searchBox('搜索功能、插件')}
@@ -211,7 +213,8 @@ function labAppExample(item, popupId, detail) {
     case 'room-preset':
       html = `<div class="lab-qt-preset-head"><small>保存布局、主播位置和每格声音</small>${b('保存当前组合…','open',true)}</div>
         <div class="lab-qt-preset-form" data-app-preset-form hidden>${line('组合名称',field('组合名称','text','placeholder="输入名称" data-app-value'))}
-        ${b('保存','save')}${b('取消','cancel')}</div><p class="lab-qt-preset-list" data-app-preset-list>尚未保存直播间组合</p>`; break;
+        <div class="lab-qt-actions">${dialogAction('取消','cancel','cancel')}${dialogAction('保存','save','confirm')}</div></div>
+        <p class="lab-qt-preset-list" data-app-preset-list>尚未保存直播间组合</p>`; break;
     case 'wall-remove':
       html = `<div class="lab-qt-portal">${sectionHead('移除画面')}<small>双画面 · 点击格子选择移除</small>
         <div class="lab-qt-removal-panes">${check('小岚 · 直播中',false,'data-app-pane')}${check('阿海 · 未开播',false,'data-app-pane data-app-offline')}</div>
@@ -264,7 +267,7 @@ function labAppExample(item, popupId, detail) {
       html = dialog('关闭窗口','关闭窗口', `<p>关闭窗口后，你希望程序如何运行？</p>
         <p class="lab-qt-hint">隐藏后的播放行为可在设置 → 托盘行为中调整，录制会继续运行。双击托盘图标可恢复窗口。</p>
         <div class="lab-qt-actions">${check('记住我的选择',false,'data-app-remember')}
-        ${labButton('隐藏到托盘','','隐藏到托盘','data-app-action="close-choice" data-lab-primary-tone autofocus')}${b('退出程序','close-choice')}</div>`); break;
+        ${dialogAction('退出程序','close-choice','cancel')}${dialogAction('隐藏到托盘','close-choice','confirm','autofocus')}</div>`); break;
     case 'cache-pie':
       html = `<div class="lab-app-cache"><button type="button" class="lab-control" data-primary data-app-action="cache-segment" aria-label="图片缓存占用饼图">
         <strong>100.0 MB</strong><small>合计</small></button><div>
@@ -323,7 +326,8 @@ function labAppExample(item, popupId, detail) {
         ${line('显示方式',select(['匹配时移入显示，不匹配时回到原处','保留原处，同时在智能文件夹显示'],'显示方式'))}
         ${line('开播状态',select(['开播','未开播','全部状态'],'开播状态'))}
         ${line('卡片排序',select(['自定义','常看优先'],'卡片排序'))}
-        <div class="lab-app-choice">${check('哔哩哔哩')}${check('虎牙')}${b('取消','cancel')}${b('保存','save')}</div>`); break;
+        <div class="lab-app-choice">${check('哔哩哔哩')}${check('虎牙')}</div>
+        <div class="lab-qt-actions">${dialogAction('取消','cancel','cancel')}${dialogAction('保存','save','confirm')}</div>`); break;
     case 'account-platform':
       html = `<div class="lab-app-choice lab-qt-platforms" role="group" aria-label="账号平台">
         ${[['B站','platform-bili'],['虎牙','platform-huya'],['斗鱼','platform-douyu']].map(([name,glyph],index) =>
@@ -381,7 +385,7 @@ function labAppExample(item, popupId, detail) {
         <strong>2. 官方获取渠道</strong><p>请通过项目官方发布页面获取软件及更新。</p>
         <strong>3. 第三方平台与插件</strong><p>本软件独立于第三方直播平台。登录和安装插件前请了解来源和权限。</p>
         <strong>4. 使用与反馈</strong><p>请遵守平台规则，尊重主播及其他权利人的权益。</p></div>
-        <div class="lab-qt-actions">${b('我已阅读并确认','notice-confirm')}</div>`); break;
+        <div class="lab-qt-actions">${dialogAction('我已阅读并确认','notice-confirm','confirm')}</div>`); break;
     case 'settings-material':
       html = `<div class="lab-qt-portal">${sectionHead('视觉效果')}
         ${toggle('启用毛玻璃效果',false,'data-app-glass')}<small class="lab-qt-hint">底色不透明度在开启时生效。</small>
@@ -393,7 +397,7 @@ function labAppExample(item, popupId, detail) {
         ${labChoice('设置分类', [['general','常规'],['appearance','外观']])}`; break;
     case 'plugin-remove':
       html = dialog('删除插件','删除这个插件？', `<p>将删除插件“示例插件”及其文件。<br>已加载的插件将在重启后停止运行。</p>
-        <div class="lab-qt-actions">${labButton('取消','','取消','data-app-action="cancel" autofocus')}${b('删除','delete')}</div>`);
+        <div class="lab-qt-actions">${dialogAction('取消','cancel','cancel','autofocus')}${dialogAction('删除','delete','confirm')}</div>`);
   }
   return `<div class="lab-app">${html}</div>`;
 }

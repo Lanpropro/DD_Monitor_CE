@@ -65,20 +65,28 @@ function labAdditionalExample(item, popupId) {
     case 'danmaku-color':
       sample = `${button('#FFFFFF', 'data-extra-color-open')}
         <dialog class="lab-color-dialog" aria-label="弹幕颜色">
-          <h3>弹幕颜色</h3><p>选择预设色，或用 RGB 和 HEX 微调。</p>
+          <h3>弹幕颜色</h3><p>选择预设色，或打开 RGB 色板自定义。</p>
           <div class="lab-color-preview">这是一条弹幕预览</div>
           <div class="lab-color-presets" role="group" aria-label="预设色"><span aria-hidden="true">预设色</span>
             <div class="lab-swatches">${labDanmakuColors.map(([color, label]) => `<button type="button"
               class="lab-control lab-swatch-dot" style="--swatch:${color}" data-extra-color-preset="${color}"
-              aria-label="${label}" title="${label} ${color}" aria-pressed="false"></button>`).join('')}</div>
+              aria-label="${label}" title="${label} ${color}" aria-pressed="false"></button>`).join('')}
+              <button type="button" class="lab-control lab-swatch-dot lab-color-custom" data-extra-color-board-toggle
+                aria-expanded="false" aria-controls="${popupId}-rgb" aria-label="自定义 RGB 色板" title="自定义 RGB 色板"></button>
+            </div>
+          </div>
+          <div id="${popupId}-rgb" class="lab-color-board" data-extra-color-board hidden>
+            <div class="lab-color-plane" data-extra-color-plane role="group" tabindex="0"
+              aria-label="饱和度和亮度，用方向键调整"><span></span></div>
+            <label class="lab-color-hue"><span>色相</span><input type="range" min="0" max="359" data-extra-color-hue></label>
           </div>
           ${['红 R', '绿 G', '蓝 B'].map((label, index) => `<label class="lab-extra-rgb"><span>${label}</span>
             <input type="range" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label}">
             <input type="number" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label} 数值">
           </label>`).join('')}
           <label class="lab-extra-rgb">HEX<input type="text" maxlength="7" aria-label="HEX 色值" data-extra-hex></label>
-          <div class="lab-color-actions">${labButton('取消', '', '取消', 'data-extra-cancel')}
-            ${labButton('确定', '', '确定', 'data-extra-apply')}</div>
+          <div class="lab-color-actions">${labButton('取消', '', '取消', 'data-extra-cancel data-dialog-action="cancel"')}
+            ${labButton('确定', '', '确定', 'data-extra-apply data-dialog-action="confirm"')}</div>
         </dialog>`;
       break;
     case 'scale-curve':
@@ -130,6 +138,74 @@ function labAdditionalExample(item, popupId) {
   return `<div class="lab-extended">${sample}</div>`;
 }
 
+function labBindColorBoard(dialog, updateColor) {
+  const panel = dialog.querySelector('[data-extra-color-board]');
+  const toggle = dialog.querySelector('[data-extra-color-board-toggle]');
+  const plane = panel.querySelector('[data-extra-color-plane]');
+  const hueInput = panel.querySelector('[data-extra-color-hue]');
+  let hue = 196;
+  let saturation = 0;
+  let brightness = 1;
+
+  function open(opened) {
+    panel.hidden = !opened;
+    toggle.setAttribute('aria-expanded', opened);
+  }
+  toggle.addEventListener('click', () => open(panel.hidden));
+
+  function paint() {
+    hueInput.value = Math.min(359, Math.round(hue));
+    plane.style.setProperty('--lab-board-hue', hue);
+    plane.style.setProperty('--lab-board-x', `${saturation * 100}%`);
+    plane.style.setProperty('--lab-board-y', `${(1 - brightness) * 100}%`);
+  }
+
+  function fromRgb(channels) {
+    const [r, g, b] = channels.map(channel => channel / 255);
+    brightness = Math.max(r, g, b);
+    const chroma = brightness - Math.min(r, g, b);
+    saturation = brightness ? chroma / brightness : 0;
+    if (chroma) {
+      const sector = brightness === r ? (g - b) / chroma : brightness === g ? 2 + (b - r) / chroma : 4 + (r - g) / chroma;
+      hue = (sector * 60 + 360) % 360;
+    }
+    paint();
+  }
+
+  function apply() {
+    paint();
+    const hex = [5, 3, 1].map(offset => {
+      const sector = (offset + hue / 60) % 6;
+      const level = brightness * (1 - saturation * Math.max(0, Math.min(sector, 4 - sector, 1)));
+      return Math.round(255 * level).toString(16).padStart(2, '0');
+    });
+    updateColor('#' + hex.join(''), true);
+  }
+
+  function pick(event) {
+    const bounds = plane.getBoundingClientRect();
+    saturation = galleryClamp((event.clientX - bounds.left) / bounds.width, 0, 1);
+    brightness = galleryClamp(1 - (event.clientY - bounds.top) / bounds.height, 0, 1);
+    apply();
+  }
+  plane.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0) return;
+    plane.setPointerCapture(event.pointerId);
+    pick(event);
+  });
+  plane.addEventListener('pointermove', event => { if (plane.hasPointerCapture(event.pointerId)) pick(event); });
+  plane.addEventListener('keydown', event => {
+    const offset = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowDown: [0, -1], ArrowUp: [0, 1] }[event.key];
+    if (!offset) return;
+    event.preventDefault();
+    saturation = galleryClamp(saturation + offset[0] * .02, 0, 1);
+    brightness = galleryClamp(brightness + offset[1] * .02, 0, 1);
+    apply();
+  });
+  hueInput.addEventListener('input', () => { hue = hueInput.valueAsNumber; apply(); });
+  return { open, fromRgb };
+}
+
 function labBindColorDialog(demo, report) {
   const dialog = demo.querySelector('dialog');
   const opener = demo.querySelector('[data-extra-color-open]');
@@ -138,22 +214,22 @@ function labBindColorDialog(demo, report) {
   const preview = dialog.querySelector('.lab-color-preview');
   const channels = [...dialog.querySelectorAll('[data-extra-channel]')];
   const presets = dialog.querySelectorAll('[data-extra-color-preset]');
+  const board = labBindColorBoard(dialog, sync);
   let applied = '#FFFFFF';
-  function sync(value) {
+  function sync(value, fromBoard = false) {
     value = value.toUpperCase();
-    const valid = /^#[0-9A-F]{6}$/i.test(value);
+    const valid = /^#[0-9A-F]{6}$/.test(value);
     hex.setAttribute('aria-invalid', !valid);
     confirm.disabled = !valid;
     presets.forEach(preset => preset.setAttribute('aria-pressed', valid && preset.dataset.extraColorPreset === value));
     if (!valid) return;
     hex.value = value;
-    channels.forEach(field => {
-      const index = Number(field.dataset.extraChannel) * 2 + 1;
-      field.value = parseInt(value.slice(index, index + 2), 16);
-    });
+    const rgb = value.slice(1).match(/../g).map(channel => parseInt(channel, 16));
+    channels.forEach(field => { field.value = rgb[Number(field.dataset.extraChannel)]; });
+    if (!fromBoard) board.fromRgb(rgb);
     preview.style.color = value;
   }
-  opener.onclick = () => { sync(applied); dialog.showModal(); };
+  opener.onclick = () => { sync(applied); board.open(false); dialog.showModal(); };
   presets.forEach(preset => preset.addEventListener('click', () => sync(preset.dataset.extraColorPreset)));
   dialog.querySelector('[data-extra-cancel]').onclick = () => dialog.close();
   confirm.onclick = () => {
@@ -265,16 +341,20 @@ function labBindAdditional(host, item, report) {
     if (!button) return;
     if (button.matches('[data-extra-refresh]')) {
       const started = performance.now();
-      const label = button.querySelector('.lab-label');
+      const glyph = button.querySelector('.lab-glyph');
+      const originalIcon = glyph.innerHTML;
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      label.textContent = '统计中…';
+      button.classList.add('lab-spinner');
+      glyph.innerHTML = labIcon('qt-reconnect');
       report('正在统计图片缓存…');
       window.setTimeout(() => {
         const elapsed = ((performance.now() - started) / 1000).toFixed(1);
+        if (!button.isConnected) return;
         button.disabled = false;
         button.removeAttribute('aria-busy');
-        label.textContent = '刷新统计';
+        button.classList.remove('lab-spinner');
+        glyph.innerHTML = originalIcon;
         report(`统计完成 · 24.8 MB · 耗时 ${elapsed} 秒`);
       }, 900);
     } else if (button.matches('[data-extra-disclosure]')) {
