@@ -464,6 +464,15 @@ def main():
         assert all(corner.isVisible() for corner in tile.video_corners)
         if app.platformName() == 'windows':
             assert not ctypes.windll.user32.GetWindowLongW(int(tile.bottom.winId()), -20) & 0x80000, 'Normal bar retained the fullscreen layered backing store'
+            get_owner = ctypes.windll.user32.GetWindow
+            get_owner.argtypes = (wintypes.HWND, wintypes.UINT)
+            get_owner.restype = wintypes.HWND
+            popup = QWidget(tile.bottom, Qt.Tool | Qt.FramelessWindowHint)
+            popup.setAttribute(Qt.WA_ShowWithoutActivating)
+            popup.move(-20000, -20000)
+            nested_popup = QWidget(popup, Qt.Tool | Qt.FramelessWindowHint)
+            nested_popup.setAttribute(Qt.WA_ShowWithoutActivating)
+            nested_popup.move(-20000, -20000)
             wall_windows = set(QApplication.topLevelWidgets())
             enter = window._fullscreen_presentation.enter
             sync_danmaku_controls = window.wall._sync_danmaku_controls
@@ -484,11 +493,17 @@ def main():
                     app.processEvents()
                     assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
                     assert tile.bottom.width() == tile.width()
+                    for current, owner in ((popup, tile.bottom), (nested_popup, popup)):
+                        current.show()
+                        assert get_owner(int(current.winId()), 4) == int(owner.winId()), (
+                            'A reused popup must belong to the current native owner')
                     tile.set_fullscreen_controls_hidden(True)
                     assert not tile.bottom.isVisible()
                     tile.set_fullscreen_controls_hidden(False)
                     assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
                     native_bar_image(tile.bottom)
+                    nested_popup.hide()
+                    popup.hide()
                     window._exit_fullscreen()
                     assert not [widget for widget in set(QApplication.topLevelWidgets()) - wall_windows
                                 if widget.parentWidget() is window and widget.isVisible()], (

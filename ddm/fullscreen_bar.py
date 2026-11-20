@@ -76,6 +76,8 @@ class FullscreenBar(QWidget):
         self.setProperty('customControlSurface', enabled)
         self.setAttribute(Qt.WA_StyledBackground, not enabled)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            if not enabled:
+                self._release_owned_windows()
             # Recreate this backing store (and its native input children) when
             # changing alpha modes; Qt can retain layered HWNDs after reparenting.
             self.destroy()
@@ -94,6 +96,23 @@ class FullscreenBar(QWidget):
         if restore_focus:
             focus.setFocus(Qt.OtherFocusReason)
         self.refresh_theme()
+
+    def _release_owned_windows(self):
+        # Qt keeps these widgets when the bar changes flags, but Windows drops
+        # their native owner when the old bar HWND is destroyed.
+        owner = self.windowHandle()
+        owned = []
+        for widget in self.findChildren(QWidget):
+            if not widget.isWindow() or not widget.internalWinId():
+                continue
+            parent = widget.windowHandle().transientParent()
+            while parent is not None and parent is not owner:
+                parent = parent.transientParent()
+            if parent is not None:
+                owned.append(widget)
+        for widget in reversed(owned):
+            widget.hide()
+            widget.destroy()
 
     def set_tile_geometry(self, x, y, width, height):
         self._tile_rect = QRect(x, y, width, height)
