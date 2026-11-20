@@ -344,11 +344,11 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   inset: 2px auto 2px 1px;
   width: calc(50% - 1px);
   background: radial-gradient(circle closest-side, #fff calc(100% - 1px), transparent);
-  transform: translateX(var(--lab-thumb-offset, 0%));
+  transform: translateX(var(--lab-thumb-offset, var(--lab-thumb-rest, 0%))) scaleX(var(--lab-thumb-stretch, 1));
   transition: transform var(--lab-motion, 120ms) ease-in-out;
 }
 .lab-switch input:checked + .lab-track { background: var(--lab-accent); }
-.lab-switch input:checked + .lab-track::after { transform: translateX(var(--lab-thumb-offset, 100%)); }
+.lab-switch input:checked + .lab-track::after { --lab-thumb-rest: 100%; }
 .lab-track[data-spring-thumb]::after { transition: none; }
 .lab-switch input:focus-visible + .lab-track { outline: 2px solid var(--lab-accent); outline-offset: 2px; }
 .lab-switch input:focus-visible + .lab-track::after { transition: none; }

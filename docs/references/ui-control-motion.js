@@ -84,13 +84,19 @@ class GalleryMotion {
   };
 }
 
-function galleryBindSwitch(input, getDuration) {
+function galleryBindSwitch(input, getDuration, stretchThumb = false) {
   const track = input.nextElementSibling;
   const offset = '--lab-thumb-offset';
+  const stretch = '--lab-thumb-stretch';
   track.dataset.springThumb = '';
   const motion = new GalleryMotion(track, Number(input.checked), position => {
-    if (position === Number(input.checked) && motion.velocity === 0) track.style.removeProperty(offset);
-    else track.style.setProperty(offset, `${galleryClamp(position, 0, 1) * 100}%`);
+    if (position === Number(input.checked) && motion.velocity === 0) {
+      track.style.removeProperty(offset);
+      track.style.removeProperty(stretch);
+    } else {
+      track.style.setProperty(offset, `${galleryClamp(position, 0, 1) * 100}%`);
+      if (stretchThumb) track.style.setProperty(stretch, 1 + Math.min(0.18, Math.abs(motion.velocity) * 0.025));
+    }
   });
   let pointer = false;
   input.addEventListener('click', event => { pointer = event.detail > 0; });

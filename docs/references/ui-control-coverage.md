@@ -16,7 +16,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 全部展开后的收起方式 | 常规 › 关注与预览 | 收起全部关注文件夹，或恢复本次全部展开前的状态。 | [settings_general.py](../../ddm/settings_general.py) | `#control-collapse` | 共同底板、两段选中块和恢复原状反馈。 |
 | 关注列表刷新间隔 | 常规 › 关注与预览 | 用加减按钮或数字输入调整轮询间隔，范围为 1–30 分钟。 | [settings_general.py](../../ddm/settings_general.py) | `#control-interval` | 一体底板、数字与单位、加减控件及 1–30 分钟边界。 |
-| 关注栏直播预览 | 常规 › 关注与预览 | 开启后，在关注栏的直播间上悬停会显示播放预览。 | [settings_general.py](../../ddm/settings_general.py) | `#control-preview` | 滑轨和滑块、即时状态、快速反向点选时的弹簧过渡、键盘切换。 |
+| 关注栏直播预览 | 常规 › 关注与预览 | 开启后，在关注栏的直播间上悬停会显示播放预览。 | [settings_general.py](../../ddm/settings_general.py) | `#control-preview` | 即时状态、默认 320 毫秒的弹簧滑动、滑块随速度轻微拉伸、键盘切换。 |
 | 新建格子的初始音量 | 常规 › 播放与声音 | 设置新建播放格使用的默认音量。 | [settings_general.py](../../ddm/settings_general.py) | `#control-initial-volume` | 实装滑轨位置、白色滑块和独立数值列。 |
 | 直播源格式 | 常规 › 编解码 | 选择直播流编码偏好，可选 H.264、HEVC 和 AV1。 | [settings_general.py](../../ddm/settings_general.py) | `#control-codec` | 三段底板、当前编码高亮、切换反馈。 |
 | 本机解码方式 | 常规 › 编解码 | 选择本机处理视频的方式，自动解码会优先使用可用的硬件。 | [settings_general.py](../../ddm/settings_general.py) | `#control-decoder` | 闭合边框、箭头、圆角下拉、悬停及当前项、键盘确认和取消。 |

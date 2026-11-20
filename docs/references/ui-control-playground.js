@@ -157,7 +157,7 @@ function labSetTheme(mode, slidingGroup = null) {
   labSyncColors();
 }
 
-const labMotionMilliseconds = id => ({ preview: 180, 'follow-card': 180, 'pip-composer': 260 }[id] ?? 120);
+const labMotionMilliseconds = id => ({ preview: 320, 'follow-card': 180, 'pip-composer': 260 }[id] ?? 120);
 
 function labMount(host, item) {
   const { id, width, height, radius } = item;
@@ -182,7 +182,8 @@ function labMount(host, item) {
     </div>` : ''}`;
   const fieldset = host.querySelector('fieldset');
   fieldset.querySelectorAll('.lab-switch input[role=switch]').forEach(input => {
-    galleryBindSwitch(input, () => parseFloat(host.style.getPropertyValue('--lab-motion') || labMotionMilliseconds(id)) / 1000);
+    const duration = () => parseFloat(host.style.getPropertyValue('--lab-motion') || labMotionMilliseconds(id)) / 1000;
+    galleryBindSwitch(input, duration, id === 'preview');
   });
   if (!fieldset.querySelector('[data-primary]')) {
     const first = fieldset.querySelector('button, input, select, textarea, [tabindex]');
