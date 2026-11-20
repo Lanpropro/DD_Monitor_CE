@@ -13,7 +13,7 @@ const labApplicationControls = [
   ['room-preset', '保存直播间组合', '布局预设 › 我的组合', 232, 'room_presets_ui.py', '输入组合名并试用保存、取消及反馈。'],
   ['wall-remove', '移除画面选择', '画面墙 › 清空画面墙', 243, 'wall_removal.py', '选择未开播或全部直播，移除后可撤回。'],
   ['wall-quick', '画面墙全局设置', '画面墙 › 全局设置', 232, 'wall_quick_settings.py', '调整全局音量、画质、画面弹幕和弹幕浮窗。'],
-  ['pip-composer', '画中画组合预览', '画中画 › 选择画面组合', 224, 'pip_preview.py', '调整示例组合列数，并选择主画面。'],
+  ['pip-composer', '画中画组合预览', '画中画 › 选择画面组合', 224, 'pip_preview.py', '切换组合列数，点击选择主画面，或拖到高亮位置换位。键盘可用 Alt + ↑ / ↓。'],
   ['pip-tools', '画中画工具栏', '画中画 › 悬停工具栏', 174, 'pip_window.py', '检查组合、调整位置、置顶、返回和关闭的反馈。'],
   ['pip-audio', '画中画单路音量', '画中画 › 多路音量', 203, 'picture_in_picture_audio.py', '查看主播名，切换静音并调整音量。'],
   ['volume-popup', '窄格音量浮层', '播放格 › 窄幅底栏', 104, 'playback_controls.py', '悬停或点击扬声器，试用竖向滑块。'],
@@ -139,7 +139,8 @@ function labAppExample(item, popupId, detail) {
   const searchBox = label => field(label, 'search', `placeholder="${label}" data-app-search data-primary`);
   const panes = (count, selectAction = '') => `<div class="lab-app-panes" style="--pane-columns:${count === 4 ? 2 : count}">
     ${Array.from({length:count}, (_, i) => selectAction
-      ? `<button class="lab-control" type="button" draggable="true" data-app-action="${selectAction}" aria-pressed="${i === 0}">${['小岚','阿海','星河','画面 4'][i]}</button>`
+      ? `<button class="lab-control" type="button" data-app-action="${selectAction}" aria-pressed="${i === 0}"
+        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown">${['小岚','阿海','星河','画面 4'][i]}</button>`
       : '<span></span>').join('')}</div>`;
   let html;
   switch (item.id) {
@@ -400,13 +401,11 @@ function labBindApplication(host, item, report, paintIcon) {
   const demo = host.querySelector('.lab-app');
   const select = selector => demo.querySelector(selector);
   const all = selector => [...demo.querySelectorAll(selector)];
+  const motionDuration = fallback => parseFloat(host.style.getPropertyValue('--lab-motion') || fallback) / 1000;
   const followOrder = select('.lab-follow-order');
-  if (followOrder) {
-    galleryBindFollowOrder(followOrder, () => {
-      const duration = host.style.getPropertyValue('--lab-motion');
-      return duration ? parseFloat(duration) / 1000 : 0.18;
-    }, report);
-  }
+  if (followOrder) galleryBindFollowOrder(followOrder, () => motionDuration(180), report);
+  const resetPipMotion = item.id === 'pip-composer'
+    ? galleryBindPaneSwap(select('.lab-app-panes'), () => motionDuration(260), report) : null;
   const toggle = button => {
     const selected = button.getAttribute('aria-pressed') !== 'true';
     button.setAttribute('aria-pressed', selected);
@@ -739,24 +738,16 @@ function labBindApplication(host, item, report, paintIcon) {
   });
 
   demo.addEventListener('dragstart', event => {
-    dragged = event.target.closest('.lab-app-order-row,[data-app-action=pip-primary]');
+    dragged = event.target.closest('.lab-app-order-row');
     if (dragged) event.dataTransfer.setData('text/plain', dragged.textContent.trim());
   });
   demo.addEventListener('dragover', event => {
-    if (dragged && event.target.closest('.lab-app-order-row,[data-app-action=pip-primary]')) event.preventDefault();
+    if (dragged && event.target.closest('.lab-app-order-row')) event.preventDefault();
   });
   demo.addEventListener('drop', event => {
-    const target = event.target.closest('.lab-app-order-row,[data-app-action=pip-primary]');
+    const target = event.target.closest('.lab-app-order-row');
     if (!dragged || !target) return;
     event.preventDefault();
-    if (target.matches('[data-app-action=pip-primary]')) {
-      if (dragged === target) return;
-      const order = [...target.parentElement.children];
-      [order[order.indexOf(dragged)], order[order.indexOf(target)]] = [target, dragged];
-      target.parentElement.append(...order);
-      report('已交换画面位置');
-      return;
-    }
     move(dragged, target, event.clientY > target.getBoundingClientRect().y + target.offsetHeight / 2);
   });
   demo.addEventListener('dragend', () => { dragged = null; });
@@ -784,7 +775,10 @@ function labBindApplication(host, item, report, paintIcon) {
           card.setAttribute('aria-pressed',select('[data-app-layout-current]').textContent === '当前：' + name);
         });
       }
-      if (selection === 'pip-columns') select('.lab-app-panes').style.setProperty('--pane-columns', label === '一列' ? 1 : 2);
+      if (selection === 'pip-columns') {
+        resetPipMotion();
+        select('.lab-app-panes').style.setProperty('--pane-columns', label === '一列' ? 1 : 2);
+      }
       if (selection === 'skin') {
         if (label === '导入背景') select('[data-app-skin]').click();
         else {

@@ -344,7 +344,7 @@ const labNumberFields = item => [
   ...(labSegmentIds.includes(item.id) ? [
     ['duration', '弹簧响应时长（秒）', 0, 2, gallerySpringDefaults.duration, 0.01],
     ['bounce', '弹性（bounce）', 0, 0.9, gallerySpringDefaults.bounce, 0.01],
-  ] : [['motion', '动效时长 (ms)', 0, 500, item.id === 'follow-card' ? 180 : 120]]),
+  ] : [['motion', '动效时长 (ms)', 0, 500, { 'follow-card': 180, 'pip-composer': 260 }[item.id] ?? 120]]),
 ];
 
 function labRenderDetail(item) {

@@ -84,7 +84,7 @@
 | 保存直播间组合 | 布局预设 › 我的组合 | 输入组合名并试用保存、取消及反馈。 | [room_presets_ui.py](../../ddm/room_presets_ui.py) | `#control-room-preset` | 行内命名表单、键盘确认／取消及保存反馈。 |
 | 移除画面选择 | 画面墙 › 清空画面墙 | 选择未开播或全部直播，移除后可撤回。 | [wall_removal.py](../../ddm/wall_removal.py) | `#control-wall-remove` | 带当前布局的面板、选择范围、数量、移除及撤回。 |
 | 画面墙全局设置 | 画面墙 › 全局设置 | 调整全局音量、画质、画面弹幕和弹幕浮窗。 | [wall_quick_settings.py](../../ddm/wall_quick_settings.py) | `#control-wall-quick` | 统一底板和四行参数，滑块与画质、弹幕开关联动。 |
-| 画中画组合预览 | 画中画 › 选择画面组合 | 调整示例组合列数，并选择主画面。 | [pip_preview.py](../../ddm/pip_preview.py) | `#control-pip-composer` | 组合格子、列数、主画面状态和拖动换位。 |
+| 画中画组合预览 | 画中画 › 选择画面组合 | 调整列数、选择主画面，或拖到高亮位置换位。 | [pip_preview.py](../../ddm/pip_preview.py) | `#control-pip-composer` | 组合格子、主画面状态、落点高亮、可中断的弹簧吸附。 |
 | 画中画工具栏 | 画中画 › 悬停工具栏 | 检查组合、调整位置、置顶、返回和关闭的反馈。 | [pip_window.py](../../ddm/pip_window.py) | `#control-pip-tools` | 实装五个圆形工具位和置顶／位置切换。 |
 | 画中画单路音量 | 画中画 › 多路音量 | 查看主播名，切换静音并调整音量。 | [picture_in_picture_audio.py](../../ddm/picture_in_picture_audio.py) | `#control-pip-audio` | 主播头像、声道图标、静音、滑块及百分比。 |
 | 窄格音量浮层 | 播放格 › 窄幅底栏 | 悬停或点击扬声器，试用竖向滑块。 | [playback_controls.py](../../ddm/playback_controls.py) | `#control-volume-popup` | 窄格按钮、悬停弹层和纵向滑块。 |

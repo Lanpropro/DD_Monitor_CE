@@ -84,7 +84,7 @@ class GalleryMotion {
   };
 }
 
-function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 4, axis = 'x' }) {
+function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 4, axis = 'x', grabOnPress = false }) {
   let gesture;
   let suppressClick = false;
   const point = event => ({ x: event.clientX, y: event.clientY, time: event.timeStamp });
@@ -95,7 +95,7 @@ function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 
     const origin = point(event);
     gesture = { id: event.pointerId, origin, last: origin, vx: 0, vy: 0, moved: false };
     event.target.closest('button').setPointerCapture(event.pointerId);
-    if (threshold === 0) grab(event);
+    if (grabOnPress || threshold === 0) grab(event);
   });
 
   function update(event) {
@@ -103,8 +103,9 @@ function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 
     const next = point(event);
     const dx = next.x - gesture.origin.x;
     const dy = next.y - gesture.origin.y;
-    if (!gesture.moved && (threshold ? Math.abs(axis === 'y' ? dy : dx) < threshold : dx === 0 && dy === 0)) return;
-    if (!gesture.moved && threshold) grab(event);
+    const distance = axis === 'both' ? Math.hypot(dx, dy) : Math.abs(axis === 'y' ? dy : dx);
+    if (!gesture.moved && (threshold ? distance < threshold : dx === 0 && dy === 0)) return;
+    if (!gesture.moved && threshold && !grabOnPress) grab(event);
     gesture.moved = true;
     const dt = Math.max(0.008, (next.time - gesture.last.time) / 1000);
     gesture.vx = (next.x - gesture.last.x) / dt;
@@ -120,10 +121,10 @@ function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 
     const { last, moved, vx, vy } = gesture;
     gesture = undefined;
     suppressClick = moved;
-    if (!moved && threshold) return;
+    if (!moved && threshold && !grabOnPress) return;
     const age = Math.max(0, (event.timeStamp - last.time) / 1000);
     const decay = cancelled || age > 0.1 ? 0 : Math.exp(-20 * age);
-    release(vx * decay, vy * decay, cancelled);
+    release(vx * decay, vy * decay, cancelled, moved);
   }
 
   element.addEventListener('pointermove', update);
@@ -232,6 +233,126 @@ function galleryBindFollowOrder(list, getDuration, report) {
       reorder(rows, source, target);
     }
   });
+}
+
+function galleryBindPaneSwap(grid, getDuration, report) {
+  const unit = 100;
+  const position = pane => [pane.offsetLeft, pane.offsetTop];
+  const motions = new Map([...grid.children].map(pane => {
+    const paint = () => {
+      pane.style.transform = `translate(${x.position * unit}px, ${y.position * unit}px)`;
+    };
+    const x = new GalleryMotion(pane, 0, paint);
+    const y = new GalleryMotion(pane, 0, paint);
+    return [pane, [x, y]];
+  }));
+  let drag;
+
+  function swap(source, target) {
+    const order = [...grid.children];
+    const from = order.indexOf(source), to = order.indexOf(target);
+    [order[from], order[to]] = [order[to], order[from]];
+    grid.append(...order);
+    source.focus({ preventScroll: true });
+    report('已交换画面位置');
+  }
+
+  function finish(vx, vy, cancelled, moved) {
+    if (!drag) return;
+    const { source, target, settings } = drag;
+    if (target) delete target.dataset.pipDrop;
+    delete grid.dataset.pipTarget;
+    delete source.dataset.pipDragging;
+    drag = null;
+    const destination = moved && !cancelled ? target : null;
+    const affected = destination ? [source, destination] : [source];
+    const before = affected.map(position);
+    if (destination) swap(source, destination);
+    const after = affected.map(position);
+    if (moved) {
+      const speeds = destination ? [vx, vy] : [0, 0];
+      motions.get(source).forEach((axis, i) => { axis.velocity = galleryClamp(speeds[i] / unit, -8, 8); });
+    }
+    affected.forEach((pane, index) => {
+      const axes = motions.get(pane);
+      axes.forEach((axis, i) => {
+        axis.position += (before[index][i] - after[index][i]) / unit;
+      });
+      axes[0].paint();
+      axes.forEach(axis => axis.spring(0, settings));
+    });
+  }
+
+  function cancel() {
+    if (!drag) return;
+    const { source, pointer } = drag;
+    finish(0, 0, true, true);
+    if (source.hasPointerCapture(pointer)) source.releasePointerCapture(pointer);
+  }
+
+  galleryTrackDrag(grid, {
+    axis: 'both',
+    grabOnPress: true,
+    canStart: event => Boolean(event.target.closest('button:enabled')),
+    grab: event => {
+      const source = event.target.closest('button');
+      const bounds = grid.getBoundingClientRect();
+      const axes = motions.get(source);
+      axes.forEach(axis => axis.pause());
+      drag = {
+        source, pointer: event.pointerId,
+        x: event.clientX - bounds.left - grid.clientLeft,
+        y: event.clientY - bounds.top - grid.clientTop,
+        start: axes.map(axis => axis.position),
+        slots: [...grid.children].filter(pane => pane !== source).map(pane => {
+          const [left, top] = position(pane);
+          return { pane, left, top, right: left + pane.offsetWidth, bottom: top + pane.offsetHeight };
+        }),
+        settings: { duration: getDuration(), bounce: 0.08 },
+      };
+    },
+    move: (dx, dy) => {
+      if (!drag) return;
+      const { source, start, slots, x, y } = drag;
+      source.dataset.pipDragging = '';
+      motions.get(source).forEach((axis, i) => axis.place(start[i] + (i ? dy : dx) / unit));
+      const pointerX = x + dx, pointerY = y + dy;
+      const slot = slots.find(slot => pointerX >= slot.left && pointerX < slot.right
+        && pointerY >= slot.top && pointerY < slot.bottom);
+      const target = slot?.pane;
+      if (target === drag.target) return;
+      if (drag.target) delete drag.target.dataset.pipDrop;
+      if (target) {
+        target.dataset.pipDrop = '';
+        grid.style.setProperty('--pip-drop-inset', `${slot.top}px auto auto ${slot.left}px`);
+        grid.style.setProperty('--pip-drop-width', `${slot.right - slot.left}px`);
+        grid.style.setProperty('--pip-drop-height', `${slot.bottom - slot.top}px`);
+        grid.dataset.pipTarget = '';
+      } else delete grid.dataset.pipTarget;
+      drag.target = target;
+    },
+    release: finish,
+  });
+
+  const reset = () => {
+    cancel();
+    motions.forEach(axes => axes.forEach(axis => axis.place(0)));
+  };
+  grid.addEventListener('keydown', event => {
+    const source = event.target.closest('button');
+    if (event.key === 'Escape' && drag) {
+      event.preventDefault();
+      cancel();
+    } else if (source && !drag && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+      event.preventDefault();
+      const target = event.key === 'ArrowDown' ? source.nextElementSibling : source.previousElementSibling;
+      if (target) {
+        reset();
+        swap(source, target);
+      }
+    }
+  });
+  return reset;
 }
 
 const gallerySegments = new WeakMap();

@@ -933,8 +933,18 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
 .lab-qt-removal-panes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; }
 .lab-qt-removal-panes label { padding: 4px; border: 1px solid var(--lab-line); border-radius: var(--lab-radius); }
 .lab-qt-removal-panes label:has(input:checked) { background: color-mix(in srgb,var(--lab-accent) 16%,transparent); border-color: var(--lab-accent); }
-[data-lab-demo=pip-composer] .lab-app-panes { padding: 14px 7px; border: 1px solid var(--lab-line); border-radius: var(--lab-radius); }
-[data-lab-demo=pip-composer] .lab-app-panes button { min-height: 41px; cursor: grab; }
+[data-lab-demo=pip-composer] .lab-app-panes {
+  position: relative; overflow: clip; padding: 14px 7px; border: 1px solid var(--lab-line); border-radius: var(--lab-radius);
+}
+[data-lab-demo=pip-composer] .lab-app-panes button {
+  min-height: 41px; cursor: grab; touch-action: none; user-select: none; transition: none;
+}
+[data-lab-demo=pip-composer] .lab-app-panes [data-pip-dragging] { z-index: 1; opacity: .88; cursor: grabbing; }
+[data-lab-demo=pip-composer] .lab-app-panes[data-pip-target]::after {
+  content: ''; position: absolute; z-index: 2; pointer-events: none;
+  inset: var(--pip-drop-inset); width: var(--pip-drop-width); height: var(--pip-drop-height);
+  box-sizing: border-box; border: 2px solid var(--lab-accent); border-radius: 3px;
+}
 .lab-qt-audio-row { flex-wrap: nowrap; }
 .lab-qt-audio-row .lab-app-avatar { background: #4c6ef5; }
 .lab-qt-audio-row button { border-color: transparent; background: var(--lab-audio-button-bg,transparent); }
