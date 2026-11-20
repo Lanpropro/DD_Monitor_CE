@@ -78,8 +78,9 @@ class FunctionalModulesTests(unittest.TestCase):
         from ddm.tile_widgets import Tile
         tile = Tile({'room_id': 'fixture:1', 'uname': 'Fixture'})
         self.widgets.append(tile)
-        for name in ('state_control', 'controls_control', 'presentation_control', 'menu_control'):
+        for name in ('controls_control', 'presentation_control', 'menu_control'):
             self.assertEqual(vars(getattr(tile, name)), {'host': tile})
+        self.assertEqual(vars(tile.state_control), {'host': tile, 'source_resolution': ''})
         changes = []
         tile.volumeChanged.connect(lambda room, value: changes.append(value))
         tile.set_volume(27)
@@ -87,7 +88,11 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertEqual(changes, [27])
         self.assertIs(tile.video.parentWidget(), tile)
         self.assertIs(tile._control_hover_timer.parent(), tile)
+        tile.set_quality_options([{'qn': 0, 'desc': '源自适应'}])
+        tile.state_control.set_source_resolution('1920×1080')
+        self.assertEqual(tile.state_control.source_resolution, '1920×1080')
         tile.set_room({'room_id': 'fixture:2', 'uname': 'Other'})
+        self.assertEqual(tile.state_control.source_resolution, '')
         self.assertEqual(tile.volume, 27)
         menu = tile.build_menu()
         self.assertIs(menu.parentWidget(), tile)
