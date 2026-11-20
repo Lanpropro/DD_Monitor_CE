@@ -100,32 +100,36 @@ class ImportPlatformTabs(QWidget):
 
 
 class AccountImportBar(QWidget):
-    """Compact import header; AccountPlatformDialog owns account and platform state."""
+    """Compact platform header; AccountPlatformDialog owns account and platform state."""
 
-    def __init__(self, platforms, parent=None):
+    def __init__(self, platforms, parent=None, *, login_only=False):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(8)
+        title = '登录' if login_only else '导入关注'
         self.titlebar = SettingsTitleBar(parent)
         self.titlebar.setMinimumHeight(38)
         self.titlebar.row.setContentsMargins(0, 0, 0, 0)
         self.titlebar.row.setSpacing(8)
-        self.titlebar.breadcrumb.setText('导入关注')
-        self.titlebar.close_button.setAccessibleName('关闭导入关注')
-        self.titlebar.close_button.setToolTip('关闭导入关注')
-        self.account = AccountRow(self)
-        self.account.setObjectName('ImportAccount')
-        self.account.setStyleSheet('QFrame#ImportAccount {background:transparent; border:none;}')
-        self.account.setMinimumWidth(0)
-        self.account.setCursor(Qt.ArrowCursor)
-        self.refresh = RefreshButton(self, size=30, object_name='IconButton')
-        self.refresh.setAccessibleName('刷新关注列表')
-        self.refresh.setToolTip('重新读取当前平台关注')
-        self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.account)
-        self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.refresh)
+        self.titlebar.breadcrumb.setText(title)
+        self.titlebar.close_button.setAccessibleName('关闭' + title)
+        self.titlebar.close_button.setToolTip('关闭' + title)
+        if not login_only:
+            self.account = AccountRow(self)
+            self.account.setObjectName('ImportAccount')
+            self.account.setStyleSheet('QFrame#ImportAccount {background:transparent; border:none;}')
+            self.account.setMinimumWidth(0)
+            self.account.setCursor(Qt.ArrowCursor)
+            self.refresh = RefreshButton(self, size=30, object_name='IconButton')
+            self.refresh.setAccessibleName('刷新关注列表')
+            self.refresh.setToolTip('重新读取当前平台关注')
+            self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.account)
+            self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.refresh)
         layout.addWidget(self.titlebar)
         self.platform = ImportPlatformTabs(platforms, self)
+        if login_only:
+            self.platform.more.setAccessibleName('其他登录平台')
         layout.addWidget(self.platform)
 
     def set_account(self, account, kind):

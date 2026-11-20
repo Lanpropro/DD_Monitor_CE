@@ -8,9 +8,11 @@ import requests
 from PySide6.QtCore import QByteArray, QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtNetwork import QNetworkCookie
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QHBoxLayout, QLabel,
-                              QPushButton, QVBoxLayout)
+                              QVBoxLayout)
 
+from . import theme
 from .account_store import AccountStore
+from .ui import ActionButton, ToggleSwitch
 
 from .platform_profiles import (_profiles, clear_platform_login)
 
@@ -57,22 +59,32 @@ class PlatformFollowDialog(QDialog):
         layout = QVBoxLayout(self)
         self.status = QLabel("请在官方页面完成登录，然后点击「确认登录」" if login_only else
                              "请在官方页面完成登录，然后点击「读取关注」")
+        self.status.setWordWrap(True)
         layout.addWidget(self.status)
         toolbar = QHBoxLayout()
-        self.remember = QCheckBox("记住登录（本机加密保存）")
+        remember_label = "记住登录（本机加密保存）"
+        if login_only:
+            self.remember = ToggleSwitch(remember_label, self)
+            label = QLabel(remember_label, self)
+            label.setWordWrap(True)
+            label.setBuddy(self.remember)
+            remember_row = QHBoxLayout()
+            remember_row.addWidget(label, 1)
+            remember_row.addWidget(self.remember)
+            layout.addLayout(remember_row)
+        else:
+            self.remember = QCheckBox(remember_label, self)
+            toolbar.addWidget(self.remember)
         self.remember.setChecked(True)
-        toolbar.addWidget(self.remember)
         toolbar.addStretch(1)
-        self.forget_button = QPushButton("退出账号")
-        self.forget_button.setObjectName("IconButton")
+        self.forget_button = ActionButton("退出账号", self)
         self.forget_button.clicked.connect(self._forget)
         toolbar.addWidget(self.forget_button)
-        self.read_button = QPushButton("确认登录" if login_only else "读取关注")
+        self.read_button = ActionButton("确认登录" if login_only else "读取关注", self)
         self.read_button.setObjectName("PrimaryButton")
         self.read_button.clicked.connect(self._read)
         toolbar.addWidget(self.read_button)
-        cancel = QPushButton("取消")
-        cancel.setObjectName("IconButton")
+        cancel = ActionButton("取消", self)
         cancel.clicked.connect(self.reject)
         toolbar.addWidget(cancel)
         layout.addLayout(toolbar)
@@ -87,6 +99,8 @@ class PlatformFollowDialog(QDialog):
         self._store.cookieAdded.connect(self._on_cookie)
         self._store.cookieRemoved.connect(self._on_cookie_removed)
         self.browser.setPage(QWebEnginePage(profile, self.browser))
+        if login_only:
+            self.browser.page().setBackgroundColor(theme.qcolor(theme.BG))
         if getattr(platform, "follow_browser_init_script", ""):
             script = QWebEngineScript()
             script.setName("ddm-follow-list")
