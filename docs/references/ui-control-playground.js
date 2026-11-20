@@ -272,12 +272,13 @@ function labMount(host, item) {
 
   host.onkeydown = event => {
     const group = event.target.closest('.lab-choice');
-    if (!group || !['ArrowLeft','ArrowRight'].includes(event.key)) return;
+    const directions = id === 'plugin-tabs' ? ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight'];
+    if (!group || !directions.includes(event.key)) return;
     const buttons = [...group.querySelectorAll('button:enabled')];
     const index = buttons.indexOf(event.target);
     if (index === -1) return;
     event.preventDefault();
-    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const offset = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
     const next = buttons[(index + offset + buttons.length) % buttons.length];
     next.focus();
     next.click();
@@ -288,6 +289,7 @@ function labMount(host, item) {
     const group = clicked.closest('.lab-choice');
     if (id === 'theme') labSetTheme(value, pointer ? group : null);
     else if (group) gallerySelectSegment(group, clicked, pointer);
+    if (id === 'plugin-tabs') host.querySelector('[data-extra-content]').textContent = value;
     if (id === 'palette') {
       host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
       const surface = host.querySelector('.lab-controls');
@@ -352,7 +354,7 @@ const labPaintFields = [
   ['ink', '文字／图标色', '--lab-ink'], ['hover', '悬停底色', '--lab-hover'],
 ];
 const labExtraSurface = {
-  collapse: '--lab-segment', codec: '--lab-segment', theme: '--lab-segment', 'settings-material': '--lab-segment',
+  collapse: '--lab-segment', codec: '--lab-segment', theme: '--lab-segment', 'settings-material': '--lab-segment', 'plugin-tabs': '--lab-segment',
   decoder: '--lab-picker-bg', quality: '--lab-menu', danmaku: '--lab-menu',
   'initial-volume': '--lab-track-bg', volume: '--lab-track-bg', 'pip-audio': '--lab-audio-button-bg',
 };
@@ -372,7 +374,7 @@ const labStates = [['live', '实时操作'], ['hover', '悬停'], ['pressed', '�
 const labIcons = [['default', '控件默认'], ['none', '隐藏图标'], ['settings', '齿轮'], ['check', '勾选'],
   ['volume', '扬声器'], ['pause', '暂停'], ['refresh', '刷新'], ['close', '关闭']];
 const labOptions = items => items.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
-const labSegmentIds = ['collapse', 'codec', 'theme', 'settings-material'];
+const labSegmentIds = ['collapse', 'codec', 'theme', 'settings-material', 'plugin-tabs'];
 const labNumberFields = item => [
   ['width', '宽度 (px)', 26, 340, item.width],
   ['height', '高度 (px)', 18, 58, item.height],

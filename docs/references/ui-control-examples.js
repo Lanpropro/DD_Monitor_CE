@@ -5,7 +5,7 @@ const labAdditionalControls = [
   ['plugin-disclosure', '插件详情展开条', '插件 › 插件商店', 90, 34, 8, 'ddm/plugin_store_ui.py', '展开插件卡片的说明和作者信息。'],
   ['danmaku-font', '弹幕字体', '弹幕 › 弹幕字体与记录', 180, 34, 8, 'ddm/settings_danmaku.py', '输入字体名称后选择。试样使用几种 Windows 本地字体。'],
   ['danmaku-color', '弹幕颜色', '播放格 › 弹幕观看设置', 188, 34, 17, 'ddm/ui/color_dialog.py', '选择预设色，或用 RGB 和 HEX 微调，确认后应用。'],
-  ['scale-curve', '弹幕缩放曲线', '弹幕 › 画面弹幕缩放', 266, 34, 8, 'ddm/ui/scale_curve.py', '拖动节点调整比例。720 px 对应 100%，保持固定。'],
+  ['scale-curve', '弹幕缩放曲线', '弹幕 › 画面弹幕缩放', 300, 34, 8, 'ddm/ui/scale_curve.py', '悬停或拖动节点可查看高度和比例。720 px 对应 100%，保持固定。'],
   ['plugin-tabs', '插件页签', '插件 › 已安装／插件商店', 175, 34, 17, 'ddm/settings_plugins.py', '在已安装与插件商店之间切换。'],
   ['settings-nav', '设置分类与页头', '设置 › 左侧分类', 246, 30, 8, 'ddm/settings_navigation.py', '切换分类，查看页面标题、说明和分组面板。'],
   ['sidebar-toggle', '收起／展开关注栏', '关注栏 › 顶部', 30, 26, 8, 'ddm/sidebar_widgets.py', '横屏下点击在「«」和「»」之间切换。'],
@@ -90,11 +90,14 @@ function labAdditionalExample(item, popupId) {
         </dialog>`;
       break;
     case 'scale-curve':
-      sample = `<svg class="lab-curve-graph" viewBox="0 0 272 126" aria-label="画面高度与相对大小">
+      sample = `<svg class="lab-curve-graph" viewBox="0 -15 272 141" aria-label="画面高度与相对大小">
         <rect x="31" y="7" width="224" height="96" rx="3"></rect>
-        <path class="lab-curve-grid" d="M31 31H255M31 55H255M31 79H255M87 7V103M143 7V103M199 7V103"></path>
-        <text x="2" y="12">200%</text><text x="2" y="58">100%</text><text x="31" y="119">0</text>
+        <path class="lab-curve-grid" d="M31 31H255M31 79H255M87 7V103M143 7V103M199 7V103"></path>
+        <path class="lab-curve-baseline" d="M31 55H255"></path>
+        <path class="lab-curve-guides" aria-hidden="true" hidden></path>
+        <text x="2" y="12">200%</text><text x="2" y="58">100%</text><text x="12" y="103">0%</text><text x="31" y="119">0</text>
         <text x="131" y="119">720</text><text x="224" y="119">1440 px</text>
+        <text class="lab-curve-readout" x="255" y="-2" text-anchor="end" aria-hidden="true" hidden></text>
         <polyline class="lab-curve-line"></polyline>
         ${labCurveDefault().map(([x], index) => `<circle data-extra-point="${index}" r="4"
           ${x === 720 ? 'class="fixed"' : 'tabindex="0" role="slider" aria-valuemin="10" aria-valuemax="200"'}
@@ -102,7 +105,8 @@ function labAdditionalExample(item, popupId) {
         </svg><div class="lab-curve-footer"><output data-extra-curve-value></output>${button('重置曲线','data-extra-curve-reset')}</div>`;
       break;
     case 'plugin-tabs':
-      sample = choices([['已安装', '已安装插件'], ['插件商店', '浏览插件商店']], '<p class="lab-extra-copy" data-extra-content>已安装插件</p>');
+      sample = labChoice(title, [['已安装插件', '已安装'], ['浏览插件商店', '插件商店']])
+        + '<p class="lab-extra-copy" data-extra-content>已安装插件</p>';
       break;
     case 'settings-nav':
       sample = `<div class="lab-mini-settings"><div class="lab-mini-nav">
@@ -251,42 +255,83 @@ function labBindColorDialog(demo, report) {
 
 function labBindCurve(demo, report) {
   const graph = demo.querySelector('svg');
+  const points = [...graph.querySelectorAll('[data-extra-point]')];
+  const readout = graph.querySelector('.lab-curve-readout');
+  const guides = graph.querySelector('.lab-curve-guides');
   let values = labCurveDefault();
   let movingPoint = null;
+  let hoveredPoint = null;
+  let selectedPoint = null;
+
+  function showReadout() {
+    const index = movingPoint ?? hoveredPoint ?? selectedPoint;
+    readout.toggleAttribute('hidden', index == null);
+    guides.toggleAttribute('hidden', index == null);
+    points.forEach((point, i) => point.toggleAttribute('data-active', i === index));
+    if (index == null) return;
+    const point = points[index];
+    const x = point.getAttribute('cx'), y = point.getAttribute('cy');
+    guides.setAttribute('d', `M${x} 7V103M31 ${y}H255`);
+    readout.textContent = point.getAttribute('aria-valuetext');
+  }
+
   function update(index, value) {
     if (index != null) {
       values[index][1] = Math.min(200, Math.max(10, Math.round(value)));
-      report(values[index][0] + ' px · ' + values[index][1] + '%');
     }
-    const points = values.map(([x, y]) => [31 + x / 1440 * 224, 103 - y / 200 * 96]);
-    graph.querySelector('polyline').setAttribute('points', points.map(point => point.join(',')).join(' '));
-    graph.querySelectorAll('circle').forEach((point, i) => {
-      point.setAttribute('cx', points[i][0]);
-      point.setAttribute('cy', points[i][1]);
+    const coordinates = values.map(([x, y]) => [31 + x / 1440 * 224, 103 - y / 200 * 96]);
+    graph.querySelector('polyline').setAttribute('points', coordinates.map(point => point.join(',')).join(' '));
+    points.forEach((point, i) => {
+      point.setAttribute('cx', coordinates[i][0]);
+      point.setAttribute('cy', coordinates[i][1]);
       point.setAttribute('aria-valuenow', values[i][1]);
+      point.setAttribute('aria-valuetext', `${values[i][0]} px · ${values[i][1]}%`);
     });
-    demo.querySelector('[data-extra-curve-value]').textContent = [2, 3, 5].map(i => values[i][1] + '%').join(' / ');
+    demo.querySelector('[data-extra-curve-value]').textContent = [2, 3, 5].map(i => `${values[i][0]} px ${values[i][1]}%`).join(' · ');
+    showReadout();
   }
+  graph.addEventListener('pointerover', event => {
+    const point = event.target.closest('[data-extra-point]');
+    hoveredPoint = point ? Number(point.dataset.extraPoint) : null;
+    showReadout();
+  });
+  graph.addEventListener('pointerleave', () => { hoveredPoint = null; showReadout(); });
+  graph.addEventListener('focusin', event => {
+    if (!event.target.matches('circle[tabindex]')) return;
+    selectedPoint = Number(event.target.dataset.extraPoint);
+    hoveredPoint = null;
+    showReadout();
+  });
   graph.addEventListener('pointerdown', event => {
     const point = event.target.closest('circle[tabindex]');
-    if (!point || event.button !== 0) return;
-    movingPoint = Number(point.dataset.extraPoint);
+    if (!point || !event.isPrimary || event.button !== 0) return;
+    selectedPoint = movingPoint = Number(point.dataset.extraPoint);
+    report('');
+    showReadout();
     graph.setPointerCapture(event.pointerId);
   });
   graph.addEventListener('pointermove', event => {
-    if (movingPoint == null) return;
+    if (movingPoint == null || !graph.hasPointerCapture(event.pointerId)) return;
     const position = new DOMPoint(event.clientX, event.clientY).matrixTransform(graph.getScreenCTM().inverse());
     update(movingPoint, (103 - position.y) / 96 * 200);
   });
-  graph.addEventListener('lostpointercapture', () => { movingPoint = null; });
+  graph.addEventListener('lostpointercapture', () => { movingPoint = null; hoveredPoint = null; showReadout(); });
   graph.addEventListener('keydown', event => {
     if (demo.closest('fieldset').disabled || !event.target.matches('circle[tabindex]') ||
         !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault();
     const index = Number(event.target.dataset.extraPoint);
+    selectedPoint = index;
+    hoveredPoint = null;
+    report('');
     update(index, values[index][1] + (event.key === 'ArrowUp' ? 1 : -1));
   });
-  demo.querySelector('[data-extra-curve-reset]').onclick = () => { values = labCurveDefault(); update(); report('已重置曲线'); };
+  demo.querySelector('[data-extra-curve-reset]').onclick = () => {
+    values = labCurveDefault();
+    selectedPoint = hoveredPoint = null;
+    update();
+    report('已重置曲线');
+  };
   update();
 }
 

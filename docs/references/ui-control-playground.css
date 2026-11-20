@@ -635,13 +635,13 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 
 .lab-extended { display: grid; gap: 5px; justify-items: center; min-width: 0; }
 .lab-extended > .lab-control { width: 100%; }
+.lab-extended > .lab-choice { width: 100%; }
 .lab-extended .lab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .qt-card [data-lab-demo=cache-action] { padding-bottom: 31px; }
 [data-lab-demo=cache-action] .lab-status { white-space: normal; }
 .lab-control[data-extra-refresh][aria-busy=true] {
-  opacity: 1; border-color: transparent; background: var(--lab-accent); color: var(--lab-accent-ink);
+  flex-direction: row-reverse; opacity: 1; border-color: transparent; background: var(--lab-accent); color: var(--lab-accent-ink);
 }
-[data-extra-refresh][aria-busy=true] .lab-label { display: none; }
 .lab-extra-copy { color: var(--lab-muted); font-size: .9em; text-align: center; }
 .lab-extra-choices { display: flex; justify-content: center; gap: 5px; min-width: 0; max-width: 100%; }
 [data-lab-demo=sidebar-filter] .lab-extra-choices .lab-control { padding-inline: 4px; }
@@ -656,8 +656,6 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 [data-lab-demo=sidebar-toggle] .lab-control:hover { background: var(--lab-hover); color: var(--lab-ink); }
 [data-lab-demo=sidebar-filter] .lab-control:not([aria-pressed=true]) { border-color: transparent; background: transparent; }
 [data-lab-demo=sidebar-filter] .lab-control[aria-pressed=true] { border-color: transparent; background: color-mix(in srgb,var(--lab-accent) 16%,transparent); }
-[data-lab-demo=plugin-tabs] .lab-control { border-radius: calc(var(--lab-height) / 2); }
-[data-lab-demo=plugin-tabs] .lab-control[aria-pressed=true] { border-color: var(--lab-line); background: var(--lab-hover); }
 .lab-progress-row progress { border-radius: calc(var(--lab-radius) * 2); }
 .lab-progress-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .lab-progress-row progress { appearance: none; width: 100%; height: 8px; border: 0; border-radius: var(--lab-radius); overflow: hidden; }
@@ -751,16 +749,22 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   content: ""; width: 14px; height: 14px; flex: none; background: var(--lab-dialog-color, #fff);
   border: 1px solid var(--lab-line);
 }
-.lab-curve-graph { display: block; width: 100%; height: auto; max-height: 114px; touch-action: none; }
+.lab-curve-graph { display: block; width: 100%; height: auto; max-height: 150px; touch-action: none; }
 .lab-curve-graph rect { fill: var(--lab-surface); }
 .lab-curve-graph text { fill: var(--lab-muted); font: 9px "Segoe UI", sans-serif; }
 .lab-curve-grid { stroke: var(--lab-line); stroke-width: 1px; fill: none; }
+.lab-curve-baseline, .lab-curve-guides { stroke: var(--lab-accent); stroke-dasharray: 3 3; fill: none; }
+.lab-curve-baseline { opacity: .4; }
+.lab-curve-guides { opacity: .6; }
+.lab-curve-graph .lab-curve-readout { fill: var(--lab-ink); font-weight: 700; }
 .lab-curve-line { stroke: var(--lab-accent); stroke-width: 1.5px; fill: none; }
 .lab-curve-graph circle { fill: #fff; stroke: var(--lab-accent); cursor: ns-resize; }
-.lab-curve-graph circle.fixed { fill: var(--lab-accent); cursor: default; }
+.lab-curve-graph circle.fixed { fill: var(--lab-accent); stroke: var(--lab-ink); cursor: default; }
+.lab-curve-graph circle[data-active] { r: 5.5px; fill: var(--lab-accent); }
 fieldset:disabled .lab-curve-graph { pointer-events: none; }
 .lab-curve-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 4px; font-size: 11px; }
-.lab-curve-footer .lab-control { min-height: 23px; }
+.lab-curve-footer .lab-control { min-height: 23px; flex-shrink: 0; }
+.lab-curve-footer output { color: var(--lab-muted); }
 .lab-avatar-strip { display: flex; justify-content: center; gap: 7px; width: 100%; }
 .lab-avatar {
   position: relative;
