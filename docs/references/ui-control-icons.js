@@ -1,4 +1,5 @@
-const labMatchSource = file => `https://github.com/Lanpropro/DD_Monitor_Plugins/blob/match-sync-v1.7.0/plugins/match_sync/${file}`;
+const labMatchRevision = '73bb82649698dfe55a7f8e92d159e85591ddae09';
+const labMatchSource = file => `plugins/match_sync/${file}`;
 const labIconCatalog = [
   ...labSourceGlyphs.map(([group, id, label, source, svg]) => ({group, id, label, source, svg})),
   ...[
@@ -68,7 +69,7 @@ const labIconCatalog = [
 
 const labIconsById = new Map(labIconCatalog.map(item => [item.id, item]));
 const labIconGroups = [...new Set(labIconCatalog.map(item => item.group))];
-const labIconSource = item => item.plugin ? labMatchSource(item.source) : `../../${item.source}`;
+const labIconSource = item => `../../${item.source}`;
 
 function labInventoryGlyph(item) {
   if (item.asset) return `<img src="../../${item.asset}" alt="">`;
@@ -116,8 +117,15 @@ function labBindIconSpecimen(host, report) {
     button.innerHTML = labInventoryGlyph(item);
     button.title = item.label;
     button.setAttribute('aria-label', item.label);
-    source.href = labIconSource(item);
-    source.textContent = `${item.label}的源码`;
+    if (item.plugin) {
+      source.removeAttribute('href');
+      source.title = labMatchRevision;
+      source.textContent = `${labMatchRevision.slice(0, 7)} · ${labMatchSource(item.source)}`;
+    } else {
+      source.href = labIconSource(item);
+      source.removeAttribute('title');
+      source.textContent = `${item.label}的源码`;
+    }
     syncIndex(id);
     report(`已选 ${item.label}`);
   }

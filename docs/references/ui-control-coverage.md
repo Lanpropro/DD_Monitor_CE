@@ -1,8 +1,8 @@
 # DD 监控室实装控件核对清单
 
-> 类型：设计 ｜ 状态：草案 ｜ 适用版本：当前开发版 ｜ 更新：2026-11-20 ｜ 读者：维护者、贡献者
+> 类型：设计 ｜ 状态：草案 ｜ 适用版本：当前开发版 ｜ 更新：2026-11-21 ｜ 读者：维护者、贡献者
 
-从 [控件图鉴](ui-control-library.html) 的顶部分组进入。原有 78 个本体场景保留源码位置、参数面板和两套主题的 Windows Qt 截图。通用图标按钮和比赛二路组合在各自分组中提供网页试样和源码。表里的 `#control-…` 直接打开对应场景的详情。
+从 [控件图鉴](ui-control-library.html) 的顶部分组进入。78 个本体场景提供网页试样、参数面板和 Windows Qt 对照。通用图标按钮有自己的交互试样。比赛二路使用深浅色 Windows Qt 实拍，详情可查看原尺寸截图。表里的 `#control-…` 直接打开对应场景的详情。
 
 逐项记录包含本轮对照的控件结构、绘制或交互。详情面板可固定查看悬停、按下、键盘焦点和禁用，选中、展开、静音等持续状态通过操作相应控件查看。用「重置预览」恢复默认外观。
 
@@ -131,22 +131,22 @@
 
 ## 比赛二路插件
 
-按公开版本 `match-sync-v1.7.0`、提交 `26af8f19` 核对。网页交互使用示例数据，详见每张卡的源码链接。 [比赛二路源码](https://github.com/Lanpropro/DD_Monitor_Plugins/tree/match-sync-v1.7.0/plugins/match_sync)
+使用插件仓库 `DD_Monitor_Plugins` 的 `73bb82649698dfe55a7f8e92d159e85591ddae09` 取样，插件界面文件位于 `plugins/match_sync/`。本机安装副本标注为 1.7.0，其 Python 和 JSON 文件与这个快照一致。截图由 Windows Qt 控件渲染，使用临时配置、两个示例来源和示例回看时间。发送控件使用同一快照内的哔哩哔哩插件，取样时没有登录、播放、录制或发送弹幕。
 
-| 试样 | 检查项 | 详情标识 |
+| 实拍 | 核对内容 | 详情标识 |
 | --- | --- | --- |
-| 比赛二路入口 | 进入与关闭工作区反馈 | `#control-match-launch` |
-| 二路播放控制台 | 添加来源、自动对齐和缓存余量 | `#control-match-console` |
-| 二路来源控制行 | 主画面、声道、独立播放、重新匹配、相对偏移与确认加入 | `#control-match-room` |
-| 二路画面对照 | 来源切换、选区与放大、收起 | `#control-match-compare` |
-| 二路悬浮裁切 | 示例选区、悬浮大小、使用整个画面 | `#control-match-float` |
-| 计时器对齐 | 首帧时间、计算和确认应用 | `#control-match-clock` |
-| 二路回看时间线 | 进度拖动、按秒跳转和返回直播 | `#control-match-replay` |
-| 二路分音轨录制 | 容器、音轨选择和录制状态 | `#control-match-record` |
-| 二路弹幕发送控制台 | 目标选择、暂存和模拟发送 | `#control-match-send` |
-| 二路批量发送 | 多选目标、取消和模拟发送 | `#control-match-batch` |
+| 比赛二路入口 | 功能中心里的入口和固定按钮 | `#control-match-launch` |
+| 二路播放控制台 | 顶栏操作和两路来源列组 | `#control-match-console` |
+| 二路来源控制行 | 头像、声道、独立播放、弹幕色样、偏移步进和计时器 | `#control-match-room` |
+| 二路画面对照 | 主副路对照、对齐状态、放大框选区域和收起 | `#control-match-compare` |
+| 二路悬浮裁切 | 窗口边角和选区、移动、关闭按钮 | `#control-match-float` |
+| 计时器对齐 | 两路各自的预览、框选和首帧时间，窗口底部的计算与确认 | `#control-match-clock` |
+| 二路回看时间线 | 时间刻度、时间输入和返回直播 | `#control-match-replay` |
+| 二路录制音轨分配 | 录制格式和每路 1–6 号音轨矩阵 | `#control-match-record` |
+| 二路弹幕发送控制台 | 单选目标、平台输入控件、表情礼物和暂存区 | `#control-match-send` |
+| 二路批量发送 | 多选目标后的批量输入状态 | `#control-match-batch` |
 | 二路弹幕观看设置 | 区域、透明度、字号、速度、描边和缩放 | `#control-match-danmaku` |
-| 比赛二路设置 | 画面、声音与入口偏好 | `#control-match-settings` |
+| 比赛二路设置 | 回看预览大小、播放与画质、录制设置 | `#control-match-settings` |
 
 ## 复用与运行边界
 

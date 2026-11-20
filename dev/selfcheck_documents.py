@@ -5,6 +5,7 @@
 import ast
 from datetime import date, datetime, timedelta, timezone
 import re
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -107,6 +108,28 @@ def local_link_error(source, target):
 
 
 class DocumentStructureTests(unittest.TestCase):
+    def test_match_gallery_routes_have_both_native_captures(self):
+        references = DOCS / "references"
+        catalog = read(references / "ui-control-match.js")
+        coverage = read(references / "ui-control-coverage.md")
+        routes = re.findall(r"(?m)^  \['(match-[a-z]+)',", catalog)
+        self.assertEqual(len(routes), 12)
+        self.assertCountEqual(routes, re.findall(r"`#control-(match-[a-z]+)`", coverage))
+        captures = references / "ui-control-match-qt"
+        self.assertCountEqual(
+            [image.name for image in captures.glob("*.png")],
+            [f"{route}-{mode}.png" for route in routes for mode in ("dark", "light")],
+        )
+        for route in routes:
+            with self.subTest(route=route):
+                dark, light = ((captures / f"{route}-{mode}.png").read_bytes()
+                               for mode in ("dark", "light"))
+                for image in (dark, light):
+                    self.assertEqual(image[:16], b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+                    self.assertTrue(all(struct.unpack(">II", image[16:24])))
+                self.assertEqual(dark[16:24], light[16:24])
+                self.assertNotEqual(dark, light)
+
     def test_link_validation_checks_same_page_and_duplicate_anchors(self):
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "page.md"
