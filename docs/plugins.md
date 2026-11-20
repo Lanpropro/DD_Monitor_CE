@@ -272,9 +272,13 @@ class MyPlugin(api.Plugin):
 
 ### 格子播放与关注卡片
 
+频道来源、列表解析、预设数据和图片资源由插件提供。宿主复用原生添加面板、列表筛选、关注文件夹和播放器。需要下面的频道列表接口时，可在加载前检查 `hasattr(api, 'RoomList')`。初版 v0.8 的 `Platform` 已能提供单个房间，但没有这个接口。
+
 平台可以实现 `room_input_presets() -> list[RoomInfo]`。宿主在打开添加直播间面板时读取预设，此方法在界面线程运行，直接返回本地频道元数据。预设卡片使用稳定房间 ID，平台的 `matches`、`room_info` 和 `play_url` 应支持这些 ID。用户点选后，宿主按当前文件夹导入关注卡片；从空格打开时也只添加到关注。
 
-提供多频道来源的平台可以实现可选的 room_list(room_id, cancelled)。宿主在添加直播间的后台线程调用它，将 RoomList.rooms 中的 RoomInfo 显示在频道选择窗口。条目的 extra.import_group 可供分组筛选。用户选中后，宿主沿用关注导入流程保存卡片。RoomList.store 可接收已选房间 ID，在主线程保存播放所需的数据。用 choose=False 返回唯一房间可沿用普通添加和上墙流程。文件导入的平台可通过 room_input_file_filter 声明 Qt 文件过滤器，添加直播间面板会显示文件选择入口。
+提供多频道来源的平台可以实现可选的 `room_list(room_id, cancelled) -> api.RoomList`。宿主使用 `matches` 和 `normalize` 选择平台并标准化输入，在添加直播间的后台线程调用 `room_list`。插件应在解析和网络读取之间检查 `cancelled()`。宿主将 `RoomList.rooms` 中的 `RoomInfo` 显示在频道选择窗口，使用条目的 `extra['import_group']` 分组。用户确认后，`RoomList.store` 可在主线程接收已选房间 ID 并保存播放所需的数据。用 `choose=False` 返回唯一房间可沿用普通添加和上墙流程。文件导入的平台可通过 `room_input_file_filter` 声明 Qt 文件过滤器，例如 `播放列表 (*.example)`。文件选择和粘贴链接使用相同的归一化和解析流程。
+
+已关注的频道由 `rooms_status(room_ids)` 和其他平台一起刷新。可以用 `extra['live_known'] = False` 表示尚未确认开播状态。平台设定 `live_from_playback` 后，宿主也会用原生播放器实际出画确认开播。需要从本地恢复旧卡片资料时，可实现 `restore_follow_rooms(rooms)`，在界面线程就地补齐名称和标题。
 
 平台可以实现 `room_card_branding(room_id) -> dict`。宿主在创建和恢复关注卡片时于界面线程调用，只读取本地元数据。可用键为 `avatar_path`（包内头像图的绝对路径）、`badge_path`（包内平台角标图的绝对路径）、`badge_from_avatar`（复用 `RoomInfo.face` 加载的头像）和 `label`（角标提示与无障碍名称）。没有专属标识时返回空字典。此接口只影响关注卡片的图像，平台归属和播放仍使用原来的 `kind`。
 

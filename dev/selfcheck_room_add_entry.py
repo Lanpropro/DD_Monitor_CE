@@ -320,12 +320,12 @@ class AddRoomEntryTests(unittest.TestCase):
         self.assertEqual((item.badge.text(), item.sub._full_text), ('待检测', '待检测'))
         self.assertEqual(sidebar.items_control.items()[0].room['room_id'], '1001')
 
-    def test_tv_preset_from_empty_tile_adds_follow_only_and_deduplicates(self):
+    def test_plugin_preset_from_empty_tile_adds_follow_only_and_deduplicates(self):
         host = self.host()
         host.resize(760, 530)
         host.sidebar = Sidebar([], host, auto_compact=False)
         target = self.own(WallGrid([], '1x1')).tiles[0]
-        room = RoomInfo('test:preset', 'CCTV-5+', '体育赛事', True, platform='test')
+        room = RoomInfo('test:preset', '研讨会直播', '会议频道', True, platform='test')
         host.plugins.platforms = {'test': SimpleNamespace(room_input_presets=lambda: [room])}
         host._import_selected_follows = Mock(side_effect=lambda rooms, **_kw: host.sidebar.add_rooms(rooms))
         folder_id = host.sidebar.create_folder('电视')
@@ -337,7 +337,7 @@ class AddRoomEntryTests(unittest.TestCase):
         self.assertTrue(panel.preset_button.isVisible())
         self.assertEqual(panel.preset_button.text(), '')
         self.assertEqual(panel.preset_button.kind, 'tv')
-        self.assertEqual(panel.preset_button.accessibleName(), '电视预设')
+        self.assertEqual(panel.preset_button.accessibleName(), '频道预设')
         self.assertEqual(panel.preset_button.size(), panel.followed_toggle.size())
         self.assertLess(panel.followed_toggle.x(), panel.preset_button.x())
         collapsed_height = panel.height()
@@ -353,13 +353,13 @@ class AddRoomEntryTests(unittest.TestCase):
         self.assertIsNone(panel.preset_button.menu())
         panel.presets.search.setText('不存在')
         self.assertEqual(panel.presets.model.rowCount(), 0)
-        panel.presets.search.setText('CCTV')
+        panel.presets.search.setText('研讨会')
         self.pump()
         folder = next(action for action in panel.folder_button.menu().actions() if action.data() == folder_id)
         folder.trigger()
         preset = panel.presets.model.index(1, 0)
-        self.assertEqual(preset.data(Qt.DisplayRole), 'CCTV-5+')
-        self.assertEqual(preset.data(Qt.ToolTipRole), 'CCTV-5+')
+        self.assertEqual(preset.data(Qt.DisplayRole), '研讨会直播')
+        self.assertEqual(preset.data(Qt.ToolTipRole), '研讨会直播')
         for _ in range(2):
             QTest.mouseClick(panel.presets.scroll.viewport(), Qt.LeftButton,
                              pos=panel.presets.scroll.visualRect(preset).center())

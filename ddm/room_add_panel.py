@@ -74,7 +74,7 @@ class RoomAddPanel(QFrame):
         self.followed_toggle.setCheckable(True)
         self.followed_toggle.hide()
         footer.addWidget(self.followed_toggle)
-        self.preset_button = NavigationButton('电视预设', 'tv')
+        self.preset_button = NavigationButton('频道预设', 'tv')
         self.preset_button.setFixedSize(24, 24)
         self.preset_button.setCheckable(True)
         self.preset_button.hide()
