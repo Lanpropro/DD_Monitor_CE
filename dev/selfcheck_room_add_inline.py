@@ -486,6 +486,8 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertEqual(panel.folder_id, folder)
         imports = []
         self.host.sidebar.importFollowsClicked.connect(lambda: imports.append(True))
+        self.assertEqual(panel.import_button.kind, 'import_follows')
+        self.assertEqual(panel.import_button.accessibleName(), '从平台账号导入关注')
         panel.import_button.click()
         self.assertEqual(imports, [True])
         self.assertFalse(panel.isVisible())

@@ -100,14 +100,18 @@ class RoomCatalog:
         hints = [getattr(platform, 'room_input_hint', '') for platform in host.plugins.platforms.values()]
         self._add_panel.entry.setToolTip('房间号或直播间链接，每行一个；Ctrl+Enter 添加'
                                        + ''.join('；' + hint for hint in hints if hint))
-        self._add_panel.set_file_filters([platform.room_input_file_filter
-            for platform in host.plugins.platforms.values() if getattr(platform, 'room_input_file_filter', '')])
+        file_filters = []
         presets = []
         for platform in host.plugins.platforms.values():
+            if file_filter := getattr(platform, 'room_input_file_filter', ''):
+                file_filters.append(file_filter)
             provider = getattr(platform, 'room_input_presets', None)
             if callable(provider):
-                presets.extend(room.as_dict() for room in provider())
-        self._add_panel.set_presets(presets)
+                artwork = getattr(platform, 'room_card_branding', None)
+                for room in provider():
+                    branding = artwork(room.room_id) if callable(artwork) else None
+                    presets.append((room.as_dict(), (branding or {}).get('avatar_path')))
+        self._add_panel.set_presets(presets, file_filters)
         target = self._add_target
         self._add_panel.open(can_choose_followed=target is not None,
                              focus_on_close=target.add_room_button if target is not None else None)

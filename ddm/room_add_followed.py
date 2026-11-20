@@ -1,4 +1,4 @@
-"""Search followed rooms and paint only the cards inside the scroll viewport."""
+"""Inline followed-room and preset pickers with viewport-rendered cards."""
 from dataclasses import dataclass
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, QRectF, Qt, Signal
@@ -10,6 +10,7 @@ from . import theme
 from .avatar_widgets import AVATAR_COLORS, circular_pixmap
 from .corner_geometry import continuous_path
 from .search import matches_query
+from .ui import ActionButton
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class _RoomCard:
     room: dict
     face: QPixmap | None
     color: str
+    detail: str = ''
 
 
 class _FollowedRoomsModel(QAbstractTableModel):
@@ -50,7 +52,7 @@ class _FollowedRoomsModel(QAbstractTableModel):
             if role == Qt.UserRole:
                 return entry.room_id
             if role in (Qt.ToolTipRole, Qt.AccessibleTextRole):
-                return f'{entry.name} · {entry.room_id}'
+                return entry.detail or entry.name
         elif isinstance(entry, str) and role in (Qt.DisplayRole, Qt.ToolTipRole, Qt.AccessibleTextRole):
             return entry
         return None
@@ -126,37 +128,33 @@ class _FollowedRoomsView(QTableView):
         super().keyPressEvent(event)
 
 
-class FollowedRoomPicker(QWidget):
+class RoomCardPicker(QWidget):
     selected = Signal(str)
 
-    def __init__(self, sidebar, parent):
+    def __init__(self, parent, *, search_label, list_label):
         super().__init__(parent)
-        self.sidebar = sidebar
         self.groups = []
         self._header_rows = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
-        filters = QHBoxLayout()
-        filters.setSpacing(8)
+        self.filters = QHBoxLayout()
+        self.filters.setSpacing(8)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
-        self.search.setPlaceholderText('搜索关注主播 / 房间号')
-        self.search.setAccessibleName(self.search.placeholderText())
+        self.search.setPlaceholderText(search_label)
+        self.search.setAccessibleName(search_label)
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._arrange)
-        filters.addWidget(self.search, 1)
-        self.live_only = QCheckBox('直播中', self)
-        self.live_only.toggled.connect(self._arrange)
-        filters.addWidget(self.live_only)
-        layout.addLayout(filters)
+        self.filters.addWidget(self.search, 1)
+        layout.addLayout(self.filters)
 
         self.empty = QLabel(objectName='SettingsHint')
         self.empty.setAlignment(Qt.AlignCenter)
         self.empty.hide()
         layout.addWidget(self.empty)
         self.scroll = _FollowedRoomsView(self)
-        self.scroll.setAccessibleName('可选的关注主播')
+        self.scroll.setAccessibleName(list_label)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
@@ -178,24 +176,6 @@ class FollowedRoomPicker(QWidget):
         self.scroll.viewport().installEventFilter(self)
         layout.addWidget(self.scroll, 1)
 
-    def load(self, occupied):
-        sidebar = self.sidebar
-        default = sidebar.default_folder()['id']
-        folders = {folder['id']: folder['name'] for folder in sidebar.folders}
-        entries = {}
-        for index, item in enumerate(sidebar.items()):
-            room = item.room
-            room_id = str(room.get('room_id') or '')
-            if not room_id or room_id in occupied:
-                continue
-            folder_id = sidebar.folder_for(room_id) or default
-            name = str(room.get('uname') or room_id)
-            terms = ' '.join((name, room_id, str(room.get('display_room_id') or ''), folders.get(folder_id, '')))
-            entries.setdefault(folder_id, []).append(_RoomCard(
-                room_id, name, terms, room, item.thumb.face_pixmap(), AVATAR_COLORS[index % len(AVATAR_COLORS)]))
-        self.groups = [(title, entries[key]) for key, title in folders.items() if key in entries]
-        self._arrange()
-
     def _select(self, index):
         room_id = index.data(Qt.UserRole)
         if room_id:
@@ -205,16 +185,19 @@ class FollowedRoomPicker(QWidget):
         scrollbar = self.scroll.style().pixelMetric(QStyle.PM_ScrollBarExtent)
         return max(1, (self.scroll.contentsRect().width() - scrollbar) // 106)
 
+    def _matches(self, card, query):
+        return matches_query(card.terms, query)
+
+    def _empty_text(self, query):
+        return ''
+
     def _arrange(self):
         columns = self._column_count()
         query = self.search.text().strip()
-        live_only = self.live_only.isChecked()
         rows = []
         header_rows = []
         for title, cards in self.groups:
-            matches = [card for card in cards
-                       if (not live_only or card.room.get('live') and card.room.get('live_known', True))
-                       and matches_query(card.terms, query)]
+            matches = [card for card in cards if self._matches(card, query)]
             if matches:
                 header_rows.append(len(rows))
                 rows.append(title)
@@ -233,11 +216,76 @@ class FollowedRoomPicker(QWidget):
             if columns > 1:
                 self.scroll.setSpan(row, 0, 1, columns)
         self.scroll.verticalScrollBar().setValue(position)
-        self.empty.setText('没有匹配的关注主播' if (query or live_only) and self.groups else '暂无可入墙的关注主播')
-        self.empty.setVisible(not rows)
+        self.empty.setText(self._empty_text(query))
+        self.empty.setVisible(not rows and bool(self.empty.text()))
 
     def eventFilter(self, watched, event):
         if (watched is self.scroll.viewport() and event.type() == QEvent.Resize
                 and self._column_count() != self.model.columns):
             self._arrange()
         return super().eventFilter(watched, event)
+
+
+class FollowedRoomPicker(RoomCardPicker):
+    def __init__(self, sidebar, parent):
+        super().__init__(parent, search_label='搜索关注主播 / 房间号', list_label='可选的关注主播')
+        self.sidebar = sidebar
+        self.live_only = QCheckBox('直播中', self)
+        self.live_only.toggled.connect(self._arrange)
+        self.filters.addWidget(self.live_only)
+
+    def load(self, occupied):
+        sidebar = self.sidebar
+        default = sidebar.default_folder()['id']
+        folders = {folder['id']: folder['name'] for folder in sidebar.folders}
+        entries = {}
+        for index, item in enumerate(sidebar.items()):
+            room = item.room
+            room_id = str(room.get('room_id') or '')
+            if not room_id or room_id in occupied:
+                continue
+            folder_id = sidebar.folder_for(room_id) or default
+            name = str(room.get('uname') or room_id)
+            terms = ' '.join((name, room_id, str(room.get('display_room_id') or ''), folders.get(folder_id, '')))
+            entries.setdefault(folder_id, []).append(_RoomCard(
+                room_id, name, terms, room, item.thumb.face_pixmap(), AVATAR_COLORS[index % len(AVATAR_COLORS)],
+                detail=f'{name} · {room_id}'))
+        self.groups = [(title, entries[key]) for key, title in folders.items() if key in entries]
+        self._arrange()
+
+    def _matches(self, card, query):
+        live = card.room.get('live') and card.room.get('live_known', True)
+        return (not self.live_only.isChecked() or live) and super()._matches(card, query)
+
+    def _empty_text(self, query):
+        return '没有匹配的关注主播' if (query or self.live_only.isChecked()) and self.groups else '暂无可入墙的关注主播'
+
+
+class PresetRoomPicker(RoomCardPicker):
+    def __init__(self, parent):
+        super().__init__(parent, search_label='搜索电视频道', list_label='电视预设频道')
+        self.rooms = {}
+        self.file_button = ActionButton('选文件', self)
+        self.file_button.setToolTip('选择本地播放列表')
+        self.file_button.setAccessibleName('选择本地播放列表')
+        self.filters.addWidget(self.file_button)
+        self.filters.setAlignment(Qt.AlignLeft)
+
+    def load(self, presets, has_file_filters):
+        self.rooms = {}
+        entries = {}
+        for index, (room, avatar_path) in enumerate(presets):
+            room_id, name = room['room_id'], room['uname']
+            group = room.get('import_group') or room.get('title') or '电视频道'
+            face = QPixmap(avatar_path) if avatar_path else None
+            entries.setdefault(group, []).append(_RoomCard(
+                room_id, name, f'{name} {group}', room, face, AVATAR_COLORS[index % len(AVATAR_COLORS)]))
+            self.rooms[room_id] = room
+        self.groups = list(entries.items())
+        self.file_button.setVisible(has_file_filters)
+        self.search.setVisible(bool(self.rooms))
+        self.scroll.setVisible(bool(self.rooms))
+        self._arrange()
+
+    def _empty_text(self, query):
+        return '没有匹配的频道' if self.rooms else ''
