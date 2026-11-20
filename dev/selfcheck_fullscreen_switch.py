@@ -203,6 +203,50 @@ def main():
             for player in players.values():
                 assert not player.play.called and not player.release.called
             window.players.clear()
+            window._exit_fullscreen()
+            wall = window.wall
+            wall.pane_danmaku.apply({7: tiles[1], 8: tiles[0]})
+            panels = tuple(wall.pane_danmaku.panels.values())
+            assert len(panels) == 2
+            for panel in panels:
+                assert panel.isVisible()
+                panel.add_event({'kind': 'danmaku', 'uname': 'Offline', 'text': 'Chat handoff fixture'})
+            app.processEvents()
+            viewports = [panel.body.viewport() for panel in panels]
+            panel_text = [panel.body.toPlainText() for panel in panels]
+            assert all('Chat handoff fixture' in content for content in panel_text)
+            window._on_fullscreen(tiles[0])
+            assert not any(panel.isVisible() for panel in panels), 'Uncovered chat follows the existing handoff'
+            window._exit_fullscreen()
+
+            # Simulate fullscreen covering its owner while both windows stay off-screen.
+            area.moveTopLeft(main_geometry.topLeft())
+
+            class PanelHandoff(QObject):
+                def __init__(self):
+                    super().__init__()
+                    self.hidden = []
+
+                def eventFilter(self, watched, event):
+                    if event.type() == QEvent.Hide:
+                        self.hidden.append(watched)
+                    return False
+
+            chat_handoff = PanelHandoff()
+            for widget in (*panels, *viewports):
+                widget.installEventFilter(chat_handoff)
+            try:
+                for _ in range(2):
+                    window._on_fullscreen(tiles[0])
+                    assert all(viewport.isVisible() for viewport in viewports), 'Covered chat must stay visible'
+                    window._exit_fullscreen()
+                    assert all(viewport.isVisible() for viewport in viewports)
+                    assert [panel.body.toPlainText() for panel in panels] == panel_text
+                assert not chat_handoff.hidden, 'Covered chat must not be hidden during the handoff'
+            finally:
+                for widget in (*panels, *viewports):
+                    widget.removeEventFilter(chat_handoff)
+            window._on_fullscreen(tiles[0])
         finally:
             # Release stored focus while fixture buttons are still alive;
             # native Qt can otherwise deliver FocusOut during deferred deletion.

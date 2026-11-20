@@ -1,5 +1,5 @@
 """Present the existing tile as an owned window without resizing the playback wall."""
-from PySide6.QtCore import QEvent, QObject, QRect, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 
 from .widget_support import _repolish
 
@@ -26,7 +26,14 @@ class FullscreenPresentation(QObject):
         self._flags, self._geometry = tile.windowFlags(), QRect(tile.geometry())
         self._show_without_activating = tile.testAttribute(Qt.WA_ShowWithoutActivating)
         self._grid_enabled = wall.grid.isEnabled()
-        self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall.pane_danmaku.wall_widgets())]
+        panes = wall.pane_danmaku
+        # A covered docked chat can stay in the wall's backing store throughout
+        # fullscreen, so its text has no deferred first paint on return.
+        panels = set(panes.all_panels())
+        wall_widgets = [widget for widget in panes.wall_widgets()
+                        if widget not in panels
+                        or not geometry.contains(QRect(widget.mapToGlobal(QPoint()), widget.size()))]
+        self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall_widgets)]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
         wall._fullscreen_layout_pending = True
