@@ -1,5 +1,8 @@
-"""Present the existing tile as an owned window without resizing the playback wall."""
+"""Present the existing video in an owned window or in the main capture window."""
+import os
+
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtWidgets import QApplication
 
 from .widget_support import _repolish
 
@@ -10,7 +13,18 @@ class FullscreenPresentation(QObject):
         self.window = window
         self.tile = None
         self._owner_hidden = False
+        self._windowed_state = None
+        self._windowed_geometry = None
         window.installEventFilter(self)
+
+    def save_window_geometry(self):
+        if self._windowed_geometry is not None:
+            return self._windowed_geometry
+        return self.window.saveGeometry()
+
+    def _activate_main_layout(self):
+        self.window.centralWidget().layout().activate()
+        self.window._content.layout().activate()
 
     def _set_comments_changing(self, active):
         wall = self.window.wall
@@ -21,6 +35,8 @@ class FullscreenPresentation(QObject):
 
     def enter(self, tile, geometry=None):
         wall = self.window.wall
+        in_main_window = (os.environ.get('DDM_FULLSCREEN_WINDOW_CAPTURE') == '1'
+                          and QApplication.platformName() == 'windows')
         geometry = QRect(geometry if geometry is not None else self.window.screen().geometry())
         self.tile = tile
         self._flags, self._geometry = tile.windowFlags(), QRect(tile.geometry())
@@ -30,9 +46,13 @@ class FullscreenPresentation(QObject):
         # A covered docked chat can stay in the wall's backing store throughout
         # fullscreen, so its text has no deferred first paint on return.
         panels = set(panes.all_panels())
-        wall_widgets = [widget for widget in panes.wall_widgets()
-                        if widget not in panels
+        wall_widgets = [widget for widget in panes.wall_widgets() if in_main_window
+                        or widget not in panels
                         or not geometry.contains(QRect(widget.mapToGlobal(QPoint()), widget.size()))]
+        if in_main_window:
+            self._windowed_state = self.window.windowState()
+            self._windowed_geometry = self.window.saveGeometry()
+            wall_widgets.extend((self.window.sidebar, self.window.empty_hint))
         self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall_widgets)]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
@@ -48,19 +68,28 @@ class FullscreenPresentation(QObject):
         bar_visible = not bar.isHidden()
         tile._presentation_changing = True
         try:
-            flags = Qt.Window | Qt.FramelessWindowHint
-            background = (self._show_without_activating
-                          or self.window.testAttribute(Qt.WA_ShowWithoutActivating)
-                          or self.window.windowFlags() & Qt.WindowDoesNotAcceptFocus)
-            tile.setAttribute(Qt.WA_ShowWithoutActivating, bool(background))
-            if background:
-                flags |= Qt.WindowDoesNotAcceptFocus
             bar.hide()
-            tile.hide()
-            tile.setWindowFlags(flags)
+            if in_main_window:
+                self.window.sidebar.hide()
+                self.window.empty_hint.hide()
+                # Keep the video in its original HWND hierarchy for window capture.
+                self.window.setWindowState(Qt.WindowFullScreen)
+                self._activate_main_layout()
+                geometry = wall.rect()
+            else:
+                flags = Qt.Window | Qt.FramelessWindowHint
+                background = (self._show_without_activating
+                              or self.window.testAttribute(Qt.WA_ShowWithoutActivating)
+                              or self.window.windowFlags() & Qt.WindowDoesNotAcceptFocus)
+                tile.setAttribute(Qt.WA_ShowWithoutActivating, bool(background))
+                if background:
+                    flags |= Qt.WindowDoesNotAcceptFocus
+                tile.hide()
+                tile.setWindowFlags(flags)
             tile.setProperty('fullscreen', True)
             _repolish(tile)
-            tile.winId()
+            if not in_main_window:
+                tile.winId()
             tile.setGeometry(geometry)
             # Expose the existing video HWND before rebuilding the native bar.
             tile.presentation_control.layout_video_area()
@@ -84,14 +113,14 @@ class FullscreenPresentation(QObject):
                     bar.sync_owner_position()
                 bar.prepare_fullscreen_frame()
             bar.setWindowOpacity(1.0)
-        if not tile.testAttribute(Qt.WA_ShowWithoutActivating):
+        if not tile.window().testAttribute(Qt.WA_ShowWithoutActivating):
             tile.activateWindow()
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
-            dialog.set_presentation_owner(tile)
+            dialog.set_presentation_owner(tile.window())
             if dialog.isVisible():
                 dialog.raise_()
-        # Keep the wall visible until its replacement is on screen.
+        # Keep the other panes visible until the selected video is ready.
         for pane, visible in self._visible:
             if pane is not tile and visible:
                 pane.hide()
@@ -99,7 +128,10 @@ class FullscreenPresentation(QObject):
             border.hide()
         layer = wall._quick_danmaku_layer
         if layer is not None:
-            layer.set_presentation_window(tile)
+            if in_main_window:
+                layer.resize()
+            else:
+                layer.set_presentation_window(tile)
         self._set_comments_changing(False)
 
     def leave(self):
@@ -107,14 +139,19 @@ class FullscreenPresentation(QObject):
         if tile is None:
             return
         native_bar = tile.bottom.qt_composited
+        in_main_window = self._windowed_state is not None
         wall = self.window.wall
         layer = wall._quick_danmaku_layer
         self._set_comments_changing(True)
-        # Restore the wall behind the still-visible fullscreen window.
+        if in_main_window:
+            tile.bottom.hide()
+            self.window.setWindowState(self._windowed_state)
+            self._windowed_state = self._windowed_geometry = None
+        # The independent presentation still covers the wall during restoration.
         for pane, visible in self._visible:
             if pane is not tile:
                 pane.setVisible(visible)
-                if native_bar and visible and pane in wall.tiles:
+                if not in_main_window and native_bar and visible and pane in wall.tiles:
                     # show() queues painting; flush bars while fullscreen still
                     # covers the wall, rather than exposing empty backing stores.
                     pane.bottom.repaint()
@@ -124,18 +161,24 @@ class FullscreenPresentation(QObject):
         if dialog is not None:
             # Detach before changing the tile's native window flags on exit.
             dialog.set_presentation_owner(self.window)
-        if layer is not None:
+        if in_main_window:
+            self._activate_main_layout()
+            if layer is not None:
+                layer.resize()
+        elif layer is not None:
             layer.set_presentation_window(None)
         tile.removeEventFilter(self)
         self.tile = None
         tile._presentation_changing = True
         try:
             tile.bottom.hide()
-            tile.hide()
+            if not in_main_window:
+                tile.hide()
             tile.setProperty('fullscreen', False)
             _repolish(tile)
-            tile.setWindowFlags(self._flags)
-            tile.setAttribute(Qt.WA_ShowWithoutActivating, self._show_without_activating)
+            if not in_main_window:
+                tile.setWindowFlags(self._flags)
+                tile.setAttribute(Qt.WA_ShowWithoutActivating, self._show_without_activating)
             tile.setGeometry(self._geometry)
             tile.presentation_control.layout_video_area()
             for pane, visible in self._visible:
@@ -166,7 +209,7 @@ class FullscreenPresentation(QObject):
                 event.ignore()
                 self.window.close()
                 return True
-            if watched is self.window:
+            if watched is self.window and tile.isWindow():
                 if event.type() == QEvent.Hide:
                     self._owner_hidden = tile.isVisible()
                     tile.hide()

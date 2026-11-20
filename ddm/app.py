@@ -796,7 +796,7 @@ class MainWindow(QMainWindow):
             "watch_history": self.sidebar.watch_history.state(),
             "settings": dict(self.settings),
             "emoticon_order": deepcopy(self.state.get("emoticon_order", {})),
-            "geometry": str(self.saveGeometry().toBase64(),
+            "geometry": str(self._fullscreen_presentation.save_window_geometry().toBase64(),
                             "ASCII"),
             # 插件自己的配置项，以及「启用了哪些插件」（None = 全启用）
             "plugins": self.plugins.plugin_settings,

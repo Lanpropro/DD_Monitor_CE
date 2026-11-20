@@ -116,13 +116,14 @@ class FullscreenBar(QWidget):
 
     def set_tile_geometry(self, x, y, width, height):
         self._tile_rect = QRect(x, y, width, height)
-        # The hidden fullscreen owner's native frame margins can still be stale.
-        # Its window geometry already contains the intended global client origin.
-        position = (self.parentWidget().geometry().topLeft() + QPoint(x, y)
-                    if self.qt_composited else QPoint(x, y))
+        tile = self.parentWidget()
+        position = QPoint(x, y)
+        if self.qt_composited:
+            # An independent tile already has global geometry before Qt exposes it.
+            position += tile.geometry().topLeft() if tile.isWindow() else tile.mapToGlobal(QPoint())
         self.setGeometry(QRect(position, self._tile_rect.size()))
         if self.qt_composited:
-            visible = self._tile_rect.intersected(self.parentWidget().rect())
+            visible = self._tile_rect.intersected(tile.rect())
             self.setMask(QRegion(visible.translated(-self._tile_rect.topLeft())))
         else:
             self.clearMask()

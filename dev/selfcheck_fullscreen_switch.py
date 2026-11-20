@@ -7,7 +7,7 @@ import time
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QRect, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -65,6 +65,66 @@ class HandoffEvents(QObject):
             bar.removeEventFilter(self)
 
 
+def check_window_capture(window):
+    window.setWindowFlag(Qt.WindowStaysOnBottomHint)
+    window.showNormal()
+    screen = window.screen()
+    window.move(screen.availableGeometry().center() - window.rect().center())
+    QTest.qWait(250)
+    wall = window.wall
+    tile = wall.tiles[0]
+    player = Mock()
+    user32 = ctypes.windll.user32
+    user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    user32.GetAncestor.restype = ctypes.c_void_p
+    main_hwnd, video_hwnd = int(window.winId()), int(tile.video.winId())
+    window.players[tile] = player
+    try:
+        with patch.dict(os.environ, {'DDM_FULLSCREEN_WINDOW_CAPTURE': '1'}):
+            for state in (Qt.WindowNoState, Qt.WindowMaximized):
+                window.setWindowState(state)
+                QTest.qWait(250)
+                original_state = window.windowState()
+                original_geometry = QRect(window.geometry())
+                original_saved_geometry = window.current_state()['geometry']
+                original_wall = QRect(wall.geometry())
+                original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
+                visible = wall.visible_tiles()
+                panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
+
+                window._on_fullscreen(tile)
+                QTest.qWait(90)
+                assert window.isFullScreen(), 'The capture target must fill the screen itself'
+                assert window.geometry() == window.screen().geometry()
+                assert window.current_state()['geometry'] == original_saved_geometry
+                assert not tile.isWindow() and tile.parentWidget() is wall
+                assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
+                assert user32.GetAncestor(video_hwnd, 2) == main_hwnd  # GA_ROOT
+                assert tile.video.geometry() == tile.rect() == window.rect()
+                assert tile.video.mapToGlobal(QPoint()) == window.mapToGlobal(QPoint())
+                assert tile.bottom.geometry() == tile.bottom._tile_rect.translated(tile.mapToGlobal(QPoint()))
+                assert not window.sidebar.isVisible() and wall.visible_tiles() == [tile]
+                assert all(not panel.isVisible() for panel in panels)
+                assert window.players[tile] is player
+
+                next(shortcut for shortcut in window._window_shortcuts
+                     if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
+                QTest.qWait(90)
+                assert not window.isFullScreen() and window.windowState() == original_state
+                assert window.geometry() == original_geometry and wall.geometry() == original_wall
+                assert window.sidebar.isVisible() and wall.visible_tiles() == visible
+                assert all(panel.isVisible() for panel in panels)
+                assert [pane.geometry() for pane in wall.tiles] == original_panes
+                assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
+                assert user32.GetAncestor(video_hwnd, 2) == main_hwnd
+                assert window.players[tile] is player and tile.bottom.isVisible()
+                assert not player.play.called and not player.release.called
+    finally:
+        window._exit_fullscreen()
+        window.players.pop(tile, None)
+    print('PASS: capture fullscreen keeps the video under one HWND and restores normal/maximized geometry')
+
+
 def main():
     app = QApplication(sys.argv)
     if app.platformName() != 'windows':
@@ -72,7 +132,7 @@ def main():
         return
     app.setStyleSheet(theme.qss())
     rooms = [dict(room_id=str(9800+i), uname=f'Fixture {i}', live=False) for i in range(9)]
-    with ExitStack() as stack:
+    with patch.dict(os.environ, {'DDM_FULLSCREEN_WINDOW_CAPTURE': '0'}), ExitStack() as stack:
         for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats',
                      'refresh_account', 'load_room_avatars', 'load_cached_avatars', 'sync_danmaku',
                      'load_cached_covers', '_check_startup_update', '_check_startup_plugins'):
@@ -246,6 +306,7 @@ def main():
             finally:
                 for widget in (*panels, *viewports):
                     widget.removeEventFilter(chat_handoff)
+            check_window_capture(window)
             window._on_fullscreen(tiles[0])
         finally:
             # Release stored focus while fixture buttons are still alive;

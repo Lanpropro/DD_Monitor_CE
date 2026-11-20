@@ -87,6 +87,7 @@ if /i "%~1"=="--check-stream-info" goto streamInfoCheck
 if /i "%~1"=="--check-playback-capture" goto playbackCaptureCheck
 if /i "%~1"=="--capture-playback" goto playbackCapture
 if /i "%~1"=="--check-notice-close" goto noticeCloseCheck
+if /i "%~1"=="--try-fullscreen-capture" set "DDM_FULLSCREEN_WINDOW_CAPTURE=1"
 if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
 if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
 if /i "%~1"=="--diagnose-douyu" goto douyu
