@@ -157,6 +157,8 @@ function labSetTheme(mode, slidingGroup = null) {
   labSyncColors();
 }
 
+const labMotionMilliseconds = id => ({ preview: 180, 'follow-card': 180, 'pip-composer': 260 }[id] ?? 120);
+
 function labMount(host, item) {
   const { id, width, height, radius } = item;
   host.dataset.labDemo = id;
@@ -179,6 +181,9 @@ function labMount(host, item) {
       <button class="lab-control lab-danmaku-more" type="button" popovertarget="${popupId}" popovertargetaction="hide" data-lab-more>更多弹幕设置</button>
     </div>` : ''}`;
   const fieldset = host.querySelector('fieldset');
+  fieldset.querySelectorAll('.lab-switch input[role=switch]').forEach(input => {
+    galleryBindSwitch(input, () => parseFloat(host.style.getPropertyValue('--lab-motion') || labMotionMilliseconds(id)) / 1000);
+  });
   if (!fieldset.querySelector('[data-primary]')) {
     const first = fieldset.querySelector('button, input, select, textarea, [tabindex]');
     (first?.closest('.lab-switch') || first)?.setAttribute('data-primary','');
@@ -344,7 +349,7 @@ const labNumberFields = item => [
   ...(labSegmentIds.includes(item.id) ? [
     ['duration', '弹簧响应时长（秒）', 0, 2, gallerySpringDefaults.duration, 0.01],
     ['bounce', '弹性（bounce）', 0, 0.9, gallerySpringDefaults.bounce, 0.01],
-  ] : [['motion', '动效时长 (ms)', 0, 500, { 'follow-card': 180, 'pip-composer': 260 }[item.id] ?? 120]]),
+  ] : [['motion', '动效时长 (ms)', 0, 500, labMotionMilliseconds(item.id)]]),
 ];
 
 function labRenderDetail(item) {

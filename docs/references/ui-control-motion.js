@@ -84,6 +84,29 @@ class GalleryMotion {
   };
 }
 
+function galleryBindSwitch(input, getDuration) {
+  const track = input.nextElementSibling;
+  const offset = '--lab-thumb-offset';
+  track.dataset.springThumb = '';
+  const motion = new GalleryMotion(track, Number(input.checked), position => {
+    if (position === Number(input.checked) && motion.velocity === 0) track.style.removeProperty(offset);
+    else track.style.setProperty(offset, `${galleryClamp(position, 0, 1) * 100}%`);
+  });
+  let pointer = false;
+  input.addEventListener('click', event => { pointer = event.detail > 0; });
+  input.addEventListener('change', () => {
+    const target = Number(input.checked);
+    if (pointer) {
+      if (motion.frame === null && !track.style.getPropertyValue(offset)) motion.position = 1 - target;
+      motion.paint(motion.position);
+      motion.spring(target, { duration: getDuration(), bounce: 0 });
+    } else {
+      motion.place(target);
+    }
+    pointer = false;
+  });
+}
+
 function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 4, axis = 'x', grabOnPress = false }) {
   let gesture;
   let suppressClick = false;
