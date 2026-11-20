@@ -15,7 +15,7 @@
 | 试样 | 软件入口 | 可核对的操作或表现 | 源码 | 详情标识 | 实装外观与状态核对记录 |
 | --- | --- | --- | --- | --- | --- |
 | 全部展开后的收起方式 | 常规 › 关注与预览 | 收起全部关注文件夹，或恢复本次全部展开前的状态。 | [settings_general.py](../../ddm/settings_general.py) | `#control-collapse` | 共同底板、两段选中块和恢复原状反馈。 |
-| 关注列表刷新间隔 | 常规 › 关注与预览 | 用加减按钮或数字输入调整轮询间隔，范围为 1–30 分钟。 | [settings_general.py](../../ddm/settings_general.py) | `#control-interval` | 一体底板、数字与单位、加减控件及 1–30 分钟边界。 |
+| 关注列表刷新间隔 | 常规 › 关注与预览 | 单点加减逐格调整，长按加速连发，也可直接输入 1–30 分钟。 | [settings_general.py](../../ddm/settings_general.py) | `#control-interval` | 一体底板、数字与单位、长按停止及 1–30 分钟边界。 |
 | 关注栏直播预览 | 常规 › 关注与预览 | 开启后，在关注栏的直播间上悬停会显示播放预览。 | [settings_general.py](../../ddm/settings_general.py) | `#control-preview` | 即时状态、默认 320 毫秒的弹簧滑动、滑块随速度轻微拉伸、键盘切换。 |
 | 新建格子的初始音量 | 常规 › 播放与声音 | 设置新建播放格使用的默认音量。 | [settings_general.py](../../ddm/settings_general.py) | `#control-initial-volume` | 实装滑轨位置、白色滑块和独立数值列。 |
 | 直播源格式 | 常规 › 编解码 | 选择直播流编码偏好，可选 H.264、HEVC 和 AV1。 | [settings_codec_editor.py](../../ddm/settings_codec_editor.py) | `#control-codec` | 三段底板、当前编码高亮、切换反馈。 |
@@ -27,7 +27,7 @@
 
 | 试样 | 软件入口 | 可核对的操作或表现 | 源码 | 详情标识 | 实装外观与状态核对记录 |
 | --- | --- | --- | --- | --- | --- |
-| 暂停／继续 | 底部信息条 | 切换当前播放格的暂停状态，再点一次继续。 | [tile_widgets.py](../../ddm/tile_widgets.py) | `#control-pause` | 暂停双竖线、继续三角形、底栏悬停反色。 |
+| 暂停／继续 | 底部信息条 | 切换当前播放格的暂停状态，再点一次继续并清除状态提示。 | [tile_widgets.py](../../ddm/tile_widgets.py) | `#control-pause` | 暂停双竖线、继续三角形、悬停底色、按下反馈及键盘焦点。 |
 | 格子音量 | 底部信息条 · 宽格子 | 点击扬声器静音或取消静音，也可以拖动滑块独立调整音量。 | [tile_widgets.py](../../ddm/tile_widgets.py) | `#control-volume` | 扬声器及声道图标、静音与拖动恢复、数值和滑轨。 |
 | 画面弹幕／观看设置 | 底部信息条 | 左侧开关控制画面弹幕，齿轮打开弹幕观看设置。 | [tile_widgets.py](../../ddm/tile_widgets.py) | `#control-danmaku` | 弹字勾选、独立齿轮、五个滑块及两项复选。 |
 | 录制 | 底部信息条 | 在开始和停止录制之间切换，浏览器样例会显示当前状态。 | [tile_widgets.py](../../ddm/tile_widgets.py) | `#control-record` | 空闲实拍标识和红色录制状态，停止后回到空闲。 |

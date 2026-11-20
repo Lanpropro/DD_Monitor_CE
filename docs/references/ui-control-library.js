@@ -368,10 +368,14 @@ document.addEventListener('click', event => {
     const stepper = clicked.closest('.stepper');
     const value = Number(stepper.querySelector('output').dataset.value) + Number(clicked.dataset.step);
     const bounded = Math.max(Number(stepper.dataset.min), Math.min(Number(stepper.dataset.max), value));
-    siblings(clicked, '.stepper button').forEach(button => {
-      const output = button.closest('.stepper').querySelector('output');
+    siblings(stepper, '.stepper').forEach(peer => {
+      const output = peer.querySelector('output');
       output.dataset.value = bounded;
       output.textContent = bounded + output.dataset.unit;
+      peer.querySelectorAll('[data-step]').forEach(button => {
+        const limit = button.dataset.step === '1' ? peer.dataset.max : peer.dataset.min;
+        button.disabled = bounded === Number(limit);
+      });
     });
   }
   if (clicked.matches('[data-segment-choice]')) {

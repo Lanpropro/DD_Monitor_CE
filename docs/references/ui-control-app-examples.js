@@ -676,8 +676,11 @@ function labBindApplication(host, item, report, paintIcon) {
         report(value ? '主题色 ' + value.toUpperCase() : '使用默认主题色');
       } else report('请输入六位 HEX 色值');
     }
-    if (target.matches('[data-app-theme-size]') && target.validity.valid && target.value)
+    if (target.matches('[data-app-theme-size]') && target.validity.valid && target.value) {
       select('[data-app-theme-sample]').style.fontSize = target.value + 'px';
+      select('[data-app-action=theme-size-down]').disabled = target.value === target.min;
+      select('[data-app-action=theme-size-up]').disabled = target.value === target.max;
+    }
   });
 
   demo.addEventListener('change', ({target}) => {

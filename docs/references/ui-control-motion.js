@@ -3,6 +3,56 @@ const galleryReducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const gallerySegmentSwitch = document.getElementById('segment-motion');
 const galleryClamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
+const galleryStepButtons = 'button[data-lab-step], .stepper button[data-step], .lab-qt-number-step button';
+let galleryStopStepHold;
+let galleryRepeatedStep;
+
+document.addEventListener('pointerdown', event => {
+  if (!event.isPrimary || event.button !== 0) return;
+  galleryStopStepHold?.();
+  galleryRepeatedStep = null;
+  const button = event.target.closest(galleryStepButtons);
+  if (!button || button.matches(':disabled')) return;
+
+  const listeners = new AbortController();
+  const options = { signal: listeners.signal };
+  let delay = 160;
+  let timer = setTimeout(repeat, 340);
+  function stop() {
+    clearTimeout(timer);
+    listeners.abort();
+    galleryStopStepHold = null;
+  }
+  function repeat() {
+    if (!button.isConnected || button.matches(':disabled') || button.closest('[hidden]')) {
+      stop();
+      return;
+    }
+    galleryRepeatedStep = button;
+    button.click();
+    timer = setTimeout(repeat, delay);
+    delay = Math.max(48, delay * .75);
+  }
+  galleryStopStepHold = stop;
+  for (const type of ['pointerup', 'pointercancel']) {
+    window.addEventListener(type, end => { if (end.pointerId === event.pointerId) stop(); }, options);
+  }
+  window.addEventListener('pointermove', move => {
+    if (move.pointerId !== event.pointerId) return;
+    const { left, right, top, bottom } = button.getBoundingClientRect();
+    if (move.clientX < left || move.clientX > right || move.clientY < top || move.clientY > bottom) stop();
+  }, options);
+  window.addEventListener('blur', stop, options);
+});
+
+document.addEventListener('click', event => {
+  // A long press already activated the button through its regular click handler.
+  if (event.detail > 0 && galleryRepeatedStep && event.target.closest('button') === galleryRepeatedStep) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}, true);
+
 function gallerySpringStep(state, target, { duration, bounce }, elapsed) {
   const omega = 2 * Math.PI / duration;
   const zeta = 1 - bounce;

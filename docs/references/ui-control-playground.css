@@ -375,6 +375,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   gap: 6px;
 }
 [data-lab-demo=interval] [data-lab-step] { padding: 0 6px; }
+:is([data-lab-step], .stepper [data-step], .lab-qt-number-step button) { touch-action: manipulation; user-select: none; }
 [data-lab-demo=interval] .lab-control:disabled { color: var(--lab-muted); }
 .lab-step-field {
   display: flex; flex: 1 1 auto; justify-content: center; align-items: center; gap: 4px; min-width: 0;
@@ -408,7 +409,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   }
 }
 [data-lab-demo=initial-volume] .lab-range output { width: 40px; font-weight: 700; }
-.lab-swatches { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 3px; }
+.lab-swatches, .lab-app-choice.lab-swatches { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 7px; }
 .lab-swatches .lab-control { padding: 2px 4px; background: var(--swatch, var(--lab-surface)); }
 .lab-swatch-dot { width: 20px; min-height: 20px; border-radius: 50%; padding: 0; border: 0; }
 .lab-swatches .lab-swatch-dot[aria-pressed=true] { background: var(--swatch); }
@@ -442,7 +443,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 [data-lab-area=overlay] .lab-control { font-weight: 600; }
 [data-lab-area=bottom] .lab-control[aria-pressed=true] { background: var(--lab-surface); border-color: var(--lab-line); }
 [data-lab-demo=volume] button { --lab-default-icon-size: 20px; width: 40px; background: transparent; border-color: transparent; }
-[data-lab-demo=volume] button[aria-pressed=true] { color: #9499a0; background: transparent; border-color: transparent; }
+[data-lab-demo=volume] button[aria-pressed=true] { --lab-action-ink: #9499a0; color: var(--lab-action-ink); background: transparent; border-color: transparent; }
 [data-lab-demo=danmaku] [data-lab-toggle] { width: 34px; position: relative; font-weight: 600; }
 [data-lab-demo=danmaku] [data-lab-toggle][aria-pressed=true]::after {
   content: "";
@@ -455,7 +456,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   border-width: 0 2px 2px 0;
   transform: rotate(35deg);
 }
-[data-lab-demo=record] [aria-pressed=true] { color: #e5484d; }
+[data-lab-demo=record] [aria-pressed=true] { --lab-action-ink: #e5484d; color: var(--lab-action-ink); }
 [data-lab-demo=reconnect] [aria-busy=true] { color: var(--lab-accent); opacity: 1; }
 @media (hover: hover) and (pointer: fine) {
   .lab-demo:is([data-lab-area=bottom], [data-lab-area=overlay]) .lab-control:hover:not(:disabled) {
@@ -544,12 +545,32 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-playback-right { flex: none; margin-inline-start: auto; }
 .lab-playback-preview .lab-demo {
   min-height: 0; margin: 0; padding: 0; border-radius: 0; background: transparent;
+  --lab-playback-hover: color-mix(in srgb, var(--lab-ink) 15%, transparent);
+  --lab-playback-pressed: color-mix(in srgb, var(--lab-ink) 27%, transparent);
 }
-.lab-playback-preview .lab-demo button.lab-control { border-color: transparent; background: transparent; }
-.lab-playback-preview .lab-demo button.lab-control:hover:not(:disabled),
-.lab-playback-preview .lab-demo button.lab-control:active:not(:disabled),
-.lab-playback-preview .lab-demo[data-state=hover] button[data-primary] {
-  background: var(--lab-playback-hover, transparent); border-color: transparent; color: var(--lab-ink);
+#overview[data-theme-mode=light] .lab-playback-preview .lab-demo { --lab-tile-focus: var(--lab-accent); }
+.lab-playback-preview .lab-controls > .lab-control {
+  border-color: transparent; background: transparent;
+  transition: transform var(--lab-motion, 120ms) cubic-bezier(.23, 1, .32, 1);
+}
+.lab-playback-preview .lab-controls > .lab-control:focus-visible { transition: none; }
+@media (hover: hover) and (pointer: fine) {
+  .lab-playback-preview .lab-controls > .lab-control:hover:not(:disabled) {
+    background: var(--lab-playback-hover); color: var(--lab-action-ink, var(--lab-ink));
+  }
+}
+.lab-playback-preview .lab-controls > .lab-control:open,
+.lab-playback-preview .lab-demo:has(.lab-danmaku-popup:popover-open) .lab-controls > [popovertarget],
+.lab-playback-preview .lab-demo[data-state=hover] .lab-controls > [data-primary] {
+  background: var(--lab-playback-hover); color: var(--lab-action-ink, var(--lab-ink));
+}
+.lab-playback-preview .lab-controls > .lab-control:active:not(:disabled),
+.lab-playback-preview .lab-demo[data-state=pressed] .lab-controls > [data-primary] {
+  background: var(--lab-playback-pressed); transform: scale(.97); color: var(--lab-action-ink, var(--lab-ink));
+}
+@media (prefers-reduced-motion: reduce) {
+  .lab-playback-preview .lab-controls > .lab-control:active:not(:disabled),
+  .lab-playback-preview .lab-demo[data-state=pressed] .lab-controls > [data-primary] { transform: none; }
 }
 .lab-playback-status {
   flex: 1 1 0; min-width: 0; color: var(--lab-muted); font-size: 11px;
@@ -557,7 +578,12 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 }
 #player-pair .tile-foot > .overlay-group { width: 100%; }
 #player-pair .tile-foot [data-player-action=chat] { margin-inline-start: auto; }
-#player-pair .tile-foot .control { background: transparent; border-color: transparent; box-shadow: none; }
+#player-pair .tile-foot .control { border-color: transparent; box-shadow: none; }
+#player-pair .tile-foot .control:not([aria-pressed=true]) { background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  #player-pair .tile-foot .control:hover { background: var(--tint); }
+}
+#player-pair .tile-foot .control:active { background: var(--accent-pressed); color: #fff; }
 .lab-detail-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 12px; align-items: start; }
 .lab-panel { padding: 14px; }
 .lab-panel h3 { font-size: 15px; }

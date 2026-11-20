@@ -3,7 +3,7 @@ const labControls = [
   ['collapse', '全部展开后的收起方式', '常规 › 关注与预览', 320, 34, 18,
     '收起全部关注文件夹，或恢复本次全部展开前的状态。'],
   ['interval', '关注列表刷新间隔', '常规 › 关注与预览', 180, 34, 8,
-    '用加减按钮或数字输入调整轮询间隔，范围为 1–30 分钟。'],
+    '短点加减按钮逐格调整，长按会加速连发，也可直接输入 1–30 分钟。'],
   ['preview', '关注栏直播预览', '常规 › 关注与预览', 44, 26, 13,
     '开启后，在关注栏的直播间上悬停会显示播放预览。'],
   ['initial-volume', '新建格子的初始音量', '常规 › 播放与声音', 214, 28, 6,
@@ -94,7 +94,7 @@ const labIcon = glyph => labPlatformIcons[glyph]
     ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${labQtGlyphs[glyph]}</svg>`
     : icon(glyph);
 const labTransitions = {
-  pause: [['qt-pause', '', '播放中'], ['play', '', '已暂停']],
+  pause: [['qt-pause', '', ''], ['play', '', '已暂停']],
   volume: [['qt-volume', '', '声音已开启'], ['qt-mute', '', '已静音']],
   danmaku: [['', '弹', '画面弹幕已关闭'], ['', '弹', '画面弹幕已开启']],
   record: [['', '● 录制', '已停止录制'], ['', '● REC', '正在录制']],
