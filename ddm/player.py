@@ -249,7 +249,8 @@ class TilePlayer(QObject):
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
         overseas = profile in OVERSEAS_PLATFORMS
-        hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas
+        qie_hls = profile == "qie" and urlsplit(url).path.lower().endswith(".m3u8")
+        hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas or qie_hls
         self._picture_limit = 20 if overseas else 8 if hls and profile != "douyu" else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas else 6
         default_profile = "app" if profile.startswith("app") else "web"
@@ -261,7 +262,7 @@ class TilePlayer(QObject):
         retained = take(url)
         if retained is not None:
             self._hls_proxy = retained
-        elif overseas or profile == "huya":
+        elif overseas or profile == "huya" or qie_hls:
             from .global_danmaku import request_proxy
             from .hls_proxy import HlsProxy, FLV_HANDOFF_HEADER, take_flv_response
             session, room = self.play_session, self.diagnostic_room

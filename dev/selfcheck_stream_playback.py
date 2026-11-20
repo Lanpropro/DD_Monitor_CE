@@ -151,6 +151,19 @@ class StreamPlaybackTests(unittest.TestCase):
         relay.stop.assert_called_once()
         self.assertIsNone(player._hls_proxy)
 
+    def test_qie_hls_uses_relay_that_can_request_a_fresh_source(self):
+        from ddm.player import TilePlayer
+        player = Mock(decode_mode='auto', silent=False, diagnostic_room='qie:10210732')
+        relay = Mock(url='http://127.0.0.1:12345/live.m3u8')
+        url = 'https://cdn.test/live/10210732Mobile.m3u8?fixture=issued'
+        headers = {'User-Agent': 'fixture', 'Referer': 'https://m.qie.tv/10210732'}
+        with patch('ddm.hls_proxy.HlsProxy', return_value=relay) as factory, \
+                patch('ddm.global_danmaku.request_proxy', return_value=None):
+            TilePlayer._play_media(player, url, 'qie', headers, [])
+        self.assertEqual(factory.call_args.args[:3], (url, headers, None))
+        self.assertIs(player._hls_proxy, relay)
+        self.assertEqual(player._media, relay.url)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
