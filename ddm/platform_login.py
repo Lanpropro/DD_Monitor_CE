@@ -48,6 +48,7 @@ class PlatformFollowDialog(QDialog):
         self._interactive_read = not login_only and bool(getattr(platform, "follow_browser_init_script", ""))
         self._pending_done = None
         self._finished_dialog = False
+        self._clearing_login_cache = False
         self._saved_cookies = []
         self._login_url = (platform.follow_login_url if not login_only and
                            getattr(platform, "follow_browser_url", "") else
@@ -79,14 +80,22 @@ class PlatformFollowDialog(QDialog):
         toolbar.addStretch(1)
         self.forget_button = ActionButton("退出账号", self)
         self.forget_button.clicked.connect(self._forget)
-        toolbar.addWidget(self.forget_button)
+        if embedded and login_only:
+            self.forget_button.hide()
+            self.reload_button = ActionButton("刷新", self)
+            self.reload_button.setToolTip("刷新当前官网登录页")
+            self.reload_button.clicked.connect(self._refresh_login_page)
+            toolbar.addWidget(self.reload_button)
+        else:
+            toolbar.addWidget(self.forget_button)
         self.read_button = ActionButton("确认登录" if login_only else "读取关注", self)
         self.read_button.setObjectName("PrimaryButton")
         self.read_button.clicked.connect(self._read)
         toolbar.addWidget(self.read_button)
-        cancel = ActionButton("取消", self)
-        cancel.clicked.connect(self.reject)
-        toolbar.addWidget(cancel)
+        if not (embedded and login_only):
+            cancel = ActionButton("取消", self)
+            cancel.clicked.connect(self.reject)
+            toolbar.addWidget(cancel)
         layout.addLayout(toolbar)
         self.browser = QWebEngineView(self)
         profile = _profiles.get(platform.kind)
@@ -130,7 +139,20 @@ class PlatformFollowDialog(QDialog):
             self.status.setText("保存的登录状态无法读取，请在官方页面重新登录")
         self._store.loadAllCookies()
         if not defer_login:
+            self.load_login_page()
+
+    def load_login_page(self):
+        if not self._clearing_login_cache:
             self.browser.load(QUrl(self._login_url))
+
+    def _refresh_login_page(self):
+        if self._clearing_login_cache:
+            return
+        url = self.browser.url()
+        if url.isEmpty() or url == QUrl("about:blank"):
+            self.load_login_page()
+        else:
+            self.browser.reload()
 
     def _valid_cookie(self, cookie):
         domain = cookie.domain().lstrip(".").lower()
@@ -146,6 +168,8 @@ class PlatformFollowDialog(QDialog):
         self._cookies.pop((bytes(cookie.name()), cookie.domain(), cookie.path()), None)
 
     def _read(self):
+        if self._clearing_login_cache:
+            return
         if self._worker is not None:
             if self._interactive_read:
                 self.cancel_read()
@@ -290,6 +314,8 @@ class PlatformFollowDialog(QDialog):
             self._forget()
 
     def _forget(self):
+        if self._clearing_login_cache:
+            return
         if self._worker is not None:
             self._forget_after_read = True
             self.cancel_read()
@@ -304,10 +330,19 @@ class PlatformFollowDialog(QDialog):
         if self._owner is not None and hasattr(self._owner, "_platform_login_sessions"):
             self._owner._platform_login_sessions.pop(self.platform.kind, None)
         self._store.deleteAllCookies()
-        self._profile.clearHttpCache()
         self.accountCleared.emit(self.platform.kind)
-        self.browser.load(QUrl(self._login_url))
+        self._clearing_login_cache = True
+        self.status.setText("正在清理旧登录状态，完成后会自动打开官网登录页…")
+        self.read_button.setEnabled(False)
+        self._profile.clearHttpCacheCompleted.connect(self._login_cache_cleared, Qt.SingleShotConnection)
+        self._profile.clearHttpCache()
+
+    def _login_cache_cleared(self):
+        self._clearing_login_cache = False
+        self.read_button.setEnabled(True)
         self.status.setText("已清除本机登录状态，请在官方页面重新登录")
+        if not self._finished_dialog and (not self._embedded or self.isVisible()):
+            self.load_login_page()
 
     def done(self, result):
         if self._finished_dialog:

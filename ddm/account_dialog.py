@@ -1,7 +1,9 @@
 """在同一窗口内切换平台、登录和勾选关注。"""
+import sys
 from copy import deepcopy
 
-from PySide6.QtCore import QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtCore import QRectF, QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import QRegion
 from PySide6.QtWidgets import (QDialog, QLabel,
                               QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
@@ -9,6 +11,7 @@ from . import bili, theme
 from .bili import FollowLoader
 from .room_dialogs import FollowImportDialog
 from .account_widgets import AccountRow
+from .corner_geometry import continuous_path
 
 
 from .account_workers import (FollowAccountResolver)
@@ -21,8 +24,10 @@ class AccountPlatformDialog(QDialog):
         self.owner = owner
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
+        self._opaque_login = sys.platform == "win32" and not import_follows
         self.setWindowFlag(Qt.FramelessWindowHint, True)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        if not self._opaque_login:
+            self.setAttribute(Qt.WA_TranslucentBackground)
         self.setProperty("customControlSurface", True)
         theme.signals().changed.connect(self.update)
         self.reauthenticate = reauthenticate
@@ -174,6 +179,13 @@ class AccountPlatformDialog(QDialog):
     def paintEvent(self, event):
         paint_import_surface(self)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._opaque_login:
+            # A layered Windows dialog can let native WebEngine clicks hit the window behind it.
+            outline = continuous_path(QRectF(self.rect()), 22)
+            self.setMask(QRegion(outline.toFillPolygon().toPolygon()))
+
     def showEvent(self, event):
         super().showEvent(event)
         self._center_on_owner()
@@ -305,7 +317,7 @@ class AccountPlatformDialog(QDialog):
             self.reauthenticate = False
             page._forget()
         else:
-            page.browser.load(QUrl(page._login_url))
+            page.load_login_page()
 
     def _platform_failed(self, page):
         if self._closing_result is None and self.page.property("loading"):
