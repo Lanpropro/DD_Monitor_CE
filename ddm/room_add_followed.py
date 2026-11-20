@@ -263,7 +263,7 @@ class FollowedRoomPicker(RoomCardPicker):
 
 class PresetRoomPicker(RoomCardPicker):
     def __init__(self, parent):
-        super().__init__(parent, search_label='搜索电视频道', list_label='电视预设频道')
+        super().__init__(parent, search_label='搜索频道', list_label='频道预设')
         self.rooms = {}
         self.file_button = NavigationButton('选择本地播放列表', 'open_folder', self)
         self.filters.addWidget(self.file_button)
@@ -274,7 +274,7 @@ class PresetRoomPicker(RoomCardPicker):
         entries = {}
         for index, (room, avatar_path) in enumerate(presets):
             room_id, name = room['room_id'], room['uname']
-            group = room.get('import_group') or room.get('title') or '电视频道'
+            group = room.get('import_group') or room.get('title') or '频道'
             face = QPixmap(avatar_path) if avatar_path else None
             entries.setdefault(group, []).append(_RoomCard(
                 room_id, name, f'{name} {group}', room, face, AVATAR_COLORS[index % len(AVATAR_COLORS)]))
