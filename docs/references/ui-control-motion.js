@@ -197,7 +197,12 @@ function galleryBindFollowOrder(list, getDuration, report) {
       const center = top + height / 2;
       motions.get(row).place((top - offsets[source]) / unit);
       // Hit testing uses stable row midpoints, even while their painted positions are moving.
-      const target = centers.filter((midpoint, index) => index !== source && center >= midpoint).length;
+      // The clamped top and bottom positions always denote the first and last slots.
+      let target = 0;
+      if (top === offsets.at(-1)) target = rows.length - 1;
+      else if (top > offsets[0]) {
+        target = centers.filter((midpoint, index) => index !== source && center >= midpoint).length;
+      }
       if (target === drag.target) return;
       drag.target = target;
       const order = [...rows];
