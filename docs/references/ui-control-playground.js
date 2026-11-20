@@ -46,14 +46,18 @@ for (const [title, ids, usages = []] of labSharedTypes) {
   const type = { title, examples: ids.map(id => labControlById.get(id)), usages };
   ids.forEach(id => labTypeById.set(id, type));
 }
+const labPlaybackType = {
+  title: '播放格控制栏',
+  examples: Object.values(labPlaybackParts).flat().map(id => labControlById.get(id)),
+  usages: [],
+};
+labPlaybackType.examples.forEach(item => labTypeById.set(item.id, labPlaybackType));
 for (const item of labControls) {
   if (!labTypeById.has(item.id)) labTypeById.set(item.id, { title: item.title, examples: [item], usages: [] });
 }
 const labCatalog = [...new Set(labTypeById.values())]
   .sort((a, b) => labControls.indexOf(a.examples[0]) - labControls.indexOf(b.examples[0]));
-const labPlaybackType = labTypeById.get('pause');
-
-const labPresets = [['', '默认'], ['#00a1d6', '蓝'], ['#20b976', '绿'], ['#8866ee', '紫'],
+const labPresets = [['#00a1d6', '蓝'], ['#20b976', '绿'], ['#8866ee', '紫'],
   ['#ef638e', '粉'], ['#f58b32', '橙']];
 const labTileGlyphs = {
   'qt-pause': '<rect x="5" y="4" width="5" height="16" rx="1.7" fill="currentColor"/><rect x="14" y="4" width="5" height="16" rx="1.7" fill="currentColor"/>',
@@ -139,9 +143,9 @@ function labExample({ id, title }, popupId) {
       'D3D11VA 显卡解码', 'DXVA2 显卡解码（旧设备）']);
     case 'theme': return labChoice(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
     case 'palette': return `<div class="lab-swatches" role="group" aria-label="${title}">
-      ${labPresets.map(([color, label], index) => `<button type="button" class="lab-control ${index ? 'lab-swatch-dot' : ''}"
+      ${labPresets.map(([color, label], index) => `<button type="button" class="lab-control lab-swatch-dot"
         aria-label="${label}" title="${label}" aria-pressed="${index === 0}" data-lab-choice="${color}"
-        ${index ? `style="--swatch:${color}"` : 'data-primary'}>${index ? '' : label}</button>`).join('')}
+        style="--swatch:${index === 0 ? 'var(--lab-blue)' : color}" ${index === 0 ? 'data-primary' : ''}></button>`).join('')}
       </div>`;
     case 'volume': return labFlip(id, '静音／取消静音') + labRange(title, 0, 100, 40);
     case 'danmaku': return labFlip(id, '切换画面弹幕', true)
@@ -287,8 +291,8 @@ function labMount(host, item) {
     if (id === 'palette') {
       host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
       const surface = host.querySelector('.lab-controls');
-      if (value) surface.style.setProperty('--lab-accent', value);
-      else surface.style.removeProperty('--lab-accent');
+      if (clicked.hasAttribute('data-primary')) surface.style.removeProperty('--lab-accent');
+      else surface.style.setProperty('--lab-accent', value);
     }
     status.textContent = `已选 ${clicked.getAttribute('aria-label')}`;
   }
@@ -331,11 +335,15 @@ function labMount(host, item) {
 }
 
 function labMountPlayback(preview, selected) {
-  const region = (area, label) => `<div class="lab-playback-${area}" role="group" aria-label="${label}">${labPlaybackType.examples
-    .filter(item => item.area === area)
+  const region = (name, label) => `<div class="lab-playback-${name}" role="group" aria-label="${label}">${labPlaybackParts[name]
+    .map(id => labControlById.get(id))
     .map(item => `<div class="lab-demo${item === selected ? ' lab-detail-stage' : ''}" data-lab-demo="${item.id}"></div>`).join('')}</div>`;
   preview.innerHTML = `<div class="lab-playback-screen">${region('overlay', '播放格右上角')}</div>
-    ${region('bottom', '播放格底部信息条')}<output class="lab-playback-status" aria-live="polite"></output>`;
+    <div class="lab-playback-bottom" role="group" aria-label="播放格底部信息条">
+      ${region('left', '播放与音量')}
+      <output class="lab-playback-status" aria-live="polite"></output>
+      ${region('right', '弹幕、录制与全屏')}
+    </div>`;
   preview.querySelectorAll('[data-lab-demo]').forEach(host => labMount(host, labControlById.get(host.dataset.labDemo)));
 }
 
@@ -385,7 +393,7 @@ function labRenderDetail(item) {
   labDetail.innerHTML = `<header class="lab-detail-head">
     <div><h2 id="playground-name" tabindex="-1">${type.title}</h2><p>${item.group} › ${item.location}</p></div>
     <a class="lab-link" href="#overview">返回总览</a></header>
-    ${type.examples.length > 1 ? `<nav class="lab-use-cases" aria-label="同类控件的实装用法">${type.examples.map(example =>
+    ${type.examples.length > 1 ? `<nav class="lab-use-cases" aria-label="${playback ? '播放格控制栏内的控件' : '同一控件的实装用法'}">${type.examples.map(example =>
       `<a href="#control-${example.id}"${example === item ? ' aria-current="page"' : ''}><strong>${example.title}</strong><small>${example.location}</small></a>`
     ).join('')}</nav>` : ''}
     <div class="lab-detail-layout">
@@ -488,7 +496,7 @@ function labRenderGallery() {
         const item = type.examples[0];
         const playback = type === labPlaybackType;
         return `<article class="qt-card${playback ? ' qt-card-playback' : ''}" data-lab-type="${item.id}">
-          <header><div><h3>${type.title}</h3><small>${type.examples.length > 1 ? `${type.examples.length} 个使用场景` : item.location}</small></div>
+          <header><div><h3>${type.title}</h3><small>${playback ? '底部信息条与右上角' : type.examples.length > 1 ? `${type.examples.length} 个使用场景` : item.location}</small></div>
           <a class="lab-link" href="#control-${item.id}" aria-label="${type.title}详情">详情</a></header>
           ${playback ? '<div class="lab-playback-preview"></div>' : '<div class="lab-demo"></div>'}</article>`;
       }).join('')}</div></section>`).join('');

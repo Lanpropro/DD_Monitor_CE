@@ -1,4 +1,4 @@
-// One preview per shared type. Scenario IDs keep their original deep links and Qt screenshots.
+// Merge identical controls. Combined UI previews keep their own entries, even if they reuse a control.
 const labSharedTypes = [
   ['分段选择', ['collapse', 'codec', 'theme'], [
     ['画面墙 › 布局预设与我的组合切换', 'layout_picker.py'],
@@ -15,7 +15,7 @@ const labSharedTypes = [
     ['主播设置 › 独立音量', 'settings_streamer_profiles.py'],
     ['外观 › 界面字号', 'settings_theme_editor.py'],
   ]],
-  ['开关', ['preview', 'notice-blur'], [
+  ['开关', ['preview'], [
     ['常规 › 新建格子初始静音、交换格子声音跟随、全屏单路声音、音量均衡、全屏自动收起控制条', 'settings_general.py'],
     ['常规 › 自动切换紧凑列表、紧凑卡片显示背景图、隐藏到托盘后暂停播放', 'settings_general.py'],
     ['软件更新 › 启动时检查更新', 'app_update_ui.py'],
@@ -23,6 +23,7 @@ const labSharedTypes = [
     ['弹幕 › 关闭浮窗后保留直播格、显示醒目留言、SC 随画面缩放、同步 SC 位置、弹幕随画面缩放', 'settings_danmaku.py'],
     ['外观 › 毛玻璃、阴影和滑动分段指示器', 'settings_material_editor.py'],
     ['外观 › 背景遮罩和背景视频', 'skin_settings.py'],
+    ['通知 › 显示通知背景图', 'settings_notifications.py'],
     ['快捷键 › 启用单项快捷键和悬停滚轮调音量', 'settings_shortcuts.py'],
     ['主播设置 › 合并相同配置', 'settings_streamer_defaults.py'],
     ['插件 › 启用已安装插件', 'settings_plugins.py'],
@@ -40,7 +41,7 @@ const labSharedTypes = [
     ['颜色对话框 › RGB 调节', 'ui/color_dialog.py'],
     ['画面墙全局设置 › 整体音量', 'wall_quick_settings.py'],
   ]],
-  ['下拉选择', ['decoder', 'danmaku-font'], [
+  ['下拉选择', ['decoder'], [
     ['常规 › 音量均衡预设', 'audio_normalization_ui.py'],
     ['常规 › 关闭主窗口的行为', 'settings_general.py'],
     ['插件商店 › 筛选和排序', 'plugin_store_ui.py'],
@@ -54,9 +55,11 @@ const labSharedTypes = [
     ['主播设置 › 播放和录制画质', 'settings_streamer_profiles.py'],
     ['画面墙全局设置 › 画质', 'wall_quick_settings.py'],
   ]],
-  ['颜色选择', ['palette', 'danmaku-color', 'theme-editor']],
-  ['播放格控制栏', ['pause', 'volume', 'danmaku', 'record', 'fullscreen', 'quality', 'reconnect', 'close']],
-  ['导航图标按钮', ['sidebar-toggle', 'sidebar-multi']],
-  ['可排序列表', ['follow-card', 'menu-order']],
-  ['确认对话框', ['close-choice', 'plugin-remove']],
 ];
+
+// These are pieces of one Qt surface, rather than interchangeable scenarios for a single button.
+const labPlaybackParts = {
+  left: ['pause', 'volume'],
+  right: ['danmaku', 'record', 'fullscreen'],
+  overlay: ['quality', 'reconnect', 'close'],
+};

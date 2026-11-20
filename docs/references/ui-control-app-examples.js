@@ -184,7 +184,7 @@ function labAppExample(item, popupId, detail) {
         <small>内置图标</small><div class="lab-qt-icon-grid">${[['文件夹','folder'],['星标','star'],['爱心','heart'],
           ['游戏','game'],['音乐','music'],['视频','qt-tabs']].map(([label,glyph],i) =>
           labButton(label,glyph,label,`data-app-action="folder-icon" data-app-folder-glyph="${glyph}" aria-pressed="${i===0}"`)).join('')}</div>
-        <div class="lab-app-choice">${labPresets.slice(1).map(([color,label]) =>
+        <div class="lab-app-choice">${labPresets.map(([color,label]) =>
           `<button type="button" class="lab-control lab-swatch-dot" style="--swatch:${color}" aria-label="${label}" data-app-action="folder-color" data-app-color="${color}"></button>`).join('')}</div>
         ${line('自定义颜色',field('图标颜色','color','value="#00a1d6" data-app-folder-color'))}
         <div class="lab-qt-actions">${b('恢复默认','folder-reset')}${b('取消','cancel')}${b('保存','save')}</div>`)
@@ -345,9 +345,9 @@ function labAppExample(item, popupId, detail) {
         ${labRange('字幕大小',10,24,14,' px')}${b('恢复位置与大小','caption-place-reset')}`; break;
     case 'theme-editor':
       html = `<div class="lab-app-choice lab-swatches" role="group" aria-label="主题色">${labPresets.map(([color, label],index) => `
-        <button type="button" class="lab-control ${index ? 'lab-swatch-dot' : ''}" aria-label="${label}" title="${label}"
-          aria-pressed="${index === 0}" data-app-choice="主题色" data-app-color="${color}"
-          ${index ? `style="--swatch:${color}"` : ''}>${index ? '' : label}</button>`).join('')}</div>
+        <button type="button" class="lab-control lab-swatch-dot" aria-label="${label}" title="${label}"
+          aria-pressed="${index === 0}" data-app-choice="主题色" data-app-color="${index === 0 ? '' : color}"
+          style="--swatch:${index === 0 ? 'var(--lab-blue)' : color}"></button>`).join('')}</div>
         ${line('自定义色值',field('自定义色值','text','placeholder="#RRGGBB" maxlength="7" data-app-theme-color data-primary'))}
         ${line('界面字体',select(['系统默认','微软雅黑','等宽字体'],'界面字体'))}
         ${line('界面字号',`<span class="lab-qt-number-step">${b('减小界面字号','theme-size-down',false,'minus')}

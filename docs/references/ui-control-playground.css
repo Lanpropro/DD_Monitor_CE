@@ -33,7 +33,8 @@
   --lab-bg: #222428;
   --lab-surface: #303337;
   --lab-ink: #f1f2f5;
-  --lab-accent: #00a1d6;
+  --lab-blue: #00a1d6;
+  --lab-accent: var(--lab-blue);
   --lab-hover: #3b3e42;
   --lab-line: #83839129;
   --lab-muted: #b8bdc5;
@@ -49,7 +50,7 @@
   --lab-bg: #f4f6f9;
   --lab-surface: #ffffff;
   --lab-ink: #202630;
-  --lab-accent: #007ba8;
+  --lab-blue: #007ba8;
   --lab-hover: #e7eff7;
   --lab-line: #d7dde7;
   --lab-muted: #5e6a7d;
@@ -409,9 +410,8 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 [data-lab-demo=initial-volume] .lab-range output { width: 40px; font-weight: 700; }
 .lab-swatches { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 3px; }
 .lab-swatches .lab-control { padding: 2px 4px; background: var(--swatch, var(--lab-surface)); }
-.lab-swatches .lab-control[data-primary] { width: 52px; }
-.lab-swatches .lab-control[data-primary][aria-pressed=true] { color: var(--lab-accent); border-color: var(--lab-accent); }
 .lab-swatch-dot { width: 20px; min-height: 20px; border-radius: 50%; padding: 0; border: 0; }
+.lab-swatches .lab-swatch-dot[aria-pressed=true] { background: var(--swatch); }
 .lab-swatch-dot[aria-pressed=true] { outline: 2px solid var(--lab-ink); outline-offset: 1px; }
 .lab-swatches .lab-swatch-dot:hover:not(:disabled) { background: var(--swatch); filter: brightness(1.17); }
 .lab-demo:is([data-lab-area=bottom], [data-lab-area=overlay]) {
@@ -533,9 +533,15 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 }
 .lab-playback-screen { background: #101114; min-height: 82px; padding: 6px 8px; }
 #overview[data-theme-mode=light] .lab-playback-screen { background: #dde4ed; }
-.lab-playback-overlay, .lab-playback-bottom { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; }
+.lab-playback-overlay, .lab-playback-bottom, .lab-playback-left, .lab-playback-right {
+  display: flex; align-items: center; gap: 3px;
+}
 .lab-playback-overlay { justify-content: flex-end; }
-.lab-playback-bottom { padding: 4px 8px; background: var(--lab-raised); }
+.lab-playback-bottom { gap: 8px; padding: 4px 10px; background: var(--lab-raised); }
+.lab-playback-left, .lab-playback-right { gap: 8px; }
+.lab-playback-left { flex: 0 1 auto; min-width: 0; }
+.lab-playback-left [data-lab-demo=volume] { min-width: 0; }
+.lab-playback-right { flex: none; margin-inline-start: auto; }
 .lab-playback-preview .lab-demo {
   min-height: 0; margin: 0; padding: 0; border-radius: 0; background: transparent;
 }
@@ -545,8 +551,12 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-playback-preview .lab-demo[data-state=hover] button[data-primary] {
   background: var(--lab-playback-hover, transparent); border-color: transparent; color: var(--lab-ink);
 }
-.lab-playback-preview .lab-playback-status { display: block; min-height: 16px; padding: 0 8px; font-size: 11px; }
+.lab-playback-status {
+  flex: 1 1 0; min-width: 0; color: var(--lab-muted); font-size: 11px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
 #player-pair .tile-foot > .overlay-group { width: 100%; }
+#player-pair .tile-foot [data-player-action=chat] { margin-inline-start: auto; }
 #player-pair .tile-foot .control { background: transparent; border-color: transparent; box-shadow: none; }
 .lab-detail-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 12px; align-items: start; }
 .lab-panel { padding: 14px; }
@@ -1058,7 +1068,13 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
 
 @media(max-width: 940px) { .qt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media(max-width: 680px) { .lab-detail-layout { grid-template-columns: 1fr; } }
-@media(max-width: 520px) { .lab-use-sources ul { grid-template-columns: 1fr; } }
+@media(max-width: 520px) {
+  .lab-use-sources ul { grid-template-columns: 1fr; }
+  .lab-playback-bottom { padding-inline: 6px; }
+  .lab-playback-bottom, .lab-playback-left, .lab-playback-right { gap: 4px; }
+  .lab-playback-left [data-lab-demo=volume] .lab-controls { width: min(var(--lab-width), 105px); }
+  .lab-playback-left [data-lab-demo=volume] .lab-range input { min-width: 24px; }
+}
 @media(max-width: 450px) {
   .qt-card > header { min-height: 40px; }
   .qt-card h3 { font-size: 12px; }
