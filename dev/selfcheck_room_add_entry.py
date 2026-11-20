@@ -197,7 +197,13 @@ class AddRoomEntryTests(unittest.TestCase):
         host.show()
         catalog.open_add_room(resolver_type=Resolver)
         panel = catalog._add_panel
-        self.assertFalse(panel.file_button.isHidden())
+        self.assertTrue(panel.presets.isHidden())
+        self.assertTrue(panel.preset_button.isVisible())
+        self.assertTrue(panel.preset_button.isCheckable())
+        panel.preset_button.click()
+        self.assertTrue(panel.presets.file_button.isVisible())
+        self.assertTrue(panel.presets.isAncestorOf(panel.presets.file_button))
+        self.assertTrue(panel.presets.search.isHidden())
         observed = []
         def select(dialog):
             self.assertEqual(dialog.windowTitle(), '导入频道')
@@ -211,7 +217,15 @@ class AddRoomEntryTests(unittest.TestCase):
             dialog.list.item(0).setCheckState(Qt.Checked)
             observed.append(dialog.selected())
             return QDialog.Accepted
-        panel.entry.setPlainText('test:https://example.com/list.m3u')
+        path = 'C:/播放列表/频道.m3u'
+        with patch('ddm.room_add_panel.QFileDialog.getOpenFileNames',
+                   side_effect=[([], ''), ([path], '')]) as chooser:
+            panel.presets.file_button.click()
+            self.assertTrue(panel.presets.isVisible())
+            self.assertFalse(panel.entry.toPlainText())
+            panel.presets.file_button.click()
+        self.assertIn('*.m3u8', chooser.call_args.args[3])
+        self.assertEqual(panel.entry.toPlainText(), path)
         with patch.object(FollowImportDialog, 'exec', select):
             panel.submit_button.click()
             for _ in range(100):
@@ -319,12 +333,28 @@ class AddRoomEntryTests(unittest.TestCase):
         self.assertTrue(panel.followed_toggle.isVisible())
         self.assertTrue(panel.preset_button.isVisible())
         self.assertLess(panel.followed_toggle.x(), panel.preset_button.x())
+        collapsed_height = panel.height()
+        panel.followed_toggle.click()
+        self.assertTrue(panel.followed.isVisible())
+        panel.preset_button.click()
+        self.assertTrue(panel.followed.isHidden())
+        self.assertTrue(panel.presets.isVisible())
+        self.assertGreater(panel.height(), collapsed_height)
+        self.assertGreater(panel.presets.y(), panel.preset_button.y())
+        self.assertTrue(panel.presets.file_button.isHidden())
+        self.assertIsNone(panel.preset_button.menu())
+        panel.presets.search.setText('不存在')
+        self.assertEqual(panel.presets.model.rowCount(), 0)
+        panel.presets.search.setText('CCTV')
+        self.pump()
         folder = next(action for action in panel.folder_button.menu().actions() if action.data() == folder_id)
         folder.trigger()
-        preset = panel.preset_menu.actions()[0]
-        self.assertEqual(preset.text(), 'CCTV-5+')
-        preset.trigger()
-        preset.trigger()
+        preset = panel.presets.model.index(1, 0)
+        self.assertEqual(preset.data(Qt.DisplayRole), 'CCTV-5+')
+        self.assertEqual(preset.data(Qt.ToolTipRole), 'CCTV-5+')
+        for _ in range(2):
+            QTest.mouseClick(panel.presets.scroll.viewport(), Qt.LeftButton,
+                             pos=panel.presets.scroll.visualRect(preset).center())
         host._import_selected_follows.assert_called_once_with([room.as_dict()], folder_id=folder_id, on_complete=None)
         self.assertIn('已在关注列表', panel.error.text())
         self.assertEqual([item['room_id'] for item in host.sidebar.rooms()], ['test:preset'])
@@ -333,7 +363,8 @@ class AddRoomEntryTests(unittest.TestCase):
         host.plugins.platforms.clear()
         catalog.open_add_room(resolver_type=Resolver)
         self.assertTrue(panel.preset_button.isHidden())
-        self.assertFalse(panel.preset_menu.actions())
+        self.assertTrue(panel.presets.isHidden())
+        self.assertFalse(panel.presets.rooms)
 
     def test_batch_queries_serially_skips_duplicates_continues_after_failure_and_summarizes(self):
         host = self.host()
