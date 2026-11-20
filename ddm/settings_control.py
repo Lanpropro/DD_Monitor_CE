@@ -240,6 +240,10 @@ class SettingsControl:
         presentation_only = bool(changed_keys) and changed_keys <= (
             MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | {'notice_banner_enabled', 'tray_context_menu'})
         host.settings.update(updated_settings)
+        if changed_keys & {"settings_glass_enabled", "settings_glass_opacity", "settings_no_shadows"}:
+            from .notice_dialog import NoticeDialog
+            for notice in host.findChildren(NoticeDialog):
+                notice.set_material(host.settings)
         from . import theme
         if theme.configure_appearance(host.settings):
             theme.apply(host.settings['appearance_mode'])

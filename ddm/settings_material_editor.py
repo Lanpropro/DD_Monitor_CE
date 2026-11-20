@@ -30,7 +30,7 @@ class SettingsMaterialEditor(SettingsSurface):
         self.background_status.setWordWrap(True)
         parameters.addWidget(self.background_status)
         entries = (
-            ('settings_glass_enabled', '启用毛玻璃效果', '实时模糊设置窗口和通知菜单背后的内容。底色不透明度在开启时生效。'),
+            ('settings_glass_enabled', '启用毛玻璃效果', '实时模糊设置窗口、通知菜单和公告详情背后的内容。底色不透明度在开启时生效。'),
             ('settings_segment_motion', '滑动分段指示器', '鼠标切换时滑动选中底片，系统关闭动画时直接切换。'),
             ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
         )

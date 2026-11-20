@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QTextBrowser, QVBoxLayout
 
 from . import theme
 from .settings_window import SettingsWindow
-from .ui import ActionButton, SettingsSurface, TitleLabel
+from .ui import ActionButton, NavigationButton, SettingsSurface, TitleLabel
 from .version import DISPLAY_NAME
 from .widget_support import BRAND_ASSETS_DIR
 
@@ -22,6 +22,11 @@ class NoticeDialog(SettingsWindow):
         self.window_header.breadcrumb.setText(category)
         self.window_header.close_button.setAccessibleName("关闭" + category)
         self.window_header.close_button.setToolTip("关闭" + category)
+        if link is not None and not link.isEmpty():
+            original = NavigationButton("查看原文", "external_link", self.window_header)
+            original.clicked.connect(lambda: QDesktopServices.openUrl(link))
+            row = self.window_header.row
+            row.insertWidget(row.indexOf(self.window_header.close_button), original)
 
         body = QVBoxLayout()
         body.setContentsMargins(16, 6, 16, 16)
@@ -51,11 +56,6 @@ class NoticeDialog(SettingsWindow):
         self.content.document().setDefaultStyleSheet(f"a {{ color: {theme.ACCENT}; }}")
         content_layout.addWidget(self.content)
         body.addWidget(card, 1)
-
-        if link is not None and not link.isEmpty():
-            original = ActionButton("查看原文", self)
-            original.clicked.connect(lambda: QDesktopServices.openUrl(link))
-            body.addWidget(original, 0, Qt.AlignRight)
 
         self.confirm_button = ActionButton(confirm, self)
         self.confirm_button.setObjectName("PrimaryButton")

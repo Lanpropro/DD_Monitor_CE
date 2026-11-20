@@ -406,6 +406,22 @@ class SettingsControlTests(unittest.TestCase):
         host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
         host.apply_danmaku_settings.assert_called_once_with()
 
+    def test_glass_autosave_updates_open_announcement(self):
+        from ddm.notice_dialog import NoticeDialog
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        announcement = NoticeDialog('官方公告', '维护通知', '我知道了', settings=host.settings)
+        self.addCleanup(announcement.deleteLater)
+        find_children = host.findChildren
+        with patch.object(host, 'findChildren', side_effect=lambda kind:
+                          [announcement] if kind is NoticeDialog else find_children(kind)):
+            apply_changes(host, {'settings': {'settings_glass_enabled': True, 'settings_glass_opacity': 48}})
+            self.assertIs(announcement.property('settings_glass_enabled'), True)
+            self.assertEqual(announcement.property('settings_glass_opacity'), 48)
+            apply_changes(host, {'settings': {'settings_glass_enabled': False}})
+            self.assertIs(announcement.property('settings_glass_enabled'), False)
+
     def test_plugin_selection_autosave_only_updates_affected_features(self):
         from ddm.settings_autosave_apply import apply_changes
 

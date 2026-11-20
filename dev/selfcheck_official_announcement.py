@@ -5,13 +5,14 @@ from threading import Thread
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt, QUrl
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from ddm import motion, official_announcement as bulletin, theme
 from ddm.app_notices import AppNotices
 from ddm.notification_center import NotificationButton
+from ddm.ui import NavigationButton
 
 
 ANNOUNCEMENT = {"id": "notice-1", "title": "频道维护", "body": "维护将在周末进行。\n<em>按原文显示</em>",
@@ -97,20 +98,39 @@ def main():
             assert popup.isVisible() and not popup.timer.isActive()
             assert popup.category.text() == "官方公告" and popup.action.text() == "查看详情"
 
+            host.settings.update(settings_glass_enabled=True, settings_glass_opacity=48)
+
             def view(dialog):
                 assert dialog.heading.text() == ANNOUNCEMENT["title"]
                 assert dialog.content.toPlainText() == ANNOUNCEMENT["body"]
                 assert dialog.confirm_button.text() == "我知道了"
                 assert dialog.window_header.breadcrumb.text() == "官方公告"
-                original = next(button for button in dialog.findChildren(QPushButton)
-                                if button.text() == "查看原文")
+                original, = dialog.window_header.findChildren(NavigationButton)
+                assert original.kind == "external_link" and not original.text()
+                assert original.accessibleName() == original.toolTip() == "查看原文"
+                row = dialog.window_header.row
+                assert row.indexOf(original) + 1 == row.indexOf(dialog.window_header.close_button)
                 with patch("ddm.notice_dialog.QDesktopServices.openUrl") as open_url:
                     original.click()
                     open_url.assert_called_once_with(QUrl(ANNOUNCEMENT["link"]))
+                assert dialog.property("settings_glass_enabled") is True
+                assert dialog.property("settings_glass_opacity") == 48
+                with patch("ddm.settings_window.apply_frame", return_value=False), \
+                        patch("ddm.settings_window.apply_blur", side_effect=lambda _window, enabled: enabled) as blur:
+                    dialog.show()
+                    app.processEvents()
+                    blur.assert_called_with(dialog, True)
+                    viewport = dialog.content.viewport()
+                    point = viewport.mapTo(dialog, viewport.rect().bottomRight() - QPoint(16, 16))
+                    assert 0 < dialog.grab().toImage().pixelColor(point).alpha() < 255
+                    dialog.set_material({**host.settings, "settings_glass_enabled": False})
+                    blur.assert_called_with(dialog, False)
+                    assert dialog.grab().toImage().pixelColor(point).alpha() == 255
+                    dialog.hide()
 
             with patch.object(bulletin.NoticeDialog, "exec", lambda dialog: view(dialog)):
                 QTest.mouseClick(popup.action, Qt.LeftButton)
-            assert not popup.isVisible()
+            assert host._result_notice is None
             assert not entry.unread
             controller.cancel_official_announcement()
             host.close()
