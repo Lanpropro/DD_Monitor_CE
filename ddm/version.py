@@ -6,6 +6,6 @@
 
 VERSION = "0.8"
 VERSION_TAG = f"v{VERSION}"
-UPDATE_REVISION = 1
+UPDATE_REVISION = 2
 #: 界面/窗口标题/发布包都认这一个名字（用户 2026-09-18：改成 DD监控室CE）
 DISPLAY_NAME = "DD监控室CE"
