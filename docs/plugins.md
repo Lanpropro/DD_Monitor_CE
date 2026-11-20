@@ -510,7 +510,7 @@ context.notify("【示例主播（房间 120）】发送失败：登录失效，
 
 ### 嵌入主界面的功能页
 
-`context.show_workspace(widget, manages_content=False)` 将 QWidget 嵌入主内容区并替换画面墙显示，返回是否成功。功能页必须使用普通 QWidget 而非独立窗口；返回/关闭页面恢复原内容的可见状态，后台任务由插件管理，不能因返回而取消。
+`context.show_workspace(widget, manages_content=False, pause_wall_playback=False)` 将 QWidget 嵌入主内容区并替换画面墙显示，返回是否成功。功能页必须使用普通 QWidget 而非独立窗口；返回/关闭页面恢复原内容的可见状态，后台任务由插件管理，不能因返回而取消。播放型功能页可设置 `pause_wall_playback=True`，在显示期间暂停画面墙观看，退出后恢复。录制继续进行，保留的播放器在功能页显示期间静音。
 
 `context.create_workspace_player(video_widget)` 在 GUI 线程为功能页的 QWidget 创建本体原生播放器。插件在视频承载控件显示后使用 `play(url, profile, headers=None)` 开始播放，通过 `stateChanged` 接收 `connecting`、`buffering`、`playing`、`frozen` 和 `error` 等状态。`set_muted(bool)` 控制声音。页面关闭或插件卸载时调用 `release()` 释放播放资源，重新播放时可创建新的播放器。旧宿主需先检查此方法是否存在。
 

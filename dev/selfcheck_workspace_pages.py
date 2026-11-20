@@ -77,6 +77,30 @@ class WorkspacePageTests(unittest.TestCase):
         record.close()
         self.assertTrue(self.wall.isVisible())
 
+    def test_playback_workspace_suspends_once_and_resumes_after_wall_is_restored(self):
+        transitions = []
+        self.host.set_match_sync_playback = lambda active: transitions.append((active, self.wall.isVisible()))
+        race, other = QWidget(), QWidget()
+        self.assertTrue(self.match.show_workspace(race, pause_wall_playback=True))
+        self.assertTrue(self.match.show_workspace(race, pause_wall_playback=True))
+        self.host.hide()
+        settle()
+        self.host.show()
+        settle()
+        self.assertEqual(transitions, [(True, False)])
+        self.assertTrue(self.record.show_workspace(other))
+        other.close()
+        self.assertEqual(transitions, [(True, False), (False, True)])
+
+    def test_playback_workspace_releases_wall_when_owner_unloads(self):
+        self.host.set_match_sync_playback = Mock()
+        self.assertTrue(self.match.show_workspace(QWidget(), pause_wall_playback=True))
+        self.manager.unload()
+        self.assertEqual(
+            [call.args for call in self.host.set_match_sync_playback.call_args_list],
+            [(True,), (False,)])
+        self.assertTrue(self.wall.isVisible())
+
     def test_parent_hide_preserves_active_page_and_unload_restores_base(self):
         page = QWidget()
         self.record.show_workspace(page)

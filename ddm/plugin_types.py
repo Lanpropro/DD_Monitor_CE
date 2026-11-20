@@ -354,7 +354,7 @@ class PluginContext:
         if session is not None and session.plugin_owner == self.name:
             session.cancel()
 
-    def show_workspace(self, widget, *, manages_content=False) -> bool:
+    def show_workspace(self, widget, *, manages_content=False, pause_wall_playback=False) -> bool:
         """Replace the central content with one embedded page; close the previous page."""
         if not self._active:
             raise RuntimeError('Plugin context is inactive')
@@ -363,11 +363,13 @@ class PluginContext:
             return False
         if self._manager._workspace_pages is None:
             from .workspace_pages import WorkspacePages
-            self._manager._workspace_pages = WorkspacePages(container)
+            self._manager._workspace_pages = WorkspacePages(
+                container, getattr(self.window, 'set_match_sync_playback', None))
             controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
             if controls is not None:
                 controls.bind_pages(self._manager._workspace_pages)
-        return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
+        return self._manager._workspace_pages.show_page(
+            self.name, widget, manages_content=manages_content, pause_wall_playback=pause_wall_playback)
 
     def workspace_background_mask(self) -> int:
         """Return the effective host background-mask strength as a percentage."""

@@ -555,7 +555,7 @@ class StreamPlayback:
         return tile not in host.recorder.sessions and tile not in host._pending_capture
 
     def set_match_sync_playback(self, active):
-        """Release hidden watching sessions, preserving independent recordings."""
+        """Release hidden watching sessions and mute playback kept for recordings."""
         host = self.host
         if bool(active) == getattr(host, "_match_sync_active", False):
             return
@@ -567,10 +567,14 @@ class StreamPlayback:
                 if host._match_sync_holds(tile):
                     host._match_sync_saved[tile] = (str(tile.room.get("room_id") or ""), tile.paused)
                     host._stop_tile(tile)
+            for player in host.players.values():
+                player.set_muted(True)
         else:
             saved, host._match_sync_saved = getattr(host, "_match_sync_saved", {}), {}
             if host._closing:
                 return
+            for tile, player in host.players.items():
+                player.set_muted(tile.muted)
             for tile, (room_id, paused) in saved.items():
                 if (tile.isVisible() and room_id == str(tile.room.get("room_id") or "")
                         and tile.room.get("live")):
@@ -711,16 +715,17 @@ class StreamPlayback:
         tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
         player = host.players.get(tile) if tile is not None else None
         if player is not None:
-            player.set_muted(muted)
+            player.set_muted(muted or bool(getattr(host, "_match_sync_active", False)))
         host._save_timer.start()       # 静音也是格子状态，和音量一起记住
 
     def audit_audio(self) -> None:
         """保持每格的独立音量、静音和声道。"""
         host = self.host
+        suspended = getattr(host, "_match_sync_active", False)
         for tile in host.wall.tiles:
             player = host.players.get(tile)
             if player is not None and tile.room.get("room_id"):
-                player.sync_audio(int(tile.volume), bool(tile.muted), int(tile.audio_channel))
+                player.sync_audio(int(tile.volume), bool(tile.muted or suspended), int(tile.audio_channel))
 
     def on_reload(self, room: dict) -> None:
         host = self.host
