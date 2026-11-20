@@ -1,6 +1,7 @@
 """Public plugin contracts, platform values and per-plugin context."""
 import sys
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from .plugin_credentials import CredentialSnapshot
 
@@ -44,6 +45,7 @@ class RoomInfo:
     cover_url: str = ""
     face: str = ""
     platform: str = "bilibili"
+    # 流媒体频道可在 extra 中声明 live_from_playback=True，由原生出画确认直播状态。
     extra: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
@@ -62,6 +64,16 @@ class RoomInfo:
         return payload
 
 
+@dataclass
+class RoomList:
+    """Result of resolving a playlist in the room-entry worker."""
+
+    rooms: list[RoomInfo]
+    choose: bool = True
+    warning: str = ''
+    store: Callable[[list[str]], None] | None = None
+
+
 class Platform:
     """一个站的接入实现。流模式需要 ``matches`` / ``room_info`` / ``play_url``。
 
@@ -75,6 +87,11 @@ class Platform:
     kind = ""
     label = ""
     room_input_hint = ""  # 可选：添加直播间窗口显示的输入支持说明，由插件提供。
+    room_input_file_filter = ""  # 可选：添加直播间文件选择的 Qt 文件过滤器。
+    room_input_presets = None  # 可选：room_input_presets() -> list[RoomInfo]，只返回本地预设。
+    room_list = None  # 可选：room_list(room_id, cancelled) -> RoomList，在后台解析。
+    room_card_branding = None  # 可选：返回关注卡片的 avatar_path、badge_path 或 badge_from_avatar，以及 label。
+    capture_first_playback_cover = False  # 可选：复用首次上墙的有效画面作为关注卡片封面。
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""

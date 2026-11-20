@@ -427,13 +427,6 @@ class MainWindow(QMainWindow):
         self.refresh_skin()
         self._restore_platform_accounts()
         self._sync_platform_rooms()
-        # 旧版虎牙网页卡片升级为格子播放；保留原关注、排序和置顶。
-        for room in self.sidebar.rooms() + [tile.room for tile in self.wall.tiles]:
-            platform = self.plugins.platform_for(str(room.get("room_id") or ""))
-            if platform is not None:
-                room.update(platform=platform.kind, playback_mode=platform.playback_mode)
-                if callable(getattr(platform, "restore_follow_rooms", None)):
-                    platform.restore_follow_rooms([room])
         self.sidebar.browser_url_resolver = self._room_browser_url
         print(f"[插件] {self.plugins.summary}", file=sys.stderr, flush=True)
         for entry, reason in self.plugins.skipped:
@@ -1470,8 +1463,9 @@ class MainWindow(QMainWindow):
         return self.account_control.open_import_follows()
 
     def _import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0) -> None:
-        return self.account_control.import_selected_follows(selected, folder_id=folder_id, removed_ids=removed_ids, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count)
+                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0,
+                                 on_complete=None) -> None:
+        return self.account_control.import_selected_follows(selected, folder_id=folder_id, removed_ids=removed_ids, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count, on_complete=on_complete)
 
     def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
                               folder_room_ids=None, pending_count):

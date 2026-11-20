@@ -4,12 +4,14 @@ from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import QMenu
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .config import VIDEO_DANMAKU_SETTING_KEYS, video_danmaku_overrides
+from .streamer_defaults import source_quality_option
 from .widget_support import QUALITY_CHOICES, QUALITY_NAMES, WATCHING_TEXT, _repolish
 
 
 class TileState:
     def __init__(self, host):
         self.host = host
+        self.source_resolution = ''
 
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
@@ -28,6 +30,7 @@ class TileState:
         host.video_danmaku.clear()
         host.clear_translation_caption()
         host.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
+        self.source_resolution = ''
         host.actual_quality = 0
         host.stream_url = ""
         host.stream_headers = {}
@@ -46,8 +49,7 @@ class TileState:
         if empty:
             # 平台画质编号属于房间，空格子不能把它作为分辨率显示或继续保存。
             host.quality = 250
-            host.quality_button.setText(host._quality_text())
-            host.quality_button.setToolTip("选择这一路的画质")
+            self.sync_quality_button()
             host._layout_controls()
             host._cover_source = None
             host.title_badge.set_text("", "")
@@ -68,7 +70,7 @@ class TileState:
         # 声道和音量 / 静音一样属于**格子**，不跟着房间走：换台不该把用户调好的
         # 「只播左 / 只播右」丢掉。房间自带的那份只在第一次上墙时用（_prepare_room）。
         host.room["audio_channel"] = host.audio_channel
-        host.quality_button.setText(host._quality_text())
+        self.sync_quality_button()
         host.volume_slider.blockSignals(True)
         host.volume_slider.setValue(host.volume)
         host.volume_slider.blockSignals(False)
@@ -311,6 +313,8 @@ class TileState:
         host = self.host
         if not host.room.get("room_id"):
             return "画质"
+        if source_quality_option(host.quality_options) is not None:
+            return self.source_resolution or host._quality_name(0, short=True)
         if host.quality == AUTO_QUALITY:
             return "自动" + (" · " + host._quality_name(host.actual_quality, short=True)
                            if host.actual_quality else "")
@@ -330,7 +334,7 @@ class TileState:
     def quality_choices(self) -> list[tuple[str, int]]:
         """优先用接口给的档位：直播间只提供哪些，菜单里就只留哪些。"""
         host = self.host
-        if not host.room.get("room_id"):
+        if not host.room.get("room_id") or source_quality_option(host.quality_options) is not None:
             return []
         if host.quality_options:
             return [(host._quality_name(int(item["qn"])), int(item["qn"]))
@@ -344,8 +348,25 @@ class TileState:
         if not options:
             return
         host.quality_options = [dict(item) for item in options]
-        host.quality_button.setText(host._quality_text())
+        self.sync_quality_button()
         host._layout_controls()
+
+    def sync_quality_button(self) -> None:
+        host = self.host
+        fixed = source_quality_option(host.quality_options) is not None
+        host.quality_button.setText(host._quality_text())
+        host.quality_button.setEnabled(not fixed and not getattr(host, 'quality_locked', False))
+        host.quality_button.setToolTip(self.source_quality_tooltip() if fixed else "选择这一路的画质")
+
+    def source_quality_tooltip(self) -> str:
+        return (f"实际分辨率 {self.source_resolution} · " if self.source_resolution else "") + "画质由播放源决定"
+
+    def set_source_resolution(self, resolution: str) -> None:
+        if self.source_resolution == resolution or source_quality_option(self.host.quality_options) is None:
+            return
+        self.source_resolution = resolution
+        self.sync_quality_button()
+        self.host._layout_controls()
 
     def set_actual_quality(self, quality: int) -> None:
         """接口实际给的画质（未登录时通常只有 720P）。"""
@@ -353,7 +374,9 @@ class TileState:
         host.actual_quality = int(quality or 0)
         host.quality_button.setText(host._quality_text())
         host._layout_controls()
-        if ":" in str(host.room.get("room_id") or ""):
+        if source_quality_option(host.quality_options) is not None:
+            host.quality_button.setToolTip(self.source_quality_tooltip())
+        elif ":" in str(host.room.get("room_id") or ""):
             host.quality_button.setToolTip(("自动画质，当前：" if host.quality == AUTO_QUALITY else "")
                                           + host._quality_name(host.actual_quality))
         elif host.actual_quality and host.actual_quality < host.quality:
@@ -389,7 +412,8 @@ class TileState:
         host.quality = value
         host.actual_quality = 0
         host.quality_button.setText(host._quality_text())
-        host.quality_button.setToolTip("选择这一路的画质")
+        if source_quality_option(host.quality_options) is None:
+            host.quality_button.setToolTip("选择这一路的画质")
         host._layout_controls()
         host.qualityChanged.emit(host.room, value)
 

@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsBlurEffect, QGraphicsPixmapItem, QGraphicsScene, QLabel, QWidget
 
 from .corner_geometry import continuous_path
@@ -17,6 +17,19 @@ def room_platform(room):
 
 def supports_banner(room):
     return room_platform(room) in ('bilibili', 'douyin')
+
+
+def fit_station_avatar(pixmap):
+    """Keep wide channel lettering inside the circular avatar crop."""
+    if pixmap.width() == pixmap.height():
+        return pixmap
+    side = max(pixmap.width(), pixmap.height())
+    canvas = QPixmap(side, side)
+    canvas.fill(Qt.transparent)
+    painter = QPainter(canvas)
+    painter.drawPixmap((side - pixmap.width()) // 2, (side - pixmap.height()) // 2, pixmap)
+    painter.end()
+    return canvas
 
 
 class RoomArtwork:
@@ -39,7 +52,6 @@ class RoomArtwork:
             return None
         key = (source.cacheKey(), radius)
         if self._frosted_key != key:
-            from PySide6.QtGui import QPixmap
             # Blur only the static artwork once; text and avatars stay sharp.
             small = source.scaled(960, 540, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scene = QGraphicsScene()

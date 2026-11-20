@@ -85,7 +85,7 @@ class FeedbackTests(unittest.TestCase):
         self.host._clear_freeze_recovery = self.recovery.clear_freeze
         self.host._on_picture_frozen = self.recovery.picture_frozen
         self.host._tile_of_player = lambda player: tile
-        self.host.plugins = SimpleNamespace(emit=Mock())
+        self.host.plugins = SimpleNamespace(emit=Mock(), platforms={})
         playback, codecs = StreamPlayback(self.host), CodecControl(self.host)
         tile.move(-10000, -10000)
         tile.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -119,6 +119,58 @@ class FeedbackTests(unittest.TestCase):
         finally:
             tile.close()
             tile.deleteLater()
+
+    def test_only_opted_in_wall_playback_requests_a_cover(self):
+        from ddm.stream_playback import StreamPlayback
+        room = {'room_id': 'm3u:test', 'platform': 'm3u'}
+        tile = Mock(room=room)
+        player = Mock()
+        provider = SimpleNamespace(capture_first_playback_cover=False)
+        host = SimpleNamespace(players={tile: player}, playback_recovery=Mock(), room_images=Mock(),
+                               plugins=SimpleNamespace(platforms={'m3u': provider}, emit=Mock()))
+        playback = StreamPlayback(host)
+        tile.property.return_value = False
+        playback.on_player_state(tile, 'connecting')
+        playback.on_player_state(tile, 'playing')
+        provider.capture_first_playback_cover = True
+        tile.property.return_value = True
+        playback.on_player_state(tile, 'playing')
+        host.room_images.capture_first_frame.assert_not_called()
+        tile.property.return_value = False
+        playback.on_player_state(tile, 'playing')
+        host.room_images.capture_first_frame.assert_called_once_with(room, player)
+
+    def test_channel_card_becomes_live_after_playback_only(self):
+        from ddm.room_status import RoomStatus
+        from ddm.sidebar_item import NavItem
+        from ddm.stream_playback import StreamPlayback
+
+        room = dict(room_id='m3u:test', live=False, live_known=False, live_from_playback=True)
+        item = NavItem(dict(room), 0)
+        other = NavItem(dict(room_id='1001', live=False), 1)
+        tile = Mock(room=dict(room))
+        tile.property.return_value = False
+        host = SimpleNamespace(players={tile: Mock()}, playback_recovery=Mock(),
+                               plugins=SimpleNamespace(platforms={}, emit=Mock()),
+                               sidebar=SimpleNamespace(items_control=SimpleNamespace(items=lambda: [item, other]),
+                                                       _folder_pending={room['room_id']}, resort=Mock()))
+        host.room_status = RoomStatus(host)
+        playback = StreamPlayback(host)
+        try:
+            playback.on_player_state(tile, 'connecting')
+            self.assertEqual((item.badge.text(), item.sub._full_text), ('待检测', '待检测'))
+            self.assertFalse(item.room['live'])
+            playback.on_player_state(tile, 'playing')
+            self.assertEqual((item.badge.text(), item.sub._full_text), ('直播中', '直播中'))
+            self.assertTrue(item.room['live_known'] and tile.room['live_known'])
+            playback.on_player_state(tile, 'buffering')
+            playback.on_player_state(tile, 'playing')
+            self.assertEqual(item.badge.text(), '直播中')
+            self.assertEqual(other.badge.text(), '未开播')
+            host.sidebar.resort.assert_called_once_with()
+        finally:
+            item.deleteLater()
+            other.deleteLater()
 
 
 if __name__ == '__main__':

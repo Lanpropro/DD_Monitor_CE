@@ -26,6 +26,14 @@ class RoomCatalog:
         for room in rooms:
             if not any(item["room_id"] == room["room_id"] for item in host.sidebar.rooms()):
                 host.sidebar.add_room(room)
+        for item in host.sidebar.items_control.items():
+            room = item.room
+            if self._restore_platform_room(room):
+                item.set_uname(room["uname"])
+                item.set_title(room["title"])
+            if room.get("live_from_playback"):
+                item.set_live(bool(room.get("live")))
+        host.sidebar.items_control.refresh_room_card_branding(host.plugins)
         for key in ("import_order", "custom_order"):
             getattr(host.sidebar, "set_" + key)(saved[key])
         host.sidebar.apply_pins(saved["pinned"])
@@ -47,7 +55,23 @@ class RoomCatalog:
             tile.set_audio_channel(room["audio_channel"])
             tile.set_muted(room["muted"])
             tile.set_room(room)
+        for tile in host.wall.tiles:
+            if self._restore_platform_room(tile.room):
+                tile.set_uname_title(tile.room["uname"], tile.room["title"])
         host._refresh_meta()
+
+    def _restore_platform_room(self, room: dict) -> bool:
+        platform = self.host.plugins.platform_for(str(room.get("room_id") or ""))
+        if platform is None:
+            return False
+        # 旧版网页卡片沿用当前平台的播放方式。
+        room.update(platform=platform.kind, playback_mode=platform.playback_mode)
+        restore = getattr(platform, "restore_follow_rooms", None)
+        if not callable(restore):
+            return False
+        labels = room.get("uname", ""), room.get("title", "")
+        restore([room])
+        return labels != (room.get("uname", ""), room.get("title", ""))
 
     def room_dict(self, room_id: str) -> dict | None:
         from . import bili
@@ -67,6 +91,7 @@ class RoomCatalog:
             self._add_panel.submitted.connect(self._submit_inline)
             self._add_panel.followed_requested.connect(self._load_followed)
             self._add_panel.followed_selected.connect(self._select_followed)
+            self._add_panel.preset_selected.connect(self._select_preset)
             self._add_panel.followed.live_only.setChecked(self.followed_live_only)
             self._add_panel.followed.live_only.toggled.connect(self._remember_followed_live_only)
         if not self._add_panel.busy:
@@ -75,6 +100,18 @@ class RoomCatalog:
         hints = [getattr(platform, 'room_input_hint', '') for platform in host.plugins.platforms.values()]
         self._add_panel.entry.setToolTip('房间号或直播间链接，每行一个；Ctrl+Enter 添加'
                                        + ''.join('；' + hint for hint in hints if hint))
+        file_filters = []
+        presets = []
+        for platform in host.plugins.platforms.values():
+            if file_filter := getattr(platform, 'room_input_file_filter', ''):
+                file_filters.append(file_filter)
+            provider = getattr(platform, 'room_input_presets', None)
+            if callable(provider):
+                artwork = getattr(platform, 'room_card_branding', None)
+                for room in provider():
+                    branding = artwork(room.room_id) if callable(artwork) else None
+                    presets.append((room.as_dict(), (branding or {}).get('avatar_path')))
+        self._add_panel.set_presets(presets, file_filters)
         target = self._add_target
         self._add_panel.open(can_choose_followed=target is not None,
                              focus_on_close=target.add_room_button if target is not None else None)
@@ -86,6 +123,21 @@ class RoomCatalog:
     def _remember_followed_live_only(self, checked):
         self.followed_live_only = checked
         self.host._save_timer.start()
+
+    def _select_preset(self, room, folder_id):
+        host, panel = self.host, self._add_panel
+        if host._closing or panel.busy:
+            return
+        if getattr(host, '_follow_import_timer', None) is not None:
+            panel.show_error('正在导入关注，请稍后重试')
+            return
+        if any(item['room_id'] == room['room_id'] for item in host.sidebar.rooms()):
+            panel.show_error(f'{room["uname"]} 已在关注列表')
+            return
+        panel.error.hide()
+        panel.fit_to_search()
+        host._import_selected_follows([room], folder_id=folder_id, on_complete=self._load_followed
+                                      if panel.followed_toggle.isChecked() else None)
 
     def _select_followed(self, room_id):
         host, panel, target = self.host, self._add_panel, self._add_target
@@ -169,6 +221,16 @@ class RoomCatalog:
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = host.plugins.platform_for(room_id)
+        if callable(getattr(platform, 'room_list', None)):
+            from .room_list_import import RoomListImport
+            def list_added(_added, _skipped, message):
+                if on_complete is not None:
+                    on_complete(not message, message)
+                elif message:
+                    QMessageBox.warning(host, '导入频道', message)
+            RoomListImport(host, platform.room_list, room_id, folder_id=folder_id,
+                           target_tile=target_tile, on_complete=list_added).start()
+            return
         if ":" in room_id and not (short_link or profile_link):
             if platform is None:
                 if on_complete is not None:

@@ -1,13 +1,13 @@
 """In-window room entry anchored to the sidebar; never replaces search or follow content."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QKeySequence, QPainter, QPen, QShortcut
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QMenu,
     QPlainTextEdit, QVBoxLayout, QWidget)
 from shiboken6 import isValid
 from . import theme
 from .corner_geometry import continuous_path
 from .follow_folders import default_folder
-from .room_add_followed import FollowedRoomPicker
+from .room_add_followed import FollowedRoomPicker, PresetRoomPicker
 from .room_folder_controls import _add_folder_option, _create_folder_for_dialog
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
@@ -19,6 +19,7 @@ class RoomAddPanel(QFrame):
     dismissed = Signal()
     followed_requested = Signal()
     followed_selected = Signal(str)
+    preset_selected = Signal(dict, str)
 
     def __init__(self, sidebar):
         windows = QApplication.platformName() == 'windows'
@@ -64,7 +65,7 @@ class RoomAddPanel(QFrame):
         self.folder_button.setMaximumWidth(120)
         self.folder_button.setToolTip('添加到文件夹')
         footer.addWidget(self.folder_button)
-        self.import_button = NavigationButton('导入关注', 'import')
+        self.import_button = NavigationButton('从平台账号导入关注', 'import_follows')
         self.import_button.setFixedSize(24, 24)
         self.import_button.clicked.connect(self._import)
         footer.addWidget(self.import_button)
@@ -73,6 +74,12 @@ class RoomAddPanel(QFrame):
         self.followed_toggle.setCheckable(True)
         self.followed_toggle.hide()
         footer.addWidget(self.followed_toggle)
+        self.preset_button = NavigationButton('频道预设', 'tv')
+        self.preset_button.setFixedSize(24, 24)
+        self.preset_button.setCheckable(True)
+        self.preset_button.hide()
+        footer.addWidget(self.preset_button)
+        self._file_filters = []
         footer.addStretch(1)
         self.submit_button = ActionButton('添加')
         self.submit_button.setObjectName('PrimaryButton')
@@ -84,6 +91,13 @@ class RoomAddPanel(QFrame):
         self.followed.hide()
         box.addWidget(self.followed)
         self.followed_toggle.toggled.connect(self._toggle_followed)
+        self.presets = PresetRoomPicker(self)
+        self.presets.selected.connect(lambda room_id: self.preset_selected.emit(
+            self.presets.rooms[room_id], self.folder_id))
+        self.presets.file_button.clicked.connect(self._choose_files)
+        self.presets.hide()
+        box.addWidget(self.presets)
+        self.preset_button.toggled.connect(self._toggle_presets)
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(self.close_editor)
@@ -118,6 +132,8 @@ class RoomAddPanel(QFrame):
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
             self.followed.search.clear()
+            self.preset_button.setChecked(False)
+            self.presets.search.clear()
             folders = self.sidebar.folder_state()
             selected = self.folder_id
             self.folder_names = {folder['name'] for folder in folders}
@@ -145,6 +161,7 @@ class RoomAddPanel(QFrame):
 
     def _toggle_followed(self, expanded):
         if expanded:
+            self.preset_button.setChecked(False)
             self.followed_requested.emit()
         self.followed.setVisible(expanded)
         if self.isVisible():
@@ -153,6 +170,18 @@ class RoomAddPanel(QFrame):
             self.followed.search.setFocus(Qt.OtherFocusReason)
         elif self.isVisible():
             self.followed_toggle.setFocus(Qt.OtherFocusReason)
+
+    def _toggle_presets(self, expanded):
+        if expanded:
+            self.followed_toggle.setChecked(False)
+        self.presets.setVisible(expanded)
+        if self.isVisible():
+            self.fit_to_search()
+            if expanded:
+                first_control = self.presets.search if self.presets.rooms else self.presets.file_button
+                first_control.setFocus(Qt.OtherFocusReason)
+            else:
+                self.preset_button.setFocus(Qt.OtherFocusReason)
 
     def _select_folder(self, action):
         self.folder_id = action.data()
@@ -179,6 +208,8 @@ class RoomAddPanel(QFrame):
         self.import_button.setEnabled(not busy)
         self.followed_toggle.setEnabled(not busy)
         self.followed.setEnabled(not busy)
+        self.preset_button.setEnabled(not busy)
+        self.presets.setEnabled(not busy)
         self._update_count()
 
     def show_error(self, message):
@@ -206,20 +237,39 @@ class RoomAddPanel(QFrame):
         if restore_owner and owner.isVisible():
             owner.activateWindow()
         self.followed_toggle.setChecked(False)
+        self.preset_button.setChecked(False)
         self.dismissed.emit()
 
     def _import(self):
         self.close_editor()
         self.sidebar.import_button.click()
 
+    def set_presets(self, rooms, filters):
+        self._file_filters = list(dict.fromkeys(filters))
+        self.presets.load(rooms, bool(self._file_filters))
+        available = bool(rooms or self._file_filters)
+        if not available:
+            self.preset_button.setChecked(False)
+        self.preset_button.setVisible(available)
+
+    def _choose_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, '选择播放列表', '', ';;'.join(self._file_filters))
+        if paths:
+            text = self.entry.toPlainText().strip()
+            self.entry.setPlainText('\n'.join([text, *paths] if text else paths))
+            self.preset_button.setChecked(False)
+            self.entry.setFocus(Qt.OtherFocusReason)
+
     def fit_to_search(self):
         sidebar = self.sidebar
         parent = self.parentWidget()
         width = max(160, min(400, parent.width() - 16))
         height = 132 if self.error.isHidden() else 156
-        if not self.followed.isHidden():
-            expanded_height = max(0, min(280, parent.height() - height - 6))
-            self.followed.setFixedHeight(expanded_height)
+        expanded = self.presets if self.preset_button.isChecked() else self.followed
+        if not expanded.isHidden():
+            desired_height = 280 if expanded is self.followed or self.presets.rooms else expanded.sizeHint().height()
+            expanded_height = max(0, min(desired_height, parent.height() - height - 6))
+            expanded.setFixedHeight(expanded_height)
             height += expanded_height + 6
         if sidebar.side == 'left':
             point = sidebar.mapTo(parent, QPoint(sidebar.width() + 4, 12))
@@ -228,7 +278,9 @@ class RoomAddPanel(QFrame):
             point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
         icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
                                                  if not self.followed_toggle.isHidden() else 0)
-        folder_width = max(52, min(120, width - 20 - icon_space - self.submit_button.sizeHint().width() - 18))
+        preset_width = self.preset_button.width() + 6 if not self.preset_button.isHidden() else 0
+        used = 38 + icon_space + preset_width + self.submit_button.sizeHint().width()
+        folder_width = max(52, min(120, width - used))
         self.folder_button.setMaximumWidth(folder_width)
         if hasattr(self, '_folder_name'):
             self.folder_button.setText(self.folder_button.fontMetrics().elidedText(
