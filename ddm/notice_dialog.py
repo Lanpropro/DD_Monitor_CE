@@ -13,6 +13,9 @@ from .widget_support import BRAND_ASSETS_DIR
 
 
 class NoticeDialog(SettingsWindow):
+    DEFAULT_WIDTH = 640
+    DEFAULT_HEIGHT = 560
+
     def __init__(self, category, title, confirm, parent=None, *, settings=None, link=None):
         super().__init__(parent)
         self.setWindowTitle(f"{category} · {DISPLAY_NAME}")
@@ -65,5 +68,6 @@ class NoticeDialog(SettingsWindow):
         screen = parent.screen() if parent is not None else self.screen()
         if screen is not None:
             area = screen.availableGeometry()
-            self.resize(min(640, area.width() - 24), min(560, area.height() - 24))
+            self.resize(min(self.DEFAULT_WIDTH, area.width() - 24),
+                        min(self.DEFAULT_HEIGHT, area.height() - 24))
             self.move(area.center() - self.rect().center())

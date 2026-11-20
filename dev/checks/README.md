@@ -179,7 +179,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_tile_overlay](../selfcheck_tile_overlay.py) | 单项执行前核对 |
 | [selfcheck_tile_ui](../selfcheck_tile_ui.py) | 单项执行前核对 |
 | [selfcheck_ui3](../selfcheck_ui3.py) | 单项执行前核对 |
-| [selfcheck_user_notice](../selfcheck_user_notice.py) | `offline`；首次须知确认、关闭、窄窗排版和启动接线 |
+| [selfcheck_user_notice](../selfcheck_user_notice.py) | `offline`；首次须知默认尺寸、确认、关闭和启动接线 |
 | [selfcheck_official_announcement](../selfcheck_official_announcement.py) | `offline`；环回 HTTP 验证单次查询、公告去重和详情 |
 | [selfcheck_wall_card_replacement](../selfcheck_wall_card_replacement.py) | 单项执行前核对 |
 

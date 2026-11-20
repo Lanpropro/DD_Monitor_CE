@@ -27,6 +27,8 @@ NOTICE_HTML = """
 
 
 class UserNoticeDialog(NoticeDialog):
+    DEFAULT_HEIGHT = 620
+
     def __init__(self, parent=None, *, settings=None):
         super().__init__("用户须知", f"欢迎使用 {DISPLAY_NAME}", "我已阅读并确认",
                          parent, settings=settings)

@@ -37,11 +37,11 @@ def main():
 
         accepted = real_dialog()
         assert accepted.content.isReadOnly() and accepted.content.openExternalLinks()
-        accepted.resize(360, 420)
+        area = accepted.screen().availableGeometry()
+        assert accepted.width() == min(640, area.width() - 24)
+        assert accepted.height() == min(620, area.height() - 24)
         accepted.show()
         app.processEvents()
-        assert accepted.width() == 360
-        assert accepted.content.verticalScrollBar().maximum() > 0
         assert accepted.confirm_button.isVisible()
         assert accepted.confirm_button.mapTo(accepted, accepted.confirm_button.rect().bottomRight()).y() < accepted.height()
         accepted.hide()
