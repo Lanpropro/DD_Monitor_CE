@@ -7,7 +7,7 @@
 免费、开源的 Windows 多窗口直播观看与监控工具。
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-0.7.3-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
+[![版本](https://img.shields.io/badge/版本-0.8-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
 [下载软件](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
@@ -20,14 +20,14 @@
 
 本体支持 B 站，通过独立插件接入虎牙、斗鱼、抖音、Twitch 和 YouTube。软件免费使用，无付费解锁功能。
 
-![DD监控室CE 横屏画面墙](docs/overview4_Landscape_mode.png)
+![DD监控室CE 横屏画面墙](docs/assets/screenshots/overview4_Landscape_mode.png)
 
 <details>
 <summary>查看弹幕布局与竖屏布局</summary>
 
-![弹幕布局](docs/overview5_Landscape_mode.png)
+![弹幕布局](docs/assets/screenshots/overview5_Landscape_mode.png)
 
-![竖屏布局](docs/overview2_Portrait_Mode.png)
+![竖屏布局](docs/assets/screenshots/overview2_Portrait_Mode.png)
 
 </details>
 
@@ -60,7 +60,6 @@
 | 海外直播平台 | 接入 Twitch、YouTube |
 | 比赛二路同步 | 多路比赛画面对齐、声音与弹幕合并 |
 | B 站直播互动 | 弹幕发送、表情选择与礼物互动 |
-| 网络代理 | 导入订阅与节点，按需启动内置代理内核 |
 
 平台与互动插件不随本体内置，可从软件内的插件商店获取。具体能力及兼容要求以插件说明为准。
 
@@ -70,17 +69,17 @@
 
 ## 下载
 
-当前已发布版本 **0.7.3**，支持 **Windows 10 / 11 64 位**。
+当前已发布版本 **0.8**，支持 **Windows 10 / 11 64 位**。
 
-[查看本次更新说明](docs/releases/RELEASE-v0.7.3.md)。
+[查看本次更新说明](docs/releases/RELEASE-v0.8.md)。
 
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7.3/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7.3/DDMonitorCE-v0.7.3-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
+[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.8/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.8/DDMonitorCE-v0.8-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
 安装版与便携版均无需安装 Python。官方下载与更新请认准本仓库 Releases。
 
 ## 文档
 
-[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/skins.md) · [直播间组合](docs/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
+[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/features/skins.md) · [直播间组合](docs/features/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
 
 ## 贡献者
 

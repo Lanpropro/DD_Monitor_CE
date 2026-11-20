@@ -1,5 +1,5 @@
 """Global tool rail and compact follow controls, using the existing sidebar actions."""
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
@@ -15,6 +15,7 @@ PATHS = {
     'functions': '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     'layout': '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M14 3v18M14 12h7"/>',
     'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
+    'wall_settings': '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 10h12M6 15h12M9 8v4M15 13v4"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
     'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
@@ -28,6 +29,7 @@ PATHS = {
     'filter_all': '<path d="M6 3h12"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="m10 11 6 3-6 3Z"/>',
     'filter_live': '<path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
+    'rename': '<path d="m5 15.5 10.6-10.6a2.1 2.1 0 0 1 3 3L8 18.5 4 20zM13.6 6.9l3 3"/>',
     'close': '<path d="m6 6 12 12M18 6 6 18"/>',
 }
 
@@ -50,6 +52,13 @@ class NavigationButton(QPushButton):
         super().setText('' if self._navigation_mode else text)
 
     def set_navigation_mode(self, enabled):
+        if (enabled and self._navigation_mode and self.objectName() == 'NavigationButton'
+                and getattr(self, '_navigation_dock_rail', None) == self.property('dockRail')
+                and self.minimumSize() == self.maximumSize() == QSize(34, 34)
+                and self.sizePolicy().horizontalPolicy() == QSizePolicy.Fixed
+                and self.sizePolicy().verticalPolicy() == QSizePolicy.Fixed
+                and not self.text()):
+            return
         self._navigation_mode = enabled
         self.setObjectName('NavigationButton' if enabled else 'IconButton')
         self.setMinimumSize(0, 0)
@@ -60,6 +69,7 @@ class NavigationButton(QPushButton):
         super().setText('' if enabled else self._label)
         self.style().unpolish(self)
         self.style().polish(self)
+        self._navigation_dock_rail = self.property('dockRail')
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -77,6 +87,8 @@ class NavigationButton(QPushButton):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(self.width()/2, self.height()/2)
         self._dock_feedback.transform(painter)
+        if self.kind in ('folders_expand', 'folders_collapse') and self.property('horizontalFolderIcon'):
+            painter.rotate(-90)
         QSvgRenderer(QByteArray(svg.encode())).render(
             painter, QRectF(-9, -9, 18, 18))
 
@@ -172,6 +184,8 @@ class SidebarNavigation(QObject):
             filters.addWidget(button)
         self.all_button.clicked.connect(lambda: self.set_live_only(False))
         self.live_button.clicked.connect(lambda: self.set_live_only(True))
+        for button in (self.all_button, self.live_button):
+            button.clicked.connect(lambda: sidebar.plugin_pages.select())
         filters.addStretch(1)
         self.folder_toggle_button = NavigationButton('全部折叠文件夹', 'folders_collapse', self.filters)
         self.folder_toggle_button.setFixedSize(26, 26)
@@ -188,7 +202,8 @@ class SidebarNavigation(QObject):
 
     def movable_tools(self):
         fixed = (self.fixed_divider, self.sidebar.notification_button,
-                 self.sidebar.appearance_button, self.sidebar.settings_button)
+                 self.sidebar.appearance_button, self.sidebar.settings_button,
+                 self.sidebar.wall_settings_button)
         return [self.bottom.itemAt(index).widget() for index in range(self.bottom.count())
                 if self.bottom.itemAt(index).widget() not in fixed]
 
@@ -209,11 +224,15 @@ class SidebarNavigation(QObject):
         tools = {self.tool_key(button): button for button in self.movable_tools()}
         keys = [key for key in self._tool_order if key in tools]
         keys.extend(key for key in tools if key not in keys)
-        for index, key in enumerate(keys):
-            self.bottom.insertWidget(index, tools[key], 0, Qt.AlignHCenter)
-        for index, widget in enumerate((self.fixed_divider, self.sidebar.notification_button,
-                                        self.sidebar.appearance_button, self.sidebar.settings_button), len(keys)):
-            self.bottom.insertWidget(index, widget, 0, Qt.AlignHCenter)
+        ordered = [tools[key] for key in keys] + [self.fixed_divider, self.sidebar.notification_button,
+                                                self.sidebar.appearance_button, self.sidebar.settings_button]
+        ordered.insert(ordered.index(self.sidebar.picture_in_picture_button), self.sidebar.wall_settings_button)
+        for index, widget in enumerate(ordered):
+            if self.bottom.indexOf(widget) != index:
+                # Explicit removal invalidates PySide's old QWidgetItem wrapper.
+                # insertWidget's implicit removal leaves a stale binding on 6.11.2.
+                self.bottom.removeWidget(widget)
+                self.bottom.insertWidget(index, widget, 0, Qt.AlignHCenter)
         self.fixed_divider.show()
 
     def reorder_group(self, before, after):
@@ -249,6 +268,7 @@ class SidebarNavigation(QObject):
             attach(button).pulse()
 
     def show_follow(self):
+        self.sidebar.plugin_pages.select()
         controls = self.sidebar.workspace_controls
         controls.popup.hide()
         if controls.pages is not None and not controls.pages.close_active():
@@ -286,6 +306,8 @@ class SidebarNavigation(QObject):
         self.all_button.setChecked(not sidebar.live_only)
         self.live_button.setChecked(sidebar.live_only)
         self.density_button.setToolTip('切换为列表' if sidebar.card_mode else '切换为封面卡片')
+        if hasattr(sidebar, 'plugin_pages'):
+            sidebar.plugin_pages.sync()
 
     def set_live_only(self, live_only):
         self.sidebar.live_only = live_only
@@ -315,11 +337,12 @@ class SidebarNavigation(QObject):
         action.setChecked(sidebar.select_mode)
         action.triggered.connect(sidebar.set_select_mode)
         menu.addAction('刷新关注状态').triggered.connect(sidebar.refresh_button.click)
-        menu.addSeparator()
-        menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
-        fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
-                              else '全部折叠文件夹')
-        fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
+        if sidebar.side != 'top':
+            menu.addSeparator()
+            menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
+            fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
+                                  else '全部折叠文件夹')
+            fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
         menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
@@ -329,19 +352,24 @@ class SidebarNavigation(QObject):
     def release(self):
         """Return original controls before the portrait header adopts them."""
         sidebar = self.sidebar
+        sidebar.plugin_pages.select()
         self.icon_drag.cancel()
         self.rail.hide()
         self.header.hide()
         self.filters.hide()
         if not self.in_rail:
             return
-        for button in (sidebar.layout_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+        sidebar._detach_from_rows(sidebar.workspace_controls.launcher)
+        for button in (sidebar.layout_button, sidebar.wall_settings_button, sidebar.picture_in_picture_button,
+                       sidebar.settings_button):
+            sidebar._detach_from_rows(button)
             button.setProperty('dockRail', False)
             button.set_navigation_mode(False)
             button.setParent(sidebar.tool_row)
             sidebar.tool_row.layout().addWidget(button)
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
+            sidebar._detach_from_rows(button)
             button.setProperty('dockRail', False)
         sidebar.clear_wall_button.setProperty('dockRail', False)
         sidebar._restore_side_children()
@@ -364,17 +392,27 @@ class SidebarNavigation(QObject):
             (sidebar._layout if left else sidebar._bar_row_box).addWidget(add)
         add.setVisible(holder is not None and sidebar.collapsed)
         self.header.setVisible(left)
-        self.filters.setVisible(left and not sidebar.collapsed)
+        self.filters.setVisible(not sidebar.collapsed and (left or not sidebar.select_mode))
+        self.folder_toggle_button.setVisible(left or (not sidebar.collapsed and not sidebar.select_mode))
+        self.density_button.setVisible(left)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         self.tools_divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         if not left:
+            self.manage_button.setToolTip('关注与常用操作')
+            self.manage_button.setAccessibleName('关注与常用操作')
             return
-        sidebar._layout.insertWidget(0, self.header)
+        self.manage_button.setToolTip('关注管理')
+        self.manage_button.setAccessibleName('关注管理')
+        if sidebar._layout.indexOf(self.header) != 0:
+            sidebar._layout.removeWidget(self.header)
+            sidebar._layout.insertWidget(0, self.header)
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
         if not self.in_rail:
-            for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button,
+            for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
+                           sidebar.picture_in_picture_button,
                            sidebar.notification_button, sidebar.appearance_button, sidebar.settings_button):
+                sidebar._detach_from_rows(button)
                 button.setParent(self.rail)
                 self.bottom.addWidget(button, 0, Qt.AlignHCenter)
             self.in_rail = True
@@ -382,18 +420,25 @@ class SidebarNavigation(QObject):
             sidebar._detach_from_rows(sidebar.toggle_button)
             sidebar.toggle_button.setParent(self.header)
             self.header.layout().insertWidget(self.header.layout().count() - 1, sidebar.toggle_button)
-        for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.picture_in_picture_button, sidebar.settings_button):
+        for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
+                       sidebar.picture_in_picture_button, sidebar.settings_button):
             button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
             button.show()
         for button in (sidebar.notification_button, sidebar.appearance_button):
+            motion_kind = 'notification' if button is sidebar.notification_button else 'appearance'
+            style_changed = (button.property('dockMotion') != motion_kind
+                             or button.property('dockRail') is not True
+                             or button.objectName() != 'NavigationButton'
+                             or button.property('sidebarCompact') is not False)
             attach(button)
-            button.setProperty('dockMotion', 'notification' if button is sidebar.notification_button else 'appearance')
+            button.setProperty('dockMotion', motion_kind)
             button.setProperty('dockRail', True)
             button.setObjectName('NavigationButton')
             button.setProperty('sidebarCompact', False)
-            button.style().unpolish(button)
-            button.style().polish(button)
+            if style_changed:
+                button.style().unpolish(button)
+                button.style().polish(button)
             button.setFixedSize(34, 34)
             button.show()
         for widget in (sidebar._header_row, sidebar.status_row, sidebar.tool_row, sidebar.normal_bar):

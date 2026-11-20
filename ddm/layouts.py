@@ -8,10 +8,11 @@ cells 的数量就是这个方案一屏能放几路；多出来的窗口按同�
 """
 import math
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QLineF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 
 from . import theme
+from .corner_geometry import continuous_path
 
 
 def even_cells(rows: int, cols: int) -> list[tuple[int, int, int, int]]:
@@ -210,7 +211,7 @@ def danmaku_cell(layout_id: str) -> int | None:
     return None if not layout else layout.get("danmaku")
 
 
-def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
+def thumbnail(spec, size=(52, 34), danmaku: int | None = None, *, preset=False) -> QPixmap:
     """把布局画成缩略图。spec 为 None 时画成虚线自动网格，danmaku 是弹幕格下标。"""
     width, height = size
     pixmap = QPixmap(width, height)
@@ -224,15 +225,37 @@ def thumbnail(spec, size=(52, 34), danmaku: int | None = None) -> QPixmap:
     else:
         cells = even_cells(2, 2)
 
-    padding = 2.0
-    gap = 2.0
+    padding = 4.0 if preset else 2.0
+    gap = 3.0 if preset else 2.0
     cell_width = (width - padding * 2 - gap * (cols - 1)) / cols
     cell_height = (height - padding * 2 - gap * (rows - 1)) / rows
+    if preset:
+        smallest = min((rowspan * colspan for _, _, rowspan, colspan in cells), default=1)
+        base = theme.qcolor(theme.BG).name()
+        ink = theme.qcolor(theme.TEXT1).name()
+        painter.fillPath(continuous_path(QRectF(0, 0, width, height), 6), theme.qcolor(base))
     for index, (row, col, rowspan, colspan) in enumerate(cells):
         x = padding + col * (cell_width + gap)
         y = padding + row * (cell_height + gap)
         w = cell_width * colspan + gap * (colspan - 1)
         h = cell_height * rowspan + gap * (rowspan - 1)
+        if preset:
+            cell = QRectF(x, y, w, h)
+            chat = index == danmaku
+            main = rowspan * colspan > smallest
+            if chat:
+                fill = theme.mix(ink, theme.SUCCESS, .54)
+            elif main:
+                fill = theme.mix(ink, theme.ACCENT, .68)
+            else:
+                fill = theme.mix(base, ink, .62)
+            painter.fillPath(continuous_path(cell, min(4, w / 4, h / 4)), theme.qcolor(fill))
+            if chat:
+                painter.setPen(QPen(theme.qcolor(base), 1.4, Qt.SolidLine, Qt.RoundCap))
+                for line, fraction in enumerate((.58, .39)):
+                    cy = y + h * (.38 + .24 * line)
+                    painter.drawLine(QLineF(x + w * .2, cy, x + w * (.2 + fraction), cy))
+            continue
         if spec and index == danmaku:
             # 弹幕格：主题色描边 + 三道横线
             painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))

@@ -18,12 +18,13 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QAbstractAnimation, Qt
-from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QSize, Qt
+from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLineEdit, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
+from ddm.widget_support import TILE_MIME
 from ddm.widgets import DanmakuPanel, WallGrid
 from selfcheck_video_danmaku import Client, Snapshot
 
@@ -48,6 +49,390 @@ class PaneDanmakuTests(unittest.TestCase):
                                  live=True, volume=20 + 10 * i, muted=bool(i % 2)) for i in range(4)], offscreen=True)
         window.settings["close_behavior"] = "exit"
         return window
+
+    def drop_video(self, panel, tile, cell):
+        wall = panel.parentWidget()
+        point = wall.mapToGlobal(wall.pane_danmaku.rectangles[cell].center())
+        position = panel.mapFromGlobal(point)
+        mime = QMimeData()
+        room_id = tile.room['room_id']
+        mime.setData(TILE_MIME, room_id.encode())
+        mime.setText(room_id)
+        enter = QDragEnterEvent(position, Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+        drop = QDropEvent(QPointF(position), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+        self.app.sendEvent(panel, enter)
+        self.assertTrue(enter.isAccepted())
+        self.app.sendEvent(panel, drop)
+        self.assertTrue(drop.isAccepted())
+
+    def test_live_source_capability_preserves_offline_rooms(self):
+        from ddm import plugins as api
+        from ddm.danmaku_sources import is_live_danmaku_source
+        self.assertEqual(api.ROOM_SUPPORTS_LIVE_DANMAKU, 'supports_live_danmaku')
+        self.assertTrue(is_live_danmaku_source(dict(room_id='1001', live=False)))
+        self.assertTrue(is_live_danmaku_source(dict(room_id='1001', supports_live_danmaku=True)))
+        self.assertFalse(is_live_danmaku_source(dict(room_id='1001', supports_live_danmaku=False)))
+        self.assertFalse(is_live_danmaku_source(dict(room_id='')))
+        self.assertFalse(is_live_danmaku_source(None))
+
+    def test_live_source_opt_out_filters_picker_and_subscription(self):
+        window = self.wall_window()
+        wall = window.wall
+        source = wall.tiles[0]
+        source.set_room({**source.room, 'live':False, 'supports_live_danmaku':False})
+        window.configure_wall_panes({3: source})
+        panes = wall.pane_danmaku
+        panel = panes.panels[3]
+        panel.source_picker.refresh()
+        self.assertNotIn(source, panel.source_picker.buttons)
+        self.assertIsNone(panes.target(panel))
+        window.sync_danmaku()
+        self.assertNotIn('1001', window._danmaku_clients)
+
+    def test_automatic_source_and_direct_requests_skip_opted_out_tiles(self):
+        window = self.wall_window()
+        wall = window.wall
+        source = wall.tiles[0]
+        source.set_room({**source.room, 'supports_live_danmaku':False})
+        window.configure_wall_panes({3: None})
+        panes = wall.pane_danmaku
+        panel = panes.panels[3]
+        self.assertIs(panes.automatic_target(), wall.tiles[1])
+        changes = []
+        wall.paneApplyRequested.connect(changes.append)
+        panes.request(3, source)
+        panes.room_dropped(panel, '1001')
+        panes.choose_source(panel, source)
+        self.assertFalse(changes)
+
+    def test_legacy_source_opt_out_does_not_select_a_different_main(self):
+        window = self.wall_window()
+        wall = window.wall
+        wall.set_layout('dm_main2')
+        main = wall.tiles[wall.main_index()]
+        main.set_room({**main.room, 'supports_live_danmaku':False})
+        self.assertIsNone(wall.danmaku_target_tile())
+        self.assertIsNone(wall.pane_danmaku.automatic_target())
+        with patch.object(wall, 'move_danmaku_to_tile') as move:
+            wall.pane_danmaku.room_dropped(wall.danmaku, main.room['room_id'])
+        move.assert_not_called()
+
+    def test_replacing_selected_live_with_opt_out_then_restoring_updates_sources(self):
+        window = self.wall_window()
+        source = window.wall.tiles[0]
+        original = dict(source.room)
+        window.configure_wall_panes({3:source})
+        panes = window.wall.pane_danmaku
+        panel = panes.panels[3]
+        source.set_room({**original, 'supports_live_danmaku':False})
+        source.set_video_active(True)
+        source.danmaku_button.setChecked(True)
+        window.sync_danmaku()
+        panes.refresh_sources()
+        self.assertIsNone(panes.target(panel))
+        self.assertNotIn(source, panel.source_picker.buttons)
+        self.assertNotIn('1001', window._danmaku_clients)
+        source.set_room(original)
+        window.sync_danmaku()
+        panes.refresh_sources()
+        self.assertIs(panes.target(panel),source)
+        self.assertIn(source,panel.source_picker.buttons)
+        self.assertIn('1001', window._danmaku_clients)
+
+    def test_float_uses_the_same_panel_and_returns_the_composer_to_video(self):
+        from ddm.plugins import TileControl
+
+        class Composer(TileControl):
+            def __init__(self, context):
+                super().__init__(QLineEdit(context.parent), minimum_width=50)
+
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.plugins.register_tile_control('fixture', 'composer', Composer)
+        window.plugins.attach_tile(source)
+        window.configure_wall_panes({2: source, 3: source})
+        panel, = panes.rendered()
+        original_size, document = panel.size(), panel.body.document()
+        composer = source._plugin_controls
+        editor = composer.entries[0].control.widget
+        editor.setText('未发送草稿')
+        client = window._danmaku_clients['1001']
+        client.message.emit(dict(kind='danmaku', text='浮出前'))
+        self.assertIs(composer.widget.parentWidget(), panel.composer_bar)
+
+        panel.float_button.click()
+        floated = panes.floating[panel]
+        self.assertIs(panel.parentWidget(), floated.window)
+        self.assertTrue(floated.window.isVisible() and floated.slot.isVisible())
+        self.assertEqual(floated.window.size(), original_size)
+        self.assertIs(panel.body.document(), document)
+        self.assertIs(composer.widget.parentWidget(), source.bottom)
+        self.assertEqual(editor.text(), '未发送草稿')
+        self.assertIs(window._danmaku_clients['1001'], client)
+        client.message.emit(dict(kind='danmaku', text='浮出后'))
+        self.assertEqual([event['text'] for event in panel._blocks[-2:]], ['浮出前', '浮出后'])
+        handle = floated.window.windowHandle()
+        with patch.object(handle, 'startSystemMove', return_value=True) as move, \
+                patch.object(handle, 'startSystemResize', return_value=True) as resize:
+            QTest.mouseClick(panel.title, Qt.LeftButton)
+            QTest.mouseClick(floated.window, Qt.LeftButton, pos=QPoint(floated.window.width() - 2, 40))
+            move.assert_called_once_with()
+            resize.assert_called_once_with(Qt.RightEdge)
+        floated.window.resize(original_size + QSize(10, 30))
+        self.assertEqual(floated.window.size(), original_size + QSize(10, 30))
+        floated.slot.findChild(QPushButton).click()
+        self.assertFalse(panes.floating)
+        self.assertIs(panel.parentWidget(), wall)
+        self.assertIs(composer.widget.parentWidget(), panel.composer_bar)
+        self.assertEqual(editor.text(), '未发送草稿')
+        panel.float_button.click()
+        self.assertEqual(panes.floating[panel].window.size(), original_size)
+        wall._fullscreen_layout_pending = True
+        panes.floating[panel].window.close()
+        self.assertFalse(panes.floating[panel].window.isVisible())
+        wall._fullscreen_layout_pending = False
+        panes.finish_pending_returns()
+        self.assertFalse(panes.floating)
+
+        window.configure_wall_panes({1: source, 2: source})
+        diagonal = panes.panels[2]
+        diagonal.float_button.click()
+        self.assertIs(composer.widget.parentWidget(), source.bottom)
+        self.assertTrue(panes.panels[1].isVisible())
+        panes.floating[diagonal].window.close()
+
+    def test_reuse_float_cell_only_reclaims_an_empty_video_slot(self):
+        window = self.wall_window()
+        window.settings['danmaku_float_reuse_cell'] = True
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, other, _third, slot = wall.tiles[:4]
+        slot.set_room(None)
+        window.configure_wall_panes({3: source})
+        panel = panes.panels[3]
+        panel.float_button.click()
+        self.assertTrue(slot.isVisible())
+        self.assertFalse(panes.bindings())
+        self.assertIs(panes.target(panel), source)
+        self.assertIs(wall._preset_widgets()[3], slot)
+        panel.source_picker.choose(other)
+        self.assertIs(panes.target(panel), other)
+        panes.floating[panel].window.close()
+        self.assertIs(panes.panels[3], panel)
+        self.assertIs(panes.target(panel), other)
+
+        panel.float_button.click()
+        room = dict(room_id='7001', uname='新直播', live=True)
+        with patch.object(window, '_room_dict', return_value=room), patch.object(window, 'start_tile'):
+            slot.roomDropped.emit('7001')
+        with patch.object(window, '_sync_tile_playback') as playback:
+            panes.floating[panel].window.close()
+            playback.assert_not_called()
+        self.assertFalse(panes.bindings())
+        self.assertTrue(slot.isVisible())
+        self.assertEqual(slot.room['room_id'], '7001')
+        self.assertFalse(panel.isVisible())
+
+    def test_close_can_keep_the_empty_video_cells_created_by_a_merged_float(self):
+        window = self.wall_window()
+        window.settings.update(danmaku_float_reuse_cell=True, danmaku_float_keep_video_slots=True)
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, _other, *slots = wall.tiles[:4]
+        for tile in slots:
+            tile.set_room(None)
+        window.configure_wall_panes({2: source, 3: source})
+        panel, = panes.rendered()
+        panel.float_button.click()
+        self.assertTrue(all(tile.isVisible() for tile in slots))
+        panel.float_button.click()
+        self.assertFalse(panes.floating)
+        self.assertFalse(panes.bindings())
+        self.assertFalse(panel.isVisible())
+        self.assertEqual([wall._preset_widgets()[index] for index in (2, 3)], slots)
+        self.assertTrue(all(tile.isVisible() and not tile.room.get('room_id') for tile in slots))
+
+    def test_video_menu_reuses_the_linked_panel_and_raises_an_open_float(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.configure_wall_panes({3: source})
+        panel = panes.panels[3]
+        menu = source.build_menu()
+        self.addCleanup(menu.deleteLater)
+        action = next(action for action in menu.actions() if action.data() == 'danmaku_float')
+        action.trigger()
+        floated = panes.floating[panel]
+        action.trigger()
+        self.assertEqual(list(panes.floating), [panel])
+        self.assertIs(panes.floating[panel], floated)
+        self.assertTrue(floated.window.isVisible())
+        floated.window.close()
+        self.assertIs(panes.panels[3], panel)
+        self.assertTrue(panel.isVisible())
+
+    def test_video_menu_opens_and_closes_without_creating_a_wall_slot(self):
+        window = self.wall_window()
+        window.settings['danmaku_float_reuse_cell'] = True
+        wall, panes = window.wall, window.wall.pane_danmaku
+        other, source = wall.tiles[:2]
+        window.configure_wall_panes({3: other})
+        docked = panes.panels[3]
+        before = panes.state()
+        menu = source.build_menu()
+        self.addCleanup(menu.deleteLater)
+        action = next(action for action in menu.actions() if action.text() == '打开弹幕浮窗')
+        with patch.object(window, '_sync_tile_playback') as playback:
+            action.trigger()
+            playback.assert_not_called()
+        panel, = panes.floating
+        self.assertIs(panes.target(panel), source)
+        self.assertTrue(docked.isVisible() and source.isVisible())
+        self.assertIs(panes.panels[3], docked)
+        self.assertIsNone(panes.floating[panel].slot)
+        client = window._danmaku_clients[source.room['room_id']]
+        client.message.emit(dict(kind='danmaku', text='来自右键选中的直播'))
+        self.assertIn('来自右键选中的直播', panel.body.toPlainText())
+        self.assertNotIn('来自右键选中的直播', docked.body.toPlainText())
+        with patch.object(window, '_sync_tile_playback') as playback:
+            panel.float_button.click()
+            playback.assert_not_called()
+        self.assertFalse(panes.floating)
+        self.assertNotIn(panel, panes.all_panels())
+        self.assertFalse(panel.isVisible())
+        self.assertEqual(panes.state(), before)
+        self.assertTrue(source.isVisible())
+
+    def test_wall_quick_settings_apply_to_visible_rooms_and_use_existing_float_lifecycle(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        first, second, locked, hidden = wall.tiles[:4]
+        second.set_room(dict(room_id='douyin:3001', uname='竖屏', volume=30, muted=True, live=True))
+        window.configure_wall_panes({3: first})
+        first.set_quality_options([{'qn': 20000, 'desc': '4K'}, {'qn': 15000, 'desc': '2K'},
+                                   {'qn': 400, 'desc': '蓝光 1080P'}, {'qn': 250, 'desc': '超清 720P'}])
+        second.set_quality_options([{'qn': 23, 'desc': '720x1280 · 60fps'}, {'qn': 88, 'desc': '540x960'}])
+        locked.quality_locked = True
+        first.danmaku_button.setChecked(True)
+        locked.room['supports_live_danmaku'] = False
+        original_locked, original_hidden = locked.quality, (hidden.quality, hidden.volume)
+        controls = window.wall_quick_settings
+        self.assertIsNone(controls.menu)
+        window.sidebar.wall_settings_button.click()
+        menu = controls.menu
+        self.assertTrue(menu.isVisible())
+        self.assertEqual(menu.volume_value.text(), '混合')
+        self.assertEqual(menu.quality.currentText(), '选择画质')
+
+        menu.volume.setValue(63)
+        self.assertEqual([tile.volume for tile in (first, second, locked)], [63] * 3)
+        self.assertFalse(second.muted)
+        second.set_muted(True)
+        menu.volume.sliderReleased.emit()
+        self.assertFalse(second.muted)
+        second.set_muted(True)
+        menu.volume.setValue(0)
+        self.assertTrue(second.muted)
+        self.assertEqual([tile.volume for tile in (first, second, locked)], [0] * 3)
+        self.assertEqual(hidden.volume, original_hidden[1])
+
+        self.assertGreaterEqual(menu.quality.findData(2160), 0)
+        index = menu.quality.findData(1440)
+        self.assertGreaterEqual(index, 0)
+        with patch.object(window, 'start_tile') as start:
+            menu.quality.setCurrentIndex(index)
+            menu.quality.activated.emit(index)
+        self.assertEqual([call.args[0] for call in start.call_args_list], [first, second])
+        self.assertEqual([call.kwargs['wall_quality'].tiers for call in start.call_args_list],
+                         [(15000, 400, 250), (23, 88)])
+        self.assertEqual((locked.quality, hidden.quality), (original_locked, original_hidden[0]))
+        self.assertIn('保留当前画质', menu.status.text())
+
+        self.assertIn('部分开启', menu.danmaku_label.text())
+        with patch.object(window, '_on_video_danmaku_changed', wraps=window._on_video_danmaku_changed) as changed:
+            menu.danmaku.click()
+            changed.assert_called_once_with(True)
+        self.assertTrue(first.danmaku_button.isChecked() and second.danmaku_button.isChecked())
+        self.assertFalse(locked.danmaku_button.isChecked() or hidden.danmaku_button.isChecked())
+        menu.danmaku.click()
+        self.assertFalse(first.danmaku_button.isChecked() or second.danmaku_button.isChecked())
+
+        panel = panes.panels[3]
+        menu.floats.click()
+        self.assertFalse(menu.isVisible())
+        self.assertIn(panel, panes.floating)
+        self.assertEqual(len(panes.floating), 2)
+        self.assertIs(panes.target(panel), first)
+        standalone, = (other for other in panes.floating if other is not panel)
+        self.assertIs(panes.target(standalone), second)
+        self.assertIsNone(panes.floating[standalone].cell)
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.floats.isChecked())
+        menu.floats.click()
+        self.assertFalse(panes.floating)
+        self.assertIs(panes.panels[3], panel)
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.isVisible())
+        QTest.keyClick(menu, Qt.Key_Escape)
+        self.assertFalse(menu.isVisible())
+
+    def test_wall_quick_floats_fill_a_plain_wall_once_per_room(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, duplicate, *others = wall.tiles[:4]
+        duplicate.set_room(dict(source.room))
+        self.assertFalse(panes.bindings())
+        panes.open_for_tile(source)
+        existing, = panes.floating
+        window.sidebar.wall_settings_button.click()
+        menu = window.wall_quick_settings.menu
+        self.assertTrue(menu.floats.isEnabled())
+        self.assertFalse(menu.floats.isChecked())
+        self.assertIn('部分开启', menu.floats_label.text())
+        menu.floats.click()
+        self.assertIn(existing, panes.floating)
+        self.assertCountEqual([panes.target(panel) for panel in panes.floating], [source, *others])
+        self.assertTrue(all(floating.cell is None for floating in panes.floating.values()))
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.floats.isChecked())
+        menu.floats.click()
+        self.assertFalse(panes.floating)
+        self.assertFalse(panes.bindings())
+
+    def test_float_cell_setting_round_trips_and_resets(self):
+        from ddm.settings_danmaku import DanmakuSettingsPage
+        page = DanmakuSettingsPage({'danmaku_float_reuse_cell': True, 'danmaku_float_keep_video_slots': True})
+        self.addCleanup(page.deleteLater)
+        self.assertTrue(page.values()['danmaku_float_reuse_cell'])
+        self.assertTrue(page.values()['danmaku_float_keep_video_slots'])
+        self.assertTrue(page.float_keep_video_slots.isEnabled())
+        page.float_cell_mode.buttons['reserve'].click()
+        self.assertFalse(page.float_keep_video_slots.isEnabled())
+        page.float_cell_mode.buttons['reuse'].click()
+        self.assertTrue(page.float_keep_video_slots.isEnabled())
+        self.assertTrue(page.float_keep_video_slots.isChecked())
+        page.reset()
+        self.assertFalse(page.values()['danmaku_float_reuse_cell'])
+        self.assertFalse(page.values()['danmaku_float_keep_video_slots'])
+        self.assertFalse(page.float_keep_video_slots.isEnabled())
+
+    def test_reuse_legacy_chat_reserves_its_video_backing_slot(self):
+        window = self.wall_window()
+        window.settings['danmaku_float_reuse_cell'] = True
+        wall, panes = window.wall, window.wall.pane_danmaku
+        wall.set_layout('dm_main2')
+        window.sync_danmaku()
+        panel = wall.danmaku
+        cell = panes.panel_cell(panel)
+        source = panes.target(panel)
+        panel.float_button.click()
+        self.assertTrue(panes.cell_tiles()[cell].isVisible())
+        self.assertIs(panes.target(panel), source)
+        panes.floating[panel].window.close()
+        self.assertIs(panes.panels[cell], panel)
+        panel.float_button.click()
+        panes.reset_preset(wall.layout_id)
+        self.assertFalse(panes.floating)
+        self.assertIs(panes.panels[cell], panel)
 
     def test_added_rooms_skip_chat_backing_slots_in_corner_layout(self):
         window = self.wall_window()
@@ -116,12 +501,24 @@ class PaneDanmakuTests(unittest.TestCase):
         panel = window.wall.danmaku
         main = window.wall.tiles[window.wall.main_index()]
         self.assertIs(window.wall.pane_danmaku.target(panel), main)
+        self.assertFalse(panel.float_button.isHidden())
         window._on_close_tile(dict(main.room))
         self.assertIsNone(window.wall.pane_danmaku.target(panel))
         self.assertEqual(panel._linked_room_id, '')
         self.assertEqual(panel.source_picker.anchor.identity[0], '')
         self.assertFalse(panel.source_picker.anchor.isChecked())
         self.assertTrue(panel.source_picker.buttons)
+        self.assertTrue(panel.float_button.isHidden())
+
+        source = next(iter(panel.source_picker.buttons))
+        panel.source_picker.choose(source)
+        panel.float_button.click()
+        window._on_close_tile(dict(source.room))
+        self.assertFalse(panel.source_picker.anchor.isChecked())
+        self.assertTrue(panel.float_button.isVisible())
+        self.assertEqual(panel.float_button.kind, 'close')
+        panel.float_button.click()
+        self.assertTrue(panel.float_button.isHidden())
 
     def test_wall_menu_converts_restores_and_preserves_room_and_sound(self):
         window = self.wall_window()
@@ -140,6 +537,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(picker.expanded)
         self.assertEqual(set(picker.buttons), {wall.tiles[0], wall.tiles[2], wall.tiles[3]})
         self.assertIsNone(panes.target(panel))
+        self.assertTrue(panel.float_button.isHidden())
         QTest.mouseClick(picker.buttons[source], Qt.LeftButton)
         self.assertFalse(picker.expanded)
         self.assertTrue(picker.tray.isHidden())
@@ -147,6 +545,9 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(panel.font_controls.isHidden())
         self.assertIs(panes.target(panel), source)
         self.assertEqual(panel._linked_room_id, '1001')
+        self.assertTrue(panel.float_button.isVisible())
+        self.assertLess(panel.float_button.geometry().right(), picker.x())
+        self.assertLess(picker.x() - panel.float_button.geometry().right(), 10)
         self.assertLessEqual(picker.geometry().right(), panel.count.x())
         self.assertLess(panel.count.x() - picker.geometry().right(), 10)
         self.assertEqual((backing.room, backing.volume, backing.muted), original)
@@ -219,7 +620,8 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(picker.expanded)
         self.assertTrue(panel.title.isHidden())
         self.assertTrue(panel.font_controls.isHidden())
-        self.assertEqual(picker.tray.x(), panel.header.layout().contentsMargins().left())
+        self.assertEqual(panel.float_button.x(), panel.header.layout().contentsMargins().left())
+        self.assertLess(panel.float_button.geometry().right(), picker.tray.x())
         panel.resize(700, 300)
         self.app.processEvents()
         self.assertTrue(panel.title.isVisible())
@@ -347,6 +749,59 @@ class PaneDanmakuTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '录制'):
             window.configure_wall_panes({panes.cell_for_tile(second): None})
 
+    def test_video_drop_uses_independent_settings_for_linked_and_unlinked_panes(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        owner, video, _other, backing = wall.tiles[:4]
+        for linked in (False, True):
+            for swap in (False, True):
+                with self.subTest(linked=linked, swap=swap):
+                    window.settings['danmaku_drag_linked_swap'] = swap if linked else not swap
+                    window.settings['danmaku_drag_unlinked_swap'] = swap if not linked else not swap
+                    window.configure_wall_panes({3: owner if linked else -1})
+                    original = panes.panels[3]
+                    self.drop_video(original, video, 3)
+                    self.assertEqual(panes.bindings(), {1: owner if linked else -1} if swap else {3: video})
+                    if swap:
+                        self.assertIs(panes.cell_tiles()[3], video)
+                        self.assertIs(panes.cell_tiles()[1], backing)
+                        self.assertIs(panes.panels[1], original)
+                        panes.move(1, video)
+                    else:
+                        self.assertIs(panes.cell_tiles()[1], video)
+
+    def test_video_drop_in_legacy_layout_can_relink_or_swap_without_relinking(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        window._on_layout_changed('dm_main2')
+        cell = wall._danmaku_cell
+        owner, video = wall.tiles[:2]
+        destination = panes.cell_for_tile(video)
+        self.assertFalse(panes.custom)
+        self.drop_video(wall.danmaku, video, cell)
+        self.assertEqual(panes.bindings(), {cell: video})
+        self.assertIs(panes.cell_tiles()[destination], video)
+        window._on_layout_changed('dm_main2')
+        self.assertIs(panes.target(wall.danmaku), owner)
+
+        window.settings['danmaku_drag_linked_swap'] = True
+        self.drop_video(wall.danmaku, video, cell)
+        self.assertEqual(panes.bindings(), {destination: owner})
+        self.assertIs(panes.cell_tiles()[cell], video)
+        self.assertIs(panes.panels[destination], wall.danmaku)
+
+    def test_video_drop_swaps_only_the_hit_cell_of_a_merged_pane(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        owner, video = wall.tiles[:2]
+        window.settings['danmaku_drag_linked_swap'] = True
+        window.configure_wall_panes({2: owner, 3: owner})
+        merged, = panes.rendered()
+        self.drop_video(merged, video, 2)
+        self.assertEqual(panes.bindings(), {1: owner, 3: owner})
+        self.assertIs(panes.cell_tiles()[2], video)
+        self.assertTrue(video.isVisible())
+
     def test_explicit_layout_selection_resets_manual_panes_including_current_layout(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
@@ -366,7 +821,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(set(panes.bindings()), {default})
         self.assertIs(panes.panels[default], wall.danmaku)
 
-    def test_adjacent_regions_merge_preserve_messages_and_restore_all_backing_cells(self):
+    def test_merged_pane_context_menu_restores_only_the_clicked_cell(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
         source = wall.tiles[0]
@@ -390,14 +845,29 @@ class PaneDanmakuTests(unittest.TestCase):
         panes.room_dropped(merged, '1002')
         self.assertTrue(all(tile is wall.tiles[1] for tile in panes.bindings().values()))
         self.assertEqual(len(panes.rendered()), 1)
-        menu = panes.create_menu(2)
-        self.addCleanup(menu.deleteLater)
-        self.assertEqual([a.text() for a in menu.actions()], ['恢复直播画面'])
-        menu.actions()[0].trigger()
-        self.assertFalse(panes.bindings())
-        self.assertFalse(panes.rendered())
-        self.assertFalse(panes.groups)
-        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:4]))
+        source = wall.tiles[1]
+        for clicked, remaining in ((2, 3), (3, 2)):
+            with self.subTest(clicked=clicked):
+                window.configure_wall_panes({2: source, 3: source})
+                merged, = panes.rendered()
+                window._danmaku_clients['1002'].message.emit(dict(kind='danmaku', text='保留的消息'))
+                viewport = merged.body.viewport()
+                point = wall.mapToGlobal(panes.rectangles[clicked].center())
+                event = QContextMenuEvent(QContextMenuEvent.Mouse, viewport.mapFromGlobal(point), point)
+
+                def restore(cell, _point):
+                    menu = panes.create_menu(cell)
+                    self.addCleanup(menu.deleteLater)
+                    self.assertEqual([action.text() for action in menu.actions()], ['恢复直播画面'])
+                    menu.actions()[0].trigger()
+
+                with patch.object(panes, 'open_menu', side_effect=restore):
+                    self.app.sendEvent(viewport, event)
+                self.assertEqual(panes.bindings(), {remaining: source})
+                self.assertTrue(panes.cell_tiles()[clicked].isVisible())
+                self.assertIs(panes.rendered()[0], merged)
+                self.assertEqual(merged._blocks[-1]['text'], '保留的消息')
+                self.assertEqual(merged.geometry(), panes.rectangles[remaining])
 
     def test_corner_right_column_merges_across_independently_allocated_rows(self):
         window = self.wall_window()
@@ -429,8 +899,9 @@ class PaneDanmakuTests(unittest.TestCase):
         client.message.emit(dict(kind='danmaku', text='环绕布局单份消息'))
         self.assertEqual(sum(event.get('text') == '环绕布局单份消息' for event in merged._blocks), 1)
         panes.request(5, video=True)
-        self.assertFalse(panes.bindings())
-        self.assertTrue(all(tile.isVisible() for tile in wall.tiles[:6]))
+        self.assertEqual(set(panes.bindings()), {1, 2})
+        self.assertTrue(wall.tiles[5].isVisible())
+        self.assertTrue(all(not wall.tiles[cell].isVisible() for cell in (1, 2)))
 
     def test_corner_default_rows_align_without_overriding_independent_ratios(self):
         wall = WallGrid([], layout_id='corner')
@@ -512,6 +983,67 @@ class PaneDanmakuTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             room_presets.validate(invalid)
 
+    @unittest.skipUnless(NATIVE, 'Windows native window stacking check')
+    def test_native_quick_layer_stays_below_moving_chat_without_mask_holes(self):
+        import ctypes
+        from ctypes import wintypes
+        from ddm.danmaku_float_window import DanmakuFloatWindow
+        from selfcheck_mpv import pump
+
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        origin = wall.mapToGlobal(QPoint())
+        layer = wall.ensure_quick_danmaku_layer()
+        group = layer.create_group(0, 0, wall.width(), wall.height())
+        image = QImage(100, 20, QImage.Format_ARGB32)
+        image.fill(QColor('white'))
+        layer.add(group, image, 45, 65, image.width(), image.height(), speed=30)
+        show = DanmakuFloatWindow.show
+
+        def show_offscreen(floating):
+            floating.setAttribute(Qt.WA_ShowWithoutActivating)
+            floating.move(origin + QPoint(32 + 20 * len(panes.floating), 40))
+            show(floating)
+
+        with patch.object(DanmakuFloatWindow, 'show', show_offscreen):
+            for source in wall.tiles[:2]:
+                panes.open_for_tile(source)
+        pump(self.app, .2)
+        floats = [floating.window for floating in panes.floating.values()]
+        self.assertEqual(len(floats), 2)
+        self.assertTrue(layer.window.isVisible())
+        overlay = int(layer.window.winId())
+        user32 = ctypes.windll.user32
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+
+        def assert_above_overlay(floating):
+            above = user32.GetWindow(overlay, 3)  # GW_HWNDPREV
+            handle = int(floating.winId())
+            while above and above != handle:
+                above = user32.GetWindow(above, 3)
+            self.assertEqual(above, handle)
+
+        for step in range(3):
+            floats[0].move(origin + QPoint(75 + step * 35, 55 + step * 12))
+            layer.raise_()
+            pump(self.app, .05)
+            for floating in floats:
+                assert_above_overlay(floating)
+                point = floating.mapToGlobal(floating.rect().center()) - origin
+                self.assertTrue(wall.rect().contains(point))
+                self.assertTrue(layer.window.mask().contains(point))
+        point = floats[0].mapToGlobal(floats[0].rect().center()) - origin
+        with patch('ddm.video_danmaku_quick._stack_below', return_value=False):
+            self.assertTrue(layer._update_occlusion())
+            self.assertFalse(layer.window.mask().contains(point))
+        self.assertTrue(layer._update_occlusion())
+        self.assertTrue(layer.window.mask().contains(point))
+        for floating in floats:
+            floating.close()
+        pump(self.app, .08)
+        self.assertTrue(layer.window.mask().contains(wall.rect().center()))
+
     @unittest.skipUnless(NATIVE, 'Windows native local MP4 check')
     def test_native_playback_core_and_hwnd_survive_type_changes_and_hot_swap(self):
         from ddm.player import TilePlayer
@@ -539,11 +1071,28 @@ class PaneDanmakuTests(unittest.TestCase):
                 self.assertGreater(player._prop('time-pos') or 0, position)
                 self.assertTrue(all(window.wall.pane_danmaku.target(panel) is source
                                     for panel in window.wall.pane_danmaku.panels.values()))
+                panes = window.wall.pane_danmaku
+                panel, = panes.rendered()
+                panel.float_button.click()
+                self.assertTrue(panes.floating[panel].window.isVisible())
+                self.assertIs(player.player, core)
+                self.assertEqual(int(source.video.winId()), handle)
+                panes.floating[panel].window.close()
                 window.picture_in_picture.start([window.wall.tiles.index(source)])
+                pump(self.app, .3)
                 self.assertTrue(all(panel.isHidden() for panel in window.wall.pane_danmaku.all_panels()))
                 window.picture_in_picture.restore(activate=True)
                 self.assertEqual(len(window.wall.pane_danmaku.rendered()), 1)
                 self.assertTrue(window.wall.pane_danmaku.rendered()[0].isVisible())
+                window.settings['danmaku_drag_linked_swap'] = True
+                panel, = panes.rendered()
+                cell, destination = panes.panel_cell(panel), panes.cell_for_tile(source)
+                self.drop_video(panel, source, cell)
+                self.assertIs(panes.cell_tiles()[cell], source)
+                self.assertIs(panes.bindings()[destination], source)
+                pump(self.app, .15)
+                self.assertIs(player.player, core)
+                self.assertEqual(int(source.video.winId()), handle)
                 window.configure_wall_panes({})
                 self.assertIs(player.player, core)
                 self.assertEqual(int(source.video.winId()), handle)

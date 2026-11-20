@@ -252,6 +252,25 @@ class DocumentStructureTests(unittest.TestCase):
         self.assertNotIn("docs/local/", notes)
         self.assertNotIn("应迁入", notes)
 
+    def test_plugin_reference_covers_public_events(self):
+        constants = {}
+        for name in ("plugins.py", "plugin_credentials.py"):
+            module = ast.parse(read(ROOT / "ddm" / name))
+            for node in module.body:
+                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id.startswith("EVENT_"):
+                            constants[target.id] = ast.literal_eval(node.value)
+        module = ast.parse(read(ROOT / "ddm/plugins.py"))
+        events = next(node.value for node in module.body if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "ALL_EVENTS"
+                              for target in node.targets))
+        reference = read(DOCS / "plugins.md")
+        for event in events.elts:
+            with self.subTest(event=event.id):
+                self.assertTrue(f"`{constants[event.id]}`" in reference,
+                                f"public event missing from the plugin reference: {constants[event.id]}")
+
 
 if __name__ == "__main__":
     unittest.main()

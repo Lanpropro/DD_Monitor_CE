@@ -29,6 +29,15 @@ def read_manifest(folder: str, expected_id: str) -> dict | None:
     for field in ("name", "description", "version"):
         if not isinstance(data.get(field), str) or not data[field].strip():
             raise ValueError(f"plugin.json 缺少非空字符串 {field}")
+    for key in ('platforms', 'replaces_platforms', 'inherit_settings'):
+        if key in data and (not isinstance(data[key], list) or
+                not all(isinstance(value, str) and value and '\n' not in value for value in data[key]) or
+                len(set(data[key])) != len(data[key])):
+            raise ValueError(f'plugin.json 的 {key} 必须是不重复的非空字符串列表')
+    if 'replaces' in data and (not isinstance(data['replaces'], str) or
+            not PLUGIN_ID.fullmatch(data['replaces']) or data['replaces'] == expected_id or
+            not data.get('platforms')):
+        raise ValueError('plugin.json 的 replaces 必须指向其他插件并声明 platforms')
     if 'skin' in data:
         from types import SimpleNamespace
         from .skins import plugin_skin

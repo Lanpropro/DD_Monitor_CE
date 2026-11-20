@@ -17,7 +17,22 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QProcess, QTimer, qVersion
 from PySide6.QtWidgets import QApplication
+from ddm.settings_pages import PAGE_INDEX
 from ddm import config, settings_process
+
+
+def embedded_page_indices(action):
+    sequences = {
+        'embed-footer': ('plugins', 'general', 'plugins'),
+        'embed-shutdown': ('appearance',),
+        'embed-scroll': ('appearance', 'general', 'updates', 'appearance', 'updates'),
+        'embed-coordinates': ('appearance', 'general', 'updates', 'general', 'plugins', 'appearance', 'updates'),
+        'embed-appearance': ('appearance', 'general', 'appearance', 'plugins', 'appearance'),
+    }
+    keys = ('plugins',) if action.startswith('embed-restart-') else sequences.get(action, (
+        'appearance', 'general', 'tray', 'plugins', 'danmaku', 'recording', 'updates', 'shortcuts',
+        'appearance', 'general'))
+    return tuple(PAGE_INDEX[key] for key in keys)
 
 
 def child(action):
@@ -27,6 +42,15 @@ def child(action):
     original = dialogs.SettingsDialog
 
     class AutomatedDialog(original):
+        def nativeEvent(self, event_type, message):
+            if action == 'embed-scroll':
+                import ctypes
+                from ctypes import wintypes
+                if wintypes.MSG.from_address(int(message)).message == 0x8051:
+                    QTimer.singleShot(0, self, self.step)
+                    return True, 0
+            return super().nativeEvent(event_type, message)
+
         def showEvent(self, event):
             super().showEvent(event)
             QTimer.singleShot(40, self.exercise)
@@ -46,6 +70,27 @@ def child(action):
                     self.general_page.volume_slider.setValue(17)
                     theme.signals().changed.connect(report)
                 report(theme.mode())
+                return
+            if action == 'streamer-defaults':
+                index = self.PAGE_INDEX['streamer_defaults']
+                self.nav.setCurrentRow(index)
+                page = self._loaded_pages[index]
+                for room_id in ('1001', 'fixture:7'):
+                    page.picker.buttons[room_id].click()
+
+                def configure():
+                    if page.requests:
+                        QTimer.singleShot(5, page, configure)
+                        return
+                    for room_id, volume in (('1001', 57), ('fixture:7', 62)):
+                        card = page.cards[(room_id,)]
+                        assert card.playback.count() == 3
+                        card.playback.setCurrentIndex(1)
+                        card.recording.setCurrentIndex(2)
+                        card.volume.setValue(volume)
+                    self.reject()
+
+                configure()
                 return
             if action in ('preview-save', 'preview-sync-save'):
                 page = self.danmaku_page
@@ -103,10 +148,7 @@ def child(action):
             if action.startswith('embed-'):
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
-                self.sequence = iter((7, 0, 7) if action == 'embed-footer' else
-                                     (1, 0, 8, 0, 7, 1, 8) if action == 'embed-coordinates' else
-                                     (1, 0, 1, 7, 1) if action == 'embed-appearance' else
-                                     (7,) if action.startswith('embed-restart-') else (1, 0, 6, 7, 2, 8, 5, 1, 0))
+                self.sequence = iter(embedded_page_indices(action))
                 QTimer.singleShot(10000 if action == 'embed-save' else 40, self.step)
                 return
             if action in ('focus', 'zorder'):
@@ -178,7 +220,8 @@ def child(action):
                     'glass': self._native_glass,
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
-                QTimer.singleShot(50, self.step)
+                if action not in ('embed-scroll', 'embed-shutdown'):
+                    QTimer.singleShot(50, self.step)
             QTimer.singleShot(200, self, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
@@ -237,7 +280,21 @@ def check_worker(app, action):
     client.received.connect(messages.append)
     client.saved.connect(saves.append)
     client.autoSaveRequested.connect(lambda message: saves.append(message['changes']))
-    client.hostRequest.connect(lambda message: pages.append(message['index']) if message['kind'] == 'host-page' else client._send({'kind': 'host-flushed'}) if message['kind'] == 'host-flush' else None)
+    def host_request(message):
+        if message['kind'] == 'streamer-quality':
+            room_id = message['room_id']
+            options = ([{'qn': 15000, 'label': '2K'}, {'qn': 400, 'label': '蓝光'}]
+                       if room_id == '1001' else [{'qn': 2, 'label': '超清'}, {'qn': 1, 'label': '原画'}])
+            client._send({'kind': 'streamer-quality-result', 'room_id': room_id,
+                          'token': message['token'], 'options': options})
+        elif message['kind'] == 'host-page':
+            pages.append(message['index'])
+        elif message['kind'] == 'host-flush':
+            client._send({'kind': 'host-flushed'})
+        elif message['kind'] == 'host-save':
+            saves.append(message['changes'])
+            client._send({'kind': 'host-saved'})
+    client.hostRequest.connect(host_request)
     client.failed.connect(failures.append)
     command = (sys.executable, [str(Path(__file__).resolve()), '--worker-check', action])
     with patch.object(settings_process, 'worker_command', return_value=command), \
@@ -251,7 +308,7 @@ def check_worker(app, action):
             assert pid != os.getpid()
             initial = dict(config.DEFAULT_SETTINGS, default_volume=42, seen_update_versions={'app': '0.5.1'})
             context = {'panel': {'size': [800, 450], 'cards': [{'message': '', 'collapsed': False}]}}
-            client.open(initial, {}, context)
+            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture', 'fixture:7': 'Other'})
             client.open(initial, {})  # Pending/visible clicks must not recreate the window.
             assert grant.call_count == 2 and all(call.args == (pid,) for call in grant.call_args_list)
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
@@ -263,23 +320,33 @@ def check_worker(app, action):
                 combined = {}
                 for saved in saves:
                     combined.update(saved.get('settings', {}))
-                assert combined['default_volume'] == 17
-                if action == 'preview-save':
-                    assert combined['super_chat_position'] == [0.0, .6]
-                    assert combined['super_chat_panel_position'] == [1.0, .2]
-                    assert combined['super_chat_position_sync'] is False
-                if action == 'preview-sync-save':
-                    assert combined['super_chat_position'] == [1.0, .2]
-                    assert combined['super_chat_panel_position'] == [1.0, .2]
-                    assert combined.get('super_chat_position_sync', True) is True
-                assert combined['volume_normalization'] is True
-                assert combined['volume_normalization_curve']['preset'] == 'netflix'
-                if action == 'tray-save':
-                    assert combined['close_behavior'] == 'tray'
-                    assert combined['tray_pause_playback'] is False
-                assert 'appearance_mode' not in combined
-                assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
-            assert pages == ([{'appearance': 1, 'plugins': 7, 'updates': 8}[action.split('-')[1]]] if clean else [])
+                if action == 'streamer-defaults':
+                    assert combined == {'streamer_defaults': {
+                        '1001': {'name': 'Fixture', 'playback': {'qn': 15000, 'label': '2K'},
+                                 'recording': {'qn': 400, 'label': '蓝光'}, 'volume': 57},
+                        'fixture:7': {'name': 'Other', 'playback': {'qn': 2, 'label': '超清'},
+                                      'recording': {'qn': 1, 'label': '原画'}, 'volume': 62},
+                    }}
+                else:
+                    assert combined['default_volume'] == 17
+                    if action == 'preview-save':
+                        assert combined['super_chat_position'] == [0.0, .6]
+                        assert combined['super_chat_panel_position'] == [1.0, .2]
+                        assert combined['super_chat_position_sync'] is False
+                    if action == 'preview-sync-save':
+                        assert combined['super_chat_position'] == [1.0, .2]
+                        assert combined['super_chat_panel_position'] == [1.0, .2]
+                        assert combined.get('super_chat_position_sync', True) is True
+                    assert combined['volume_normalization'] is True
+                    assert combined['volume_normalization_curve']['preset'] == 'netflix'
+                    if action == 'tray-save':
+                        assert combined['close_behavior'] == 'tray'
+                        assert combined['tray_pause_playback'] is False
+                    assert 'appearance_mode' not in combined
+                    assert 'seen_update_versions' not in combined, 'Worker must not clear host update history'
+            expected = ([3, PAGE_INDEX[action.split('-')[1]]]
+                        if clean else [] if action in ('cancel', 'tray-cancel', 'streamer-defaults') else [3])
+            assert pages == expected, (pages, expected)
             if action == 'busy':
                 maximum = max(b - a for a, b in zip(ticks, ticks[1:]))
                 assert maximum < 0.15, maximum
@@ -287,7 +354,7 @@ def check_worker(app, action):
                 print(f'Worker busy 600ms: host maximum heartbeat gap {maximum * 1000:.1f}ms')
             # Closing and reopening uses the same prewarmed process.
             messages.clear()
-            client.open(initial, {}, context)
+            client.open(initial, {}, context, streamer_rooms={'1001': 'Fixture', 'fixture:7': 'Other'})
             wait(app, lambda: any(m['kind'] == 'result' for m in messages))
             assert client.process.processId() == process_pid
             assert next(m['pid'] for m in messages if m['kind'] == 'painted') == pid
@@ -682,7 +749,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 from PySide6.QtWidgets import QLabel
                 from PySide6.QtCore import Qt
                 for name, label in (('domestic_live', '显示国内平台 Logo'), ('global_live', '显示海外平台 Logo')):
-                    source = ROOT / 'plugins_user' / name / 'plugin.py'
+                    source = ROOT / 'plugins_user' / name / 'platform_logo.py'
+                    if not source.is_file():
+                        source = source.with_name('plugin.py')
                     tree = ast.parse(source.read_text(encoding='utf-8'))
                     definition = next(node for node in tree.body if isinstance(node, ast.ClassDef)
                                       and node.name == 'PlatformLogoControl')
@@ -742,6 +811,28 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     assert session.stack.property('settings_glass_enabled')
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
+                    if action == 'embed-scroll':
+                        from ctypes import wintypes
+                        from PySide6.QtCore import QPoint
+                        page = session.dialog._loaded_pages[message['index']]
+                        page.scroll.widget().setMinimumHeight(1400)
+                        app.processEvents()
+                        bar = page.scroll.verticalScrollBar()
+                        assert bar.maximum() > 0
+                        rect = wintypes.RECT()
+                        assert user32.GetWindowRect(handle, ctypes.byref(rect))
+                        # Inject only into isolated fixture HWNDs, never desktop input.
+                        local = page.scroll.viewport().mapTo(session.stack, QPoint(8, 8))
+                        scale = session.stack.devicePixelRatioF()
+                        x, y = rect.left + round(local.x() * scale), rect.top + round(local.y() * scale)
+                        point = (y & 0xffff) << 16 | (x & 0xffff)
+                        for receiver in (int(session.stack.winId()), message['hwnd']):
+                            for _ in range(3):
+                                bar.setValue(0)
+                                user32.PostMessageW(ctypes.c_void_p(receiver), 0x20A, 0xff880000, point)
+                                wait(app, lambda: bar.value() > 0, timeout=3)
+                        bar.setValue(0)  # Preserve the existing top-of-page rendering assertions.
+                        app.processEvents()
                     if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
                         if action == 'embed-coordinates':
                             from PySide6.QtCore import QEvent
@@ -767,22 +858,47 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     output = ROOT / 'work/test-artifacts/host/settings-pages'
                     output.mkdir(parents=True, exist_ok=True)
                     image.save(str(output / f"{theme.mode()}-{message['index']}.png"))
-                if message['index'] == 8:
+                if message['index'] == PAGE_INDEX['updates']:
                     session.dialog.update_page.auto.setChecked(True)
                     if action == 'embed-install':
                         page = session.dialog.update_page
                         page.plan_path = str(Path(temporary) / 'synthetic-update-plan.json')
                         page._busy(False)
                         page.action.click()
+                if action == 'embed-scroll':
+                    # Acknowledge this step only after both process endpoints pass.
+                    user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
+                if action == 'embed-shutdown':
+                    from ctypes import wintypes
+                    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+                    shell = message['hwnd']
+                    original_hide = window.hide
+                    def hide_host():
+                        assert client.closing, 'Settings stop must precede the host hide'
+                        assert window._closing
+                        original_hide()
+                    def blocked_host_cleanup():
+                        # Only the worker's own loop is allowed to process the hide.
+                        deadline = time.perf_counter() + .3
+                        while user32.IsWindowVisible(shell) and time.perf_counter() < deadline:
+                            time.sleep(.002)
+                        assert not user32.IsWindowVisible(shell), 'Settings remained visible during host cleanup'
+                    with patch.object(window, 'hide', side_effect=hide_host), \
+                            patch.object(window, '_wait_background', side_effect=blocked_host_cleanup):
+                        window.close()
             client.received.connect(observed)
         try:
             client.open(window.settings, window.shortcuts)
             # Host changes made while the editor is open must survive its save.
             window.settings['skin_mask'] = 29
             window.shortcuts['fullscreen'] = 'Ctrl+F10'
-            wait(app, lambda: window._closing if action == 'embed-install' else
+            wait(app, lambda: window._closing if action in ('embed-install', 'embed-shutdown') else
                  any(message['kind'] == 'result' for message in messages), timeout=25)
             assert window.settings['seen_update_versions'] == {'app': '0.5.1'}
+            if action == 'embed-shutdown':
+                assert client.finish() and not errors, errors
+                assert not window.isVisible() and window._settings_host is None
+                return
             if action == 'embed-install':
                 assert window._update_plan == str(Path(temporary) / 'synthetic-update-plan.json')
                 assert window.settings['default_volume'] == 17 and not errors
@@ -794,7 +910,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 return
             if action.startswith('embed-'):
                 shells = [message for message in messages if message['kind'] == 'shell']
-                assert [message['index'] for message in shells] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8] if action == 'embed-coordinates' else [1, 0, 1, 7, 1] if action == 'embed-appearance' else [1, 0, 6, 7, 2, 8, 5, 1, 0])
+                assert [message['index'] for message in shells] == list(embedded_page_indices(action))
                 assert len({message['hwnd'] for message in shells}) == 1, 'Shell was recreated'
                 if action == 'embed-coordinates':
                     assert len({tuple(message['size']) for message in shells}) == len(shells)
@@ -810,7 +926,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     client.open(window.settings, window.shortcuts)
                     wait(app, lambda: any(message['kind'] == 'result' for message in messages), timeout=25)
                     assert client.process.processId() == process_pid, 'Reopen must reuse the worker'
-                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == ([7, 0, 7] if action == 'embed-footer' else [1, 0, 8, 0, 7, 1, 8])
+                    assert [message['index'] for message in messages if message['kind'] == 'shell'] == list(embedded_page_indices(action))
                     assert getattr(window, '_settings_host', None) is None
                 assert not errors, errors
                 return
@@ -980,7 +1096,7 @@ def check_nonblocking_online_close(app):
         dialog = SettingsDialog(config.DEFAULT_SETTINGS, {})
         page = online_ui.AppUpdatePage(config.DEFAULT_SETTINGS, dialog) if update else online_ui.OnlinePage(dialog)
         if not update:
-            dialog._loaded_pages[7] = SimpleNamespace(store_page=page)
+            dialog._loaded_pages[PAGE_INDEX['plugins']] = SimpleNamespace(store_page=page)
         def operation(cancelled, progress):
             entered.set()
             release.wait(3)
@@ -1050,10 +1166,25 @@ def main():
     app = QApplication.instance() or QApplication([])
     os.environ['DDM_SETTINGS_TEST_QT'] = qVersion()
     app.setQuitOnLastWindowClosed(False)
+    if sys.argv[1:] == ['--shutdown-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-shutdown')
+        check_finish_without_event_loop(app)
+        print('PASS: settings hide before host cleanup; embedded surfaces and worker finish safely')
+        return 0
+    if sys.argv[1:] == ['--streamer-defaults-only']:
+        check_worker(app, 'streamer-defaults')
+        print('PASS: streamer defaults room snapshot and worker autosave')
+        return 0
     if sys.argv[1:] == ['--theme-sync-only']:
         check_theme_sync(app)
         return 0
     check_nonblocking_online_close(app)
+    if sys.argv[1:] == ['--scroll-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-scroll')
+        print('PASS: repeated native wheels in host and worker reach both embedded pages after switching')
+        return 0
     if sys.argv[1:] == ['--coordinates-native']:
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-coordinates')
@@ -1089,7 +1220,7 @@ def main():
         print('PASS: installed domestic/global logo control classes bridged without importing plugin runtimes')
         return 0
     for action in ('clean-appearance', 'clean-plugins', 'clean-updates', 'revert-appearance',
-                   'save', 'preview-save', 'preview-sync-save', 'cancel', 'tray-save', 'tray-cancel', 'busy'):
+                   'save', 'preview-save', 'preview-sync-save', 'cancel', 'tray-save', 'tray-cancel', 'streamer-defaults', 'busy'):
         check_worker(app, action)
     check_failure(app)
     check_windowed_worker(app)
@@ -1105,4 +1236,20 @@ def main():
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    if sys.argv[1:]:
+        raise SystemExit(main())
+    # Native settings surfaces must be created and retired inside Qt's loop.
+    app = QApplication.instance() or QApplication([])
+    app.setQuitOnLastWindowClosed(False)
+    result = [1]
+    def run_checks():
+        try:
+            result[0] = main()
+        except BaseException:
+            import traceback
+            traceback.print_exc()
+        finally:
+            app.quit()
+    QTimer.singleShot(0, run_checks)
+    app.exec()
+    raise SystemExit(result[0])

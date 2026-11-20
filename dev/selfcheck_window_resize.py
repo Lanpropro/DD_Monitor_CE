@@ -471,7 +471,7 @@ def main():
         report["network_attempts"] = sum(mock.call_count for mock in network)
         if report["network_attempts"]:
             report["failures"].append({"error": "unexpected network attempt"})
-    directory = ROOT / "results" / "resize-20261019"
+    directory = ROOT / "work" / "test-artifacts" / "host" / "resize-20261019"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / ("baseline.json" if args.baseline else "metrics.json")
     path.write_text(json.dumps(report, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")

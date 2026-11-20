@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QMovie, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
-from ddm.playback_badges import StreamBadge, TimeBadge, TitleBadge, LoadingIndicator
+from ddm.playback_badges import StreamBadge, TimeBadge, TitleBadge, LoadingIndicator, PauseIndicator
 
 
 class PlaybackBadgeTests(unittest.TestCase):
@@ -82,6 +82,43 @@ class PlaybackBadgeTests(unittest.TestCase):
             self.assertTrue(badge.isHidden())
             if icon:
                 self.assertEqual(badge._movie.state(), QMovie.NotRunning)
+
+    def test_loading_feedback_can_show_two_lines_and_restore_connection_text(self):
+        badge = LoadingIndicator(self.owner)
+        original = badge.natural_size()
+        badge.start()
+        badge.set_text('断流，10 秒后重连（第 2 次）\n网络连接异常，请检查网络或代理')
+        self.assertGreaterEqual(badge.natural_size().height(), original.height())
+        self.assertGreaterEqual(badge._text.height(), 2 * badge._text.fontMetrics().height())
+        self.assertEqual(badge._movie.state(), QMovie.Running)
+        badge.set_presentation_scale(.6)
+        self.assertEqual(badge.height(), round(badge.natural_size().height() * .6))
+        badge.set_text('连接中…')
+        badge.set_presentation_scale(1)
+        self.assertEqual(badge.natural_size(), original)
+        badge.stop()
+
+    def test_pause_indicator_is_static_accessible_and_mouse_transparent(self):
+        from PySide6.QtWidgets import QLabel
+        badge = PauseIndicator(self.owner)
+        self.assertEqual(badge.accessibleName(), '已暂停')
+        self.assertTrue(badge.testAttribute(Qt.WA_TransparentForMouseEvents))
+        self.assertEqual(badge.findChildren(QLabel), [])
+        badge.start()
+        self.assertFalse(badge.isHidden())
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            for dpi in (1, 1.5, 2):
+                image = QImage(round(48 * dpi), round(48 * dpi), QImage.Format_ARGB32_Premultiplied)
+                image.setDevicePixelRatio(dpi)
+                image.fill(Qt.transparent)
+                painter = QPainter(image)
+                badge._render_badge(painter)
+                painter.end()
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+                self.assertGreater(image.pixelColor(round(18 * dpi), round(24 * dpi)).alpha(), 0)
+        badge.stop()
+        self.assertTrue(badge.isHidden())
 
     def test_loading_uniform_scale_keeps_animation_and_restores_normal_size(self):
         for icon in (True, False):

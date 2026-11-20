@@ -49,7 +49,8 @@ def install(directory):
 
 def set_dump_enabled(enabled):
     if _capture is not None:
-        _capture.DdmSetDumpEnabled(bool(enabled))
+        check_dump = bool(os.environ.get('DDM_CHECK_EVIDENCE_DIR')) and os.environ.get('DDM_CHECK_MINIDUMP') == '1'
+        _capture.DdmSetDumpEnabled(bool(enabled) or check_dump)
 
 
 def available():

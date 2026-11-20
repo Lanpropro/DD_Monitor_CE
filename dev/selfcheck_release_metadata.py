@@ -1,5 +1,6 @@
 """在线插件目录生成与本体发布脚本的更新元数据。"""
 import hashlib
+import ast
 import json
 from pathlib import Path
 import sys
@@ -13,10 +14,24 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.7.3'
-    assert version.VERSION_TAG == 'v0.7.3'
+    assert version.VERSION == '0.8'
+    assert version.VERSION_TAG == 'v0.8'
+    root = Path(__file__).resolve().parents[1]
+    context_tree = ast.parse((root / 'ddm/plugin_types.py').read_text(encoding='utf-8'))
+    context = next(node for node in context_tree.body if isinstance(node, ast.ClassDef) and node.name == 'PluginContext')
+    public_methods = {node.name for node in context.body if isinstance(node, ast.FunctionDef)}
+    assert {'register_sidebar_page', 'unregister_sidebar_page', 'start_sidebar_drag', 'cancel_sidebar_drag'} <= public_methods
+    api_tree = ast.parse((root / 'ddm/plugins.py').read_text(encoding='utf-8'))
+    assert any(isinstance(node, ast.ImportFrom) and node.module == 'danmaku_sources'
+               and any(item.name == 'ROOM_SUPPORTS_LIVE_DANMAKU' for item in node.names)
+               for node in api_tree.body), 'Release source must export the reviewed live danmaku capability'
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
-    assert notes.strip(), 'Current Release Markdown must exist; its wording is editable after publication'
+    title, _, body = notes.partition('\n')
+    assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
+    assert body.strip(), 'Current Release Markdown must include a body'
+    hotfix_notes = (root / 'docs/releases/RELEASE-v0.8-hotfix.1.md').read_text(encoding='utf-8')
+    assert hotfix_notes.startswith('# DD监控室CE v0.8-hotfix.1 更新说明')
+    notes = (Path(__file__).resolve().parents[1] / 'docs/releases/RELEASE-v0.7.3.md').read_text(encoding='utf-8')
     assert notes.startswith('# DD监控室CE v0.7.3 更新说明')
     for feature in ('设置与外观', '弹幕、画面墙与播放', '更新、插件与诊断',
                     '普通输入框透明绘制', '跨平台弹幕词条和用户屏蔽', '发布源码通过'):
@@ -53,12 +68,24 @@ def main():
         assert entry['min_app_version'] == '0.4'
         assert entry['sha256'] == hashlib.sha256(archive.read_bytes()).hexdigest()
         assert entry['size'] == archive.stat().st_size
-        with patch.object(online, 'latest_manifest', return_value=data), \
-                patch.object(online, 'releases', return_value=[]):
+        from selfcheck_online import asset
+        def download(offer, destination, client):
+            Path(destination).write_bytes(archive.read_bytes())
+            return str(destination)
+        with patch.object(online, 'releases', return_value=[{
+                'assets': [asset(archive.name, archive.read_bytes())]}]), \
+                patch.object(online, 'download', side_effect=download):
             offers = online.plugin_catalog(None, '0.3')
             assert not offers[0]['available'] and '0.4' in offers[0]['reason']
             assert online.plugin_catalog(None, '0.4')[0]['available']
+        # New IDs can still generate compatibility catalogs for older hosts.
+        community = Path(temporary) / 'community_tool-1.0.zip'
+        with zipfile.ZipFile(community, 'w') as package:
+            package.writestr('community_tool/plugin.json', json.dumps({
+                'id': 'community_tool', 'name': '社区工具', 'description': 'new ID', 'version': '1.0'}))
+        assert build([community], 'community-tool-v1.0')['plugins'][0]['id'] == 'community_tool'
     source = (Path(__file__).resolve().parents[1] / 'dev/build_release.ps1').read_text(encoding='utf-8')
+    assert '"docs/releases/RELEASE-$ReleaseTag.md"' in source, 'Hotfix metadata must use its own reviewed notes'
     assert 'ddm-build.json' in source and 'app-update.json' in source and 'Get-FileHash' in source
     assert 'update_protocol = 1' in source and "platform = 'windows-x64'" in source
     assert '--version-file $versionInfo' in source and 'build_windows_version.py' in source
@@ -66,6 +93,8 @@ def main():
     assert '--hidden-import ddm.ui.stepper' in source, 'The lazy settings stepper must be included in frozen builds'
     assert '--collect-submodules ddm.ui' in source, 'All lazy settings UI modules must be included in frozen builds'
     assert '--hidden-import ddm.widgets' in source, 'Frozen builds must retain legacy widget imports for plugins'
+    for dependency in ('tarfile', 'bz2'):
+        assert f'--hidden-import {dependency}' in source, 'Frozen builds must support plugin model archive preparation'
     assert 'archive --format=zip --output=$snapshot HEAD' in source
     for pattern in ('plugins_user/*', 'utils/*', 'videos/*', 'dev/*promo*'):
         assert pattern in source
@@ -95,6 +124,10 @@ def main():
         assert not (root / 'out/plugins_user').exists()
         assert not (root / 'out/videos').exists()
     assert 'user_notice_accepted = $true' in source
+    for entry in ("$env:LOCALAPPDATA = $probeProfile", "$env:DDM_NO_SAVE = '1'",
+                  '$env:LOCALAPPDATA = $previousProbeLocalAppData',
+                  '$env:DDM_NO_SAVE = $previousProbeNoSave'):
+        assert entry in source, 'Frozen probes must isolate and restore real-session environment'
     assert 'if ($version -eq "v0.3.1")' in source
     assert '$exeDir = Join-Path $OutDir $display' in source
     assert '--onedir --name $display' in source

@@ -77,7 +77,10 @@ def stylesheet(source, *, application=False):
         # Sliders, radio buttons and scrollbar handles intentionally stay circular.
         supported = ('::' not in terminal or terminal.endswith('::item') or
                      terminal in ('QCheckBox::indicator', '#NavCheck::indicator'))
-        if terminal in affected and supported:
+        # A typed state rule (QPushButton#IconButton:pressed) can still
+        # change the surface supplied by its untyped #IconButton rule.
+        identity = re.sub(r'^\w+(?=#)', '', terminal)
+        if supported and (terminal in affected or identity in affected):
             for key, value in list(values.items()):
                 if key in ('background', 'background-color') and not value.startswith(('url(', 'qlineargradient', 'qradialgradient')):
                     values[key] = 'transparent'

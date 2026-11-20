@@ -11,6 +11,9 @@ int wmain(int argc, wchar_t** argv) {
     if (!install || !dumps || !install(argv[2], argv[3])) return 4;
     dumps(argv[4][0] == L'1');
     if (argv[4][0] == L'n') return 23;
+    if (argv[4][0] == L'r') return *reinterpret_cast<volatile int*>(0x3bb);
+    if (argv[4][0] == L'w') *reinterpret_cast<volatile int*>(0x3bb) = 1;
+    if (argv[4][0] == L'e') reinterpret_cast<void (*)()>(0x3bb)();
     RaiseException(0xc0000005, EXCEPTION_NONCONTINUABLE, 0, nullptr);
     return 99;
 }

@@ -9,6 +9,12 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 
 def run_worker():
+    check_evidence = None
+    if os.environ.get('DDM_CHECK_EVIDENCE_DIR'):
+        from .check_diagnostics import start
+        check_evidence = start(Path(sys.argv[0]).name, role='settings-worker')
+        if check_evidence is not None:
+            check_evidence.record('worker.begin')
     # The worker receives a settings snapshot; it must not read/write the
     # portable installation's account, configuration or installed plugins.
     from . import settings_process as host_api
@@ -24,6 +30,8 @@ def run_worker():
 
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
+    from .settings_performance import install
+    performance = install('worker')
     from .localization import install_chinese_translations
     install_chinese_translations(app)
     for icon_path in (Path(config.REPO) / 'assets/favicon.ico', Path(config.REPO) / 'favicon.ico'):
@@ -51,7 +59,11 @@ def run_worker():
             self.foreign = None
             self.plugin_checks = {}
             self.painted = False
-            super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True)
+            super().__init__(snapshot['settings'], snapshot['shortcuts'], preview=True,
+                             streamer_rooms=snapshot.get('streamer_rooms'))
+            self.streamerQualityRequested.connect(lambda room_id, token: send({
+                'kind': 'streamer-quality', 'room_id': room_id, 'token': token}))
+            self.setProperty('settings_portrait', bool(snapshot.get('portrait', False)))
             self._auto_save_enabled = True
             self.auto_save.requested.connect(lambda changes: send({'kind': 'auto-save', 'changes': changes}))
             self.occlusion_timer = QTimer(self)
@@ -166,6 +178,10 @@ def run_worker():
                     raise RuntimeError('The platform cannot embed the host settings page')
                 self.host_container = QWidget.createWindowContainer(self.foreign, self.stack)
                 self.host_container.setFocusPolicy(Qt.StrongFocus)
+                if app.platformName() == 'windows':
+                    from .settings_wheel import EmbeddedSettingsWheel
+                    self.wheel_bridge = EmbeddedSettingsWheel(self.host_container,
+                        lambda values: send({'kind': 'host-wheel', 'wheel': values}))
                 self.stack.addWidget(self.host_container)
                 attached = True
             if self.nav.currentRow() in host_api.HOST_PAGES:
@@ -232,7 +248,8 @@ def run_worker():
             kind = message.get('kind')
             if kind == 'quit':
                 if self.dialog is not None:
-                    self.dialog.auto_save.active = False
+                    self.dialog.hide()
+                    self.dialog.auto_save.stop()
                     self.dialog.host_flush_done = True
                     self.dialog.reject()
                 app.quit()
@@ -245,10 +262,14 @@ def run_worker():
                 self.dialog.done(self.dialog.pending_close_result)
             elif kind == 'auto-saved' and self.dialog is not None:
                 self.dialog.auto_save.acknowledge(message.get('error', ''))
+            elif kind == 'streamer-quality-result' and self.dialog is not None:
+                self.dialog.receive_streamer_quality(message['room_id'], message['token'],
+                                                    message['options'], message.get('error', ''))
             elif kind == 'auto-status' and self.dialog is not None:
                 self.dialog._host_save_error = message['state'] == 'error'
                 SettingsDialog._auto_save_status(self.dialog, message['state'], message['error'])
             elif kind == 'host-state' and self.dialog is not None:
+                self.dialog.setProperty('settings_portrait', bool(message.get('portrait', False)))
                 self.dialog.host_values = message['values']
                 if theme.configure_appearance(message['values']):
                     theme.apply(theme.mode())
@@ -288,6 +309,8 @@ def run_worker():
             elif kind == 'host-cancel' and self.dialog is not None:
                 self.dialog.reject()
             elif kind == 'focus' and self.dialog is not None:
+                if 'portrait' in message:
+                    self.dialog.setProperty('settings_portrait', bool(message['portrait']))
                 QTimer.singleShot(0, self.dialog,
                                   lambda dialog=self.dialog: host_api._activate_dialog(dialog))
             elif kind == 'open' and self.dialog is None:
@@ -313,6 +336,11 @@ def run_worker():
                 host_api._save_trace('worker.result.sent', started)
             dialog.deleteLater()
 
+    if performance is not None:
+        performance.wrap(RemoteDialog, '_on_page_changed')
+        performance.wrap(RemoteDialog, 'embed_host')
+        performance.wrap(Worker, 'handle')
+
     with tempfile.TemporaryDirectory(prefix='ddm_settings_') as temporary:
         config.REPO = temporary
         config.CONFIG_PATH = str(Path(temporary) / 'config.json')
@@ -333,5 +361,9 @@ def run_worker():
         threading.Thread(target=read_requests, name='settings-input', daemon=True).start()
         QTimer.singleShot(0, lambda: send({'kind': 'ready', 'pid': os.getpid()}))
         result = app.exec()
+        if check_evidence is not None:
+            check_evidence.record('worker.event-loop.end', code=result)
     app.shutdown()
+    if check_evidence is not None:
+        check_evidence.record('worker.shutdown.end')
     return result

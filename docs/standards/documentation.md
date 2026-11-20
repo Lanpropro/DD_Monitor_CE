@@ -22,7 +22,7 @@
 | 阶段 | 要回答的问题 | 文档产出 | 位置 |
 | --- | --- | --- | --- |
 | 需求与范围 | 改什么、不改什么、如何判定完成 | Issue 表单、验收条件；已复现故障进入案例库 | `.github/ISSUE_TEMPLATE/`、[Bug 案例库](../bug-cases.md) |
-| 设计 | 状态归谁、边界在哪、失败如何收场 | 架构说明、设计说明；插件在 README 或按需建立的 `DESIGN.md` 中记录 | [现行模块职责](../repository-map.md)、`docs/`、插件目录 |
+| 设计 | 状态归谁、边界在哪、失败如何收场 | 架构说明、设计说明；插件在 README 或按需建立的 `DESIGN.md` 中记录 | [架构总览](../architecture/overview.md)、`docs/`、插件目录 |
 | 实现 | 代码放在哪个职责模块 | 模块文档字符串、`docs/development/` 中的职责说明 | `ddm/`、`plugins/<ID>/` |
 | 验证 | 哪些检查通过、哪些仍需人工 | 验证命令与结果；专项索引；插件在 README 或按需建立的 `ACCEPTANCE.md` 中记录验收步骤 | [验证指南](../development/testing.md)、`dev/checks/`、插件目录 |
 | 变更记录 | 这一版实际改了什么 | 未发布记录；插件增量记录 | [UNRELEASED](../releases/UNRELEASED.md)、插件 `docs/changes/` |
@@ -35,8 +35,6 @@
 写清最低本体版本，不能假设网站或用户会先看到新本体。
 
 ## 2. 文档分层
-
-下表规定新增文档的归属。已有专题页按第 11 节保留原路径，随相关功能维护逐步迁移；目录尚未建立时，现行模块职责仍从[仓库文件清单](../repository-map.md)查阅，不把目录目标当成已完成迁移。
 
 每个仓库都按同一套分层组织文档，文件名保持稳定，避免为了“整理”反复移动导致链接失效。
 
@@ -257,7 +255,7 @@
 ## 相关文档
 
 - [文档中心](../README.md)
-- [现行模块职责](../repository-map.md)
+- [架构总览](../architecture/overview.md)
 - [验证指南](../development/testing.md)
 - [贡献指南](../../CONTRIBUTING.md)
 - [仓库文件分类清单](../repository-map.md)

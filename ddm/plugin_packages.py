@@ -53,6 +53,8 @@ class PluginPackages:
                 with open(inventory, 'w', encoding='utf-8-sig') as output:
                     output.write('\n'.join(sorted('/'.join(parts[1:]) for parts in names)) + '\n')
                 replace_directory(os.path.join(staging, plugin_id), target)
+        from .plugin_replacements import inherit_settings
+        inherit_settings(host, plugin_id, read_manifest(target, plugin_id))
         if host.enabled is not None:
             host.enabled.add(plugin_id)
             host.save_plugin_settings()
@@ -96,6 +98,8 @@ class PluginPackages:
         skipped = dict(host.skipped)
         entries = []
         for folder in sorted(os.listdir(host.plugins_dir)):
+            if folder in getattr(host, '_replaced_plugins', ()):
+                continue
             if folder.startswith((".", "_")) or folder in RETIRED_BUNDLED_PLUGINS or not os.path.isfile(
                     os.path.join(host.plugins_dir, folder, "plugin.py")):
                 continue

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineE
 from . import theme
 from .sidebar_navigation import NavigationButton
 from .dock_feedback import attach
+from .search import matches_query
 
 
 class WorkspaceIcon(QIconEngine):
@@ -215,13 +216,12 @@ class WorkspaceControls(QFrame):
         if navigation is None:
             return
         top = self.sidebar.side == 'top'
-        self.launcher.setProperty('dockRail', not top)
+        self.launcher.setProperty('dockRail', True)
         if close_popup:
             self.popup.hide()
+        self.sidebar._detach_from_rows(self.launcher)
         if top and self.sidebar._bar_row_box is not None:
-            box = self.sidebar._bar_row_box
-            self.launcher.setParent(self.sidebar._bar_row)
-            box.insertWidget(max(0, box.indexOf(self.sidebar.toggle_button)), self.launcher)
+            self.sidebar.presentation_control.orientation.portrait.place_launcher()
         elif not top:
             if self.parentWidget() is not navigation.pin_holder:
                 self.setParent(navigation.pin_holder)
@@ -305,10 +305,10 @@ class WorkspaceControls(QFrame):
             pin.setToolTip('取消固定' if pinned else '固定为常用')
 
     def _filter_rows(self):
-        query = self.search.text().strip().casefold()
+        query = self.search.text()
         shown = 0
         for row, launch, _pin in self._rows.values():
-            visible = not query or query in (launch.text() + ' ' + launch.toolTip()).casefold()
+            visible = matches_query(launch.text() + ' ' + launch.toolTip(), query)
             row.setVisible(visible)
             shown += visible
         self.summary.setText(f'{shown} / {len(self.entries)} 个功能 · 可固定常用入口到侧栏')

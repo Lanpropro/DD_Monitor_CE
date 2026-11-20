@@ -98,6 +98,7 @@ class Sidebar(QFrame):
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
+    wallSettingsRequested = Signal()
     pictureInPictureRequested = Signal()
     clearWallRequested = Signal()
     layoutResetRequested = Signal()
@@ -342,6 +343,9 @@ class Sidebar(QFrame):
         self.layout_button.clicked.connect(self.open_layout_picker)
         self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
         self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
+        self.wall_settings_button = NavigationButton('画面墙全局设置', 'wall_settings')
+        self.wall_settings_button.setToolTip('调整画面墙的音量、画质和弹幕')
+        self.wall_settings_button.clicked.connect(self.wallSettingsRequested.emit)
         self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
@@ -353,6 +357,7 @@ class Sidebar(QFrame):
         self.settings_button.setToolTip("打开设置")
         self.settings_button.clicked.connect(self.settingsRequested.emit)
         tool_box.addWidget(self.layout_button, 1)
+        tool_box.addWidget(self.wall_settings_button)
         tool_box.addWidget(self.picture_in_picture_button)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
@@ -387,6 +392,7 @@ class Sidebar(QFrame):
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
+            self.wall_settings_button: self.wall_settings_button.sizePolicy(),
             self.picture_in_picture_button: self.picture_in_picture_button.sizePolicy(),
             self.settings_button: self.settings_button.sizePolicy(),
         }
@@ -395,6 +401,8 @@ class Sidebar(QFrame):
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
         self.navigation = SidebarNavigation(self, self._outer_layout)
+        from .sidebar_pages import SidebarPages
+        self.plugin_pages = SidebarPages(self)
         self.refresh_filter()
         self._sync_count()
         self._sync_appearance_row()
@@ -440,6 +448,8 @@ class Sidebar(QFrame):
     # ---- 搜索过滤 ----
     def apply_filter(self, text: str) -> None:
         """搜索框一有动静就过滤；批量删除的勾选状态不受影响。"""
+        if hasattr(self, "plugin_pages") and self.plugin_pages.filter(text):
+            return
         return self.filter_control.apply_filter(text)
 
     def refresh_filter(self) -> None:

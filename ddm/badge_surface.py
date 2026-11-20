@@ -47,6 +47,9 @@ class BadgeSurface(QWidget):
         # use the same per-pixel alpha upload above native video windows.
         self.clearMask()
         self.update()
+        if (sys.platform == 'win32' and QApplication.platformName() == 'windows'
+                and self.testAttribute(Qt.WA_NativeWindow) and self.isVisible()):
+            self._schedule_layered_paint()
 
     def paintEvent(self, event):
         painter = QPainter(self)

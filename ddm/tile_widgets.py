@@ -10,7 +10,7 @@ from PySide6.QtGui import (
     QRegion
 )
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy, QSlider,
+    QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QMenu, QPushButton, QSizePolicy, QSlider,
     QVBoxLayout, QWidget, QWidgetAction
 )
 
@@ -23,14 +23,15 @@ from .config import (
 from .corner_geometry import continuous_path
 from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
-from .playback_badges import LoadingIndicator, StreamBadge, TimeBadge, TitleBadge
+from .playback_badges import LoadingIndicator, PauseIndicator, StreamBadge, TimeBadge, TitleBadge
 from .playback_controls import (
-    DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, TileButton, VolumeButton,
+    DanmakuSettingsButton, DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, TileButton, VolumeButton,
     VolumePopup
 )
 from .sidebar_drag import ROOM_MIME
 from .ui.labels import ElidedLabel
 from .video_danmaku import VideoDanmaku
+from .video_caption import VideoCaption
 from .video_danmaku_settings import VideoDanmakuSettings
 from .video_surface import VideoCorner, VideoSurface
 from .widget_support import (
@@ -80,6 +81,7 @@ class Tile(QFrame):
         self.setObjectName("Tile")
         #: 插件往本格右键菜单加的项目：[(显示文字, 回调), …]，由外层填
         self.plugin_actions: list = []
+        self.open_danmaku_float = None
         #: 当前这一路的取流结果，插件（录像等）从这里拿
         self.stream_url = ""
         self.stream_profile = ""
@@ -88,8 +90,10 @@ class Tile(QFrame):
         self.stream_codec = ""
         self.stream_headers: dict = {}
         self.room = dict(room)
+        self.room.pop('_streamer_initial_volume', None)
         self._cover_source = room.get("cover")
         self._status_text = ""
+        self._status_detail = ""
         self._interactive_resize = False
         self._resize_raise_pending = False
         self._move_repaint_pending = False
@@ -132,6 +136,7 @@ class Tile(QFrame):
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.video_danmaku = VideoDanmaku(self)
+        self.video_caption = None
         self.video_danmaku.actionsRequested.connect(self._show_danmaku_actions)
         self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
@@ -150,6 +155,9 @@ class Tile(QFrame):
         self.bottom.setObjectName("TileBottom")
         self.bottom.setAttribute(Qt.WA_StyledBackground, True)
         bottom_layout = QHBoxLayout(self.bottom)
+        # The tile assigns the bar rectangle. Cached composer widths must not
+        # impose the previous fullscreen width on the restored child window.
+        bottom_layout.setSizeConstraint(QLayout.SetNoConstraint)
         bottom_layout.setContentsMargins(10, 4, 10, 4)
         bottom_layout.setSpacing(8)
 
@@ -192,15 +200,10 @@ class Tile(QFrame):
         self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
         self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
                                        else "开启画面弹幕（默认 B）")
-        self.danmaku_settings_button = TileButton("⚙")
-        self.danmaku_settings_button.setObjectName("TileCtrl")
-        self.danmaku_settings_button.setFixedSize(26, 26)
+        self.danmaku_settings_button = DanmakuSettingsButton()
         self.danmaku_settings_button.setToolTip("弹幕观看设置：大小、速度、不透明度、显示区域")
-        self.danmaku_settings_menu = VideoDanmakuSettings(self)
-        self.danmaku_settings_menu.settingsChanged.connect(self._change_video_danmaku_settings)
-        self.danmaku_settings_menu.independentChanged.connect(self._set_video_danmaku_independent)
+        self._danmaku_settings_menu = None
         self.apply_video_danmaku_settings()
-        self.danmaku_settings_menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
         self.danmaku_settings_button.clicked.connect(
             lambda: self.danmaku_settings_menu.open_at(self.danmaku_settings_button, self.video_danmaku.settings))
         # 「● REC」右边显示已录制时长（app 层每秒刷一次；没在录就藏起来）
@@ -265,6 +268,11 @@ class Tile(QFrame):
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_time, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
+        self.bottom.contrast_groups = (
+            (self.pause_button, self.volume_button, self.volume_slider, self.volume_label),
+            (self.danmaku_button, self.danmaku_settings_button, self.recording_button,
+             self.recording_time, self.fullscreen_button),
+        )
 
         # 悬停时才出现的单窗口控制：与浮标同款样式，浮在画面右上角
         self.controls = QWidget(self)
@@ -305,7 +313,7 @@ class Tile(QFrame):
         self.paused = False
         self._player_active = False
         self.spinner = LoadingIndicator(self)
-        self.pause_overlay = LoadingIndicator(self, text="已暂停", icon=False)
+        self.pause_overlay = PauseIndicator(self)
         self.pause_overlay.setObjectName("PauseOverlay")
         #: 悬停浮层相关的控件都建好了，之后 set_controls_visible 才能重摆布局
         self._overlay_ready = True
@@ -330,6 +338,18 @@ class Tile(QFrame):
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
         return self.state_control.toggle_video_danmaku(enabled)
+
+    @property
+    def danmaku_settings_menu(self):
+        if self._danmaku_settings_menu is None:
+            menu = VideoDanmakuSettings(self)
+            menu.apply_settings(self.video_danmaku.settings,
+                                independent=self.video_danmaku_overrides is not None)
+            menu.settingsChanged.connect(self._change_video_danmaku_settings)
+            menu.independentChanged.connect(self._set_video_danmaku_independent)
+            menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
+            self._danmaku_settings_menu = menu
+        return self._danmaku_settings_menu
 
     def _change_video_danmaku_settings(self, values: dict) -> None:
         return self.state_control.change_video_danmaku_settings(values)
@@ -450,14 +470,23 @@ class Tile(QFrame):
         """
         return self.presentation_control.raise_overlays()
 
+    def set_translation_caption(self, original, translated="", *, style=None, visible=True):
+        if self.video_caption is None:
+            self.video_caption = VideoCaption(self)
+        return self.video_caption.set_caption(original, translated, style=style, visible=visible)
+
+    def clear_translation_caption(self):
+        if self.video_caption is not None:
+            self.video_caption.clear_caption()
+
     def _update_quick_danmaku_mask(self) -> None:
         return self.presentation_control.update_quick_danmaku_mask()
 
     def set_video_active(self, active: bool) -> None:
         return self.state_control.set_video_active(active)
 
-    def set_status(self, text: str) -> None:
-        return self.state_control.set_status(text)
+    def set_status(self, text: str, *, detail: str = '') -> None:
+        return self.state_control.set_status(text, detail=detail)
 
     def set_offline(self) -> None:
         """下播：画面清成黑的，格子继续留给这个直播间。"""
@@ -589,8 +618,8 @@ class Tile(QFrame):
     def set_cover(self, pixmap: QPixmap | None) -> None:
         return self.presentation_control.set_cover(pixmap)
 
-    def set_interactive_resize(self, active: bool) -> None:
-        return self.presentation_control.set_interactive_resize(active)
+    def set_interactive_resize(self, active: bool, *, queue_moved_repaint=False) -> None:
+        return self.presentation_control.set_interactive_resize(active, queue_moved_repaint=queue_moved_repaint)
 
     def _layout_cover(self) -> None:
         return self.presentation_control.layout_cover(render_pixmap=rounded_pixmap)
@@ -607,10 +636,12 @@ class Tile(QFrame):
             parent.update(QRect(event.oldPos(), self.size()))
         # 等大格子换位不会移动内部浮层，共享弹幕组仍需更新墙内坐标。
         self.video_danmaku.schedule_quick_geometry()
+        if self.video_caption is not None:
+            self.video_caption.sync_geometry()
 
-    def _refresh_moved_overlays(self) -> None:
+    def _refresh_moved_overlays(self, *, queued=False) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
-        return self.presentation_control.refresh_moved_overlays()
+        return self.presentation_control.refresh_moved_overlays(queued=queued)
 
     def _layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
@@ -718,6 +749,7 @@ class Tile(QFrame):
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
+        self.clear_translation_caption()
         self._mask_refresh_timer.stop()
         self._move_repaint_timer.stop()
         super().closeEvent(event)

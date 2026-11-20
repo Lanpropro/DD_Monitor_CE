@@ -1,45 +1,43 @@
 # 版本记录
 
-> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-16 ｜ 读者：维护者、贡献者、用户
+> 类型：索引 ｜ 状态：维护中 ｜ 适用版本：0.8 ｜ 更新：2026-11-19 ｜ 读者：维护者、贡献者、用户
 
-本页索引本分支保存的发布说明；源码版本以 `ddm/version.py` 为准，正式版本与附件以 Git 标签及 GitHub Releases 为准。规范入库不修改源码版本或发布状态。
+本目录保存已发布版本的说明和下一版本的开发记录。发布说明是历史证据，发布后保持原文；
+措辞勘误可以在发布页同步修改，但不改写旧结论。
 
-- [下一版本开发记录](UNRELEASED.md)
+## 当前与进行中
+
+| 文档 | 说明 |
+| --- | --- |
+| [RELEASE-v0.8](RELEASE-v0.8.md) | 当前已发布版本 |
+| [RELEASE-v0.8-hotfix.1](RELEASE-v0.8-hotfix.1.md) | 配套稍后再看插件的热修复候选，待发布正文确认 |
+| [UNRELEASED](UNRELEASED.md) | 下一版本累积记录；按条目追加，发布前汇总 |
 
 ## 本体版本
 
-- [RELEASE-v0.7.3](RELEASE-v0.7.3.md)
+| 版本 | 说明 |
+| --- | --- |
+| [v0.8-hotfix.1](RELEASE-v0.8-hotfix.1.md) | 稍后再看宿主能力补齐与插件商城检查修复（候选） |
+| [v0.8](RELEASE-v0.8.md) | 批量添加、画中画、画面墙全局控制、主播独立设置及通知改进 |
+| [v0.7.3](RELEASE-v0.7.3.md) | 设置、弹幕管理、画面墙交互、更新器与诊断整理 |
+| [v0.7.2-hotfix.2](RELEASE-v0.7.2-hotfix.2.md) | 独立发布的修订 2，正文包含修订 1 的累计说明 |
+| [v0.7.2](RELEASE-v0.7.2.md) | 画中画、弹幕格、SC 与图片缓存 |
+| [v0.7.1](RELEASE-v0.7.1.md) | 全屏控制、格子交换与头像封面缓存；正文含热修复 |
+| [v0.7](RELEASE-v0.7.md) | 0.7 系列 |
+| [v0.6](RELEASE-v0.6.md) | 0.6 系列 |
+| [v0.5.2](RELEASE-v0.5.2.md) | 0.5.2 系列 |
+| [v0.5.2 醒目留言](RELEASE-v0.5.2-super-chat.md) | 醒目留言补充说明 |
+| [v0.5.1](RELEASE-v0.5.1.md) | 热修复 |
+| [v0.5](RELEASE-v0.5.md) | 播放内核迁移与批量修复 |
+| [v0.4](RELEASE-v0.4.md) | 外观、皮肤与直播间组合 |
+| [v0.3.1](RELEASE-v0.3.1.md) | 0.3.1 修复 |
+| [v0.3](RELEASE-v0.3.md) | 0.3 系列 |
+| [v0.2](RELEASE-v0.2.md) | 0.2 系列 |
+| [v0.1](RELEASE-v0.1.md) | 首个公开版本 |
 
-- [RELEASE-v0.1](RELEASE-v0.1.md)
-- [RELEASE-v0.2](RELEASE-v0.2.md)
-- [RELEASE-v0.3.1](RELEASE-v0.3.1.md)
-- [RELEASE-v0.3](RELEASE-v0.3.md)
-- [RELEASE-v0.4](RELEASE-v0.4.md)
-- [RELEASE-v0.5.1](RELEASE-v0.5.1.md)
-- [RELEASE-v0.5.2-super-chat](RELEASE-v0.5.2-super-chat.md)
-- [RELEASE-v0.5.2](RELEASE-v0.5.2.md)
-- [RELEASE-v0.5](RELEASE-v0.5.md)
-- [RELEASE-v0.6](RELEASE-v0.6.md)
-- [RELEASE-v0.7.1](RELEASE-v0.7.1.md)
-- [RELEASE-v0.7.2](RELEASE-v0.7.2.md)
-- [RELEASE-v0.7](RELEASE-v0.7.md)
+## 比赛二路插件
 
-## 旧二路插件说明
-
-以下文件是分离前保留的历史说明，不作为现行插件版本依据。插件开发、当前版本和后续发布以[独立插件仓库](https://github.com/Lanpropro/DD_Monitor_Plugins)为准；本次规范入库不删除其历史原文。
-
-- [PLUGIN-match-sync-v1.2.1](PLUGIN-match-sync-v1.2.1.md)
-- [PLUGIN-match-sync-v1.2.10](PLUGIN-match-sync-v1.2.10.md)
-- [PLUGIN-match-sync-v1.2.2](PLUGIN-match-sync-v1.2.2.md)
-- [PLUGIN-match-sync-v1.2.3](PLUGIN-match-sync-v1.2.3.md)
-- [PLUGIN-match-sync-v1.2.4](PLUGIN-match-sync-v1.2.4.md)
-- [PLUGIN-match-sync-v1.2.5](PLUGIN-match-sync-v1.2.5.md)
-- [PLUGIN-match-sync-v1.2.6](PLUGIN-match-sync-v1.2.6.md)
-- [PLUGIN-match-sync-v1.2.7](PLUGIN-match-sync-v1.2.7.md)
-- [PLUGIN-match-sync-v1.2.8](PLUGIN-match-sync-v1.2.8.md)
-- [PLUGIN-match-sync-v1.2.9](PLUGIN-match-sync-v1.2.9.md)
-- [PLUGIN-match-sync-v1.2](PLUGIN-match-sync-v1.2.md)
-- [PLUGIN-match-sync-v1.3](PLUGIN-match-sync-v1.3.md)
+插件版本独立于本体。当前正式版本、安装包及历史说明以[独立插件仓库](https://github.com/Lanpropro/DD_Monitor_Plugins/releases)为准；分离前的本体内二路插件源码可从本体 Git 历史追溯。2026-11-15 核对的最新正式版为 v1.7.0。
 
 ## 发布约定
 

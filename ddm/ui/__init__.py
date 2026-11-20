@@ -20,6 +20,7 @@ _MODULES = {
                           'PauseButton', 'RefreshButton', 'DanmakuToggleButton'),
     'ui.labels': ('ElidedLabel',),
     'ui.toolbar': ('BarIconButton',),
+    'sidebar_navigation': ('NavigationButton',),
 }
 _EXPORTS = {name: module for module, names in _MODULES.items() for name in names}
 __all__ = ['ActionButton', 'HintLabel', 'TitleLabel', 'page_header', 'step_button', *_EXPORTS]

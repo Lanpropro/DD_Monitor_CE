@@ -392,6 +392,7 @@ def main():
                 overlay._set_hover(held)
                 settle(app, .15)
                 assert held.held and layer.items[held.render_id].get('held')
+                assert layer.items[held.render_id]['item'].z() > 0
                 assert layer.items[held.render_id]['item'].property('motionPaused')
                 before = held.x
                 settle(app, .15)
@@ -401,6 +402,7 @@ def main():
                 assert held.x < before and not layer.items[held.render_id].get('held'), (
                     held.x, before, overlay.timer.isActive(), overlay.paused,
                     overlay._last_tick, len(overlay.comments), layer._presentation_window)
+                assert layer.items[held.render_id]['item'].z() == 0
                 overlay.set_paused(True)
                 held.x = 36
                 layer.move(held.render_id, held.x, held.lane * overlay.lane_height())

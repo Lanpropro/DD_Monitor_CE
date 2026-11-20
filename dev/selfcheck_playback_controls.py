@@ -67,6 +67,20 @@ assert not any(name in sys.modules for name in (
         self.assertEqual(clicked, [True, True])
         self.assertIs(button.parentWidget(), self.owner)
 
+    def test_zero_volume_draws_mute_icon_without_changing_explicit_mute(self):
+        from ddm.tile_widgets import Tile
+        tile = Tile({'room_id': 'fixture', 'volume': 40, 'muted': False}, self.owner)
+        button = tile.volume_button
+        tile.set_volume(0)
+        self.assertFalse(tile.muted)
+        self.assertFalse(button.muted)
+        silent = button.grab().toImage()
+        tile.set_muted(True)
+        self.assertEqual(button.grab().toImage(), silent)
+        tile.set_volume(40)
+        self.assertFalse(tile.muted)
+        self.assertNotEqual(button.grab().toImage(), silent)
+
     def test_volume_wheel_clamps_emits_and_keeps_channel(self):
         button = ui.VolumeButton(self.owner)
         changed = []
@@ -86,6 +100,51 @@ assert not any(name in sys.modules for name in (
         self.assertIn('声道：右', button.toolTip())
         self.assertIn('取消静音', button.toolTip())
 
+    def test_tile_audio_sync_updates_all_controls_without_audio_signals(self):
+        from ddm.tile_widgets import Tile
+        tile = Tile({'room_id': 'fixture'}, self.owner)
+        self.owner.layout().addWidget(tile)
+        signals = []
+        tile.muteToggled.connect(lambda *_: signals.append('mute'))
+        tile.volumeChanged.connect(lambda *_: signals.append('volume'))
+        for muted, volume, channel in ((True, 25, 3), (False, 70, 4)):
+            tile.muted, tile.volume, tile.audio_channel = muted, volume, channel
+            tile.sync_audio_ui()
+            self.assertEqual((tile.volume_button.muted, tile.volume_button.level,
+                              tile.volume_button.audio_channel), (muted, volume, channel))
+            self.assertEqual(tile.volume_slider.value(), volume)
+            self.assertEqual(tile.vertical_volume.value(), volume)
+            self.assertEqual(tile.volume_label.text(), str(volume))
+        self.assertFalse(signals)
+
+    def test_host_swap_keeps_actual_volume_icons_in_sync_with_players(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from ddm.tile_widgets import Tile
+        from ddm.room_placement import RoomPlacement
+        source = Tile({'room_id': 'fixture-live', 'live': True}, self.owner)
+        target = Tile({'room_id': 'fixture-vod', 'watchlater_bvid': 'fixture-vod'}, self.owner)
+        for tile in (source, target):
+            self.owner.layout().addWidget(tile)
+        source.set_volume(25)
+        source.set_muted(True)
+        target.set_volume(70)
+        target.set_muted(False)
+        players = {tile: SimpleNamespace(volume=tile.volume, muted=tile.muted,
+                    set_volume=lambda value, t=tile: setattr(players[t], 'volume', value),
+                    set_muted=lambda value, t=tile: setattr(players[t], 'muted', value),
+                    set_audio_channel=Mock(), reapply_audio_channel=Mock())
+                   for tile in (source, target)}
+        host = SimpleNamespace(wall=SimpleNamespace(tiles=[source, target], relayout=Mock()),
+                               players=players, _refresh_meta=Mock())
+        self.assertTrue(RoomPlacement(host).hot_swap(source, target))
+        self.assertFalse(source.muted)
+        self.assertTrue(target.muted)
+        for tile in (source, target):
+            self.assertEqual(tile.muted, players[tile].muted)
+            self.assertEqual(tile.volume_button.muted, players[tile].muted)
+            self.assertEqual(tile.volume_button.level, players[tile].volume)
+
     def test_pause_orientation_and_toggle_states(self):
         pause = ui.PauseButton(self.owner)
         pause.set_paused(True)
@@ -102,6 +161,42 @@ assert not any(name in sys.modules for name in (
         danmaku.setCheckable(True)
         QTest.mouseClick(danmaku, Qt.LeftButton)
         self.assertTrue(danmaku.isChecked())
+
+    def test_settings_gear_is_monochrome_and_keeps_click_behavior(self):
+        from ddm.playback_controls import DanmakuSettingsButton
+        button = DanmakuSettingsButton(self.owner)
+        self.owner.layout().addWidget(button)
+        self.owner.show()
+        clicked = []
+        button.clicked.connect(lambda: clicked.append(True))
+        QTest.mouseClick(button, Qt.LeftButton)
+        self.assertEqual(clicked, [True])
+        self.assertEqual(button.text(), '')
+        self.assertEqual(button.accessibleName(), '弹幕观看设置')
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            image = QImage(button.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            button.render(image)
+            self.assertFalse(image.isNull())
+
+    def test_tile_uses_pause_glyph_and_settings_button_in_host(self):
+        from ddm.tile_widgets import Tile
+        from ddm.playback_badges import PauseIndicator
+        from ddm.playback_controls import DanmakuSettingsButton
+        tile = Tile({'room_id': 'fixture', 'live': False}, self.owner)
+        self.owner.layout().addWidget(tile)
+        self.owner.show()
+        self.assertIsInstance(tile.pause_overlay, PauseIndicator)
+        self.assertIsInstance(tile.danmaku_settings_button, DanmakuSettingsButton)
+        tile._player_active = True
+        tile.set_paused(True)
+        self.assertFalse(tile.pause_overlay.isHidden())
+        tile.set_paused(False)
+        self.assertTrue(tile.pause_overlay.isHidden())
+        with patch.object(tile.danmaku_settings_menu, 'open_at') as opened:
+            QTest.mouseClick(tile.danmaku_settings_button, Qt.LeftButton)
+        opened.assert_called_once()
 
     def test_refresh_animation_hides_resumes_and_dies_with_owner(self):
         button = ui.RefreshButton(self.owner)

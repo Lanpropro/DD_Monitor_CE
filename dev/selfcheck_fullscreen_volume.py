@@ -8,11 +8,18 @@ from unittest.mock import Mock, patch
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QPushButton, QVBoxLayout
 from ddm.app import MainWindow
+from ddm.settings_general import GeneralSettingsPage
+from ddm.settings_shortcuts import ShortcutSettingsPage
+
+
+def wheel_over(widget, *, delta=120, modifiers=Qt.NoModifier):
+    window = widget.window()
+    point = widget.mapTo(window, widget.rect().center())
+    QTest.wheelEvent(window.windowHandle(), point, QPoint(0, delta), stateKey=modifiers)
 
 
 def main():
@@ -25,13 +32,37 @@ def main():
         rooms = [dict(room_id=str(1001 + i), uname='test', live=False,
                       volume=42, muted=True) for i in range(2)]
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
-                            state={'plugins_enabled': []})
+                            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         try:
             window.resize(1000, 700)
             window.show()
             window.activateWindow()
             app.processEvents()
             first, second = window.wall.tiles[:2]
+            empty = window.wall.tiles[2]
+            page = GeneralSettingsPage(window.settings)
+            shortcuts = ShortcutSettingsPage(window.shortcuts, settings=window.settings)
+            assert not page.values()['audio_follows_room']
+            assert not shortcuts.settings_values()['hover_wheel_volume']
+            page._checks['audio_follows_room'].setChecked(True)
+            shortcuts.hover_wheel_volume.setChecked(True)
+            wheel_over(first.video)
+            assert first.volume == 42
+            window.settings.update(page.values())
+            window.settings.update(shortcuts.settings_values())
+            assert window.current_state()['settings']['hover_wheel_volume']
+            assert window.current_state()['settings']['audio_follows_room']
+            wheel_over(first.video)
+            assert first.volume == 45 and second.volume == 42
+            wheel_over(first.video, delta=-120)
+            assert first.volume == 42
+            empty_volume = empty.volume
+            wheel_over(empty.video)
+            assert empty.volume == empty_volume and first.volume == 42, 'empty tiles must ignore the wheel'
+            wheel_over(window.sidebar)
+            assert first.volume == 42 and second.volume == 42, 'the sidebar must not adjust playback volume'
+            page.reset()
+            assert not page.values()['audio_follows_room']
             player = Mock()
             window.players[second] = player
             first.pause_button.setFocus()
@@ -39,6 +70,9 @@ def main():
             assert second.volume == first.volume == 42, 'windowed arrows must not adjust volume'
             window._on_fullscreen(second)
             app.processEvents()
+            wheel_over(second.video)
+            assert second.volume == 45 and first.volume == 42
+            wheel_over(second.video, delta=-120)
             second.set_muted(True)
             second.pause_button.setFocus()
             with patch.object(window, '_tile_under_cursor', return_value=first):
@@ -62,11 +96,23 @@ def main():
                 assert second.volume == 0
                 second.set_volume(42)
                 with patch.object(window, '_tile_under_cursor', return_value=second):
-                    wheel = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, 120),
-                                        Qt.NoButton, Qt.ShiftModifier, Qt.NoScrollPhase, False)
-                    QApplication.sendEvent(second.pause_button, wheel)
+                    wheel_over(second.video, modifiers=Qt.ShiftModifier)
                     assert second.volume == 52, 'Shift+滚轮每次应调整 10 音量'
+                    wheel_over(second.video, modifiers=Qt.ShiftModifier, delta=-120)
+                    assert second.volume == 42
                     second.set_volume(42)
+                    window.settings['wheel_volume_step'] = 7
+                    window.settings['hover_wheel_volume_step'] = 4
+                    window.shortcuts['volume_up'] = 'Alt+WheelUp'
+                    wheel_over(second.video, modifiers=Qt.AltModifier)
+                    assert second.volume == 49
+                    wheel_over(second.video, modifiers=Qt.ShiftModifier, delta=-120)
+                    assert second.volume == 42
+                    wheel_over(second.video, delta=240)
+                    assert second.volume == 50
+                    wheel_over(second.video, delta=-120)
+                    wheel_over(second.video, delta=-120)
+                    assert second.volume == 42
                 for modifiers in (Qt.ControlModifier, Qt.ShiftModifier, Qt.AltModifier):
                     QTest.keyClick(second.pause_button, Qt.Key_Up, modifiers)
                     assert second.volume == 42
@@ -94,11 +140,18 @@ def main():
                 window._refresh_shortcuts()
                 QTest.keyClick(second.pause_button, Qt.Key_Up)
                 assert second.volume == 52, 'refresh must not duplicate or lose fixed shortcuts'
+                window.shortcuts.update(fullscreen_volume_up='Ctrl+U', pip_volume_up='Ctrl+P')
+                window._refresh_shortcuts()
+                QTest.keyClick(second.pause_button, Qt.Key_Up)
+                QTest.keyClick(second.pause_button, Qt.Key_P, Qt.ControlModifier)
+                assert second.volume == 52
+                QTest.keyClick(second.pause_button, Qt.Key_U, Qt.ControlModifier)
+                assert second.volume == 62
                 window._exit_fullscreen()
                 app.processEvents()
                 second.pause_button.setFocus()
                 QTest.keyClick(second.pause_button, Qt.Key_Up)
-                assert second.volume == 52
+                assert second.volume == 62
                 assert not window._handle_shortcut('Down')
             player.release.assert_not_called()
         finally:

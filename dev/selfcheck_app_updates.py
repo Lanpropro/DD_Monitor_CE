@@ -60,8 +60,11 @@ class Notice(QObject):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title, self.show_offer, self.track_history = Mock(), Mock(), Mock()
-        self.set_updates = Mock()
+        self.show_offer, self.track_history = Mock(), Mock()
+        self._update_rows = {}
+
+    def set_updates(self, entries):
+        self._update_rows = {entry['key']: entry for entry in entries}
 
 
 class AppUpdatesTests(unittest.TestCase):
@@ -212,16 +215,34 @@ class AppUpdatesTests(unittest.TestCase):
         self.assertIs(host._update_notice, notice)
         self.assertIs(notice.parent(), host)
         self.assertEqual(notice.show_offer.call_count, 2)
-        self.assertIn('1 个插件可更新', notice.title.setText.call_args.args[0])
+        self.assertEqual([entry['title'] for entry in notice._update_rows.values()],
+                         ['软件 v9.0 热修复', 'Fixture v2'])
         center = host.sidebar.notification_button.center
+        self.assertIn('1 个插件可更新', center.add.call_args.args[0])
         key = center.add.call_args.kwargs['key']
         self.assertEqual(key, ('update', update_identity(host._available_update), (('fixture', '2'),)))
         notice.activated.emit()
         host.open_settings.assert_called_with('updates')
         host.settings['seen_update_versions'] = {'app': update_identity(host._available_update)}
-        center.add.call_args.kwargs['callback']()
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+        self.assertIs(host._update_notice, notice)
+        self.assertEqual(list(notice._update_rows), ['fixture'])
+        center.add.call_args.kwargs['secondary_callback']()
         host.open_settings.assert_called_with('plugins')
         notice.track_history.assert_called_with((center, center.add.return_value))
+
+    def test_update_notice_is_persistent_by_default_and_can_be_timed(self):
+        from ddm.config import DEFAULT_SETTINGS
+        self.assertTrue(DEFAULT_SETTINGS['notice_persist_updates'])
+        host = self.host
+        host._available_update = {'version': '9.0'}
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=True)
+            host.settings['notice_persist_updates'] = False
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=False)
 
     def test_failure_is_silent_during_close(self):
         output = io.StringIO()

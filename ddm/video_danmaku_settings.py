@@ -5,7 +5,7 @@ from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QLabel, QMenu, QSc
 
 from . import theme
 from .config import DEFAULT_SETTINGS
-from .ui import SettingsSlider, SettingsValueLabel, ActionButton, ColorDialog, ScaleCurveControl
+from .ui import SettingsSlider, SettingsValueLabel, ActionButton, ColorDialog
 
 
 class VideoDanmakuSettings(QMenu):
@@ -18,7 +18,7 @@ class VideoDanmakuSettings(QMenu):
         self.setObjectName("VideoDanmakuSettings")
         self.setStyleSheet(f"""
             QSlider::sub-page:horizontal {{ background: {theme.PINK}; }}
-            QSlider::handle:horizontal {{ background: {theme.TEXT1}; }}
+            QSlider::handle:horizontal {{ background: palette(window-text); }}
         """)
         holder = QWidget(self)
         grid = QGridLayout(holder)
@@ -59,13 +59,7 @@ class VideoDanmakuSettings(QMenu):
         self._color = QColor('#ffffff')
         grid.addWidget(self.color_button, 5, 1, 1, 2)
         grid.addWidget(self.scale, 6, 0, 1, 3)
-        self.scale_curve = ScaleCurveControl()
-        self.scale_curve.curveChanged.connect(
-            lambda points: self.settingsChanged.emit({'video_danmaku_scale_curve': points}))
-        self.scale.toggled.connect(self.scale_curve.setEnabled)
-        grid.addWidget(QLabel('缩放曲线'), 7, 0)
-        grid.addWidget(self.scale_curve, 7, 1, 1, 2)
-        grid.addWidget(self.independent, 8, 0, 1, 3)
+        grid.addWidget(self.independent, 7, 0, 1, 3)
         self._holder = holder
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
@@ -116,9 +110,6 @@ class VideoDanmakuSettings(QMenu):
         self.scale.blockSignals(True)
         self.scale.setChecked(bool(settings.get("video_danmaku_scale", True)))
         self.scale.blockSignals(False)
-        self.scale_curve.set_curve(settings.get('video_danmaku_scale_curve'),
-                                   int(settings.get('video_danmaku_scale_strength', 35)))
-        self.scale_curve.setEnabled(self.scale.isChecked())
 
     def open_at(self, button, settings: dict) -> None:
         self.apply_settings(settings)

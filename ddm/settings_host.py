@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QLayout
 from .dialogs import SettingsDialog
 from .config import DEFAULT_SETTINGS
 from .settings_process import _save_trace
+from .settings_pages import PAGE_INDEX
 
 
 class SettingsHost(QObject):
@@ -18,7 +19,7 @@ class SettingsHost(QObject):
                        dict(window.plugins._platform_owner), set(window.plugins._removed))
         self.dialog = window._create_settings_dialog(
             {**window.settings, **{key: value for key, value in message['settings'].items()
-                                   if key in DEFAULT_SETTINGS}}, message['shortcuts'])
+                                   if key in DEFAULT_SETTINGS}}, message['shortcuts'], hosted=True)
         self.stack = self.dialog.stack
         from .settings_focus import SettingsInputFocus
         self.stack_input_focus = SettingsInputFocus(self.stack)
@@ -55,7 +56,7 @@ class SettingsHost(QObject):
     def _page_created(self, index, page):
         if index == 1:
             page.materialChanged.connect(self._material_changed)
-        if index == 8:
+        if index == PAGE_INDEX['updates']:
             page.saveRequested.disconnect(self.dialog._save)
             page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
 
@@ -84,11 +85,18 @@ class SettingsHost(QObject):
                 # layered repaints use child coordinates from the first frame.
                 self.embedded_parent = QWindow.fromWinId(message['parent_hwnd'])
                 self.stack.windowHandle().setParent(self.embedded_parent)
+                from .settings_wheel import EmbeddedSettingsWheel, deliver
+                self.wheel_bridge = EmbeddedSettingsWheel(
+                    self.stack, lambda values: deliver(self.stack, values))
                 self.embedded = True
             self.dialog.nav.setCurrentRow(message['index'])
             self.stack.finish_transition()
             self.client._send({'kind': 'host-ready', 'hwnd': int(self.stack.winId())})
             self.sync()
+        elif kind == 'host-wheel':
+            if self.embedded:
+                from .settings_wheel import deliver
+                deliver(self.stack, message['wheel'])
         elif kind == 'host-reset':
             self.dialog._reset_current()
             self.sync()
@@ -117,14 +125,16 @@ class SettingsHost(QObject):
 
     def values(self):
         values = {'seen_update_versions': dict(self.dialog.seen_versions)}
-        for index in (1, 8):
-            page = self.dialog._loaded_pages.get(index)
+        for key in ('appearance', 'recording', 'updates'):
+            page = self.dialog._loaded_pages.get(PAGE_INDEX[key])
             if page is not None:
                 values.update(page.values())
         return values
 
     def sync(self):
-        state = {'kind': 'host-state', 'values': self.values(),
+        portrait = getattr(self.window, 'orientation', '') == 'portrait'
+        self.stack.setProperty('settings_portrait', portrait)
+        state = {'kind': 'host-state', 'values': self.values(), 'portrait': portrait,
                  'material_background': self.stack.property('settings_backdrop_path') or '',
                  'save_enabled': self.dialog.confirm_button.isEnabled(),
                  'action_visible': not self.dialog.confirm_button.isHidden(),
@@ -156,14 +166,14 @@ class SettingsHost(QObject):
         values = {**changes.get('settings', {}), **self.values()}
         shortcuts = {**self.window.shortcuts, **changes.get('shortcuts', {})}
         enabled = self.dialog.enabled_plugins()
-        update = self.dialog._loaded_pages.get(8)
+        update = self.dialog._loaded_pages.get(PAGE_INDEX['updates'])
         update = SimpleNamespace(install_requested=bool(getattr(update, 'install_requested', False)),
                                  plan_path=getattr(update, 'plan_path', ''))
         self.pending_apply = SimpleNamespace(
             settings=lambda: values,
             shortcuts=lambda: shortcuts,
             enabled_plugins=lambda: enabled,
-            _loaded_pages={8: update},
+            _loaded_pages={PAGE_INDEX['updates']: update},
             update_page=update,
             restart_requested=self.dialog.restart_requested)
         _save_trace('host.collection.finished', collected)

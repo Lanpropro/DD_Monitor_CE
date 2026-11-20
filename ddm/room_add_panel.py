@@ -1,10 +1,13 @@
 """In-window room entry anchored to the sidebar; never replaces search or follow content."""
-from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu,
     QPlainTextEdit, QVBoxLayout, QWidget)
+from shiboken6 import isValid
 from . import theme
-from .continuous_corners import stylesheet
+from .corner_geometry import continuous_path
 from .follow_folders import default_folder
+from .room_add_followed import FollowedRoomPicker
 from .room_folder_controls import _add_folder_option, _create_folder_for_dialog
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
@@ -14,19 +17,25 @@ from .ui.labels import ElidedLabel
 class RoomAddPanel(QFrame):
     submitted = Signal(str, str)
     dismissed = Signal()
+    followed_requested = Signal()
+    followed_selected = Signal(str)
 
     def __init__(self, sidebar):
-        super().__init__(sidebar.window())
+        windows = QApplication.platformName() == 'windows'
+        flags = Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint if windows else Qt.Widget
+        super().__init__(sidebar.window(), flags)
         self.sidebar = sidebar
         sidebar.room_add_panel = self
         self.busy = False
+        self._focus_on_close = None
         self.folder_id = ''
         self.folder_names = set()
         self.folder_creator = sidebar.create_folder
         self.setObjectName('InlineRoomAdd')
-        if QApplication.platformName() == 'windows':
-            self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
-            self.setAttribute(Qt.WA_NativeWindow)
+        self.setProperty('customControlSurface', True)
+        if windows:
+            # A child HWND shares the owner's backing store and can expose overlapping video first.
+            self.setAttribute(Qt.WA_TranslucentBackground)
         box = QVBoxLayout(self)
         box.setContentsMargins(10, 8, 10, 10)
         box.setSpacing(6)
@@ -59,12 +68,25 @@ class RoomAddPanel(QFrame):
         self.import_button.setFixedSize(24, 24)
         self.import_button.clicked.connect(self._import)
         footer.addWidget(self.import_button)
+        self.followed_toggle = NavigationButton('从关注列表选择', 'follow')
+        self.followed_toggle.setFixedSize(24, 24)
+        self.followed_toggle.setCheckable(True)
+        self.followed_toggle.hide()
+        footer.addWidget(self.followed_toggle)
         footer.addStretch(1)
         self.submit_button = ActionButton('添加')
         self.submit_button.setObjectName('PrimaryButton')
         self.submit_button.clicked.connect(lambda: self.submitted.emit(self.entry.toPlainText(), self.folder_id))
         footer.addWidget(self.submit_button)
         box.addLayout(footer)
+        self.followed = FollowedRoomPicker(sidebar, self)
+        self.followed.selected.connect(self.followed_selected.emit)
+        self.followed.hide()
+        box.addWidget(self.followed)
+        self.followed_toggle.toggled.connect(self._toggle_followed)
+        escape = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        escape.setContext(Qt.WidgetWithChildrenShortcut)
+        escape.activated.connect(self.close_editor)
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(self.fit_to_search)
@@ -75,14 +97,27 @@ class RoomAddPanel(QFrame):
         self._update_count()
 
     def _theme(self):
-        self.setStyleSheet(stylesheet(f'''
-            #InlineRoomAdd {{background:{theme.CONTENT}; border:1px solid {theme.ACCENT}; border-radius:12px;}}
-            #InlineRoomInput {{background:transparent; border:none; padding:0; color:{theme.TEXT1};}}
-        '''))
+        self.entry.setStyleSheet(f'background:transparent; border:none; padding:0; color:{theme.TEXT1};')
         self.error.setStyleSheet(f'color:{theme.ERROR};')
+        self.update()
 
-    def open(self):
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(theme.qcolor(theme.CONTENT))
+        painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 11.5))
+
+    def _sidebar_add_button(self):
+        navigation = self.sidebar.navigation
+        return navigation.collapsed_add_button if self.sidebar.collapsed else navigation.add_button
+
+    def open(self, *, can_choose_followed=False, focus_on_close=None):
+        self._focus_on_close = self._sidebar_add_button() if focus_on_close is None else focus_on_close
         if not self.busy:
+            self.followed_toggle.setChecked(False)
+            self.followed_toggle.setVisible(can_choose_followed)
+            self.followed.search.clear()
             folders = self.sidebar.folder_state()
             selected = self.folder_id
             self.folder_names = {folder['name'] for folder in folders}
@@ -100,9 +135,24 @@ class RoomAddPanel(QFrame):
             menu.addSeparator()
             menu.addAction('新建文件夹…').triggered.connect(lambda: _create_folder_for_dialog(self, self.folder_creator))
         self.fit_to_search()
+        self.ensurePolished()
+        self.layout().activate()
         self.show()
         self.raise_()
+        if self.isWindow():
+            self.activateWindow()
         self.entry.setFocus(Qt.OtherFocusReason)
+
+    def _toggle_followed(self, expanded):
+        if expanded:
+            self.followed_requested.emit()
+        self.followed.setVisible(expanded)
+        if self.isVisible():
+            self.fit_to_search()
+        if expanded:
+            self.followed.search.setFocus(Qt.OtherFocusReason)
+        elif self.isVisible():
+            self.followed_toggle.setFocus(Qt.OtherFocusReason)
 
     def _select_folder(self, action):
         self.folder_id = action.data()
@@ -127,6 +177,8 @@ class RoomAddPanel(QFrame):
         self.entry.setReadOnly(busy)
         self.folder_button.setEnabled(not busy)
         self.import_button.setEnabled(not busy)
+        self.followed_toggle.setEnabled(not busy)
+        self.followed.setEnabled(not busy)
         self._update_count()
 
     def show_error(self, message):
@@ -135,12 +187,26 @@ class RoomAddPanel(QFrame):
         self.error.show()
         self.fit_to_search()
 
-    def close_editor(self):
+    def close_editor(self, *, click_target=None):
+        if self.isHidden():
+            return
+        owner = self.parentWidget()
+        restore_owner = self.isWindow() and (self.isActiveWindow() or click_target is not None)
+        focus_target, self._focus_on_close = self._focus_on_close, None
+        focused = QApplication.focusWidget()
+        if (restore_owner and click_target is not None and click_target.isEnabled()
+                and click_target.focusPolicy() & Qt.ClickFocus):
+            click_target.setFocus(Qt.MouseFocusReason)
+        elif focus_target is not None and focused is not None and self.isAncestorOf(focused):
+            if not isValid(focus_target) or not focus_target.isVisible() or not focus_target.isEnabled():
+                focus_target = owner
+            focus_target.setFocus(Qt.OtherFocusReason)
         self._fit_timer.stop()
         self.hide()
+        if restore_owner and owner.isVisible():
+            owner.activateWindow()
+        self.followed_toggle.setChecked(False)
         self.dismissed.emit()
-        if self.sidebar.search.isVisible():
-            self.sidebar.search.setFocus(Qt.OtherFocusReason)
 
     def _import(self):
         self.close_editor()
@@ -151,38 +217,47 @@ class RoomAddPanel(QFrame):
         parent = self.parentWidget()
         width = max(160, min(400, parent.width() - 16))
         height = 132 if self.error.isHidden() else 156
+        if not self.followed.isHidden():
+            expanded_height = max(0, min(280, parent.height() - height - 6))
+            self.followed.setFixedHeight(expanded_height)
+            height += expanded_height + 6
         if sidebar.side == 'left':
             point = sidebar.mapTo(parent, QPoint(sidebar.width() + 4, 12))
         else:
-            button = (sidebar.navigation.collapsed_add_button if sidebar.collapsed
-                      else sidebar.navigation.add_button)
+            button = self._sidebar_add_button()
             point = button.mapTo(parent, QPoint(button.width() - width, button.height() + 6))
-        folder_width = max(52, min(120, width - 20 - 24 - self.submit_button.sizeHint().width() - 18))
+        icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
+                                                 if not self.followed_toggle.isHidden() else 0)
+        folder_width = max(52, min(120, width - 20 - icon_space - self.submit_button.sizeHint().width() - 18))
         self.folder_button.setMaximumWidth(folder_width)
         if hasattr(self, '_folder_name'):
             self.folder_button.setText(self.folder_button.fontMetrics().elidedText(
                 self._folder_name, Qt.ElideRight, max(20, folder_width - 30)))
         point.setX(max(8, min(point.x(), parent.width() - width - 8)))
         point.setY(max(0, min(point.y(), parent.height() - height)))
+        if self.isWindow():
+            point = parent.mapToGlobal(point)
         self.setGeometry(QRect(point, QSize(width, height)))
-        if self.isVisible():
+        if self.isVisible() and not self.isWindow():
             self.raise_()
 
     def eventFilter(self, watched, event):
         if watched is self.entry and event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Escape:
-                self.close_editor()
-                return True
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.modifiers() & Qt.ControlModifier:
                 if self.submit_button.isEnabled():
                     self.submit_button.click()
                 return True
         if self.isVisible():
-            if watched in (self.sidebar, self.sidebar.search, self.sidebar.scroll, self.parentWidget()) and event.type() in (
+            owner = self.parentWidget()
+            if watched is owner and event.type() == QEvent.Hide:
+                self.close_editor()
+            elif watched is owner and event.type() in (QEvent.Resize, QEvent.Move) and self.isWindow():
+                self.fit_to_search()
+            elif watched in (self.sidebar, self.sidebar.search, self.sidebar.scroll, owner) and event.type() in (
                     QEvent.Resize, QEvent.Move, QEvent.LayoutRequest, QEvent.Show):
                 self._fit_timer.start(0)
             elif (event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget)
-                  and watched.window() is self.parentWidget() and watched is not self
+                  and watched.window() is owner and watched is not self
                   and not self.isAncestorOf(watched)):
-                self.close_editor()
+                self.close_editor(click_target=watched)
         return super().eventFilter(watched, event)

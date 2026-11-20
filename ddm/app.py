@@ -43,7 +43,7 @@ from .bili import (
 )
 from .dialogs import SettingsDialog
 from .settings_general import CodecSettingsDialog
-from .shortcut_actions import SHORTCUT_ACTIONS
+from .shortcut_actions import DEFAULT_SHORTCUTS, configured_shortcuts
 from .images import (AvatarLoader, CachedAvatarLoader, CachedCoverLoader,
                      load_cached_avatar)
 from .player import TilePlayer
@@ -57,6 +57,7 @@ from .room_preset_control import RoomPresetController
 from .app_updates import AppUpdates
 from .settings_control import SettingsControl
 from .window_layout import WindowLayout
+from .window_dpi import DpiEventBatch
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
@@ -82,10 +83,10 @@ RESIZE_SETTLE_MS = 150
 from .fullscreen_presentation import FullscreenPresentation
 from .app_accounts import AppAccounts
 from .app_shortcuts import AppShortcuts
+from .tile_controls import WallControlHover
 from .fullscreen_control import FullscreenControl
 from .app_notices import AppNotices
 
-DEFAULT_SHORTCUTS = {key: default for key, _label, default in SHORTCUT_ACTIONS}
 
 
 def setup_file_log() -> str:
@@ -113,6 +114,9 @@ class MainWindow(QMainWindow):
     @qt_lifecycle.construction
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "", state: dict | None = None):
+        if sys.platform == "win32" and QApplication.platformName() == "windows":
+            # Native video/overlays must not promote ordinary sibling controls.
+            QApplication.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings, True)
         super().__init__()
         self.notice_control = AppNotices(self)
         self.fullscreen_control = FullscreenControl(self)
@@ -135,6 +139,7 @@ class MainWindow(QMainWindow):
         self.app_updates = AppUpdates(self)
         self.settings_control = SettingsControl(self)
         self.window_layout = WindowLayout(self)
+        self.dpi_control = DpiEventBatch(self)
         self.stream_playback = StreamPlayback(self)
         self.codec_control = CodecControl(self)
         self.room_status = RoomStatus(self)
@@ -268,11 +273,12 @@ class MainWindow(QMainWindow):
         # 没显式指定布局（正式启动就是这样）时，先按配置里存的那套摆；
         # 新配置也就是第一次启动，用 FIRST_LAYOUT（1 主画面 + 5 小环绕）。
         self.wall = WallGrid(
-            wall_rooms if wall_rooms is not None else [],
+            [self.room_placement.prepare_wall_entry(room) for room in (wall_rooms or ())],
             layout_id if layout_id and layout_id != "auto"
             else self._saved_layout("landscape"), prepare_room=self._prepare_room,
             corner_ratios=ui.get("corner_ratios"), layout_ratios=ui.get("layout_ratios"),
             pane_layouts=ui.get("pane_layouts"))
+        self._wall_control_hover = WallControlHover(self.wall)
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
         self._content = QWidget()
@@ -283,7 +289,10 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self.empty_hint, 1)
         from .picture_in_picture import PictureInPicture
         self.picture_in_picture = PictureInPicture(self)
-        self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage)
+        self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage_from_sidebar)
+        from .wall_quick_settings import WallQuickSettings
+        self.wall_quick_settings = WallQuickSettings(self)
+        self.sidebar.wallSettingsRequested.connect(self.wall_quick_settings.open)
         from .wall_removal import WallRemoval
         self.wall_removal = WallRemoval(self)
 
@@ -327,6 +336,7 @@ class MainWindow(QMainWindow):
         self.wall.paneApplyRequested.connect(self._apply_pane_menu)
         self.wall.danmakuPanelCreated.connect(self._connect_danmaku_panel)
         self.wall.paneConfigurationChanged.connect(self._pane_configuration_changed)
+        self.wall.floatingDanmakuChanged.connect(self.sync_danmaku)
         for panel in self.wall.pane_danmaku.all_panels():
             self._connect_danmaku_panel(panel)
         # 悬停预览：鼠标在关注列表的直播上停 2 秒弹个小画面
@@ -339,6 +349,9 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(700)
         self._save_timer.timeout.connect(lambda: config_module.save(self.current_state()))
+        layout_picker = self.sidebar.presentation_control.layout_picker
+        layout_picker.restore_size(self.state.get("ui", {}).get("layout_picker_size"))
+        layout_picker.sizeChanged.connect(self._save_timer.start)
         self.sidebar.workspace_controls.pinsChanged.connect(self._save_timer.start)
         self.sidebar.navigation.orderChanged.connect(self._save_timer.start)
         self.wall.cornerRatiosChanged.connect(self._save_timer.start)
@@ -520,9 +533,10 @@ class MainWindow(QMainWindow):
             (self.state.get('ui') or {}).get('workspace_pins'))
         self.sidebar.watch_history = WatchHistory(self.state.get("watch_history"))
         geometry = self.state.get("geometry")
+        self._geometry_restored = False
         if geometry:
             try:
-                self.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii")))
+                self._geometry_restored = self.restoreGeometry(QByteArray.fromBase64(geometry.encode("ascii")))
             except Exception:  # noqa: BLE001
                 pass
         if (self.state.get("ui") or {}).get("sidebar_collapsed"):
@@ -532,8 +546,7 @@ class MainWindow(QMainWindow):
         self.sidebar.set_sort_mode(str(self.state.get("sort") or "custom"), notify=False)
         self.sidebar.apply_pins(self.state.get("pinned") or [])
         self.sidebar.set_folders(self.state.get("follow_folders") or [])
-        self.shortcuts = dict(DEFAULT_SHORTCUTS)
-        self.shortcuts.update((self.state.get("ui") or {}).get("shortcuts") or {})
+        self.shortcuts = configured_shortcuts((self.state.get("ui") or {}).get("shortcuts") or {})
         # 旧版画面弹幕的默认键为 D，随本次默认键调整到 B；其他自定义键保留。
         if (not (self.state.get("ui") or {}).get("danmaku_shortcut_default_b")
                 and self.shortcuts.get("video_danmaku") == "D"):
@@ -604,6 +617,14 @@ class MainWindow(QMainWindow):
                 self._begin_interactive_resize()
             elif msg.message == 0x0232:  # WM_EXITSIZEMOVE
                 self._finish_interactive_resize()
+            elif msg.message == 0x02e0:  # WM_DPICHANGED precedes Qt child resizing
+                if (self._interactive_resize and hasattr(self, "wall") and not self._closing
+                        and not self._startup_layout_pending and self._fullscreen_tile is None):
+                    # Cross-screen DPI changes can resize children before WM_SIZE.
+                    # Reuse the existing coalesced layout/overlay path until release.
+                    self.wall.set_interactive_resize(True)
+                    self._resize_dirty = True
+                    self.dpi_control.begin()
             elif msg.message == 0x0005:  # WM_SIZE: maximize/restore may cross orientation
                 previous = self._native_size_state
                 self._native_size_state = int(msg.wParam)
@@ -657,8 +678,7 @@ class MainWindow(QMainWindow):
         super().paintEvent(event)
 
     def show_initial_maximized(self) -> None:
-        # Windows can expose a maximized HWND before Qt receives its final
-        # resize event. Size the hidden tree first, including the native caption.
+        # Compatibility entry: saved normal/maximized state now takes priority.
         return self.window_layout.show_initial_maximized()
 
     def refresh_theme(self) -> None:
@@ -699,8 +719,9 @@ class MainWindow(QMainWindow):
     def _get_update_page(self, settings):
         return self.settings_control.get_update_page(settings)
 
-    def _create_settings_dialog(self, settings=None, shortcuts=None):
-        return self.settings_control.create_settings_dialog(settings, shortcuts, dialog_class=SettingsDialog)
+    def _create_settings_dialog(self, settings=None, shortcuts=None, *, hosted=False):
+        return self.settings_control.create_settings_dialog(
+            settings, shortcuts, dialog_class=SettingsDialog, hosted=hosted)
 
     def open_settings(self, page: str = "general") -> bool:
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
@@ -756,6 +777,8 @@ class MainWindow(QMainWindow):
                 for tile in self.wall.tiles if not tile.property('pictureInPictureTemporary')
             ],
             "ui": {
+                "layout_picker_size": self.sidebar.presentation_control.layout_picker.size_state(),
+                "room_add_followed_live_only": self.room_placement.catalog.followed_live_only,
                 "picture_in_picture": self.picture_in_picture.state(),
                 "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,
@@ -801,14 +824,16 @@ class MainWindow(QMainWindow):
             dialog.close()
         if self._fullscreen_tile is not None:
             self._exit_fullscreen()
+        self.wall.pane_danmaku.return_all_floating()
         self._fullscreen_cursor.stop()
-        self.hide()
-        hide_ms = (time.perf_counter() - t0) * 1000
-        # 迟到的取流回调不得访问正在释放的播放器。
+        # 先关闭独立设置界面；迟到回调不得访问正在释放的播放器。
         self._closing = True
-        self._tray.shutdown()
+        self.dpi_control.cancel()
         if getattr(self, "_settings_process", None) is not None:
             self._settings_process.stop()
+        self.hide()
+        hide_ms = (time.perf_counter() - t0) * 1000
+        self._tray.shutdown()
         if getattr(self, '_app_update_page', None) is not None:
             self._app_update_page.stop()
         if getattr(self, '_plugin_downloads', None) is not None:
@@ -973,8 +998,9 @@ class MainWindow(QMainWindow):
         """有主次布局时：主画面自动用原画，其余用 720P。"""
         return self.stream_playback.apply_quality_policy(restart=restart)
 
-    def start_tile(self, tile, *, stream_quality: int | None = None) -> None:
-        return self.stream_playback.start_tile(tile, stream_quality=stream_quality, resolver_type=StreamResolver)
+    def start_tile(self, tile, *, stream_quality: int | None = None, wall_quality=None) -> None:
+        return self.stream_playback.start_tile(tile, stream_quality=stream_quality,
+            wall_quality=wall_quality, resolver_type=StreamResolver)
 
     def _on_resolver_finished(self, tile, resolver) -> None:
         return self.stream_playback.resolver_finished(tile, resolver)

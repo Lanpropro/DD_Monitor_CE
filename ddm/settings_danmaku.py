@@ -65,6 +65,38 @@ class DanmakuSettingsPage(QWidget):
         grid.addWidget(self.keep_stepper, 2, 1, Qt.AlignRight)
         grid.addWidget(_hint('字体共用于弹幕格和画面弹幕；这里的字号仅控制弹幕格，也可在弹幕格底部调整。超过保留上限后移除最早的内容。'), 3, 0, 1, 2)
         self.sections.add_section('font_filter', font)
+        floating = SettingsSection('弹幕浮窗')
+        self.float_cell_mode = SegmentedControl((('reserve', '保留收回按钮'), ('reuse', '用于直播画面')),
+            'reuse' if settings.get('danmaku_float_reuse_cell', False) else 'reserve')
+        label = QLabel('浮出后原格子')
+        self.float_cell_mode.setAccessibleName(label.text())
+        floating.grid.addWidget(label, 0, 0)
+        floating.grid.addWidget(self.float_cell_mode, 0, 1, Qt.AlignRight)
+        keep_label = QLabel('关闭后保留直播格')
+        self.float_keep_video_slots = ToggleSwitch()
+        self.float_keep_video_slots.setAccessibleName(keep_label.text())
+        self.float_keep_video_slots.setChecked(bool(settings.get('danmaku_float_keep_video_slots', False)))
+
+        def sync_float_close_option(mode):
+            keep_label.setEnabled(mode == 'reuse')
+            self.float_keep_video_slots.setEnabled(mode == 'reuse')
+
+        self.float_cell_mode.valueChanged.connect(sync_float_close_option)
+        sync_float_close_option(self.float_cell_mode.value())
+        floating.grid.addWidget(keep_label, 1, 0)
+        floating.grid.addWidget(self.float_keep_video_slots, 1, 1, Qt.AlignRight)
+        floating.grid.addWidget(_hint('开启后，关闭浮窗时空格也会保留为直播格。已有直播的格子始终保留。'), 2, 0, 1, 2)
+        self.sections.add_section('danmaku_float', floating)
+        drag = SettingsSection('画面拖入弹幕栏')
+        self.drag_unlinked = SegmentedControl((('source', '关联主播'), ('swap', '交换位置')),
+            'swap' if settings.get('danmaku_drag_unlinked_swap', False) else 'source')
+        self.drag_linked = SegmentedControl((('source', '更换主播'), ('swap', '交换位置')),
+            'swap' if settings.get('danmaku_drag_linked_swap', False) else 'source')
+        for row, (text, control) in enumerate((('未关联主播时', self.drag_unlinked),
+                                               ('已关联主播时', self.drag_linked))):
+            control.setAccessibleName(text)
+            drag.grid.addWidget(QLabel(text), row, 0)
+            drag.grid.addWidget(control, row, 1, Qt.AlignRight)
         blocking = SettingsSection('屏蔽管理')
         self.blocking_columns = SettingsColumns(respect_preference=False)
         word_panel, user_panel = QWidget(), QWidget()
@@ -85,8 +117,14 @@ class DanmakuSettingsPage(QWidget):
         user_layout.addWidget(QLabel('屏蔽用户'))
         from .settings_danmaku_blocking import BlockedUsersEditor
         self.blocked_users = BlockedUsersEditor(settings.get('danmaku_blocked_users'))
+        self.blocked_users.layout().removeWidget(self.blocked_users.details)
+        self.blocking_details_title = QLabel('屏蔽用户详情')
+        self.blocking_details_title.hide()
+        word_layout.insertWidget(word_layout.count() - 1, self.blocking_details_title)
+        word_layout.insertWidget(word_layout.count() - 1, self.blocked_users.details)
+        self.blocked_users.list.itemSelectionChanged.connect(self._refresh_blocking_layout)
         user_layout.addWidget(self.blocked_users)
-        user_layout.addWidget(_hint('按平台与用户 ID 屏蔽，在该平台所有房间生效；无 ID 的记录按昵称匹配，同名用户也会被屏蔽。移除后恢复接收。'))
+        user_layout.addWidget(_hint('屏蔽在该平台所有房间生效；弹幕未提供 ID 时按昵称匹配，同名用户也会被屏蔽。'))
         user_layout.addStretch(1)
         self.blocking_columns.add_section('words', word_panel)
         self.blocking_columns.add_section('users', user_panel)
@@ -154,7 +192,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_scale_with_video.setChecked(bool(settings.get('super_chat_scale_with_video', False)))
         row.addWidget(self.super_chat_scale_with_video)
         parameters.addLayout(row)
-        parameters.addWidget(_hint('以 720 px 高的画面为基准，卡片、文字与头像一起缩放；此项只影响画面布局。'))
+        parameters.addWidget(_hint('以 720 px 高的画面为基准缩放，正文保留可读字号。小格子先显示紧凑标题，点击后向下展开；内容超出格子时在卡片内滚动。'))
         self.super_chat_scale_curve = ScaleCurveControl(settings.get('super_chat_scale_curve'),
                                                        strength=int(settings.get('super_chat_scale_strength', 35)))
         self.super_chat_scale_curve.setEnabled(self.super_chat_scale_with_video.isChecked())
@@ -217,9 +255,16 @@ class DanmakuSettingsPage(QWidget):
         self.video_columns.add_section('curve', self.video_preview)
         video.grid.addWidget(self.video_columns, 0, 0, 1, 2)
         self.sections.add_section('danmaku_curve', video)
+        self.sections.add_section('danmaku_drag', drag)
         self.sections.add_section('blocking', blocking, wide=True)
         self.sections.add_section('sc_placement', placement, wide=True)
         layout.addStretch(1)
+
+    def _refresh_blocking_layout(self):
+        self.blocking_details_title.setVisible(bool(self.blocked_users.list.selectedItems()))
+        self.blocking_columns.refresh_section('words')
+        self.blocking_columns.refresh_section('users')
+        self.sections.refresh_section('blocking')
 
     def sync_blocking(self, values):
         if 'danmaku_block_words' in values:
@@ -262,6 +307,10 @@ class DanmakuSettingsPage(QWidget):
 
         self.font_box.setCurrentFont(QFont(theme.danmaku_font_family()))
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
+        self.float_cell_mode.setValue('reserve')
+        self.float_keep_video_slots.setChecked(config_module.DEFAULT_SETTINGS['danmaku_float_keep_video_slots'])
+        self.drag_unlinked.setValue('source')
+        self.drag_linked.setValue('source')
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
         self.super_chat_enabled.setChecked(config_module.DEFAULT_SETTINGS['super_chat_enabled'])
         self.super_chat_opacity.setValue(config_module.DEFAULT_SETTINGS['super_chat_opacity'])
@@ -287,6 +336,10 @@ class DanmakuSettingsPage(QWidget):
         return {
             "danmaku_font": family,
             "danmaku_font_size": int(self.size_spin.value()),
+            "danmaku_float_reuse_cell": self.float_cell_mode.value() == 'reuse',
+            "danmaku_float_keep_video_slots": self.float_keep_video_slots.isChecked(),
+            "danmaku_drag_unlinked_swap": self.drag_unlinked.value() == 'swap',
+            "danmaku_drag_linked_swap": self.drag_linked.value() == 'swap',
             "danmaku_max_blocks": int(self.keep_spin.value()),
             "danmaku_block_words": [word for word in words if word],
             "danmaku_blocked_users": self.blocked_users.users(),

@@ -77,8 +77,8 @@ remote_name = f"DDMonitorCE-{VERSION_TAG}-exe.zip"
 assert metadata["version"] == VERSION and metadata["asset_name"] == remote_name
 assert metadata["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
 assert metadata["size"] == archive.stat().st_size
-assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEASE-{VERSION_TAG}.md").read_text(encoding="utf-8")
 tag = metadata.get('release_tag', VERSION_TAG)
+assert metadata["notes"].replace("\r\n", "\n") == (repo / f"docs/releases/RELEASE-{tag}.md").read_text(encoding="utf-8")
 base, tag_revision = app_tag(tag)
 number = revision(metadata.get('revision', 0))
 assert base == VERSION and (not tag_revision or tag_revision == number)

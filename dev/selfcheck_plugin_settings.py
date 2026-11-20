@@ -1,4 +1,4 @@
-"""设置里的插件卡片使用实际插件接口，启用选择只在保存时提交。"""
+"""设置里的插件卡片使用实际插件接口，启用选择自动保存。"""
 import os
 import sys
 import tempfile
@@ -48,16 +48,16 @@ def main():
         assert dialog.nav.item(SettingsDialog.PAGE_INDEX['plugins']).text() == "插件"
         for index in (6, 0, 6, 1, 2, 3, 4, 5):
             dialog.nav.setCurrentRow(index)
-            assert dialog.reset_button.isHidden() == (index == SettingsDialog.PAGE_INDEX["plugins"]), \
-                "插件页不应显示恢复默认，其他设置页应保留"
+            assert dialog.reset_button.isHidden(), "当前设置窗口默认隐藏恢复按钮"
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
         assert len(dialog.plugin_page.checks) == 3
         assert not hasattr(dialog.plugin_page, "restart_button")
-        assert dialog.confirm_button.text() == "保存"
+        assert dialog.confirm_button.isHidden()
         dialog.plugin_page.checks["disabled"].setChecked(True)
-        assert dialog.confirm_button.text() == "保存并重启"
+        assert dialog.confirm_button.text() == "重启以应用"
+        assert not dialog.confirm_button.isHidden()
         dialog.plugin_page.checks["disabled"].setChecked(False)
-        assert dialog.confirm_button.text() == "保存", "撤回启用修改应恢复普通保存"
+        assert dialog.confirm_button.isHidden(), "撤回启用修改应隐藏重启按钮"
         assert dialog.enabled_plugins() == ["active", "broken"]
         dialog.plugin_page.checks["disabled"].setChecked(True)
         assert dialog.enabled_plugins() is None
@@ -78,13 +78,14 @@ def main():
         dialog.show()
         app.processEvents()
         # Invoke directly so notification exceptions fail this check, not a Qt slot.
-        with patch("ddm.dialogs.QFileDialog.getOpenFileName", return_value=(archive, "")), \
+        with patch("ddm.settings_plugins.QFileDialog.getOpenFileName", return_value=(archive, "")), \
                 patch("ddm.dialogs.QMessageBox.information"):
             dialog.plugin_page._install()
         assert dialog._result_notice.isVisible(), "安装成功后应显示重启提示"
         dialog._result_notice.dismiss(animate=False)
         assert not os.path.exists(sentinel), "导入 ZIP 时不应执行插件代码"
-        assert dialog.confirm_button.text() == "保存并重启"
+        assert dialog.confirm_button.text() == "重启以应用"
+        assert not dialog.confirm_button.isHidden()
         assert dialog.plugin_page.checks["new_plugin"].isChecked()
         assert next(item for item in manager.catalog() if item["id"] == "new_plugin") == {
             "id": "new_plugin", "name": "新插件", "description": "来自清单",
@@ -135,7 +136,8 @@ def main():
         assert not os.path.exists(os.path.join(root, "new_plugin"))
         assert "new_plugin" not in manager.enabled
         assert "new_plugin" not in dialog.plugin_page.checks
-        assert dialog.confirm_button.text() == "保存并重启"
+        assert dialog.confirm_button.text() == "重启以应用"
+        assert not dialog.confirm_button.isHidden()
         assert os.path.exists(sentinel), "删除插件不能删除目录外的文件"
 
         manager.plugin_settings["active"] = {"token": "old"}

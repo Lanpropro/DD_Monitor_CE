@@ -28,6 +28,110 @@ def settle():
 
 
 class WorkspaceControlTests(unittest.TestCase):
+    def test_plugin_card_drag_shows_ghost_and_releases_owner_on_cancel(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QListView
+        source=QListView(self.host)
+        source.show()
+        mime=QMimeData()
+        mime.setData('application/x-test-card',b'fixture')
+        pixmap=QPixmap(100,60)
+        pixmap.fill(Qt.red)
+        done=Mock()
+        session=self.sidebar.drag_session
+        try:
+            self.assertTrue(self.context.start_sidebar_drag(source,mime,pixmap,QPoint(20,30),
+                source.mapToGlobal(QPoint(20,30)),on_finished=done))
+            self.assertTrue(session.ghost.isVisible())
+            self.assertIs(session.area,source)
+            self.assertEqual(session.plugin_owner,'workspace-test')
+            self.assertFalse(self.context.start_sidebar_drag(source,mime,pixmap,QPoint(),QPoint(),on_finished=Mock()))
+            self.context._clear_workspace_controls()
+            done.assert_called_once()
+            self.assertFalse(session.active)
+            self.assertIsNone(session.ghost)
+            self.assertIsNone(QWidget.mouseGrabber())
+            self.assertIsNone(QWidget.keyboardGrabber())
+        finally:
+            session.cancel()
+            source.deleteLater()
+
+    def test_plugin_card_drag_source_hide_cancels_once(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QPixmap
+        source=QWidget(self.host)
+        source.show()
+        done=Mock()
+        self.context.start_sidebar_drag(source,QMimeData(),QPixmap(20,20),QPoint(),QPoint(),on_finished=done)
+        source.hide()
+        self.context.cancel_sidebar_drag()
+        done.assert_called_once()
+        self.assertFalse(self.sidebar.drag_session.active)
+        source.deleteLater()
+
+    def test_sidebar_extension_search_keeps_follow_query_and_header(self):
+        from unittest.mock import Mock
+        self.sidebar.search.setText('示例主播1')
+        widget, query = QWidget(), Mock()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order',widget,title='观看顺序',icon=icon,on_filter=query)
+        pages = self.sidebar.plugin_pages
+        pages.select(('workspace-test','order'))
+        self.sidebar.search.setText('视频')
+        query.assert_called_with('视频')
+        self.assertEqual(self.sidebar.filter_text,'示例主播1')
+        self.assertFalse(self.sidebar.navigation.add_button.isHidden())
+        self.assertEqual(self.sidebar.navigation.title.text(),'关注')
+        pages.select()
+        self.assertEqual(self.sidebar.search.text(),'示例主播1')
+        self.context.unregister_sidebar_page('order')
+        widget.deleteLater()
+
+    def test_sidebar_extension_switches_follow_and_cleans_only_its_owner(self):
+        first, second = QWidget(), QWidget()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order', first, title='观看顺序', icon=icon)
+        pages = self.sidebar.plugin_pages
+        pages.add('other', 'other', second, '其他页面', icon)
+        pages.select(('workspace-test','order'))
+        settle()
+        self.assertTrue(first.isVisible())
+        self.assertTrue(self.sidebar.scroll.isHidden())
+        self.assertFalse(self.sidebar.search.isHidden())
+        self.assertEqual(self.sidebar.navigation.title.text(),'关注')
+        self.sidebar.navigation.all_button.click()
+        self.assertTrue(first.isHidden())
+        self.assertFalse(self.sidebar.scroll.isHidden())
+        self.context._clear_workspace_controls()
+        self.assertNotIn(('workspace-test','order'),pages.entries)
+        self.assertIn(('other','other'),pages.entries)
+        self.assertIsNone(first.parentWidget())
+        pages.remove_owner('other')
+        first.deleteLater()
+        second.deleteLater()
+
+    def test_sidebar_extension_collapsed_and_portrait_restore_follow(self):
+        widget = QWidget()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order',widget,title='观看顺序',icon=icon)
+        pages = self.sidebar.plugin_pages
+        pages.select(('workspace-test','order'))
+        self.sidebar.set_collapsed(True,animate=False)
+        self.assertIsNone(pages.current)
+        self.assertTrue(widget.isHidden())
+        self.sidebar.set_collapsed(False,animate=False)
+        pages.select(('workspace-test','order'))
+        self.sidebar.set_side('top')
+        settle()
+        self.assertIsNone(pages.current)
+        self.assertTrue(widget.isHidden())
+        self.sidebar.set_side('left')
+        self.context.unregister_sidebar_page('order')
+        widget.deleteLater()
+
     def setUp(self):
         self.host = QWidget()
         self.host.setAttribute(Qt.WA_DontShowOnScreen)
@@ -554,6 +658,28 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertFalse(panel.popup.isVisible())
         self.assertFalse(panel.launcher.isChecked())
 
+    def test_function_search_supports_pinyin_and_keeps_action_order(self):
+        first, first_action = self.add('subtitle', '字幕工具 42')
+        first.setToolTip('实时翻译 · 小明 Example')
+        self.add('recording', '录制助手')
+        panel = self.sidebar.workspace_controls
+        panel.launcher.click()
+        settle()
+        order = list(panel._rows)
+        cases = [('字幕', {'subtitle'}), ('zimu', {'subtitle'}), ('ZM', {'subtitle'}),
+                 ('ssfy', {'subtitle'}), ('XM', {'subtitle'}), ('EXAMPLE', {'subtitle'}),
+                 ('42', {'subtitle'}), ('zimu 42 example', {'subtitle'}), ('lz', {'recording'}),
+                 ('zm missing', set()), ('subtitle', set())]
+        for query, expected in cases:
+            panel.search.setText(query)
+            self.assertEqual({key[1] for key, (row, _launch, _pin) in panel._rows.items()
+                              if not row.isHidden()}, expected, query)
+            self.assertEqual(list(panel._rows), order)
+        panel.search.clear()
+        self.assertTrue(all(not row.isHidden() for row, _launch, _pin in panel._rows.values()))
+        self.assertFalse(first_action.isChecked(), 'Searching must not activate a function')
+        self.assertIs(panel.entries[('workspace-test', 'subtitle')][1], first)
+
     def test_popup_uses_original_click_and_action_state(self):
         panel = self.sidebar.workspace_controls
         first, action = self.add('first', '第一个', 0)
@@ -645,9 +771,14 @@ class WorkspaceControlTests(unittest.TestCase):
             settle()
             self.assertTrue(self.sidebar.navigation.rail.isHidden())
             self.assertIs(panel.launcher.parentWidget(), self.sidebar._bar_row)
-            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
+            for button in (self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
+                self.assertIs(button.parentWidget(), self.sidebar._bar_row)
+                self.assertTrue(button.isVisible())
+                self.assertEqual(button.size(), self.sidebar.settings_button.size())
+                self.assertTrue(self.sidebar.rect().contains(button.mapTo(
+                    self.sidebar, button.rect().bottomRight())))
             self.assertTrue(self.sidebar.clear_wall_button.isVisible())
-            self.assertEqual(self.sidebar.clear_wall_button.size().width(), 30)
+            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
             for collapsed in (True, False):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 settle()

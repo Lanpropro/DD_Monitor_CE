@@ -1,4 +1,4 @@
-"""插件页拖放、EXE 内嵌 ZIP 校验，以及保存后重启的生命周期。"""
+"""插件页拖放、EXE 内嵌 ZIP 校验，以及显式重启的生命周期。"""
 import argparse
 import io
 import json
@@ -51,7 +51,7 @@ def check_domestic_import(app, archive):
                 assert not self.plugin_page.checks
                 self.plugin_page._install_archive(archive)
                 assert self.plugin_page.checks["domestic_live"].isChecked()
-                assert self.confirm_button.text() == "保存并重启"
+                assert self.confirm_button.text() == "重启以应用"
                 self.confirm_button.click()
                 return self.result()
 
@@ -122,7 +122,7 @@ def main():
             self.general_page._checks["fullscreen_solo_audio"].setChecked(False)
             self.plugin_page._files_changed = True
             self.plugin_page.changed.emit()
-            assert self.confirm_button.text() == "保存并重启"
+            assert self.confirm_button.text() == "重启以应用"
             self.confirm_button.click()
             assert self.restart_requested
             return self.result()
@@ -180,7 +180,7 @@ def main():
     app.processEvents()
     if args.domestic_package:
         check_domestic_import(app, os.path.abspath(args.domestic_package))
-    print("PASS: drag packages, embedded ZIP EXE, reject ordinary EXE, save and restart commands")
+    print("PASS: drag packages, embedded ZIP EXE, reject ordinary EXE, explicit restart")
 
 
 if __name__ == "__main__":

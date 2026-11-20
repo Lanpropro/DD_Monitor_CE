@@ -12,9 +12,13 @@ def luminance(color):
 
 
 def main():
-    doc = (ROOT / "docs/appearance-design.md").read_text(encoding="utf-8")
+    current = (ROOT / "docs/features/appearance-design.md").read_text(encoding="utf-8")
+    assert "设置 → 外观" in current
+    assert "archive/appearance-implementation-202610.md" in current
+    assert "ddm/theme.py" in current and "ddm/folder_icons.py" in current
+    doc = (ROOT / "docs/archive/appearance-implementation-202610.md").read_text(encoding="utf-8")
     assert "深浅色模式已实装" in doc
-    assert "appearance-design.md" in (ROOT / "docs/customization-plan.md").read_text(encoding="utf-8")
+    assert "appearance-design.md" in (ROOT / "docs/features/customization-plan.md").read_text(encoding="utf-8")
     rows = re.findall(r"\| [^|]+ (\w+) \| (#[0-9A-F]{6}) \|", doc)
     colors = dict(rows)
     for text in ("TEXT1", "TEXT2", "TEXT3"):

@@ -4,6 +4,11 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from .playback_controls import VolumeButton
+from .shortcut_actions import (
+    DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
+    WHEEL_SHORTCUTS, wheel_volume_step
+)
+from .video_surface import VideoSurface
 
 
 class AppShortcuts(QObject):
@@ -25,9 +30,13 @@ class AppShortcuts(QObject):
             shortcut.setEnabled(False)
             shortcut.deleteLater()
         host._window_shortcuts = []
+        fullscreen_volume = (
+            {host.shortcuts.get(key, DEFAULT_SHORTCUTS[key]) for key in FULLSCREEN_VOLUME_SHORTCUTS}
+            if host._fullscreen_tile is not None else set()
+        )
         sequences = [value for key, value in host.shortcuts.items()
-                     if key not in ('volume_up', 'volume_down')]
-        sequences += ["Up", "Down"]
+                     if key not in WHEEL_SHORTCUTS + FULLSCREEN_VOLUME_SHORTCUTS and not key.startswith('pip_')]
+        sequences.extend(fullscreen_volume)
         if host.shortcuts.get("danmaku_input") == "Return":
             sequences.append("Enter")
         for sequence in dict.fromkeys(sequences):
@@ -37,6 +46,7 @@ class AppShortcuts(QObject):
             shortcut.setContext(Qt.WindowShortcut)
             shortcut.setAutoRepeat(False)
             shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
+            shortcut.setProperty('fullscreenVolume', sequence in fullscreen_volume)
             shortcut.setProperty("danmakuInput", sequence in (
                 host.shortcuts.get("danmaku_input"),
                 "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
@@ -51,39 +61,56 @@ class AppShortcuts(QObject):
         window = watched.window() if hasattr(watched, 'window') else None
         if window is not host and window is not host._fullscreen_tile:
             return False
-        if not event.modifiers() & Qt.ShiftModifier:
-            return False
-        delta = event.angleDelta().y() or event.pixelDelta().y()
+        angle = event.angleDelta().y()
+        delta = angle or event.pixelDelta().y()
         if not delta:
             return False
+        if event.modifiers() == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
+            if (not isinstance(watched, VideoSurface)
+                    or not watched.rect().contains(event.position().toPoint())
+                    or QApplication.activePopupWidget() is not None):
+                return False
+            tile = watched.parentWidget()
+            if not tile.room.get('room_id'):
+                return False
+            step = wheel_volume_step(host.settings.get('hover_wheel_volume_step'), DEFAULT_HOVER_WHEEL_VOLUME_STEP)
+        else:
+            if not self._matches_volume_wheel(event.modifiers(), delta):
+                return False
+            tile = host._tile_under_cursor()
+            if tile is None:
+                return False
+            step = wheel_volume_step(host.settings.get('wheel_volume_step'))
+        step *= max(1, abs(angle) // 120)
+        tile.set_volume(tile.volume + (step if delta > 0 else -step))
+        event.accept()
+        return True
+
+    def _matches_volume_wheel(self, pressed, delta):
+        if not pressed:
+            return False
         key = 'volume_up' if delta > 0 else 'volume_down'
-        shortcut = host.shortcuts.get(key, 'Shift+WheelUp' if delta > 0 else 'Shift+WheelDown')
+        shortcut = self.host.shortcuts.get(key, 'Shift+WheelUp' if delta > 0 else 'Shift+WheelDown')
         parts = [part for part in shortcut.split('+') if part]
         wheel = 'WheelUp' if delta > 0 else 'WheelDown'
         if not parts or parts[-1] != wheel:
             return False
         modifiers = Qt.NoModifier
+        keys = {'Shift': Qt.ShiftModifier, 'Ctrl': Qt.ControlModifier,
+                'Alt': Qt.AltModifier, 'Meta': Qt.MetaModifier}
         for part in parts[:-1]:
-            modifiers |= {'Shift': Qt.ShiftModifier, 'Ctrl': Qt.ControlModifier,
-                          'Alt': Qt.AltModifier, 'Meta': Qt.MetaModifier}.get(part, Qt.NoModifier)
-        if event.modifiers() != modifiers:
-            return False
-        tile = host._tile_under_cursor()
-        if tile is None:
-            return False
-        tile.set_volume(tile.volume + (10 if delta > 0 else -10))
-        event.accept()
-        return True
+            if part not in keys:
+                return False
+            modifiers |= keys[part]
+        return pressed == modifiers
 
     def sync_input_shortcuts(self, *_args) -> None:
         host = self.host
         editing = isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
         for shortcut in host._window_shortcuts:
             sequence = shortcut.key().toString()
-            if sequence in ("Up", "Down"):
-                shortcut.setEnabled(not editing and (host._fullscreen_tile is not None
-                                    or sequence in host.shortcuts.values()))
-            elif shortcut.property("danmakuInput") or shortcut.property('folderToggle'):
+            if (sequence in ("Up", "Down") or shortcut.property("fullscreenVolume")
+                    or shortcut.property("danmakuInput") or shortcut.property('folderToggle')):
                 shortcut.setEnabled(not editing)
 
     def tile_under_cursor(self):
@@ -110,13 +137,12 @@ class AppShortcuts(QObject):
         if any(tile.plugin_interaction_active() for tile in host.wall.tiles if tile.isVisible()):
             return False
         shortcuts = host.shortcuts
-        volume_up = shortcuts.get('pip_volume_up', 'Up')
-        volume_down = shortcuts.get('pip_volume_down', 'Down')
+        volume_up, volume_down = (shortcuts.get(key, DEFAULT_SHORTCUTS[key]) for key in FULLSCREEN_VOLUME_SHORTCUTS)
         if pressed and pressed == shortcuts.get('toggle_folders'):
             if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
                 return False
             host.sidebar.toggle_all_folders()
-        elif pressed in (volume_up, volume_down) and host._fullscreen_tile is not None:
+        elif pressed and pressed in (volume_up, volume_down) and host._fullscreen_tile is not None:
             if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
                 return False
             tile = host._fullscreen_tile

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -13,7 +14,7 @@ from ddm.diagnostic_session import MODES, requested_mode
 
 
 def child(mode, directory):
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QEvent, Qt
     from PySide6.QtTest import QTest
     from ddm.diagnostic_session import install
     from ddm.online_ui import show_result
@@ -39,6 +40,20 @@ def child(mode, directory):
             show_result(window, 'PRIVATE_NOTICE_MUST_NOT_BE_CAPTURED', persistent=True, kind='live')
         elif mode == 'drag':
             assert capture.recorder.profile_first_drag
+        elif mode == 'tiles':
+            first, second = window.wall.visible_tiles()[:2]
+            trace = window._tile_trace
+            with patch('ddm.tile_diagnostics.QCursor') as cursor:
+                for tile in (first, second):
+                    cursor.pos.return_value = tile.mapToGlobal(tile.rect().center())
+                    trace.sample_pointer()
+                    tile.set_controls_visible(True)
+                    trace.sample_pointer()
+                    event = QEvent(QEvent.Leave)
+                    event.ignore()
+                    assert trace.eventFilter(tile, event) is False
+                    assert not event.isAccepted()
+                    tile.set_controls_visible(False)
         if mode == 'responsiveness':
             assert window._startup_scroll_capture.probe is capture.probe
         entries = window.sidebar._items + list(window.sidebar._folder_buttons.values())
@@ -75,6 +90,16 @@ def child(mode, directory):
         if mode == 'notices':
             records = [json.loads(line) for line in (Path(directory) / 'notice-close.jsonl').read_text().splitlines()]
             assert any(row['stage'] == 'manual-snapshot' for row in records)
+        if mode == 'tiles':
+            startup = [row for row in metadata if row['stage'] == 'tile-startup']
+            assert any(row['event'] == 'ready' and not row['visible'] for row in startup)
+            assert any(row['event'] == 'Paint' and row['tileGeometry'] for row in startup)
+            pointer = [row for row in metadata if row['stage'] == 'tile-pointer' and row['tile'] is not None]
+            assert len({row['tile'] for row in pointer}) == 2
+            assert any(row['controlsVisible'] for row in pointer)
+            events = [row for row in metadata if row['stage'] == 'tile-event']
+            assert {'Show', 'Hide', 'Leave'} <= {row['event'] for row in events}
+            assert ready['linked_sessions']['tiles'] == ready['run']
         print('capture mode passed:', mode)
     finally:
         capture.close()

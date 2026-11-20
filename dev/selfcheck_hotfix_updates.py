@@ -31,7 +31,7 @@ class HotfixTests(unittest.TestCase):
     def check(self, entry, current='0.7.1', number=0):
         with patch.object(online, 'latest_manifest', return_value=entry), \
                 patch.object(online, 'release_notes', return_value='Published notes'):
-            return online.app_release(None, current, number)
+            return online.app_release(Client([Response(payload={'assets': []})]), current, number)
 
     def test_revision_orders_within_version_and_normal_upgrade_wins(self):
         self.assertIsNotNone(self.check(manifest(1)))
@@ -69,10 +69,11 @@ class HotfixTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check(manifest(2, tag='v0.7.1-hotfix.1'))
         entry = manifest(1, tag='v0.7.1-hotfix.1')
+        client = Client([Response(payload={'assets': []})])
         with patch.object(online, 'latest_manifest', return_value=entry), \
                 patch.object(online, 'release_notes', return_value='Hotfix page') as notes:
-            self.assertEqual(online.app_release(None, '0.7.1')['notes'], 'Hotfix page')
-            notes.assert_called_once_with(None, '0.7.1', 'v0.7.1-hotfix.1')
+            self.assertEqual(online.app_release(client, '0.7.1')['notes'], 'Hotfix page')
+            notes.assert_called_once_with(client, '0.7.1', 'v0.7.1-hotfix.1')
 
     def test_api_fallback_recognizes_hotfix_tags_and_excludes_drafts(self):
         package = asset('DDMonitorCE-v0.7.1-exe.zip', repository=online.APP_REPOSITORY)

@@ -7,11 +7,19 @@ from . import bili
 from . import plugins as plugin_api
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .tile_widgets import Tile
+from .wall_quality import WallQualityRequest, allows_wall_quality
 
 
 class StreamPlayback:
     def __init__(self, host):
         self.host = host
+
+    @staticmethod
+    def _refreshing(tile, active):
+        tile.reload_button.set_refreshing(active)
+        tile.reload_button.setToolTip('正在重新获取直播地址和画质…' if active else '重新连接这一路')
+        tile.quality_button.setText('获取画质…' if active else tile._quality_text())
+        tile._layout_controls()
 
     def start_startup_tiles(self) -> None:
         host = self.host
@@ -54,7 +62,7 @@ class StreamPlayback:
                 continue
             if not str(tile.room["room_id"]).isdigit():
                 continue                  # 原画/720P 策略仅适用于 B 站，插件沿用本平台手选档位
-            if tile in host._capture_quality:
+            if tile in host._capture_quality or tile.room.get('_streamer_playback'):
                 continue
             target = 10000 if index == main else 250
             if tile.quality != target:
@@ -71,7 +79,8 @@ class StreamPlayback:
                     host.start_tile(tile)
         return changed
 
-    def start_tile(self, tile, *, stream_quality: int | None = None, resolver_type) -> None:
+    def start_tile(self, tile, *, stream_quality: int | None = None,
+                   wall_quality: WallQualityRequest | None = None, resolver_type) -> None:
         host = self.host
         StreamResolver = resolver_type
         if getattr(host, "_tray", None) is not None and host._tray.hold_playback(tile):
@@ -85,9 +94,18 @@ class StreamPlayback:
         room_id = str(room.get("room_id") or "")
         if not room_id:
             return
+        capture = host._capture_quality.get(tile)
+        if capture is not None and capture[0] != room_id:
+            host._pending_capture.pop(tile, None)
+            host._restore_capture_quality(tile)
+        if wall_quality is not None and (getattr(tile, "quality_locked", False)
+                                         or tile in host._capture_quality):
+            return
         tile.codec_reconnect_pending = False
         platform = host.plugins.platform_for(room_id)
-        if platform is not None and platform.kind in OVERSEAS_PLATFORMS and tile.quality == 250:
+        if (wall_quality is None and platform is not None and platform.kind in OVERSEAS_PLATFORMS
+                and tile.quality == 250 and tile not in host._capture_quality
+                and not room.get('_streamer_playback')):
             tile.quality = tile.room["quality"] = AUTO_QUALITY
         if ":" in room_id and platform is None:
             tile.set_status("请启用对应的平台插件并重启")
@@ -101,6 +119,15 @@ class StreamPlayback:
         if previous is not None:
             previous.cancel()
         player = host.players.get(tile)
+        keeping_picture = wall_quality is not None and player is not None and tile._player_active
+        preserving_pause = keeping_picture and tile.paused
+        if wall_quality is not None:
+            room.pop('_streamer_pending_height', None)
+            stream_quality = wall_quality.tiers[0]
+            if keeping_picture and tile.quality == tile.actual_quality == stream_quality:
+                host._resolvers.pop(tile, None)
+                self._refreshing(tile, False)
+                return
         if player is not None:
             player.freeze_watch = bool(host.settings.get("freeze_watch", True))
         codec = host._codec_settings(tile)["bili_codec"]
@@ -113,8 +140,9 @@ class StreamPlayback:
                 player.set_paused(False)
         else:
             tile.codec_probe_note = ""
-            tile.set_paused(False)        # 重新取流就恢复播放状态
-            tile.set_status("连接中…")
+            if not keeping_picture:
+                tile.set_paused(False)    # 重新取流就恢复播放状态
+                tile.set_status("连接中…", detail=host.playback_recovery.feedback_detail(tile))
         # 以格子上的画质为准（信号带过来的字典是副本，不能当数据源）
         quality = int(tile.quality or room.get("quality", 250))
         source_offset = host._stream_attempts.get(tile, 0)
@@ -126,22 +154,54 @@ class StreamPlayback:
                                   host, source_offset=source_offset,
                                   platform=platform,
                                   codec=codec, strict_codec=strict_codec)
+        if stream_quality is None and tile not in host._capture_quality:
+            resolver.streamer_height = room.get('_streamer_pending_height')
 
         def current():
-            return (not host._closing and tile in host.wall.tiles
+            pip = getattr(host, 'picture_in_picture', None)
+            active = tile in host.wall.tiles or tile in getattr(pip, 'parallel_tiles', ())
+            return (not host._closing and active
+                    and (wall_quality is None or (not getattr(tile, "quality_locked", False)
+                                                  and tile not in host._capture_quality))
                     and str(tile.room.get("room_id") or "") == room_id
                     and host._resolvers.get(tile) is resolver and not resolver.is_cancelled()
                     and host._codec_settings(tile)["bili_codec"] == codec)
 
+        def fallback(reason):
+            if len(wall_quality.tiers) > 1 and (not tile.paused or preserving_pause):
+                lower = WallQualityRequest(wall_quality.ceiling, wall_quality.tiers[1:])
+                self.start_tile(tile, wall_quality=lower, resolver_type=resolver_type)
+                return True
+            if keeping_picture and host.players.get(tile) is player and tile._player_active:
+                tile.codec_probe_note = f"画质切换失败，继续播放原画面：{reason}"
+                tile.quality_button.setToolTip(tile.codec_probe_note)
+                return True
+            return False
+
+        def discard_wall_stream(url):
+            if wall_quality is not None and url != tile.stream_url:
+                from .media_sources import discard
+                discard(url)
+
         def resolved(_rid, url, qn, profile, options):
             if not current() or int(tile.quality) != quality:
+                discard_wall_stream(url)
                 return
             host._resolvers.pop(tile, None)
-            if tile.paused:
+            self._refreshing(tile, False)
+            if tile.paused and not preserving_pause:
+                discard_wall_stream(url)
                 tile.codec_reconnect_pending = True
+                return
+            if wall_quality is not None and not allows_wall_quality(tile, wall_quality, qn, options):
+                discard_wall_stream(url)
+                reason = "平台返回的画质与当前请求档位不符"
+                if not fallback(reason):
+                    self.resolve_failed(tile, reason, requested_quality=quality, retry=False)
                 return
             if strict_codec:
                 if bili.codec_from_profile(profile) != codec:
+                    discard_wall_stream(url)
                     host._keep_tile_codec(tile, codec, retained_codec, unavailable=True)
                     return
                 tile.codec_probe_note = ""
@@ -154,8 +214,19 @@ class StreamPlayback:
                 if dialog is not None:
                     dialog.controls.set_values(tile.codec_overrides)
                 host._save_timer.start()
+            quality_for_playback = quality
+            if wall_quality is not None:
+                qn = int(qn or stream_quality)
+                quality_for_playback = tile.quality = room['quality'] = qn
+                if preserving_pause:
+                    tile.set_paused(False)
+                host._save_timer.start()
+            elif getattr(resolver, 'streamer_height', None) is not None:
+                room.pop('_streamer_pending_height', None)
+                if getattr(resolver, 'applied_streamer_quality', False):
+                    quality_for_playback = tile.quality = room['quality'] = int(qn)
             host._play_on(tile, url, qn, profile, options, headers=resolver.headers,
-                          room_id=room_id, requested_quality=quality,
+                          room_id=room_id, requested_quality=quality_for_playback,
                           source_codec=(getattr(resolver, "source_codec", "")
                                         if platform is not None else None))
 
@@ -163,7 +234,13 @@ class StreamPlayback:
             if not current() or int(tile.quality) != quality:
                 return
             host._resolvers.pop(tile, None)
+            self._refreshing(tile, False)
             tile.set_quality_options(getattr(resolver, "failure_quality_options", []))
+            if wall_quality is not None:
+                if not fallback(reason):
+                    self.resolve_failed(tile, reason, requested_quality=quality,
+                                        login_required=resolver.login_required, retry=False)
+                return
             if strict_codec:
                 host._keep_tile_codec(tile, codec, retained_codec,
                                       unavailable=resolver.codec_unavailable,
@@ -179,6 +256,7 @@ class StreamPlayback:
         resolver.finished.connect(resolver.deleteLater)
         host._resolvers_running.add(resolver)
         host._resolvers[tile] = resolver
+        self._refreshing(tile, True)
         resolver.start()
         host._stats_refresh_timer.start()  # 取流优先，多路同时开播时合并人数查询
 
@@ -186,6 +264,7 @@ class StreamPlayback:
         host = self.host
         if host._resolvers.get(tile) is resolver:
             host._resolvers.pop(tile, None)
+            self._refreshing(tile, False)
         host._resolvers_running.discard(resolver)
 
     def play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
@@ -213,7 +292,8 @@ class StreamPlayback:
             tile.set_quality_options(options)
             if discover_highest and host._upgrade_fullscreen_quality(tile):
                 return  # 首次档位迟到：直接取最高档，不先播放旧的较低档。
-            if quality and requested_quality != AUTO_QUALITY and ":" in str(tile.room.get("room_id") or ""):
+            if (quality and requested_quality != AUTO_QUALITY and tile not in host._capture_quality
+                    and ":" in str(tile.room.get("room_id") or "")):
                 tile.quality = quality
                 tile.room["quality"] = quality
         if quality:
@@ -265,10 +345,12 @@ class StreamPlayback:
             tile.set_status(str(error))
             tile.codec_probe_note = f"播放失败：{error}"
             return
-        host.recorder.on_resolved(tile)
-        if tile in host._pending_capture:
-            host._finish_pending_capture(tile)
-        host._emit_stream_resolved(tile, quality)
+        independent = tile.property('pictureInPictureIndependent') is True
+        if not independent:
+            host.recorder.on_resolved(tile)
+            if tile in host._pending_capture:
+                host._finish_pending_capture(tile)
+            host._emit_stream_resolved(tile, quality)
         if getattr(host, "_tray", None) is not None and host._tray.hold_playback(tile):
             host._stop_tile(tile)
             return
@@ -277,7 +359,8 @@ class StreamPlayback:
             tile.set_paused(True)
             player.set_paused(True)
         # 直播起来了：即时回放该开的就在这里开，不用用户手动点
-        host._sync_replay_scope()
+        if not independent:
+            host._sync_replay_scope()
 
     def auto_quality(self, player, quality: int) -> None:
         host = self.host
@@ -309,7 +392,7 @@ class StreamPlayback:
         )
 
     def resolve_failed(self, tile, reason: str, requested_quality: int = 0,
-                           *, login_required=False) -> None:
+                           *, login_required=False, retry=True) -> None:
         host = self.host
         if host._closing:
             return                    # 关窗后迟到的取流失败：别再拉轮询线程
@@ -320,14 +403,19 @@ class StreamPlayback:
             tile.set_status("未开播")
             return
         if tile in host._pending_capture:
-            host._pending_capture.pop(tile)
-            host._record_notice(f"原画取流失败，录制未开始：{reason}", tile.room)
+            recording = host._pending_capture.pop(tile)
+            configured = tile.room.keys() & {'_streamer_recording_height', '_streamer_recording_choice'}
+            label = "指定画质" if recording and configured else "原画"
+            host._record_notice(f"{label}取流失败，录制未开始：{reason}", tile.room)
             host._restore_capture_quality(tile)
             if not login_required:
                 return
         if login_required:
             tile.set_buffering(False)
-            tile.set_status(reason)
+            if retry:
+                tile.set_status(reason)
+            else:
+                tile.set_status("连接失败", detail=reason)
             kind = str(tile.room.get("room_id") or "").partition(":")[0]
             account = host._accounts.get(kind)
             already_warned = bool(account and account.get("_login_expired"))
@@ -339,9 +427,12 @@ class StreamPlayback:
             return
         tile.set_buffering(False)
         tile.set_status("连接失败")
+        host.playback_recovery.record_failure(tile, reason=reason)
         print(f"[取流失败] {tile.room.get('uname')}: {reason}")
         host.plugins.emit(plugin_api.EVENT_STREAM_FAILED, tile=tile, reason=reason,
                           room=dict(tile.room or {}))
+        if not retry:
+            return
         host.refresh_status()       # 取不到流时立刻确认是否已经下播
         if tile in host._freeze_refreshed:
             host._on_picture_frozen(tile)
@@ -380,12 +471,16 @@ class StreamPlayback:
             if player is not None:
                 # 声道要在音频输出模块起来之后再设一次，否则会被初始化冲掉
                 player.reapply_audio_channel()
-            host.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
-                              room=dict(tile.room or {}))
+            if tile.property('pictureInPictureIndependent') is not True:
+                host.plugins.emit(plugin_api.EVENT_TILE_PLAYING, tile=tile,
+                                  room=dict(tile.room or {}))
         elif state == "connecting":
             tile.set_video_active(False)
-            tile.set_status("连接中…")
+            tile.set_status("连接中…", detail=host.playback_recovery.feedback_detail(tile))
         elif state == "buffering":
+            detail = host.playback_recovery.feedback_detail(tile)
+            if detail:
+                tile.set_status("缓冲中，正在等待直播数据…", detail=detail)
             tile.set_buffering(True)         # 卡顿时也显示缓冲动画
         elif state == "frozen":
             player = host.players.get(tile)
@@ -394,6 +489,7 @@ class StreamPlayback:
                     source_url=player.stream_url, reason="STALL")
             host._on_picture_frozen(tile)
         elif state == "error":
+            host.playback_recovery.record_failure(tile)
             host._clear_freeze_recovery(tile)
             tile.set_video_active(False)
             tile.stop_elapsed_timer()
@@ -420,12 +516,14 @@ class StreamPlayback:
         if player is not None:
             player.release()
         resolver = host._resolvers.pop(tile, None)
+        self._refreshing(tile, False)
         if resolver is not None:
             # 只作废、不强杀：terminate() 会带走线程本地存储和锁，主线程可能
             # 整个卡死（窗口不动也不退出，用户看到的就是「直接崩了」）
             resolver.cancel()
-        host.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
-                          room=dict(tile.room or {}))
+        if tile.property('pictureInPictureIndependent') is not True:
+            host.plugins.emit(plugin_api.EVENT_TILE_STOPPED, tile=tile,
+                              room=dict(tile.room or {}))
 
     def match_sync_holds(self, tile):
         host = self.host
@@ -561,13 +659,9 @@ class StreamPlayback:
         tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
         if tile is None:
             return
-        if tile in host._capture_quality and quality != 10000:
-            blocked = tile.blockSignals(True)
-            try:
-                tile.set_quality(10000)
-            finally:
-                tile.blockSignals(blocked)
+        if tile in host._capture_quality:
             return
+        tile.room.pop('_streamer_pending_height', None)
         tile.quality = quality
         tile.room["quality"] = quality
         host._save_timer.start()
@@ -625,6 +719,7 @@ class StreamPlayback:
         if paused and resolver is not None:
             host._resolvers.pop(tile, None)
             resolver.cancel()
+            self._refreshing(tile, False)
             tile.codec_reconnect_pending = True
             tile.codec_probe_note = "探测已暂停；恢复播放时重新探测，当前流保持暂停。"
         if not paused and getattr(tile, "codec_reconnect_pending", False):

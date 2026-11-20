@@ -68,6 +68,17 @@ class _Session:
     def update_review(self) -> None:
         """Optional recording backend hook; only publish completed segments."""
 
+    def recording_started(self) -> bool:
+        """Return True if promotion from a replay cache needs a new output chunk."""
+        return False
+
+    def recording_directories(self):
+        return [self.folder]
+
+    def additional_recordings(self):
+        """Completed auxiliary outputs and an optional error, after full save."""
+        return [], ''
+
     def save_recording(self, parts: list[Path]) -> Path | None:
         """Return a durable recording path when the backend already saved it."""
         return None
@@ -82,6 +93,9 @@ class _Session:
 
     def snapshot_info(self, parts: list[Path]) -> dict:
         return {}
+
+    def review_parts(self):
+        return list(dict.fromkeys(self.replay_parts + self.finished_parts()))
 
     def finished_parts(self) -> list[Path]:
         result = list(self.parts)

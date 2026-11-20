@@ -1,14 +1,14 @@
 """Sidebar orientation and borrowed toolbar layout; Sidebar owns controls and mutable layout state."""
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLayout, QSizePolicy, QWidget
 from . import theme
 from .sidebar_navigation import RAIL_WIDTH
 from .ui.toolbar import BarIconButton
+from .sidebar_portrait import PortraitSidebar
 from .widget_support import NAV_ITEM_GAP, NAV_ITEM_HEIGHT, _repolish
 from PySide6.QtCore import QPoint, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMenu, QPushButton, QVBoxLayout, QWidget
+    QApplication, QLabel, QLineEdit, QMenu, QPushButton, QWidget
 )
 from . import follow_folders, layouts, motion, theme, version as version_module
 
@@ -16,6 +16,7 @@ from . import follow_folders, layouts, motion, theme, version as version_module
 class SidebarOrientation:
     def __init__(self, host):
         self.host = host
+        self.portrait = PortraitSidebar(host)
 
     def set_side(self, side: str) -> None:
         """摆放方式：left = 横屏的左栏（默认）；top = 竖屏的顶部横栏。
@@ -118,51 +119,20 @@ class SidebarOrientation:
     def detach_from_rows(self, widget: QWidget) -> None:
         """把控件从「竖排布局」和横栏那两个容器里都摘出来。"""
         host = self.host
+        parent = widget.parentWidget()
+        box = parent.layout() if parent is not None else None
+        if box is not None:
+            # setParent/addWidget's implicit removal does not invalidate old
+            # QWidgetItem bindings on PySide 6.11.2, including nested rail rows.
+            for holder in (box, *box.findChildren(QLayout)):
+                holder.removeWidget(widget)
         for holder in (host._layout, host._bar_row_box, getattr(host, '_bar_row2_box', None),
                        getattr(host, '_bar_right_box', None)):
             if holder is not None:
                 holder.removeWidget(widget)
 
     def ensure_bar_row(self) -> None:
-        """建出横栏的两行容器（只建一次）。
-
-        第一行：logo + 搜索框（收起时换成头像排）+ 多选/外观/刷新小图标 + 展开键。
-        第二行：横向卡片条 + 右侧单独一块（账号 / 布局预设 / 设置 竖排）。
-        右侧那一块只占第二行，不侵占第一行的地方（用户要求）；高度就是卡片条
-        那一行的高度，三个按钮 + 两条分割线把它正好分完。
-        """
-        host = self.host
-        if host._bar_row is not None:
-            return
-        host._bar_row = QWidget(host)
-        box = QHBoxLayout(host._bar_row)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.setSpacing(6)
-        host._bar_row_box = box
-        host._bar_row2 = QWidget(host)
-        box2 = QHBoxLayout(host._bar_row2)
-        box2.setContentsMargins(0, 0, 0, 0)
-        box2.setSpacing(6)
-        host._bar_row2_box = box2
-        host._bar_right = QWidget(host._bar_row2)
-        right = QVBoxLayout(host._bar_right)
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(0)
-        host._bar_right_box = right
-        #: 三个按钮之间的分割线（用户要求「适当给予分割」）
-        host._bar_divider_label = QFrame(host._bar_right)
-        host._bar_divider_tool = QFrame(host._bar_right)
-        for divider in (host._bar_divider_label, host._bar_divider_tool):
-            divider.setObjectName("BarDivider")
-            divider.setFixedHeight(1)
-            divider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        #: 分割线两侧的空白：高度由 _sync_bar_gaps() 按缩略图高度算出来
-        host._bar_gaps = tuple(QWidget(host._bar_right) for _ in range(4))
-        for gap in host._bar_gaps:
-            gap.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # 末尾留一条 stretch：三个按钮的总高只到缩略图下沿，剩下的高度（滚动条
-        # 那条）不参与分配，这一块本身仍然撑满卡片条那一行
-        right.addStretch(1)
+        return self.portrait.ensure()
 
     def bar_widgets(self) -> list:
         """竖屏时会被横栏借走的控件（横屏要按原样挂回去）。"""
@@ -210,21 +180,7 @@ class SidebarOrientation:
             gap.setFixedHeight(height)
 
     def sync_bar_density(self) -> None:
-        """竖屏两种卡片密度共用账号、布局、设置的竖排位置。"""
-        host = self.host
-        host._bar_right_box.setDirection(QBoxLayout.TopToBottom)
-        host._bar_right_box.setSpacing(0)
-        tool_box = host.tool_row.layout()
-        tool_box.setDirection(QBoxLayout.TopToBottom)
-        tool_box.setSpacing(0)
-        for widget in (*host._bar_gaps, host._bar_divider_label, host._bar_divider_tool):
-            widget.setVisible(True)
-        host.layout_button.setText("布局预设")
-        for button in (host.layout_button, host.picture_in_picture_button, host.settings_button):
-            button.setMaximumWidth(16_777_215)
-        host.tool_row.setMinimumWidth(0)
-        host.tool_row.setMaximumWidth(16_777_215)
-        host._sync_bar_gaps()
+        return self.portrait.sync_density()
 
     def apply_bar_block_stretches(self) -> None:
         """账号和工具行自己不占 stretch（高度全由按钮 + 空白算出来）。
@@ -246,6 +202,8 @@ class SidebarOrientation:
 
     def sync_bar_icons(self) -> None:
         """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
+        if self.host.side == 'top':
+            return self.portrait.sync_density()
         host = self.host
         top = host.side == "top"
         host.batch_button.setProperty("sidebarCompact", not top)
@@ -284,6 +242,7 @@ class SidebarOrientation:
 
         box = host.status_row.layout()
         for widget in (host.count_label, host.batch_button, host.notification_button, host.appearance_button, host.refresh_button):
+            host._detach_from_rows(widget)
             box.removeWidget(widget)
         box.addWidget(host.count_label, 1)
         box.addWidget(host.batch_button, 0, Qt.AlignRight)
@@ -295,182 +254,13 @@ class SidebarOrientation:
         host._sync_bar_icons()
 
     def adopt_bar_row(self) -> None:
-        """竖屏：把横栏排成两行。
-
-        第一行：logo（圆点 + 「DD监控室CE」）+ 搜索框（收起时换成头排）
-        + 多选/外观/刷新三个小图标 + 展开键。
-        第二行：横向卡片条 + 右侧单独一块，那块里「账号 / 布局预设 / 设置」竖排、
-        中间两条 1px 分割线 —— 三个按钮 + 两条线正好把卡片条那一行的高度分完，
-        不占第一行的地方（用户要求：加起来和左侧展开关注栏同高，别占用别处）。
-        """
-        host = self.host
-        host._ensure_bar_row()
-        if not host._bar_in_use:
-            index = host._layout.indexOf(host._header_row)
-            for widget in (host._header_row, host.search, host._head_scroll,
-                           host.batch_bar, host.batch_button, host.notification_button,
-                           host.appearance_button, host.refresh_button, host.clear_wall_button, host.toggle_button):
-                host._detach_from_rows(widget)
-                widget.setParent(host._bar_row)
-            # 左边是 logo，然后是搜索框（收起时换成头像排）、多选条、图标、展开键。
-            # 多选条和搜索框轮流坐第一行：**不额外占一行**，横栏高度不变，
-            # 画面墙就不会因为点「多选」抖一下（用户报的）。
-            host._bar_row_box.addWidget(host._header_row)
-            host._bar_row_box.addWidget(host.search, 1)
-            host._bar_row_box.addWidget(host._head_scroll, 1)
-            host._bar_row_box.addWidget(host.batch_bar, 1)
-            for widget in host._bar_icons() + (host.toggle_button,):
-                host._bar_row_box.addWidget(widget)
-            # 第一行的高度固定成标准控件那一档（多选条里的删除/取消就是原来那两个
-            # 按钮，压矮了圆角就和样式表对不上）。固定住之后，搜索框和多选条谁在
-            # 这一行里都一样高 —— 点「多选」不会让横栏变高、画布不抖。
-            host._bar_row.setFixedHeight(host.batch_bar.sizeHint().height())
-
-            host._detach_from_rows(host.scroll)
-            host._detach_from_rows(host.tool_row)
-            host.scroll.setParent(host._bar_row2)
-            host._bar_row2_box.addWidget(host.scroll, 1)
-            host._bar_row2_box.addWidget(host._bar_right)
-            # 右边那一块：账号 / 空白 / 分割线 / 空白 / 工具行。
-            # 三个按钮都用横屏那套自然高度，两条空白（含中间的 1px 线）一样高，
-            # 最上面、最下面的按钮正好贴着卡片条那一行的上下沿。
-            host._place_account(True)
-            host._bar_right_box.insertWidget(1, host._bar_gaps[0])
-            host._bar_right_box.insertWidget(2, host._bar_divider_label)
-            host._bar_right_box.insertWidget(3, host._bar_gaps[1])
-            host._bar_right_box.insertWidget(4, host.tool_row)
-            host._apply_bar_block_stretches()
-            tool_box = host.tool_row.layout()
-            tool_box.setDirection(QBoxLayout.TopToBottom)
-            tool_box.setSpacing(0)
-            tool_box.insertWidget(1, host._bar_gaps[2])
-            tool_box.insertWidget(2, host._bar_divider_tool)
-            tool_box.insertWidget(3, host._bar_gaps[3])
-            # 两个按钮自己不吃 stretch（横屏时布局预设是 stretch 1）
-            tool_box.setStretch(0, 0)
-            tool_box.setStretch(4, 0)
-            host._sync_bar_gaps()
-            # 三个按钮左右长度一样（都撑满这一块）；高度用横屏那套自然高度
-            for button in (host.layout_button, host.picture_in_picture_button, host.settings_button):
-                button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-            host._layout.insertWidget(index + 1 if index >= 0 else 1, host._bar_row)
-            host._layout.insertWidget(index + 2 if index >= 0 else 2, host._bar_row2)
-            host._bar_in_use = True
-            host._sync_bar_icons()
-        host._bar_row.setVisible(True)
+        return self.portrait.adopt()
 
     def release_bar_row(self) -> None:
-        """回左栏：把这两行拆掉，控件按 __init__ 里的原始顺序挂回竖排布局。"""
-        host = self.host
-        if not host._bar_in_use:
-            return
-        for row in (host._bar_row, host._bar_row2):
-            host._layout.removeWidget(row)
-            row.setVisible(False)
-        for widget in host._bar_widgets() + [host.scroll, host._header_row]:
-            host._detach_from_rows(widget)
-        for widget in host._column_order:
-            host._detach_from_rows(widget)
-            host._layout.addWidget(widget)
-        # 布局预设 / 设置回到横排一行，把竖排时插进去的空白和分割线拿出来
-        tool_box = host.tool_row.layout()
-        tool_box.removeWidget(host._bar_divider_tool)
-        for gap in host._bar_gaps[2:]:
-            tool_box.removeWidget(gap)
-        tool_box.setDirection(QBoxLayout.LeftToRight)
-        tool_box.setStretch(0, 1)
-        tool_box.setSpacing(6)
-        for gap in host._bar_gaps[:2]:
-            host._bar_right_box.removeWidget(gap)
-        for button, policy in host._tool_button_policies.items():
-            button.setSizePolicy(policy)
-            button.setMaximumWidth(16_777_215)   # 竖屏时按自身宽度限过
-        host.layout_button.setText("布局预设")
-        host.tool_row.setMinimumWidth(0)
-        host.tool_row.setMaximumWidth(16_777_215)
-        # 多选条回左栏：高度限制解掉，按钮恢复样式表那套高度
-        host._bar_row.setMinimumHeight(0)
-        host._bar_row.setMaximumHeight(16_777_215)
-        host.batch_bar.setMinimumHeight(0)
-        host.batch_bar.setMaximumHeight(16_777_215)
-        for button in (host.delete_button, host.cancel_button):
-            button.setMinimumHeight(0)
-            button.setMaximumHeight(16_777_215)
-        host.account_row.setSizePolicy(host._account_policy)
-        host._bar_in_use = False
-        host._sync_account_row_shape()          # 账号条恢复原来的固定高度
-        host._sync_account_row_width()          # 左栏的账号条恢复撑满
+        return self.portrait.release()
 
     def sync_top_mode(self) -> None:
-        """按 side + collapsed 决定顶部横栏露哪些控件。
-
-        横栏是**一行**：左边搜索框（收起时换成头像排），中间「多选 / 外观 / 刷新」
-        三个小图标，右边一块是账号头像 + 布局预设 + 设置 + 展开/收起键；
-        下面只剩横向卡片条。头像排在收起时露出来（它就是关注列表）。
-        """
-        host = self.host
-        host._sync_toggle_arrow()          # 竖屏要上下箭头，横屏左右
-        if host.side != "top":
-            host._sync_appearance_row()
-            return
-        host._adopt_bar_row()
-        host._sync_bar_density()
-        host._sync_account_row_shape()
-        host._sync_account_row_width()
-        header = getattr(host, "_header_row", None)
-        toggle = getattr(host, "toggle_button", None)
-        # 展开时收起头排（用户要求展开后不显示头像排，那点高度留给卡片）；
-        # 收起时它顶掉搜索框的位置，一行摆满关注头像
-        host._head_scroll.setVisible(host.collapsed)
-        if host.collapsed:
-            host.refresh_strip()
-        # 账号头像：展开时在卡片条右边那一块里，收起时回到第一行最右端
-        host._place_account(not host.collapsed)
-        host._bar_right.setVisible(not host.collapsed)
-        host._bar_row2.setVisible(not host.collapsed)
-        if toggle is not None:
-            # 摘到横栏这一行的右端常驻；换成紧凑样式，
-            # 否则标题行那套 24px 最小尺寸 + padding 会把横栏撑高一截
-            toggle.setObjectName("BarToggle")
-            toggle.setFixedSize(22, 22)
-            if toggle.parentWidget() is not host._bar_row:
-                toggle.setParent(host._bar_row)
-                host._bar_row_box.addWidget(toggle)
-            toggle.setVisible(True)
-            _repolish(toggle)
-        if host.collapsed:
-            if header is not None:
-                header.setVisible(False)
-            # 收起时这一行只剩：头像排 + 账号头像 + 展开键
-            for widget in (host.search, host.status_row, host.scroll, host.normal_bar,
-                           host.batch_bar, host.tool_row) + host._bar_icons():
-                widget.setVisible(False)
-            host.account_row.setVisible(host._account_row_should_show())
-        else:
-            # 标题行留在第一行最前面当 logo（用户要求左侧给 logo 留位置）：
-            # 只露「DD监控室CE」，副标题藏起来；搜索框因此短了一截
-            if header is not None:
-                header.setVisible(True)
-            host._show_logo_title()
-            # 第一行：平时是搜索框 + 三个图标；进多选态就让多选条顶掉它们，
-            # 这一行的高度不变 —— 点「多选」时画面墙不会跟着抖（用户报的）
-            select = host.select_mode
-            host.search.setVisible(not select)
-            host.batch_bar.setVisible(select)
-            for button in host._bar_icons():
-                button.setVisible(not select)
-            host.batch_button.setVisible(True)
-            # 排序/刷新已经在搜索那一行当图标了，「关注中 · N」那一行不再出来
-            host.status_row.setVisible(False)
-            host.scroll.setVisible(True)
-            # 导入关注 / 添加直播间收进账号菜单，别再占一行
-            host.normal_bar.setVisible(False)
-            host.account_row.setVisible(host._account_row_should_show())
-            host.tool_row.setVisible(True)           # 布局预设 + 设置并排
-            host.settings_button.setVisible(True)
-            host._apply_scroll_axis()
-        host._sync_appearance_row()
+        return self.portrait.sync()
 
     def show_logo_title(self) -> None:
         """竖屏横栏只挂紧凑 Logo，不改变原有第一行高度。"""

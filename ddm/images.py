@@ -101,18 +101,24 @@ def load_cached_image(url: str, subdir: str) -> QPixmap | None:
     return None
 
 
-def load_banner(room: dict) -> QPixmap | None:
+def load_banner(room: dict, *, stamp=None) -> QPixmap | None:
     from .room_artwork import room_platform, supports_banner
     if not supports_banner(room):
         return None
+    stamp = image_cache.ticket() if stamp is None else stamp
     url = room.get('banner_url') or ''
     if not url and room_platform(room) == 'bilibili' and room.get('uid'):
         url = bili.profile_banner(room['uid'])
     path = room_banner_path(str(room['room_id']))
-    pixmap = load_pixmap(url, 'banners', cdn_size='@960w.webp') if url else None
+    pixmap = load_pixmap(url, 'banners', cdn_size='@960w.webp', stamp=stamp) if url else None
     if pixmap is not None:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        pixmap.save(path)
+        data = QByteArray()
+        buffer = QBuffer(data)
+        buffer.open(QIODevice.WriteOnly)
+        pixmap.save(buffer, 'PNG')
+        buffer.close()
+        if not image_cache.store(REPO, 'banners', path, bytes(data), stamp):
+            return None
     else:
         try:
             os.remove(path)
@@ -272,7 +278,7 @@ def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
             pixmap = _prepare_avatar(pixmap)
             if not _store_image(pixmap, path, subdir, stamp, room):
                 return None
-        elif subdir in image_cache.KINDS:
+        elif subdir in image_cache.CACHE_KINDS:
             if not image_cache.store(REPO, subdir, path, response.content, stamp, room=room):
                 return None
         else:
@@ -284,7 +290,7 @@ def _load_one(url: str, subdir: str, stamp=None, room=None) -> QPixmap | None:
         return None
 
 
-def _load_emoticon(url: str, subdir: str) -> QPixmap | None:
+def _load_emoticon(url: str, subdir: str, stamp=None) -> QPixmap | None:
     global _EMOTICON_BYTES
     with _EMOTICON_LOCK:
         cached = _EMOTICON_IMAGES.get(url)
@@ -300,7 +306,7 @@ def _load_emoticon(url: str, subdir: str) -> QPixmap | None:
         return QPixmap.fromImage(cached) if cached is not None else None
     decoded = None
     try:
-        pixmap = _load_one(url, subdir)
+        pixmap = _load_one(url, subdir, stamp)
         if pixmap is not None:
             decoded = pixmap.toImage()
             size = decoded.sizeInBytes()
@@ -336,7 +342,7 @@ def load_pixmap(url: str, subdir: str = "avatars",
             candidates.append(candidate)
     for candidate in candidates:
         if subdir == "emoticons":
-            pixmap = _load_emoticon(candidate, subdir)
+            pixmap = _load_emoticon(candidate, subdir, stamp)
         elif stamp is None:
             pixmap = _load_one(candidate, subdir)
         else:

@@ -10,15 +10,16 @@ from unittest.mock import Mock, patch
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QFont, QFontDatabase, QPalette
-from PySide6.QtWidgets import QApplication, QMessageBox, QMenu, QToolButton
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
 from ddm.player import TilePlayer
 from ddm.room_presets_ui import thumbnail
 from selfcheck_corner_resize import border_for, drag
+from selfcheck_layout_16 import resize_picker
 
 
 def expect_invalid(snapshot):
@@ -73,6 +74,36 @@ def main():
             a = window.room_preset_snapshot()
             window.sidebar.open_layout_picker()
             picker = window.sidebar._picker
+            default_size = picker.size()
+            window._save_timer.stop()
+            resize_picker(picker, picker.rect().bottomRight() - QPoint(3, 3), QPoint(70, 36))
+            remembered = picker.size()
+            assert remembered != default_size and window._save_timer.isActive()
+            ui = window.current_state()['ui']
+            assert ui['layout_picker_size'] == remembered.toTuple()
+            with patch.dict(os.environ):
+                os.environ.pop('DDM_NO_SAVE', None)
+                config.save({'version': config.STATE_VERSION, 'ui': ui}, raise_errors=True)
+            stored = config.load()
+            assert stored['ui']['layout_picker_size'] == list(remembered.toTuple())
+            picker.close()
+            window.sidebar.open_layout_picker()
+            picker = window.sidebar._picker
+            assert picker.size() == remembered
+            # Use the same serialized state a fresh MainWindow receives from config.load.
+            restored = MainWindow([], [], layout_id='corner', state={'ui': stored['ui'], 'plugins_enabled': [],
+                'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+            try:
+                controller = restored.sidebar.presentation_control.layout_picker
+                assert controller.preferred_size == QSize(*ui['layout_picker_size'])
+                restored.setGeometry(window.geometry())
+                restored.show()
+                restored.sidebar.open_layout_picker()
+                assert restored.sidebar._picker.size() == remembered
+                restored.sidebar._picker.close()
+            finally:
+                restored.close()
+            picker.show()
             picker.set_group('直播间组合')
             page = picker.presets_page
             assert page.isVisible() and not picker.reset_button.isVisible()
@@ -164,40 +195,43 @@ def main():
                 assert room_presets.same(room_presets.validate(window.room_presets['items'][0]), a)
                 assert not page.name_form.isVisible() and picker.isVisible()
             first_record = window.room_presets['items'][0]
-            def choose(text):
-                def create(parent):
-                    menu = QMenu(parent)
-                    menu.exec = lambda *_: next(action for action in menu.actions() if action.text() == text)
-                    return menu
-                return create
-            with patch('ddm.room_presets_ui.QMenu', choose('重命名')), \
-                    patch('ddm.room_presets_ui.QInputDialog.getText', return_value=('比赛观察', True)):
-                page.manage(first_record, page.save_button)
+            rename = page.cards[key].parentWidget().findChild(QPushButton, 'PresetManageButton')
+            with patch('ddm.room_presets_ui.QInputDialog.getText', return_value=('比赛观察', True)):
+                QTest.mouseClick(rename, Qt.LeftButton)
             assert first_record['name'] == '比赛观察'
             window.rename_room_preset(key, '比赛')
             window.wall.tiles[0].set_volume(86)
             b = window.room_preset_snapshot()
-            with patch('ddm.room_presets_ui.QMenu', choose('用当前画面更新此组合')), \
-                    patch('ddm.room_presets_ui.QMessageBox.question', return_value=QMessageBox.Yes):
-                page.manage(next(item for item in window.room_presets['items'] if item['id'] == second), page.save_button)
+            page.save_new()
+            page.name_edit.setText('日常观看')
+            QTest.mouseClick(page.confirm_save, Qt.LeftButton)
+            QTest.mouseClick(page.confirm_save, Qt.LeftButton)
             assert room_presets.same(room_presets.validate(window.room_presets['items'][1]), b)
             discarded = window.save_room_preset('待删除')
             page.refresh()
             app.processEvents()
-            with patch('ddm.room_presets_ui.QMenu', choose('删除组合')), \
-                    patch('ddm.room_presets_ui.QMessageBox.question', side_effect=AssertionError('Delete must stay inline')):
-                record = next(item for item in window.room_presets['items'] if item['id'] == discarded)
-                page.manage(record, page.save_button)
+            with patch('ddm.room_presets_ui.QMessageBox.question', side_effect=AssertionError('Delete must stay inline')):
                 panel, card, confirm, cancel = page.delete_panels[discarded]
+                delete = next(button for button in card.parentWidget().findChildren(QPushButton)
+                              if button.accessibleName() == '删除组合 待删除')
+                page.scroll.ensureWidgetVisible(delete)
+                QTest.mouseClick(delete, Qt.LeftButton)
                 assert panel.isVisible() and card.isHidden() and panel.window() is picker
                 assert any(item['id'] == discarded for item in window.room_presets['items'])
+                error_color = theme.qcolor(theme.ERROR)
+                for button in (cancel, confirm):
+                    button.setFocus()
+                    image = confirm.grab().toImage()
+                    assert image.pixelColor(image.width() // 2, 0) == error_color
+                    assert image.pixelColor(0, 0) != error_color
                 QTest.mouseClick(cancel, Qt.LeftButton)
                 assert panel.isHidden() and card.isVisible()
                 assert any(item['id'] == discarded for item in window.room_presets['items'])
-                page.manage(record, page.save_button)
+                QTest.mouseClick(delete, Qt.LeftButton)
                 page._ask_delete(key)
                 assert panel.isHidden() and page.delete_panels[key][0].isVisible()
-                page.manage(record, page.save_button)
+                page.scroll.ensureWidgetVisible(delete)
+                QTest.mouseClick(delete, Qt.LeftButton)
                 QTest.mouseClick(confirm, Qt.LeftButton)
                 assert picker.isVisible()
             assert not any(item['id'] == discarded for item in window.room_presets['items'])
@@ -332,8 +366,9 @@ def main():
                 page._ask_delete(candidate)
                 picker.grab().save(str(directory / f'room-presets-delete-{mode}.png'))
                 page._cancel_delete()
-                management = page.findChildren(QToolButton, 'PresetManageButton')
-                assert management and all(button.text() == '管理' for button in management)
+                management = page.findChildren(QPushButton, 'PresetManageButton')
+                assert management and all(button.kind == 'rename' and not button.text()
+                                          and button.toolTip() == '重命名' for button in management)
                 for button in management:
                     assert contrast(button.palette().color(QPalette.ButtonText),
                                     theme.qcolor(theme.CONTENT)) >= 4.5

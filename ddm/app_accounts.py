@@ -148,7 +148,7 @@ class AppAccounts:
             return
         account["_avatar_requested"] = True
         session = bili.SESSION_DATA
-        loader = AvatarLoader({"account": face}, host)
+        loader = AvatarLoader({"account": face}, host, diagnostic_source="account-avatar")
         def loaded(_key, pixmap):
             if (not host._closing and host._accounts.get(kind) is account
                     and (kind != "bilibili" or bili.SESSION_DATA == session)):

@@ -52,9 +52,10 @@ def check_window(app):
             patch.object(TilePlayer, "play"):
         window = MainWindow([], [], state=state, layout_id="dm_pair")
         try:
-            for kind in ("youtube", "twitch"):
+            for kind in ("chzzk", "youtube", "twitch"):
                 platform = window.plugins.platforms[kind]
-                rid = kind + (":AbCd_123-45" if kind == "youtube" else ":test")
+                rid = kind + (":" + "a" * 32 if kind == "chzzk" else
+                              ":AbCd_123-45" if kind == "youtube" else ":test")
                 tile = window.wall.tiles[0]
                 window._stop_tile(tile)
                 tile.set_room({"room_id": rid, "platform": kind, "live": True, "uname": kind})
@@ -145,11 +146,12 @@ def check_window(app):
                         assert preview.auto_quality is None
                     finally:
                         preview.release()
+            active_plugins = list(window.plugins.enabled)
             window.plugins.enabled = set()
             window._sync_platform_rooms()
             hidden = window.current_state()
             assert hidden["suspended_platform_rooms"]["twitch"]["wall"][0]["slot"]["quality"] == AUTO_QUALITY
-            hidden["plugins_enabled"] = ["global_live"]
+            hidden["plugins_enabled"] = active_plugins
             rooms, slots = config.build_rooms(hidden)
             restored = MainWindow(rooms, slots, state=hidden, layout_id="dm_pair")
             try:

@@ -27,7 +27,7 @@ class SuperChatAvatar(QObject):
         if not url or self.pixmap is not None or url in self._loaders:
             return
         app = QApplication.instance()
-        loader = AvatarLoader({url: url}, app, subdir='sc-avatars')
+        loader = AvatarLoader({url: url}, app, subdir='sc-avatars', diagnostic_source='sc-avatar')
         self._loaders[url] = loader
         loader.loaded.connect(self._loaded)
         loader.finished.connect(lambda: self._loaders.pop(url, None))

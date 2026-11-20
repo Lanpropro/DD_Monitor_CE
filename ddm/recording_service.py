@@ -51,6 +51,27 @@ class RecordingService:
             raise RuntimeError('请先停止当前录制和缓存，再切换录制方式')
         recorder.session_factory = factory
 
+    def select_backend(self, session_factory=None):
+        """Select the native or a plugin session class while all captures are idle."""
+        recorder = self._host().recorder
+        if recorder.backend_owner is not self or self._session_factory is None:
+            raise RuntimeError('录制后端未注册')
+        factory = session_factory or RecordingSession
+        if not isinstance(factory, type) or not issubclass(factory, RecordingSession):
+            raise TypeError('Recording backend must extend RecordingSession')
+        if recorder.session_factory is factory:
+            return
+        if recorder.sessions:
+            raise RuntimeError('请先停止当前录制和缓存，再切换录制方式或切片设置')
+        recorder.session_factory = factory
+
+    def record_danmaku(self, room_id, message):
+        """Deliver captured chat to interested session backends in the GUI thread."""
+        for session in tuple(self._host().recorder.sessions.values()):
+            callback = getattr(session, 'record_danmaku', None)
+            if callback is not None and session.room_id == str(room_id):
+                callback(dict(message))
+
     def live_recording(self, source_id, session_id):
         host = self._host()
         session = host.recorder.sessions.get(self._tile(source_id))
@@ -108,7 +129,7 @@ class RecordingService:
         session = host.recorder.sessions.get(tile)
         if session is None or session.session_id != session_id:
             raise RuntimeError('录制会话已变化，请刷新后重试')
-        parts = list(dict.fromkeys(session.replay_parts + session.finished_parts()))
+        parts = session.review_parts()
         parts = [Path(part) for part in parts if Path(part).is_file()]
         if not parts:
             raise RuntimeError('尚无已封口分段，请稍后重试')

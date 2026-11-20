@@ -79,6 +79,10 @@ class SettingsSurface(QFrame):
             owner = owner.parentWidget()
         return None
 
+    def _paint_glass_fill(self, painter, path):
+        from ..settings_material_paint import glass_tint
+        painter.fillPath(path, glass_tint(self, card=True))
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -102,23 +106,12 @@ class SettingsSurface(QFrame):
                     shadow = rect.adjusted(-spread, -spread, spread, spread).translated(0, 3)
                     painter.fillPath(continuous_path(shadow, theme.RADIUS_LG + spread), QColor(0, 0, 0, alpha))
                 painter.restore()
-            color = theme.qcolor(base_color(self, 'card', theme.CONTENT))
-            from ..settings_backdrop import blur_available
-            window = self.window()
-            live = getattr(window, '_native_glass', False) or window.property('settingsGlassContent') and blur_available()
-            if window.property('settings_glass_enabled') and live:
-                from ..settings_material_paint import glass_tint
-                color = glass_tint(self, card=True)
-            painter.fillPath(path, color)
-            if window.property('settings_glass_enabled') and live:
-                # A small inset highlight gives the translucent group an edge
-                # without making the whole card opaque or shading its bottom.
-                edge = QLinearGradient(rect.topLeft(), rect.bottomRight())
-                edge.setColorAt(0, QColor(255, 255, 255, 87 if theme.is_light() else 15))
-                edge.setColorAt(1, QColor(255, 255, 255, 36 if theme.is_light() else 8))
-                painter.setPen(QPen(edge, 1))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawPath(path)
+            from ..settings_material_paint import glass_active, paint_glass_border
+            if glass_active(self):
+                self._paint_glass_fill(painter, path)
+                paint_glass_border(painter, path)
+            else:
+                painter.fillPath(path, theme.qcolor(base_color(self, 'card', theme.CONTENT)))
             return
         backdrop = self._backdrop()
         if backdrop is not None:

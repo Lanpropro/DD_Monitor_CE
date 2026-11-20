@@ -77,8 +77,8 @@ def main() -> None:
         sidebar.set_select_mode(False)
         assert not button.isChecked()
         assert not sidebar.account_row.isHidden()
-        assert sidebar.tool_row.isHidden() if side == 'left' else not sidebar.tool_row.isHidden()
-        assert sidebar.settings_button.isVisible()
+        assert sidebar.tool_row.isHidden()
+        assert sidebar.settings_button.isVisible() and sidebar.wall_settings_button.isVisible()
         assert card.mask().isEmpty() and card.check.isHidden() and not card.is_checked()
     sidebar.set_select_mode(True)
     for side in ('top', 'left', 'top', 'left'):

@@ -19,7 +19,7 @@ from ddm.room_add_panel import RoomAddPanel
 def main():
     app = QApplication([])
     plain = AddRoomDialog()
-    assert plain.hint.text() == '支持 B 站房间号' and plain.hint.wordWrap()
+    assert plain.hint.text() == '支持 B 站房间号、直播间链接及个人主页链接' and plain.hint.wordWrap()
     assert plain.edit.placeholderText() == '输入房间号或链接'
     plain.edit.setText('https://live.bilibili.com/1001')
     plain.accept()

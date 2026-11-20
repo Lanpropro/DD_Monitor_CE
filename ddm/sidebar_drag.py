@@ -3,7 +3,7 @@ import logging
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QLabel, QWidget
 from shiboken6 import isValid
 
 from .sidebar_hit_test import widget_at
@@ -26,6 +26,9 @@ class SidebarDrag(QObject):
         self.ghost = None
         self.owner = None
         self.mime = None
+        self.plugin_owner = None
+        self.on_finished = None
+        self.area = None
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
@@ -37,10 +40,12 @@ class SidebarDrag(QObject):
     def active(self):
         return self.source is not None
 
-    def start(self, source, mime, pixmap, hotspot, global_pos):
+    def start(self, source, mime, pixmap, hotspot, global_pos, *, plugin_owner=None, on_finished=None):
         if self.active:
-            return
+            return False
         self.source, self.mime = source, mime
+        self.plugin_owner, self.on_finished = plugin_owner, on_finished
+        self.area = source if isinstance(source, QAbstractScrollArea) else self.sidebar.scroll
         if mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME):
             remember_card(mime, pixmap, hotspot)
         self.position = QPoint(global_pos)
@@ -64,6 +69,8 @@ class SidebarDrag(QObject):
                 self.sidebar.show_drop_indicator(rid, source._index_in_host())
             self.ghost.move(self.position - self.hotspot)
             self.ghost.show()
+            if plugin_owner is not None:
+                self.ghost.repaint()
             handle = self.ghost.windowHandle()
             self._set_frame_interval(handle.screen())
             handle.screenChanged.connect(self._set_frame_interval)
@@ -71,6 +78,7 @@ class SidebarDrag(QObject):
             self.owner.grabKeyboard()
             self.timer.start()
             self.visual_timer.start()
+            return self.active
         except BaseException:
             self.cancel()
             raise
@@ -96,15 +104,16 @@ class SidebarDrag(QObject):
             return True
         if (kind == QEvent.ApplicationDeactivate or
                 watched is self.owner and kind in (QEvent.WindowDeactivate, QEvent.Hide, QEvent.Close, QEvent.UngrabMouse) or
-                watched is self.sidebar and kind == QEvent.Hide):
+                watched is self.sidebar and kind == QEvent.Hide or
+                self.plugin_owner is not None and watched is self.source and kind in (QEvent.Hide, QEvent.Close)):
             self.cancel()
         return False
 
     def _wheel(self, event):
-        area = self.sidebar.scroll
+        area = self.area
         if not area.viewport().rect().contains(area.viewport().mapFromGlobal(event.globalPosition().toPoint())):
             return
-        horizontal = self.sidebar.list_box.horizontal
+        horizontal = area is self.sidebar.scroll and self.sidebar.list_box.horizontal
         bar = area.horizontalScrollBar() if horizontal else area.verticalScrollBar()
         pixels = event.pixelDelta()
         delta = (pixels.x() or pixels.y()) if horizontal else pixels.y()
@@ -120,7 +129,7 @@ class SidebarDrag(QObject):
             self.cancel()
             return
         try:
-            area = self.sidebar.scroll
+            area = self.area
             key = (self.position.x(), self.position.y(), area.horizontalScrollBar().value(),
                    area.verticalScrollBar().value())
             if key != self._last_update:
@@ -226,8 +235,16 @@ class SidebarDrag(QObject):
             self.ghost = None
             folder = self.mime.hasFormat(FOLDER_MIME)
             tile = self.mime.hasFormat(TILE_MIME)
+            plugin = self.plugin_owner is not None
+            callback, self.on_finished = self.on_finished, None
+            self.plugin_owner = None
+            self.area = None
             self.mime = self.owner = None
-            if folder:
-                self.sidebar.end_folder_drag()
-            elif not tile:
-                self.sidebar.end_drag()
+            try:
+                if folder:
+                    self.sidebar.end_folder_drag()
+                elif not tile and not plugin:
+                    self.sidebar.end_drag()
+            finally:
+                if callback is not None and source is not None and isValid(source):
+                    callback()

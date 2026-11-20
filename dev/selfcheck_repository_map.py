@@ -13,6 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RepositoryMapTests(unittest.TestCase):
+    def test_final_artifacts_and_handoffs_are_not_tracked(self):
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")
+        self.assertEqual([path for path in tracked if path.startswith("results/")],
+                         ["results/.gitignore"])
+        self.assertFalse([path for path in tracked if path.startswith("docs/HANDOFF-")])
+
     def test_all_tracked_auxiliary_files_are_documented(self):
         tracked = subprocess.check_output(
             ["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")
@@ -33,8 +40,12 @@ class RepositoryMapTests(unittest.TestCase):
                      "docs/plugins.md", "dev/README.md", "dev/checks/README.md",
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",
-                     "docs/development/liveaquarium-learning.md",
-                     "docs/development/bili-shadowreplay-learning.md",
+                     "docs/references/README.md",
+                     "docs/archive/appearance-implementation-202610.md",
+                     "docs/archive/skins-implementation-202610.md",
+                     "docs/archive/resize-performance-202611.md",
+                     "docs/archive/liveaquarium-learning.md",
+                     "docs/archive/bili-shadowreplay-learning.md",
                      "docs/archive/pr11-pr12-integration-testing.md",
                      "docs/archive/repository-integration-20261019.md",
                      "docs/archive/README.md", "dev/benchmarks/README.md",
@@ -58,9 +69,13 @@ class RepositoryMapTests(unittest.TestCase):
         content = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
         cases = re.findall(r'^(?:### (BUG-\d{3})[：:]|\| (BUG-\d{3}) \|)', content, re.MULTILINE)
         ids = [first or second for first, second in cases]
-        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 72)])
+        self.assertEqual(ids, [f'BUG-{number:03d}' for number in range(1, 76)])
+        memory_case = next(line for line in content.splitlines() if line.startswith('| BUG-074 |'))
+        self.assertEqual(memory_case.split('|')[3].strip(), '部分修复待验收')
         douyu_case = content.split('### BUG-071：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：暂缓定位。', douyu_case)
+        self.assertIn('(archive/douyu-playback-202611.md#2026-11-02-起播停顿与线路对照原-bug-案例)', douyu_case)
+        douyu_history = (ROOT / 'docs/archive/douyu-playback-202611.md').read_text(encoding='utf-8')
         for evidence in ('暂时无法复现', '6657', '6979222', 'hwdec=no',
                          'Packet corrupt', '2018d1d', '不是播放故障修复',
                          '普通开发入口和诊断入口均已复现', '12:53:22', 'ReadTimeout',
@@ -69,7 +84,7 @@ class RepositoryMapTests(unittest.TestCase):
                          '14:43:42', 'not JSON serializable', '这修复的是采集器',
                          'c88cff8d', '2350ms', 'douyu-control.json',
                          '1a0f6b2802cb', 'AES256-GCM-SHA384', '不禁用证书或主机名校验'):
-            self.assertIn(evidence, douyu_case)
+            self.assertIn(evidence, douyu_history)
         long_run = content.split('### BUG-070：', 1)[1].split('## 新案例记录规则', 1)[0]
         self.assertIn('**状态**：待定位。', long_run)
         self.assertIn('不构成长时间使用性能的验收', long_run)
@@ -83,13 +98,16 @@ class RepositoryMapTests(unittest.TestCase):
         self.assertIn('具体启动方式未另行说明', speed_case)
         tile_swap = next(line for line in content.splitlines() if line.startswith('| BUG-067 |'))
         self.assertEqual(tile_swap.split('|')[3].strip(), '已修复待验收')
-        for feature in ('等大', '共享', '坐标', '旧清单'):
+        for feature in ('等大', '共享', '坐标'):
             self.assertIn(feature, tile_swap)
+        self.assertIn('(archive/window-interaction-investigations-202610.md#格子换位与共享弹幕位置)', tile_swap)
+        window_history = (ROOT / 'docs/archive/window-interaction-investigations-202610.md').read_text(encoding='utf-8')
+        self.assertIn('旧清单', window_history)
         cross_screen = next(line for line in content.splitlines() if line.startswith('| BUG-066 |'))
         self.assertEqual(cross_screen.split('|')[3].strip(), '已验收')
         for feature in ('画面黑屏', '只有弹幕', '关注栏完好', '基本确认修复'):
             self.assertIn(feature, cross_screen)
-        states = {'已验收', '已修复待验收', '已实现待合并', '历史修复待复核',
+        states = {'已验收', '已修复待验收', '部分修复待验收', '已实现待合并', '历史修复待复核',
                   '待定位', '待复现', '测试或环境记录'}
         for line in content.splitlines():
             if re.match(r'^\| BUG-\d{3} \|', line):
@@ -100,6 +118,29 @@ class RepositoryMapTests(unittest.TestCase):
         for private in ('C:\\Users\\Lan', 'F:\\CodexAppManager', 'SESSDATA=', 'bili_jct='):
             self.assertNotIn(private, content)
         self.assertIn('(bug-cases.md)', (ROOT / 'docs/README.md').read_text(encoding='utf-8'))
+
+    def test_archived_records_keep_original_states_and_failures(self):
+        current = (ROOT / 'docs/bug-cases.md').read_text(encoding='utf-8')
+        history = (ROOT / 'docs/archive/window-interaction-investigations-202610.md').read_text(encoding='utf-8')
+        for number, state, commit in ((30, '已修复待验收', 'c203c11d'),
+                                      (31, '已修复待验收', '5f3f71e3'),
+                                      (54, '已修复待验收', 'b70f4feb'),
+                                      (63, '已验收', 'bd537cdb'),
+                                      (65, '已修复待验收', 'bd537cdb')):
+            with self.subTest(case=number):
+                prefix = f'| BUG-{number:03d} |'
+                row = next(line for line in current.splitlines() if line.startswith(prefix))
+                old = next(line for line in history.splitlines() if line.startswith(prefix))
+                self.assertEqual(row.split('|')[3].strip(), state)
+                self.assertIn(commit, row)
+                self.assertEqual(old.split('|')[3].strip(), '已实现待合并')
+        verification = (ROOT / 'docs/archive/testing-isolation-202611.md').read_text(encoding='utf-8')
+        for evidence in ('旧120秒', '74个', '第8个', '3221225477', '不解释或修复产品Qt原生崩溃'):
+            self.assertIn(evidence, verification)
+        guide = (ROOT / 'docs/development/testing.md').read_text(encoding='utf-8')
+        self.assertIn('(../archive/testing-isolation-202611.md#ci-总超时的旧失败)', guide)
+        self.assertIn('(../archive/testing-isolation-202611.md#关注栏展示专项的原生退出)', guide)
+        self.assertIn('(../archive/testing-isolation-202611.md#画中画选择器的原生退出)', guide)
 
     def test_current_notes_source_and_portable_layouts(self):
         # Exercise the real UI method with label doubles; no QApplication,
@@ -138,22 +179,24 @@ class RepositoryMapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "docs/releases").mkdir(parents=True)
-            expected = {"LICENSE": "License", "NOTICE.md": "Notice",
-                        "RELEASE-vtest.md": "Release"}
             for path, content in (("LICENSE", "License"), ("docs/NOTICE.md", "Notice"),
-                                  ("docs/releases/RELEASE-vtest.md", "Release")):
+                                  ("docs/releases/RELEASE-vtest.md", "Release"),
+                                  ("docs/releases/RELEASE-vtest-hotfix.1.md", "Hotfix")):
                 (root / path).write_text(content, encoding="utf-8")
-            output = root / "portable"
-            output.mkdir()
             script = root / "copy-documents.ps1"
-            script.write_text('param($repo, $exeDir, $version)\n$ErrorActionPreference = "Stop"\n'
+            script.write_text('param($repo, $exeDir, $version, $ReleaseTag)\n$ErrorActionPreference = "Stop"\n'
                               + source[start:stop], encoding="utf-8-sig")
-            result = subprocess.run(["powershell", "-NoProfile", "-File", str(script),
-                                     "-repo", str(root), "-exeDir", str(output),
-                                     "-version", "vtest"], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual({p.name: p.read_text(encoding="utf-8")
-                              for p in output.iterdir()}, expected)
+            for tag, notes in (("vtest", "Release"), ("vtest-hotfix.1", "Hotfix")):
+                with self.subTest(tag=tag):
+                    output = root / tag
+                    output.mkdir()
+                    result = subprocess.run(["powershell", "-NoProfile", "-File", str(script),
+                                             "-repo", str(root), "-exeDir", str(output),
+                                             "-version", "vtest", "-ReleaseTag", tag], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual({p.name: p.read_text(encoding="utf-8")
+                                      for p in output.iterdir()},
+                                     {"LICENSE": "License", "NOTICE.md": "Notice", "RELEASE-vtest.md": notes})
 
 
 if __name__ == "__main__":

@@ -15,7 +15,9 @@ from shiboken6 import isValid
 from ddm import app as app_module
 from ddm.auto_quality import AUTO_QUALITY
 from ddm.codec_control import CodecControl
+from ddm.bili_workers import StreamResolver
 from ddm.stream_playback import StreamPlayback
+from ddm.wall_quality import WallQualityRequest, allows_wall_quality, wall_quality_request
 
 
 class Resolver(QObject):
@@ -60,6 +62,7 @@ class Tile(QObject):
         super().__init__(parent)
         self.room = {'room_id': '1001', 'live': True, 'uname': 'fixture'}
         self.quality, self.volume, self.audio_channel = 250, 31, -1
+        self.actual_quality, self._player_active = 0, False
         self.paused, self.muted = False, False
         self.codec_overrides, self.codec_probe_note = {}, ''
         self.stream_url, self.stream_profile, self.stream_codec = '', 'web', ''
@@ -67,6 +70,9 @@ class Tile(QObject):
         self.video = QObject(self)
         self.set_status, self.set_buffering, self.set_live = Mock(), Mock(), Mock()
         self.set_actual_quality, self.set_quality_options = Mock(), Mock()
+        self.reload_button, self.quality_button = Mock(), Mock()
+        self._quality_text = Mock(return_value='自动 · 720p')
+        self._layout_controls = Mock()
         self.isHidden = Mock(return_value=False)
 
     def set_paused(self, value):
@@ -110,6 +116,26 @@ for name in ('_start_startup_tiles', 'start_all', 'apply_quality_policy', 'start
 
 
 class StreamPlaybackTests(unittest.TestCase):
+    def test_chzzk_uses_overseas_proxy_and_stops_relay(self):
+        from ddm.player import TilePlayer
+        from ddm.follow_folders import PLATFORM_NAMES
+        from ddm.auto_quality import OVERSEAS_PLATFORMS
+        self.assertIn('chzzk', OVERSEAS_PLATFORMS)
+        self.assertEqual(PLATFORM_NAMES['chzzk'], 'CHZZK')
+        player = Mock(decode_mode='auto', silent=False, diagnostic_room='chzzk:' + 'a' * 32)
+        relay = Mock(url='http://127.0.0.1:12345/fixture.m3u8')
+        headers = {'User-Agent': 'fixture', 'Referer': 'https://chzzk.naver.com/'}
+        with patch('ddm.hls_proxy.HlsProxy', return_value=relay) as factory, \
+                patch('ddm.global_danmaku.request_proxy', return_value='http://127.0.0.1:7890'):
+            TilePlayer._play_media(player, 'https://cdn.test/live.m3u8', 'chzzk', headers, [])
+        self.assertEqual(factory.call_args.args[:3],
+                         ('https://cdn.test/live.m3u8', headers, 'http://127.0.0.1:7890'))
+        self.assertEqual(player._media, relay.url)
+        self.assertEqual((player._buffer_limit, player._picture_limit), (20, 20))
+        TilePlayer._stop_media(player)
+        relay.stop.assert_called_once()
+        self.assertIsNone(player._hls_proxy)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -126,6 +152,58 @@ class StreamPlaybackTests(unittest.TestCase):
         self.host.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.stack.close()
+
+    def test_first_stream_uses_selected_resolution_and_manual_change_removes_pending(self):
+        self.tile.room.update(_streamer_playback=True, _streamer_pending_height=1440)
+        self.assertEqual(self.host.apply_quality_policy(), [])
+        self.host.start_tile(self.tile)
+        resolver = self.host._resolvers[self.tile]
+        self.assertEqual(resolver.streamer_height, 1440)
+        resolver.applied_streamer_quality = True
+        resolver.resolved.emit('1001', 'preferred', 15000, 'web', [])
+        self.assertEqual(self.tile.quality, 15000)
+        self.assertNotIn('_streamer_pending_height', self.tile.room)
+        self.tile.room['_streamer_pending_height'] = 1440
+        self.host._sender_tile = lambda: self.tile
+        self.host.stream_playback.on_quality_changed(self.tile.room, 250)
+        self.assertIsNone(self.host._resolvers[self.tile].streamer_height)
+        self.assertEqual(self.tile.quality, 250)
+
+    def test_pending_recording_cannot_follow_a_replaced_room(self):
+        self.host._capture_quality[self.tile] = ('previous', 250)
+        self.host._pending_capture[self.tile] = True
+        self.host._restore_capture_quality.side_effect = self.host._capture_quality.pop
+        self.tile.room.update(_streamer_playback=True, _streamer_pending_height=1440)
+        self.host.start_tile(self.tile)
+        self.host._restore_capture_quality.assert_called_once_with(self.tile)
+        self.assertNotIn(self.tile, self.host._pending_capture)
+        self.assertEqual(self.host._resolvers[self.tile].streamer_height, 1440)
+
+    def test_resolver_tries_configured_resolution_then_lower_if_unavailable(self):
+        resolver = StreamResolver('test:1001', 1, self.host, platform=object())
+        resolver.streamer_height = 2160
+        tiers = [{'desc': '3840x2160', 'qn': 4}, {'desc': '2560x1440', 'qn': 3},
+                 {'desc': '1920x1080', 'qn': 1}]
+        attempted = []
+        def play():
+            attempted.append(resolver.quality)
+            if resolver.quality == 4:
+                raise ValueError('4K unavailable')
+            return 'preferred', 3, 'test', {}
+        with patch.object(resolver, '_platform_play_url', side_effect=play):
+            actual = resolver._prefer_streamer_resolution(('fallback', 1, 'test', {}), tiers)
+        self.assertEqual(attempted, [4, 3])
+        self.assertEqual(actual[:2], ('preferred', 3))
+        self.assertTrue(resolver.applied_streamer_quality)
+
+    def test_wall_quality_command_supersedes_first_streamer_request(self):
+        self.tile.room.update(_streamer_playback=True, _streamer_pending_height=1440)
+        self.host.start_tile(self.tile)
+        previous = self.host._resolvers[self.tile]
+        self.host.start_tile(self.tile, wall_quality=WallQualityRequest(720, (250, 80)))
+        self.assertTrue(previous.cancelled)
+        self.assertNotIn('_streamer_pending_height', self.tile.room)
+        self.assertIsNone(getattr(self.host._resolvers[self.tile], 'streamer_height', None))
 
     def test_module_import_does_not_load_host_widgets_or_player(self):
         result = subprocess.run([sys.executable, '-c', "import sys; import ddm.stream_playback; "
@@ -169,6 +247,93 @@ class StreamPlaybackTests(unittest.TestCase):
         self.assertFalse(isValid(first))
         self.assertFalse(isValid(second))
 
+    def test_wall_resolution_candidates_use_only_the_requested_size_or_lower(self):
+        self.tile.quality_options = [
+            {'qn': 400, 'desc': '1080P'}, {'qn': 20000, 'desc': '4K'},
+            {'qn': 15000, 'desc': '2K'}, {'qn': 250, 'desc': '超清'}]
+        self.assertEqual(wall_quality_request(self.tile, 2160).tiers, (20000, 15000, 400, 250))
+        self.assertFalse(allows_wall_quality(self.tile, wall_quality_request(self.tile, 2160), 250, []))
+        self.assertTrue(allows_wall_quality(self.tile, WallQualityRequest(2160, (400, 250)), 250, []))
+        self.assertEqual(wall_quality_request(self.tile, 1440).tiers, (15000, 400, 250))
+        self.assertEqual(wall_quality_request(self.tile, 480).tiers, ())
+        self.tile.room['room_id'] = 'fixture:1'
+        self.tile.quality_options = [
+            {'qn': 23, 'desc': '1080x1920'}, {'qn': 9, 'desc': '720x1280'},
+            {'qn': 70, 'desc': '960x1706'}]
+        self.assertEqual(wall_quality_request(self.tile, 1020).tiers, (70, 9))
+
+    def test_wall_resolution_retries_lower_and_rejects_a_higher_returned_stream(self):
+        self.host._play_on = Mock()
+        self.tile.quality = self.tile.actual_quality = self.tile.room['quality'] = 80
+        self.tile._player_active = True
+        self.host.players[self.tile] = Player(self.tile.video, self.host)
+        request = WallQualityRequest(2160, (20000, 15000, 250))
+        self.host.start_tile(self.tile, wall_quality=request)
+        first = self.host._resolvers[self.tile]
+        self.assertEqual(first.quality, 20000)
+        first.login_required = True
+        first.failed.emit('1001', '4K requires login')
+        second = self.host._resolvers[self.tile]
+        self.assertEqual(second.quality, 15000)
+        with patch('ddm.media_sources.discard') as discard:
+            second.resolved.emit('1001', 'fixture:rejected', 20000, 'web', [])
+            discard.assert_called_once_with('fixture:rejected')
+        third = self.host._resolvers[self.tile]
+        self.assertEqual(third.quality, 250)
+        self.assertEqual(self.tile.room['quality'], 80)
+        self.host._play_on.assert_not_called()
+        third.resolved.emit('1001', 'fixture:720p', 250, 'web', [])
+        self.assertEqual(self.tile.room['quality'], 250)
+        self.assertEqual(self.host._play_on.call_args.args[1:3], ('fixture:720p', 250))
+        self.assertEqual(self.host._play_on.call_args.kwargs['requested_quality'], 250)
+
+    def test_wall_resolution_exhaustion_keeps_a_playing_picture(self):
+        self.host._play_on = Mock()
+        self.tile.quality = self.tile.actual_quality = self.tile.room['quality'] = 400
+        self.tile._player_active = True
+        self.tile.paused = True
+        player = self.host.players[self.tile] = Player(self.tile.video, self.host)
+        self.host.start_tile(self.tile, wall_quality=WallQualityRequest(720, (250, 80)))
+        for quality in (250, 80):
+            resolver = self.host._resolvers[self.tile]
+            self.assertEqual(resolver.quality, quality)
+            resolver.failed.emit('1001', 'fixture unavailable')
+        self.assertFalse(self.host._resolvers)
+        self.assertEqual((self.tile.quality, self.tile.actual_quality, self.tile.room['quality']), (400, 400, 400))
+        self.assertIs(self.host.players[self.tile], player)
+        self.assertTrue(self.tile.paused)
+        self.assertIn('继续播放原画面', self.tile.codec_probe_note)
+        self.tile.set_status.assert_not_called()
+        self.host._play_on.assert_not_called()
+        self.host._schedule_retry.assert_not_called()
+
+    def test_wall_resolution_exhaustion_without_a_picture_reports_failure(self):
+        for login_required in (False, True):
+            with self.subTest(login_required=login_required):
+                self.host.start_tile(self.tile, wall_quality=WallQualityRequest(720, (250, 80)))
+                for quality in (250, 80):
+                    resolver = self.host._resolvers[self.tile]
+                    self.assertEqual(resolver.quality, quality)
+                    resolver.login_required = login_required and quality == 80
+                    resolver.failed.emit('1001', 'fixture unavailable')
+                self.assertFalse(self.host._resolvers)
+                detail = {'detail': 'fixture unavailable'} if login_required else {}
+                self.tile.set_status.assert_called_with('连接失败', **detail)
+        self.host._schedule_retry.assert_not_called()
+
+    def test_wall_resolution_respects_a_recording_lock_set_during_the_request(self):
+        self.host._play_on = Mock()
+        self.host.start_tile(self.tile, wall_quality=WallQualityRequest(2160, (20000, 15000)))
+        resolver = self.host._resolvers[self.tile]
+        self.host._capture_quality[self.tile] = 250
+        with patch('ddm.media_sources.discard') as discard:
+            resolver.resolved.emit('1001', 'fixture:late', 20000, 'web', [])
+            discard.assert_called_once_with('fixture:late')
+        resolver.finished.emit()
+        self.assertFalse(self.host._resolvers)
+        self.assertEqual(self.tile.quality, 250)
+        self.host._play_on.assert_not_called()
+
     def test_late_results_reject_changed_room_quality_codec_cancel_close_and_removal(self):
         self.host._play_on = Mock()
         for change in ('room', 'quality', 'codec', 'cancel', 'close', 'removed', 'superseded'):
@@ -189,6 +354,29 @@ class StreamPlaybackTests(unittest.TestCase):
                 pending.failed.emit('1001', 'fixture failure')
         self.host._play_on.assert_not_called()
         self.host.refresh_status.assert_not_called()
+
+    def test_resolving_feedback_stays_until_current_request_finishes(self):
+        self.host._play_on = Mock()
+        self.host.start_tile(self.tile)
+        first = self.host._resolvers[self.tile]
+        self.tile.reload_button.set_refreshing.assert_called_with(True)
+        self.tile.quality_button.setText.assert_called_with('获取画质…')
+        self.host.start_tile(self.tile)
+        second = self.host._resolvers[self.tile]
+        first.finished.emit()
+        self.tile.reload_button.set_refreshing.assert_called_with(True)
+        second.resolved.emit('1001', 'fixture:stream', 250, 'web', [])
+        self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.tile.quality_button.setText.assert_called_with('自动 · 720p')
+
+    def test_resolving_failure_and_unexpected_finish_clear_feedback(self):
+        self.host.start_tile(self.tile)
+        current = self.host._resolvers[self.tile]
+        current.failed.emit('1001', 'fixture failure')
+        self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.host.start_tile(self.tile)
+        self.host._resolvers[self.tile].finished.emit()
+        self.tile.reload_button.set_refreshing.assert_called_with(False)
 
     def test_resolved_pause_then_normal_result_uses_old_factory_and_headers(self):
         self.host._play_on = Mock()

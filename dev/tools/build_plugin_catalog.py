@@ -21,8 +21,8 @@ def build(archives, tag):
                 raise ValueError('每个插件包只能包含一个 plugin.json')
             manifest = json.loads(package.read(manifests[0]))
         plugin_id = manifest['id']
-        if not PLUGIN_ID.fullmatch(plugin_id) or plugin_id not in online.KNOWN_PLUGINS:
-            raise ValueError('目录只收录官方维护的插件')
+        if not PLUGIN_ID.fullmatch(plugin_id):
+            raise ValueError('插件 ID 格式无效')
         online.version_key(manifest['version'])
         entry = {key: manifest[key] for key in ('id', 'name', 'description', 'version')}
         entry.update(min_app_version=manifest.get('min_app_version', '0.3'),

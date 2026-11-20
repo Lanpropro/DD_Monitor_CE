@@ -20,7 +20,7 @@ from .sidebar_drag import ROOM_MIME
 from .super_chat_model import SC_BODY_PADDING, SC_CONTENT_COLOR, SC_PRICE_COLOR, SC_USER_COLOR, format_price, format_remaining, order_super_chats, remaining_seconds, super_chat_palette
 from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 from .super_chat_animation import SuperChatPresentation
-from .super_chat_layout import paint_sc_background, sc_card_height, sc_placement_rects, sc_stack_rects
+from .super_chat_layout import paint_sc_background, sc_card_height, sc_stack_layout, sc_stack_rects
 from .widget_support import DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
 
 
@@ -210,6 +210,7 @@ class DanmakuPanel(QFrame):
     }
 
     roomDropped = Signal(str)          # 有直播间被拖到弹幕格上
+    tileDropped = Signal(str, QPoint)  # 画面墙直播与屏幕落点
     fontSizeChanged = Signal(int)      # 面板上的字号滑块被拖动
 
     def __init__(self, parent=None):
@@ -353,6 +354,8 @@ class DanmakuPanel(QFrame):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        if self.window().property('floatingDanmaku'):
+            return super().mouseMoveEvent(event)
         if not (event.buttons() & Qt.LeftButton):
             return
         start = getattr(self, "_press_pos", None)
@@ -375,14 +378,16 @@ class DanmakuPanel(QFrame):
     def dropEvent(self, event) -> None:
         if event.mimeData().hasFormat(DANMAKU_MIME):
             return
-        source = ""
         if event.mimeData().hasFormat(ROOM_MIME):
             source = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
+            if source:
+                event.acceptProposedAction()
+                self.roomDropped.emit(source)
         elif event.mimeData().hasFormat(TILE_MIME):
             source = bytes(event.mimeData().data(TILE_MIME)).decode("utf-8", "ignore")
-        if source:
-            event.acceptProposedAction()
-            self.roomDropped.emit(source)
+            if source:
+                event.acceptProposedAction()
+                self.tileDropped.emit(source, self.mapToGlobal(event.position().toPoint()))
 
     # ---- 内容 ----
     def filter_events(self, allowed):
@@ -476,15 +481,12 @@ class DanmakuPanel(QFrame):
         if any(card._paper is not None for card in self.super_chats._cards):
             return
         viewport = self.body.viewport()
-        rects, scale = sc_placement_rects(
+        rects, scale, bounds = sc_stack_layout(
             self.super_chats._events, viewport.width(), viewport.height(),
             self.super_chats._scale, self.super_chats._position, panel=True,
             collapsed=self.super_chats.presentation.is_collapsed)
         if not rects:
             return
-        bounds = QRectF(rects[0])
-        for rect in rects[1:]:
-            bounds = bounds.united(rect)
         bounds = bounds.toAlignedRect()
         self.super_chats._effective_scale = scale
         self.super_chats.resize(bounds.size())

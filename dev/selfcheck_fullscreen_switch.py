@@ -30,8 +30,6 @@ class HandoffEvents(QObject):
         self.leave = []
         self.native_cover = []
         self.bar_paints = {tile.bottom: 0 for tile in (target, *peers)}
-        self.bar_paint_rects = {}
-        self.enter_bar_ready = []
         self.leave_bars_ready = []
         target.installEventFilter(self)
         for peer in peers:
@@ -46,16 +44,11 @@ class HandoffEvents(QObject):
     def eventFilter(self, watched, event):
         if watched in self.bar_paints and event.type() == QEvent.Paint:
             self.bar_paints[watched] += 1
-            self.bar_paint_rects[watched] = QRect(watched.geometry())
         if watched in self.peers and event.type() == QEvent.Hide:
             self.native_cover.append(self.target.isWindow() and self.native_visible(self.target))
         if watched is self.target and watched.isWindow():
             if event.type() == QEvent.Show:
                 self.enter.append(all(peer.isVisible() for peer in self.peers))
-                bar = self.target.bottom
-                painted = self.bar_paint_rects.get(bar)
-                self.enter_bar_ready.append(painted == bar.geometry()
-                    and painted.topLeft() == self.target.geometry().topLeft() + bar._tile_rect.topLeft())
             elif event.type() == QEvent.Hide:
                 self.leave.append(all(peer.isVisible() and self.native_visible(peer) for peer in self.peers))
                 self.leave_bars_ready.append(all(self.bar_paints[peer.bottom] > 0
@@ -124,16 +117,32 @@ def main():
             window.players = dict(players)
             for target in (tiles[4], tiles[0], tiles[1], tiles[8]):
                 handoff = HandoffEvents(target, [tile for tile in tiles if tile is not target], layer)
-                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
+                bar = target.bottom
+                set_fullscreen = bar.set_fullscreen
+                original_video_rect = QRect(target.video.geometry())
+                rebuilt = []
+
+                def rebuild_after_video(enabled):
+                    if enabled != bar.property('fullscreen'):
+                        video = target.video
+                        assert video.isVisible() and handoff.native_visible(video), 'Video must be visible before rebuilding the bar'
+                        assert video.geometry() == (target.rect() if enabled else original_video_rect)
+                        assert bar.isHidden(), 'Previous bottom bar must stay hidden during its rebuild'
+                        rebuilt.append(enabled)
+                    return set_fullscreen(enabled)
+
+                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout, \
+                        patch.object(bar, 'set_fullscreen', side_effect=rebuild_after_video):
                     window._on_fullscreen(target)
                     assert relayout.call_count == 0, 'Independent fullscreen must not relayout the playback wall'
                 assert handoff.enter and all(handoff.enter), 'Peers disappeared before the presentation was shown'
-                assert handoff.enter_bar_ready and all(handoff.enter_bar_ready), 'Presentation shown before the rebuilt bar painted'
                 assert handoff.native_cover and all(handoff.native_cover), 'Peers hidden before fullscreen HWND became visible'
                 assert window.wall.visible_tiles() == [target]
                 assert window._fullscreen_tile is target and window.sidebar.isVisible()
                 assert target.isWindow() and target.geometry() == area
-                assert target.bottom.windowOpacity() == 1.0, 'Prepared bar must be revealed with the video'
+                assert rebuilt == [True]
+                assert bar.isVisible() and bar.windowOpacity() == 1.0
+                assert bar.geometry() == bar._tile_rect.translated(area.topLeft())
                 user32 = ctypes.windll.user32
                 user32.GetWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
                 user32.GetWindow.restype = ctypes.c_void_p
@@ -152,9 +161,11 @@ def main():
                 assert not [w for w in set(QApplication.topLevelWidgets())-before_windows if isinstance(w, QLabel)]
                 handoff.bar_paints = dict.fromkeys(handoff.bar_paints, 0)
                 target.bottom.setUpdatesEnabled(False)
-                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
+                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout, \
+                        patch.object(bar, 'set_fullscreen', side_effect=rebuild_after_video):
                     window._exit_fullscreen()
                     assert relayout.call_count == 0, 'Restoring the original rectangle must not relayout the wall'
+                assert rebuilt == [True, False] and bar.isVisible()
                 assert handoff.leave and all(handoff.leave), 'Presentation disappeared before peers were restored'
                 assert handoff.leave_bars_ready and all(handoff.leave_bars_ready), 'Presentation disappeared before restored bars painted'
                 assert handoff.bar_paints[target.bottom] > 0, 'Restored target bar was left for a later event loop'

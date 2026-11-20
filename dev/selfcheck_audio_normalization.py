@@ -160,7 +160,7 @@ class EditorTests(unittest.TestCase):
         self.assertFalse(restored.values()['volume_normalization'])
         dialog.close()
 
-    def test_parent_settings_cancel_keeps_original_curve_and_save_includes_inline_edits(self):
+    def test_preview_dialog_keeps_original_curve_and_exposes_inline_edits(self):
         settings = {'volume_normalization': True, 'volume_normalization_curve': preset_curve()}
         original = json.loads(json.dumps(settings))
         dialog = SettingsDialog(settings, {}, preview=True)

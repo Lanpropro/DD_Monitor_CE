@@ -32,6 +32,12 @@ plugins_user/_danmaku_log/
 # 直播平台插件在 DD_Monitor_Plugins 单独维护；这里只保留本机安装副本。
 /plugins_user/global_live/
 /plugins_user/domestic_live/
+/plugins_user/huya_live/
+/plugins_user/douyu_live/
+/plugins_user/douyin_live/
+/plugins_user/twitch_live/
+/plugins_user/youtube_live/
+/plugins_user/chzzk_live/
 /plugins_user/huya_watch/
 /utils/accounts/
 /utils/

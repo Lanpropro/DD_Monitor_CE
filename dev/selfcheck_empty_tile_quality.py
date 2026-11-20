@@ -8,7 +8,7 @@ os.environ["DDM_NO_SAVE"] = "1"
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMenu
 from ddm import config
 from ddm.app import MainWindow
 
@@ -34,8 +34,14 @@ def main():
                 tile.closeRequested.emit(tile.room)
                 assert not tile.room.get("room_id")
                 assert tile.quality == 250, (kind, tile.quality)
-                assert tile.quality_button.text() == "超清 720P"
+                assert tile.quality_button.text() == "画质"
                 assert tile.quality_button.toolTip() == "选择这一路的画质"
+                with patch("ddm.tile_widgets.QMenu") as menu_factory:
+                    tile.quality_button.click()
+                    menu_factory.assert_not_called()
+                context = tile.menu_control.build_menu(menu_type=QMenu)
+                assert all(action.data() != "quality" for action in context.actions())
+                context.deleteLater()
                 assert not tile.quality_options and tile.actual_quality == 0
                 assert (tile.volume, tile.muted, tile.audio_channel) == audio
                 saved = window.current_state()
@@ -47,12 +53,27 @@ def main():
             restored = MainWindow(sidebar, wall, layout_id="1x1", state=saved)
             empty = restored.wall.tiles[0]
             assert empty.quality == 250
-            assert empty.quality_button.text() == "超清 720P"
+            assert empty.quality_button.text() == "画质"
             assert restored.current_state()["wall"][0]["quality"] == 250
             empty.set_room({"room_id": "huya:123", "live": True, "quality": 1004000})
             assert empty.quality == 1004000 and empty.quality_button.text() == "获取画质…"
-            empty.set_quality_options([{"qn": 1004000, "desc": "蓝光4M"}])
+            empty.set_quality_options([{"qn": 1004000, "desc": "蓝光4M"}, {"qn": 1002000, "desc": "高清2M"}])
             assert empty.quality_button.text() == "蓝光4M"
+            empty.set_actual_quality(1002000)
+            assert empty.quality_button.text() == "高清2M"
+            opened = []
+
+            class QualityMenu(QMenu):
+                def exec(self, *_args):
+                    opened.append([option.text() for option in self.actions()])
+
+            with patch('ddm.tile_widgets.QMenu', QualityMenu):
+                empty.quality_button.click()
+            assert opened == [['蓝光4M', '高清2M']]
+            context = empty.menu_control.build_menu(menu_type=QMenu)
+            submenu = next(action.menu() for action in context.actions() if action.data() == 'quality')
+            assert [option.text() for option in submenu.actions()] == ['蓝光4M', '高清2M']
+            context.deleteLater()
             empty.set_room({"room_id": "123", "quality": 80})
             assert empty.quality == 80 and "1004000" not in empty.quality_button.text()
         finally:

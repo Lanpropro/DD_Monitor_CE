@@ -10,8 +10,9 @@
 
 ```powershell
 python dev/tools/build_brand_assets.py
-python dev/tools/build_plugin_catalog.py --tag v1.1 --output plugin-catalog.json domestic_live-1.1.zip global_live-1.1.zip
+python dev/tools/build_plugin_catalog.py --tag match-sync-v1.7.0 --output plugin-catalog.json match_sync-1.7.0.zip
 python dev/tools/sync_release_notes.py --version 0.5.1
 ```
 
 生成工具按需运行，不由默认测试入口执行。对应回归是 `dev/selfcheck_brand_assets.py` 和 `dev/selfcheck_release_metadata.py`。
+插件 ZIP 和目录文件按每个插件自己的正式 Release 分别生成和上传；当前商店从正式 Release 的 ZIP 读取信息，旧版目录仅用于兼容。

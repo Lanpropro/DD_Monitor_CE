@@ -6,6 +6,8 @@ class RoomCatalog:
         self.host = host
         self._add_panel = None
         self._add_target = None
+        ui = getattr(host, 'state', {}).get('ui') or {}
+        self.followed_live_only = ui.get('room_add_followed_live_only') is True
 
     def sync_platform_rooms(self) -> None:
         from . import config as config_module
@@ -30,7 +32,7 @@ class RoomCatalog:
         host.sidebar.set_folders(saved.get("follow_folders") or [])
         for index, room in enumerate(wall):
             if index >= len(host.wall.tiles):
-                host.wall.add_room(room)
+                host.wall.add_room(host.room_placement.prepare_wall_entry(room))
                 continue
             tile = host.wall.tiles[index]
             if str(tile.room.get("room_id") or "") == str(room.get("room_id") or ""):
@@ -40,6 +42,7 @@ class RoomCatalog:
             host.recorder.stop(tile)
             host._pending_capture.pop(tile, None)
             host._stop_tile(tile)
+            room = host.room_placement.prepare_wall_entry(room)
             tile.set_volume(room["volume"])
             tile.set_audio_channel(room["audio_channel"])
             tile.set_muted(room["muted"])
@@ -62,13 +65,47 @@ class RoomCatalog:
         if self._add_panel is None:
             self._add_panel = RoomAddPanel(host.sidebar)
             self._add_panel.submitted.connect(self._submit_inline)
+            self._add_panel.followed_requested.connect(self._load_followed)
+            self._add_panel.followed_selected.connect(self._select_followed)
+            self._add_panel.followed.live_only.setChecked(self.followed_live_only)
+            self._add_panel.followed.live_only.toggled.connect(self._remember_followed_live_only)
         if not self._add_panel.busy:
             self._add_target = target_tile
             self._add_resolver_type = resolver_type or InfoResolver
         hints = [getattr(platform, 'room_input_hint', '') for platform in host.plugins.platforms.values()]
         self._add_panel.entry.setToolTip('房间号或直播间链接，每行一个；Ctrl+Enter 添加'
                                        + ''.join('；' + hint for hint in hints if hint))
-        self._add_panel.open()
+        target = self._add_target
+        self._add_panel.open(can_choose_followed=target is not None,
+                             focus_on_close=target.add_room_button if target is not None else None)
+
+    def _load_followed(self):
+        occupied = {str(tile.room.get('room_id') or '') for tile in self.host.wall.tiles}
+        self._add_panel.followed.load(occupied)
+
+    def _remember_followed_live_only(self, checked):
+        self.followed_live_only = checked
+        self.host._save_timer.start()
+
+    def _select_followed(self, room_id):
+        host, panel, target = self.host, self._add_panel, self._add_target
+        if host._closing or panel.busy or target is None:
+            return
+        if target not in host.wall.visible_tiles() or target.room.get('room_id'):
+            panel.show_error('原空格已不可用，请从其他空格重新打开')
+            return
+        if host._tile_of(room_id) is not None:
+            self._load_followed()
+            panel.show_error('该关注主播已在画面墙上')
+            return
+        room = next((room for room in host.sidebar.rooms() if str(room.get('room_id')) == room_id), None)
+        if room is None:
+            self._load_followed()
+            panel.show_error('该主播已从关注列表移除')
+            return
+        host._on_room_added(dict(room), target_tile=target)
+        panel.close_editor()
+        self._add_target = None
 
     def _submit_inline(self, text, folder_id):
         from .room_add_input import normalize_room_lines, normalize_room_text
@@ -114,7 +151,7 @@ class RoomCatalog:
         from PySide6.QtWidgets import QMessageBox
         host = self.host
         InfoResolver = resolver_type
-        from .room_input import is_bili_short_url
+        from .room_input import bili_profile_uid, is_bili_short_url
         def added(room):
             if host._closing:
                 return
@@ -122,6 +159,7 @@ class RoomCatalog:
             if on_complete is not None:
                 on_complete(True, '')
         short_link = is_bili_short_url(room_id)
+        profile_link = bool(bili_profile_uid(room_id))
         existing = next((room for room in host.sidebar.rooms() if str(room.get("room_id")) == room_id), None)
         if existing is not None:
             if target_tile is not None:
@@ -131,7 +169,7 @@ class RoomCatalog:
             print(f"房间 {room_id} 已在关注列表里")
             return
         platform = host.plugins.platform_for(room_id)
-        if ":" in room_id and not short_link:
+        if ":" in room_id and not (short_link or profile_link):
             if platform is None:
                 if on_complete is not None:
                     on_complete(False, '请启用对应的平台插件并重启')
@@ -156,9 +194,11 @@ class RoomCatalog:
             resolver.failed.connect(lambda _rid, r=resolver: on_complete(False,
                 getattr(r, 'error_message', '') or '房间查询失败，请检查链接、网络或登录状态')
                 if not host._closing else None)
-        elif short_link:
-            resolver.failed.connect(lambda _rid: QMessageBox.warning(
-                host, "添加直播间", "分享链接解析失败，请确认是直播间链接并检查网络后重试")
+        elif short_link or profile_link:
+            resolver.failed.connect(lambda _rid, r=resolver: QMessageBox.warning(
+                host, "添加直播间", (getattr(r, 'error_message', '') or
+                ('个人主页直播间查询失败，请稍后重试' if profile_link else
+                 '分享链接解析失败，请确认是直播间链接并检查网络后重试')))
                 if not host._closing else None)
         else:
             resolver.failed.connect(lambda rid: print(f"房间 {rid} 查询失败"))

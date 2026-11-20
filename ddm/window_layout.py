@@ -61,7 +61,7 @@ class WindowLayout:
         """按窗口方向换排布（顶部横栏 / 左侧栏）和布局预设。"""
         host = self.host
         if host._applying_room_preset or (getattr(host, 'picture_in_picture', None)
-                                         and host.picture_in_picture.active):
+                                         and host.picture_in_picture.moves_main_wall):
             return
         # Side/header reparenting activates ancestor layouts synchronously.
         # Commit their final arrangement once; DPI and painting remain enabled.
@@ -163,9 +163,12 @@ class WindowLayout:
         live = lambda tile: bool(tile.room.get("room_id") and tile.room.get("live"))
         vacant = [index for index in range(capacity) if not live(tiles[index])]
         waiting = [index for index in range(capacity, len(tiles)) if live(tiles[index])]
+        follows_room = host.settings.get("audio_follows_room", False)
         for visible_index, hidden_index in zip(vacant, waiting):
             visible, hidden = tiles[visible_index], tiles[hidden_index]
             tiles[visible_index], tiles[hidden_index] = hidden, visible
+            if follows_room:
+                continue
             # 音量、静音和声道属于位置；画面随格子移动，声音设置留在原位置。
             visible.volume, hidden.volume = hidden.volume, visible.volume
             visible.muted, hidden.muted = hidden.muted, visible.muted
@@ -184,7 +187,8 @@ class WindowLayout:
 
     def on_layout_changed(self, layout_id: str) -> None:
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         host._cancel_interactive_resize()
         panes_reset = host.wall.pane_danmaku.reset_preset(layout_id)
         want_portrait = layouts.is_portrait_layout(layout_id)
@@ -280,6 +284,9 @@ class WindowLayout:
         if (not hasattr(host, "wall") or host._closing
                 or host._fullscreen_tile is not None or host._interactive_resize):
             return
+        # A fully covered native parent need not paint before the first drag.
+        # Native interaction is also an unambiguous end to startup layout.
+        host._startup_layout_pending = False
         host._resize_idle_timer.stop()
         host._interactive_resize = True
 
@@ -327,20 +334,9 @@ class WindowLayout:
             host.wall.set_interactive_resize(False)
 
     def show_initial_maximized(self) -> None:
-        # Windows can expose a maximized HWND before Qt receives its final
-        # resize event. Size the hidden tree first, including the native caption.
         host = self.host
-        bounds = host.screen().availableGeometry()
-        if sys.platform == "win32" and QApplication.platformName() == "windows":
-            import ctypes
-            scale = host.screen().devicePixelRatio()
-            caption = round(ctypes.windll.user32.GetSystemMetricsForDpi(4, round(96 * scale)) / scale)
+        if getattr(host, '_geometry_restored', False):
+            host.show()
         else:
-            host.winId()
-            margins = host.windowHandle().frameMargins()
-            caption = max(0, margins.top() - margins.bottom())
-        host.setGeometry(bounds.adjusted(0, caption, 0, 0))
-        host.layout().activate()
-        host._resize_dirty = True
-        host._finish_interactive_resize()
-        host.showMaximized()
+            # Let Qt maximize without overwriting the normal restore rectangle.
+            host.showMaximized()

@@ -1,6 +1,6 @@
 """海外直播自动画质：使用实际分片吞吐，降档快、升档留余量和稳定期。"""
 AUTO_QUALITY = -1
-OVERSEAS_PLATFORMS = ("twitch", "youtube")
+OVERSEAS_PLATFORMS = ("twitch", "youtube", "chzzk")
 
 
 class AutoQuality:

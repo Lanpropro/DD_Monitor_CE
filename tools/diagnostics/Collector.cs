@@ -580,12 +580,20 @@ namespace DDMonitorDiagnostics
             var files = new List<string>();
             if (logs != null && Directory.Exists(logs) && SafeWithin(dataRoot, logs))
             {
-                foreach (var path in Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p),
-                    @"^(native-crash-\d+-[0-9a-f]+\.json|qt-lifecycle-\d+\.jsonl(?:\.[12])?|settings-crash-\d+\.log)$", RegexOptions.IgnoreCase))
-                    .OrderByDescending(File.GetLastWriteTimeUtc).Take(24))
+                var pattern = new Regex(
+                    @"^(?:native-crash-(?<pid>\d+)-[0-9a-f]+\.json|qt-lifecycle-(?<pid>\d+)\.jsonl(?:\.[12])?|(?:ddm|settings)-crash-(?<pid>\d+)\.log(?:\.1)?)$",
+                    RegexOptions.IgnoreCase);
+                var candidates = Directory.GetFiles(logs)
+                    .Select(path => new { Path = path, Match = pattern.Match(Path.GetFileName(path)) })
+                    .Where(item => item.Match.Success && SafeWithin(dataRoot, item.Path))
+                    .OrderByDescending(item => File.GetLastWriteTimeUtc(item.Path)).ToArray();
+                var crashPids = new HashSet<string>(candidates.Where(item =>
+                    Path.GetFileName(item.Path).StartsWith("native-crash-", StringComparison.OrdinalIgnoreCase))
+                    .Select(item => item.Match.Groups["pid"].Value));
+                // A burst of new launches must not push the preceding crash's stack and lifecycle out of the ZIP.
+                foreach (var item in candidates.OrderByDescending(item => crashPids.Contains(item.Match.Groups["pid"].Value)).Take(24))
                 {
-                    if (!SafeWithin(dataRoot, path)) continue;
-                    var relative = "logs/" + Path.GetFileName(path);
+                    var relative = "logs/" + Path.GetFileName(item.Path);
                     AddLog(entries, relative);
                     if (entries.ContainsKey(relative)) files.Add(relative);
                 }

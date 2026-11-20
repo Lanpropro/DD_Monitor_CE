@@ -1,200 +1,274 @@
-"""Layout selection widget without sidebar, player or main-window imports."""
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QFontMetrics, QIcon
+"""Layout presets and saved room combinations in one anchored popup."""
+from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, Signal
+from PySide6.QtGui import QFontMetrics, QIcon, QWindow
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QStyle,
+    QStyleOptionToolButton, QStylePainter, QToolButton, QVBoxLayout, QWidget
 )
 
-from . import layouts
-from .widget_support import _repolish
+from . import layouts, theme
+from .panel_resize import resize_edges, resized_rect, set_resize_cursor
+from .ui import ActionButton, ElidedLabel, SegmentedControl, TitleLabel
+
+
+class _LayoutCard(QToolButton):
+    def paintEvent(self, event):
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.text = self.fontMetrics().elidedText(option.text, Qt.ElideRight, max(0, self.width() - 16))
+        QStylePainter(self).drawComplexControl(QStyle.CC_ToolButton, option)
 
 
 class LayoutPicker(QFrame):
-    """布局选择弹层：顶上按钮切组，下面是缩略图卡片。
-
-    只列**当前方向能用**的布局：横屏不给竖屏预设、竖屏不给横屏预设 —— 两套摆放
-    规则不一样，套错方向画面会被压变形（用户报的）。组里带 ``section`` 的布局
-    表示换一段，上面插一行小标题（用户要求把平分布局和大带小布局分开）。
-    """
-
     chosen = Signal(str)
     resetRequested = Signal()
+    sizeChanged = Signal(QSize)
 
-    #: 一行摆几张卡片
     COLUMNS = 4
-    #: 卡片图标尺寸（所有卡片统一，否则格子会错开）
-    _icon_size = QSize(64, 42)
-    #: 卡片最小宽度（名字都很短时也别挤成一条）
-    _min_card_width = 108
+    DEFAULT_SIZE = QSize(456, 360)
+    _icon_size = QSize(76, 42)
+    _presets_key = '直播间组合'
 
-    def __init__(self, current: str, parent=None, portrait: bool = False, *, presets_host=None):
+    def __init__(self, current: str, parent=None, portrait: bool = False, *,
+                 presets_host=None, preferred_size=None, available=None):
         super().__init__(parent, Qt.Popup)
-        self.setObjectName("LayoutPicker")
+        self.setObjectName('LayoutPicker')
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self._cards: dict[str, list[QToolButton]] = {}
-        self._sections: dict[str, list[QLabel]] = {}
+        self._cards = {}
+        self._sections = {}
+        self._columns = 0
+        self._resize_gesture = None
+        self._resize_area = (available or self.screen().availableGeometry()).adjusted(6, 6, -6, -6)
+        self.setMouseTracking(True)
         self._reset_layout_id = current
         self._can_reset_layout = layouts.capacity(current) > 1
         self.presets_page = None
 
-        # 两组都列出来（横屏也能点竖屏预设）：选中另一个方向的预设时，本体
-        # 会把**窗口**也改成那个方向（见 MainWindow._on_layout_changed /
-        # _reshape_window），所以不会再出现「竖屏排布塞在横屏窗口里被压扁」。
-        # 用户要的「切成竖屏后 alt+tab 的窗口预览也是竖的」就是靠这条路。
-        groups = [(name, group) for name, group in layouts.GROUPS if group]
-        if not groups:                       # 兜底：一张都没有就照旧全列
-            groups = list(layouts.GROUPS)
-
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 10, 10, 10)
-        outer.setSpacing(8)
+        outer.setContentsMargins(14, 12, 14, 12)
+        outer.setSpacing(10)
+        self.header = QHBoxLayout()
+        self.header.addWidget(TitleLabel('布局预设'))
+        active_layout = layouts.BY_ID.get(current, layouts.BY_ID[layouts.DEFAULT_LAYOUT])
+        self.current_label = ElidedLabel('当前 · ' + active_layout['name'])
+        self.current_label.setObjectName('SettingsHint')
+        self.current_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.header.addWidget(self.current_label, 1)
+        outer.addLayout(self.header)
 
-        self._tabs: dict[str, QPushButton] = {}
-        if len(groups) > 1:                  # 只剩一组时不用摆标签栏
-            tabs = QHBoxLayout()
-            tabs.setSpacing(6)
-            for name, _group in groups:
-                button = QPushButton(name)
-                button.setObjectName("PickerTab")
-                button.setFocusPolicy(Qt.TabFocus)
-                button.setCheckable(True)
-                button.setCursor(Qt.PointingHandCursor)
-                button.clicked.connect(
-                    lambda _checked=False, key=name: self.set_group(key))
-                tabs.addWidget(button)
-                self._tabs[name] = button
-            tabs.addStretch(1)
-            outer.addLayout(tabs)
+        groups = [(name, group) for name, group in layouts.GROUPS if group]
+        active = next((name for name, group in groups if any(item['id'] == current for item in group)), groups[0][0])
+        keys = [name for name, _group in groups]
+        if presets_host is not None:
+            keys.append(self._presets_key)
+        self.tabs = SegmentedControl([(name, name) for name in keys], active, self)
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._tabs = self.tabs.buttons
+        self.tabs.valueChanged.connect(self.set_group)
+        outer.addWidget(self.tabs)
 
-        self._grid = QGridLayout()
+        self.scroll = QScrollArea(self)
+        self.scroll.setObjectName('LayoutPresetScroll')
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setWidgetResizable(True)
+        board = QWidget()
+        board.setObjectName('LayoutPresetBoard')
+        self._grid = QGridLayout(board)
         self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(6)
-        outer.addLayout(self._grid)
-        outer.addStretch(1)          # 各组行数不同，多出来的高度留在下面
-        self.reset_button = QPushButton("恢复默认比例", self)
-        self.reset_button.setObjectName("LayoutResetButton")
-        self.reset_button.setToolTip("恢复当前布局的全部分隔线比例，保留直播间和音频设置")
-        self.reset_button.clicked.connect(self._reset_ratios)
-        outer.addWidget(self.reset_button)
+        self._grid.setSpacing(8)
+        self._grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.scroll.setWidget(board)
+        outer.addWidget(self.scroll, 1)
 
-        active = groups[0][0]
-        for name, group in groups:
-            cards: list[QToolButton] = []
-            sections: list[QLabel] = []
-            row, column, current_section = 0, 0, None
-            for layout in group:
-                section = layout.get("section")
-                if section and section != current_section:
-                    if column:              # 上一段没排满也换行
-                        row, column = row + 1, 0
-                    heading = QLabel(section)
-                    heading.setObjectName("SectionLabel")
-                    self._grid.addWidget(heading, row, 0, 1, self.COLUMNS)
-                    sections.append(heading)
-                    current_section = section
-                    row += 1
-                button = QToolButton(self)
-                button.setObjectName("LayoutCard")
-                button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-                button.setIcon(QIcon(layouts.thumbnail(layout["spec"],
-                                                       size=(self._icon_size.width(), self._icon_size.height()),
-                                                       danmaku=layout.get("danmaku"))))
-                button.setIconSize(self._icon_size)
-                button.setText(layout["name"])
-                button.setCheckable(True)
-                button.setChecked(layout["id"] == current)
-                button.setProperty("layoutId", layout["id"])
-                button.setToolTip(layout.get("hint") or layout["name"])
-                if layout["id"] == current and self._can_reset_layout:
-                    button.setToolTip(button.toolTip() + "\n再次点击恢复默认比例")
-                button.setCursor(Qt.PointingHandCursor)
-                button.clicked.connect(
-                    lambda _checked=False, lid=layout["id"]: self._choose(lid))
-                self._grid.addWidget(button, row, column)
-                cards.append(button)
-                column += 1
-                if column >= self.COLUMNS:
-                    row, column = row + 1, 0
-            self._cards[name] = cards
-            self._sections[name] = sections
-            if any(item["id"] == current for item in group):
-                active = name
         if presets_host is not None:
             from .room_presets_ui import RoomPresetsPage
-            name = "直播间组合"
-            button = QPushButton(name)
-            button.setObjectName("PickerTab")
-            button.setCheckable(True)
-            button.setCursor(Qt.PointingHandCursor)
-            button.clicked.connect(lambda: self.set_group(name))
-            tabs.insertWidget(len(self._tabs), button)
-            self._tabs[name] = button
-            self._cards[name] = []
-            self._sections[name] = []
+            self._cards[self._presets_key] = []
+            self._sections[self._presets_key] = []
             self.presets_page = RoomPresetsPage(presets_host, self)
-            outer.insertWidget(2, self.presets_page, 1)
-            self.presets_page.hide()
-        self._even_cards()
-        self.set_group(active)
-        self._lock_size()
+            outer.addWidget(self.presets_page, 1)
+        self.reset_button = ActionButton('恢复默认比例', self)
+        self.reset_button.setObjectName('LayoutResetButton')
+        self.reset_button.setToolTip('恢复当前布局的全部分隔线比例，保留直播间和音频设置')
+        self.reset_button.clicked.connect(self._reset_ratios)
+        outer.addWidget(self.reset_button, 0, Qt.AlignRight)
 
-    def _even_cards(self) -> None:
-        """把所有卡片做成一样大 —— 名字长短不一，不统一就会出现「大小不一样、
-        上下没对齐」（用户报的）。宽度按最长的名字算，高度按图标 + 一行文字算。"""
-        cards = [card for group in self._cards.values() for card in group]
-        if not cards:
+        for name, group in groups:
+            self._add_group(board, name, group, current)
+        self._refresh_icons()
+        theme.signals().changed.connect(self._refresh_icons)
+        self.set_group(active)
+        self.setMinimumSize(QSize(320, 245).boundedTo(self._resize_area.size()))
+        size = (preferred_size or self.DEFAULT_SIZE).expandedTo(self.minimumSize()).boundedTo(self._resize_area.size())
+        self.resize(size)
+        self._reflow()
+
+    @staticmethod
+    def _section(name, index, item):
+        return item.get('section') or ('均分' if name == '普通布局' and index == 0 else '')
+
+    def _add_group(self, board, name, group, current):
+        cards, sections = [], []
+        for index, item in enumerate(group):
+            section = self._section(name, index, item)
+            if section:
+                heading = QLabel(section, board)
+                heading.setObjectName('SectionLabel')
+                sections.append(heading)
+            button = _LayoutCard(board)
+            button.setObjectName('LayoutCard')
+            button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            button.setIconSize(self._icon_size)
+            button.setText(item['name'])
+            button.setCheckable(True)
+            button.setChecked(item['id'] == current)
+            button.setProperty('layoutId', item['id'])
+            button.setToolTip(item.get('hint') or item['name'])
+            if item['id'] == current and self._can_reset_layout:
+                button.setToolTip(button.toolTip() + '\n再次点击恢复默认比例')
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(lambda _checked, lid=item['id']: self._choose(lid))
+            cards.append(button)
+        self._cards[name] = cards
+        self._sections[name] = sections
+
+    def _reflow(self):
+        margins = self.layout().contentsMargins()
+        width = self.width() - margins.left() - margins.right() - self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        spacing = self._grid.spacing()
+        columns = min(self.COLUMNS, max(1, (width + spacing) // (122 + spacing)))
+        cell_width = max(1, (width - (columns - 1) * spacing) // columns)
+        height = self._icon_size.height() + QFontMetrics(self.font()).height() + 14
+        for cards in self._cards.values():
+            for card in cards:
+                card.setFixedSize(cell_width, height)
+        if columns == self._columns:
             return
-        metrics = QFontMetrics(self.font())
-        label = max(metrics.horizontalAdvance(card.text()) for card in cards)
-        height = (self._icon_size.height() + metrics.height() + 14)
-        self._card_size = QSize(max(self._min_card_width, label + 18), height)
-        for card in cards:
-            card.setFixedSize(self._card_size)
-            card.setIconSize(self._icon_size)
+        self._columns = columns
+        while self._grid.count():
+            self._grid.takeAt(self._grid.count() - 1)
+        for name, cards in self._cards.items():
+            headings = iter(self._sections[name])
+            row = column = 0
+            for index, card in enumerate(cards):
+                if self._section(name, index, layouts.BY_ID[card.property('layoutId')]):
+                    if column:
+                        row, column = row + 1, 0
+                    self._grid.addWidget(next(headings), row, 0, 1, columns)
+                    row += 1
+                self._grid.addWidget(card, row, column)
+                column += 1
+                if column == columns:
+                    row, column = row + 1, 0
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self._reflow()
+
+    def mousePressEvent(self, event):
+        point = event.position().toPoint()
+        if (event.button() == Qt.LeftButton and self.rect().contains(point)
+                and (edges := resize_edges(self, point))):
+            self._resize_gesture = (edges, event.globalPosition().toPoint(), self.geometry())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def _drag_resize(self, point):
+        edges, pressed, original = self._resize_gesture
+        self.setGeometry(resized_rect(original, edges, point - pressed, self._resize_area, self.minimumSize()))
+
+    def mouseMoveEvent(self, event):
+        if self._resize_gesture is not None and event.buttons() & Qt.LeftButton:
+            self._drag_resize(event.globalPosition().toPoint())
+            event.accept()
+            return
+        set_resize_cursor(self, resize_edges(self, event.position().toPoint()))
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resize_gesture is not None and event.button() == Qt.LeftButton:
+            original = self._resize_gesture[2]
+            self._drag_resize(event.globalPosition().toPoint())
+            self._resize_gesture = None
+            if self.size() != original.size():
+                self.sizeChanged.emit(self.size())
+            set_resize_cursor(self, resize_edges(self, event.position().toPoint()))
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        if self._resize_gesture is None:
+            self.unsetCursor()
+        super().leaveEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QApplication.instance().installEventFilter(self)
+
+    def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        self._resize_gesture = None
+        self.unsetCursor()
+        super().hideEvent(event)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.MouseButtonPress, QEvent.NonClientAreaMouseButtonPress):
+            # A popup grab can deliver clicks outside its bounds to the picker itself.
+            if (self._resize_gesture is None
+                    and not self.frameGeometry().contains(event.globalPosition().toPoint())
+                    and not self._owns_click_target(watched)):
+                self.close()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _owns_click_target(self, watched):
+        # Rename and error dialogs can extend past the picker.
+        if isinstance(watched, QWindow):
+            window = watched.transientParent()
+            while window is not None:
+                if window is self.windowHandle():
+                    return True
+                window = window.transientParent()
+        elif isinstance(watched, QWidget):
+            return watched is not self and self.isAncestorOf(watched)
+        return False
+
+    def _refresh_icons(self, *_args):
+        for cards in self._cards.values():
+            for card in cards:
+                item = layouts.BY_ID[card.property('layoutId')]
+                size = (32, self._icon_size.height()) if item.get('portrait') else self._icon_size.toTuple()
+                card.setIcon(QIcon(layouts.thumbnail(item['spec'], size=size, danmaku=item.get('danmaku'), preset=True)))
 
     def set_group(self, name: str) -> None:
-        """切到某一组布局（普通 / 弹幕 / 竖屏）。"""
         if name not in self._cards:
             return
+        self._group = name
+        with QSignalBlocker(self.tabs):
+            self.tabs.setValue(name)
+        showing_presets = name == self._presets_key
+        self.scroll.setVisible(not showing_presets)
         if self.presets_page is not None:
-            self.presets_page.setVisible(name == "直播间组合")
-            self.layout().setStretch(self.layout().count() - 2, 0 if name == "直播间组合" else 1)
-            if name == "直播间组合":
+            self.presets_page.setVisible(showing_presets)
+            if showing_presets:
                 self.presets_page.refresh()
-        for key, button in self._tabs.items():
-            button.setChecked(key == name)
-            _repolish(button)
         for key, cards in self._cards.items():
             for card in cards:
                 card.setVisible(key == name)
-        for key, headings in self._sections.items():
-            for heading in headings:
+            for heading in self._sections[key]:
                 heading.setVisible(key == name)
         self.reset_button.setVisible(self._can_reset_layout and any(
-            card.property("layoutId") == self._reset_layout_id for card in self._cards[name]))
-        self._group = name
-        self.adjustSize()
-        # 宽度固定（右边对齐布局按钮），高度跟着这一组卡片走
-        self.resize(getattr(self, "_width", self.width()), self.sizeHint().height())
+            card.property('layoutId') == self._reset_layout_id for card in self._cards[name]))
+        self.scroll.verticalScrollBar().setValue(0)
 
     def group(self) -> str:
-        return getattr(self, "_group", next(iter(self._cards)))
+        return self._group
 
     def card_ids(self) -> list:
-        """当前这一栏里列出来的布局 id（自检用来确认没把别方向的预设列出来）。"""
-        return [card.property("layoutId") for card in self._cards.get(self.group(), [])]
-
-    def _lock_size(self) -> None:
-        """两组卡片行数不一样，尺寸锁成最大值，切换时不会向屏幕外增长。"""
-        active = self.group()
-        sizes = []
-        for name in self._cards:
-            self.set_group(name)
-            sizes.append(self.sizeHint())
-        self._width = max(size.width() for size in sizes)
-        self._height = max(size.height() for size in sizes)
-        self.setFixedSize(self._width, self._height)
-        self.set_group(active)          # 量完尺寸要切回当前布局所在的那一栏
+        return [card.property('layoutId') for card in self._cards[self.group()]]
 
     def _choose(self, layout_id: str) -> None:
         self.chosen.emit(layout_id)

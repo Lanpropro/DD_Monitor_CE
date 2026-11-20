@@ -91,7 +91,8 @@ class RoomPresetController:
 
     def apply(self, preset_id):
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         if host._closing:
             return False
         if host.room_presets["version"] != 1:
@@ -134,6 +135,7 @@ class RoomPresetController:
                 return False
         if host._fullscreen_tile is not None:
             host._exit_fullscreen()
+        host.wall.pane_danmaku.return_all_floating()
         host.hover_preview.cancel()
         host.wall._cancel_border_drag()
         host._pending_layout = ""
@@ -181,6 +183,7 @@ class RoomPresetController:
             starting = []
             for tile, slot in zip(assigned, slots):
                 rid = slot["room_id"]
+                volume = slot["volume"]
                 if tile not in keeping:
                     known = next((room for room in host.sidebar.rooms()
                                   if str(room.get("room_id")) == rid), None)
@@ -189,13 +192,15 @@ class RoomPresetController:
                         known = placeholders[0]
                         if rid:
                             known["uname"] = slot["label"] or f"房间 {rid}"
-                    tile.set_room(host._prepare_room(dict(known)))
+                    room = host.room_placement.prepare_wall_entry(known)
+                    volume = room.get('_streamer_initial_volume', volume)
+                    tile.set_room(room)
                     if rid:
                         starting.append(tile)
                 # These setters normally emit individual player updates; apply the whole sound state first.
                 blocked = tile.blockSignals(True)
                 try:
-                    tile.set_volume(slot["volume"])
+                    tile.set_volume(volume)
                     tile.set_audio_channel(slot["audio_channel"])
                     tile.set_muted(slot["muted"])
                 finally:

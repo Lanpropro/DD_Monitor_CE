@@ -17,7 +17,8 @@ class CodecControl:
         if tile is None:
             return
         label = config_module.DECODE_LABELS.get(mode, mode)
-        tile.set_status(f"解码异常，正在尝试{label}…")
+        detail = host.playback_recovery.record_failure(tile, decoder_error=True)
+        tile.set_status(f"解码异常，正在尝试{label}…", detail=detail)
         print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
               file=sys.stderr, flush=True)
 

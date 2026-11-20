@@ -84,7 +84,9 @@ class VideoDanmakuSurface:
                 host._quick_group, comment.image.toImage(), comment.x,
                 comment.lane * host.lane_height(),
                 comment.image.width() / comment.image.devicePixelRatioF(),
-                comment.image.height() / comment.image.devicePixelRatioF(), comment.speed)
+                comment.image.height() / comment.image.devicePixelRatioF(), comment.motion_speed)
+            if comment.held:
+                layer.pause_comment(comment.render_id, True, comment.x)
         host._set_quick_active()
 
     def schedule_quick_geometry(self) -> None:

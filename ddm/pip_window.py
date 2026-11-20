@@ -2,10 +2,11 @@
 import math
 import sys
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt
-from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion, QShortcut
+from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 from . import theme
 from .pip_geometry import composition_ratio
+from .shortcut_actions import DEFAULT_SHORTCUTS
 
 
 class PictureInPictureButton(QPushButton):
@@ -98,7 +99,7 @@ class PictureInPictureTools(QWidget):
         self.pin.setCheckable(True)
         self.pin.setChecked(owner.controller.pinned)
         self.pin.setToolTip('已置顶，点击取消置顶' if owner.controller.pinned else '未置顶，点击置顶')
-        self.back = PictureInPictureButton('return', '关闭画中画并返回监控室（Esc）', self)
+        self.back = PictureInPictureButton('return', '关闭画中画并返回监控室', self)
         self.close_only = PictureInPictureButton('close', '仅关闭画中画，保持主窗口状态', self)
         for button in (self.manage, self.reorder, self.pin, self.back, self.close_only):
             box.addWidget(button)
@@ -107,7 +108,6 @@ class PictureInPictureTools(QWidget):
         self.pin.toggled.connect(owner._pin)
         self.back.clicked.connect(owner.return_to_monitor)
         self.close_only.clicked.connect(owner.close)
-        QShortcut(QKeySequence(Qt.Key_Escape), self).activated.connect(owner._escape)
 
 
 class PictureInPictureWindow(QWidget):
@@ -146,7 +146,6 @@ class PictureInPictureWindow(QWidget):
         self.audio_panel = PictureInPictureAudio(self)
         self.audio_feedback = AudioFeedback(self)
         self.audio_button.clicked.connect(self.audio_panel.toggle)
-        QShortcut(QKeySequence(Qt.Key_Escape), self.audio_tools).activated.connect(self._escape)
         self._pending_geometry = None
         self._geometry_timer = QTimer(self)
         self._geometry_timer.setSingleShot(True)
@@ -154,14 +153,11 @@ class PictureInPictureWindow(QWidget):
         self._geometry_timer.setInterval(16)
         self._geometry_timer.timeout.connect(self._flush_geometry)
         self._surface_state = []
-        self.track_tiles(controller.host.wall.tiles)
         self._hover_timer = QTimer(self)
         self._hover_timer.setInterval(100)
         self._hover_timer.timeout.connect(self._poll_tools)
         self._hover_timer.start()
         QApplication.instance().installEventFilter(self)
-        shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
-        shortcut.activated.connect(self._escape)
 
     def track_tiles(self, tiles):
         tracked = {widget for widget, _tracking, _cursor in self._surface_state}
@@ -264,8 +260,8 @@ class PictureInPictureWindow(QWidget):
             return self._live_resize.preview.saveGeometry()
         return super().saveGeometry()
 
-    def set_composition(self, aspects, columns, primary=0):
-        self.aspect = composition_ratio(aspects, columns, primary)
+    def set_composition(self, aspects, columns, primary=0, *, placement=()):
+        self.aspect = composition_ratio(aspects, columns, primary, placement=placement)
         minimum_height = max(48, math.ceil((self.tools.width() + 48) / self.aspect))
         self.setMinimumSize(round(minimum_height * self.aspect), minimum_height)
         screen = self.screen().availableGeometry()
@@ -342,12 +338,34 @@ class PictureInPictureWindow(QWidget):
             edges |= Qt.BottomEdge
         return edges
 
+    def _resize_geometry(self, bounds, edges, delta):
+        rect = QRect(bounds)
+        if delta.isNull():
+            return rect
+        horizontal = edges & (Qt.LeftEdge | Qt.RightEdge)
+        vertical = edges & (Qt.TopEdge | Qt.BottomEdge)
+        width_delta = -delta.x() if edges & Qt.LeftEdge else delta.x()
+        height_delta = -delta.y() if edges & Qt.TopEdge else delta.y()
+        aspect = self.aspect
+        if horizontal and vertical:
+            # Project the signed pointer motion onto the aspect-ratio diagonal.
+            width_delta = (width_delta * aspect + height_delta) * aspect / (aspect * aspect + 1)
+        elif vertical:
+            width_delta = height_delta * aspect
+        width = max(self.minimumWidth(), round(bounds.width() + width_delta))
+        rect.setSize(QSize(width, round(width / aspect)))
+        if edges & Qt.LeftEdge:
+            rect.moveRight(bounds.right())
+        if edges & Qt.TopEdge:
+            rect.moveBottom(bounds.bottom())
+        return rect
+
     def _tile_at(self, point):
         if self.tools.isVisible() and self.tools.geometry().contains(point):
             return None
         if self.audio_tools.isVisible() and self.audio_tools.geometry().contains(point):
             return None
-        return next((tile for tile in self.controller.host.wall.visible_tiles()
+        return next((tile for tile in self.controller.display_wall.visible_tiles()
                      if tile.rect().contains(tile.mapFromGlobal(point))), None)
 
     def _set_reordering(self, enabled):
@@ -359,32 +377,51 @@ class PictureInPictureWindow(QWidget):
             widget.unsetCursor()
         self.tools.reorder.setToolTip('拖到另一格后松开互换；点击结束调整' if enabled else '调整画面位置')
 
+    def _handle_shortcut(self, watched, event):
+        if not isinstance(watched, QWidget):
+            return False
+        window = watched.window()
+        if window not in (self, self.tools, self.audio_tools, self.audio_panel):
+            return False
+        pressed = QKeySequence(event.keyCombination()).toString()
+        if not pressed:
+            return False
+        shortcuts = self.controller.host.shortcuts
+        actions = ('pip_exit',) if window is self.audio_panel else (
+            'pip_exit', 'pip_volume_up', 'pip_volume_down', 'pip_mute', 'pip_solo')
+        action = next((key for key in actions if pressed == shortcuts.get(key, DEFAULT_SHORTCUTS[key])), None)
+        if action is None:
+            # Keep Qt from dispatching a main-window binding for a key delivered to PiP.
+            if (event.type() == QEvent.ShortcutOverride and
+                    any(pressed == sequence for key, sequence in shortcuts.items() if not key.startswith('pip_'))):
+                event.accept()
+                return True
+            return False
+        event.accept()
+        if event.type() == QEvent.ShortcutOverride:
+            return True
+        if action == 'pip_exit':
+            self._escape()
+            return True
+        tile = self._tile_at(QCursor.pos()) if self._pointer_over() else None
+        if tile is not None:
+            if action in ('pip_volume_up', 'pip_volume_down'):
+                tile.set_volume(tile.volume + (5 if action == 'pip_volume_up' else -5))
+            elif action == 'pip_mute':
+                tile.set_muted(not tile.muted)
+            else:
+                for member in self.controller.audio_tiles():
+                    member.set_muted(member is not tile)
+            self.audio_feedback.display(tile)
+        return True
+
     def eventFilter(self, watched, event):
         kind = event.type()
         if (self._live_move is not None and self._live_move.system_moving
                 and kind in (QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease)):
             return False
-        if (kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and isinstance(watched, QWidget)
-                and watched.window() in (self, self.tools, self.audio_tools)):
-            pressed = QKeySequence(event.keyCombination()).toString()
-            shortcuts = self.controller.host.shortcuts
-            volume_up = shortcuts.get('pip_volume_up', 'Up')
-            volume_down = shortcuts.get('pip_volume_down', 'Down')
-            if pressed in (volume_up, volume_down, shortcuts.get('mute'), shortcuts.get('solo')):
-                if kind == QEvent.ShortcutOverride:
-                    event.accept()
-                    return True
-                tile = self._tile_at(QCursor.pos()) if self._pointer_over() else None
-                if tile is not None:
-                    if pressed in (volume_up, volume_down):
-                        tile.set_volume(tile.volume + (5 if pressed == volume_up else -5))
-                    elif pressed == shortcuts.get('mute'):
-                        tile.set_muted(not tile.muted)
-                    else:
-                        for member in self.controller.host.wall.picture_in_picture_tiles:
-                            member.set_muted(member is not tile)
-                    self.audio_feedback.display(tile)
-                return True
+        if kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and self._handle_shortcut(watched, event):
+            return True
         if kind == QEvent.UngrabMouse and watched is self and self._reorder_drag is not None:
             self._reorder_drag = None
             self.setCursor(Qt.OpenHandCursor if self.tools.reorder.isChecked() else Qt.ArrowCursor)
@@ -395,7 +432,7 @@ class PictureInPictureWindow(QWidget):
         preview = live.preview if live is not None else None
         if not isinstance(watched, QWidget) or watched.window() not in (self, preview):
             return False
-        wall = self.controller.host.wall
+        wall = self.controller.display_wall
         surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
                                  for surface in (tile, tile.video, tile.cover, tile.video_danmaku, tile.spinner, tile.pause_overlay)))
         if watched not in surfaces:
@@ -438,34 +475,12 @@ class PictureInPictureWindow(QWidget):
             if self._gesture is not None:
                 start, bounds, edges = self._gesture
                 delta = point - start
-                rect = QRect(bounds)
-                if not edges:
-                    rect.translate(delta)
-                else:
-                    if edges & Qt.LeftEdge:
-                        rect.setLeft(min(bounds.left() + delta.x(), bounds.right() - self.minimumWidth() + 1))
-                    if edges & Qt.RightEdge:
-                        rect.setRight(max(bounds.right() + delta.x(), bounds.left() + self.minimumWidth() - 1))
-                    if edges & Qt.TopEdge:
-                        rect.setTop(min(bounds.top() + delta.y(), bounds.bottom() - self.minimumHeight() + 1))
-                    if edges & Qt.BottomEdge:
-                        rect.setBottom(max(bounds.bottom() + delta.y(), bounds.top() + self.minimumHeight() - 1))
-                    by_height = (not edges & (Qt.LeftEdge | Qt.RightEdge)
-                                 or bool(edges & (Qt.TopEdge | Qt.BottomEdge)) and abs(delta.y()) * self.aspect > abs(delta.x()))
-                    width = round(rect.height() * self.aspect) if by_height else rect.width()
-                    width = max(self.minimumWidth(), width)
-                    size = QSize(width, round(width / self.aspect))
-                    rect.setSize(size)
-                    if edges & Qt.LeftEdge:
-                        rect.moveRight(bounds.right())
-                    if edges & Qt.TopEdge:
-                        rect.moveBottom(bounds.bottom())
                 if edges:
-                    self._pending_geometry = rect
+                    self._pending_geometry = self._resize_geometry(bounds, edges, delta)
                     if not self._geometry_timer.isActive():
                         self._geometry_timer.start()
                 else:
-                    self._move_composition(rect, native_input=event.spontaneous())
+                    self._move_composition(bounds.translated(delta), native_input=event.spontaneous())
                 return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._reorder_drag is not None:
             source, start = self._reorder_drag
@@ -478,14 +493,17 @@ class PictureInPictureWindow(QWidget):
             return True
         if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and self._gesture is not None:
             start, bounds, edges = self._gesture
+            delta = point - start
             if not edges:
-                rect = QRect(bounds)
-                rect.moveTopLeft(bounds.topLeft() + point - start)
+                rect = bounds.translated(delta)
                 if self._live_move is not None:
                     self._live_move.set_geometry(rect)
                     self._live_move.finish()
                 else:
                     self.move(rect.topLeft())
+            else:
+                rect = self._resize_geometry(bounds, edges, delta)
+                self._pending_geometry = rect if self._live_resize is not None or rect != self.geometry() else None
             self._flush_geometry(finishing=True)
             self._gesture = None
             self.releaseMouse()

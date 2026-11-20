@@ -34,8 +34,8 @@ def check():
     images = [Path(target) for target in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', readme)
               if '://' not in target]
     assert [path.as_posix() for path in images] == [
-        'docs/overview4_Landscape_mode.png', 'docs/overview5_Landscape_mode.png',
-        'docs/overview2_Portrait_Mode.png'], 'README must use the selected current screenshots'
+        'docs/assets/screenshots/overview4_Landscape_mode.png', 'docs/assets/screenshots/overview5_Landscape_mode.png',
+        'docs/assets/screenshots/overview2_Portrait_Mode.png'], 'README must use the selected current screenshots'
     tracked = set(subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode('utf-8').split('\0'))
     for path in images:
         assert path.as_posix() in tracked, f'screenshot must be included in the repository: {path}'

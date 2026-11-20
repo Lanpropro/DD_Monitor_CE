@@ -64,7 +64,6 @@ class SystemTrayTests(unittest.TestCase):
         self.stack.enter_context(patch.object(config, 'CONFIG_PATH', str(root / 'config.json')))
         self.stack.enter_context(patch.dict(os.environ, {'DDM_NO_SAVE': ''}))
         self.stack.enter_context(patch.object(system_tray, 'QSystemTrayIcon', FakeTray))
-        self.stack.enter_context(patch('ddm.app.QTimer.singleShot'))
         FakeTray.supported = True
         self.windows = []
 
@@ -75,9 +74,12 @@ class SystemTrayTests(unittest.TestCase):
             window.deleteLater()
         self.app.processEvents()
 
-    def window(self, behavior='ask', state=None):
+    def window(self, behavior='ask', state=None, layout_id='1x1'):
         state = state or {'plugins_enabled': [], 'settings': {'close_behavior': behavior}}
-        window = MainWindow([], [], layout_id='1x1', state=state)
+        # Suppress startup work only; native PiP queues its reparent/start after
+        # the shell is shown and must keep that real event-loop delivery.
+        with patch('ddm.app.QTimer.singleShot'):
+            window = MainWindow([], [], layout_id=layout_id, state=state)
         self.windows.append(window)
         window.show()
         self.app.processEvents()
@@ -178,6 +180,68 @@ class SystemTrayTests(unittest.TestCase):
         window._tray.restore()
         player.release.assert_not_called()
         self.assertFalse(tile.paused)
+
+    def test_tray_preview_retains_pre_minimize_layout_and_restores_window(self):
+        from PySide6.QtWidgets import QWidgetAction
+        window = self.window('tray')
+        tile = window.wall.tiles[0]
+        tile.set_room({'room_id': '123', 'uname': 'Before minimize', 'live': False})
+        tray = window._tray
+        window.showMinimized()
+        self.app.processEvents()
+        before = tray._layout_snapshot
+        self.assertTrue(before['panes'])
+        self.assertIn('Before minimize', [pane['title'] for pane in before['panes']])
+        tile.set_room({'room_id': '456', 'uname': 'Later change', 'live': False})
+        tray.update_menu()
+        self.assertEqual(tray._layout_snapshot, before)
+        self.assertIsInstance(tray.menu.actions()[0], QWidgetAction)
+        self.assertIs(tray.menu.actions()[0].defaultWidget(), tray.layout_preview)
+        self.assertEqual([action.text() for action in tray.menu.actions()
+                          if action.text()], ['显示窗口', '画中画…', '退出'])
+        with patch.object(window.picture_in_picture, 'manage') as manage:
+            tray.pip_action.trigger()
+            manage.assert_called_once_with()
+            self.assertTrue(window.isMinimized())
+        tray.layout_preview.click()
+        self.assertTrue(window.isVisible())
+        self.assertFalse(window.isMinimized())
+
+    def test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close(self):
+        window = self.window('tray', layout_id='2x2')
+        first, manually_paused, other = window.wall.tiles[:3]
+        for index, tile in enumerate((first, manually_paused, other)):
+            tile.set_room({'room_id': str(123 + index), 'uname': 'Fixture', 'live': True})
+        manually_paused.set_paused(True)
+        tray = window._tray
+        tray.hide()
+        saved = dict(tray._saved_playback)
+        pip = window.picture_in_picture
+        with patch.object(window, 'start_tile') as start:
+            self.assertTrue(pip.start([0, 1]))
+            self.app.processEvents()
+            self.assertFalse(first.paused)
+            self.assertTrue(manually_paused.paused)
+            self.assertTrue(other.paused)
+            self.assertFalse(tray.hold_playback(first))
+            self.assertTrue(tray.hold_playback(other))
+            start.assert_called_once_with(first)
+            first.set_paused(True)
+            self.assertTrue(pip.start([0, 1]))
+            self.assertTrue(first.paused, 'Rearranging PiP must retain a new manual pause')
+            start.assert_called_once_with(first)
+            first.set_paused(False)
+            player = Mock()
+            window.players[first] = player
+            pip.restore(activate=False)
+            player.release.assert_called_once()
+            self.assertTrue(first.paused)
+            self.assertTrue(tray.playback_suspended)
+            self.assertEqual(tray._saved_playback, saved)
+            start.reset_mock()
+            tray.restore()
+            self.assertEqual({call.args[0] for call in start.call_args_list}, {first, other})
+            self.assertTrue(manually_paused.paused)
 
     def test_manual_pause_and_changed_room_are_not_resumed(self):
         window = self.window('tray')
@@ -357,6 +421,280 @@ class SystemTrayTests(unittest.TestCase):
             self.app.setQuitOnLastWindowClosed(previous)
         self.assertEqual(errors, [])
         self.assertEqual(steps, ['hidden', 'exited'])
+
+
+class TrayMenuChoicesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_choices_clean_restore_defaults_and_keep_explicit_all_off(self):
+        from ddm.tray_menu import TRAY_MENU_ITEMS, tray_menu_choices
+        defaults = [{'id': key, 'enabled': True} for key, _label in TRAY_MENU_ITEMS]
+        self.assertIsNone(config.DEFAULT_SETTINGS['tray_context_menu'])
+        for value in (None, [], 'invalid'):
+            self.assertEqual(tray_menu_choices(value), defaults)
+        result = tray_menu_choices([
+            {'id': 'pip', 'enabled': False}, {'id': 'unknown'}, None,
+            {'id': 'pip', 'enabled': True}, {'id': 'exit'}, {'id': 'toggle', 'enabled': 0}])
+        self.assertEqual(result, [dict(id='pip', enabled=False), dict(id='exit', enabled=True),
+                                  dict(id='toggle', enabled=False), dict(id='layout_preview', enabled=True)])
+        disabled = [{'id': key, 'enabled': False} for key, _label in TRAY_MENU_ITEMS]
+        self.assertEqual(tray_menu_choices(disabled), disabled)
+
+    def tray(self):
+        from types import SimpleNamespace
+        from PySide6.QtWidgets import QWidget
+        window = QWidget()
+        window.settings = {}
+        window._closing = False
+        window.picture_in_picture = SimpleNamespace(active=False, manage=Mock())
+        window.wall = QWidget(window)
+        window.wall.resize(400, 200)
+        window.wall.tiles = []
+        window.wall.pane_danmaku = SimpleNamespace(rendered=lambda: [])
+        FakeTray.supported = True
+        with patch.object(system_tray, 'QSystemTrayIcon', FakeTray):
+            tray = system_tray.SystemTray(window)
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(tray.shutdown)
+        return window, tray
+
+    def visible_ids(self, tray):
+        return [key for action in tray.menu.actions() if action.isVisible()
+                for key, candidate in tray.menu_actions.items() if action is candidate]
+
+    def test_about_to_show_reorders_and_hides_persistent_actions(self):
+        window, tray = self.tray()
+        actions = dict(tray.menu_actions)
+        separators = list(tray.menu_separators)
+        initial_action_count = len(tray.menu.findChildren(type(tray.exit_action)))
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), ['layout_preview', 'toggle', 'pip', 'exit'])
+        choices = [dict(id='exit', enabled=True), dict(id='pip', enabled=False),
+                   dict(id='layout_preview', enabled=True), dict(id='toggle', enabled=True)]
+        window.settings['tray_context_menu'] = choices
+        for _ in range(5):
+            tray.menu.aboutToShow.emit()
+            self.assertEqual(self.visible_ids(tray), ['exit', 'layout_preview', 'toggle'])
+            self.assertEqual(sum(action.isSeparator() for action in tray.menu.actions()), 2)
+            self.assertEqual(tray.menu_actions, actions)
+            self.assertEqual(tray.menu_separators, separators)
+            self.assertIs(tray.preview_action.defaultWidget(), tray.layout_preview)
+        choices[1]['enabled'] = True
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), ['exit', 'pip', 'layout_preview', 'toggle'])
+        self.assertEqual(sum(action.isSeparator() for action in tray.menu.actions()), 3)
+        self.assertEqual(len(tray.menu.findChildren(type(tray.exit_action))), initial_action_count)
+
+    def test_all_off_defaults_and_callbacks_keep_restore_accessible(self):
+        from ddm.tray_menu import TRAY_MENU_ITEMS
+        window, tray = self.tray()
+        window.settings['tray_context_menu'] = [dict(id=key, enabled=False) for key, _ in TRAY_MENU_ITEMS]
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), [])
+        self.assertFalse(any(action.isSeparator() for action in tray.menu.actions()))
+        with patch.object(tray, 'toggle') as toggle:
+            tray.icon.activated.emit(QSystemTrayIcon.ActivationReason.DoubleClick)
+            toggle.assert_called_once()
+        window.settings['tray_context_menu'] = []
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(len(self.visible_ids(tray)), 4)
+        with patch.object(tray, 'restore') as restore:
+            tray.toggle_action.trigger()
+            restore.assert_called_once()
+        tray.pip_action.trigger()
+        window.picture_in_picture.manage.assert_called_once()
+        with patch.object(window, 'close') as close:
+            tray.exit_action.trigger()
+            self.assertTrue(tray.exit_requested)
+            close.assert_called_once()
+
+    def test_choices_roundtrip_uses_only_temporary_configuration(self):
+        from ddm.tray_menu import tray_menu_choices
+        choices = tray_menu_choices([dict(id='exit', enabled=False), dict(id='pip', enabled=True)])
+        with tempfile.TemporaryDirectory(prefix='ddm-tray-menu-') as temporary:
+            with (patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')),
+                  patch.dict(os.environ, {'DDM_NO_SAVE': ''})):
+                config.save({'version': 1, 'settings': {'tray_context_menu': choices}}, raise_errors=True)
+                self.assertEqual(config.load()['settings']['tray_context_menu'], choices)
+
+    def test_settings_preview_references_choices_selects_and_renders_all_off(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QFont, QFontDatabase, QImage
+        from PySide6.QtTest import QTest
+        from ddm.tray_menu import TrayMenuPreview, tray_menu_choices
+        preview = TrayMenuPreview()
+        self.addCleanup(preview.deleteLater)
+        font_id = QFontDatabase.addApplicationFont(str(
+            Path(__file__).resolve().parents[1] / 'ddm/assets/fonts/SourceHanSansSC-Regular.otf'))
+        self.assertGreaterEqual(font_id, 0)
+        preview.setFont(QFont(QFontDatabase.applicationFontFamilies(font_id)[0]))
+        choices = tray_menu_choices([dict(id='exit', enabled=True), dict(id='toggle', enabled=False)])
+        preview.set_choices(choices)
+        self.assertIs(preview.choices, choices)
+        self.assertEqual([key for key, _ in preview.rows()], ['exit', 'layout_preview', 'pip'])
+        preview.show()
+        self.app.processEvents()
+        changed = Mock()
+        preview.selectedChanged.connect(changed)
+        point = preview.rows()[1][1].center().toPoint()
+        QTest.mouseClick(preview, Qt.LeftButton, pos=point)
+        self.assertEqual(preview.selected, 'layout_preview')
+        changed.assert_called_once_with('layout_preview')
+        image = QImage(preview.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        preview.render(image)
+        self.assertEqual(preview.width(), 260)
+        self.assertGreater(preview.rows()[1][1].height(), preview.rows()[0][1].height())
+        output = os.environ.get('DDM_TRAY_MENU_OUTPUT')
+        if output:
+            self.assertTrue(image.save(output))
+        for choice in choices:
+            choice['enabled'] = False
+        preview.set_choices(choices)
+        self.assertEqual(preview.rows(), [])
+        self.assertEqual(preview.height(), 100)
+        empty = QImage(preview.size(), QImage.Format_ARGB32_Premultiplied)
+        empty.fill(Qt.transparent)
+        preview.render(empty)
+        center = empty.pixelColor(QPoint(130, 50))
+        self.assertTrue(any(empty.pixelColor(x, y) != center
+                            for x in range(30, 230) for y in range(40, 60)),
+                        'The all-off preview must paint its explanation')
+
+
+class TrayLayoutPreviewTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def wall(self):
+        from types import SimpleNamespace
+        from PySide6.QtWidgets import QWidget
+        wall = QWidget()
+        wall.resize(400, 200)
+        wall.tiles = []
+        panels, targets = [], {}
+        wall.pane_danmaku = SimpleNamespace(rendered=lambda: panels, target=targets.get)
+        self.addCleanup(wall.deleteLater)
+
+        def pane(rect, room=None, kind='video', parent=None):
+            widget = QWidget(parent or wall)
+            widget.setGeometry(*rect)
+            widget.room = room or {}
+            widget.show()
+            if kind == 'video':
+                wall.tiles.append(widget)
+            else:
+                panels.append(widget)
+            return widget
+
+        return wall, pane, targets
+
+    def test_irregular_nested_clipped_and_hidden_panes(self):
+        from PySide6.QtWidgets import QWidget
+        from ddm.tray_preview import capture_layout
+        wall, pane, targets = self.wall()
+        container = QWidget(wall)
+        container.setGeometry(40, 20, 320, 160)
+        container.show()
+        pane((-60, 10, 180, 90), {'room_id': '1', 'uname': '主播甲'}, parent=container)
+        empty = pane((180, 0, 220, 70))
+        pane((0, 100, 80, 100), {'room_id': 'hidden'}).hide()
+        pane((500, 0, 60, 60))
+        panel = pane((180, 70, 220, 130), kind='danmaku')
+        targets[panel] = empty
+        snapshot = capture_layout(wall)
+        self.assertEqual(snapshot['aspect'], 2)
+        self.assertEqual(len(snapshot['panes']), 3)
+        self.assertEqual(snapshot['panes'][0], dict(
+            rect=(0, .15, .4, .45), kind='video', title='主播甲', occupied=True))
+        self.assertEqual(snapshot['panes'][1]['title'], '空视频格')
+        self.assertFalse(snapshot['panes'][1]['occupied'])
+        self.assertEqual(snapshot['panes'][2]['rect'], (.45, .35, .55, .65))
+        self.assertEqual(snapshot['panes'][2]['title'], '未绑定')
+        self.assertFalse(snapshot['panes'][2]['occupied'])
+        self.assertTrue(wall.isHidden(), 'Parent hiding must not discard explicitly shown panes')
+
+    def test_room_title_fallbacks_and_bound_danmaku(self):
+        from ddm.tray_preview import capture_layout
+        wall, pane, targets = self.wall()
+        for index, room in enumerate((
+                {'room_id': '1', 'uname': '姓名', 'title': '标题', 'name': '名称'},
+                {'room_id': '2', 'title': '标题', 'name': '名称'},
+                {'room_id': '3', 'name': '名称'}, {'room_id': 4})):
+            pane((index * 100, 0, 100, 100), room)
+        panel = pane((0, 100, 200, 100), kind='danmaku')
+        targets[panel] = wall.tiles[0]
+        pane((200, 100, 200, 100), kind='danmaku')
+        panes = capture_layout(wall)['panes']
+        self.assertEqual([item['title'] for item in panes], ['姓名', '标题', '名称', '4', '姓名', '未绑定'])
+        self.assertTrue(panes[4]['occupied'])
+        self.assertFalse(panes[5]['occupied'])
+
+    def test_diagram_types_tiny_panes_and_restore_button(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QFont, QFontDatabase, QImage
+        from PySide6.QtTest import QTest
+        from ddm import theme
+        from ddm.tray_preview import TrayLayoutPreview
+        preview = TrayLayoutPreview()
+        self.addCleanup(preview.deleteLater)
+        font_path = Path(__file__).resolve().parents[1] / 'ddm/assets/fonts/SourceHanSansSC-Regular.otf'
+        font_id = QFontDatabase.addApplicationFont(str(font_path))
+        self.assertGreaterEqual(font_id, 0)
+        preview.setFont(QFont(QFontDatabase.applicationFontFamilies(font_id)[0]))
+        preview.resize(preview.sizeHint())
+        preview.set_snapshot(dict(aspect=2, panes=[
+            dict(rect=(0, 0, .5, 1), kind='video', title='完整主播名不应从提示中省略', occupied=True),
+            dict(rect=(.5, 0, .5, .5), kind='video', title='空视频格', occupied=False),
+            dict(rect=(.5, .5, .5, .5), kind='danmaku', title='弹幕主播', occupied=True),
+            dict(rect=(.9, .05, .06, .12), kind='danmaku', title='很小的弹幕格', occupied=True),
+        ]))
+        preview.show()
+        self.app.processEvents()
+        image = QImage(preview.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        preview.render(image)
+        # Video, occupied chat and empty cells remain distinct even without readable labels.
+        self.assertNotEqual(image.pixelColor(70, 18), image.pixelColor(170, 18))
+        self.assertNotEqual(image.pixelColor(70, 18), image.pixelColor(170, 80))
+        self.assertEqual(image.pixelColor(227, 22), theme.qcolor(theme.PINK),
+                         'A narrow pane must retain its type-colored marker')
+        self.assertIn('完整主播名不应从提示中省略', preview.toolTip())
+        self.assertIn('弹幕格 · 有内容：很小的弹幕格', preview.toolTip())
+        self.assertIn('视频格 · 空格', preview.toolTip())
+        self.assertIn('恢复主窗口', preview.accessibleName())
+        clicked = Mock()
+        preview.clicked.connect(clicked)
+        QTest.mouseClick(preview, Qt.LeftButton, pos=QPoint(100, 70))
+        clicked.assert_called_once()
+        output = os.environ.get('DDM_TRAY_PREVIEW_OUTPUT')
+        if output:
+            self.assertTrue(image.save(output))
+
+    def test_snapshot_has_only_detached_serializable_layout_data(self):
+        import json
+        from ddm.tray_preview import TrayLayoutPreview, capture_layout
+        wall, pane, targets = self.wall()
+        room = {'room_id': '1', 'uname': '原名', 'media_url': 'private-media'}
+        pane((0, 0, 400, 200), room)
+        with tempfile.TemporaryDirectory(prefix='ddm-tray-layout-') as temporary:
+            with patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')):
+                with patch.object(config, 'save') as save:
+                    snapshot = capture_layout(wall)
+                    preview = TrayLayoutPreview()
+                    self.addCleanup(preview.deleteLater)
+                    preview.set_snapshot(snapshot)
+                    room['uname'] = '已改名'
+                    snapshot['panes'][0]['title'] = '已改快照'
+                    self.assertEqual(preview.snapshot['panes'][0]['title'], '原名')
+                    encoded = json.dumps(preview.snapshot, ensure_ascii=False)
+                    self.assertNotIn('media_url', encoded)
+                    self.assertNotIn('private-media', encoded)
+                    save.assert_not_called()
+                    self.assertEqual(list(Path(temporary).iterdir()), [])
 
 
 def native_contract():

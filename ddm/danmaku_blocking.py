@@ -1,4 +1,5 @@
 """Host-owned block actions; settings remain the only persistent rule store."""
+from datetime import datetime, timezone
 from .danmaku_filter import block_phrase, event_blocked, normalize_users, user_identity
 
 
@@ -14,6 +15,9 @@ class DanmakuBlocking:
             identity = user_identity(event, room_id)
             if identity is None:
                 return False
+            identity.update(blocked_at=datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                            source='message', source_text=str(event.get('text') or event.get('message') or ''),
+                            source_room_id=str(room_id or ''), source_kind=str(event.get('kind') or 'danmaku'))
             key = 'danmaku_blocked_users'
             value = normalize_users([*(host.settings.get(key) or []), identity])
         else:

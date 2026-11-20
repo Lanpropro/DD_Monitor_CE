@@ -9,13 +9,16 @@ class SettingsInputFocus(QObject):
     def __init__(self, root):
         super().__init__(root)
         QApplication.instance().installEventFilter(self)
+        from .settings_scroll_diagnostics import install
+        install()
 
     def eventFilter(self, watched, event):
         root = self.parent()
-        if (event.type() == QEvent.Wheel and isinstance(watched, QWidget) and root.isVisible()
+        kind = event.type()
+        if (kind == QEvent.Wheel and isinstance(watched, QWidget) and root.isVisible()
                 and (watched is root or root.isAncestorOf(watched))):
             return self._wheel(watched, event)
-        if event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget):
+        if kind == QEvent.MouseButtonPress and isinstance(watched, QWidget):
             if root.isVisible() and (watched is root or root.isAncestorOf(watched)):
                 focus = QApplication.focusWidget()
                 if (focus is not None and root.isAncestorOf(focus) and focus is not watched
@@ -30,6 +33,8 @@ class SettingsInputFocus(QObject):
         owner, blocked = watched, False
         delta = event.pixelDelta().y() or event.angleDelta().y()
         while owner is not None and owner is not self.parent():
+            if owner.property('settingsWheelLocal'):
+                return False
             if isinstance(owner, QSlider):
                 if owner.orientation() == Qt.Horizontal and owner.isEnabled():
                     return False

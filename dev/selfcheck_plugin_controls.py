@@ -297,6 +297,54 @@ class ControlsTests(unittest.TestCase):
         finally:
             presentation.leave()
 
+    def test_fullscreen_exit_first_bar_show_uses_restored_width(self):
+        from ddm.fullscreen_presentation import FullscreenPresentation
+
+        self.register()
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        host.setGeometry(-10000, -10000, 1485, 780)
+        host.wall = WallGrid([{'room_id': '12'}], parent=host, layout_id='1x1')
+        host.wall.setGeometry(host.rect())
+        host.show()
+        host.wall.show()
+        tile = host.wall.tiles[0]
+        self.manager.attach_tile(tile)
+        APP.processEvents()
+        bar = tile.bottom
+        normal_width = bar.width()
+        editor = tile._plugin_controls.entries[0].control.widget
+        editor.setText('local draft')
+        presentation = FullscreenPresentation(host)
+        first_show = []
+
+        class BarShow(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Show and not watched.property('fullscreen'):
+                    first_show.append((watched.width(), tile.fullscreen_button.geometry().right()))
+                return False
+
+        observer = BarShow()
+        try:
+            presentation.enter(tile, QRect(-15000, -15000, 2560, 1080))
+            APP.processEvents()
+            self.assertEqual(bar.width(), 2560)
+            bar.installEventFilter(observer)
+            presentation.leave()
+            self.assertTrue(first_show)
+            self.assertEqual(first_show[0][0], normal_width)
+            self.assertLess(first_show[0][1], normal_width)
+            self.assertGreater(first_show[0][1], normal_width - 20)
+            self.assertEqual(editor.text(), 'local draft')
+            self.assertTrue(bar.rect().contains(tile._plugin_controls.widget.geometry()))
+        finally:
+            bar.removeEventFilter(observer)
+            if presentation.tile is not None:
+                presentation.leave()
+
     def test_danmaku_header_background_stays_inside_rounded_top_corners(self):
         host = QWidget()
         host.setObjectName('Root')

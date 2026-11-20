@@ -1,11 +1,45 @@
 """Tile controls; mutable state and Qt ownership stay with Tile."""
 import time
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QPushButton
 from . import motion
 from .fullscreen_cursor import set_native_cursor
 from .widget_support import TILE_BAR_HEIGHT, _repolish
+
+
+class WallControlHover(QObject):
+    """Start the existing per-tile hover handling when native Enter arrives late."""
+
+    def __init__(self, wall):
+        super().__init__(wall)
+        self.wall = wall
+        self.timer = QTimer(self)
+        self.timer.setInterval(25)
+        self.timer.timeout.connect(self.sync)
+        wall.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Show:
+            self.timer.start()
+        elif event.type() == QEvent.Hide:
+            self.timer.stop()
+        return False
+
+    def sync(self):
+        wall = self.wall
+        if not wall.window().isActiveWindow():
+            return
+        point = QCursor.pos()
+        if not wall.rect().contains(wall.mapFromGlobal(point)):
+            return
+        for tile in wall.tiles:
+            if not tile.isVisible() or not tile.rect().contains(tile.mapFromGlobal(point)):
+                continue
+            if (not tile._control_hover_timer.isActive() and not tile.property('fullscreen')
+                    and not tile.property('pictureInPicture')):
+                tile._poll_control_hover()
+            return
 
 
 class TileControls:
@@ -95,6 +129,8 @@ class TileControls:
             host.bottom.setWindowOpacity(1.0 - host._bar_progress)
         host.bottom.setVisible(host._bar_progress < 1.0 or host._bar_target == 0.0)
         host._layout_time_badge()
+        if host.video_caption is not None:
+            host.video_caption.sync_geometry()
         host.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:

@@ -6,7 +6,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QTimer, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
@@ -14,7 +14,12 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 class FullscreenBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            # The bar overlaps native video in fullscreen; its Qt children
+            # share this window instead of each requiring a separate HWND.
+            self.setAttribute(Qt.WA_NativeWindow, True)
         self.setProperty('fullscreen', False)
+        self.contrast_groups = ()
         self._masked_labels = set()
         self._label_mask_pending = False
         self._tile_rect = QRect()
@@ -53,8 +58,7 @@ class FullscreenBar(QWidget):
             return
         if self.qt_composited:
             self.setWindowOpacity(1.0)
-        # The tile is temporarily hidden while promoted to a fullscreen window.
-        # Preserve the bar's own visibility intent, not its ancestor's state.
+        # The presentation may keep the bar hidden until its new geometry is ready.
         visible = not self.isHidden()
         local = QRect(self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())), self.size())
         focus = QApplication.focusWidget()
@@ -67,6 +71,10 @@ class FullscreenBar(QWidget):
         if not enabled:
             self._mask_label_windows(False)
         self.setProperty('fullscreen', enabled)
+        # The fullscreen gradient owns the bottom surface. A normal theme or
+        # skin fill under it would turn the alpha layer into a solid rectangle.
+        self.setProperty('customControlSurface', enabled)
+        self.setAttribute(Qt.WA_StyledBackground, not enabled)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             # Recreate this backing store (and its native input children) when
             # changing alpha modes; Qt can retain layered HWNDs after reparenting.
@@ -77,8 +85,6 @@ class FullscreenBar(QWidget):
             self.setAttribute(Qt.WA_NoSystemBackground, enabled)
             self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint if enabled else Qt.Widget)
             self.set_tile_geometry(local.x(), local.y(), local.width(), local.height())
-            if enabled and getattr(self.parentWidget(), '_presentation_changing', False):
-                self.setWindowOpacity(0.0)
         for widget in (self, *self.findChildren(QWidget)):
             widget.setProperty('fullscreen', enabled)
             widget.style().unpolish(widget)
@@ -116,7 +122,7 @@ class FullscreenBar(QWidget):
     def tile_y(self):
         return self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())).y()
 
-    def _follow_owner(self):
+    def sync_owner_position(self):
         if self.qt_composited:
             self.set_tile_geometry(*self._tile_rect.getRect())
 
@@ -126,8 +132,24 @@ class FullscreenBar(QWidget):
     def _render_badge(self, painter):
         shade = QLinearGradient(0, 0, 0, self.height())
         shade.setColorAt(0, QColor(0, 0, 0, 0))
-        shade.setColorAt(1, QColor(0, 0, 0, 150))
+        shade.setColorAt(.32, QColor(0, 0, 0, 12))
+        shade.setColorAt(.72, QColor(0, 0, 0, 68))
+        shade.setColorAt(1, QColor(0, 0, 0, 146))
         painter.fillRect(self.rect(), shade)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(13, 17, 23, 118))
+        for group in self.contrast_groups:
+            bounds = QRect()
+            for widget in group:
+                if not widget.isHidden():
+                    bounds = bounds.united(widget.geometry())
+            if not bounds.isEmpty():
+                inset = self.rect().adjusted(3, 3, -3, -3)
+                surface = bounds.adjusted(-5, 0, 5, 0).intersected(inset)
+                painter.drawRoundedRect(QRectF(surface), 9, 9)
+        painter.restore()
 
     def _mask_label_windows(self, hide):
         if sys.platform != 'win32' or QApplication.platformName() != 'windows':
@@ -196,5 +218,5 @@ class FullscreenBar(QWidget):
                 self.show()
                 self._owner_hidden_visible = False
             elif event.type() == QEvent.Move:
-                QTimer.singleShot(0, self, self._follow_owner)
+                QTimer.singleShot(0, self, self.sync_owner_position)
         return super().eventFilter(watched, event)

@@ -102,11 +102,10 @@ class WallLayout:
             if host._auto_columns() == host._columns:
                 return
         host._clear()
-        for panel in host.pane_danmaku.all_panels():
-            panel.hide()
+        for widget in host.pane_danmaku.wall_widgets():
+            widget.hide()
 
         if host.fullscreen_tile is not None:
-            host.danmaku.setVisible(False)
             for tile in host.tiles:
                 if tile is host.fullscreen_tile:
                     host.grid.addWidget(tile, 0, 0)
@@ -122,7 +121,6 @@ class WallLayout:
             return
 
         if spec is None:
-            host.danmaku.setVisible(False)
             columns = host._auto_columns()
             host._columns = columns
             for index, tile in enumerate(host.tiles):
@@ -169,24 +167,25 @@ class WallLayout:
         host = self.host
         if host.pane_danmaku.custom:
             widgets = host.pane_danmaku.cell_tiles()
-            widgets.update(host.pane_danmaku.panels)
+            widgets.update({cell: host.pane_danmaku.wall_widget(panel)
+                            for cell, panel in host.pane_danmaku.panels.items()})
             return widgets
         if layouts.is_portrait_layout(host.layout_id):
             # 竖屏弹幕始终占底部，与原竖屏规则一致。
             count = host._capacity()
             widgets = {index: tile for index, tile in enumerate(host.tiles[:count])}
             if host.has_danmaku:
-                widgets[count] = host.danmaku
+                widgets[count] = host.pane_danmaku.wall_widget(host.danmaku)
             return widgets
         widgets = {cell: tile for cell, tile in zip(host._cell_order(), host.tiles)}
         if host.has_danmaku:
-            widgets[host._danmaku_cell] = host.danmaku
+            widgets[host._danmaku_cell] = host.pane_danmaku.wall_widget(host.danmaku)
         return widgets
 
     def preset_minimum(self, cell):
         host = self.host
         widget = host._preset_widgets().get(cell)
-        if widget in host.pane_danmaku.all_panels():
+        if widget in host.pane_danmaku.wall_widgets():
             return QSize(max(200, widget.minimumWidth()), max(140, widget.minimumHeight()))
         return QSize(max(200, widget.minimumWidth()), max(150, widget.minimumHeight()))
 
@@ -234,8 +233,8 @@ class WallLayout:
                     host._pending_reveal.append(tile)
                 else:
                     tile.show()
-            for panel in host.pane_danmaku.all_panels():
-                panel.setVisible(panel in active)
+            for widget in host.pane_danmaku.wall_widgets():
+                widget.setVisible(widget in active)
         old_regions = list(host._divider_rects.values())
         host._preset_dividers = {}
         host._divider_rects = {}
@@ -252,7 +251,7 @@ class WallLayout:
         host = self.host
         WallPaneBorder = border_type
         for pane, border in list(host._pane_borders.items()):
-            if pane not in host.tiles and pane not in host.pane_danmaku.all_panels():
+            if pane not in host.tiles and pane not in host.pane_danmaku.wall_widgets():
                 del host._pane_borders[pane]
             elif pane not in widgets.values() or pane.isHidden():
                 border.hide()
@@ -485,8 +484,8 @@ class WallLayout:
         widgets = host.pane_danmaku.arrange(rectangles, widgets)
         host._resize_on_show = False
         if apply_visibility:
-            for panel in host.pane_danmaku.all_panels():
-                panel.setVisible(panel in widgets.values())
+            for widget in host.pane_danmaku.wall_widgets():
+                widget.setVisible(widget in widgets.values())
             for index, tile in enumerate(host.tiles):
                 if tile not in widgets.values():
                     tile.hide()

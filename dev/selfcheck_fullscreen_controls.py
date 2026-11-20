@@ -10,10 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QPainter, QPalette, QRegion
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
-from ddm import app as app_module, theme
+from ddm import app as app_module, skin_parts, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
@@ -116,12 +116,11 @@ def check_transparent_bar(app, tile):
             image.fill(Qt.transparent)
             editor.paints = 0
             painter = QPainter(image)
-            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground | QWidget.DrawChildren)
             painter.end()
             assert editor.paints > 0, 'Transparent composition must include the live editor'
             sample_x = tile.bottom.width() // 2 + 120
-            assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
-            assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
+            check_gradient(image, sample_x)
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
@@ -166,6 +165,92 @@ def check_transparent_bar(app, tile):
         editor.hide()
     finally:
         editor.deleteLater()
+
+
+def check_gradient(image, x):
+    height = image.height()
+    alpha = [image.pixelColor(x, y).alpha() for y in range(height)]
+    assert alpha[0] < 5, 'Fullscreen bar top must reveal video'
+    assert 20 < alpha[height // 2] < 50, 'Most of the bar must stay lightly shaded'
+    assert 110 < alpha[-1] < 155, 'Bottom edge must darken without covering the video'
+    assert alpha == sorted(alpha), 'Fullscreen bar must darken smoothly toward the bottom'
+
+
+def check_skin_gradient(tile):
+    bar = tile.bottom
+    skin_parts.configure({}, {'controls': {'background': '#ff0033', 'radius': 8}})
+    try:
+        image = QImage(bar.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        bar.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+        painter.end()
+        check_gradient(image, image.width() // 2)
+        assert image.pixelColor(image.width() // 2, image.height() - 1).red() == 0, (
+            'Normal skin background must not be layered under the fullscreen gradient')
+    finally:
+        skin_parts.configure({}, {})
+
+
+def check_control_contrast(app, tile):
+    def render(widget, backdrop, flags=QWidget.DrawChildren):
+        image = QImage(widget.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(QColor(backdrop))
+        painter = QPainter(image)
+        widget.render(painter, QPoint(), QRegion(), flags)
+        painter.end()
+        return image
+
+    composer = QWidget(tile.bottom)
+    composer.setObjectName('DanmakuComposer')
+    composer.setGeometry(tile.bottom.width() // 2 - 90, 0, 180, 30)
+    composer.setStyleSheet('#DanmakuComposer QLineEdit {padding: 3px 6px;}')
+    editor = QLineEdit(composer)
+    editor.setPlaceholderText('Local input')
+    editor.setGeometry(composer.rect())
+    composer.show()
+    try:
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            app.processEvents()
+            bar = tile.bottom
+            alpha = render(bar, 'transparent', QWidget.DrawWindowBackground)
+            check_gradient(alpha, bar.width() // 2)
+            white = render(bar, '#ffffff')
+            dark = render(bar, '#101010')
+            for widget in (tile.pause_button, tile.fullscreen_button):
+                rect = widget.geometry()
+                x, y = rect.left() + 2, rect.center().y()
+                assert 85 < white.pixelColor(x, y).value() < 155, 'Local button group must dim bright video'
+                assert dark.pixelColor(x, y).value() < 40, 'Backing must blend into dark video'
+                assert any(dark.pixelColor(x, y).value() > 200 for x in range(rect.left(), rect.right())
+                           for y in range(rect.top(), rect.bottom())), 'Button must keep its light foreground'
+            # The pause glyph itself stays unoutlined when painted without its group.
+            icon = render(tile.pause_button, '#ffffff')
+            assert all(icon.pixelColor(x, y).value() > 230
+                       for x in range(icon.width()) for y in range(icon.height()))
+            sample = QPoint(3, tile.pause_button.height() // 2)
+            accent = theme.qcolor(theme.ACCENT)
+            for button in (tile.pause_button, tile.volume_button, tile.danmaku_button,
+                           tile.danmaku_settings_button, tile.recording_button, tile.fullscreen_button):
+                before = render(button, '#ffffff')
+                app.sendEvent(button, QEvent(QEvent.Enter))
+                hovered = render(button, '#ffffff')
+                assert hovered.pixelColor(sample) == accent, button.objectName()
+                assert hovered.pixelColor(0, 0) == QColor('#ffffff'), 'Hover must follow the button corners'
+                app.sendEvent(button, QEvent(QEvent.Leave))
+                assert render(button, '#ffffff') == before, 'Leaving must restore the resting surface'
+            tile.pause_button.setEnabled(False)
+            app.sendEvent(tile.pause_button, QEvent(QEvent.Enter))
+            assert render(tile.pause_button, '#ffffff').pixelColor(sample) != accent
+            app.sendEvent(tile.pause_button, QEvent(QEvent.Leave))
+            tile.pause_button.setEnabled(True)
+            pixel = render(editor, '#ffffff').pixelColor(editor.width() - 16, editor.height() // 2)
+            assert 80 < pixel.value() < 130, 'Only the composer field needs a translucent dark backing'
+            assert editor.palette().color(QPalette.PlaceholderText).value() > 220
+    finally:
+        composer.hide()
+        composer.deleteLater()
 
 
 def main():
@@ -232,6 +317,8 @@ def main():
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
         check_transparent_bar(app, tile)
+        check_skin_gradient(tile)
+        check_control_contrast(app, tile)
         if '--desktop' in sys.argv:
             with patch('ddm.motion.enabled', return_value=True):
                 tile.set_fullscreen_controls_hidden(True)
@@ -366,6 +453,8 @@ def main():
             window._fullscreen_tile = None
             window.wall.set_fullscreen_tile(None)
         assert not tile.bottom.property('fullscreen')
+        assert tile.bottom.testAttribute(Qt.WA_StyledBackground)
+        assert not tile.bottom.property('customControlSurface')
         assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
         assert not tile.bottom.isWindow(), 'Leaving fullscreen must restore the ordinary child bar'
         assert not tile.bottom._masked_labels, 'Leaving fullscreen must restore native label regions'
@@ -375,10 +464,19 @@ def main():
         assert all(corner.isVisible() for corner in tile.video_corners)
         if app.platformName() == 'windows':
             assert not ctypes.windll.user32.GetWindowLongW(int(tile.bottom.winId()), -20) & 0x80000, 'Normal bar retained the fullscreen layered backing store'
+            wall_windows = set(QApplication.topLevelWidgets())
             enter = window._fullscreen_presentation.enter
+            sync_danmaku_controls = window.wall._sync_danmaku_controls
+
+            def sync_danmaku_before_video_hides():
+                if window.wall.fullscreen_tile is tile:
+                    assert tile.video.isVisible(), 'Docked controls must detach while the old video is visible'
+                sync_danmaku_controls()
+
             with patch.object(window, '_upgrade_fullscreen_quality'), \
                     patch.object(window._fullscreen_presentation, 'enter',
                                  side_effect=lambda target: enter(target, QRect(-20000, -20000, 1100, 800))), \
+                    patch.object(window.wall, '_sync_danmaku_controls', side_effect=sync_danmaku_before_video_hides), \
                     patch('ddm.motion.enabled', return_value=False):
                 for _ in range(3):
                     window._on_fullscreen(tile)
@@ -392,6 +490,9 @@ def main():
                     assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
                     native_bar_image(tile.bottom)
                     window._exit_fullscreen()
+                    assert not [widget for widget in set(QApplication.topLevelWidgets()) - wall_windows
+                                if widget.parentWidget() is window and widget.isVisible()], (
+                        'A temporary presentation window is still covering the restored wall')
                     app.processEvents()
                     assert tile.bottom.isVisible() and not tile.bottom.isWindow()
         page = GeneralSettingsPage({'fullscreen_auto_hide_controls': False})

@@ -2,13 +2,14 @@
 import zipfile
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QLayout, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
 from .plugin_card_layout import PluginCardLayout
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
-from .ui import SettingsSurface, DisclosureButton, ElidedLabel, page_header as _page_head
+from .ui import ActionButton, SettingsSurface, DisclosureButton, ElidedLabel, ToggleSwitch, page_header as _page_head
+from .search import matches_query
 
 
 class PluginRemovePrompt(AnimatedDialog):
@@ -23,12 +24,11 @@ class PluginRemovePrompt(AnimatedDialog):
             f'将删除插件“{plugin_name}”及其文件。\n已加载的插件将在重启后停止运行。'))
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        self.cancel_button = QPushButton('取消')
-        self.cancel_button.setObjectName('IconButton')
+        self.cancel_button = ActionButton('取消')
         self.cancel_button.setDefault(True)
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
-        self.delete_button = QPushButton('删除')
+        self.delete_button = ActionButton('删除')
         self.delete_button.setObjectName('PrimaryButton')
         self.delete_button.setAutoDefault(False)
         self.delete_button.clicked.connect(self.accept)
@@ -61,8 +61,7 @@ class PluginSettingsPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
         layout.addLayout(_page_head("插件", "拖入 ZIP 插件包或含插件 ZIP 的 EXE；安装和启用更改在重启后生效"))
-        self.install_button = QPushButton("装载插件…")
-        self.install_button.setObjectName("IconButton")
+        self.install_button = ActionButton("装载插件…")
         self.install_button.clicked.connect(self._install)
         actions = QHBoxLayout()
         actions.addWidget(self.install_button)
@@ -184,7 +183,7 @@ class PluginSettingsPage(QWidget):
         self._filter_installed(reset_scroll=False)
 
     def _filter_installed(self, *_args, reset_scroll=True):
-        terms = self.installed_browser.search.text().casefold().split()
+        query = self.installed_browser.search.text()
         scope = self.installed_browser.filter.currentIndex()
         metadata = {offer['id']: offer for offer in self.store_page.offers}
         visible = []
@@ -192,7 +191,7 @@ class PluginSettingsPage(QWidget):
             enabled = self.checks[plugin_id].isChecked()
             text = ' '.join(str(entry.get(key) or '') for key in ('id', 'name', 'description'))
             text += ' ' + str(metadata.get(plugin_id, {}).get('author') or '')
-            matches = all(term in text.casefold() for term in terms)
+            matches = matches_query(text, query)
             matches = matches and (scope == 0 or (scope == 1 and enabled)
                 or (scope == 2 and not enabled) or (scope == 3 and plugin_id in self._available_update_ids))
             self._installed_cards[plugin_id].setVisible(matches)
@@ -211,11 +210,9 @@ class PluginSettingsPage(QWidget):
         position = self.installed_scroll.verticalScrollBar().value()
         while self.cards.count():
             self.cards.takeAt(0)
-        minimum = self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 280
-        columns = 2 if self.installed_scroll.viewport().width() >= minimum * 2 + self.cards.spacing() else 1
-        self.cards.set_columns(columns)
         for entry in visible:
             self.cards.addWidget(self._installed_cards[entry['id']])
+        self.cards.fit_columns(self.installed_scroll.viewport().width() - 4)
         self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
         self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
         self.empty.setVisible(not visible)
@@ -227,7 +224,7 @@ class PluginSettingsPage(QWidget):
                 self._filter_installed(reset_scroll=False)
         return super().eventFilter(watched, event)
 
-    def _installed_selection_changed(self):
+    def _installed_selection_changed(self, _checked):
         self._filter_installed(reset_scroll=False)
         self.changed.emit()
 
@@ -281,19 +278,22 @@ class PluginSettingsPage(QWidget):
         heading = QHBoxLayout()
         heading.addWidget(title, 1)
         summary.addLayout(heading)
-        check = QCheckBox("启用")
+        check = ToggleSwitch('启用 ' + entry['name'])
+        check.setText('启用')
+        check.setAccessibleDescription('启用或停用更改在重启后生效')
         check.setChecked(entry["enabled"])
         self.checks[entry["id"]] = check
         check.toggled.connect(self._installed_selection_changed)
+        enabled_label = QLabel('启用')
+        enabled_label.setBuddy(check)
+        heading.addWidget(enabled_label)
         heading.addWidget(check)
-        update = QPushButton("更新")
-        update.setObjectName("IconButton")
+        update = ActionButton("更新")
         update.setMinimumWidth(update.fontMetrics().horizontalAdvance('校验/解压中') + 28)
         update.hide()
         update.clicked.connect(lambda: self._update_plugin(entry["id"]))
         self.update_buttons[entry["id"]] = update
-        remove = QPushButton("删除")
-        remove.setObjectName("IconButton")
+        remove = ActionButton("删除")
         remove.clicked.connect(lambda: self._remove(entry["id"], card))
         details = DisclosureButton(card)
         details.setText('详情')
