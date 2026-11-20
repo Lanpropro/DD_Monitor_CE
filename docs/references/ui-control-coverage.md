@@ -2,7 +2,7 @@
 
 > 类型：设计 ｜ 状态：草案 ｜ 适用版本：当前开发版 ｜ 更新：2026-11-20 ｜ 读者：维护者、贡献者
 
-从 [控件图鉴](ui-control-library.html) 的顶部分组进入。总览每类一张卡，78 个实装场景可在相应详情中切换。每个场景都有源码位置、参数面板和两套主题的 Windows Qt 截图。表里的 `#control-…` 直接打开对应场景的详情。
+从 [控件图鉴](ui-control-library.html) 的顶部分组进入。原有 78 个本体场景保留源码位置、参数面板和两套主题的 Windows Qt 截图。通用图标按钮和比赛二路组合在各自分组中提供网页试样和源码。表里的 `#control-…` 直接打开对应场景的详情。
 
 逐项记录包含本轮对照的控件结构、绘制或交互。详情面板可固定查看悬停、按下、键盘焦点和禁用，选中、展开、静音等持续状态通过操作相应控件查看。用「重置预览」恢复默认外观。
 
@@ -122,6 +122,31 @@
 | 主播独立设置卡 | 主播设置 › 主播卡片 | 切换整组与单个主播，展开后试调画质和音量。 | [settings_streamer_profiles.py](../../ddm/settings_streamer_profiles.py) | `#control-streamer-profile` | 叠放头像、展开箭头、三项摘要、组及单人设置。 |
 | 首次启动须知 | 首次启动 › 用户须知 | 滚动阅读示例，确认后查看反馈。 | [user_notice.py](../../ddm/user_notice.py) | `#control-startup-notice` | 须知正文、内部滚动和右下确认按钮。 |
 | 视觉效果与设置布局 | 外观 › 视觉效果 | 试用毛玻璃底色、阴影、分段滑动和单／双列布局。 | [settings_material_editor.py](../../ddm/settings_material_editor.py) | `#control-settings-material` | 设置卡片、参数可见条件、列数和指示器动效。 |
+
+## 图标与通用控件
+
+「通用图标按钮」详情按来源展示侧栏、设置分类、内置文件夹、自绘按钮、应用与平台素材及比赛二路图标。侧栏、设置分类和内置文件夹沿用 Qt 的 SVG 路径，应用与平台标识直接加载仓库素材。QPainter 自绘和系统字形在网页中用近似形状演示，详情可查看对应源码。布局缩略图、状态指示和应用标识保留各自语义，可在试样里比较统一按钮的尺寸与交互状态。
+
+用户导入的图标、插件包自带的标识以及网络取得的头像、台标和表情随运行数据变化。图鉴仅收录这些入口的固定素材或示例。
+
+## 比赛二路插件
+
+按公开版本 `match-sync-v1.7.0`、提交 `26af8f19` 核对。网页交互使用示例数据，详见每张卡的源码链接。 [比赛二路源码](https://github.com/Lanpropro/DD_Monitor_Plugins/tree/match-sync-v1.7.0/plugins/match_sync)
+
+| 试样 | 检查项 | 详情标识 |
+| --- | --- | --- |
+| 比赛二路入口 | 进入与关闭工作区反馈 | `#control-match-launch` |
+| 二路播放控制台 | 添加来源、自动对齐和缓存余量 | `#control-match-console` |
+| 二路来源控制行 | 主画面、声道、独立播放、重新匹配、相对偏移与确认加入 | `#control-match-room` |
+| 二路画面对照 | 来源切换、选区与放大、收起 | `#control-match-compare` |
+| 二路悬浮裁切 | 示例选区、悬浮大小、使用整个画面 | `#control-match-float` |
+| 计时器对齐 | 首帧时间、计算和确认应用 | `#control-match-clock` |
+| 二路回看时间线 | 进度拖动、按秒跳转和返回直播 | `#control-match-replay` |
+| 二路分音轨录制 | 容器、音轨选择和录制状态 | `#control-match-record` |
+| 二路弹幕发送控制台 | 目标选择、暂存和模拟发送 | `#control-match-send` |
+| 二路批量发送 | 多选目标、取消和模拟发送 | `#control-match-batch` |
+| 二路弹幕观看设置 | 区域、透明度、字号、速度、描边和缩放 | `#control-match-danmaku` |
+| 比赛二路设置 | 画面、声音与入口偏好 | `#control-match-settings` |
 
 ## 复用与运行边界
 

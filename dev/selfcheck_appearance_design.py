@@ -1,4 +1,6 @@
 """Check appearance design references and readable text palettes."""
+import ast
+import json
 from pathlib import Path
 import re
 
@@ -11,7 +13,34 @@ def luminance(color):
     return sum(a * b for a, b in zip(linear, (.2126, .7152, .0722)))
 
 
+def check_gallery_vectors():
+    def assignment(path, name):
+        tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
+        return next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == name for target in node.targets))
+
+    data = (ROOT / "docs/references/ui-control-icon-data.js").read_text(encoding="utf-8")
+    vectors = [json.loads(line.strip().rstrip(",")) for line in data.splitlines()
+               if line.lstrip().startswith("[")]
+    actual = {key: (source, svg) for _, key, _, source, svg in vectors}
+    assert len(actual) == len(vectors), "duplicate inventory icon IDs"
+    rail_path = "ddm/sidebar_navigation.py"
+    settings_path = "ddm/settings_navigation.py"
+    folder_path = "ddm/folder_icons.py"
+    rail = ast.literal_eval(assignment(rail_path, "PATHS"))
+    settings = assignment(settings_path, "ICONS")
+    names = ast.literal_eval(assignment("ddm/follow_folders.py", "ICON_NAMES"))
+    folders = ast.literal_eval(assignment(folder_path, "PATHS"))
+    expected = {f"rail-{key}": (rail_path, svg) for key, svg in rail.items()}
+    for key, glyph in zip(settings.keys, settings.values):
+        svg = ast.literal_eval(glyph) if isinstance(glyph, ast.Constant) else rail[ast.literal_eval(glyph.slice)]
+        expected[f"settings-{ast.literal_eval(key)}"] = (settings_path, svg)
+    expected.update({f"folder-{key}": (folder_path, svg) for key, svg in zip(names, folders, strict=True)})
+    assert actual == expected, f"stale gallery SVG inventory: {actual.keys() ^ expected.keys()}"
+
+
 def main():
+    check_gallery_vectors()
     current = (ROOT / "docs/features/appearance-design.md").read_text(encoding="utf-8")
     assert "设置 → 外观" in current
     assert "archive/appearance-implementation-202610.md" in current

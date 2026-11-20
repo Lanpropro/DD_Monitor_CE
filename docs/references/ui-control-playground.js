@@ -38,7 +38,7 @@ const labControls = [
   area: row < 8 ? 'settings' : row < 13 ? 'bottom' : 'overlay',
   source: row < 4 ? 'ddm/settings_general.py' : row < 6 ? 'ddm/settings_codec_editor.py'
     : row === 6 ? 'ddm/settings_appearance.py' : row === 7 ? 'ddm/settings_theme_editor.py' : 'ddm/tile_widgets.py',
-})).concat(labAdditionalControls, labApplicationControls);
+})).concat(labAdditionalControls, labApplicationControls, labExtensions);
 
 const labControlById = new Map(labControls.map(item => [item.id, item]));
 const labTypeById = new Map();
@@ -188,7 +188,9 @@ function labMount(host, item) {
   const playbackStatus = host.closest('.lab-playback-preview')?.querySelector('.lab-playback-status');
   const popupId = `lab-${id}-${labDetail.contains(host) ? 'detail' : 'card'}`;
   const content = item.sheet === 'application' ? labAppExample(item, popupId, detail)
-    : item.sheet === 'extra' ? labAdditionalExample(item, popupId) : labExample(item, popupId);
+    : item.sheet === 'extra' ? labAdditionalExample(item, popupId)
+      : id === 'icon-control' ? labIconSpecimen()
+        : item.sheet === 'extension' ? labMatchExample(item, popupId) : labExample(item, popupId);
   host.innerHTML = `<fieldset aria-label="${item.title}">
     <div class="lab-main"><span class="lab-extra" aria-hidden="true" hidden></span><div class="lab-controls">${content}</div></div>
     </fieldset>${playbackStatus ? '' : '<output class="lab-status" aria-live="polite"></output>'}
@@ -212,6 +214,8 @@ function labMount(host, item) {
   const number = host.querySelector('.lab-step-value');
   const report = message => { status.textContent = message; };
   if (item.sheet === 'extra') labBindAdditional(host, item, report);
+  if (id === 'icon-control') labBindIconSpecimen(host, report);
+  else if (item.sheet === 'extension') labBindMatchExample(host, report);
   let iconChoice = 'default';
 
   function paintIcon(button, glyph) {
@@ -392,6 +396,8 @@ function labRenderDetail(item) {
   const playback = type === labPlaybackType;
   const numbers = labNumberFields(item);
   const lastRow = labControls.filter(control => control.sheet === item.sheet).length - 1;
+  const reference = item.sheet === 'extension' ? '' : `<figure class="lab-reference"><figcaption>当前 Qt 外观</figcaption>
+    <div class="qt-swatch" data-sheet="${item.sheet || 'base'}" role="img" aria-label="${item.title}的 Qt 截图" style="--qt-y:${item.row / lastRow * 100}%"></div></figure>`;
   labDetail.innerHTML = `<header class="lab-detail-head">
     <div><h2 id="playground-name" tabindex="-1">${type.title}</h2><p>${item.group} › ${item.location}</p></div>
     <a class="lab-link" href="#overview">返回总览</a></header>
@@ -401,9 +407,10 @@ function labRenderDetail(item) {
     <div class="lab-detail-layout">
       <section class="lab-panel"><h3>${type.title === item.title ? '实时预览' : item.title}</h3>
         ${playback ? '<div class="lab-playback-preview"></div>' : '<div class="lab-demo lab-detail-stage"></div>'}
-        <figure class="lab-reference"><figcaption>当前 Qt 外观</figcaption>
-          <div class="qt-swatch" data-sheet="${item.sheet || 'base'}" role="img" aria-label="${item.title}的 Qt 截图" style="--qt-y:${item.row / lastRow * 100}%"></div></figure>
-        <div class="lab-source"><p>${item.usage}</p><code>${item.source}</code></div>
+        ${reference}
+        <div class="lab-source"><p>${item.usage}</p>${item.sourceLink
+          ? `<a class="lab-link" href="${item.sourceLink}">比赛二路 v1.7.0 · ${item.source}</a>`
+          : `<code>${item.source}</code>`}</div>
       </section>
       <section class="lab-panel"><div class="lab-props-head"><h3>预览参数</h3><button type="button" class="lab-reset">重置预览</button></div>
         <form class="lab-form">
@@ -411,12 +418,13 @@ function labRenderDetail(item) {
           ${labPaintFields.map(([name, label]) => `<label>${label}<span class="lab-color-input"><input type="color" name="${name}"><output></output></span></label>`).join('')}
           ${numbers.map(([name, label, min, max, value, step = 1]) =>
             `<label>${label}<input type="number" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`).join('')}
-          <label class="lab-span">图标<select name="icon">${labOptions(labIcons)}</select></label>
+          ${item.id === 'icon-control' ? '' : `<label class="lab-span">图标<select name="icon">${labOptions(labIcons)}</select></label>`}
         </form>
         <p class="lab-motion-note">时长为 0 时即时切换。系统「减少动态效果」始终生效。</p>
         ${labSegmentIds.includes(item.id) ? '<p class="lab-motion-note">开启页顶开关后，可连续点选或水平拖动底片。</p>' : ''}
       </section>
     </div>
+    ${item.id === 'icon-control' ? labIconIndex() : ''}
     ${type.usages.length ? `<section class="lab-panel lab-use-sources"><h3>其他实装位置</h3><ul>${type.usages.map(([name, source]) =>
       `<li>${name} <a class="lab-link" href="../../ddm/${source}">源码</a></li>`).join('')}</ul></section>` : ''}`;
   if (playback) labMountPlayback(labDetail.querySelector('.lab-playback-preview'), item);
@@ -473,7 +481,9 @@ function labShowRoute() {
   labOpen = item;
   labGallery.hidden = Boolean(item);
   labDetail.hidden = !item;
-  labContext.textContent = item ? '网页交互试样 · 对照当前 Qt 外观' : `${labCatalog.length} 类控件 · ${labControls.length} 个实装场景`;
+  labContext.textContent = item
+    ? (item.sheet === 'extension' ? '网页交互试样 · 对照源码' : '网页交互试样 · 对照当前 Qt 外观')
+    : `${labCatalog.length} 类控件 · ${labControls.length} 个试样`;
   labOverview.querySelector('.lab-group-links').hidden = Boolean(item);
   if (item) {
     setTab(document.getElementById('tab-overview'));

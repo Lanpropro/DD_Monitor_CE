@@ -30,7 +30,7 @@
 
 ## 控件库设计评审
 
-[控件图鉴与评审记录](ui-control-library-draft.md)提供 78 项在用控件和组合的网页试样、详情参数与 Qt 对照。实装入口、试用操作与对照边界见[逐项核对清单](ui-control-coverage.md)。
+[控件图鉴与评审记录](ui-control-library-draft.md)提供本体控件、通用图标按钮和比赛二路组合的网页试样。实装入口、试用操作与对照边界见[逐项核对清单](ui-control-coverage.md)。
 
 在 Windows 上双击仓库根目录的 [open-control-library.cmd](../../open-control-library.cmd)，用默认浏览器离线打开控件图鉴。
 

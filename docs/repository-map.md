@@ -550,12 +550,15 @@
 - `docs/features/README.md`
 - `docs/references/README.md`
 - `docs/references/ui-control-coverage.md`
+- `docs/references/ui-control-icon-data.js`
+- `docs/references/ui-control-icons.js`
 - `docs/references/ui-control-library-draft.md`
 - `docs/references/ui-control-library-qt-application.png`
 - `docs/references/ui-control-library-qt-extra.png`
 - `docs/references/ui-control-library-qt.png`
 - `docs/references/ui-control-library.html`
 - `docs/references/ui-control-library.js`
+- `docs/references/ui-control-match.js`
 - `docs/references/ui-control-motion.js`
 - `docs/references/ui-control-examples.js`
 - `docs/references/ui-control-app-examples.js`
