@@ -10,7 +10,7 @@ from . import theme
 from .avatar_widgets import AVATAR_COLORS, circular_pixmap
 from .corner_geometry import continuous_path
 from .search import matches_query
-from .ui import ActionButton
+from .sidebar_navigation import NavigationButton
 
 
 @dataclass(frozen=True)
@@ -265,9 +265,7 @@ class PresetRoomPicker(RoomCardPicker):
     def __init__(self, parent):
         super().__init__(parent, search_label='搜索电视频道', list_label='电视预设频道')
         self.rooms = {}
-        self.file_button = ActionButton('选文件', self)
-        self.file_button.setToolTip('选择本地播放列表')
-        self.file_button.setAccessibleName('选择本地播放列表')
+        self.file_button = NavigationButton('选择本地播放列表', 'open_folder', self)
         self.filters.addWidget(self.file_button)
         self.filters.setAlignment(Qt.AlignLeft)
 

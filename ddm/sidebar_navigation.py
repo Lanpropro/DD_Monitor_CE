@@ -20,6 +20,8 @@ PATHS = {
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
     'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     'import_follows': '<circle cx="8" cy="7" r="3"/><path d="M2 20v-2a6 6 0 0 1 12 0v2m8-8h-7m3-3-3 3 3 3"/>',
+    'tv': '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="m8 3 4 4 4-4"/>',
+    'open_folder': '<path d="M3 19V6a1 1 0 0 1 1-1h5l2 3h8a1 1 0 0 1 1 1v2M3 19l3-8h16l-3 8Z"/>',
     'plus': '<path d="M12 5v14M5 12h14"/>',
     'more': '<circle cx="5" cy="12" r=".8"/><circle cx="12" cy="12" r=".8"/><circle cx="19" cy="12" r=".8"/>',
     'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
