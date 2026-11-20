@@ -21,11 +21,15 @@ def check():
     published = re.search(r"当前已发布版本 \*\*([\d.]+)\*\*", readme)
     download_version = published.group(1) if published else version
     assert all(value == download_version for value in archives + executables), "stale README download version"
+    links = re.findall(r"\]\(([^)]+)\)", readme)
+    release_download = f"https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v{download_version}/"
+    for filename in ("DDMonitorSetup.exe", f"DDMonitorCE-v{download_version}-exe.zip"):
+        assert release_download + filename in links, f"download must point to the published release: {filename}"
     if download_version != version:
         assert f"本地候选版本 **{version}**" in readme, "Unpublished source version must be identified as a local candidate"
     anchors = {re.sub(r"[^\w\s\-]", "", heading.lower()).replace(" ", "-")
                for heading in re.findall(r"^#{1,6}\s+(.+)$", readme, re.M)}
-    for target in re.findall(r"\]\(([^)]+)\)", readme):
+    for target in links:
         if target.startswith("#"):
             assert target[1:] in anchors, f"missing section: {target}"
         elif "://" not in target:
