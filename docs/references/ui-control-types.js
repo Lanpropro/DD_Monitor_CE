@@ -1,7 +1,7 @@
 // Merge identical controls. Combined UI previews keep their own entries, even if they reuse a control.
 const labSharedTypes = [
   ['分段选择', ['collapse', 'codec', 'theme'], [
-    ['画面墙 › 布局预设与我的组合切换', 'layout_picker.py'],
+    ['画面墙 › 布局预设与直播间组合切换', 'layout_picker.py'],
     ['弹幕 › 浮窗开启后原弹幕格的用途', 'settings_danmaku.py'],
     ['弹幕 › 拖入画面时关联主播或交换位置（未关联／已关联）', 'settings_danmaku.py'],
     ['弹幕 › 醒目留言的画面布局／弹幕栏布局', 'settings_danmaku.py'],
@@ -18,6 +18,7 @@ const labSharedTypes = [
   ['开关', ['preview'], [
     ['常规 › 新建格子初始静音、交换格子声音跟随、全屏单路声音、音量均衡、全屏自动收起控制条', 'settings_general.py'],
     ['常规 › 自动切换紧凑列表、紧凑卡片显示背景图、隐藏到托盘后暂停播放', 'settings_general.py'],
+    ['账号 › 记住登录（本机加密保存）', 'platform_login.py'],
     ['软件更新 › 启动时检查更新', 'app_update_ui.py'],
     ['画中画 › 与主窗口同时播放', 'pip_picker.py'],
     ['弹幕 › 关闭浮窗后保留直播格、显示醒目留言、SC 随画面缩放、同步 SC 位置、弹幕随画面缩放', 'settings_danmaku.py'],

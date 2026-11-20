@@ -494,7 +494,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-danmaku-popup .lab-range-row { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 8px; align-items: center; margin-bottom: 9px; }
 .lab-danmaku-popup .lab-range input { --lab-accent: #fb7299; height: 22px; }
 .lab-danmaku-popup .lab-range input::-webkit-slider-thumb { background: var(--lab-ink); }
-.lab-danmaku-popup .lab-range output { width: 44px; font-weight: 700; }
+.lab-danmaku-popup .lab-range output { flex: 0 0 44px; font-weight: 700; white-space: nowrap; }
 .lab-danmaku-color { border-radius: 20px; height: 35px; gap: 4px; }
 .lab-danmaku-color input { width: 18px; height: 18px; padding: 0; border: 0; background: transparent; }
 .lab-danmaku-color input::-webkit-color-swatch-wrapper { padding: 0; }

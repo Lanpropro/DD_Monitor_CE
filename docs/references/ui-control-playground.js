@@ -37,7 +37,7 @@ const labControls = [
   group: row < 8 ? '设置页' : '播放格',
   area: row < 8 ? 'settings' : row < 13 ? 'bottom' : 'overlay',
   source: row < 4 ? 'ddm/settings_general.py' : row < 6 ? 'ddm/settings_codec_editor.py'
-    : row < 8 ? 'ddm/settings_appearance.py' : 'ddm/tile_widgets.py',
+    : row === 6 ? 'ddm/settings_appearance.py' : row === 7 ? 'ddm/settings_theme_editor.py' : 'ddm/tile_widgets.py',
 })).concat(labAdditionalControls, labApplicationControls);
 
 const labControlById = new Map(labControls.map(item => [item.id, item]));
@@ -186,7 +186,7 @@ function labMount(host, item) {
   host.style.cssText = `--lab-width:${width}px;--lab-height:${height}px;--lab-radius:${radius}px`;
   const detail = host.classList.contains('lab-detail-stage');
   const playbackStatus = host.closest('.lab-playback-preview')?.querySelector('.lab-playback-status');
-  const popupId = `lab-${id}-${detail ? 'detail' : 'card'}`;
+  const popupId = `lab-${id}-${labDetail.contains(host) ? 'detail' : 'card'}`;
   const content = item.sheet === 'application' ? labAppExample(item, popupId, detail)
     : item.sheet === 'extra' ? labAdditionalExample(item, popupId) : labExample(item, popupId);
   host.innerHTML = `<fieldset aria-label="${item.title}">
