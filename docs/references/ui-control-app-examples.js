@@ -329,7 +329,7 @@ function labAppExample(item, popupId) {
         ${b('弹幕浮窗','chat-float',true)}<div data-app-float-slot hidden>${b('收回弹幕栏','chat-return')}</div>`; break;
     case 'caption-placement':
       html = `<div class="lab-app-caption-stage"><button class="lab-control" type="button" data-primary
-        data-app-caption-move aria-label="字幕位置，使用方向键移动"><small>今日はみんなとゲームを楽しみます。</small><span>今天和大家一起享受游戏。</span></button></div>
+        data-app-caption-move aria-label="字幕位置，拖动或使用方向键移动"><small>今日はみんなとゲームを楽しみます。</small><span>今天和大家一起享受游戏。</span></button></div>
         ${labRange('字幕大小',10,24,14,' px')}${b('恢复位置与大小','caption-place-reset')}`; break;
     case 'theme-editor':
       html = `<div class="lab-app-choice lab-swatches" role="group" aria-label="主题色">${labPresets.map(([color, label],index) => `
@@ -488,28 +488,43 @@ function labBindApplication(host, item, report, paintIcon) {
   let skinPart;
   if (caption) {
     const stage = caption.parentElement;
-    let position = [50, 78];
-    const place = (x, y) => {
-      position = [Math.max(12, Math.min(88, x)), Math.max(14, Math.min(86, y))];
-      caption.style.left = position[0] + '%';
-      caption.style.top = position[1] + '%';
+    const render = () => {
+      caption.style.transform = `translate(${(x.position - 0.5) * 100}cqw, ${(y.position - 0.78) * 100}cqh)`;
     };
-    caption.addEventListener('pointerdown', event => {
-      if (event.button === 0) caption.setPointerCapture(event.pointerId);
-    });
-    caption.addEventListener('pointermove', event => {
-      if (!caption.hasPointerCapture(event.pointerId)) return;
-      const bounds = stage.getBoundingClientRect();
-      place((event.clientX - bounds.left) * 100 / bounds.width, (event.clientY - bounds.top) * 100 / bounds.height);
+    const x = new GalleryMotion(caption, 0.5, render);
+    const y = new GalleryMotion(caption, 0.78, render);
+    const xBounds = [0.12, 0.88], yBounds = [0.14, 0.86];
+    const place = (horizontal, vertical) => {
+      x.place(galleryClamp(horizontal, ...xBounds));
+      y.place(galleryClamp(vertical, ...yBounds));
+    };
+    let bounds, startX, startY;
+    galleryTrackDrag(caption, {
+      canStart: () => !caption.matches(':disabled'),
+      threshold: 0,
+      grab: () => {
+        x.pause();
+        y.pause();
+        bounds = stage.getBoundingClientRect();
+        startX = x.position;
+        startY = y.position;
+      },
+      move: (dx, dy) => place(startX + dx / bounds.width, startY + dy / bounds.height),
+      release: (vx, vy) => {
+        x.velocity = vx / bounds.width;
+        y.velocity = vy / bounds.height;
+        x.coast(...xBounds);
+        y.coast(...yBounds);
+      },
     });
     caption.addEventListener('keydown', event => {
-      const offset = {ArrowLeft: [-4,0], ArrowRight: [4,0], ArrowUp: [0,-4], ArrowDown: [0,4]}[event.key];
+      const offset = {ArrowLeft: [-.04,0], ArrowRight: [.04,0], ArrowUp: [0,-.04], ArrowDown: [0,.04]}[event.key];
       if (!offset) return;
       event.preventDefault();
-      place(position[0] + offset[0], position[1] + offset[1]);
+      place(x.position + offset[0], y.position + offset[1]);
     });
     const reset = () => {
-      place(50, 78);
+      place(0.5, 0.78);
       caption.style.removeProperty('font-size');
       const slider = select('input[type=range]');
       slider.value = 14;

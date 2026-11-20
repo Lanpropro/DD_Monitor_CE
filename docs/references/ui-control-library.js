@@ -111,6 +111,14 @@ const segmentedExample = `<div class="segment-example">
   <output class="segment-label" data-example-value aria-live="polite">当前选择：全部收起</output>
 </div>`;
 
+function selectExampleSegment(button, pointer) {
+  const choice = button.dataset.segmentChoice;
+  document.querySelectorAll('[data-example-segment]').forEach(group => {
+    gallerySelectSegment(group, group.querySelector(`[data-segment-choice="${choice}"]`), pointer);
+    group.nextElementSibling.textContent = '当前选择：' + button.textContent;
+  });
+}
+
 // Existing names are the public exports of ddm.ui. HTML samples use draft styling.
 const components = [
   ['基础与承载', 'ActionButton', '操作按钮', '普通设置操作，可指定主次层级。', button('应用设置')],
@@ -191,7 +199,7 @@ function renderShowcase(component) {
   showcase.dataset.activeComponent = name;
   const notes = name === 'SegmentedControl' ? `<dl class="example-notes">
     <div><dt>共同底板</dt><dd>两个选项设置同一个行为，只选其一。</dd></div>
-    <div><dt>选中块</dt><dd>独立的亮块和较重的文字表示当前选择。</dd></div>
+    <div><dt>选中块</dt><dd>打开页顶开关后，可连续点选或水平拖动底片。</dd></div>
     <div><dt>实装对照</dt><dd>在<a href="#control-collapse">该设置的详情</a>查看当前 Qt 外观。</dd></div>
   </dl>` : '';
   const specimens = `<div class="specimens">${themes.map(([theme, title]) =>
@@ -210,6 +218,9 @@ function renderShowcase(component) {
     </div>` : specimens;
   showcase.innerHTML = `<header><div class="showcase-title"><h2>${label}</h2><span class="kind ${proposed ? 'proposed' : ''}">${proposed ? '新增候选' : '候选样式'}</span></div>
     <div class="code">${name}</div><p class="component-description">${description}</p></header>${body}`;
+  showcase.querySelectorAll('[data-example-segment]').forEach(group => {
+    galleryBindSegment(group, '[data-segment-choice]', group.querySelector('.indicator'), selectExampleSegment);
+  });
 }
 
 function showComponent(name) {
@@ -364,15 +375,7 @@ document.addEventListener('click', event => {
     });
   }
   if (clicked.matches('[data-segment-choice]')) {
-    const choice = clicked.dataset.segmentChoice;
-    document.querySelectorAll('[data-example-segment] .indicator').forEach(indicator => {
-      indicator.classList.toggle('is-sliding', event.detail > 0);
-    });
-    document.querySelectorAll('[data-segment-choice]').forEach(option =>
-      option.setAttribute('aria-pressed', option.dataset.segmentChoice === choice));
-    document.querySelectorAll('[data-example-value]').forEach(output => {
-      output.textContent = '当前选择：' + clicked.textContent;
-    });
+    selectExampleSegment(clicked, event.detail > 0);
   } else if (clicked.parentElement.matches('.segment')) {
     [...clicked.parentElement.children].forEach(button => button.setAttribute('aria-pressed', button === clicked));
     const label = clicked.closest('.demo').querySelector('[data-stack-label]');

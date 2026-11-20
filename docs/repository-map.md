@@ -554,6 +554,7 @@
 - `docs/references/ui-control-library-qt.png`
 - `docs/references/ui-control-library.html`
 - `docs/references/ui-control-library.js`
+- `docs/references/ui-control-motion.js`
 - `docs/references/ui-control-examples.js`
 - `docs/references/ui-control-app-examples.js`
 - `docs/references/ui-control-playground.css`

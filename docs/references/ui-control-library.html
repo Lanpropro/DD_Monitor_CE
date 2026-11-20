@@ -51,8 +51,6 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 .segment-example{display:grid;justify-items:center;gap:9px}
 .segment-example .segment{position:relative;isolation:isolate;display:inline-grid;grid-template-columns:repeat(2,1fr);padding:4px;border-radius:9px}
 .segment-example .indicator{position:absolute;inset-block:4px;left:4px;width:calc((100% - 11px)/2);background:var(--tint);border-radius:5px;box-shadow:0 1px 4px var(--shadow);pointer-events:none;z-index:-1;transform:translateX(0);transition:none}
-.segment-example .segment:has([data-segment-choice=previous][aria-pressed=true]) .indicator{transform:translateX(calc(100% + 3px))}
-@media (prefers-reduced-motion:no-preference){body:has(#segment-motion:checked) .segment-example .indicator.is-sliding{transition:transform 150ms cubic-bezier(.77,0,.175,1)}}
 .segment-example .segment button{min-height:31px;padding:4px 11px;background:transparent;border-color:transparent;font-weight:600}.segment-example .segment button[aria-pressed=true]{color:var(--accent);background:transparent;font-weight:700}
 @media(hover:hover) and (pointer:fine){.segment-example .segment button:not([aria-pressed=true]):hover{background:var(--surface2)}}
 .segment-label{color:var(--muted);font-size:11px}
@@ -116,6 +114,7 @@ main{padding-bottom:48px}.section-head{display:flex;align-items:center;justify-c
 <div id="matrices"></div>
 </section>
 </main>
+<script src="ui-control-motion.js"></script>
 <script src="ui-control-library.js"></script>
 <script src="ui-control-examples.js"></script>
 <script src="ui-control-app-examples.js"></script>

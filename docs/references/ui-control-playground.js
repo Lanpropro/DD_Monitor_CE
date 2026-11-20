@@ -104,14 +104,6 @@ const labChoice = (label, values) => `<div class="lab-choice" role="group" aria-
   <span class="lab-choice-indicator" aria-hidden="true"></span>
 </div>`;
 
-function labChooseSegment(group, selected, pointer = false) {
-  const buttons = [...group.querySelectorAll('[data-lab-choice]')];
-  const indicator = group.querySelector('.lab-choice-indicator');
-  indicator.classList.toggle('is-sliding', pointer);
-  indicator.style.setProperty('--lab-choice-index', buttons.indexOf(selected));
-  buttons.forEach(button => button.setAttribute('aria-pressed', button === selected));
-}
-
 const labRange = (label, min, max, value, unit = '', primary = false) =>
   `<label class="lab-range"><input type="range" aria-label="${label}" min="${min}" max="${max}" value="${value}" style="--lab-level:${(value - min) * 100 / (max - min)}%" ${primary ? 'data-primary' : ''}>
     <output data-unit="${unit}">${value}${unit}</output></label>`;
@@ -161,7 +153,7 @@ function labSetTheme(mode, slidingGroup = null) {
   labOverview.querySelectorAll('[data-qt-theme]').forEach(button =>
     button.setAttribute('aria-pressed', button.dataset.qtTheme === effective));
   labOverview.querySelectorAll('[data-lab-demo="theme"] .lab-choice').forEach(group =>
-    labChooseSegment(group, group.querySelector(`[data-lab-choice="${mode}"]`), group === slidingGroup));
+    gallerySelectSegment(group, group.querySelector(`[data-lab-choice="${mode}"]`), group === slidingGroup));
   labSyncColors();
 }
 
@@ -265,23 +257,30 @@ function labMount(host, item) {
     next.click();
   };
 
+  function selectChoice(clicked, pointer) {
+    const value = clicked.dataset.labChoice;
+    const group = clicked.closest('.lab-choice');
+    if (id === 'theme') labSetTheme(value, pointer ? group : null);
+    else if (group) gallerySelectSegment(group, clicked, pointer);
+    if (id === 'palette') {
+      host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
+      const surface = host.querySelector('.lab-controls');
+      if (value) surface.style.setProperty('--lab-accent', value);
+      else surface.style.removeProperty('--lab-accent');
+    }
+    status.textContent = `已选 ${clicked.getAttribute('aria-label')}`;
+  }
+
+  fieldset.querySelectorAll('.lab-choice').forEach(group => {
+    galleryBindSegment(group, '[data-lab-choice]', group.querySelector('.lab-choice-indicator'), selectChoice);
+  });
+
   host.onclick = event => {
     event.stopPropagation();
     const clicked = event.target.closest('button');
     if (!clicked) return;
     if (clicked.hasAttribute('data-lab-choice')) {
-      const value = clicked.dataset.labChoice;
-      const group = clicked.closest('.lab-choice');
-      const pointer = event.detail > 0;
-      if (id === 'theme') labSetTheme(value, pointer ? group : null);
-      else if (group) labChooseSegment(group, clicked, pointer);
-      if (id === 'palette') {
-        host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
-        const surface = host.querySelector('.lab-controls');
-        if (value) surface.style.setProperty('--lab-accent', value);
-        else surface.style.removeProperty('--lab-accent');
-      }
-      status.textContent = `已选 ${clicked.getAttribute('aria-label')}`;
+      selectChoice(clicked, event.detail > 0);
     } else if (clicked.dataset.labStep) {
       setIntervalValue(Number(number.value) + Number(clicked.dataset.labStep));
     } else if (clicked.dataset.labToggle) {
@@ -334,13 +333,17 @@ const labStates = [['live', '实时操作'], ['hover', '悬停'], ['pressed', '�
 const labIcons = [['default', '控件默认'], ['none', '隐藏图标'], ['settings', '齿轮'], ['check', '勾选'],
   ['volume', '扬声器'], ['pause', '暂停'], ['refresh', '刷新'], ['close', '关闭']];
 const labOptions = items => items.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+const labSegmentIds = ['collapse', 'codec', 'theme', 'settings-material'];
 const labNumberFields = item => [
   ['width', '宽度 (px)', 26, 340, item.width],
   ['height', '高度 (px)', 18, 58, item.height],
   ['radius', '圆角 (px)', 0, 30, item.radius],
   ['font', '字号 (px)', 10, 24, 13],
   ['icon-size', '图标大小 (px)', 10, 30, item.id === 'volume' ? 20 : 15],
-  ['motion', '动效时长 (ms)', 0, 500, ['collapse','codec','theme','settings-material'].includes(item.id) ? 250 : 120],
+  ...(labSegmentIds.includes(item.id) ? [
+    ['duration', '弹簧响应时长（秒）', 0, 2, gallerySpringDefaults.duration, 0.01],
+    ['bounce', '弹性（bounce）', 0, 0.9, gallerySpringDefaults.bounce, 0.01],
+  ] : [['motion', '动效时长 (ms)', 0, 500, 120]]),
 ];
 
 function labRenderDetail(item) {
@@ -359,11 +362,12 @@ function labRenderDetail(item) {
         <form class="lab-form">
           <label class="lab-span">交互状态<select name="state">${labOptions(labStates)}</select></label>
           ${labPaintFields.map(([name, label]) => `<label>${label}<span class="lab-color-input"><input type="color" name="${name}"><output></output></span></label>`).join('')}
-          ${numbers.map(([name, label, min, max, value]) =>
-            `<label>${label}<input type="number" name="${name}" min="${min}" max="${max}" value="${value}"></label>`).join('')}
+          ${numbers.map(([name, label, min, max, value, step = 1]) =>
+            `<label>${label}<input type="number" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`).join('')}
           <label class="lab-span">图标<select name="icon">${labOptions(labIcons)}</select></label>
         </form>
         <p class="lab-motion-note">时长为 0 时即时切换。系统「减少动态效果」始终生效。</p>
+        ${labSegmentIds.includes(item.id) ? '<p class="lab-motion-note">开启页顶开关后，可连续点选或水平拖动底片。</p>' : ''}
       </section>
     </div>`;
   const sample = labDetail.querySelector('.lab-detail-stage');
@@ -394,8 +398,14 @@ function labRenderDetail(item) {
     } else if (field.name === 'icon') {
       sample.setPreviewIcon(field.value);
     } else if (field.validity.valid && field.value !== '') {
-      sample.style.setProperty(`--lab-${field.name}`, field.value + (field.name === 'motion' ? 'ms' : 'px'));
-      if (field.name === 'radius') sample.dataset.customRadius = '';
+      if (field.name === 'duration' || field.name === 'bounce') {
+        const { motion, index, settings } = gallerySegments.get(sample.querySelector('.lab-choice'));
+        settings[field.name] = field.valueAsNumber;
+        if (settings.duration === 0) motion.place(index());
+      } else {
+        sample.style.setProperty(`--lab-${field.name}`, field.value + (field.name === 'motion' ? 'ms' : 'px'));
+        if (field.name === 'radius') sample.dataset.customRadius = '';
+      }
     }
   });
   labDetail.querySelector('.lab-reset').addEventListener('click', () => {

@@ -159,6 +159,7 @@
   box-shadow: 0 2px 5px #0002;
 }
 .lab-demo[data-custom-radius] .lab-choice { --lab-choice-radius: var(--lab-radius); }
+body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { touch-action: pan-y; user-select: none; }
 .lab-choice .lab-control {
   border-color: transparent;
   border-radius: var(--lab-choice-radius);
@@ -178,16 +179,11 @@
   position: absolute; z-index: -1; pointer-events: none;
   inset-block: var(--lab-choice-inset); left: var(--lab-choice-inset);
   width: calc((100% - 2 * var(--lab-choice-inset) - (var(--lab-choice-count) - 1) * var(--lab-choice-gap)) / var(--lab-choice-count));
-  transform: translateX(calc(var(--lab-choice-index, 0) * (100% + var(--lab-choice-gap))));
+  transform: translateX(0);
   transition: none;
   border-radius: var(--lab-choice-radius);
   background: color-mix(in srgb, var(--lab-accent) 22%, var(--lab-segment));
   box-shadow: inset 0 1px 0 #ffffff18;
-}
-@media (prefers-reduced-motion: no-preference) {
-  body:has(#segment-motion:checked) .lab-choice-indicator.is-sliding {
-    transition: transform var(--lab-motion, 250ms) cubic-bezier(.77,0,.175,1);
-  }
 }
 @media (hover: hover) and (pointer: fine) {
   .lab-choice .lab-control:hover:not(:disabled,[aria-pressed=true]) { background: var(--lab-hover); }
@@ -832,10 +828,11 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
   background: color-mix(in srgb,#158669 60%,var(--lab-surface));
 }
 .lab-app-floating { border: 1px solid var(--lab-accent); box-shadow: 0 3px 9px #0004; }
-.lab-app-caption-stage { position: relative; height: 111px; overflow: hidden; border-radius: var(--lab-radius); background: #15191f; }
+.lab-app-caption-stage { position: relative; container-type: size; height: 111px; overflow: hidden; border-radius: var(--lab-radius); background: #15191f; }
 .lab-app-caption-stage::before { content: '▷'; position: absolute; left: 48%; top: 34%; font-size: 1.45em; color: #778496; }
 .lab-app-caption-stage button {
   position: absolute; left: 50%; top: 78%; translate: -50% -50%; cursor: move; touch-action: none;
+  transition: none; user-select: none;
   display: grid; gap: 0; width: max-content; max-width: 93%; min-height: 0;
   color: #f1f2f5; background: #15191fbb; border: 1px dashed #70839a;
   white-space: normal; font-size: var(--lab-font, 14px); text-align: center; line-height: 1.2;

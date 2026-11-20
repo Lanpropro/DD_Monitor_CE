@@ -1,0 +1,191 @@
+const gallerySpringDefaults = Object.freeze({ duration: 0.5, bounce: 0.16 });
+const galleryReducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const gallerySegmentSwitch = document.getElementById('segment-motion');
+const galleryClamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+function gallerySpringStep(state, target, { duration, bounce }, elapsed) {
+  const omega = 2 * Math.PI / duration;
+  const zeta = 1 - bounce;
+  const count = Math.ceil(elapsed / Math.min(1 / 120, 0.2 / omega));
+  const dt = elapsed / count;
+  for (let i = 0; i < count; i++) {
+    const acceleration = -2 * zeta * omega * state.velocity - omega * omega * (state.position - target);
+    state.velocity += acceleration * dt;
+    state.position += state.velocity * dt;
+  }
+}
+
+class GalleryMotion {
+  constructor(element, position, paint) {
+    this.element = element;
+    this.position = position;
+    this.velocity = 0;
+    this.paint = paint;
+    this.frame = null;
+  }
+
+  pause() {
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
+
+  place(position, velocity = 0) {
+    this.pause();
+    this.position = position;
+    this.velocity = velocity;
+    this.paint(position);
+  }
+
+  spring(target, settings) {
+    if (settings.duration === 0 || galleryReducedMotion.matches) {
+      this.place(target);
+      return;
+    }
+    this.target = target;
+    this.settings = settings;
+    if (this.position !== target || this.velocity !== 0) this.start();
+  }
+
+  coast(min, max) {
+    this.settings = null;
+    this.bounds = [min, max];
+    if (!galleryReducedMotion.matches && Math.abs(this.velocity) >= 0.01) this.start();
+    else this.place(this.position);
+  }
+
+  start() {
+    if (this.frame !== null) return;
+    this.time = performance.now();
+    this.frame = requestAnimationFrame(this.tick);
+  }
+
+  tick = time => {
+    this.frame = null;
+    if (!this.element.isConnected) return;
+    const dt = galleryClamp((time - this.time) / 1000, 0, 0.08);
+    this.time = Math.max(this.time, time);
+    if (this.settings) {
+      if (galleryReducedMotion.matches) return this.place(this.target);
+      if (dt > 0) gallerySpringStep(this, this.target, this.settings, dt);
+      if (Math.abs(this.position - this.target) < 0.001 && Math.abs(this.velocity) < 0.01) {
+        return this.place(this.target);
+      }
+    } else {
+      if (galleryReducedMotion.matches) return this.place(this.position);
+      const decay = Math.exp(-8 * dt);
+      const next = this.position + this.velocity * (1 - decay) / 8;
+      const bounded = galleryClamp(next, ...this.bounds);
+      this.velocity *= decay;
+      if (next !== bounded || Math.abs(this.velocity) < 0.01) return this.place(bounded);
+      this.position = bounded;
+    }
+    this.paint(this.position);
+    this.frame = requestAnimationFrame(this.tick);
+  };
+}
+
+function galleryTrackDrag(element, { canStart, grab, move, release, threshold = 4 }) {
+  let gesture;
+  let suppressClick = false;
+  const point = event => ({ x: event.clientX, y: event.clientY, time: event.timeStamp });
+
+  element.addEventListener('pointerdown', event => {
+    if (gesture || !event.isPrimary || event.button !== 0 || !canStart(event)) return;
+    suppressClick = false;
+    const origin = point(event);
+    gesture = { id: event.pointerId, origin, last: origin, vx: 0, vy: 0, moved: false };
+    event.target.closest('button').setPointerCapture(event.pointerId);
+    if (threshold === 0) grab();
+  });
+
+  function update(event) {
+    if (gesture?.id !== event.pointerId) return;
+    const next = point(event);
+    const dx = next.x - gesture.origin.x;
+    const dy = next.y - gesture.origin.y;
+    if (!gesture.moved && (threshold ? Math.abs(dx) < threshold : dx === 0 && dy === 0)) return;
+    if (!gesture.moved && threshold) grab();
+    gesture.moved = true;
+    const dt = Math.max(0.008, (next.time - gesture.last.time) / 1000);
+    gesture.vx = (next.x - gesture.last.x) / dt;
+    gesture.vy = (next.y - gesture.last.y) / dt;
+    gesture.last = next;
+    move(dx, dy, gesture.vx, gesture.vy);
+  }
+
+  function finish(event) {
+    if (gesture?.id !== event.pointerId) return;
+    const cancelled = event.type !== 'pointerup';
+    if (!cancelled && (event.clientX !== gesture.last.x || event.clientY !== gesture.last.y)) update(event);
+    const { last, moved, vx, vy } = gesture;
+    gesture = undefined;
+    suppressClick = moved;
+    if (!moved && threshold) return;
+    const age = Math.max(0, (event.timeStamp - last.time) / 1000);
+    const decay = cancelled || age > 0.1 ? 0 : Math.exp(-20 * age);
+    release(vx * decay, vy * decay, cancelled);
+  }
+
+  element.addEventListener('pointermove', update);
+  element.addEventListener('pointerup', finish);
+  element.addEventListener('pointercancel', finish);
+  element.addEventListener('lostpointercapture', finish);
+  element.addEventListener('click', event => {
+    if (!suppressClick || event.detail === 0) return;
+    suppressClick = false;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+  }, true);
+}
+
+const gallerySegments = new WeakMap();
+const gallerySlideEnabled = () => gallerySegmentSwitch.checked && !galleryReducedMotion.matches;
+
+function galleryBindSegment(group, buttonSelector, indicator, select) {
+  const buttons = [...group.querySelectorAll(buttonSelector)];
+  const index = () => buttons.findIndex(button => button.getAttribute('aria-pressed') === 'true');
+  const motion = new GalleryMotion(indicator, index(), position => {
+    indicator.style.transform = `translateX(calc(${position} * (100% + var(--lab-choice-gap, 3px))))`;
+  });
+  const settings = { ...gallerySpringDefaults };
+  gallerySegments.set(group, { settings, motion, index });
+  let origin;
+  let stride;
+  galleryTrackDrag(group, {
+    canStart: event => gallerySlideEnabled() && settings.duration > 0 && event.target.closest('button:enabled'),
+    grab: () => {
+      motion.pause();
+      origin = motion.position;
+      stride = buttons[1].getBoundingClientRect().x - buttons[0].getBoundingClientRect().x;
+    },
+    move: (dx, dy, vx) => {
+      if (!gallerySlideEnabled() || !settings.duration) return;
+      const raw = origin + dx / stride;
+      const edge = galleryClamp(raw, 0, buttons.length - 1);
+      const outside = raw !== edge;
+      motion.place(edge + (raw - edge) * 0.2, vx / stride * (outside ? 0.2 : 1));
+    },
+    release: (vx, vy, cancelled) => {
+      motion.velocity = vx / stride * (motion.position < 0 || motion.position > buttons.length - 1 ? 0.2 : 1);
+      const target = cancelled ? index() : galleryClamp(Math.round(motion.position), 0, buttons.length - 1);
+      select(buttons[target], true);
+    },
+  });
+}
+
+function gallerySelectSegment(group, selected, pointer) {
+  const controller = gallerySegments.get(group);
+  const { motion, settings } = controller;
+  [...group.querySelectorAll('button')].forEach(button => button.setAttribute('aria-pressed', button === selected));
+  const target = controller.index();
+  if (pointer && gallerySlideEnabled()) motion.spring(target, settings);
+  else motion.place(target);
+}
+
+gallerySegmentSwitch.addEventListener('change', () => {
+  if (gallerySegmentSwitch.checked) return;
+  document.querySelectorAll('.lab-choice, [data-example-segment]').forEach(group => {
+    const controller = gallerySegments.get(group);
+    if (controller) controller.motion.place(controller.index());
+  });
+});
