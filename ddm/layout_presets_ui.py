@@ -1,10 +1,37 @@
 """Layout-only entries and their controls inside the layout picker."""
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QInputDialog, QKeySequenceEdit, QLabel,
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QKeySequenceEdit, QLabel,
                                QListWidget, QListWidgetItem, QMenu, QMessageBox, QVBoxLayout, QWidget)
 
 from . import layouts
+
+
+def edit_shortcut(picker, presets, key):
+    record = presets.overrides.get(key, {}) if key in layouts.BY_ID else presets.items[key]
+    name = layouts.BY_ID[key]['name'] if key in layouts.BY_ID else record['name']
+    dialog = QDialog(picker)
+    dialog.setWindowTitle('布局快捷键')
+    box = QVBoxLayout(dialog)
+    box.addWidget(QLabel(name))
+    edit = QKeySequenceEdit(QKeySequence(record.get('shortcut', '')), dialog)
+    edit.setAccessibleName('布局快捷键')
+    edit.setMaximumSequenceLength(1)
+    edit.setClearButtonEnabled(True)
+    box.addWidget(edit)
+    buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, parent=dialog)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    box.addWidget(buttons)
+    try:
+        if dialog.exec() == QDialog.Accepted:
+            try:
+                presets.bind(key, edit.keySequence().toString())
+            except ValueError as error:
+                QMessageBox.warning(picker, '布局快捷键', str(error))
+    finally:
+        dialog.deleteLater()
+        picker.show()
 
 
 class LayoutPresetsPage(QWidget):
@@ -35,23 +62,9 @@ class LayoutPresetsPage(QWidget):
             suffix = f' · {shortcut}' if shortcut and bindings.get(shortcut) == key else ''
             item = QListWidgetItem(f'{name} · {layouts.BY_ID[base]["name"]}{suffix}')
             item.setData(Qt.UserRole, key)
-            item.setToolTip(f'{name}\n右键可更新比例、设置快捷键或删除布局')
+            item.setToolTip(f'{name}\n右键可设置快捷键或删除布局')
             self.list.addItem(item)
-        self.hint.setText('点击应用布局，右键可更新比例或设置快捷键。' if self.list.count()
-                          else '在画面墙拖动分隔线后，点「保存当前布局」。')
-
-    def save(self):
-        base = self.presets.host.wall.layout_id
-        name, accepted = QInputDialog.getText(self.picker, '保存当前布局', '布局名称',
-                                              text=layouts.BY_ID[base]['name'])
-        if accepted:
-            try:
-                self.presets.save(name)
-            except ValueError as error:
-                self._error(error)
-            else:
-                self.picker.set_group(self.picker.custom_layouts_key)
-        self.picker.show()
+        self.hint.setText('之前保存的自定义布局，可点击应用。')
 
     def _apply(self, item):
         if self.picker.isVisible() and self.presets.apply(item.data(Qt.UserRole)):
@@ -64,43 +77,13 @@ class LayoutPresetsPage(QWidget):
         key = item.data(Qt.UserRole)
         menu = QMenu(self.list)
         menu.aboutToHide.connect(menu.deleteLater)
-        update = menu.addAction('用当前比例更新')
-        update.setEnabled(self.presets.items[key]['base'] == self.presets.host.wall.layout_id)
-        update.triggered.connect(lambda: self._update(key))
         menu.addAction('设置快捷键', lambda: self._edit_shortcut(key))
         menu.addAction('删除布局', lambda: self._delete(key))
         menu.popup(self.list.viewport().mapToGlobal(point))
 
-    def _update(self, key):
-        try:
-            self.presets.update(key)
-        except ValueError as error:
-            self._error(error)
-
     def _edit_shortcut(self, key):
-        dialog = QDialog(self.picker)
-        dialog.setWindowTitle('布局快捷键')
-        box = QVBoxLayout(dialog)
-        box.addWidget(QLabel(self.presets.items[key]['name']))
-        edit = QKeySequenceEdit(QKeySequence(self.presets.items[key]['shortcut']), dialog)
-        edit.setAccessibleName('布局快捷键')
-        edit.setMaximumSequenceLength(1)
-        edit.setClearButtonEnabled(True)
-        box.addWidget(edit)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, parent=dialog)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        box.addWidget(buttons)
-        try:
-            if dialog.exec() == QDialog.Accepted:
-                try:
-                    self.presets.bind(key, edit.keySequence().toString())
-                except ValueError as error:
-                    self._error(error)
-                self.refresh()
-        finally:
-            dialog.deleteLater()
-            self.picker.show()
+        edit_shortcut(self.picker, self.presets, key)
+        self.refresh()
 
     def _delete(self, key):
         if QMessageBox.question(self.picker, '删除布局', f'删除「{self.presets.items[key]["name"]}」？',
@@ -108,6 +91,3 @@ class LayoutPresetsPage(QWidget):
             self.presets.delete(key)
             self.refresh()
         self.picker.show()
-
-    def _error(self, error):
-        QMessageBox.warning(self.picker, '自定义布局', str(error))

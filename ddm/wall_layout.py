@@ -160,14 +160,9 @@ class WallLayout:
             host.layoutRatiosChanged.emit()
 
     def preset_defaults(self, node, area):
+        from .room_presets import partition_defaults
         host = self.host
-        if node.key != "root" or not layouts.is_portrait_layout(host.layout_id):
-            return node.weights
-        gap = host.grid.spacing()
-        main = max(80, int(area.width() * 9 / 16))
-        danmaku = max(140, int(area.height() * .22)) if layouts.danmaku_cell(host.layout_id) is not None else 0
-        small = max(1, area.height() - main - danmaku - gap * (len(node.children) - 1))
-        return [main, small, danmaku] if layouts.danmaku_cell(host.layout_id) is not None else [main, small]
+        return partition_defaults(host.layout_id, node, area, host.grid.spacing())
 
     def preset_widgets(self):
         host = self.host
@@ -285,12 +280,9 @@ class WallLayout:
     def border_model(self):
         host = self.host
         if host.layout_id == "corner":
+            from .room_presets import partition_weights
             tree = resize_layout.build_partition(layouts.BY_ID["corner"]["spec"][2])
-            first, second = host._corner_bottom_ratios
-            weights = {"root": [host._corner_height_ratio, 1 - host._corner_height_ratio],
-                       "root/0": [host._corner_width_ratio, 1 - host._corner_width_ratio],
-                       "root/0/1": [host._corner_right_ratio, 1 - host._corner_right_ratio],
-                       "root/1": [first, second - first, 1 - second]}
+            weights = partition_weights(host.layout_id, host.corner_ratios())
             widgets = host._preset_widgets()
             minimum = lambda cell: widgets[cell].minimumSize()
             return tree, weights, widgets, minimum, None
@@ -300,12 +292,8 @@ class WallLayout:
     def apply_border_weights(self, weights):
         host = self.host
         if host.layout_id == "corner":
-            host._corner_height_ratio = weights["root"][0]
-            host._corner_width_ratio = weights["root/0"][0]
-            host._corner_right_ratio = weights["root/0/1"][0]
-            bottom = weights["root/1"]
-            host._corner_bottom_ratios = [bottom[0], bottom[0] + bottom[1]]
-            host._relayout_corner()
+            from .room_presets import corner_ratios_from_weights
+            host.restore_corner_ratios(corner_ratios_from_weights(weights))
         else:
             host._layout_ratios[host.layout_id] = weights
             host._relayout_preset()

@@ -126,17 +126,36 @@ def same(first, second):
             and canonical(first) == canonical(second))
 
 
+def partition_weights(identifier, ratios):
+    if identifier != 'corner':
+        return ratios
+    first, second = ratios['bottom']
+    return {'root': [ratios['height'], 1 - ratios['height']],
+            'root/0': [ratios['width'], 1 - ratios['width']],
+            'root/0/1': [ratios['right'], 1 - ratios['right']],
+            'root/1': [first, second - first, 1 - second]}
+
+
+def corner_ratios_from_weights(weights):
+    bottom = weights['root/1']
+    return dict(width=weights['root/0'][0], height=weights['root'][0],
+                right=weights['root/0/1'][0], bottom=[bottom[0], sum(bottom[:2])])
+
+
+def partition_defaults(identifier, node, rect, gap):
+    if node.key != 'root' or not layouts.is_portrait_layout(identifier):
+        return node.weights
+    main = max(80, int(rect.width() * 9 / 16))
+    dm = max(140, int(rect.height() * .22)) if layouts.danmaku_cell(identifier) is not None else 0
+    small = max(1, rect.height() - main - dm - gap * (len(node.children) - 1))
+    return [main, small, dm] if dm else [main, small]
+
+
 def thumbnail_geometry(snapshot, area):
     """Use the same partition geometry as playback; no screenshot or player is created."""
     from PySide6.QtCore import QSize
     identifier = snapshot["layout"]["id"]
-    ratios = snapshot["layout"]["ratios"]
-    if identifier == "corner":
-        bottom = ratios["bottom"]
-        ratios = {"root": [ratios["height"], 1 - ratios["height"]],
-                  "root/0": [ratios["width"], 1 - ratios["width"]],
-                  "root/0/1": [ratios["right"], 1 - ratios["right"]],
-                  "root/1": [bottom[0], bottom[1] - bottom[0], 1 - bottom[1]]}
+    ratios = partition_weights(identifier, snapshot['layout']['ratios'])
     def defaults(node, rect):
         if node.key != "root" or not layouts.is_portrait_layout(identifier):
             return node.weights

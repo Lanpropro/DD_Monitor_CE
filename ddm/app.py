@@ -129,7 +129,9 @@ class MainWindow(QMainWindow):
         self._tray_hint_shown = bool((self.state.get("ui") or {}).get("tray_hint_shown", False))
         self.room_presets = room_presets.collection(self.state.get("room_presets"))
         from .layout_presets import LayoutPresets
-        self.layout_presets = LayoutPresets(self, (self.state.get('ui') or {}).get('custom_layout_presets'))
+        layout_ui = self.state.get('ui') or {}
+        self.layout_presets = LayoutPresets(self, layout_ui.get('custom_layout_presets'),
+                                            layout_ui.get('layout_preset_overrides'))
         self._active_room_preset_id = (self.state.get("ui") or {}).get("room_preset_id", "")
         self._applying_room_preset = False
         self._room_preset_fullscreen_layout = None
@@ -333,9 +335,9 @@ class MainWindow(QMainWindow):
         self.sidebar.pluginSettingsRequested.connect(lambda: self.open_settings('plugins'))
         self.sidebar.cardModeChanged.connect(self._sidebar_card_mode_changed)
         self.sidebar.appearanceChanged.connect(self.set_appearance)
-        self.sidebar.layoutChosen.connect(self._on_layout_changed)
+        self.sidebar.layoutChosen.connect(self.layout_presets.select_builtin)
         self.sidebar.room_presets_host = self
-        self.sidebar.layoutResetRequested.connect(self.wall.reset_layout_ratios)
+        self.sidebar.layoutResetRequested.connect(self.layout_presets.reset_current)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.paneEditRequested.connect(self.switch_tile_to_danmaku)
         self.wall.paneApplyRequested.connect(self._apply_pane_menu)
@@ -778,6 +780,7 @@ class MainWindow(QMainWindow):
             "ui": {
                 "layout_picker_size": self.sidebar.presentation_control.layout_picker.size_state(),
                 "custom_layout_presets": self.layout_presets.state(),
+                "layout_preset_overrides": self.layout_presets.override_state(),
                 "room_add_followed_live_only": self.room_placement.catalog.followed_live_only,
                 "picture_in_picture": self.picture_in_picture.state(),
                 "tray_hint_shown": self._tray_hint_shown,

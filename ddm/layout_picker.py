@@ -2,7 +2,7 @@
 from PySide6.QtCore import QEvent, QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics, QIcon, QWindow
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QStyle,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QScrollArea, QSizePolicy, QStyle,
     QStyleOptionToolButton, QStylePainter, QToolButton, QVBoxLayout, QWidget
 )
 
@@ -45,6 +45,8 @@ class LayoutPicker(QFrame):
         self._can_reset_layout = layouts.capacity(current) > 1
         self.presets_page = None
         self.custom_layouts_page = None
+        self.layout_presets = getattr(presets_host, 'layout_presets', None)
+        self.edit_button = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 12, 14, 12)
@@ -61,7 +63,7 @@ class LayoutPicker(QFrame):
         groups = [(name, group) for name, group in layouts.GROUPS if group]
         active = next((name for name, group in groups if any(item['id'] == current for item in group)), groups[0][0])
         keys = [name for name, _group in groups]
-        if getattr(presets_host, 'layout_presets', None) is not None:
+        if self.layout_presets is not None and self.layout_presets.items:
             keys.append(self.custom_layouts_key)
         if presets_host is not None:
             keys.append(self._presets_key)
@@ -99,10 +101,11 @@ class LayoutPicker(QFrame):
             self._sections[self.custom_layouts_key] = []
             self.custom_layouts_page = LayoutPresetsPage(self, presets_host)
             outer.addWidget(self.custom_layouts_page, 1)
-            self.save_layout_button = ActionButton('保存当前布局', self)
-            self.save_layout_button.setToolTip('只保存预设和分隔线比例')
-            self.save_layout_button.clicked.connect(self.custom_layouts_page.save)
-            footer.addWidget(self.save_layout_button)
+        if self.layout_presets is not None:
+            self.edit_button = ActionButton('修改当前布局', self)
+            self.edit_button.setToolTip('在画面墙预览并调整当前预设的比例')
+            self.edit_button.clicked.connect(lambda: self._edit_layout(current))
+            footer.addWidget(self.edit_button)
         self.reset_button = ActionButton('恢复默认比例', self)
         self.reset_button.setObjectName('LayoutResetButton')
         self.reset_button.setToolTip('恢复当前布局的全部分隔线比例，保留直播间和音频设置')
@@ -141,8 +144,14 @@ class LayoutPicker(QFrame):
             button.setChecked(item['id'] == current)
             button.setProperty('layoutId', item['id'])
             button.setToolTip(item.get('hint') or item['name'])
-            if item['id'] == current and self._can_reset_layout:
+            if item['id'] == current and self._can_reset_layout and not self._has_override(current):
                 button.setToolTip(button.toolTip() + '\n再次点击恢复默认比例')
+            if self.layout_presets is not None:
+                shortcut = self.layout_presets.overrides.get(item['id'], {}).get('shortcut')
+                if shortcut and self.layout_presets.shortcuts().get(shortcut) == item['id']:
+                    button.setToolTip(button.toolTip() + '\n快捷键：' + shortcut)
+                button.setContextMenuPolicy(Qt.CustomContextMenu)
+                button.customContextMenuRequested.connect(lambda point, card=button: self._layout_menu(card, point))
             button.setCursor(Qt.PointingHandCursor)
             button.clicked.connect(lambda _checked, lid=item['id']: self._choose(lid))
             cards.append(button)
@@ -271,7 +280,6 @@ class LayoutPicker(QFrame):
         self.scroll.setVisible(not (showing_presets or showing_custom))
         if self.custom_layouts_page is not None:
             self.custom_layouts_page.setVisible(showing_custom)
-            self.save_layout_button.setVisible(not showing_presets)
             if showing_custom:
                 self.custom_layouts_page.refresh()
         if self.presets_page is not None:
@@ -283,8 +291,10 @@ class LayoutPicker(QFrame):
                 card.setVisible(key == name)
             for heading in self._sections[key]:
                 heading.setVisible(key == name)
-        self.reset_button.setVisible(self._can_reset_layout and any(
-            card.property('layoutId') == self._reset_layout_id for card in self._cards[name]))
+        current_in_group = any(card.property('layoutId') == self._reset_layout_id for card in self._cards[name])
+        self.reset_button.setVisible(self._can_reset_layout and current_in_group)
+        if self.edit_button is not None:
+            self.edit_button.setVisible(self._can_reset_layout and current_in_group)
         self.scroll.verticalScrollBar().setValue(0)
 
     def group(self) -> str:
@@ -296,6 +306,23 @@ class LayoutPicker(QFrame):
     def _choose(self, layout_id: str) -> None:
         self.chosen.emit(layout_id)
         self.close()
+
+    def _has_override(self, layout_id):
+        return self.layout_presets is not None and 'ratios' in self.layout_presets.overrides.get(layout_id, {})
+
+    def _edit_layout(self, layout_id):
+        self.close()
+        self.layout_presets.edit(layout_id)
+
+    def _layout_menu(self, card, point):
+        from .layout_presets_ui import edit_shortcut
+        base = card.property('layoutId')
+        menu = QMenu(card)
+        menu.aboutToHide.connect(menu.deleteLater)
+        if layouts.capacity(base) > 1:
+            menu.addAction('修改布局', lambda: self._edit_layout(base))
+        menu.addAction('设置快捷键', lambda: edit_shortcut(self, self.layout_presets, base))
+        menu.popup(card.mapToGlobal(point))
 
     def _reset_ratios(self) -> None:
         self.resetRequested.emit()

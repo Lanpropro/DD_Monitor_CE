@@ -40,80 +40,131 @@ def contrast(first, second):
 
 
 def check_layout_only_presets(app, directory):
+    from ddm.layout_preset_editor import LayoutPresetEditor
+    from ddm.layout_presets_ui import edit_shortcut
+
     rooms = [dict(room_id=str(n), uname=str(n), live=False) for n in range(20, 26)]
     state = {'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}}
     window = MainWindow(rooms, deepcopy(rooms), layout_id='corner', state=state)
-    window.resize(1400, 850)
+    window.resize(1180, 760)
     window.show()
     app.processEvents()
     try:
         presets = window.layout_presets
         wall = window.wall
-        handle, point = border_for(wall, ('root/0', 0))
-        drag(app, handle, QPoint(-100, 0), pos=point)
-        saved_ratios = wall.corner_ratios()
+        original = wall.corner_ratios()
+        before = [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel,
+                   int(tile.video.winId())) for tile in wall.tiles]
+        before_geometry = [tile.geometry() for tile in wall.tiles]
+
+        def start_editor():
+            window.sidebar.open_layout_picker()
+            picker = window.sidebar._picker
+            assert picker.custom_layouts_page is None
+            QTest.mouseClick(picker.edit_button, Qt.LeftButton)
+            app.processEvents()
+            editor = next(dialog for dialog in window.findChildren(LayoutPresetEditor) if dialog.isVisible())
+            assert not picker.isVisible()
+            assert editor.geometry().topLeft() == wall.mapToGlobal(QPoint())
+            assert editor.size() == wall.size() and editor.testAttribute(Qt.WA_TranslucentBackground)
+            return editor
+
+        def adjust(editor):
+            view = editor.preview
+            _, dividers, scale, origin, _ = view._geometry()
+            rect = next(rect for node, index, rect, _, _ in dividers if (node.key, index) == ('root/0', 0))
+            point = view._mapped(rect, scale, origin).center().toPoint()
+            assert view._hit(point)[0].key == 'root/0', 'The T-junction must hit the main divider grip'
+            QTest.mousePress(view, Qt.LeftButton, pos=point)
+            QTest.mouseMove(view, point - QPoint(75, 0))
+            QTest.mouseRelease(view, Qt.LeftButton, pos=point - QPoint(75, 0))
+            assert editor.ratios()['width'] < original['width']
+            assert wall.corner_ratios() == original
+            assert [tile.geometry() for tile in wall.tiles] == before_geometry
+
+        editor = start_editor()
+        adjust(editor)
+        QTest.keyClick(editor, Qt.Key_Escape)
+        app.processEvents()
+        assert not presets.override_state() and wall.corner_ratios() == original
+
+        editor = start_editor()
+        adjust(editor)
+        saved = editor.ratios()
+        QTest.mouseClick(next(button for button in editor.findChildren(QPushButton)
+                              if button.text() == '保存布局'), Qt.LeftButton)
+        app.processEvents()
+        assert wall.corner_ratios() == saved
+        assert [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel,
+                 int(tile.video.winId())) for tile in wall.tiles] == before
+
         window.sidebar.open_layout_picker()
         picker = window.sidebar._picker
-        with patch('ddm.layout_presets_ui.QInputDialog.getText', return_value=('大画面', True)):
-            QTest.mouseClick(picker.save_layout_button, Qt.LeftButton)
-        assert picker.group() == '自定义布局' and picker.custom_layouts_page.list.count() == 1
-        wide = picker.custom_layouts_page.list.item(0).data(Qt.UserRole)
+        corner = next(card for card in picker._cards['普通布局'] if card.property('layoutId') == 'corner')
+        assert '恢复默认比例' not in corner.toolTip()
+        corner.click()  # Reselecting the current preset uses the saved override.
+        assert wall.corner_ratios() == saved and presets.override_state()['corner']['ratios'] == saved
+        picker.show()
+
         def choose_shortcut(dialog):
             dialog.findChild(QKeySequenceEdit).setKeySequence(QKeySequence('Ctrl+1'))
             return QDialog.Accepted
+
         with patch.object(QDialog, 'exec', choose_shortcut):
-            picker.custom_layouts_page._edit_shortcut(wide)
-        assert 'Ctrl+1' in picker.custom_layouts_page.list.item(0).text()
+            edit_shortcut(picker, presets, 'corner')
         picker.close()
-        wall.reset_layout_ratios()
-        assert wall.corner_ratios() != saved_ratios
-        alternative = presets.save('原始比例')
+        assert presets.shortcuts() == {'Ctrl+1': 'corner'}
         for binding in ('Ctrl+1', 'F'):
             try:
-                presets.bind(alternative, binding)
+                presets.bind('1x1', binding)
             except ValueError:
                 pass
             else:
                 raise AssertionError(f'Occupied shortcut {binding} must be rejected')
-
-        # The saved composition never substitutes rooms or audio with the values at save time.
-        wall.tiles[0], wall.tiles[1] = wall.tiles[1], wall.tiles[0]
-        wall.tiles[0].set_volume(77)
-        before = [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel)
-                  for tile in wall.tiles]
-        window._on_layout_changed('1x1')
-        small = presets.save('单画面')
-        presets.bind(small, 'Ctrl+2')
-        assert len(wall.visible_tiles()) == 1
+        presets.bind('1x1', 'Ctrl+2')
         window.activateWindow()
         window.setFocus()
         app.processEvents()
+        QTest.keySequence(window, QKeySequence('Ctrl+2'))
+        assert wall.layout_id == '1x1' and len(wall.visible_tiles()) == 1
         QTest.keySequence(window, QKeySequence('Ctrl+1'))
-        assert wall.layout_id == 'corner' and wall.corner_ratios() == saved_ratios
-        assert [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel)
-                for tile in wall.tiles] == before
-        assert presets.items[alternative]['ratios'] != saved_ratios
+        assert wall.layout_id == 'corner' and wall.corner_ratios() == saved
+        assert [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel,
+                 int(tile.video.winId())) for tile in wall.tiles] == before
         window.sidebar.search.setFocus()
         app.processEvents()
-        assert not window._handle_shortcut('Ctrl+2') and wall.layout_id == 'corner'
+        assert not window._handle_shortcut('Ctrl+2')
 
-        saved = window.current_state()
-        records = saved['ui']['custom_layout_presets']
-        assert all(set(record) == {'id', 'name', 'base', 'ratios', 'shortcut'} for record in records)
-        assert not saved['room_presets']['items']
+        # Editing a different built-in preset stages only that record until it is selected.
+        editor = presets.edit('1x2')
+        view = editor.preview
+        app.processEvents()
+        _, dividers, scale, origin, _ = view._geometry()
+        point = view._mapped(dividers[0][2], scale, origin).center().toPoint()
+        QTest.mousePress(view, Qt.LeftButton, pos=point)
+        QTest.mouseRelease(view, Qt.LeftButton, pos=point + QPoint(50, 0))
+        editor.accept()
+        app.processEvents()
+        assert wall.layout_id == 'corner' and wall.corner_ratios() == saved
+        assert presets.override_state()['1x2']['ratios']['root'][0] > .5
+
+        stored = window.current_state()
+        assert stored['ui']['layout_preset_overrides']['corner'] == {'ratios': saved, 'shortcut': 'Ctrl+1'}
+        assert not stored['ui']['custom_layout_presets'] and not stored['room_presets']['items']
         with patch.object(config, 'CONFIG_PATH', str(directory / 'layouts.json')), patch.dict(os.environ):
             os.environ.pop('DDM_NO_SAVE', None)
-            config.save(saved, raise_errors=True)
+            config.save(stored, raise_errors=True)
             reopened_state = config.load()
         reopened = MainWindow([], layout_id='1x1', state=reopened_state)
         try:
-            assert reopened.layout_presets.state() == records
-            assert reopened.layout_presets.shortcuts()['Ctrl+1'] == wide
-            assert reopened.layout_presets.apply(wide)
-            assert reopened.wall.corner_ratios() == saved_ratios
+            assert reopened.layout_presets.shortcuts()['Ctrl+1'] == 'corner'
+            reopened.layout_presets.select_builtin('corner')
+            assert reopened.wall.corner_ratios() == saved
             assert not any(tile.room.get('room_id') for tile in reopened.wall.tiles)
-            reopened.layout_presets.delete(wide)
-            assert 'Ctrl+1' not in reopened.layout_presets.shortcuts()
+            reopened.layout_presets.reset_current()
+            assert reopened.wall.corner_ratios() == original
+            assert 'ratios' not in reopened.layout_presets.override_state()['corner']
+            assert reopened.layout_presets.shortcuts()['Ctrl+1'] == 'corner'
         finally:
             reopened.close()
     finally:

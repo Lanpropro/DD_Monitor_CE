@@ -1,11 +1,10 @@
 """Saved divider geometry and shortcuts for layout-only presets."""
 from copy import deepcopy
-from uuid import uuid4
 
 from PySide6.QtGui import QKeySequence
 
 from . import layouts
-from .room_presets import snapshot_ratios, validate_ratios
+from .room_presets import validate_ratios
 from .shortcut_actions import WHEEL_SHORTCUTS
 
 
@@ -15,8 +14,18 @@ def _shortcut(text):
 
 
 class LayoutPresets:
-    def __init__(self, host, saved):
+    def __init__(self, host, saved, overrides=None):
         self.host = host
+        self.overrides = {}
+        for base, record in (overrides.items() if isinstance(overrides, dict) else ()):
+            if base not in layouts.BY_ID or not isinstance(record, dict):
+                continue
+            try:
+                self.overrides[base] = dict(shortcut=_shortcut(record.get('shortcut')))
+                if 'ratios' in record:
+                    self.overrides[base]['ratios'] = validate_ratios(base, record['ratios'])
+            except ValueError:
+                self.overrides.pop(base, None)
         self.items = {}
         for item in saved if isinstance(saved, list) else ():
             if not isinstance(item, dict):
@@ -35,31 +44,41 @@ class LayoutPresets:
     def state(self):
         return deepcopy(list(self.items.values()))
 
-    def _current_geometry(self):
-        wall = self.host.wall
-        if self.host._fullscreen_tile is not None or wall.picture_in_picture_tiles is not None:
-            raise ValueError('请返回画面墙后保存布局')
-        return wall.layout_id, validate_ratios(wall.layout_id, snapshot_ratios(wall))
+    def override_state(self):
+        return deepcopy(self.overrides)
 
-    def save(self, name):
-        name = name.strip()
-        if not name:
-            raise ValueError('请输入布局名称')
-        if any(item['name'] == name for item in self.items.values()):
-            raise ValueError('已有同名自定义布局')
-        base, ratios = self._current_geometry()
-        key = uuid4().hex
-        self.items[key] = dict(id=key, name=name, base=base, ratios=ratios, shortcut='')
+    def save_override(self, base, ratios):
+        ratios = validate_ratios(base, ratios)
+        self.overrides.setdefault(base, {'shortcut': ''})['ratios'] = ratios
+        if base == self.host.wall.layout_id:
+            self.apply(base)
         self.host._save_timer.start()
-        return key
 
-    def update(self, key):
-        base, ratios = self._current_geometry()
-        item = self.items[key]
-        if base != item['base']:
-            raise ValueError('请先切到此自定义布局，再拖动分隔线')
-        item['ratios'] = ratios
-        self.host._save_timer.start()
+    def edit(self, base):
+        host = self.host
+        wall = host.wall
+        if host._closing or host._fullscreen_tile is not None or wall.picture_in_picture_tiles is not None:
+            return None
+        from .layout_preset_editor import LayoutPresetEditor
+        ratios = self.overrides.get(base, {}).get('ratios')
+        if ratios is None:
+            ratios = wall.corner_ratios() if base == 'corner' else wall.layout_ratios().get(base, {})
+        editor = LayoutPresetEditor(host, base, ratios)
+        editor.accepted.connect(lambda: self.save_override(base, editor.ratios()))
+        editor.show()
+        return editor
+
+    def reset_current(self):
+        record = self.overrides.get(self.host.wall.layout_id)
+        removed = record is not None and record.pop('ratios', None) is not None
+        self.host.wall.reset_layout_ratios()
+        if removed:
+            self.host._save_timer.start()
+
+    def select_builtin(self, base):
+        if 'ratios' in self.overrides.get(base, {}):
+            return self.apply(base)
+        self.host._on_layout_changed(base)
 
     def delete(self, key):
         del self.items[key]
@@ -81,7 +100,7 @@ class LayoutPresets:
     def shortcuts(self):
         reserved = self._reserved_shortcuts()
         result = {}
-        for key, item in self.items.items():
+        for key, item in (self.items | self.overrides).items():
             shortcut = item['shortcut']
             if shortcut and shortcut not in reserved:
                 result.setdefault(shortcut, key)
@@ -90,9 +109,11 @@ class LayoutPresets:
     def bind(self, key, text):
         shortcut = _shortcut(text)
         if shortcut and (shortcut in self._reserved_shortcuts() or any(
-                item['shortcut'] == shortcut and other != key for other, item in self.items.items())):
+                item['shortcut'] == shortcut and other != key
+                for other, item in (self.items | self.overrides).items())):
             raise ValueError('此快捷键已被占用')
-        self.items[key]['shortcut'] = shortcut
+        record = (self.overrides.setdefault(key, {}) if key in layouts.BY_ID else self.items[key])
+        record['shortcut'] = shortcut
         self.host._refresh_shortcuts()
         self.host._save_timer.start()
 
@@ -100,11 +121,13 @@ class LayoutPresets:
         host = self.host
         if host._fullscreen_tile is not None or host._closing:
             return False
-        item = self.items[key]
+        item = self.overrides.get(key, {}) if key in layouts.BY_ID else self.items[key]
         if host.picture_in_picture.moves_main_wall:
             host.picture_in_picture.restore()
         host.wall._cancel_border_drag()
-        host.wall.layout_control.set_preset_ratios(item['base'], item['ratios'])
-        host.window_layout.on_layout_changed(item['base'], preserve_rooms=True)
+        base = item.get('base', key)
+        if 'ratios' in item:
+            host.wall.layout_control.set_preset_ratios(base, item['ratios'])
+        host.window_layout.on_layout_changed(base, preserve_rooms=True)
         host._save_timer.start()
         return True
