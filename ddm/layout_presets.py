@@ -68,15 +68,6 @@ class LayoutPresets:
         editor.show()
         return editor
 
-    def reset_current(self):
-        record = self.overrides.get(self.host.wall.layout_id)
-        removed = record is not None and record.pop('ratios', None) is not None
-        self.host.wall.reset_layout_ratios()
-        if layouts.snap_grid_size(self.host.wall.layout_id):
-            self.host._sync_tile_playback(start_visible=True)
-        if removed:
-            self.host._save_timer.start()
-
     def select_builtin(self, base):
         if layouts.snap_grid_size(base) or 'ratios' in self.overrides.get(base, {}):
             return self.apply(base)

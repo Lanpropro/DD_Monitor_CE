@@ -58,7 +58,6 @@ class SidebarLayoutPicker(QObject):
                               presets_host=getattr(host, "room_presets_host", None),
                               preferred_size=self.preferred_size, available=available)
         picker.chosen.connect(host._on_layout_chosen)
-        picker.resetRequested.connect(host.layoutResetRequested.emit)
         picker.sizeChanged.connect(self._remember_size)
         x = anchor.x()
         if host.collapsed:

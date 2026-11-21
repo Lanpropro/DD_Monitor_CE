@@ -62,7 +62,7 @@ def main():
     assert compact.scroll.verticalScrollBar().maximum() > 0
     assert compact.scroll.horizontalScrollBar().maximum() == 0
     assert compact.current_label.text().startswith('当前')
-    assert compact.reset_button.isVisible()
+    assert compact.edit_button is None
     emitted = []
     compact.sizeChanged.connect(emitted.append)
     original = compact.geometry()
@@ -78,7 +78,6 @@ def main():
     bounds = compact.size()
     compact._tabs['竖屏布局'].click()
     assert compact.size() == bounds and compact.group() == '竖屏布局'
-    assert not compact.reset_button.isVisible()
     selected = []
     compact.chosen.connect(selected.append)
     compact._cards['竖屏布局'][0].click()

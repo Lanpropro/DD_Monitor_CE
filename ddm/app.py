@@ -337,7 +337,6 @@ class MainWindow(QMainWindow):
         self.sidebar.appearanceChanged.connect(self.set_appearance)
         self.sidebar.layoutChosen.connect(self.layout_presets.select_builtin)
         self.sidebar.room_presets_host = self
-        self.sidebar.layoutResetRequested.connect(self.layout_presets.reset_current)
         self.sidebar.set_layout_name(self.wall.layout_id)
         self.wall.paneEditRequested.connect(self.switch_tile_to_danmaku)
         self.wall.paneApplyRequested.connect(self._apply_pane_menu)

@@ -64,9 +64,15 @@ def check_layout_only_presets(app, directory):
             window.sidebar.open_layout_picker()
             picker = window.sidebar._picker
             assert picker.custom_layouts_page is None
-            assert picker.edit_button.objectName() == picker.reset_button.objectName() == 'IconButton'
-            assert picker.edit_button.sizeHint().height() == picker.reset_button.sizeHint().height()
+            assert picker.edit_button.objectName() == 'IconButton'
+            assert picker.edit_button.text() == '修改布局'
+            footer = picker.layout().itemAt(picker.layout().count() - 1).layout()
+            assert [item.widget() for index in range(footer.count())
+                    if (item := footer.itemAt(index)).widget()] == [picker.edit_button]
             QTest.mouseClick(picker.edit_button, Qt.LeftButton)
+            assert picker.isVisible() and picker.edit_button.text() == '选择要修改的布局'
+            card = next(card for card in picker._cards[picker.group()] if card.property('layoutId') == 'corner')
+            QTest.mouseClick(card, Qt.LeftButton)
             app.processEvents()
             editor = next(dialog for dialog in window.findChildren(LayoutPresetEditor) if dialog.isVisible())
             assert not picker.isVisible()
@@ -215,9 +221,6 @@ def check_layout_only_presets(app, directory):
             QTest.mouseClick(button(editor, '保存布局'), Qt.LeftButton)
             assert reopened.wall.corner_ratios() == original
             assert reopened.layout_presets.override_state()['corner']['ratios'] == original
-            reopened.layout_presets.reset_current()
-            assert reopened.wall.corner_ratios() == original
-            assert 'ratios' not in reopened.layout_presets.override_state()['corner']
             assert reopened.layout_presets.shortcuts()['Ctrl+1'] == 'corner'
         finally:
             reopened.close()
@@ -248,12 +251,11 @@ def check_snap_grid_and_other_presets(app):
         window.sidebar.open_layout_picker()
         picker = window.sidebar._picker
         picker.set_group(group)
-        assert picker.edit_button.isVisible()
+        assert picker.edit_button.isVisible() and picker.edit_button.text() == '修改布局'
         picker.edit_button.click()
-        if picker.isVisible():
-            assert picker.edit_button.text() == '选择要修改的布局'
-            card = next(card for card in picker._cards[group] if card.property('layoutId') == base)
-            card.click()
+        assert picker.isVisible() and picker.edit_button.text() == '选择要修改的布局'
+        card = next(card for card in picker._cards[group] if card.property('layoutId') == base)
+        card.click()
         app.processEvents()
         editor = next(dialog for dialog in window.findChildren(LayoutPresetEditor) if dialog.isVisible())
         assert editor.preview.base == base
@@ -327,8 +329,11 @@ def check_snap_grid_and_other_presets(app):
             assert resumed.wall.layout_ratios()['custom_grid16']['grid'][0] == (0, 0, 2, 1)
             resumed.layout_presets.select_builtin('custom_grid9')
             assert resumed.wall.layout_ratios()['custom_grid9']['grid'][3] is None
-            resumed.layout_presets.reset_current()
             resumed.show()
+            app.processEvents()
+            editor = resumed.layout_presets.edit('custom_grid9')
+            editor.preview.reset_to_default()
+            editor.accept()
             app.processEvents()
             assert len(resumed.wall.visible_tiles()) == 9
         finally:
@@ -414,7 +419,7 @@ def main():
             picker.show()
             picker.set_group('直播间组合')
             page = picker.presets_page
-            assert page.isVisible() and not picker.reset_button.isVisible()
+            assert page.isVisible() and not picker.edit_button.isVisible()
             with patch('ddm.room_presets_ui.QInputDialog.getText', side_effect=AssertionError('Save must stay inline')):
                 QTest.mouseClick(page.save_button, Qt.LeftButton)
                 app.processEvents()
@@ -672,7 +677,7 @@ def main():
                                       contrast(icon.pixelColor(x, y), theme.qcolor(theme.CONTENT)) >= 3
                                       for x in range(icon.width()) for y in range(icon.height()))
                         assert visible > icon.width() * icon.height() * .04, card.text()
-                for button in (*picker._tabs.values(), picker.reset_button):
+                for button in (*picker._tabs.values(), picker.edit_button):
                     assert contrast(button.palette().color(QPalette.ButtonText),
                                     theme.qcolor(theme.CONTENT)) >= 4.5, button.text()
                 picker.set_group('直播间组合')

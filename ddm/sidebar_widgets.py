@@ -101,7 +101,6 @@ class Sidebar(QFrame):
     wallSettingsRequested = Signal()
     pictureInPictureRequested = Signal()
     clearWallRequested = Signal()
-    layoutResetRequested = Signal()
     settingsRequested = Signal()
     pluginSettingsRequested = Signal()
     cardModeChanged = Signal(bool)
