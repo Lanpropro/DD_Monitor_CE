@@ -5,6 +5,9 @@ from .recording_session import BackgroundRecordingSource
 from .streamer_defaults import QUALITY_LABELS, quality_tiers, source_quality_option
 
 
+MONITOR_STATES = ('recording', 'reconnecting', 'preparing', 'stopping', 'failed', 'monitoring')
+
+
 class CaptureControl:
     def __init__(self, host):
         self.host = host
@@ -260,6 +263,35 @@ class CaptureControl:
         host.sidebar.items_control.set_recording_rooms(
             session.room_id for session in host.recorder.sessions.values()
             if session.recording and not session.stopping and session.started_at)
+
+    def monitor_rows(self):
+        """Read the current manual recordings and opt-in background monitoring by room."""
+        host = self.host
+        monitored = host.auto_recording.monitored_rooms()
+        entries = {}
+        for session in host.recorder.sessions.values():
+            if not session.recording or not session.room_id:
+                continue
+            if session.stopping:
+                state = 'stopping'
+            elif session.retry_at or (session.started_at and session.refreshing):
+                state = 'reconnecting'
+            else:
+                state = 'recording' if session.started_at else 'preparing'
+            previous = entries.get(session.room_id)
+            if previous is None or MONITOR_STATES.index(state) < MONITOR_STATES.index(previous[1]):
+                entries[session.room_id] = (session.name, state)
+
+        for tile, recording in host._pending_capture.items():
+            room_id = str(tile.room.get('room_id') or '')
+            if recording and room_id:
+                entries.setdefault(room_id, (tile.room.get('uname') or room_id, 'preparing'))
+
+        names = {str(room.get('room_id')): room.get('uname') for room in host.sidebar.rooms()}
+        for room_id, profile in monitored.items():
+            state = 'failed' if room_id in host.auto_recording.failed_to_start else 'monitoring'
+            entries.setdefault(room_id, (names.get(room_id) or profile.get('name') or room_id, state))
+        return tuple(sorted(entries.values(), key=lambda row: (MONITOR_STATES.index(row[1]), row[0].casefold())))
 
     def record_state_changed(self, tile) -> None:
         host = self.host

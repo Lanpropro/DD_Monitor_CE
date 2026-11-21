@@ -1162,7 +1162,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 #SidebarFilter:hover {{background: {CONTENT_HOVER};}}
 #SidebarFilter:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
 #SidebarFilter:focus {{border: 1px solid {ACCENT};}}
-#FunctionCenter {{
+#FunctionCenter, #StreamerMonitorMenu {{
     background: {SIDEBAR};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_LG}px;

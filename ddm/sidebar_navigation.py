@@ -19,6 +19,7 @@ PATHS = {
     'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
     'wall_settings': '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 10h12M6 15h12M9 8v4M15 13v4"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
+    'monitor': '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M5 12h4l2-4 3 8 2-4h3"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
     'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     'import_follows': '<circle cx="8" cy="7" r="3"/><path d="M2 20v-2a6 6 0 0 1 12 0v2m8-8h-7m3-3-3 3 3 3"/>',
@@ -236,6 +237,10 @@ class SidebarNavigation(QObject):
         self.bottom = QVBoxLayout()
         self.bottom.setSpacing(6)
         rail_box.addLayout(self.bottom)
+        self.monitor_button = NavigationButton('监控', 'monitor', self.rail)
+        self.monitor_button.setProperty('dockRail', True)
+        from .sidebar_monitor_menu import StreamerMonitorMenu
+        self.monitor_menu = StreamerMonitorMenu(self.monitor_button)
         root_box.insertWidget(0, self.rail)
 
         self.header = QWidget(sidebar)
@@ -310,7 +315,7 @@ class SidebarNavigation(QObject):
             button.update()
 
     def movable_tools(self):
-        fixed = (self.fixed_divider, self.sidebar.notification_button,
+        fixed = (self.fixed_divider, self.monitor_button, self.sidebar.notification_button,
                  self.sidebar.appearance_button, self.sidebar.settings_button,
                  self.sidebar.wall_settings_button)
         return [self.bottom.itemAt(index).widget() for index in range(self.bottom.count())
@@ -333,7 +338,7 @@ class SidebarNavigation(QObject):
         tools = {self.tool_key(button): button for button in self.movable_tools()}
         keys = [key for key in self._tool_order if key in tools]
         keys.extend(key for key in tools if key not in keys)
-        ordered = [tools[key] for key in keys] + [self.fixed_divider, self.sidebar.notification_button,
+        ordered = [tools[key] for key in keys] + [self.fixed_divider, self.monitor_button, self.sidebar.notification_button,
                                                 self.sidebar.appearance_button, self.sidebar.settings_button]
         ordered.insert(ordered.index(self.sidebar.picture_in_picture_button), self.sidebar.wall_settings_button)
         for index, widget in enumerate(ordered):
@@ -463,6 +468,7 @@ class SidebarNavigation(QObject):
         sidebar = self.sidebar
         sidebar.plugin_pages.select()
         self.icon_drag.cancel()
+        self.monitor_menu.hide()
         self.rail.hide()
         self.header.hide()
         self.filters.hide()
@@ -524,7 +530,8 @@ class SidebarNavigation(QObject):
         if not self.in_rail:
             for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
                            sidebar.picture_in_picture_button,
-                           sidebar.notification_button, sidebar.appearance_button, sidebar.settings_button):
+                           self.monitor_button, sidebar.notification_button, sidebar.appearance_button,
+                           sidebar.settings_button):
                 sidebar._detach_from_rows(button)
                 button.setParent(self.rail)
                 self.bottom.addWidget(button, 0, Qt.AlignHCenter)

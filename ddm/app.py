@@ -276,6 +276,7 @@ class MainWindow(QMainWindow):
             compact_background=bool(self.settings.get("sidebar_compact_background", True)),
         )
         self.sidebar.items_control.set_auto_record_rooms(self.auto_recording.configured_rooms())
+        self.sidebar.navigation.monitor_menu.read_rows = self.capture_control.monitor_rows
 
         self.empty_hint = QLabel(EMPTY_HINT)
         self.empty_hint.setObjectName("EmptyHint")
