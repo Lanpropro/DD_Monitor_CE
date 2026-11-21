@@ -213,7 +213,12 @@ def check_control_contrast(app, tile):
     row.setSpacing(4)
     editor = QLineEdit(composer)
     editor.setPlaceholderText('Local input')
+    editor.setFixedHeight(26)
     row.addWidget(editor, 1)
+    emoji = QPushButton(composer, objectName='TileCtrl')
+    emoji.setFixedSize(24, 24)
+    emoji.setStyleSheet('QPushButton#TileCtrl {border-radius: 12px; padding: 0;}')
+    row.addWidget(emoji)
     send = QPushButton('发送', composer, objectName='TileCtrl')
     send.setFixedSize(44, 26)
     send.setStyleSheet('QPushButton#TileCtrl:disabled {background: transparent; color: palette(tooltip-text);}')
@@ -262,26 +267,39 @@ def check_control_contrast(app, tile):
             row.activate()
             gap = QPoint(editor.geometry().right() + 2, composer.height() // 2)
             field = QPoint(editor.geometry().right() - 16, editor.geometry().center().y())
+            backing = tile.pause_button.geometry().center() + QPoint(-8, 0)
             for draft in ('', 'Local draft'):
                 editor.setText(draft)
                 send.setEnabled(bool(draft))
+                for backdrop in ('#ffffff', '#101010'):
+                    surface = render(bar, backdrop)
+                    point = composer.pos() + gap
+                    adjacent = QPoint(backing.x(), point.y())
+                    assert surface.pixelColor(point) == surface.pixelColor(adjacent), (mode, backdrop)
+                    fill = surface.pixelColor(composer.pos() + field)
+                    assert fill.lightness() < 90, (mode, backdrop, fill.name())
                 bright = render(composer, '#ffffff', QWidget.DrawWindowBackground | QWidget.DrawChildren)
-                dim = render(composer, '#101010', QWidget.DrawWindowBackground | QWidget.DrawChildren)
-                assert bright.pixelColor(gap) == dim.pixelColor(gap) == QColor(theme.BG)
-                assert bright.pixelColor(field) == dim.pixelColor(field)
                 assert bright.pixelColor(0, 0) == QColor('#ffffff'), 'The backing keeps its rounded corners'
                 placeholder = editor.palette().color(QPalette.PlaceholderText)
-                assert placeholder == app.palette().color(QPalette.Text), (mode, placeholder.getRgb())
-                assert editor.palette().color(QPalette.Text) == app.palette().color(QPalette.WindowText)
+                assert placeholder.lightness() >= 220, (mode, placeholder.getRgb())
+                assert editor.palette().color(QPalette.Text) == QColor('#ffffff')
                 ink = send.palette().color(QPalette.ButtonText)
-                role = QPalette.WindowText if draft else QPalette.Text
-                assert ink == app.palette().color(role), (mode, draft, ink.getRgb())
-            app.sendEvent(send, QEvent(QEvent.Enter))
-            hovered = render(composer, '#ffffff', QWidget.DrawWindowBackground | QWidget.DrawChildren)
-            role = QPalette.Button if mode == 'light' else QPalette.Highlight
-            point = send.geometry().topLeft() + QPoint(5, send.height() // 2)
-            assert hovered.pixelColor(point) == app.palette().color(role)
-            app.sendEvent(send, QEvent(QEvent.Leave))
+                assert ink.lightness() >= 200, (mode, draft, ink.getRgb())
+            for button in (emoji, send):
+                idle = render(button, '#2d333a')
+                app.sendEvent(button, QEvent(QEvent.Enter))
+                hovered = render(button, '#2d333a')
+                button.setDown(True)
+                pressed = render(button, '#2d333a')
+                button.setDown(False)
+                app.sendEvent(button, QEvent(QEvent.Leave))
+                point = QPoint(5, button.height() // 2)
+                colors = [image.pixelColor(point) for image in (idle, hovered, pressed)]
+                assert len(set(color.name() for color in colors)) == 3, (mode, colors)
+                for image in (hovered, pressed):
+                    assert image.pixelColor(0, 0) == idle.pixelColor(0, 0), (mode, colors)
+                    rgb = image.pixelColor(point).getRgb()[:3]
+                    assert max(rgb) - min(rgb) < 24, (mode, rgb)
     finally:
         composer.hide()
         composer.deleteLater()

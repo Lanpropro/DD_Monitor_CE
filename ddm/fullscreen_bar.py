@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from .corner_geometry import continuous_path
+from .theme import VIDEO_CONTROL_BACKING, VIDEO_CONTROL_RADIUS
 
 
 class FullscreenBar(QWidget):
@@ -192,7 +193,7 @@ class FullscreenBar(QWidget):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(13, 17, 23, 118))
+        painter.setBrush(QColor(*VIDEO_CONTROL_BACKING))
         for group in self.contrast_groups:
             bounds = QRect()
             for widget in group:
@@ -201,7 +202,7 @@ class FullscreenBar(QWidget):
             if not bounds.isEmpty():
                 inset = self.rect().adjusted(3, 3, -3, -3)
                 surface = bounds.adjusted(-5, 0, 5, 0).intersected(inset)
-                painter.drawRoundedRect(QRectF(surface), 9, 9)
+                painter.drawRoundedRect(QRectF(surface), VIDEO_CONTROL_RADIUS, VIDEO_CONTROL_RADIUS)
         painter.restore()
 
     def _mask_label_windows(self, hide):

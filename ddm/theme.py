@@ -81,6 +81,9 @@ TILE_FULLSCREEN_STYLE = '''
 }
 '''
 
+VIDEO_CONTROL_BACKING = (13, 17, 23, 118)
+VIDEO_CONTROL_RADIUS = 9
+
 FULLSCREEN_BAR_STYLE = '''
 #TileBottom[overVideo="true"] {
     background: transparent;
@@ -99,19 +102,13 @@ FULLSCREEN_BAR_STYLE = '''
 #TileBottom[overVideo="true"] #TileToggle:!disabled:hover,
 #TileBottom[overVideo="true"] #TileToggle[hovered="true"]:!disabled,
 #TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:hover,
-#TileBottom[overVideo="true"] #BiliVolumeButton[hovered="true"]:!disabled,
-#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:hover,
-#TileBottom[overVideo="true"] #DanmakuSendButton[hovered="true"]:!disabled,
-#TileBottom[overVideo="true"] #DanmakuComposer QPushButton:!disabled:hover,
-#TileBottom[overVideo="true"] #DanmakuComposer QPushButton[hovered="true"]:!disabled {
+#TileBottom[overVideo="true"] #BiliVolumeButton[hovered="true"]:!disabled {
     background: palette(highlight);
     color: #04161f;
 }
 #TileBottom[overVideo="true"] #TileCtrl:!disabled:pressed,
 #TileBottom[overVideo="true"] #TileToggle:!disabled:pressed,
-#TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:pressed,
-#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:pressed,
-#TileBottom[overVideo="true"] #DanmakuComposer QPushButton:!disabled:pressed {
+#TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:pressed {
     background: palette(link-visited);
     color: #04161f;
 }
@@ -119,37 +116,44 @@ FULLSCREEN_BAR_STYLE = '''
     color: #fb7299;
 }
 #TileBottom[overVideo="true"] #DanmakuComposer {
-    background: palette(window);
-    border: 1px solid palette(dark);
-    border-radius: 13px;
+    background: rgba%s;
+    border: none;
+    border-radius: %dpx;
 }
 #TileBottom[overVideo="true"] #DanmakuComposer QLineEdit {
-    background: palette(base);
-    color: palette(window-text);
-    placeholder-text-color: palette(text);
-    border-color: palette(mid);
+    background: rgba(13, 17, 23, 0.44);
+    color: #ffffff;
+    placeholder-text-color: #e7ebf0;
+    border-color: rgba(231, 235, 240, 0.12);
 }
 #TileBottom[overVideo="true"] #DanmakuComposer QLineEdit:focus {
-    background: palette(button);
-    border-color: palette(dark);
+    background: rgba(13, 17, 23, 0.56);
+    border-color: rgba(231, 235, 240, 0.42);
 }
-#TileBottom[overVideo="true"] #DanmakuComposer QPushButton {
-    color: palette(window-text);
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl,
+#TileBottom[overVideo="true"] #DanmakuSendButton {
+    background: transparent;
+    border-radius: 12px;
+    color: #ffffff;
     font-weight: 600;
 }
-#TileBottom[overVideo="true"] #DanmakuComposer QPushButton:disabled {
-    color: palette(text);
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl:disabled,
+#TileBottom[overVideo="true"] #DanmakuSendButton:disabled {
+    color: #cbd2da;
 }
-#TileBottom[appearanceLight="true"][overVideo="true"] #DanmakuComposer QPushButton:!disabled:hover,
-#TileBottom[appearanceLight="true"][overVideo="true"] #DanmakuComposer QPushButton[hovered="true"]:!disabled {
-    background: palette(button);
-    color: palette(highlight);
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl:!disabled:hover,
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:hover,
+#TileBottom[overVideo="true"] #DanmakuSendButton[hovered="true"]:!disabled {
+    background: rgba(231, 235, 240, 0.78);
+    color: #202630;
 }
-#TileBottom[appearanceLight="true"][overVideo="true"] #DanmakuComposer QPushButton:!disabled:pressed {
-    background: palette(mid);
-    color: palette(highlight);
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl:!disabled:pressed,
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:pressed {
+    background: rgba(231, 235, 240, 0.66);
+    color: #202630;
 }
-'''
+''' % (VIDEO_CONTROL_BACKING, VIDEO_CONTROL_RADIUS)
 
 BG = mix(BASE, "#000000", 0.20)
 SIDEBAR = mix(BASE, "#000000", 0.30)
