@@ -119,6 +119,10 @@ class StreamInfoTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         dialog.show()
         self.assertTrue(dialog.timer.isActive())
+        self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
+        self.assertEqual(dialog.window_header.breadcrumb.text(), '直播流信息')
+        self.assertEqual(dialog.values['state'].text(), '播放中')
+        self.assertTrue(dialog.values['host'].textInteractionFlags() & Qt.TextSelectableByMouse)
         self.assertEqual(dialog.values['host'].textFormat(), Qt.PlainText)
         self.assertEqual(dialog.values['host'].text(), '<b>plain.test</b>')
         source['host'] = 'changed.test'
@@ -136,7 +140,8 @@ class StreamInfoTests(unittest.TestCase):
             stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))
             stack.enter_context(patch('ddm.images.load_cached_avatar', return_value=None))
             rooms = [{'room_id': '314', 'uname': 'Wired fixture', 'live': False}]
-            window = MainWindow(rooms, rooms, layout_id='2x2', state={'plugins_enabled': []})
+            window = MainWindow(rooms, rooms, layout_id='2x2', state={
+                'plugins_enabled': [], 'settings': {'settings_glass_enabled': True, 'settings_glass_opacity': 45}})
             try:
                 tile = window.wall.tiles[0]
                 player = Mock()
@@ -145,7 +150,14 @@ class StreamInfoTests(unittest.TestCase):
                 menu = tile.build_menu()
                 next(action for action in menu.actions() if action.text() == '直播流信息…').trigger()
                 APP.processEvents()
-                self.assertEqual(window._stream_info_dialogs[tile].values['host'].text(), 'wired.test')
+                dialog = window._stream_info_dialogs[tile]
+                self.assertEqual(dialog.values['host'].text(), 'wired.test')
+                self.assertTrue(dialog.property('settings_glass_enabled'))
+                self.assertEqual(dialog.property('settings_glass_opacity'), 45)
+                self.assertEqual(tile.controls.property('playbackGlassOpacity'), 45)
+                window._remote_settings_saved({'settings': {'settings_glass_opacity': 62}})
+                self.assertEqual(dialog.property('settings_glass_opacity'), 62)
+                self.assertEqual(tile.controls.property('playbackGlassOpacity'), 62)
             finally:
                 window.close()
             self.assertFalse(window._stream_info_dialogs)

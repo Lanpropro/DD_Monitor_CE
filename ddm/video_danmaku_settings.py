@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QCheckBox, QFrame, QGridLayout, QLabel, QMenu, QSc
 
 from . import theme
 from .config import DEFAULT_SETTINGS
+from .playback_material import style_menu
 from .ui import SettingsSlider, SettingsValueLabel, ActionButton, ColorDialog
 
 
@@ -66,6 +67,10 @@ class VideoDanmakuSettings(QMenu):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setWidget(holder)
+        self.scroll.setObjectName('PlaybackDanmakuScroll')
+        self.scroll.setStyleSheet('#PlaybackDanmakuScroll { background: transparent; border: none; }')
+        self.scroll.viewport().setAutoFillBackground(False)
+        holder.setAutoFillBackground(False)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(self.scroll)
         self.addAction(wrapper)
@@ -113,6 +118,8 @@ class VideoDanmakuSettings(QMenu):
 
     def open_at(self, button, settings: dict) -> None:
         self.apply_settings(settings)
+        controls = getattr(self.parentWidget(), 'controls', None)
+        style_menu(self, controls.property('playbackGlassOpacity') if controls is not None else None)
         self.ensurePolished()
         anchor = button.mapToGlobal(QPoint(button.width(), 0))
         screen = button.screen().availableGeometry()

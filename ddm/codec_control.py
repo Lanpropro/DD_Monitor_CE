@@ -159,7 +159,8 @@ class CodecControl:
             existing.activateWindow()
             return
         from .stream_info import StreamInfoDialog
-        dialog = StreamInfoDialog(lambda: host._stream_info_snapshot(tile), host)
+        dialog = StreamInfoDialog(lambda: host._stream_info_snapshot(tile), host,
+                                  settings=getattr(host, 'settings', {}))
         dialog.finished.connect(lambda _result: host._stream_info_dialogs.pop(tile, None))
         host._stream_info_dialogs[tile] = dialog
         dialog.set_presentation_owner(tile.window())

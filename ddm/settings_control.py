@@ -264,6 +264,14 @@ class SettingsControl:
         from . import theme
         if theme.configure_appearance(host.settings):
             theme.apply(host.settings['appearance_mode'])
+        playback_material = {'settings_glass_enabled', 'settings_glass_opacity'}
+        if changed_keys & playback_material:
+            from .playback_material import sync_controls
+            for tile in host.wall.tiles:
+                sync_controls(tile, host.settings)
+        if changed_keys & (playback_material | {'settings_no_shadows'}):
+            for stream_info in getattr(host, '_stream_info_dialogs', {}).values():
+                stream_info.set_material(host.settings)
         from .native_diagnostics import set_dump_enabled
         set_dump_enabled(host.settings.get("native_crash_dump", False))
         from .notification_center import NoticeRow

@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QPointF, QTimer, Qt
 from PySide6.QtGui import QImage, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
@@ -273,8 +273,8 @@ assert not any(name in sys.modules for name in (
                     hover = surfaces.values(button, overrides={'hover': True})
                     pressed = surfaces.values(button, overrides={'hover': True, 'pressed': True})
                     if button.parentWidget() is tile.controls:
-                        self.assertEqual(hover['background'], 'rgba(48, 51, 57, 0.89)')
-                        self.assertEqual(pressed['background'], 'rgba(68, 71, 77, 0.93)')
+                        self.assertEqual(hover['background'], '#404b5d')
+                        self.assertEqual(pressed['background'], '#4d5a6e')
                     else:
                         self.assertTrue(hover['background'].endswith(', 0.15)'))
                         self.assertTrue(pressed['background'].endswith(', 0.27)'))
@@ -321,6 +321,59 @@ assert not any(name in sys.modules for name in (
         self.assertTrue(tile.volume_button.property('playbackPopupOpen'))
         tile.volume_menu.hide()
         self.assertFalse(tile.volume_button.property('playbackPopupOpen'))
+
+    def test_playback_glass_tints_all_top_buttons_and_both_menus(self):
+        from ddm.playback_material import sync_controls
+        from ddm.tile_widgets import Tile
+
+        self.addCleanup(theme.apply, theme.mode())
+        theme.apply('dark')
+        self.owner.setAttribute(Qt.WA_DontShowOnScreen)
+        self.owner.resize(720, 320)
+        tile = Tile({'room_id': '1000', 'live': True}, self.owner)
+        self.owner.layout().addWidget(tile)
+        tile.set_quality_options([{'qn': 10000, 'desc': '原画'}, {'qn': 400, 'desc': '蓝光'}])
+        self.owner.show()
+        tile.set_controls_visible(True)
+        tile._control_hover_timer.stop()
+        buttons = (tile.quality_button, tile.reload_button, tile.close_button)
+        sizes = [button.geometry() for button in buttons]
+        idle = [button.grab().toImage() for button in buttons]
+        sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0})
+        for button, before in zip(buttons, idle):
+            self.assertNotEqual(button.grab().toImage(), before)
+        self.assertEqual([button.geometry() for button in buttons], sizes)
+
+        def background_alpha(menu):
+            image = menu.grab().toImage()
+            self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+            return image.pixelColor(menu.width() // 2, 4).alpha()
+
+        menu = tile.danmaku_settings_menu
+        menu.open_at(tile.danmaku_settings_button, tile.video_danmaku.settings)
+        frosted = background_alpha(menu)
+        sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 100})
+        self.assertLess(frosted, background_alpha(menu))
+        sync_controls(tile, {'settings_glass_enabled': False})
+        self.assertIsNone(tile.controls.property('playbackGlassOpacity'))
+        self.assertEqual(background_alpha(menu), 255)
+        menu.hide()
+
+        sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0})
+        expected = tile._quality_choices()[0][1]
+        seen = []
+        def select_quality():
+            popup = QApplication.activePopupWidget()
+            popup_alpha = popup.grab().toImage().pixelColor(popup.width() // 2, 4).alpha()
+            seen.append((popup.testAttribute(Qt.WA_TranslucentBackground), popup_alpha))
+            popup.setActiveAction(popup.actions()[0])
+            QTest.keyClick(popup, Qt.Key_Enter)
+            popup.hide()
+        QTimer.singleShot(0, select_quality)
+        tile._open_quality_menu()
+        self.assertTrue(seen[0][0])
+        self.assertLess(seen[0][1], 255)
+        self.assertEqual(tile.quality, expected)
 
     def test_playback_volume_thumbs_enlarge_without_changing_hit_geometry(self):
         from PySide6.QtGui import QColor

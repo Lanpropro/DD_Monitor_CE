@@ -2,9 +2,10 @@
 import math
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QFormLayout, QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from .motion import AnimatedDialog
+from .settings_window import SettingsWindow
+from .ui import SettingsSurface, TitleLabel
 
 
 FIELDS = (
@@ -63,47 +64,91 @@ def format_stream_info(info):
     }
 
 
-class StreamInfoDialog(AnimatedDialog):
-    def __init__(self, snapshot, parent=None):
+class StreamInfoDialog(SettingsWindow):
+    def __init__(self, snapshot, parent=None, *, settings=None):
         super().__init__(parent)
         self.snapshot = snapshot
         self.setWindowTitle('直播流信息')
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.resize(540, 390)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 16)
-        layout.setSpacing(12)
+        self.window_header.breadcrumb.setText('直播流信息')
+        self.window_header.close_button.setAccessibleName('关闭直播流信息')
+        self.window_header.close_button.setToolTip('关闭直播流信息')
+        scroll = QScrollArea(self)
+        scroll.setObjectName('SettingsPage')
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName('SettingsPage')
+        scroll.setWidget(content)
+        scroll.viewport().setAutoFillBackground(False)
+        content.setAutoFillBackground(False)
+        self.body_layout.addWidget(scroll)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(12, 4, 12, 8)
+        layout.setSpacing(8)
+        overview = QHBoxLayout()
         self.room = QLabel()
         self.room.setTextFormat(Qt.PlainText)
         self.room.setWordWrap(True)
-        self.room.setObjectName('AppSubtitle')
-        layout.addWidget(self.room)
-        form = QFormLayout()
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(8)
+        self.room.setObjectName('SettingsTitle')
+        overview.addWidget(self.room, 1)
         self.values = {}
-        for key, title in FIELDS:
-            label = QLabel()
-            label.setTextFormat(Qt.PlainText)
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            label.setWordWrap(True)
-            form.addRow(title, label)
-            self.values[key] = label
-        layout.addLayout(form)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.button(QDialogButtonBox.Close).setText('关闭')
-        buttons.button(QDialogButtonBox.Close).setObjectName('IconButton')
-        buttons.rejected.connect(self.close)
-        layout.addWidget(buttons)
+        status = self._value('state')
+        status.setObjectName('SettingsValue')
+        status.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        status.setAccessibleName('播放状态')
+        overview.addWidget(status, 0, Qt.AlignRight | Qt.AlignVCenter)
+        layout.addLayout(overview)
+        layout.addWidget(self._card('媒体与解码', ('format', 'core', 'video', 'audio', 'encoder', 'decode')))
+        layout.addWidget(self._card('连接与传输', ('host', 'buffer', 'video_bitrate', 'download')))
+        layout.addStretch(1)
+        self.set_material(settings or {})
+        area = (parent.screen() if parent is not None else self.screen()).availableGeometry()
+        self.resize(min(560, area.width() - 24), min(452, area.height() - 24))
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.refresh)
+
+    def _value(self, key):
+        label = QLabel()
+        label.setTextFormat(Qt.PlainText)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.values[key] = label
+        return label
+
+    def _card(self, title, keys):
+        card = SettingsSurface(self)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 16)
+        layout.setSpacing(8)
+        heading = TitleLabel(title)
+        heading.setObjectName('SettingsSectionTitle')
+        layout.addWidget(heading)
+        form = QFormLayout()
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(5)
+        titles = dict(FIELDS)
+        for key in keys:
+            label = QLabel(titles[key])
+            label.setObjectName('SettingsHint')
+            value = self._value(key)
+            value.setWordWrap(True)
+            value.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+            form.addRow(label, value)
+        layout.addLayout(form)
+        return card
 
     def set_presentation_owner(self, owner):
         # The full-screen tile is a separate native window, not the main window.
         owner.winId()
         self.winId()
         self.windowHandle().setTransientParent(owner.windowHandle())
+
+    def set_material(self, settings):
+        super().set_material({key: settings[key] for key in
+                              ('settings_glass_enabled', 'settings_glass_opacity', 'settings_no_shadows')
+                              if key in settings})
 
     def refresh(self):
         info = self.snapshot()
@@ -115,8 +160,8 @@ class StreamInfoDialog(AnimatedDialog):
             self.values[key].setText(value)
 
     def showEvent(self, event):
-        super().showEvent(event)
         self.refresh()
+        super().showEvent(event)
         if self.isVisible():
             self.timer.start()
 

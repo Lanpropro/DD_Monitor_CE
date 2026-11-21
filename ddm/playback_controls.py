@@ -114,7 +114,12 @@ class TileButton(QPushButton):
         from . import continuous_corners
         surfaces = continuous_corners._filter
         if surfaces is not None:
-            continuous_corners._paint(painter, self.rect(), surfaces.values(self), self.palette())
+            values = surfaces.values(self)
+            parent = self.parentWidget()
+            if parent is not None and parent.objectName() == 'TileControls':
+                from .playback_material import tint_button
+                values = tint_button(values, parent.property('playbackGlassOpacity'))
+            continuous_corners._paint(painter, self.rect(), values, self.palette())
         else:
             self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
         painter.restore()

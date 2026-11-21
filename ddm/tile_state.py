@@ -422,6 +422,8 @@ class TileState:
         if not choices:
             return
         menu = QMenu(host)
+        from .playback_material import style_menu
+        style_menu(menu, host.controls.property('playbackGlassOpacity'))
         menu.setToolTipsVisible(True)
         for name, value in choices:
             action = QAction(name, menu)
