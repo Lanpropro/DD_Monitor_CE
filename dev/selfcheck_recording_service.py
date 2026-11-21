@@ -4,7 +4,8 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from xml.etree.ElementTree import fromstring
 
 from PySide6.QtWidgets import QApplication
 
@@ -12,12 +13,85 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ddm.recording import RecordingManager, RecordingSession, _Session
 from ddm.recording_service import RecordingService
+from ddm.auto_recording import AutoRecording
+from ddm.app_notices import AppNotices
+from ddm.windows_recording_notifications import toast_xml
 from ddm.plugins import PluginContext, PluginManager
 
 APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_background_recording_uses_the_recording_center_and_waits_for_next_live(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = {'recording_dir': '', 'streamer_defaults': {
+                '1001': {'name': '示例主播', 'recording': 720, 'auto_record': True},
+                '1002': {'name': '旧配置'},
+            }}
+            resolve = Mock()
+            recorder = RecordingManager(settings, source_resolver=resolve)
+            recorder.timer.stop()
+            host = SimpleNamespace(settings=settings, recorder=recorder, _closing=False,
+                                   wall=SimpleNamespace(tiles=[]), _pending_capture={},
+                                   refresh_status=Mock(), capture_control=Mock())
+            auto = AutoRecording(host)
+            service = RecordingService(SimpleNamespace(window=host, _active=True))
+            live = {'1001': {'live': True, 'live_start_ts': 100}, '1002': {'live': True}}
+            with patch('ddm.recording.ffmpeg_path', return_value='fixture-ffmpeg'), \
+                    patch.object(recorder, '_free_enough', return_value=True):
+                auto.apply_status(live)
+                resolve.assert_not_called()
+                settings['recording_dir'] = directory
+                auto.settings_changed()
+                host.refresh_status.assert_called_once_with(force=True)
+                auto.apply_status(live)
+                auto.apply_status(live)
+                resolve.assert_called_once()
+                source = auto.source_for('1001')
+                self.assertEqual(source.quality, 720)
+                self.assertEqual(source.room['uname'], '示例主播')
+                self.assertIsNone(auto.source_for('1002'))
+                row, = service.sources()
+                self.assertEqual(row['state'], 'reconnecting')
+                self.assertEqual(row['room']['room_id'], '1001')
+                auto.apply_status({'1001': {'live': False, 'live_known': False}})
+                self.assertIs(auto.source_for('1001'), source)
+                service.control(row['source_id'], 'stop', session_id=row['session_id'])
+                self.assertFalse(service.sources())
+                auto.apply_status(live)
+                self.assertFalse(service.sources())
+                auto.apply_status({'1001': {'live': True, 'live_start_ts': 200}})
+                self.assertEqual(resolve.call_count, 2)
+                self.assertIsNot(auto.source_for('1001'), source)
+                auto.apply_status({'1001': {'live': False}})
+                self.assertFalse(service.sources())
+                auto.apply_status({'1001': {'live': True, 'live_start_ts': 300}})
+                self.assertEqual(resolve.call_count, 3)
+                settings['recording_enabled'] = False
+                auto.settings_changed()
+                self.assertFalse(service.sources())
+                self.assertFalse(auto.monitored_rooms())
+
+    def test_background_notices_use_windows_without_replaying_retry_messages(self):
+        host = SimpleNamespace(settings={}, _closing=False, _show_notice=Mock())
+        notices = AppNotices(host)
+        room = {'room_id': '1001', '_auto_recording': True}
+        with patch('ddm.windows_recording_notifications.send_recording_notification') as send:
+            notices.record_notice('示例主播 开始自动录制', room)
+            send.assert_called_once_with('自动录制已开始', '示例主播 开始自动录制')
+            send.reset_mock()
+            notices.record_notice('示例主播 重新获取录制地址失败：网络断开；稍后重试', room)
+            send.assert_not_called()
+            notices.record_notice('已保存录制：C:/fixture/示例.mp4', room)
+            send.assert_called_once_with('自动录制已保存', '示例.mp4')
+            host.settings['notifications_enabled'] = False
+            send.reset_mock()
+            notices.record_notice('示例主播 开始自动录制', room)
+            send.assert_not_called()
+        xml = fromstring(toast_xml('测试 <A>', '文件 & 目录'))
+        self.assertEqual(xml.get('activationType'), 'protocol')
+        self.assertEqual([node.text for node in xml.iter('text')], ['测试 <A>', '文件 & 目录'])
+
     def test_public_backend_selection_and_chat_delivery(self):
         class DualSession(RecordingSession):
             pass

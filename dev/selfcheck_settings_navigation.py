@@ -89,9 +89,10 @@ class SettingsNavigationTests(unittest.TestCase):
                    'huya:1001': [{'qn': 2000, 'label': '蓝光'}, {'qn': 1, 'label': '原画'}]}
         dialog.streamerQualityRequested.connect(
             lambda key, token: dialog.receive_streamer_quality(key, token, options[key], ''))
-        dialog.navigation.search.setText('zbdlsz')
+        dialog.navigation.search.setText('zbjk')
         page_index = PAGE_INDEX['streamer_defaults']
         self.assertEqual(page_index, PAGE_INDEX['shortcuts'] + 1)
+        self.assertEqual(dialog.nav.item(page_index).text(), '主播监控')
         self.assertEqual(dialog.navigation.heading(page_index), '观看与互动')
         dialog.nav.setCurrentRow(page_index)
         page = dialog.stack.currentWidget()
@@ -154,11 +155,18 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertTrue(card.details.isHidden())
         self.assertTrue(card.remove_button.isVisibleTo(card))
         self.assertIn('57%', card.summary_values['volume'].text())
+        self.assertFalse(card.auto_record.isChecked())
+        card.auto_record.click()
+        APP.processEvents()
+        card = page.cards[('huya:1001',)]
+        self.assertFalse(card.auto_record_summary.isHidden())
         dialog.auto_save.flush()
         saved = sent[-1]['settings']['streamer_defaults']
         self.assertEqual(set(saved), {'1001', 'huya:1001'})
         self.assertEqual(saved['1001']['playback']['qn'], 10000)
         self.assertEqual(saved['huya:1001']['playback']['qn'], 1)
+        self.assertIs(saved['huya:1001']['auto_record'], True)
+        self.assertNotIn('auto_record', saved['1001'])
         dialog.auto_save.acknowledge()
         saved_page = type(page)(dialog.settings(), {})
         self.addCleanup(saved_page.deleteLater)

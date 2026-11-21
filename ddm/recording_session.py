@@ -1,10 +1,20 @@
-"""Per-tile recording session state and completed segment bookkeeping."""
+"""Recording source, session state and completed segment bookkeeping."""
 from __future__ import annotations
 import subprocess
 import time
 import uuid
 from concurrent.futures import Future
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+@dataclass(eq=False)
+class BackgroundRecordingSource:
+    room: dict
+    quality: int | dict | None
+    stream_url: str = ''
+    stream_headers: dict = field(default_factory=dict)
+    stream_codec: str = ''
 
 
 class _Session:

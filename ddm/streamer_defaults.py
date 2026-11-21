@@ -15,7 +15,7 @@ def room_defaults(settings, room_id):
     row = saved.get(str(room_id)) if isinstance(saved, dict) else None
     if not isinstance(row, dict):
         return {}
-    values = {}
+    values = {'auto_record': True} if row.get('auto_record') is True else {}
     for key in ('playback', 'recording'):
         level = row.get(key)
         if isinstance(level, dict):

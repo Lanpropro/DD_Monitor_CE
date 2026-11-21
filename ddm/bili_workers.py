@@ -34,6 +34,7 @@ class StreamResolver(QThread):
         self.login_required = False
         self.failure_quality_options = []
         self.streamer_height = None
+        self.streamer_allow_lower = True
         self.applied_streamer_quality = False
         self._cancelled = False
 
@@ -213,7 +214,7 @@ class StreamResolver(QThread):
 
         quality, source_codec, note = self.quality, self.source_codec, self.codec_probe_note
         _, current, profile, _ = fallback
-        tiers = quality_tiers(self.room_id, options, self.streamer_height, allow_lower=True)
+        tiers = quality_tiers(self.room_id, options, self.streamer_height, allow_lower=self.streamer_allow_lower)
         for target in tiers:
             if self.is_cancelled():
                 raise api.Cancelled()

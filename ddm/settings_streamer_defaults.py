@@ -46,7 +46,7 @@ class StreamerDefaultsPage(QWidget):
         self.scroll.setWidget(content)
         layout = QVBoxLayout(content)
         layout.addLayout(page_header(
-            '主播独立设置', '主播从墙下上墙时应用默认值。墙上的临时调整只影响当前观看。'))
+            '主播监控', '按主播设置画质、音量和自动录制。开启后，主播未上墙也会后台录制。'))
         add_section = SettingsSection('添加主播')
         layout.addWidget(add_section)
         self.picker = StreamerPicker(self.rooms)
@@ -91,7 +91,7 @@ class StreamerDefaultsPage(QWidget):
         for room_id, row in self.entries.items():
             names = tuple(quality_label(row[key]).strip().casefold() if key in row else None
                           for key in ('playback', 'recording'))
-            groups.setdefault((*names, row.get('volume')), []).append(room_id)
+            groups.setdefault((*names, row.get('volume'), bool(row.get('auto_record'))), []).append(room_id)
         return [tuple(group) for group in groups.values()]
 
     def _render_profiles(self):

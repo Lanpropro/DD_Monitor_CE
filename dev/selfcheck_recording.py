@@ -24,6 +24,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.config import DEFAULT_SETTINGS  # noqa: E402
 from ddm.dialogs import SettingsDialog  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.auto_recording import AutoRecording
 from ddm.encoders import HARDWARE_ENCODERS, SOFTWARE_ENCODER, resolve_encoder
 from ddm.recording import (RecordingManager, ffmpeg_path, input_args, output_path,
                            safe_name, segment_args, _Session)  # noqa: E402
@@ -111,6 +112,53 @@ def until(app, condition, seconds=10):
             return True
         time.sleep(0.05)
     return False
+
+
+def check_background_recording(app, root, source):
+    folder = root / 'background'
+    settings = dict(DEFAULT_SETTINGS, recording_dir=str(folder), recording_min_free_mb=256,
+                    streamer_defaults={'fixture:1001': {'name': '后台测试', 'auto_record': True,
+                                                         'recording': {'qn': 720, 'label': '720P'}}})
+    launched = []
+
+    class TestPlatform:
+        def play_url(self, room_id, quality):
+            launched.append((room_id, quality))
+            return str(source), quality, 'test', {}
+
+        def room_quality_options(self, room_id):
+            return [{'qn': 720, 'desc': '720P'}]
+
+    host = QObject()
+    host.settings = settings
+    host._closing = False
+    host._pending_capture = {}
+    host._resolvers_running = set()
+    host._codec_settings = lambda: {'bili_codec': 'avc'}
+    platform = TestPlatform()
+    host.plugins = SimpleNamespace(platform_for=lambda _room_id: platform)
+    auto = AutoRecording(host)
+    recorder = host.recorder = RecordingManager(settings, source_resolver=auto.resolve_source)
+    notices = []
+    recorder.noticeWithRoom.connect(lambda message, room: notices.append((message, room['room_id'])))
+    try:
+        auto.apply_status({'fixture:1001': {'live': True}})
+        auto.apply_status({'fixture:1001': {'live': True}})
+        session, = recorder.sessions.values()
+        assert until(app, lambda: session.retry_at > 0), '流结束后等下播状态，保留已录分段'
+        assert launched == [('fixture:1001', 720)], '状态重复上报时按配置画质只取流一次'
+        auto.apply_status({'fixture:1001': {'live': False, 'live_known': False}})
+        assert auto.source_for('fixture:1001') is session.tile
+        auto.apply_status({'fixture:1001': {'live': False}})
+        assert until(app, lambda: any(text.startswith('已保存录制：') for text, _ in notices))
+        result, = folder.glob('*.mp4')
+        assert result.stat().st_size > 0 and not recorder.sessions
+        _run_text([ffmpeg_path(settings), '-v', 'error', '-i', str(result), '-f', 'null', '-'])
+        print('PASS: 独立后台录制确认下播后保存，结果可以完整解码')
+    finally:
+        host._closing = True
+        recorder.shutdown()
+        assert until(app, lambda: not host._resolvers_running)
 
 
 def check_codec_switch_queue():
@@ -385,6 +433,7 @@ def main():
                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
                    "-t", "2", "-c:v", "mpeg4", "-c:a", "aac", str(source)]
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
+        check_background_recording(app, root, source)
         bundled = root / "ffmpeg.exe"
         bundled.write_bytes(b"test")
         with patch("ddm.recording.config.REPO", str(root)):

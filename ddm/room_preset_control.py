@@ -118,7 +118,7 @@ class RoomPresetController:
         keeping = {tile for tile, slot in zip(assigned, slots) if tile is not None
                    and str(tile.room.get("room_id") or "") == slot["room_id"]}
         affected = [tile for tile, session in host.recorder.sessions.items()
-                    if tile not in keeping and session.recording and not session.stopping]
+                    if tile in host.wall.tiles and tile not in keeping and session.recording and not session.stopping]
         affected += [tile for tile, recording in host._pending_capture.items()
                      if tile not in keeping and recording and tile not in affected]
         if affected:

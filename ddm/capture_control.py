@@ -1,6 +1,7 @@
 """Recording/replay policy and tile state; the host owns sessions and shutdown."""
 import time
 from . import bili
+from .recording_session import BackgroundRecordingSource
 from .streamer_defaults import QUALITY_LABELS, quality_tiers, source_quality_option
 
 
@@ -28,6 +29,9 @@ class CaptureControl:
         """
         host = self.host
         enabled = host._recording_enabled()
+        auto_recording = getattr(host, 'auto_recording', None)
+        if auto_recording is not None:
+            auto_recording.settings_changed()
         if not enabled:
             pending = list(host._pending_capture)
             host._pending_capture.clear()
@@ -138,6 +142,10 @@ class CaptureControl:
 
     def start_capture(self, tile, *, recording: bool) -> None:
         host = self.host
+        auto_recording = getattr(host, 'auto_recording', None)
+        if recording and auto_recording and auto_recording.source_for(str(tile.room.get('room_id'))):
+            host._record_notice("该主播正在后台录制，可在录制中心停止", tile.room)
+            return
         if recording and not host._recording_enabled():
             host._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
             return
@@ -235,6 +243,8 @@ class CaptureControl:
                 host.start_tile(tile)
 
     def record_state_changed(self, tile) -> None:
+        if isinstance(tile, BackgroundRecordingSource):
+            return
         host = self.host
         session = host.recorder.sessions.get(tile)
         if tile in host._preset_retired_tiles and session is None:
@@ -287,6 +297,9 @@ class CaptureControl:
         host = self.host
         StreamResolver = resolver_type
         tile = session.tile
+        if isinstance(tile, BackgroundRecordingSource):
+            host.auto_recording.resolve_source(session)
+            return
         platform = host.plugins.platform_for(session.room_id)
         if host._closing or tile not in host.wall.tiles or (':' in session.room_id and platform is None):
             host.recorder.source_failed(session, '直播间已关闭或平台不可用')

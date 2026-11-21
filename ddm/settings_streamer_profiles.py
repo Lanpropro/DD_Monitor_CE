@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushBu
 from . import theme
 from .room_artwork import platform_icon, room_platform
 from .streamer_defaults import QUALITY_LABELS
-from .ui import Avatar, ElidedLabel, SelectControl, StepperControl
+from .ui import Avatar, ElidedLabel, SelectControl, StepperControl, ToggleSwitch
 
 
 def quality_label(value):
@@ -128,6 +128,8 @@ class StreamerProfileCard(QFrame):
             metric.addWidget(value, 1)
             summary.addLayout(metric, 1)
             self.summary_values[key] = value
+        self.auto_record_summary = QLabel('已开启自动录制', objectName='SettingsHint')
+        summary.addWidget(self.auto_record_summary)
         layout.addWidget(self.summary)
 
         self.details = QWidget()
@@ -143,6 +145,11 @@ class StreamerProfileCard(QFrame):
             control.currentIndexChanged.connect(
                 lambda _index, field=key, widget=control: self._edit_quality(field, widget.currentData()))
             form.addRow(label, control)
+        self.auto_record = ToggleSwitch('开播时自动录制')
+        self.auto_record.setToolTip('自动录制遵循全局录制开关和保存目录。')
+        self.auto_record.toggled.connect(lambda enabled: page.edit(
+            'auto_record', dict.fromkeys(self.editing_rooms, True if enabled else None)))
+        form.addRow('开播时自动录制', self.auto_record)
         self.volume = QSpinBox()
         self.volume.setAccessibleName('默认音量')
         self.volume.setRange(-1, 100)
@@ -220,6 +227,10 @@ class StreamerProfileCard(QFrame):
 
     def update_summary(self):
         values = self.page.entries[self.editing_rooms[0]]
+        enabled = bool(values.get('auto_record'))
+        with QSignalBlocker(self.auto_record):
+            self.auto_record.setChecked(enabled)
+        self.auto_record_summary.setVisible(enabled)
         for key, view in self.summary_values.items():
             if key == 'volume':
                 value = f"{values['volume']}%" if 'volume' in values else '继承'

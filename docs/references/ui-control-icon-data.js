@@ -28,7 +28,7 @@ const labSourceGlyphs = [
   ["设置分类", "settings-appearance", "外观", "ddm/settings_navigation.py", "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2M12 20v2M2 12h2M20 12h2M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2\"/>"],
   ["设置分类", "settings-danmaku", "弹幕", "ddm/settings_navigation.py", "<path d=\"M4 4h16v14h-8l-5 3v-3H4ZM8 9h8M8 13h5\"/>"],
   ["设置分类", "settings-recording", "录制", "ddm/settings_navigation.py", "<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>"],
-  ["设置分类", "settings-streamer_defaults", "主播独立设置", "ddm/settings_navigation.py", "<circle cx=\"12\" cy=\"8\" r=\"3\"/><path d=\"M5 20v-2a7 7 0 0 1 14 0v2\"/>"],
+  ["设置分类", "settings-streamer_defaults", "主播监控", "ddm/settings_navigation.py", "<circle cx=\"12\" cy=\"8\" r=\"3\"/><path d=\"M5 20v-2a7 7 0 0 1 14 0v2\"/>"],
   ["设置分类", "settings-notifications", "通知", "ddm/settings_navigation.py", "<path d=\"M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3ZM10 21h4M12 2v1\"/>"],
   ["设置分类", "settings-shortcuts", "快捷键", "ddm/settings_navigation.py", "<rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"3\"/><path d=\"M6 9h1M11 9h1M16 9h1M6 12h1M11 12h1M16 12h1M7 16h10\"/>"],
   ["设置分类", "settings-tray", "托盘", "ddm/settings_navigation.py", "<path d=\"M3 13v7h18v-7M12 3v11M8 10l4 4 4-4\"/>"],

@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 
 from .recording import RecordingSession, ffmpeg_path
+from .recording_session import BackgroundRecordingSource
 
 
 class RecordingService:
@@ -85,12 +86,12 @@ class RecordingService:
     def sources(self):
         host = self._host()
         result = []
-        for tile in host.wall.tiles:
+        for tile in self._sources(host):
             if not tile.room:
                 continue
             session = host.recorder.sessions.get(tile)
             state = ('stopping' if session.stopping else
-                     'reconnecting' if session.retry_at else
+                     'reconnecting' if session.retry_at or getattr(session, 'refreshing', False) else
                      'recording' if session.recording else 'buffering') if session else 'idle'
             result.append({'source_id': str(id(tile)), 'room': dict(tile.room),
                            'session_id': session.session_id if session else '',
@@ -99,7 +100,12 @@ class RecordingService:
 
     def _tile(self, source_id):
         host = self._host()
-        return next((tile for tile in host.wall.tiles if str(id(tile)) == source_id), None)
+        return next((tile for tile in self._sources(host) if str(id(tile)) == source_id), None)
+
+    @staticmethod
+    def _sources(host):
+        yield from host.wall.tiles
+        yield from (source for source in host.recorder.sessions if isinstance(source, BackgroundRecordingSource))
 
     def control(self, source_id, action, *, session_id=None):
         host = self._host()
@@ -109,6 +115,8 @@ class RecordingService:
         session = host.recorder.sessions.get(tile)
         if session_id is not None and (session.session_id if session else '') != session_id:
             raise RuntimeError('录制会话已变化，请刷新后重试')
+        if isinstance(tile, BackgroundRecordingSource) and action not in ('stop', 'save_replay'):
+            raise RuntimeError('后台录制由「主播监控」管理')
         if action == 'record':
             host.capture_control.start_capture(tile, recording=True)
         elif action == 'stop':

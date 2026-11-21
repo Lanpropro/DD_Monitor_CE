@@ -37,7 +37,7 @@ PRUNE_SECONDS = 30
 from .recording_process import _FFMPEG_FLAGS, _adopt_process, _ensure_job
 
 
-from .recording_session import (_Session)
+from .recording_session import BackgroundRecordingSource, _Session
 from .recording_replay import RecordingReplay
 
 
@@ -105,6 +105,16 @@ class RecordingManager(QObject):
         if not tile.room.get("live") or not tile.room.get("room_id") or not tile.isVisible():
             self._say("只能录制正在显示的直播格子")
             return False
+        return self._start(tile, recording=recording)
+
+    def start_background(self, source: BackgroundRecordingSource) -> bool:
+        if not self.settings.get('recording_enabled', True) or self.source_resolver is None:
+            return False
+        return self._start(source, recording=True)
+
+    def _start(self, tile, *, recording: bool) -> bool:
+        background = isinstance(tile, BackgroundRecordingSource)
+        room = tile.room if background else None
         if tile in self.sessions:
             if self.sessions[tile].stopping:
                 self._say("上一段正在结束，请稍后再开始")
@@ -122,19 +132,19 @@ class RecordingManager(QObject):
                     self._say(f"{session.name} 开始录制", session.room)
             return True
         if not self.directory_setting:
-            self._say("请先在「设置 → 录制」选择保存目录")
+            self._say("请先在「设置 → 录制」选择保存目录", room)
             return False
         executable = ffmpeg_path(self.settings)
         if not executable:
-            self._say("找不到 FFmpeg；请检查发布包中的 ffmpeg.exe")
+            self._say("找不到 FFmpeg；请检查发布包中的 ffmpeg.exe", room)
             return False
-        if not getattr(tile, "stream_url", ""):
+        if not background and not getattr(tile, "stream_url", ""):
             self._say("这一格仍在连接中，请等画面出现后重试")
             return False
         try:
             folder = self._directory()
             if not self._free_enough(folder):
-                self._say("录制未开始：保存目录所在磁盘剩余空间不足")
+                self._say("录制未开始：保存目录所在磁盘剩余空间不足", room)
                 return False
             # 取不到 stream_codec 的老格子（或插件造的假格子）按空串处理：
             # segment_extension 认不出编码就原样返回，行为跟改动前一致。
@@ -146,12 +156,16 @@ class RecordingManager(QObject):
                     raise ValueError('保存目录所在磁盘剩余空间不足：' + str(destination))
             session.catalog_metadata = self.backend_owner is not None
             self.sessions[tile] = session
-            self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
+            if background:
+                session.refreshing = True
+                self.source_resolver(session)
+            else:
+                self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
             self.changed.emit(tile)
             return True
         except (OSError, ValueError) as error:
             self.sessions.pop(tile, None)
-            self._say(f"录制启动失败：{error}")
+            self._say(f"录制启动失败：{error}", room)
             return False
 
     def _launch(self, session: _Session, url: str, headers: dict) -> None:
@@ -178,13 +192,17 @@ class RecordingManager(QObject):
                                                stdout=subprocess.DEVNULL, stderr=log,
                                                creationflags=_FFMPEG_FLAGS)
         _adopt_process(session.process)
+        first_start = not session.started_at
         session.active_pattern = pattern
         session.url = url
         session.retry_at = 0.0
         session.started_at = time.monotonic()
         if session.recording and not session.output_started_at:
             session.output_started_at = session.started_at
-        if session.chunk == 1:
+        if isinstance(session.tile, BackgroundRecordingSource):
+            if first_start:
+                self._say(f"{session.name} 开始自动录制", session.room)
+        elif session.chunk == 1:
             self._say(session.recording_message("start") if session.recording else f"{session.name} 开启即时回放缓存", session.room)
 
     @staticmethod
@@ -217,7 +235,10 @@ class RecordingManager(QObject):
         session.refreshing = False
 
     def _continue(self, session, url, headers) -> None:
-        if self.source_resolver is not None and url.lower().startswith(('http://', 'https://')):
+        background = isinstance(session.tile, BackgroundRecordingSource)
+        if background and session.encoder_future is not None:
+            self._launch(session, url, headers)
+        elif self.source_resolver is not None and (background or url.lower().startswith(('http://', 'https://'))):
             if not session.refreshing:
                 session.refreshing = True
                 session.retry_at = 0.0
@@ -232,9 +253,11 @@ class RecordingManager(QObject):
             return
         self._cancel_source(session)
         try:
+            was_recording = bool(session.started_at)
             self._change_codec(session, codec)
             self._launch(session, url, headers)
-            self._say(session.recording_message("resume"), session.room)
+            if was_recording or not isinstance(session.tile, BackgroundRecordingSource):
+                self._say(session.recording_message("resume"), session.room)
         except (OSError, ValueError) as error:
             self.source_failed(session, str(error))
 
@@ -248,6 +271,10 @@ class RecordingManager(QObject):
 
     def _finalize(self, session: _Session, *, save_replay: bool = True) -> None:
         self.sessions.pop(session.tile, None)
+        background = isinstance(session.tile, BackgroundRecordingSource)
+        if background:
+            from .media_sources import discard
+            discard(session.tile.stream_url)
         self.changed.emit(session.tile)
         if session.recording:
             parts = session.finished_parts()
@@ -256,7 +283,7 @@ class RecordingManager(QObject):
             # 排除在删除之外，所以先启动的那份不会被后完成的那份删掉源文件。
             # 设置里关了即时回放总开关就不存那一份（完整录制照常导出）；
             # 这里读 manager 的 settings（与 app 同一个 dict），开关是实时的。
-            if save_replay and session.supports_replay and bool(self.settings.get("recording_replay_enabled", True)):
+            if not background and save_replay and session.supports_replay and bool(self.settings.get("recording_replay_enabled", True)):
                 self._export_replay(session, session.replay_parts + parts)
             self._export(session, parts, full=True)
         elif session.save_cache_on_stop:
@@ -419,20 +446,21 @@ class RecordingManager(QObject):
                 except OSError as error:
                     self._say(f"{session.name} 续录失败：{error}", session.room)
                     self.stop(tile)
-            elif exit_code:
-                if self._fallback_encoder(session):
+            elif exit_code or isinstance(tile, BackgroundRecordingSource):
+                if exit_code and self._fallback_encoder(session):
                     try:
                         self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))
                     except OSError as error:
                         self._say(f"{session.name} CPU 续录失败：{error}", session.room)
                         self.stop(tile)
                     continue
-                self._say(f"{session.name} 的 FFmpeg 意外退出（{exit_code}）；详见 .ddm-parts 日志", session.room)
+                if exit_code:
+                    self._say(f"{session.name} 的 FFmpeg 意外退出（{exit_code}）；详见 .ddm-parts 日志", session.room)
                 if not all(self._free_enough(folder) for folder in session.recording_directories()):
                     self._stop_for_space(session)
                 else:
                     session.retry_count += 1
-                    session.retry_at = time.monotonic() + min(60, 2 ** session.retry_count)
+                    session.retry_at = time.monotonic() + min(60, 2 ** min(6, session.retry_count))
                     self._say(f"{session.name} 等待 {int(session.retry_at - time.monotonic()) + 1} 秒续录", session.room)
             else:
                 self.stop(tile)

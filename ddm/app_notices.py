@@ -22,6 +22,15 @@ class AppNotices:
         if host._closing:
             return
         prefix, separator, path = message.partition('：')
+        if (room or {}).get('_auto_recording') and host.settings.get('notifications_enabled', True):
+            from .windows_recording_notifications import send_recording_notification
+            if message.endswith(' 开始自动录制'):
+                send_recording_notification('自动录制已开始', message)
+            elif prefix in ('已保存录制', '已保存切片素材'):
+                send_recording_notification('自动录制已保存', Path(path).name)
+            elif (message.startswith(('录制未开始', '录制启动失败', '找不到 FFmpeg', '请先在「设置 → 录制」'))
+                  or '磁盘空间不足，录制已停止' in message or prefix.startswith('导出录制失败')):
+                send_recording_notification('自动录制未完成', message)
         if separator and path and prefix in (
                 '已保存录制', '已保存切片素材', '已保存即时回放', '正在导出录制', '正在导出即时回放',
                 '导出录制失败（原始分段保留）', '导出即时回放失败（原始分段保留）'):
@@ -32,7 +41,7 @@ class AppNotices:
             return
         room_id = str((room or {}).get('room_id') or '')
         progress = any(text in message for text in (
-            '开始录制', '已开始录制切片素材', '切片素材继续录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
+            '开始录制', '开始自动录制', '已开始录制切片素材', '切片素材继续录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
             '重新连接录制流', '正在保存分段', '分段已保存，', '等待 ',
             '重新获取录制地址失败', 'FFmpeg 意外退出'))
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能", "意外退出"))

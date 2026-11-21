@@ -61,6 +61,7 @@ from .window_dpi import DpiEventBatch
 from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
+from .auto_recording import AutoRecording
 from .danmaku_lifecycle import DanmakuLifecycle
 from .sidebar_widgets import Sidebar
 from .tile_widgets import Tile
@@ -149,6 +150,7 @@ class MainWindow(QMainWindow):
         self.room_status = RoomStatus(self)
         self.room_images = RoomImages(self)
         self.capture_control = CaptureControl(self)
+        self.auto_recording = AutoRecording(self)
         self.danmaku_lifecycle = DanmakuLifecycle(self)
         from .danmaku_blocking import DanmakuBlocking
         self.danmaku_blocking = DanmakuBlocking(self)

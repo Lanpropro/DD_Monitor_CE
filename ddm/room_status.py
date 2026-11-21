@@ -58,6 +58,9 @@ class RoomStatus:
         parallel = getattr(getattr(host, 'picture_in_picture', None), 'parallel_tiles', ())
         room_ids = list(dict.fromkeys(str(room.get("room_id")) for room in
             host.sidebar.rooms() + [tile.room for tile in (*host.wall.tiles, *parallel)] if room.get("room_id")))
+        auto_recording = getattr(host, 'auto_recording', None)
+        if auto_recording is not None:
+            room_ids = list(dict.fromkeys((*room_ids, *auto_recording.monitored_rooms())))
         if not room_ids:
             return
         platform_ids = [rid for rid in room_ids if ":" in rid]
@@ -259,3 +262,6 @@ class RoomStatus:
         if faces:
             host._status_avatar_loader = host._start_avatar_loader(faces, host._on_room_avatar)
         host._load_room_banners(host.sidebar.rooms())
+        auto_recording = getattr(host, 'auto_recording', None)
+        if auto_recording is not None:
+            auto_recording.apply_status(status)
