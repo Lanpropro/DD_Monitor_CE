@@ -11,6 +11,7 @@ class WallQuickSettingsMenu(QMenu):
     qualityChanged = Signal(int)
     danmakuChanged = Signal(bool)
     floatsChanged = Signal(bool)
+    seamlessChanged = Signal(bool)
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -52,10 +53,18 @@ class WallQuickSettingsMenu(QMenu):
         grid.addWidget(self.floats_label, 3, 0, 1, 2)
         grid.addWidget(self.floats, 3, 2, Qt.AlignRight)
 
+        seamless_label = QLabel('无边界布局')
+        self.seamless = ToggleSwitch(seamless_label.text(), holder)
+        self.seamless.setToolTip('移除画面墙格子之间的间距')
+        seamless_label.setBuddy(self.seamless)
+        self.seamless.toggled.connect(self.seamlessChanged.emit)
+        grid.addWidget(seamless_label, 4, 0, 1, 2)
+        grid.addWidget(self.seamless, 4, 2, Qt.AlignRight)
+
         self.status = QLabel(holder)
         self.status.setObjectName('SettingsHint')
         self.status.setWordWrap(True)
-        grid.addWidget(self.status, 4, 0, 1, 3)
+        grid.addWidget(self.status, 5, 0, 1, 3)
         wrapper = QWidgetAction(self)
         wrapper.setDefaultWidget(holder)
         self.addAction(wrapper)
@@ -64,7 +73,7 @@ class WallQuickSettingsMenu(QMenu):
         self.volume_value.setText(str(value))
         self.volumeChanged.emit(value)
 
-    def sync(self, tiles, layers, *, missing_floats, has_floats):
+    def sync(self, tiles, layers, *, missing_floats, has_floats, seamless):
         levels = {tile.volume for tile in tiles}
         with QSignalBlocker(self.volume):
             self.volume.setValue(round(sum(tile.volume for tile in tiles) / len(tiles)) if tiles else 0)
@@ -77,6 +86,8 @@ class WallQuickSettingsMenu(QMenu):
         self.floats_label.setText('弹幕浮窗 · 部分开启' if has_floats and missing_floats else '弹幕浮窗')
         with QSignalBlocker(self.floats):
             self.floats.setChecked(has_floats and not missing_floats)
+        with QSignalBlocker(self.seamless):
+            self.seamless.setChecked(seamless)
         self.set_status('当前没有上墙直播间' if not tiles else '')
 
     def sync_danmaku(self, layers):
@@ -132,6 +143,7 @@ class WallQuickSettings:
             self.menu.qualityChanged.connect(self.set_quality)
             self.menu.danmakuChanged.connect(self.set_danmaku)
             self.menu.floatsChanged.connect(self.set_floats)
+            self.menu.seamlessChanged.connect(self.set_seamless)
         if self.menu.isVisible():
             self.menu.hide()
             return
@@ -139,13 +151,18 @@ class WallQuickSettings:
         rooms = {str(tile.room['room_id']) for tile in danmaku_tiles}
         self.menu.sync(self.tiles(), [tile.danmaku_button.isChecked() for tile in danmaku_tiles],
                        missing_floats=bool(rooms - self.floating_rooms()),
-                       has_floats=bool(self.host.wall.pane_danmaku.floating))
+                       has_floats=bool(self.host.wall.pane_danmaku.floating), seamless=self.host.wall.seamless)
         self.menu.open_at(self.host.sidebar.wall_settings_button)
 
     def set_volume(self, value):
         for tile in self.tiles():
             if tile.volume != value or (value > 0 and tile.muted):
                 tile.set_volume(value)
+
+    def set_seamless(self, enabled):
+        self.host.wall.set_seamless(enabled)
+        self.host.settings['wall_seamless'] = enabled
+        self.host._save_timer.start()
 
     def set_quality(self, height):
         unavailable = 0

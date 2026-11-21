@@ -80,6 +80,30 @@ TILE_FULLSCREEN_STYLE = '''
     border-radius: 0px;
 }
 '''
+WALL_TILE_SEAMLESS_STYLE = '''
+#WallGrid[seamless="true"] > #Tile { border-radius: 0; }
+#WallGrid[seamless="true"] > #Tile[dropActive="false"] { border: none; }
+'''
+WALL_BAR_SEAMLESS_STYLE = '''
+#WallGrid[seamless="true"] #TileBottom {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+'''
+WALL_PANE_SEAMLESS_STYLE = '''
+#WallGrid[seamless="true"] #TileVideo,
+#WallGrid[seamless="true"] > #DanmakuPanel {
+    border-radius: 0;
+}
+#WallGrid[seamless="true"] > #DanmakuPanel #DanmakuHeader {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+#WallGrid[seamless="true"] > #DanmakuPanel #DanmakuBody {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+'''
 
 VIDEO_CONTROL_BACKING = (13, 17, 23, 118)
 VIDEO_CONTROL_RADIUS = 9
@@ -471,7 +495,10 @@ def _light_style(widget):
         'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
-    }.get(name, '')) + (FULLSCREEN_BAR_STYLE if name == 'TileBottom' else '')
+    }.get(name, '')) + {
+        'Tile': WALL_TILE_SEAMLESS_STYLE,
+        'TileBottom': FULLSCREEN_BAR_STYLE + WALL_BAR_SEAMLESS_STYLE,
+    }.get(name, '')
 
 
 class ThemeSignals(QObject):
@@ -2078,4 +2105,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         """
     from .continuous_corners import stylesheet
     from .settings_material import control_stylesheet
-    return stylesheet(style + control_stylesheet() + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)
+    return stylesheet(style + control_stylesheet() + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE
+                      + WALL_TILE_SEAMLESS_STYLE + WALL_BAR_SEAMLESS_STYLE + WALL_PANE_SEAMLESS_STYLE,
+                      application=True)

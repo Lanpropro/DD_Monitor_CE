@@ -174,8 +174,12 @@ class FullscreenBar(QWidget):
         if visible:
             if composited and self.isHidden():
                 self.set_tile_geometry(*self._tile_rect.getRect())
-            outline = continuous_path(tile.rect().adjusted(1, 1, -1, -1), 9)
-            region = QRegion(outline.toFillPolygon().toPolygon()).intersected(self._tile_rect)
+            if tile.wall_seamless:
+                region = QRegion(tile.rect())
+            else:
+                outline = continuous_path(tile.rect().adjusted(1, 1, -1, -1), 9)
+                region = QRegion(outline.toFillPolygon().toPolygon())
+            region &= self._tile_rect
             region.translate(-self._tile_rect.topLeft())
             if settings is not None and settings.visible and not settings.closing:
                 if settings.window_hwnd:

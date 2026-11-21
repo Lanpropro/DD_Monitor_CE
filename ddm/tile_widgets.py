@@ -416,20 +416,28 @@ class Tile(QFrame):
         return self.state_control.update_recording_button(layout=layout)
 
     # ---- 接收拖拽 ----
+    @property
+    def wall_seamless(self):
+        parent = self.parentWidget()
+        return parent is not None and bool(parent.property('seamless'))
+
+    def _set_drop_active(self, enabled):
+        self.setProperty('dropActive', enabled)
+        _repolish(self)
+        if self.wall_seamless:
+            self._layout_areas()
+
     def dragEnterEvent(self, event) -> None:
         if (event.mimeData().hasFormat(ROOM_MIME) or event.mimeData().hasFormat(TILE_MIME)
                 or event.mimeData().hasFormat(DANMAKU_MIME)):
             event.acceptProposedAction()
-            self.setProperty("dropActive", True)
-            _repolish(self)
+            self._set_drop_active(True)
 
     def dragLeaveEvent(self, event) -> None:
-        self.setProperty("dropActive", False)
-        _repolish(self)
+        self._set_drop_active(False)
 
     def dropEvent(self, event) -> None:
-        self.setProperty("dropActive", False)
-        _repolish(self)
+        self._set_drop_active(False)
         if event.mimeData().hasFormat(ROOM_MIME):
             room_id = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
             changed = str(self.room.get('room_id')) != room_id

@@ -340,7 +340,7 @@ class Sidebar(QFrame):
         self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
         self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
         self.wall_settings_button = NavigationButton('画面墙全局设置', 'wall_settings')
-        self.wall_settings_button.setToolTip('调整画面墙的音量、画质和弹幕')
+        self.wall_settings_button.setToolTip('调整画面墙的音量、画质、弹幕和间距')
         self.wall_settings_button.clicked.connect(self.wallSettingsRequested.emit)
         self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')

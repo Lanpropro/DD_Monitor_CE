@@ -265,7 +265,7 @@ class TilePresentation:
     def layout_video_area(self) -> tuple[int, int]:
         host = self.host
         fullscreen = bool(host.property('fullscreen'))
-        inset = 0 if fullscreen else 1
+        inset = 0 if fullscreen or (host.wall_seamless and not host.property('dropActive')) else 1
         reserved = inset if fullscreen or self.windowed_bar_over_video() else TILE_BAR_HEIGHT
         video_height = max(1, host.height() - reserved)
         host.video.setGeometry(inset, inset, max(1, host.width() - inset * 2),
@@ -411,7 +411,7 @@ class TilePresentation:
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
         host = self.host
-        square_corners = bool(host.property("fullscreen") or host.property('pictureInPicture'))
+        square_corners = bool(host.wall_seamless or host.property('fullscreen') or host.property('pictureInPicture'))
         host.video.square_corners = square_corners
         host.video_danmaku.set_quick_rounded(not square_corners)
         for index, corner in enumerate(host.video_corners):

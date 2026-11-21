@@ -375,6 +375,98 @@ class PaneDanmakuTests(unittest.TestCase):
         QTest.keyClick(menu, Qt.Key_Escape)
         self.assertFalse(menu.isVisible())
 
+    def test_wall_seamless_switch_keeps_slots_and_round_trips(self):
+        window = self.window([], offscreen=True)
+        wall = window.wall
+        first, second, lower, _last = wall.visible_tiles()
+        margins = wall.grid.contentsMargins()
+        original = (first.geometry(), second.geometry())
+        cover = QPixmap(64, 64)
+        cover.fill(QColor('#20a0d0'))
+        first.set_room(dict(room_id='1001', uname='测试', live=False), cover)
+        self.assertFalse(first.video.mask().contains(QPoint(0, 0)))
+        self.assertEqual(first.cover.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
+
+        window.sidebar.wall_settings_button.click()
+        menu = window.wall_quick_settings.menu
+        self.assertFalse(menu.seamless.isChecked())
+        self.assertTrue(menu.seamless.isEnabled())
+        QTest.mouseClick(menu.seamless, Qt.LeftButton)
+        self.app.processEvents()
+        self.assertTrue(window._save_timer.isActive())
+        self.assertEqual(wall.grid.contentsMargins(), margins)
+        self.assertEqual(first.geometry().right() + 1, second.x())
+        self.assertEqual(first.geometry().bottom() + 1, lower.y())
+        self.assertEqual(first.video.geometry().topLeft(), QPoint())
+        self.assertEqual(first.video.width(), first.width())
+        self.assertTrue(first.video.mask().contains(QPoint(0, 0)))
+        self.assertEqual(first.cover.pixmap().toImage().pixelColor(0, 0).alpha(), 255)
+        self.assertEqual(first.bottom.geometry().bottom(), first.rect().bottom())
+        window.settings['windowed_transparent_controls'] = True
+        first._layout_areas()
+        self.assertEqual(first.bottom.mask().boundingRect(), first.bottom.rect())
+
+        saved = window.current_state()['settings']
+        self.assertTrue(saved['wall_seamless'])
+        reopened = MainWindow([], [], layout_id='2x2', state={'plugins_enabled': [], 'settings': saved})
+        self.addCleanup(self.close_window, reopened)
+        self.assertTrue(reopened.wall.seamless)
+        self.assertEqual(reopened.wall.grid.spacing(), 0)
+
+        menu.hide()
+        wall.set_layout('custom_grid9')
+        first, second, third = wall.tiles[:3]
+        second.set_room(dict(room_id='1002', live=False))
+        third.set_room(dict(room_id='1003', live=False))
+        wall.relayout(force=True)
+        self.app.processEvents()
+        self.assertEqual(wall.visible_tiles(), [first, second, third])
+        self.assertEqual(first.geometry().right() + 1, second.x())
+        self.assertEqual(second.geometry().right() + 1, third.x())
+        window.configure_wall_panes({1: first})
+        panel = wall.pane_danmaku.panels[1]
+        self.assertTrue(panel.isVisible())
+        self.assertEqual(first.geometry().right() + 1, panel.x())
+        self.assertEqual(panel.geometry().right() + 1, third.x())
+        self.assertEqual(wall.pane_danmaku.target(panel), first)
+
+        second.set_room(None)
+        third.set_room(None)
+        wall.set_layout('2x2')
+        window.sidebar.wall_settings_button.click()
+        self.assertTrue(menu.seamless.isChecked())
+        QTest.mouseClick(menu.seamless, Qt.LeftButton)
+        self.app.processEvents()
+        self.assertFalse(window.settings['wall_seamless'])
+        self.assertEqual(wall.grid.spacing(), 8)
+        self.assertEqual((first.geometry(), second.geometry()), original)
+        self.assertFalse(first.video.mask().contains(QPoint(0, 0)))
+
+    def test_seamless_shared_edge_still_previews_and_resizes(self):
+        from selfcheck_corner_drag_updates import move_to, release_at
+        from selfcheck_pane_borders import press
+
+        window = self.wall_window()
+        wall = window.wall
+        wall.set_seamless(True)
+        self.app.processEvents()
+        first, second = wall.visible_tiles()[:2]
+        border = wall._pane_borders[first]
+        self.assertEqual(first.geometry().right() + 1, second.x())
+        self.assertEqual(border.targets['right'], wall._pane_borders[second].targets['left'])
+        before = first.width()
+        origin = press(border, ['right'])
+        moved = origin + QPoint(30, 0)
+        move_to(border, moved)
+        QTest.qWait(80)
+        self.assertTrue(wall._border_preview.isVisible())
+        self.assertEqual(first.width(), before)
+        release_at(border, moved)
+        self.assertEqual(first.width(), before + 30)
+        self.assertEqual(first.geometry().right() + 1, second.x())
+        wall.set_seamless(False)
+        self.assertEqual(first.geometry().right() + 9, second.x())
+
     def test_wall_quick_floats_fill_a_plain_wall_once_per_room(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku

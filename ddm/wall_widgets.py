@@ -38,13 +38,14 @@ class WallGrid(QWidget):
     floatingDanmakuChanged = Signal()
 
     def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None,
-                 corner_ratios=None, layout_ratios=None, pane_layouts=None):
+                 corner_ratios=None, layout_ratios=None, pane_layouts=None, seamless=False):
         super().__init__(parent)
         self.presentation_control = WallPresentation(self)
         self.layout_control = WallLayout(self)
         self.snap_grid = WallSnapGrid(self)
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
+        self.setProperty('seamless', bool(seamless))
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._quick_danmaku_layer = None
         self._quick_danmaku_attempted = False
@@ -87,7 +88,7 @@ class WallGrid(QWidget):
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
-        self.grid.setSpacing(8)
+        self.grid.setSpacing(0 if self.seamless else 8)
 
         # 一大五小保留原播放格及父窗口，边框交互只改变几何。
         self.restore_corner_ratios(corner_ratios)
@@ -134,8 +135,28 @@ class WallGrid(QWidget):
         self.pane_danmaku.restore_sources()
         self.relayout(force=True)
 
+    @property
+    def seamless(self):
+        return self.property('seamless')
+
+    def set_seamless(self, enabled):
+        enabled = bool(enabled)
+        if self.seamless == enabled:
+            return
+        self._cancel_border_drag()
+        self.setProperty('seamless', enabled)
+        self.grid.setSpacing(0 if enabled else 8)
+        self.relayout(force=True)
+        self.grid.activate()
+        for tile in self.tiles:
+            tile._layout_areas()
+            tile.update()
+        for pane in self.pane_danmaku.wall_widgets():
+            pane.update()
+            for child in pane.findChildren(QWidget):
+                child.update()
+
     def refresh_theme(self):
-        self.grid.setSpacing(8)
         # Finish theme-driven geometry before snapshot overlays start watching
         # video surfaces; a delayed Resize would cancel the reveal immediately.
         self.grid.activate()

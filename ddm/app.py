@@ -290,7 +290,7 @@ class MainWindow(QMainWindow):
             else self._saved_layout("landscape"), prepare_room=self._prepare_room,
             corner_ratios=ui.get("corner_ratios"),
             layout_ratios=self.layout_presets.restore_wall_ratios(ui.get("layout_ratios")),
-            pane_layouts=ui.get("pane_layouts"))
+            pane_layouts=ui.get("pane_layouts"), seamless=self.settings.get('wall_seamless', False))
         self._wall_control_hover = WallControlHover(self.wall)
 
         #: 画面墙那一块（画面墙 + 空态提示），横竖两套排布共用它
