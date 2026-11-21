@@ -266,18 +266,17 @@ def check_control_contrast(app, tile):
             tile.pause_button.setEnabled(True)
             row.activate()
             gap = QPoint(editor.geometry().right() + 2, composer.height() // 2)
-            field = QPoint(editor.geometry().right() - 16, editor.geometry().center().y())
-            backing = tile.pause_button.geometry().center() + QPoint(-8, 0)
+            field = QPoint(editor.geometry().right() - 16, gap.y())
+            editor.clearFocus()
             for draft in ('', 'Local draft'):
                 editor.setText(draft)
                 send.setEnabled(bool(draft))
                 for backdrop in ('#ffffff', '#101010'):
                     surface = render(bar, backdrop)
-                    point = composer.pos() + gap
-                    adjacent = QPoint(backing.x(), point.y())
-                    assert surface.pixelColor(point) == surface.pixelColor(adjacent), (mode, backdrop)
                     fill = surface.pixelColor(composer.pos() + field)
-                    assert fill.lightness() < 90, (mode, backdrop, fill.name())
+                    backing = surface.pixelColor(composer.pos() + gap)
+                    assert fill == backing, (mode, backdrop, fill.name(), backing.name())
+                    assert backing.lightness() <= 104, (mode, backdrop, backing.name())
                 bright = render(composer, '#ffffff', QWidget.DrawWindowBackground | QWidget.DrawChildren)
                 assert bright.pixelColor(0, 0) == QColor('#ffffff'), 'The backing keeps its rounded corners'
                 placeholder = editor.palette().color(QPalette.PlaceholderText)

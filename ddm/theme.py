@@ -121,13 +121,13 @@ FULLSCREEN_BAR_STYLE = '''
     border-radius: %dpx;
 }
 #TileBottom[overVideo="true"] #DanmakuComposer QLineEdit {
-    background: rgba(13, 17, 23, 0.44);
+    background: transparent;
     color: #ffffff;
     placeholder-text-color: #e7ebf0;
-    border-color: rgba(231, 235, 240, 0.12);
+    border-color: transparent;
 }
 #TileBottom[overVideo="true"] #DanmakuComposer QLineEdit:focus {
-    background: rgba(13, 17, 23, 0.56);
+    background: transparent;
     border-color: rgba(231, 235, 240, 0.42);
 }
 #TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl,
@@ -153,7 +153,7 @@ FULLSCREEN_BAR_STYLE = '''
     background: rgba(231, 235, 240, 0.66);
     color: #202630;
 }
-''' % (VIDEO_CONTROL_BACKING, VIDEO_CONTROL_RADIUS)
+''' % ((*VIDEO_CONTROL_BACKING[:3], 150), VIDEO_CONTROL_RADIUS)
 
 BG = mix(BASE, "#000000", 0.20)
 SIDEBAR = mix(BASE, "#000000", 0.30)
