@@ -1,11 +1,11 @@
 """Edit a preset's dividers in a translucent overlay above the existing wall."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QWidget
 
 from . import layouts, resize_layout, room_presets, theme
 from .corner_geometry import continuous_path
-from .ui import ActionButton, TitleLabel
+from .ui import ActionButton
 
 
 class LayoutPreview(QWidget):
@@ -20,20 +20,41 @@ class LayoutPreview(QWidget):
         self.setAccessibleName('拖动格子之间的分隔线调整布局')
 
     def _geometry(self):
-        size = self.wall._corner_area().size()
+        wall = self.wall
+        area = wall._corner_area()
+        gap = wall.grid.spacing()
+        if self.base == wall.layout_id:
+            _, _, _, minimum, defaults = wall._border_model()
+            if self.base == 'corner':
+                leaves, handles = wall._corner_rectangles(self.weights, area)
+                sizes = {
+                    'root': [leaves[cell].height() for cell in (0, 3)],
+                    'root/0': [leaves[cell].width() for cell in (0, 1)],
+                    'root/0/1': [leaves[cell].height() for cell in (1, 2)],
+                    'root/1': [leaves[cell].width() for cell in (3, 4, 5)],
+                }
+                dividers = [(node, index, handles[node.key, index], sizes[node.key])
+                            for node in self.tree.nodes() for index in range(len(node.children) - 1)]
+            else:
+                area.setSize(area.size().expandedTo(self.tree.minimum(gap, minimum)))
+                leaves, entries = resize_layout.geometry(self.tree, area, gap, minimum, self.weights, defaults)
+                dividers = [(node, index, rect, sizes) for node, index, rect, _, sizes in entries]
+            return leaves, dividers, 1, QPoint(), minimum
+
+        size = area.size()
         portrait = layouts.is_portrait_layout(self.base)
         if portrait != (size.height() > size.width()):
             size.transpose()
         minimum = lambda cell: QSize(200, 140 if cell == layouts.danmaku_cell(self.base) else 150)
-        gap = self.wall.grid.spacing()
         size = size.expandedTo(self.tree.minimum(gap, minimum))
-        drawn = size.scaled(self.size(), Qt.KeepAspectRatio)
+        drawn = size.scaled(area.size(), Qt.KeepAspectRatio)
         bounds = QRect(QPoint(), drawn)
-        bounds.moveCenter(self.rect().center())
+        bounds.moveCenter(area.center())
         scale = drawn.width() / max(1, size.width())
-        leaves, dividers = resize_layout.geometry(
+        leaves, entries = resize_layout.geometry(
             self.tree, QRect(QPoint(), size), gap, minimum, self.weights,
             lambda node, rect: room_presets.partition_defaults(self.base, node, rect, gap))
+        dividers = [(node, index, rect, sizes) for node, index, rect, _, sizes in entries]
         return leaves, dividers, scale, bounds.topLeft(), minimum
 
     def _mapped(self, rect, scale, origin):
@@ -45,7 +66,7 @@ class LayoutPreview(QWidget):
         if not scale:
             return None
         matches = []
-        for node, index, rect, _, sizes in dividers:
+        for node, index, rect, sizes in dividers:
             rect = self._mapped(rect, scale, origin)
             if rect.adjusted(-4, -4, 4, 4).contains(point):
                 center = rect.center()
@@ -72,7 +93,7 @@ class LayoutPreview(QWidget):
             painter.drawText(frame, Qt.AlignCenter, '弹幕' if chat else str(cell + 1))
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(235, 246, 255, 200))
-        for _, _, rect, _, _ in dividers:
+        for _, _, rect, _ in dividers:
             grip = self._mapped(rect, scale, origin)
             if grip.width() < grip.height():
                 inset = max(grip.height() * .35, (grip.height() - 44) / 2)
@@ -129,30 +150,32 @@ class LayoutPresetEditor(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowModality(Qt.WindowModal)
-        self.setWindowTitle('修改布局')
-        box = QVBoxLayout(self)
-        box.setContentsMargins(12, 10, 12, 10)
-        bar = QHBoxLayout()
-        title = TitleLabel('修改布局 · ' + layouts.BY_ID[base]['name'])
-        title.setStyleSheet('color: white; background: #202630; padding: 4px 8px; border-radius: 6px;')
-        bar.addWidget(title)
-        bar.addStretch(1)
-        cancel = ActionButton('取消', self)
-        save = ActionButton('保存布局', self)
+        self.setWindowTitle('修改布局 · ' + layouts.BY_ID[base]['name'])
+        self.preview = LayoutPreview(self.wall, base, ratios, self)
+        self.actions = QWidget(self)
+        bar = QHBoxLayout(self.actions)
+        bar.setContentsMargins(0, 0, 0, 0)
+        cancel = ActionButton('取消', self.actions)
+        save = ActionButton('保存布局', self.actions)
         save.setObjectName('PrimaryButton')
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self.accept)
         bar.addWidget(cancel)
         bar.addWidget(save)
-        box.addLayout(bar)
-        self.preview = LayoutPreview(self.wall, base, ratios, self)
-        box.addWidget(self.preview, 1)
         self._align_wall()
         self.wall.installEventFilter(self)
         host.installEventFilter(self)
 
     def paintEvent(self, event):
         QPainter(self).fillRect(event.rect(), QColor(12, 18, 28, 46))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.preview.setGeometry(self.rect())
+        self.actions.adjustSize()
+        bounds = self.wall._corner_area().intersected(self.rect())
+        self.actions.move(max(0, bounds.right() - self.actions.width() - 10),
+                          max(0, bounds.bottom() - self.actions.height() - 10))
 
     def _align_wall(self):
         geometry = QRect(self.wall.mapToGlobal(QPoint()), self.wall.size())

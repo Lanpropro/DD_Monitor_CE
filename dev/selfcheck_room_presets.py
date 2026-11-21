@@ -67,17 +67,26 @@ def check_layout_only_presets(app, directory):
             assert not picker.isVisible()
             assert editor.geometry().topLeft() == wall.mapToGlobal(QPoint())
             assert editor.size() == wall.size() and editor.testAttribute(Qt.WA_TranslucentBackground)
+            view = editor.preview
+            leaves, dividers, scale, origin, _ = view._geometry()
+            assert view.geometry() == editor.rect()
+            assert scale == 1 and origin == QPoint()
+            assert [leaves[cell] for cell in range(6)] == before_geometry
+            assert {(node.key, index): rect for node, index, rect, _ in dividers} == wall._divider_rects
             return editor
 
         def adjust(editor):
             view = editor.preview
             _, dividers, scale, origin, _ = view._geometry()
-            rect = next(rect for node, index, rect, _, _ in dividers if (node.key, index) == ('root/0', 0))
+            rect = next(rect for node, index, rect, _ in dividers if (node.key, index) == ('root/0', 0))
             point = view._mapped(rect, scale, origin).center().toPoint()
             assert view._hit(point)[0].key == 'root/0', 'The T-junction must hit the main divider grip'
             QTest.mousePress(view, Qt.LeftButton, pos=point)
             QTest.mouseMove(view, point - QPoint(75, 0))
             QTest.mouseRelease(view, Qt.LeftButton, pos=point - QPoint(75, 0))
+            _, dragged, _, _, _ = view._geometry()
+            moved = next(rect for node, index, rect, _ in dragged if (node.key, index) == ('root/0', 0))
+            assert moved.left() == rect.left() - 75, 'The divider must follow the pointer at wall scale'
             assert editor.ratios()['width'] < original['width']
             assert wall.corner_ratios() == original
             assert [tile.geometry() for tile in wall.tiles] == before_geometry
@@ -91,10 +100,12 @@ def check_layout_only_presets(app, directory):
         editor = start_editor()
         adjust(editor)
         saved = editor.ratios()
+        saved_geometry = editor.preview._geometry()[0]
         QTest.mouseClick(next(button for button in editor.findChildren(QPushButton)
                               if button.text() == '保存布局'), Qt.LeftButton)
         app.processEvents()
         assert wall.corner_ratios() == saved
+        assert [saved_geometry[cell] for cell in range(6)] == [tile.geometry() for tile in wall.tiles]
         assert [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel,
                  int(tile.video.winId())) for tile in wall.tiles] == before
 
@@ -147,6 +158,16 @@ def check_layout_only_presets(app, directory):
         app.processEvents()
         assert wall.layout_id == 'corner' and wall.corner_ratios() == saved
         assert presets.override_state()['1x2']['ratios']['root'][0] > .5
+
+        presets.select_builtin('1x2')
+        editor = presets.edit('1x2')
+        app.processEvents()
+        leaves, dividers, scale, origin, _ = editor.preview._geometry()
+        assert scale == 1 and origin == QPoint()
+        assert leaves == {cell: tile.geometry() for cell, tile in wall._preset_widgets().items()}
+        assert {(node.key, index): rect for node, index, rect, _ in dividers} == wall._divider_rects
+        editor.reject()
+        presets.select_builtin('corner')
 
         stored = window.current_state()
         assert stored['ui']['layout_preset_overrides']['corner'] == {'ratios': saved, 'shortcut': 'Ctrl+1'}

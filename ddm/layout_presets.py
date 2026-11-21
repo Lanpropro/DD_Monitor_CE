@@ -60,7 +60,7 @@ class LayoutPresets:
         if host._closing or host._fullscreen_tile is not None or wall.picture_in_picture_tiles is not None:
             return None
         from .layout_preset_editor import LayoutPresetEditor
-        ratios = self.overrides.get(base, {}).get('ratios')
+        ratios = self.overrides.get(base, {}).get('ratios') if base != wall.layout_id else None
         if ratios is None:
             ratios = wall.corner_ratios() if base == 'corner' else wall.layout_ratios().get(base, {})
         editor = LayoutPresetEditor(host, base, ratios)
