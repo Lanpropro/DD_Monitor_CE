@@ -310,6 +310,47 @@ class SimulatorTests(unittest.TestCase):
         page.reset()
         self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
 
+    def test_short_panel_preview_clips_cards_and_uses_visible_resize_corner(self):
+        from ddm.super_chat_preview import SuperChatPlacementPreview
+
+        preview = SuperChatPlacementPreview()
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview.close)
+        preview.resize(460, 300)
+        preview.set_layout_mode(1)
+        preview.set_scale(84)
+        preview.set_opacity(79)
+        preview.scale_with_video = True
+        preview.set_preview_context({'panel': {'size': [170, 26], 'outer_size': [180, 68],
+            'viewport_rect': [0, 32, 170, 26], 'cards': [{'message': '', 'collapsed': False}]}})
+        preview.show()
+
+        raw = preview.card_rects()[0]
+        outside = QPoint(round(raw.center().x()), round(preview._panel_rect().bottom()) + 3)
+        inside = QPoint(round(raw.center().x()), round(raw.top()) + 3)
+        self.assertTrue(raw.contains(QPointF(outside)))
+        rendered = preview.grab().toImage()
+        preview.opacity = 0
+        background = preview.grab().toImage()
+        preview.opacity = 79
+        ratio = rendered.devicePixelRatio()
+        self.assertEqual(rendered.pixelColor(outside * ratio), background.pixelColor(outside * ratio))
+        self.assertNotEqual(rendered.pixelColor(inside * ratio), background.pixelColor(inside * ratio))
+
+        visible = preview.card_rect()
+        self.assertTrue(preview.stage_rect().contains(visible))
+        QTest.mousePress(preview, Qt.LeftButton, pos=outside)
+        QTest.mouseMove(preview, outside + QPoint(20, 0))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=outside + QPoint(20, 0))
+        self.assertIsNone(preview.position)
+        self.assertEqual(preview.scale, 84)
+
+        corner = visible.bottomRight().toPoint() - QPoint(2, 2)
+        QTest.mousePress(preview, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(preview, corner + QPoint(20, 0))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=corner + QPoint(20, 0))
+        self.assertGreater(preview.scale, 84)
+
     def test_preview_matches_live_renderers_at_all_scales(self):
         from types import SimpleNamespace
         from ddm.app import MainWindow

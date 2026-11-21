@@ -6,7 +6,7 @@ from .corner_geometry import continuous_path
 from . import theme
 from .skin_preview import SkinPreview
 from .super_chat_model import super_chat_palette
-from .super_chat_layout import sc_placement_rects, paint_sc_background
+from .super_chat_layout import paint_sc_background, sc_stack_layout
 
 
 class SuperChatPlacementPreview(SkinPreview):
@@ -163,24 +163,27 @@ class SuperChatPlacementPreview(SkinPreview):
         return QRectF(area.center().x() - width * scale / 2,
                       area.center().y() - height * scale / 2, width * scale, height * scale)
 
-    def card_rects(self):
+    def _card_layout(self, stage):
         context = self.preview_context[self.layout_mode]
         width, height = context['size']
-        rects, scale = sc_placement_rects(context['cards'], width, height,
+        rects, scale, bounds = sc_stack_layout(context['cards'], width, height,
             self.scale / 100, self.position, self.layout_mode == 'panel', lambda card: card['collapsed'],
             scale_with_video=self.scale_with_video, scale_strength=self.scale_strength,
             scale_curve=self.scale_curve)
-        stage = self.stage_rect()
         factor = stage.width() / width
-        self._card_scale = scale * factor
-        return [QRectF(stage.x() + rect.x() * factor, stage.y() + rect.y() * factor,
-                       rect.width() * factor, rect.height() * factor) for rect in rects]
+
+        def map_rect(rect):
+            return QRectF(stage.x() + rect.x() * factor, stage.y() + rect.y() * factor,
+                          rect.width() * factor, rect.height() * factor)
+
+        return [map_rect(rect) for rect in rects], map_rect(bounds).intersected(stage), scale, factor
+
+    def card_rects(self):
+        rects, _, _, _ = self._card_layout(self.stage_rect())
+        return rects
 
     def card_rect(self):
-        rects = self.card_rects()
-        bounds = QRectF(rects[0])
-        for rect in rects[1:]:
-            bounds = bounds.united(rect)
+        _, bounds, _, _ = self._card_layout(self.stage_rect())
         return bounds
 
     def _main(self, painter):
@@ -218,27 +221,28 @@ class SuperChatPlacementPreview(SkinPreview):
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(continuous_path(stage, 3))
         palette = super_chat_palette(30)
+        rects, bounds, scale, factor = self._card_layout(stage)
         painter.save()
+        painter.setClipRect(bounds, Qt.IntersectClip)
         painter.setOpacity(self.opacity / 100)
-        factor = stage.width() / self.preview_context[self.layout_mode]['size'][0]
-        for rect, card in zip(self.card_rects(), self.preview_context[self.layout_mode]['cards']):
+        for rect, card in zip(rects, self.preview_context[self.layout_mode]['cards']):
             painter.save()
             painter.translate(rect.topLeft())
             painter.scale(factor, factor)
             paint_sc_background(painter, QRectF(0, 0, rect.width() / factor, rect.height() / factor),
                                 palette['background_bottom_color'], palette['background_color'],
-                                (36 if card['collapsed'] else 56) * self._card_scale / factor)
+                                (36 if card['collapsed'] else 56) * scale)
             painter.restore()
-        painter.restore()
-        rect = self.card_rect()
+        painter.setOpacity(1)
         painter.setPen(QColor('white'))
-        painter.drawLine(rect.bottomRight() - QPointF(8, 2), rect.bottomRight() - QPointF(2, 8))
+        painter.drawLine(bounds.bottomRight() - QPointF(8, 2), bounds.bottomRight() - QPointF(2, 8))
+        painter.restore()
         painter.end()
 
     def mousePressEvent(self, event):
-        if event.button() != Qt.LeftButton or not self.card_rect().contains(event.position()):
-            return super().mousePressEvent(event)
         rect = self.card_rect()
+        if event.button() != Qt.LeftButton or not rect.contains(event.position()):
+            return super().mousePressEvent(event)
         self._gesture = 'resize' if (event.position() - rect.bottomRight()).manhattanLength() < 16 else 'move'
         self._start_point = event.position()
         self._start_rect = QRectF(rect)
@@ -247,8 +251,12 @@ class SuperChatPlacementPreview(SkinPreview):
 
     def mouseMoveEvent(self, event):
         if self._gesture is None:
-            self.setCursor(Qt.SizeFDiagCursor if (event.position() - self.card_rect().bottomRight()).manhattanLength() < 16
-                           else Qt.OpenHandCursor if self.card_rect().contains(event.position()) else Qt.ArrowCursor)
+            rect = self.card_rect()
+            if not rect.contains(event.position()):
+                self.setCursor(Qt.ArrowCursor)
+            else:
+                self.setCursor(Qt.SizeFDiagCursor if (event.position() - rect.bottomRight()).manhattanLength() < 16
+                               else Qt.OpenHandCursor)
             return
         delta = event.position() - self._start_point
         if self._gesture == 'resize':
