@@ -63,21 +63,23 @@ class AppShortcuts(QObject):
             return False
         host = self.host
         window = watched.window() if hasattr(watched, 'window') else None
-        if window is not host and window is not host._fullscreen_tile:
+        pip_window = host.picture_in_picture.floating
+        in_pip = pip_window is not None and window is pip_window
+        if not in_pip and window is not host and window is not host._fullscreen_tile:
             return False
         angle = event.angleDelta().y()
         delta = angle or event.pixelDelta().y()
         if not delta:
             return False
         snap_grid = getattr(host.wall, 'snap_grid', None)
-        if (event.modifiers() == Qt.ControlModifier and snap_grid is not None and snap_grid.interactive()
+        if (not in_pip and event.modifiers() == Qt.ControlModifier and snap_grid is not None and snap_grid.interactive()
                 and QApplication.activePopupWidget() is None):
             point = host.wall.mapFromGlobal(event.globalPosition().toPoint())
             tile = next((tile for tile in host.wall.visible_tiles() if tile.geometry().contains(point)), None)
             if tile is not None and snap_grid.resize_tile(tile, 1 if delta > 0 else -1):
                 event.accept()
                 return True
-        if event.modifiers() == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
+        if not in_pip and event.modifiers() == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
             if (not isinstance(watched, VideoSurface)
                     or not watched.rect().contains(event.position().toPoint())
                     or QApplication.activePopupWidget() is not None):
@@ -89,12 +91,14 @@ class AppShortcuts(QObject):
         else:
             if not self._matches_volume_wheel(event.modifiers(), delta):
                 return False
-            tile = host._tile_under_cursor()
-            if tile is None:
+            tile = pip_window._tile_at(event.globalPosition().toPoint()) if in_pip else host._tile_under_cursor()
+            if tile is None or (in_pip and not tile.room.get('room_id')):
                 return False
             step = wheel_volume_step(host.settings.get('wheel_volume_step'))
         step *= max(1, abs(angle) // 120)
         tile.set_volume(tile.volume + (step if delta > 0 else -step))
+        if in_pip:
+            pip_window.audio_feedback.display(tile)
         event.accept()
         return True
 

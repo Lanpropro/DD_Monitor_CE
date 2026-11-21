@@ -255,6 +255,22 @@ def check_audio_controls(pip):
         floating.tools.reorder.setChecked(False)
         QTest.keyClick(row.slider, Qt.Key_Escape)
         assert pip.active and not panel.isVisible(), 'Esc must close the panel before returning'
+        first_volume = tiles[0].volume
+        target = tiles[1]
+        target.set_volume(50)
+        target.set_muted(True)
+        feedback = floating.audio_feedback
+        with patch.dict(pip.host.settings, {'wheel_volume_step': 7}):
+            wheel(target.video, 120, Qt.ShiftModifier)
+            assert target.volume == 57 and not target.muted and tiles[0].volume == first_volume
+            assert feedback.isVisible() and feedback.text() == f"{target.room['uname']}  57%"
+            assert feedback.timer.isActive()
+            with patch.dict(pip.host.shortcuts, {'volume_down': 'Alt+WheelDown'}):
+                wheel(target.video, -120, Qt.ShiftModifier)
+                assert target.volume == 57
+                wheel(target.video, -240, Qt.AltModifier)
+                assert target.volume == 43 and feedback.text() == f"{target.room['uname']}  43%"
+        feedback.hide()
         # Deliver shortcuts to a PiP video without moving the desktop pointer.
         with patch.object(floating, '_tile_at', return_value=tiles[0]), patch.object(floating, '_pointer_over', return_value=True):
             before = tiles[0].volume
