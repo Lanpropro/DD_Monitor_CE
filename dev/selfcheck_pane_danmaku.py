@@ -1115,7 +1115,8 @@ class PaneDanmakuTests(unittest.TestCase):
                 wall.pane_danmaku.apply({0: None, count - 1: None})
                 self.app.processEvents()
                 widgets = wall._preset_widgets()
-                self.assertEqual(set(widgets), set(range(count)))
+                expected = {0, count - 1} if layouts.snap_grid_size(identifier) else set(range(count))
+                self.assertEqual(set(widgets), expected)
                 self.assertEqual(set(wall.pane_danmaku.panels), {0, count - 1})
                 self.assertTrue(all(panel.isVisible() for panel in wall.pane_danmaku.panels.values()))
                 self.assertTrue(all(rect.width() > 0 and rect.height() > 0 for rect in

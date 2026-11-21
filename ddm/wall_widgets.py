@@ -15,6 +15,7 @@ from .tile_widgets import Tile
 from .widget_support import TILE_BAR_HEIGHT, _repolish
 from .wall_layout import WallLayout
 from .wall_presentation import WallPresentation
+from .wall_snap_grid import WallSnapGrid
 
 
 from .wall_geometry import (best_columns)
@@ -41,6 +42,7 @@ class WallGrid(QWidget):
         super().__init__(parent)
         self.presentation_control = WallPresentation(self)
         self.layout_control = WallLayout(self)
+        self.snap_grid = WallSnapGrid(self)
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -53,6 +55,7 @@ class WallGrid(QWidget):
             self.setAttribute(Qt.WA_NativeWindow, True)
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
+        self.setAcceptDrops(bool(self.snap_grid.size))
         self.tiles: list[Tile] = []
         self.picture_in_picture_tiles = None
         self.picture_in_picture_columns = 0
@@ -156,6 +159,7 @@ class WallGrid(QWidget):
         self._cancel_border_drag()
         self._preset_dividers = {}
         self.layout_id = layout_id
+        self.setAcceptDrops(bool(self.snap_grid.size))
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
         self._columns = -1
         self._last_height = 0
@@ -504,6 +508,28 @@ class WallGrid(QWidget):
 
     def hidden_count(self) -> int:
         return sum(1 for tile in self.tiles if not tile.isVisible())
+
+    def dragEnterEvent(self, event):
+        self.dragMoveEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self.snap_grid.can_drop(event.mimeData(), event.position().toPoint()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if (self.snap_grid.can_drop(event.mimeData(), event.position().toPoint())
+                and self.snap_grid.drop(event.mimeData(), event.position().toPoint())):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def contextMenuEvent(self, event):
+        if self.snap_grid.open_menu(event.pos(), event.globalPos()):
+            event.accept()
+        else:
+            super().contextMenuEvent(event)
 
     def paintEvent(self, event) -> None:
         # 原生视频移动后重绘空隙；皮肤启用时保留背景层的透明通路。

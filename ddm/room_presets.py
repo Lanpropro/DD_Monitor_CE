@@ -53,6 +53,9 @@ def validate_ratios(identifier, ratios):
 def snapshot_ratios(wall):
     if wall.layout_id == 'corner':
         return wall.corner_ratios()
+    if layouts.snap_grid_size(wall.layout_id):
+        cells = wall.snap_grid.cells()
+        return {'grid': cells} if cells != wall._cells() else {}
     ratios = {key: list(values) for key, values in wall._layout_ratios.get(wall.layout_id, {}).items()}
     # Freeze viewport-dependent defaults, such as the portrait main pane's 16:9 ratio.
     for (key, _), (_, _, sizes) in wall._preset_dividers.items():
@@ -166,8 +169,11 @@ def thumbnail_geometry(snapshot, area):
     from PySide6.QtCore import QSize
     identifier = snapshot["layout"]["id"]
     if size := layouts.snap_grid_size(identifier):
-        return snap_grid.geometry(size, snapshot['layout']['ratios'].get('grid', layouts.even_cells(size, size)),
-                                  area, 3)
+        occupied = {slot['cell'] for slot in snapshot['slots'] if slot['room_id']}
+        occupied.update(panel['cell'] for panel in snapshot['layout'].get('panels', ()))
+        cells = snapshot['layout']['ratios'].get('grid', layouts.even_cells(size, size))
+        rectangles = snap_grid.geometry(size, snap_grid.with_occupied(cells, occupied), area, 3)
+        return {cell: rect for cell, rect in rectangles.items() if cell in occupied}
     ratios = partition_weights(identifier, snapshot['layout']['ratios'])
     def defaults(node, rect):
         if node.key != "root" or not layouts.is_portrait_layout(identifier):

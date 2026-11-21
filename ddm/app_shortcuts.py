@@ -69,6 +69,14 @@ class AppShortcuts(QObject):
         delta = angle or event.pixelDelta().y()
         if not delta:
             return False
+        snap_grid = getattr(host.wall, 'snap_grid', None)
+        if (event.modifiers() == Qt.ControlModifier and snap_grid is not None and snap_grid.interactive()
+                and QApplication.activePopupWidget() is None):
+            point = host.wall.mapFromGlobal(event.globalPosition().toPoint())
+            tile = next((tile for tile in host.wall.visible_tiles() if tile.geometry().contains(point)), None)
+            if tile is not None and snap_grid.resize_tile(tile, 1 if delta > 0 else -1):
+                event.accept()
+                return True
         if event.modifiers() == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
             if (not isinstance(watched, VideoSurface)
                     or not watched.rect().contains(event.position().toPoint())

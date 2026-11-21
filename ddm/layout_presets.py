@@ -47,9 +47,20 @@ class LayoutPresets:
     def override_state(self):
         return deepcopy(self.overrides)
 
+    def restore_wall_ratios(self, saved):
+        ratios = dict(saved) if isinstance(saved, dict) else {}
+        for base, record in self.overrides.items():
+            if layouts.snap_grid_size(base) and 'ratios' in record:
+                old = record.pop('ratios')
+                ratios.setdefault(base, old)
+        return ratios
+
     def save_override(self, base, ratios):
         ratios = validate_ratios(base, ratios)
-        self.overrides.setdefault(base, {'shortcut': ''})['ratios'] = ratios
+        if layouts.snap_grid_size(base):
+            self.host.wall.layout_control.set_preset_ratios(base, ratios)
+        else:
+            self.overrides.setdefault(base, {'shortcut': ''})['ratios'] = ratios
         if base == self.host.wall.layout_id:
             self.apply(base)
         self.host._save_timer.start()
@@ -60,7 +71,8 @@ class LayoutPresets:
         if host._closing or host._fullscreen_tile is not None or wall.picture_in_picture_tiles is not None:
             return None
         from .layout_preset_editor import LayoutPresetEditor
-        ratios = self.overrides.get(base, {}).get('ratios') if base != wall.layout_id else None
+        ratios = (self.overrides.get(base, {}).get('ratios')
+                  if base != wall.layout_id and not layouts.snap_grid_size(base) else None)
         if ratios is None:
             ratios = wall.corner_ratios() if base == 'corner' else wall.layout_ratios().get(base, {})
         editor = LayoutPresetEditor(host, base, ratios)

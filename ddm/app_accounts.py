@@ -353,6 +353,7 @@ class AppAccounts:
     def refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
         host = self.host
+        host.wall.snap_grid.sync_visibility()
         host.sidebar.set_wall_rooms(
             str(tile.room.get("room_id") or "") for tile in host.wall.tiles
             if not tile.property('pictureInPictureTemporary'))

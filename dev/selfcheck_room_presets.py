@@ -231,10 +231,11 @@ def check_layout_only_presets(app, directory):
 
 def check_snap_grid_and_other_presets(app):
     from PySide6.QtCore import QMimeData, QPointF
-    from PySide6.QtGui import QDropEvent
+    from PySide6.QtGui import QContextMenuEvent, QDragEnterEvent, QDropEvent, QWheelEvent
+    from PySide6.QtWidgets import QMenu
     from ddm.layout_preset_editor import LayoutPresetEditor
     from ddm import snap_grid
-    from ddm.tile_widgets import ROOM_MIME
+    from ddm.sidebar_drag import ROOM_MIME, TILE_MIME
 
     rooms = [dict(room_id=str(n), uname=str(n), live=False) for n in (701, 702)]
     window = MainWindow(rooms, deepcopy(rooms), layout_id='corner',
@@ -266,6 +267,22 @@ def check_snap_grid_and_other_presets(app):
         QTest.mouseMove(view, end)
         QTest.mouseRelease(view, Qt.LeftButton, pos=end)
 
+    def wheel(widget, point, delta, modifiers=Qt.ControlModifier):
+        event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(),
+                            QPoint(0, delta), Qt.NoButton, modifiers, Qt.NoScrollPhase, False)
+        QApplication.sendEvent(widget, event)
+        return event.isAccepted()
+
+    def drop_room(kind, room_id, point):
+        mime = QMimeData()
+        mime.setData(kind, room_id.encode())
+        action = Qt.MoveAction if kind == TILE_MIME else Qt.CopyAction
+        enter = QDragEnterEvent(point, action, mime, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(wall, enter)
+        drop = QDropEvent(QPointF(point), action, mime, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(wall, drop)
+        return enter.isAccepted(), drop.isAccepted()
+
     try:
         for group, base in (('弹幕布局', 'dm_pair'), ('竖屏布局', 'portrait_dm2')):
             editor = open_from(group, base)
@@ -290,52 +307,99 @@ def check_snap_grid_and_other_presets(app):
         for base, count in (('custom_grid9', 3), ('custom_grid16', 4)):
             presets.select_builtin(base)
             app.processEvents()
-            assert wall.visible_tiles() == wall.tiles[:count * count]
+            assert wall.acceptDrops() and wall.visible_tiles() == tiles
+            units = snap_grid.geometry(count, layouts.even_cells(count, count),
+                                       wall._corner_area(), wall.grid.spacing())
+            first, second = tiles
+            first_cell = first.video.rect().center()
+            assert wheel(first.video, first_cell, 120)
+            assert wall.snap_grid.cells()[0] == (0, 0, 1, 1), 'An occupied cell blocks growth'
+
+            with patch.object(window, '_stop_tile') as stop, patch.object(window, 'start_tile') as start:
+                assert drop_room(TILE_MIME, '702', units[count * count - 1].center()) == (True, True)
+                assert second.geometry() == units[count * count - 1]
+                assert wheel(first.video, first_cell, 120)
+                assert wall.snap_grid.cells()[0] == (0, 0, 2, 2)
+                wheel(first.video, first.video.rect().center(), -120, Qt.NoModifier)
+                assert wall.snap_grid.cells()[0] == (0, 0, 2, 2)
+                assert wheel(first.video, first.video.rect().center(), -120)
+                assert first.geometry() == units[0]
+                stop.assert_not_called()
+                start.assert_not_called()
+
             editor = open_from('普通布局', base)
             view = editor.preview
-            original = view.draft
-            rects = view._rectangles(original)
-            start = view._grip(rects[0]).center()
-            gesture(view, start, start + QPoint(rects[1].x() - rects[0].x(), 0))
-            assert view.draft == original, 'A resize cannot cover an occupied video cell'
-            gesture(view, rects[0].center(), rects[1].center())
-            assert view.draft[:2] == [original[1], original[0]]
+            before = view.draft
+            assert wheel(view, units[0].center(), 120)
+            assert view.draft[0] == (0, 0, 2, 2)
+            assert first.geometry() == units[0]
             view.undo()
-            assert view.draft == original
-            gesture(view, start, start + QPoint(0, rects[count].y() - rects[0].y()))
-            assert view.draft[0] == (0, 0, 2, 1) and view.draft[count] is None
-            assert wall.tiles[0].geometry() == rects[0]
+            assert view.draft == before
+            assert wheel(view, units[0].center(), 120)
             editor.accept()
-            app.processEvents()
-            assert wall.visible_tiles() == [tile for index, tile in enumerate(wall.tiles) if index != count][:count * count - 1]
             assert wall.tiles[:2] == tiles and [int(tile.video.winId()) for tile in tiles] == handles
             snapshot = window.room_preset_snapshot()
-            assert snapshot['layout']['ratios']['grid'][0] == (0, 0, 2, 1)
-            assert count not in room_presets.thumbnail_geometry(snapshot, wall.rect())
+            assert snapshot['layout']['ratios']['grid'][0] == (0, 0, 2, 2)
+            assert set(room_presets.thumbnail_geometry(snapshot, wall.rect())) == {0, 1}
 
-        available = wall.tiles[2]
+        assert drop_room(TILE_MIME, '701', units[3].center()) == (True, False)
+        assert wall.snap_grid.cells()[0] == (0, 0, 2, 2), 'Moving a large tile cannot cross the grid edge'
+
+        chat_points = [units[index].center() for index in (2, 6)]
+        for point in chat_points:
+            event = QContextMenuEvent(QContextMenuEvent.Mouse, point, wall.mapToGlobal(point))
+            QApplication.sendEvent(wall, event)
+            menu = QApplication.activePopupWidget()
+            assert isinstance(menu, QMenu)
+            action = next(item for item in menu.actions() if item.text() == '添加弹幕格')
+            action.trigger()
+            menu.close()
+        panes = wall.pane_danmaku
+        assert len(panes.panels) == 2 and wall.visible_tiles() == tiles
+        assert all(any(panel.geometry().contains(point) for panel in panes.rendered()) for point in chat_points)
+        assert wheel(tiles[0].video, tiles[0].video.rect().center(), 120)
+        assert wall.snap_grid.cells()[0] == (0, 0, 2, 2), 'An independent chat pane also blocks growth'
+        wall.grab().save(str(Path(__file__).resolve().parents[1] / 'work' / 'custom-grid16.png'))
+
+        point = units[7].center()
         room = dict(room_id='703', uname='拖入测试', live=False)
-        mime = QMimeData()
-        mime.setData(ROOM_MIME, b'703')
-        drop = QDropEvent(QPointF(available.rect().center()), Qt.CopyAction, mime,
-                          Qt.LeftButton, Qt.NoModifier)
-        with patch.object(window, '_room_dict', return_value=room), patch('ddm.card_drop.play_card_drop'):
-            available.dropEvent(drop)
-        assert drop.isAccepted() and available.room['room_id'] == '703' and available.isVisible()
+        previous = wall.layout_ratios()
+        with patch.object(window, '_room_dict', return_value=None):
+            assert drop_room(ROOM_MIME, '999', units[8].center()) == (True, False)
+        assert wall.layout_ratios() == previous
+        with patch.object(window, '_room_dict', return_value=room):
+            assert drop_room(ROOM_MIME, '703', point) == (True, True)
+        added = window._tile_of('703')
+        assert added.geometry() == units[7] and added.isVisible()
+        added.closeRequested.emit(added.room)
+        assert added.isHidden()
 
         restored_state = window.current_state()
-        resumed = MainWindow([], [], layout_id='custom_grid16', state=restored_state)
+        resumed = MainWindow(rooms, deepcopy(rooms), layout_id='custom_grid16', state=restored_state)
         try:
-            assert resumed.wall.layout_ratios()['custom_grid16']['grid'][0] == (0, 0, 2, 1)
-            resumed.layout_presets.select_builtin('custom_grid9')
-            assert resumed.wall.layout_ratios()['custom_grid9']['grid'][3] is None
             resumed.show()
             app.processEvents()
+            assert resumed.wall.layout_ratios()['custom_grid16']['grid'][0] == (0, 0, 2, 2)
+            assert len(resumed.wall.pane_danmaku.rendered()) == 2
+            panes = resumed.wall.pane_danmaku
+            menu = panes.create_menu(next(iter(panes.panels)))
+            assert menu.actions()[0].text() == '移除弹幕格'
+            menu.actions()[0].trigger()
+            menu.deleteLater()
+            assert len(panes.rendered()) == 1
+            resumed.add_to_wall(room)
+            assert resumed._tile_of('703').isVisible()
+            resumed.layout_presets.select_builtin('custom_grid9')
+            assert len(resumed.wall.visible_tiles()) == 3 and not panes.panels
+            assert resumed.wall.layout_ratios()['custom_grid9']['grid'][0] == (0, 0, 2, 2)
             editor = resumed.layout_presets.edit('custom_grid9')
             editor.preview.reset_to_default()
             editor.accept()
             app.processEvents()
-            assert len(resumed.wall.visible_tiles()) == 9
+            assert len(resumed.wall.visible_tiles()) == 3
+            assert resumed.wall.snap_grid.cells()[0] == (0, 0, 1, 1)
+            resumed.layout_presets.select_builtin('3x3')
+            assert len(resumed.wall.visible_tiles()) == 9 and not resumed.wall.acceptDrops()
         finally:
             resumed.close()
         for invalid in ([None] * 9, [(0, 0, 3, 4)] + [None] * 8):

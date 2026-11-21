@@ -38,7 +38,10 @@ class WallLayout:
         order = host._cell_order()
         if not cells or not order:
             return None
-        cells = host._layout_ratios.get(host.layout_id, {}).get('grid', cells)
+        if host.snap_grid.size:
+            cells = host.snap_grid.cells()
+            occupied = host.snap_grid.occupied()
+            cells = [cell if index in occupied else None for index, cell in enumerate(cells)]
         areas = [0 if not cells[cell] or cell in host.pane_danmaku.bindings() else cells[cell][2] * cells[cell][3]
                  for cell in order]
         if len(set(areas)) <= 1:
@@ -56,7 +59,7 @@ class WallLayout:
         cells = host._cells()
         if not cells or index >= len(order):
             return None
-        return host._layout_ratios.get(host.layout_id, {}).get('grid', cells)[order[index]]
+        return (host.snap_grid.cells() if host.snap_grid.size else cells)[order[index]]
 
     def danmaku_geometry_cell(self):
         """弹幕格当前用的 cell。"""
@@ -170,6 +173,13 @@ class WallLayout:
 
     def preset_widgets(self):
         host = self.host
+        if host.snap_grid.size:
+            cells = host.snap_grid.cells()
+            widgets = {cell: tile for cell, tile in host.pane_danmaku.cell_tiles().items()
+                       if cells[cell] is not None and tile.room.get('room_id')}
+            widgets.update({cell: host.pane_danmaku.wall_widget(panel)
+                            for cell, panel in host.pane_danmaku.panels.items() if cells[cell] is not None})
+            return widgets
         if host.pane_danmaku.custom:
             widgets = host.pane_danmaku.cell_tiles()
             widgets.update({cell: host.pane_danmaku.wall_widget(panel)
@@ -189,6 +199,8 @@ class WallLayout:
 
     def preset_minimum(self, cell):
         host = self.host
+        if host.snap_grid.size:
+            return QSize(200, 150)
         widget = host._preset_widgets().get(cell)
         if widget in host.pane_danmaku.wall_widgets():
             return QSize(max(200, widget.minimumWidth()), max(140, widget.minimumHeight()))
@@ -202,7 +214,7 @@ class WallLayout:
         if host.fullscreen_tile is not None or host.layout_id not in host._partitions:
             return
         widgets = host._preset_widgets()
-        if len(widgets) < len(host._cells()):
+        if not host.snap_grid.size and len(widgets) < len(host._cells()):
             # 应用切方向时先选预设、再调整窗口、最后补齐格子；中间的 resize 不排布。
             return
         tree = host._partitions[host.layout_id]
@@ -215,11 +227,10 @@ class WallLayout:
         # 顶层窗口尺寸变更可能在下一次事件循环才完成，计算区域也遵守最小尺寸。
         area.setWidth(max(area.width(), minimum.width()))
         area.setHeight(max(area.height(), minimum.height()))
-        if size := layouts.snap_grid_size(host.layout_id):
-            cells = host._layout_ratios[host.layout_id].get('grid', host._cells())
-            leaves = snap_grid.geometry(size, cells, area, gap)
+        if size := host.snap_grid.size:
+            geometry = snap_grid.geometry(size, host.snap_grid.cells(), area, gap)
+            leaves = {cell: geometry[cell] for cell in widgets}
             dividers = []
-            widgets = {cell: widget for cell, widget in widgets.items() if cell in leaves}
         else:
             leaves, dividers = resize_layout.geometry(
                 tree, area, gap, host._preset_minimum,

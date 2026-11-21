@@ -180,7 +180,7 @@ class PaneDanmaku:
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
             areas.append(([cell], QRect(rectangles[cell]), room))
         gap = self.wall.grid.spacing() if gap is None else gap
-        changed = True
+        changed = not layouts.snap_grid_size(self.wall.layout_id)
         while changed:
             changed = False
             for first, (cells, rect, room) in enumerate(areas):
@@ -508,7 +508,8 @@ class PaneDanmaku:
         if cell not in range(len(self.wall._cells())):
             return menu
         if cell in self.bindings():
-            menu.addAction('恢复直播画面', lambda: self.request(cell, video=True))
+            label = '移除弹幕格' if self.wall.snap_grid.size else '恢复直播画面'
+            menu.addAction(label, lambda: self.request(cell, video=True))
         return menu
 
     def request(self, cell, source=None, *, video=False):

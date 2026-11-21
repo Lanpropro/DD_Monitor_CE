@@ -136,7 +136,8 @@ class LayoutPicker(QFrame):
             button.setChecked(item['id'] == current)
             button.setProperty('layoutId', item['id'])
             button.setToolTip(item.get('hint') or item['name'])
-            if item['id'] == current and layouts.capacity(current) > 1 and not self._has_override(current):
+            if (item['id'] == current and layouts.capacity(current) > 1 and not layouts.snap_grid_size(current)
+                    and not self._has_override(current)):
                 button.setToolTip(button.toolTip() + '\n再次点击恢复默认比例')
             if self.layout_presets is not None:
                 shortcut = self.layout_presets.overrides.get(item['id'], {}).get('shortcut')

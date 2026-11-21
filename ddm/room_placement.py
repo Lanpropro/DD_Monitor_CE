@@ -1,6 +1,5 @@
 """Room placement and tile swaps; the host owns playback, recording and UI services."""
 import sys
-from . import layouts
 from .room_catalog import RoomCatalog
 from .room_navigation import RoomNavigation
 from .streamer_defaults import room_defaults
@@ -66,6 +65,7 @@ class RoomPlacement:
             if previous and previous.get("room_id"):
                 to_start.append(other)
         tile.set_room(room)
+        self._sync_snap_grid()
         if other is not None:
             host.wall.pane_danmaku.swap_sources(other, tile)
             if follows_room:
@@ -102,6 +102,7 @@ class RoomPlacement:
             _swap_audio_settings(source, target_tile)
         source.set_room(second if second.get("room_id") else None)
         target_tile.set_room(first if first.get("room_id") else None)
+        self._sync_snap_grid()
         if follows_room:
             source.sync_audio_ui()
             target_tile.sync_audio_ui()
@@ -274,8 +275,12 @@ class RoomPlacement:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
         room = self.prepare_wall_entry(room)
-        snap_grid = layouts.snap_grid_size(host.wall.layout_id)
-        candidates = host.wall.visible_tiles() if empty_only or snap_grid else host.wall.tiles
+        grid = getattr(host.wall, 'snap_grid', None)
+        custom_grid = grid is not None and grid.size
+        if custom_grid:
+            candidates = grid.free_tiles()
+        else:
+            candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
         panes = host.wall.pane_danmaku
         chat_cells = panes.bindings()
         chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
@@ -285,6 +290,7 @@ class RoomPlacement:
             host.recorder.stop(empty)
             host._stop_tile(empty)
             empty.set_room(room)
+            self._sync_snap_grid()
             host._wire_tile(empty)
             host.start_tile(empty)
             host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
@@ -293,7 +299,7 @@ class RoomPlacement:
             return
         if empty_only:
             return
-        if snap_grid:
+        if custom_grid:
             print('自定义网格没有空闲的画面格')
             return
         if len(host.wall.tiles) >= MAX_TILES:
@@ -305,6 +311,11 @@ class RoomPlacement:
         host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,
                           room=dict(tile.room or {}))
         host._refresh_meta()
+
+    def _sync_snap_grid(self):
+        grid = getattr(self.host.wall, 'snap_grid', None)
+        if grid is not None:
+            grid.sync_visibility()
 
     def remove_room(self, room: dict) -> None:
         return self.catalog.remove_room(room)

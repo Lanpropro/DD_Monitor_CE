@@ -283,7 +283,8 @@ class MainWindow(QMainWindow):
             [self.room_placement.prepare_wall_entry(room) for room in (wall_rooms or ())],
             layout_id if layout_id and layout_id != "auto"
             else self._saved_layout("landscape"), prepare_room=self._prepare_room,
-            corner_ratios=ui.get("corner_ratios"), layout_ratios=ui.get("layout_ratios"),
+            corner_ratios=ui.get("corner_ratios"),
+            layout_ratios=self.layout_presets.restore_wall_ratios(ui.get("layout_ratios")),
             pane_layouts=ui.get("pane_layouts"))
         self._wall_control_hover = WallControlHover(self.wall)
 

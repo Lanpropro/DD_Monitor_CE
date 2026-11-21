@@ -34,23 +34,47 @@ def validate(size, cells):
     return result
 
 
-def place(size, cells, index, target, protected):
-    original = cells[index]
-    if target == original:
+def with_occupied(cells, occupied):
+    """Use vacant positions when switching in with rooms from a different preset."""
+    free = iter(i for i, cell in enumerate(cells) if cell is not None and i not in occupied)
+    result = list(cells)
+    for index in sorted(occupied):
+        if result[index] is None:
+            donor = next(free, None)
+            if donor is None:
+                break
+            result[index], result[donor] = result[donor], None
+    return result
+
+
+def resize(size, cell, step):
+    row, col, height, width = cell
+    # Old saved previews can contain rectangles such as 1×2. New sizes
+    # are square, stepping from the nearest smaller or larger square.
+    if height != width:
+        span = max(height, width) if step > 0 else min(height, width)
+    else:
+        span = height + step
+    if 1 <= span <= size - max(row, col):
+        return row, col, span, span
+    return cell
+
+
+def place(size, cells, index, target, occupied):
+    if target == cells[index]:
         return cells
-    occupied = tiles_in(target)
-    hits = [i for i, cell in enumerate(cells) if i != index and cell and tiles_in(cell) & occupied]
+    target_cells = tiles_in(target)
+    hits = [i for i, cell in enumerate(cells) if i != index and cell and tiles_in(cell) & target_cells]
+    if any(i in occupied for i in hits):
+        return cells
     result = list(cells)
     result[index] = target
-    if len(hits) == 1 and target == cells[hits[0]] and original[2:] == target[2:]:
-        result[hits[0]] = original
-        return result
-    if any(i in protected or cells[i][2:] != (1, 1) for i in hits):
-        return cells
     for i in hits:
         result[i] = None
     covered = set().union(*(tiles_in(cell) for cell in result if cell))
-    available = iter(sorted((i for i, cell in enumerate(result) if cell is None), key=lambda i: i not in protected))
+    # Missing occupied slots can occur when switching from a fuller layout.
+    # Give those rooms first use of newly uncovered positions.
+    available = iter(sorted((i for i, cell in enumerate(result) if cell is None), key=lambda i: i not in occupied))
     for row, col, height, width in even_cells(size, size):
         if (row, col) not in covered:
             result[next(available)] = (row, col, height, width)
