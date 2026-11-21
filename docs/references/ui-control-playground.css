@@ -277,9 +277,8 @@
   transition: transform var(--lab-motion, 120ms) ease-out;
 }
 .lab-control:disabled, .lab-control:disabled:hover { opacity: .55; cursor: default; }
-.lab-control:active:not(:disabled) { background: color-mix(in srgb, var(--lab-surface) 88%, black); border-color: var(--lab-accent); }
 @media (hover: hover) and (pointer: fine) {
-  .lab-control:hover:not(:disabled), .lab-range input:hover:not(:disabled),
+  .lab-control:hover:not(:disabled, :active), .lab-range input:hover:not(:disabled),
   .lab-switch:hover:has(input:enabled) .lab-track { background: var(--lab-hover); }
 }
 .lab-demo :focus-visible, .lab-demo[data-state=focus] [data-primary] {
@@ -291,6 +290,11 @@
   border-color: var(--lab-accent);
   background: color-mix(in srgb, var(--lab-accent) 18%, var(--lab-surface));
 }
+.lab-control:active:enabled,
+.lab-demo[data-state=pressed] :is([data-primary]:not(.lab-switch, :disabled), [data-primary] .lab-track) {
+  background: color-mix(in srgb, var(--lab-surface) 88%, black);
+}
+button.lab-control { -webkit-tap-highlight-color: transparent; }
 .lab-glyph, .lab-extra { display: inline-flex; flex: none; }
 .lab-glyph svg, .lab-glyph img, .lab-extra svg {
   width: var(--lab-icon-size, var(--lab-default-icon-size, 15px));
@@ -343,7 +347,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   box-shadow: inset 0 1px 0 #ffffff18;
 }
 @media (hover: hover) and (pointer: fine) {
-  .lab-choice .lab-control:hover:not(:disabled,[aria-pressed=true]) { background: var(--lab-hover); }
+  .lab-choice .lab-control:hover:not(:disabled, :active, [aria-pressed=true]) { background: var(--lab-hover); }
 }
 .lab-select { width: 100%; }
 .lab-select option { color: var(--lab-ink); background: var(--lab-surface); }
@@ -616,9 +620,6 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   }
 }
 .lab-demo[data-state=hover] :is([data-primary]:not(.lab-switch), [data-primary] .lab-track) { background: var(--lab-hover); }
-.lab-demo[data-state=pressed] :is([data-primary]:not(.lab-switch), [data-primary] .lab-track) {
-  background: color-mix(in srgb,var(--lab-surface) 88%,black); border-color: var(--lab-accent);
-}
 .lab-demo:is([data-lab-area=bottom],[data-lab-area=overlay])[data-state=hover] [data-primary] { color: var(--lab-tile-hover-ink); }
 .lab-demo:is([data-lab-area=bottom],[data-lab-area=overlay]) .lab-control:focus-visible,
 .lab-demo:is([data-lab-area=bottom],[data-lab-area=overlay])[data-state=focus] .lab-control[data-primary] {
@@ -823,7 +824,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-mini-nav input { width: 100%; min-height: 22px; font-size: .8em; padding-inline: 5px; }
 .lab-mini-nav .lab-control[data-extra-choice] { justify-content: start; padding-inline: 7px; }
 [data-lab-demo=sidebar-toggle] .lab-control { border-color: transparent; background: transparent; color: var(--lab-muted); }
-[data-lab-demo=sidebar-toggle] .lab-control:hover { background: var(--lab-hover); color: var(--lab-ink); }
+[data-lab-demo=sidebar-toggle] .lab-control:hover:where(:enabled:not(:active)) { background: var(--lab-hover); color: var(--lab-ink); }
 [data-lab-demo=sidebar-filter] .lab-control:not([aria-pressed=true]) { border-color: transparent; background: transparent; }
 [data-lab-demo=sidebar-filter] .lab-control[aria-pressed=true] { border-color: transparent; background: color-mix(in srgb,var(--lab-accent) 16%,transparent); }
 .lab-progress-row progress { border-radius: calc(var(--lab-radius) * 2); }
@@ -859,7 +860,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   width: 100%;
   min-height: 30px;
 }
-.lab-extra-popup .lab-control:is(:hover, [aria-pressed=true]) { background: color-mix(in srgb, var(--lab-accent) 16%, transparent); }
+.lab-extra-popup .lab-control:is(:hover:where(:enabled:not(:active)), [aria-pressed=true]) { background: color-mix(in srgb, var(--lab-accent) 16%, transparent); }
 .lab-extra-popup summary { margin: 4px; cursor: pointer; }
 .lab-extra-popup input { font: inherit; }
 .lab-color-dialog {
@@ -1061,13 +1062,16 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
   border-color: transparent; background: var(--dialog-fill); color: var(--lab-accent-ink, white); font-weight: 700;
 }
 @media (hover: hover) and (pointer: fine) {
-  [data-dialog-action=cancel]:is(.lab-control, .btn):hover:enabled { background: var(--lab-hover, var(--tint)); }
+  [data-dialog-action=cancel]:is(.lab-control, .btn):hover:where(:enabled:not(:active)) { background: var(--lab-hover, var(--tint)); }
   [data-dialog-action=confirm]:is(.lab-control, .btn):hover:enabled {
     background: color-mix(in srgb, var(--dialog-fill) 92%, black);
   }
 }
 [data-dialog-action=confirm]:is(.lab-control, .btn):active:enabled {
   background: color-mix(in srgb, var(--dialog-fill) 88%, black);
+}
+[data-dialog-action=cancel]:is(.lab-control, .btn):active:enabled {
+  background: color-mix(in srgb, var(--lab-hover, var(--tint)) 65%, transparent);
 }
 .lab-app-vertical { display: flex; justify-content: center; }
 .lab-app-vertical .lab-range { display: grid; justify-items: center; }
@@ -1092,7 +1096,7 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
   min-width: 0; width: 19px; min-height: 20px; padding: 0;
   color: inherit; background: transparent; border-color: transparent;
 }
-.lab-app-sc-head .lab-control:hover { background: var(--lab-hover); color: var(--lab-ink); }
+.lab-app-sc-head .lab-control:hover:where(:enabled:not(:active)) { background: var(--lab-hover); color: var(--lab-ink); }
 .lab-app-avatar { display: grid; place-items: center; flex: 0 0 26px; height: 26px; border-radius: 50%; background: #657890; color: #fff; }
 .lab-app-sc p { margin: 0; padding: 7px; }
 .lab-app .lab-range output { white-space: nowrap; }
@@ -1255,7 +1259,7 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
 .lab-qt-audio-row { flex-wrap: nowrap; }
 .lab-qt-audio-row .lab-app-avatar { background: #4c6ef5; }
 .lab-qt-audio-row button { border-color: transparent; background: var(--lab-audio-button-bg,transparent); }
-.lab-qt-audio-row button:hover:not(:disabled) { background: var(--lab-hover); }
+.lab-qt-audio-row button:hover:not(:disabled, :active) { background: var(--lab-hover); }
 .lab-qt-caption-tools { justify-self: center; justify-content: center; gap: 1px; flex-wrap: nowrap; background: var(--lab-raised); border-radius: var(--lab-radius); border: 1px solid var(--lab-line); }
 .lab-qt-caption-tools button { border-color: transparent; background: transparent; min-width: 0; }
 .lab-qt-chat { overflow: hidden; border-radius: var(--lab-radius); background: var(--lab-surface); }

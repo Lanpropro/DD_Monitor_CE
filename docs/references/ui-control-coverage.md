@@ -40,7 +40,7 @@
 
 | 试样 | 软件入口 | 可核对的操作或表现 | 源码 | 详情标识 | 实装外观与状态核对记录 |
 | --- | --- | --- | --- | --- | --- |
-| 刷新统计 | 数据与存储 › 图片缓存 | 网页模拟重新统计缓存用量，并显示本次耗时。 | [cache_settings.py](../../ddm/cache_settings.py) | `#control-cache-action` | 等待时文字右侧追加旋转图标，按钮下方显示进行中、结果和耗时。 |
+| 刷新统计 | 数据与存储 › 图片缓存 | 网页模拟重新统计缓存用量，并显示本次耗时。 | [cache_settings.py](../../ddm/cache_settings.py) | `#control-cache-action` | 按住时仅改变底色。松开触发统计，文字右侧追加旋转图标，期间禁止再次触发。按钮下方显示进行中、结果和耗时。 |
 | 下载进度 | 软件更新 › 下载 | 拖动示例控制条可查看进度条在不同数值下的绘制。 | [update_progress_ui.py](../../ddm/update_progress_ui.py) | `#control-update-progress` | 圆角进度填充，网页滑杆用于改变演示数值。 |
 | 插件详情展开条 | 插件 › 插件商店 | 展开插件卡片的说明和作者信息。 | [plugin_store_ui.py](../../ddm/plugin_store_ui.py) | `#control-plugin-disclosure` | 详情条右箭头、展开方向和内容区。 |
 | 弹幕字体 | 弹幕 › 弹幕字体与记录 | 输入字体名称后选择。试样使用几种 Windows 本地字体。 | [settings_danmaku.py](../../ddm/settings_danmaku.py) | `#control-danmaku-font` | 字体下拉、搜索区域、当前项和选取反馈。 |

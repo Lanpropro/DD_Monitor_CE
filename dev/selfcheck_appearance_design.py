@@ -41,6 +41,14 @@ def check_gallery_vectors():
 
 def main():
     check_gallery_vectors()
+    gallery_styles = (ROOT / "docs/references/ui-control-playground.css").read_text(encoding="utf-8")
+    pressed_styles = re.search(r"\.lab-control:active:enabled,\s*\.lab-demo\[data-state=pressed\][^{]*\{([^}]+)\}",
+                               gallery_styles)
+    assert pressed_styles, "live and fixed gallery button states must share the pressed style"
+    pressed = pressed_styles.group(1)
+    assert "background:" in pressed and "border" not in pressed and "outline" not in pressed, (
+        "press feedback must change the fill without painting a focus border"
+    )
     current = (ROOT / "docs/features/appearance-design.md").read_text(encoding="utf-8")
     assert "设置 → 外观" in current
     assert "archive/appearance-implementation-202610.md" in current
