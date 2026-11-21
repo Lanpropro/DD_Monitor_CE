@@ -6,7 +6,7 @@ const labApplicationControls = [
   ['follow-import', '导入关注列表', '添加与导入 › 导入关注', 232, 'follow_import_ui.py', '核对复选、已关注禁用和导入数量。'],
   ['follow-card', '关注卡片多选', '关注列表 › 多选管理', 212, 'sidebar_item.py', '选择卡片，查看主播标题和开播状态。在详情中拖动卡片把手试用排序。'],
   ['folder-head', '关注文件夹标题', '关注列表 › 文件夹', 204, 'sidebar_folders.py', '展开或收起文件夹，也可进入行内重命名。'],
-  ['folder-edit', '文件夹名称与图标', '关注列表 › 新建／编辑文件夹', 244, 'folder_icons.py', '填写名称、选择颜色，确认后立即显示。'],
+  ['folder-edit', '文件夹名称与图标', '关注列表 › 新建／编辑文件夹', 244, 'folder_icons.py', '填写名称、选择内置图标和颜色，或导入本地图片。保存后更新示例文件夹。'],
   ['function-hub', '功能中心', '侧栏 › 功能中心', 233, 'workspace_controls.py', '搜索功能、切换固定状态，或打开插件管理入口。'],
   ['account-menu', '账号行与账号菜单', '关注栏底部 › 账号', 245, 'account_widgets.py', '打开账号操作菜单。示例使用虚构账号。'],
   ['layout-picker', '画面墙布局预设', '画面墙 › 布局预设', 238, 'layout_picker.py', '选择布局卡片，比较格子排列和选中态。'],
@@ -37,7 +37,7 @@ const labApplicationControls = [
   ['diagnostic-form', '诊断图片与导出', '设置 › 诊断与反馈', 238, 'settings_diagnostics.py', '添加或移除示例附件，试用导出反馈。'],
   ['plugin-remove', '删除插件确认', '设置 › 已安装插件', 147, 'settings_plugins.py', '检查确认与取消的焦点、颜色和反馈。'],
   ['smart-folder', '智能分组规则', '关注管理 › 新建智能文件夹', 240, 'sidebar_folders.py', '组合来源文件夹、开播状态与平台条件。'],
-  ['account-platform', '登录平台选择', '关注栏 › 登录', 220, 'account_dialog.py', '切换平台按钮，查看所选平台。'],
+  ['account-platform', '登录平台选择', '关注栏 › 登录', 340, 'account_dialog.py', '在六个平台之间切换，查看分段选中状态。'],
   ['danmaku-source', '弹幕来源选择', '弹幕格 › 关联画面', 220, 'pane_source_picker.py', '展开头像列表，切换关联的画面。'],
   ['comment-actions', '单条弹幕工具条', '弹幕消息 › 右键', 240, 'danmaku_actions.py', '打开复制、复读和屏蔽动作。'],
   ['danmaku-float', '弹幕浮窗与收回', '弹幕格 › 浮动窗口', 224, 'danmaku_float_window.py', '切换浮窗并用占位按钮收回弹幕。'],
@@ -105,6 +105,11 @@ function labSkinScene(regions, scene) {
     }).join('')}</div>`;
 }
 
+const labFolderColors = [
+  ['', '默认', 'var(--lab-muted)'], ['#4d8dff', '蓝色'], ['#e95c93', '粉色'],
+  ['#2fa678', '绿色'], ['#de8534', '橙色'], ['#a579d4', '紫色'],
+];
+
 function labAppExample(item, popupId, detail) {
   const b = (text, action, primary = false, glyph = '') =>
     labButton(text, glyph, glyph ? '' : text, `data-app-action="${action}"`, primary);
@@ -123,8 +128,8 @@ function labAppExample(item, popupId, detail) {
     `<div class="lab-app-choice" role="group" aria-label="${key || item.title}">${values.map((label,index) =>
       labButton(label, '', label, `aria-pressed="${index === selected}" data-app-choice="${key || label}"`, index === 0)).join('')}</div>`;
   const select = (values, label) => labSelect(label, values);
-  const dialog = (trigger, title, body) =>
-    `${b(trigger, 'open', true)}<dialog class="lab-color-dialog lab-app-dialog" aria-label="${title}">
+  const dialog = (trigger, title, body, extraClass = '') =>
+    `${b(trigger, 'open', true)}<dialog class="lab-color-dialog lab-app-dialog ${extraClass}" aria-label="${title}">
       <h3>${title}</h3>${body}</dialog>`;
   const popupButton = (label, body, glyph = '') =>
     `${labButton(label, glyph, glyph ? '' : label, `popovertarget="${popupId}"`, true)}
@@ -181,15 +186,18 @@ function labAppExample(item, popupId, detail) {
         'data-app-action="folder-toggle" aria-expanded="true"',true)}${b('重命名','folder-name',false,'more')}</div>
         ${field('文件夹名称','text','data-app-folder-edit hidden')}<div data-app-folder-content>${roomRows}</div>`; break;
     case 'folder-edit':
-      html = dialog('编辑文件夹','修改文件夹图标', `<div class="lab-qt-icon-current"><span>${labIcon('folder')}</span>
-        ${field('文件夹名称','text','value="默认分组" data-app-value')}</div>
-        <small>内置图标</small><div class="lab-qt-icon-grid">${[['文件夹','folder'],['星标','star'],['爱心','heart'],
-          ['游戏','game'],['音乐','music'],['视频','qt-tabs']].map(([label,glyph],i) =>
-          labButton(label,glyph,label,`data-app-action="folder-icon" data-app-folder-glyph="${glyph}" aria-pressed="${i===0}"`)).join('')}</div>
-        <div class="lab-app-choice">${labPresets.map(([color,label]) =>
-          `<button type="button" class="lab-control lab-swatch-dot" style="--swatch:${color}" aria-label="${label}" data-app-action="folder-color" data-app-color="${color}"></button>`).join('')}</div>
-        ${line('自定义颜色',field('图标颜色','color','value="#00a1d6" data-app-folder-color'))}
-        <div class="lab-qt-actions">${b('恢复默认','folder-reset')}${dialogAction('取消','cancel','cancel')}${dialogAction('保存','save','confirm')}</div>`)
+      html = dialog('编辑文件夹','修改文件夹图标', `${labButton('关闭','close','','data-app-action="cancel" data-app-folder-close')}
+        <div class="lab-qt-icon-current"><span aria-hidden="true">${labIcon('folder')}</span>
+        <div>${field('文件夹名称','text','value="默认分组" data-app-value')}<small>普通文件夹 · 图标预览</small></div></div>
+        <p>内置图标</p><div class="lab-qt-icon-grid">${[['文件夹','folder'],['星标','star'],['爱心','heart'],
+          ['游戏','game'],['音乐','music'],['视频','qt-tabs']].map(([label,glyph]) =>
+          labButton(label,glyph,label,`data-app-action="folder-icon" data-app-folder-glyph="${glyph}" aria-pressed="false"`)).join('')}</div>
+        <div class="lab-folder-colors"><span>图标颜色</span>${labMovingSwatches('图标颜色', labFolderColors, 'data-app-folder-color')}</div>
+        <button type="button" class="lab-control lab-folder-drop" data-app-action="folder-file"><span>将图片拖到这里<br>或点击选择 PNG / JPEG / ICO</span></button>
+        <input type="file" accept=".png,.jpg,.jpeg,.ico" data-app-folder-file hidden>
+        <p class="lab-folder-hint">最大 5MB，图片保留原色。保存后应用。</p>
+        <p class="lab-folder-error" role="status" data-app-folder-error hidden></p>
+        <div class="lab-qt-actions">${b('恢复默认','folder-reset')}${dialogAction('取消','cancel','cancel')}${dialogAction('保存','save','confirm')}</div>`, 'lab-folder-dialog')
         + `<div class="lab-app-folder-preview"><span aria-hidden="true">${labIcon('folder')}</span><span>默认分组</span></div>`; break;
     case 'function-hub':
       html = popupButton('功能中心', `${sectionHead('功能中心',b('关闭功能中心','popup-close',false,'close'))}${searchBox('搜索功能、插件')}
@@ -329,9 +337,10 @@ function labAppExample(item, popupId, detail) {
         <div class="lab-app-choice">${check('哔哩哔哩')}${check('虎牙')}</div>
         <div class="lab-qt-actions">${dialogAction('取消','cancel','cancel')}${dialogAction('保存','save','confirm')}</div>`); break;
     case 'account-platform':
-      html = `<div class="lab-app-choice lab-qt-platforms" role="group" aria-label="账号平台">
-        ${[['B站','platform-bili'],['虎牙','platform-huya'],['斗鱼','platform-douyu']].map(([name,glyph],index) =>
-          labButton(name,glyph,name,`data-app-choice="账号平台" aria-pressed="${!index}"`,index===0)).join('')}</div>`; break;
+      html = `<div class="lab-qt-platforms">${labChoice('账号平台', [
+        ['bilibili','B站','platform-bili'], ['douyin','抖音','platform-douyin'], ['douyu','斗鱼','platform-douyu'],
+        ['huya','虎牙','platform-huya'], ['twitch','Twitch','platform-twitch'], ['youtube','YouTube','platform-youtube'],
+      ])}</div>`; break;
     case 'danmaku-source':
       html = `<header class="lab-qt-chat-head lab-qt-source-head"><strong><i></i>弹幕</strong>
         ${labRange('弹幕字号',8,32,13,'',true)}${b('弹出弹幕栏','report',false,'panel')}
@@ -476,7 +485,82 @@ function labBindApplication(host, item, report, paintIcon) {
       cache.dataset.selected = all('[data-app-cache]').map(check => check.checked ? '1' : '0').join('');
     });
   }
-  const folderColor = select('[data-app-folder-color]');
+  const folderDialog = select('.lab-folder-dialog');
+  let savedFolder = {name: '默认分组', glyph: '', color: '', image: ''};
+  let folderDraft = savedFolder;
+  function paintFolderIcon(target, {glyph, color, image}) {
+    target.style.color = color || (glyph ? 'var(--lab-muted)' : '#efb83f');
+    if (image) {
+      const preview = new Image();
+      preview.alt = '';
+      preview.src = image;
+      target.replaceChildren(preview);
+    } else target.innerHTML = labIcon(glyph || 'folder');
+  }
+  function folderError(message = '') {
+    const error = select('[data-app-folder-error]');
+    error.textContent = message;
+    error.hidden = !message;
+  }
+  function syncFolder(pointer = false) {
+    const {glyph, color, image} = folderDraft;
+    paintFolderIcon(select('.lab-qt-icon-current > span'), folderDraft);
+    all('[data-app-folder-glyph]').forEach(button => {
+      button.setAttribute('aria-pressed', button.dataset.appFolderGlyph === glyph);
+      button.style.setProperty('--lab-folder-icon-color', color || 'var(--lab-muted)');
+    });
+    const swatches = all('[data-app-folder-color]');
+    swatches.forEach(button => { button.disabled = Boolean(image); });
+    swatches[0].parentElement.toggleAttribute('data-folder-image', Boolean(image));
+    labSelectSwatch(swatches.find(button => button.dataset.appFolderColor === color), pointer);
+    folderError();
+  }
+  if (folderDialog) {
+    const filePicker = select('[data-app-folder-file]');
+    const drop = select('.lab-folder-drop');
+    function loadFolderImage(file) {
+      if (!file) return;
+      const draft = folderDraft = {...folderDraft};
+      if (!/\.(png|jpe?g|ico)$/i.test(file.name) || !file.size || file.size > 5 * 1024 * 1024) {
+        folderError('请选择不超过 5MB 的 PNG、JPEG 或 ICO 图片');
+        return;
+      }
+      const reader = new FileReader();
+      const fail = () => {
+        if (folderDraft === draft && folderDialog.open) folderError('图片无法读取或尺寸超过 4096×4096');
+      };
+      reader.onerror = fail;
+      reader.onload = async () => {
+        const image = new Image();
+        image.src = reader.result;
+        try {
+          await image.decode();
+          if (folderDraft !== draft || !folderDialog.open) return;
+          if (Math.max(image.naturalWidth, image.naturalHeight) > 4096) { fail(); return; }
+          folderDraft = {...draft, glyph: '', image: image.src};
+          syncFolder();
+        } catch {
+          fail();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    filePicker.addEventListener('change', () => {
+      loadFolderImage(filePicker.files[0]);
+      filePicker.value = '';
+    });
+    drop.addEventListener('dragover', event => {
+      event.preventDefault();
+      drop.dataset.dragging = '';
+    });
+    drop.addEventListener('dragleave', () => delete drop.dataset.dragging);
+    drop.addEventListener('drop', event => {
+      event.preventDefault();
+      delete drop.dataset.dragging;
+      loadFolderImage(event.dataTransfer.files[0]);
+    });
+    paintFolderIcon(select('.lab-app-folder-preview > span'), savedFolder);
+  }
   const presetForm = select('[data-app-preset-form]');
   const profileForm = select('[data-app-profile-form]');
   const profileValues = profileForm ? {小岚: ['继承','继承','40'], 阿海: ['继承','继承','-1']} : null;
@@ -505,7 +589,6 @@ function labBindApplication(host, item, report, paintIcon) {
       remove.disabled = count === 0;
     }
   };
-  let folderGlyph = 'folder';
   let skinPart;
   if (caption) {
     const stage = caption.parentElement;
@@ -664,10 +747,6 @@ function labBindApplication(host, item, report, paintIcon) {
       updateResponse();
       report(target.getAttribute('aria-label') + ' ' + target.value + ' 秒');
     }
-    if (target.matches('[data-app-folder-color]')) {
-      select('.lab-qt-icon-current > span').style.color = target.value;
-      report('图标颜色 ' + target.value.toUpperCase());
-    }
     if (target.matches('[data-app-part-color]') && skinPart) {
       skinPart.style.setProperty('--lab-surface', target.value);
       report(text(skinPart) + '底色 ' + target.value.toUpperCase());
@@ -765,6 +844,11 @@ function labBindApplication(host, item, report, paintIcon) {
     const label = text(button);
     const dialog = select('dialog');
     const popup = select('[popover]');
+    if (button.hasAttribute('data-app-folder-color')) {
+      folderDraft = {...folderDraft, glyph: folderDraft.glyph || 'folder', color: button.dataset.appFolderColor};
+      syncFolder(event.detail > 0);
+      return;
+    }
     if (button.hasAttribute('data-app-choice')) {
       const selection = button.dataset.appChoice;
       button.closest('.lab-app-choice').querySelectorAll('button').forEach(option => option.setAttribute('aria-pressed', option === button));
@@ -807,7 +891,14 @@ function labBindApplication(host, item, report, paintIcon) {
     switch (action) {
       case 'open':
         if (presetForm) { presetForm.hidden = false; input.focus(); }
-        else dialog.showModal();
+        else {
+          if (folderDialog) {
+            folderDraft = {...savedFolder};
+            input.value = folderDraft.name;
+            syncFolder();
+          }
+          dialog.showModal();
+        }
         break;
       case 'cancel':
         if (presetForm) { presetForm.hidden = true; select('[data-app-action=open]').focus(); }
@@ -817,12 +908,17 @@ function labBindApplication(host, item, report, paintIcon) {
       case 'delete': dialog.close(); report('已确认删除示例插件'); break;
       case 'save': {
         const name = input.value.trim();
-        if (!name) { report('请输入名称'); input.focus(); break; }
+        if (!name) {
+          if (folderDialog) folderError('请输入文件夹名称');
+          else report('请输入名称');
+          input.focus();
+          break;
+        }
         const folder = select('.lab-app-folder-preview');
         if (folder) {
+          savedFolder = {...folderDraft, name};
           folder.lastElementChild.textContent = name;
-          folder.firstElementChild.innerHTML = labIcon(folderGlyph);
-          folder.firstElementChild.style.color = folderColor.value;
+          paintFolderIcon(folder.firstElementChild, savedFolder);
         }
         if (presetForm) {
           presetForm.hidden = true;
@@ -866,18 +962,15 @@ function labBindApplication(host, item, report, paintIcon) {
         break;
       }
       case 'folder-icon':
-        folderGlyph = button.dataset.appFolderGlyph;
-        all('[data-app-folder-glyph]').forEach(icon => icon.setAttribute('aria-pressed', icon === button));
-        select('.lab-qt-icon-current > span').innerHTML = labIcon(folderGlyph);
+        folderDraft = {...folderDraft, glyph: button.dataset.appFolderGlyph, image: ''};
+        syncFolder();
         break;
       case 'folder-reset':
-        select('[data-app-folder-glyph=folder]').click();
-        folderColor.value = '#00a1d6';
-        folderColor.dispatchEvent(new Event('input',{bubbles:true}));
+        folderDraft = {...folderDraft, glyph: '', color: '', image: ''};
+        syncFolder();
         break;
-      case 'folder-color':
-        folderColor.value = button.dataset.appColor;
-        folderColor.dispatchEvent(new Event('input',{bubbles:true}));
+      case 'folder-file':
+        select('[data-app-folder-file]').click();
         break;
       case 'popup-close': popup.hidePopover(); break;
       case 'layout-reset': report('已恢复当前布局默认比例'); break;

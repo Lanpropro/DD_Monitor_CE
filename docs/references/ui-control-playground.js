@@ -85,6 +85,7 @@ const labQtGlyphs = {
 };
 const labPlatformIcons = {
   'platform-bili': 'bilibili.ico', 'platform-huya': 'huya.png', 'platform-douyu': 'douyu.ico',
+  'platform-douyin': 'douyin.ico', 'platform-twitch': 'twitch.ico', 'platform-youtube': 'youtube.ico',
 };
 const labIcon = glyph => labPlatformIcons[glyph]
   ? `<img src="../../assets/platforms/${labPlatformIcons[glyph]}" alt="">`
@@ -117,10 +118,27 @@ const labSelect = (label, values) => `<select class="lab-control lab-select" ari
 </select>`;
 
 const labChoice = (label, values) => `<div class="lab-choice" role="group" aria-label="${label}" style="--lab-choice-count:${values.length}">
-  ${values.map(([value, text], index) => labButton(text, '', text,
+  ${values.map(([value, text, glyph = ''], index) => labButton(text, glyph, text,
     `data-lab-choice="${value}" aria-pressed="${index === 0}"`, index === 0)).join('')}
   <span class="lab-choice-indicator" aria-hidden="true"></span>
 </div>`;
+
+function labMovingSwatches(label, colors, attribute) {
+  return `<div class="lab-swatches lab-theme-swatches" role="group" aria-label="${label}">
+    ${colors.map(([color, name, swatch = color], index) => `<button type="button" class="lab-control lab-swatch-dot"
+      aria-label="${name}" title="${name}" aria-pressed="${index === 0}" ${attribute}="${color}" style="--swatch:${swatch}"></button>`).join('')}
+    <span class="lab-theme-ring" aria-hidden="true" style="--lab-swatch-offset:${(1 - colors.length) / 2}"></span>
+  </div>`;
+}
+
+function labSelectSwatch(clicked, pointer) {
+  const group = clicked.parentElement;
+  const buttons = [...group.querySelectorAll('button')];
+  const ring = group.querySelector('.lab-theme-ring');
+  buttons.forEach(button => button.setAttribute('aria-pressed', button === clicked));
+  ring.toggleAttribute('data-sliding', pointer);
+  ring.style.setProperty('--lab-swatch-offset', buttons.indexOf(clicked) - (buttons.length - 1) / 2);
+}
 
 const labRange = (label, min, max, value, unit = '', primary = false) =>
   `<label class="lab-range"><input type="range" aria-label="${label}" min="${min}" max="${max}" value="${value}" style="--lab-level:${(value - min) * 100 / (max - min)}%" ${primary ? 'data-primary' : ''}>
@@ -142,12 +160,8 @@ function labExample({ id, title }, popupId) {
     case 'decoder': return labSelect(title, ['自动解码（推荐）', '兼容硬解（回传内存）', '软件解码（CPU）',
       'D3D11VA 显卡解码', 'DXVA2 显卡解码（旧设备）']);
     case 'theme': return labChoice(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
-    case 'palette': return `<div class="lab-swatches lab-theme-swatches" role="group" aria-label="${title}">
-      ${labPresets.map(([color, label], index) => `<button type="button" class="lab-control lab-swatch-dot"
-        aria-label="${label}" title="${label}" aria-pressed="${index === 0}" data-lab-choice="${color}"
-        style="--swatch:${index === 0 ? 'var(--lab-blue)' : color}" ${index === 0 ? 'data-primary' : ''}></button>`).join('')}
-        <span class="lab-theme-ring" aria-hidden="true" style="--lab-swatch-offset:${(1 - labPresets.length) / 2}"></span>
-      </div>`;
+    case 'palette': return labMovingSwatches(title, labPresets.map(([color, label], index) =>
+      [color, label, index === 0 ? 'var(--lab-blue)' : color]), 'data-lab-choice');
     case 'volume': return labFlip(id, '静音／取消静音') + labRange(title, 0, 100, 40);
     case 'danmaku': return labFlip(id, '切换画面弹幕', true)
       + labButton('弹幕观看设置', 'settings', '', `popovertarget="${popupId}"`);
@@ -295,12 +309,7 @@ function labMount(host, item) {
     else if (group) gallerySelectSegment(group, clicked, pointer);
     if (id === 'plugin-tabs') host.querySelector('[data-extra-content]').textContent = value;
     if (id === 'palette') {
-      const swatches = clicked.parentElement;
-      const buttons = [...swatches.querySelectorAll('[data-lab-choice]')];
-      const ring = swatches.querySelector('.lab-theme-ring');
-      buttons.forEach(button => button.setAttribute('aria-pressed', button === clicked));
-      ring.toggleAttribute('data-sliding', pointer);
-      ring.style.setProperty('--lab-swatch-offset', buttons.indexOf(clicked) - (buttons.length - 1) / 2);
+      labSelectSwatch(clicked, pointer);
       const surface = host.querySelector('.lab-controls');
       if (clicked.hasAttribute('data-primary')) surface.style.removeProperty('--lab-accent');
       else surface.style.setProperty('--lab-accent', value);
@@ -383,7 +392,7 @@ const labStates = [['live', '实时操作'], ['hover', '悬停'], ['pressed', '�
 const labIcons = [['default', '控件默认'], ['none', '隐藏图标'], ['settings', '齿轮'], ['check', '勾选'],
   ['volume', '扬声器'], ['pause', '暂停'], ['refresh', '刷新'], ['close', '关闭']];
 const labOptions = items => items.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
-const labSegmentIds = ['collapse', 'codec', 'theme', 'settings-material', 'plugin-tabs'];
+const labSegmentIds = ['collapse', 'codec', 'theme', 'settings-material', 'plugin-tabs', 'account-platform'];
 const labNumberFields = item => [
   ['width', '宽度 (px)', 26, 340, item.width],
   ['height', '高度 (px)', 18, 58, item.height],

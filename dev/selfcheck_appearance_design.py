@@ -38,6 +38,13 @@ def check_gallery_vectors():
     expected.update({f"folder-{key}": (folder_path, svg) for key, svg in zip(names, folders, strict=True)})
     assert actual == expected, f"stale gallery SVG inventory: {actual.keys() ^ expected.keys()}"
 
+    examples = (ROOT / "docs/references/ui-control-app-examples.js").read_text(encoding="utf-8")
+    gallery_palette = examples.split("const labFolderColors = [", 1)[1].split("];", 1)[0]
+    qt_colors = ast.literal_eval(assignment(folder_path, "COLORS").args[0].args[1])
+    assert re.findall(r"#[\da-f]{6}", gallery_palette) == [color.lower() for color in qt_colors if color], (
+        "gallery folder swatches must match the Qt palette and order"
+    )
+
 
 def main():
     check_gallery_vectors()

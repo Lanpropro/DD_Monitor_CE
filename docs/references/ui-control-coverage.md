@@ -17,7 +17,7 @@
 | 全部展开后的收起方式 | 常规 › 关注与预览 | 收起全部关注文件夹，或恢复本次全部展开前的状态。 | [settings_general.py](../../ddm/settings_general.py) | `#control-collapse` | 共同底板、两段选中块和恢复原状反馈。 |
 | 关注列表刷新间隔 | 常规 › 关注与预览 | 单点加减逐格调整，长按加速连发，也可直接输入 1–30 分钟。 | [settings_general.py](../../ddm/settings_general.py) | `#control-interval` | 一体底板、数字与单位、长按停止及 1–30 分钟边界。 |
 | 关注栏直播预览 | 常规 › 关注与预览 | 开启后，在关注栏的直播间上悬停会显示播放预览。 | [settings_general.py](../../ddm/settings_general.py) | `#control-preview` | 即时状态、默认 320 毫秒的弹簧滑动、滑块随速度轻微拉伸、键盘切换。 |
-| 新建格子的初始音量 | 常规 › 播放与声音 | 设置新建播放格使用的默认音量。 | [settings_general.py](../../ddm/settings_general.py) | `#control-initial-volume` | 鼠标悬停时仅滑钮和轨道变色，按住时滑钮略微放大。 |
+| 新建格子的初始音量 | 常规 › 播放与声音 | 设置新建播放格使用的默认音量。 | [settings_general.py](../../ddm/settings_general.py) | `#control-initial-volume` | 鼠标悬停时轨道变色，滑钮保留中性色，按住时略微放大。 |
 | 直播源格式 | 常规 › 编解码 | 选择直播流编码偏好，可选 H.264、HEVC 和 AV1。 | [settings_codec_editor.py](../../ddm/settings_codec_editor.py) | `#control-codec` | 三段底板、当前编码高亮、切换反馈。 |
 | 本机解码方式 | 常规 › 编解码 | 选择本机处理视频的方式，自动解码会优先使用可用的硬件。 | [settings_codec_editor.py](../../ddm/settings_codec_editor.py) | `#control-decoder` | 闭合边框、箭头、圆角下拉、悬停及当前项、键盘确认和取消。 |
 | 界面主题 | 外观 › 主题 | 切换深色、浅色或跟随系统，此处会同步改变图鉴的预览主题。 | [settings_appearance.py](../../ddm/settings_appearance.py) | `#control-theme` | 深色、浅色与跟随系统共用底板和选中块。 |
@@ -70,11 +70,11 @@
 | 导入关注列表 | 添加与导入 › 导入关注 | 核对复选、已关注禁用和导入数量。 | [follow_import_ui.py](../../ddm/follow_import_ui.py) | `#control-follow-import` | 头像、状态副标题、右侧勾选和已关注禁用。 |
 | 关注卡片多选 | 关注列表 › 多选管理 | 选择卡片，查看主播标题和开播状态。在详情拖动把手试用排序。 | [sidebar_item.py](../../ddm/sidebar_item.py) | `#control-follow-card` | 卡片层级、选择标记、直播牌，以及快速改向时的弹簧让位。 |
 | 关注文件夹标题 | 关注列表 › 文件夹 | 展开或收起文件夹，也可进入行内重命名。 | [sidebar_folders.py](../../ddm/sidebar_folders.py) | `#control-folder-head` | 圆头文件夹标题、文件夹图标、展开和行内改名。 |
-| 文件夹名称与图标 | 关注列表 › 新建／编辑文件夹 | 填写名称、选择颜色，确认后立即显示。 | [folder_icons.py](../../ddm/folder_icons.py) | `#control-folder-edit` | 当前图标、内置图标网格、色点、保存和恢复操作。 |
+| 文件夹名称与图标 | 关注列表 › 新建／编辑文件夹 | 填写名称、选择内置图标和颜色或导入图片，保存后应用到示例文件夹。 | [folder_icons.py](../../ddm/folder_icons.py) | `#control-folder-edit` | 复用主题色的圆形选中环，使用实装的六个文件夹预设色。 |
 | 功能中心 | 侧栏 › 功能中心 | 搜索功能、切换固定状态，或打开插件管理入口。 | [workspace_controls.py](../../ddm/workspace_controls.py) | `#control-function-hub` | 搜索浮层、结果数量、条目与固定图标。 |
 | 账号行与账号菜单 | 关注栏底部 › 账号 | 打开账号操作菜单。示例使用虚构账号。 | [account_widgets.py](../../ddm/account_widgets.py) | `#control-account-menu` | 头像、账号名、ID、平台标识及账号菜单。 |
 | 智能分组规则 | 关注管理 › 新建智能文件夹 | 组合来源文件夹、开播状态、平台条件和排序。 | [sidebar_folders.py](../../ddm/sidebar_folders.py) | `#control-smart-folder` | 名称、来源多选、显示规则、开播、排序和平台复选。 |
-| 登录平台选择 | 关注栏 › 登录 | 切换宿主平台按钮，核对选择反馈。 | [account_dialog.py](../../ddm/account_dialog.py) | `#control-account-platform` | 实装平台图标、圆头按钮、已选平台。 |
+| 登录平台选择 | 关注栏 › 登录 | 从 B 站、抖音、斗鱼、虎牙、Twitch、YouTube 中选择一个平台。 | [account_dialog.py](../../ddm/account_dialog.py) | `#control-account-platform` | 同一分段容纳六个平台，沿用页顶的滑动指示器开关。 |
 
 ### 画面墙与播放
 
