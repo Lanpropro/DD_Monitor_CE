@@ -268,11 +268,17 @@ class TileControls:
     def show_danmaku_actions(self, text, position):
         host = self.host
         from .danmaku_actions import show_comment_menu
+        room_id = str(host.room.get('room_id') or '')
         host.video_danmaku._menu_open = True
         def finished():
             host.video_danmaku._menu_open = False
             host.video_danmaku._poll_hover()
-        show_comment_menu(host, text, getattr(host, '_plugin_controls', None), position, finished)
+
+        def restore():
+            if isinstance(text, dict) and str(host.room.get('room_id') or '') == room_id:
+                host.video_danmaku.add_event(text)
+
+        show_comment_menu(host, text, getattr(host, '_plugin_controls', None), position, finished, restore)
 
     def open_clicked_danmaku(self, event):
         host = self.host

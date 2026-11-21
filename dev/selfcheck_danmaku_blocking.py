@@ -346,6 +346,43 @@ class BlockingTests(unittest.TestCase):
         self.assertEqual(self.window.settings['danmaku_block_words'][-1], '两行 弹幕')
         self.assertTrue(event_blocked({'text': '两行\r\n弹幕'}, 'youtube:test', self.window.settings))
 
+    def test_both_menu_blocks_offer_undo_and_restore_the_clicked_comment(self):
+        panel = self.window.wall.danmaku
+        text = '需要撤回的弹幕'
+        for action, key, label in ((2, 'danmaku_block_words', '屏蔽弹幕'),
+                                   (3, 'danmaku_blocked_users', '屏蔽用户')):
+            with self.subTest(action=action):
+                self.route('1001', {'uid': '42', 'text': text})
+                self.route('1001', {'uid': '43', 'text': '后一条'})
+                received = panel._received
+                menu = danmaku_actions.show_comment_menu
+                with patch.object(danmaku_actions, 'show_comment_menu', wraps=menu) as opened:
+                    panel._message_clicked(len(panel._blocks) - 2, QPoint(80, 80))
+                    popup = APP.activePopupWidget()
+                    popup.command_actions[action].trigger()
+                    self.assertEqual(opened.call_count, 1)
+                notices = self.window.findChildren(danmaku_actions.CommentUndoNotice)
+                notice = next(item for item in notices if item.isVisible())
+                self.assertEqual(notice.message.text(), '已' + label)
+                self.assertEqual([entry['text'] for entry in panel._blocks], ['后一条'])
+                self.assertTrue(self.window.settings[key])
+                notice.undo.click()
+                self.assertEqual(notice.message.text(), '已撤回' + label)
+                self.assertFalse(self.window.settings[key])
+                self.assertEqual([entry['text'] for entry in panel._blocks], [text, '后一条'])
+                self.assertEqual(panel._received, received)
+                notice.close()
+                panel.set_placeholder('')
+
+    def test_undo_does_not_remove_existing_or_replaced_rules(self):
+        blocker = self.window.danmaku_blocking
+        self.window.settings['danmaku_block_words'] = ['existing']
+        self.assertIsNone(blocker.block({'text': 'EXISTING'}, '1001'))
+        undo = blocker.block({'text': 'new rule'}, '1001')
+        self.window.settings['danmaku_block_words'] = ['existing', 'manual']
+        self.assertFalse(undo())
+        self.assertEqual(self.window.settings['danmaku_block_words'], ['existing', 'manual'])
+
     def test_pending_raster_and_super_chat_are_filtered_without_stopping_playback(self):
         tile = self.window.wall.tiles[0]
         tile.room = {'room_id': '1001'}

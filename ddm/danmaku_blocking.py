@@ -10,24 +10,43 @@ class DanmakuBlocking:
     def block(self, event, room_id, *, user=False):
         host = self.host
         if host._closing:
-            return False
+            return None
         if user:
             identity = user_identity(event, room_id)
             if identity is None:
-                return False
+                return None
             identity.update(blocked_at=datetime.now(timezone.utc).isoformat(timespec='seconds'),
                             source='message', source_text=str(event.get('text') or event.get('message') or ''),
                             source_room_id=str(room_id or ''), source_kind=str(event.get('kind') or 'danmaku'))
             key = 'danmaku_blocked_users'
-            value = normalize_users([*(host.settings.get(key) or []), identity])
+            previous = normalize_users(host.settings.get(key))
+            value = normalize_users([*previous, identity])
+            if len(value) == len(previous):
+                return None
+            rule = value[-1]
         else:
             word = block_phrase(event.get('text'))
             if not word:
-                return False
+                return None
             key = 'danmaku_block_words'
             value = list(host.settings.get(key) or [])
-            if word.lower() not in {str(item).strip().lower() for item in value}:
-                value.append(word)
+            if any(block_phrase(item).lower() == word.lower() for item in value):
+                return None
+            rule = word
+            value.append(rule)
+        self._set_rules(key, value)
+
+        def undo():
+            current = host.settings.get(key) or []
+            if host._closing or not any(item is rule for item in current):
+                return False
+            self._set_rules(key, [item for item in current if item is not rule])
+            return True
+
+        return undo
+
+    def _set_rules(self, key, value):
+        host = self.host
         host.settings[key] = value
         settings_process = getattr(host, '_settings_process', None)
         if settings_process is not None:
@@ -42,7 +61,6 @@ class DanmakuBlocking:
             dialog.auto_save.adopt('settings', {key: value})
         self.apply()
         host._save_timer.start()
-        return True
 
     def apply(self):
         host = self.host

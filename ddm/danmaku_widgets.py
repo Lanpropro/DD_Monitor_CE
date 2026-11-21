@@ -224,6 +224,7 @@ class DanmakuPanel(QFrame):
         self._status = "未接入"
         self._received = 0
         self._blocks: list[dict] = []            # 每条消息的原始信息，表情下好之后整体重排
+        self._message_epoch = 0
         self._images: dict = {}                  # 表情图 / 粉丝牌底图：url -> 图片
         self._loading_emoticons: set[str] = set()
         self._emoticon_loaders: list = []
@@ -406,17 +407,32 @@ class DanmakuPanel(QFrame):
         from .danmaku_actions import show_comment_menu
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()
+        message = self._blocks[index]
+        following = self._blocks[index + 1:index + 2]
+        epoch = self._message_epoch
+
         def finished():
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
-        show_comment_menu(self, self._blocks[index],
-                          getattr(self, "_linked_controls", None) or self._tile_controls, position, finished)
+
+        def restore():
+            if self._message_epoch != epoch or any(entry is message for entry in self._blocks):
+                return
+            before = next((i for i, entry in enumerate(self._blocks) if following and entry is following[0]),
+                          min(index, len(self._blocks)))
+            self._blocks.insert(before, message)
+            self._blocks = self._blocks[-self.max_blocks:]
+            self._render_all()
+
+        show_comment_menu(self, message,
+                          getattr(self, "_linked_controls", None) or self._tile_controls, position, finished, restore)
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._blocks = []
+        self._message_epoch += 1
         self._has_content = False
         self._received = 0
         self._status = "未接入"
