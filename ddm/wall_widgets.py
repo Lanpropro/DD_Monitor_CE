@@ -87,10 +87,6 @@ class WallGrid(QWidget):
         self.grid.setSpacing(8)
 
         # 一大五小保留原播放格及父窗口，边框交互只改变几何。
-        self._corner_width_ratio = 2 / 3
-        self._corner_height_ratio = 2 / 3
-        self._corner_right_ratio = 1 / 2
-        self._corner_bottom_ratios = [1 / 3, 2 / 3]  # 底部两条分隔线的累计宽度比例
         self.restore_corner_ratios(corner_ratios)
 
         self._partitions = {}

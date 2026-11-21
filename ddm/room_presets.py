@@ -126,6 +126,12 @@ def same(first, second):
             and canonical(first) == canonical(second))
 
 
+def default_layout_ratios(identifier):
+    if identifier == 'corner':
+        return dict(width=2 / 3, height=2 / 3, right=1 / 2, bottom=[1 / 3, 2 / 3])
+    return {}
+
+
 def partition_weights(identifier, ratios):
     if identifier != 'corner':
         return ratios

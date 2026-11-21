@@ -1,5 +1,5 @@
 """Edit a preset's dividers in a translucent overlay above the existing wall."""
-from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QWidget
 
@@ -9,6 +9,8 @@ from .ui import ActionButton
 
 
 class LayoutPreview(QWidget):
+    undoAvailable = Signal(bool)
+
     def __init__(self, wall, base, ratios, parent):
         super().__init__(parent)
         self.base = base
@@ -16,8 +18,34 @@ class LayoutPreview(QWidget):
         self.weights = room_presets.partition_weights(base, ratios)
         self.wall = wall
         self.drag = None
+        self._history = []
         self.setMouseTracking(True)
         self.setAccessibleName('拖动格子之间的分隔线调整布局')
+
+    def _remember(self, previous):
+        if self.weights != previous:
+            self._history.append(previous)
+            self.undoAvailable.emit(True)
+
+    def cancel_drag(self):
+        if self.drag is not None:
+            self.weights = self.drag[2]
+            self.drag = None
+            self.update()
+
+    def reset_to_default(self):
+        self.cancel_drag()
+        previous = self.weights
+        self.weights = room_presets.partition_weights(self.base, room_presets.default_layout_ratios(self.base))
+        self._remember(previous)
+        self.update()
+
+    def undo(self):
+        if self._history:
+            self.cancel_drag()
+            self.weights = self._history.pop()
+            self.undoAvailable.emit(bool(self._history))
+            self.update()
 
     def _geometry(self):
         wall = self.wall
@@ -129,15 +157,21 @@ class LayoutPreview(QWidget):
                              for child in node.children[index:index + 2]]
             lower = first.width() if horizontal else first.height()
             upper = total - (second.width() if horizontal else second.height())
-            sizes[index] = max(lower, min(upper, sizes[index] + movement))
-            sizes[index + 1] = total - sizes[index]
-            self.weights = {**weights, node.key: [size / sum(sizes) for size in sizes]}
+            position = max(lower, min(upper, sizes[index] + movement))
+            if position == sizes[index]:
+                self.weights = weights
+            else:
+                sizes[index] = position
+                sizes[index + 1] = total - position
+                self.weights = {**weights, node.key: [size / sum(sizes) for size in sizes]}
         self.update()
 
     def mouseReleaseEvent(self, event):
         if self.drag is not None and event.button() == Qt.LeftButton:
+            previous = self.drag[2]
             self.mouseMoveEvent(event)
             self.drag = None
+            self._remember(previous)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -155,11 +189,21 @@ class LayoutPresetEditor(QDialog):
         self.actions = QWidget(self)
         bar = QHBoxLayout(self.actions)
         bar.setContentsMargins(0, 0, 0, 0)
+        reset = ActionButton('恢复默认', self.actions)
+        reset.setToolTip('在预览中恢复默认比例，保存后生效')
+        reset.clicked.connect(self.preview.reset_to_default)
+        undo = ActionButton('撤回', self.actions)
+        undo.setToolTip('撤回上一步布局调整')
+        undo.setEnabled(False)
+        undo.clicked.connect(self.preview.undo)
+        self.preview.undoAvailable.connect(undo.setEnabled)
         cancel = ActionButton('取消', self.actions)
         save = ActionButton('保存布局', self.actions)
         save.setObjectName('PrimaryButton')
         cancel.clicked.connect(self.reject)
         save.clicked.connect(self.accept)
+        bar.addWidget(reset)
+        bar.addWidget(undo)
         bar.addWidget(cancel)
         bar.addWidget(save)
         self._align_wall()
@@ -180,7 +224,7 @@ class LayoutPresetEditor(QDialog):
     def _align_wall(self):
         geometry = QRect(self.wall.mapToGlobal(QPoint()), self.wall.size())
         if self.geometry() != geometry:
-            self.preview.drag = None
+            self.preview.cancel_drag()
             self.setGeometry(geometry)
 
     def eventFilter(self, watched, event):

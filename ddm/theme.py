@@ -1503,14 +1503,14 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #LayoutPicker #SectionLabel {{
     color: {TEXT1}; background: {CONTENT}; border-radius: 6px; padding: 4px 8px;
 }}
-#LayoutResetButton, #PresetManageButton {{
+#PresetManageButton {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER_STRONG};
     border-radius: 8px; min-height: 28px; padding: 2px 10px;
 }}
-#LayoutResetButton:hover, #PresetManageButton:hover {{
+#PresetManageButton:hover {{
     background: {CONTENT_HOVER}; color: {TEXT1}; border-color: {ACCENT};
 }}
-#LayoutResetButton:focus, #PresetManageButton:focus {{border-color: {ACCENT}; outline: none;}}
+#PresetManageButton:focus {{border-color: {ACCENT}; outline: none;}}
 #RoomPresetEntry {{
     background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
 }}

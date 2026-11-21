@@ -57,10 +57,15 @@ def check_layout_only_presets(app, directory):
                    int(tile.video.winId())) for tile in wall.tiles]
         before_geometry = [tile.geometry() for tile in wall.tiles]
 
+        def button(editor, label):
+            return next(item for item in editor.actions.findChildren(QPushButton) if item.text() == label)
+
         def start_editor():
             window.sidebar.open_layout_picker()
             picker = window.sidebar._picker
             assert picker.custom_layouts_page is None
+            assert picker.edit_button.objectName() == picker.reset_button.objectName() == 'IconButton'
+            assert picker.edit_button.sizeHint().height() == picker.reset_button.sizeHint().height()
             QTest.mouseClick(picker.edit_button, Qt.LeftButton)
             app.processEvents()
             editor = next(dialog for dialog in window.findChildren(LayoutPresetEditor) if dialog.isVisible())
@@ -92,6 +97,23 @@ def check_layout_only_presets(app, directory):
             assert [tile.geometry() for tile in wall.tiles] == before_geometry
 
         editor = start_editor()
+        reset = button(editor, '恢复默认')
+        undo = button(editor, '撤回')
+        assert not undo.isEnabled()
+        QTest.mouseClick(reset, Qt.LeftButton)
+        assert not undo.isEnabled()
+        adjust(editor)
+        first = editor.ratios()
+        adjust(editor)
+        second = editor.ratios()
+        assert second['width'] < first['width']
+        QTest.mouseClick(reset, Qt.LeftButton)
+        assert editor.ratios() == original
+        for expected in (second, first, original):
+            assert undo.isEnabled()
+            QTest.mouseClick(undo, Qt.LeftButton)
+            assert editor.ratios() == expected
+        assert not undo.isEnabled() and not presets.override_state()
         adjust(editor)
         QTest.keyClick(editor, Qt.Key_Escape)
         app.processEvents()
@@ -101,8 +123,7 @@ def check_layout_only_presets(app, directory):
         adjust(editor)
         saved = editor.ratios()
         saved_geometry = editor.preview._geometry()[0]
-        QTest.mouseClick(next(button for button in editor.findChildren(QPushButton)
-                              if button.text() == '保存布局'), Qt.LeftButton)
+        QTest.mouseClick(button(editor, '保存布局'), Qt.LeftButton)
         app.processEvents()
         assert wall.corner_ratios() == saved
         assert [saved_geometry[cell] for cell in range(6)] == [tile.geometry() for tile in wall.tiles]
@@ -166,6 +187,11 @@ def check_layout_only_presets(app, directory):
         assert scale == 1 and origin == QPoint()
         assert leaves == {cell: tile.geometry() for cell, tile in wall._preset_widgets().items()}
         assert {(node.key, index): rect for node, index, rect, _ in dividers} == wall._divider_rects
+        custom = editor.ratios()
+        QTest.mouseClick(button(editor, '恢复默认'), Qt.LeftButton)
+        assert editor.ratios() == {} and presets.override_state()['1x2']['ratios'] == custom
+        QTest.mouseClick(button(editor, '撤回'), Qt.LeftButton)
+        assert editor.ratios() == custom
         editor.reject()
         presets.select_builtin('corner')
 
@@ -182,6 +208,13 @@ def check_layout_only_presets(app, directory):
             reopened.layout_presets.select_builtin('corner')
             assert reopened.wall.corner_ratios() == saved
             assert not any(tile.room.get('room_id') for tile in reopened.wall.tiles)
+            editor = reopened.layout_presets.edit('corner')
+            app.processEvents()
+            QTest.mouseClick(button(editor, '恢复默认'), Qt.LeftButton)
+            assert editor.ratios() == original and reopened.wall.corner_ratios() == saved
+            QTest.mouseClick(button(editor, '保存布局'), Qt.LeftButton)
+            assert reopened.wall.corner_ratios() == original
+            assert reopened.layout_presets.override_state()['corner']['ratios'] == original
             reopened.layout_presets.reset_current()
             assert reopened.wall.corner_ratios() == original
             assert 'ratios' not in reopened.layout_presets.override_state()['corner']

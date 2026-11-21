@@ -343,23 +343,23 @@ class WallLayout:
 
     def restore_corner_ratios(self, saved) -> None:
         """旧配置或非法字段使用默认值；边界也排除 NaN、无穷值和布尔值。"""
+        from .room_presets import default_layout_ratios
         host = self.host
         saved = saved if isinstance(saved, dict) else {}
+        defaults = default_layout_ratios('corner')
 
         def valid(value):
             return type(value) in (int, float) and 0 < value < 1
 
-        for name, attribute, default in (("width", "_corner_width_ratio", 2 / 3),
-                                         ("height", "_corner_height_ratio", 2 / 3),
-                                         ("right", "_corner_right_ratio", 1 / 2)):
+        for name in ('width', 'height', 'right'):
             value = saved.get(name)
-            setattr(host, attribute, float(value) if valid(value) else default)
+            setattr(host, f'_corner_{name}_ratio', float(value) if valid(value) else defaults[name])
         bottom = saved.get("bottom")
         if (isinstance(bottom, (list, tuple)) and len(bottom) == 2
                 and all(valid(value) for value in bottom) and bottom[0] < bottom[1]):
             host._corner_bottom_ratios = [float(value) for value in bottom]
         else:
-            host._corner_bottom_ratios = [1 / 3, 2 / 3]
+            host._corner_bottom_ratios = defaults['bottom']
         if host.tiles and host.layout_id == "corner" and host.fullscreen_tile is None:
             host._relayout_corner()
 

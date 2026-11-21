@@ -107,7 +107,6 @@ class LayoutPicker(QFrame):
             self.edit_button.clicked.connect(lambda: self._edit_layout(current))
             footer.addWidget(self.edit_button)
         self.reset_button = ActionButton('恢复默认比例', self)
-        self.reset_button.setObjectName('LayoutResetButton')
         self.reset_button.setToolTip('恢复当前布局的全部分隔线比例，保留直播间和音频设置')
         self.reset_button.clicked.connect(self._reset_ratios)
         footer.addWidget(self.reset_button)
