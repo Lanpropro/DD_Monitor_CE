@@ -141,8 +141,10 @@ class StreamInfoTests(unittest.TestCase):
             stack.enter_context(patch('ddm.images.load_cached_avatar', return_value=None))
             rooms = [{'room_id': '314', 'uname': 'Wired fixture', 'live': False}]
             window = MainWindow(rooms, rooms, layout_id='2x2', state={
-                'plugins_enabled': [], 'settings': {'settings_glass_enabled': True, 'settings_glass_opacity': 45}})
+                'plugins_enabled': [], 'settings': {'settings_glass_enabled': True, 'settings_glass_opacity': 45,
+                                                    'settings_playback_control_color': '#FFFFFF'}})
             try:
+                self.assertNotIn('settings_playback_control_color', window.settings)
                 tile = window.wall.tiles[0]
                 player = Mock()
                 player.stream_info.return_value = {'host': 'wired.test', 'state': 'playing'}
@@ -155,12 +157,9 @@ class StreamInfoTests(unittest.TestCase):
                 self.assertTrue(dialog.property('settings_glass_enabled'))
                 self.assertEqual(dialog.property('settings_glass_opacity'), 45)
                 self.assertEqual(tile.controls.property('playbackGlassOpacity'), 45)
-                window._remote_settings_saved({'settings': {'settings_playback_control_color': '#474747'}})
-                self.assertEqual(tile.controls.property('playbackControlColor'), '#474747')
                 window._remote_settings_saved({'settings': {'settings_glass_opacity': 62}})
                 self.assertEqual(dialog.property('settings_glass_opacity'), 62)
                 self.assertEqual(tile.controls.property('playbackGlassOpacity'), 62)
-                self.assertEqual(tile.controls.property('playbackControlColor'), '#474747')
             finally:
                 window.close()
             self.assertFalse(window._stream_info_dialogs)
@@ -185,15 +184,15 @@ class StreamInfoTests(unittest.TestCase):
         MainWindow._open_tile_stream_info(window, second)
         dialog = window._stream_info_dialogs[first]
         self.addCleanup(dialog.close)
+        self.addCleanup(window._stream_info_dialogs[second].close)
         dialog.move(QPoint(60, 55))
         position = dialog.pos()
         dialog.hide()
         first.move(QPoint(260, 180))
-        self.addCleanup(window._stream_info_dialogs[second].close)
         MainWindow._open_tile_stream_info(window, first)
         self.assertEqual(len(window._stream_info_dialogs), 2)
-        self.assertEqual(dialog.pos(), position)
         self.assertIs(window._stream_info_dialogs[first], dialog)
+        self.assertEqual(dialog.pos(), position)
         first.room = {'room_id': '303', 'uname': 'Replacement'}
         replacement = Mock()
         replacement.stream_info.return_value = {'host': 'replacement.test'}

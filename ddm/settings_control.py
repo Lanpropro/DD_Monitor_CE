@@ -265,10 +265,11 @@ class SettingsControl:
         if theme.configure_appearance(host.settings):
             theme.apply(host.settings['appearance_mode'])
         playback_material = {'settings_glass_enabled', 'settings_glass_opacity'}
-        if changed_keys & (playback_material | {'settings_playback_control_color'}):
-            from .playback_material import sync_controls
+        if changed_keys & playback_material:
+            from .playback_material import refresh_plugin_popups, sync_controls
             for tile in host.wall.tiles:
                 sync_controls(tile, host.settings)
+            refresh_plugin_popups(host)
         if changed_keys & (playback_material | {'settings_no_shadows'}):
             for stream_info in getattr(host, '_stream_info_dialogs', {}).values():
                 stream_info.set_material(host.settings)

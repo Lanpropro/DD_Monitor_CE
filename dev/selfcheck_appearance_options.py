@@ -245,41 +245,6 @@ class AppearanceOptionsTests(unittest.TestCase):
         finally:
             dispose(reopened)
 
-    def test_playback_color_saves_and_reopens_with_glass_off(self):
-        settings = deepcopy(config.DEFAULT_SETTINGS)
-        dialog = SettingsDialog(settings, {}, preview=True)
-        dialog._auto_save_enabled = True
-        dialog.resize(1100, 750)
-        dialog.show()
-        self.addCleanup(dispose, dialog)
-
-        def save(changes):
-            settings.update(changes.get('settings', {}))
-            dialog.auto_save.acknowledge()
-
-        dialog.auto_save.requested.connect(save)
-        dialog.nav.setCurrentRow(1)
-        settle()
-        material = dialog.appearance_page.material_editor
-        self.assertFalse(material.controls['settings_glass_enabled'].isChecked())
-        self.assertTrue(material.playback_color.isEnabled())
-        material.playback_palette.buttons['#565656'].click()
-        self.assertEqual(material.playback_color.text(), '#565656')
-        material.playback_color.setText('#4C4C4C')
-        material.playback_color.editingFinished.emit()
-        self.assertTrue(dialog.auto_save.flush())
-        self.assertEqual(settings['settings_playback_control_color'], '#4c4c4c')
-
-        reopened = SettingsDialog(settings, {}, preview=True)
-        self.addCleanup(dispose, reopened)
-        reopened.nav.setCurrentRow(1)
-        settle()
-        editor = reopened.appearance_page.material_editor
-        self.assertEqual(editor.playback_color.text(), '#4C4C4C')
-        editor.playback_color.clear()
-        editor.playback_color.editingFinished.emit()
-        self.assertEqual(editor.playback_color.text(), '#292929')
-
     def test_live_glass_uses_alpha_not_wallpaper_and_keeps_window_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'wallpaper.png'

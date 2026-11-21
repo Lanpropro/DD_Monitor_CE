@@ -388,6 +388,11 @@ context.set_setting("show_badge", False)     # 写，并通知本体落盘
 不支持的房间无需重新注册，移除格子或卸载时 `shutdown()` 只调用一次。
 注册在 `on_load` 成功之后生效；不要修改格子私有布局或包裹本体方法。
 
+播放控件的圆角弹窗可通过 `getattr(ddm.ui, 'paint_playback_popup', None)` 探测材质绘制入口。
+支持时，在透明弹窗的 `paintEvent` 中传入 `(popup, painter, rect, radius)` 绘制底板，并设置
+`playbackGlassPopup` 属性为 `True`，让弹窗在宿主修改毛玻璃设置时重绘。弹窗应保留所属窗口的
+Qt 父子关系。旧宿主使用插件自己的底板绘制。
+
 ## 格子字幕覆盖层
 
 插件可在 GUI 线程调用以下接口，在当前播放格上显示宿主管理的独立字幕，不需要把文本写入弹幕列表或访问播放器内部状态：

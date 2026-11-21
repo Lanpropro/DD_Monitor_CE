@@ -1,11 +1,9 @@
 """Inline material controls; the dialog coordinates preview and persistence."""
-from PySide6.QtCore import QRegularExpression, Qt, Signal
-from PySide6.QtGui import QRegularExpressionValidator
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from .settings_material import DEFAULTS, normalize, segment_motion_enabled
+from .settings_material import DEFAULTS, normalize
 from .ui import SettingsSlider, SettingsSurface, SettingsValueLabel, SelectControl, ToggleSwitch
-from .ui.color_dialog import ColorPalette
 
 
 class SettingsMaterialEditor(SettingsSurface):
@@ -33,7 +31,7 @@ class SettingsMaterialEditor(SettingsSurface):
         parameters.addWidget(self.background_status)
         entries = (
             ('settings_glass_enabled', '启用毛玻璃效果', '设置窗口、公告详情和直播流信息使用系统模糊。'
-             '通知菜单和播放弹窗也随底色不透明度调整。'),
+             '通知菜单和播放弹窗（含礼物与表情）也随底色不透明度调整。'),
             ('settings_segment_motion', '滑动分段指示器', '用鼠标点选或拖动选中底片，系统关闭动画时直接切换。'),
             ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
         )
@@ -72,26 +70,6 @@ class SettingsMaterialEditor(SettingsSurface):
             parameters.addLayout(row)
             self.sliders[key] = (slider, value)
         row = QHBoxLayout()
-        title = QLabel('画面顶部按钮底色')
-        title.setWordWrap(True)
-        row.addWidget(title, 1)
-        default_color = DEFAULTS['settings_playback_control_color']
-        self.playback_palette = ColorPalette((
-            (default_color, '中性深灰', default_color), ('#1b1b1b', '炭黑', '#1b1b1b'),
-            ('#565656', '石墨灰', '#565656')), self)
-        self.playback_palette.selected.connect(self._set_playback_color)
-        row.addWidget(self.playback_palette)
-        self.playback_color = QLineEdit()
-        self.playback_color.setFixedWidth(100)
-        self.playback_color.setAccessibleName(title.text())
-        self.playback_color.setToolTip('调整画质、重连和关闭按钮的底色。可输入 #RRGGBB，留空恢复默认。')
-        self.playback_color.setMaxLength(7)
-        self.playback_color.setValidator(QRegularExpressionValidator(QRegularExpression(r'(?:#[0-9a-fA-F]{6})?'), self))
-        self.playback_color.editingFinished.connect(self._edit_playback_color)
-        title.setBuddy(self.playback_color)
-        row.addWidget(self.playback_color)
-        layout.addLayout(row)
-        row = QHBoxLayout()
         row.addWidget(QLabel('设置卡片布局'), 1)
         self.card_layout = SelectControl()
         self.card_layout.setFixedWidth(180)
@@ -107,9 +85,6 @@ class SettingsMaterialEditor(SettingsSurface):
 
     def set_values(self, settings):
         self._values = normalize(settings)
-        color = self._values['settings_playback_control_color']
-        self.playback_color.setText(color.upper())
-        self.playback_palette.set_current(color)
         for key, control in self.controls.items():
             previous = control.blockSignals(True)
             control.setChecked(self._values[key])
@@ -131,17 +106,6 @@ class SettingsMaterialEditor(SettingsSurface):
 
     def _changed(self, *_args):
         self._sync_enabled()
-        self.changed.emit()
-
-    def _edit_playback_color(self):
-        self._set_playback_color(self.playback_color.text())
-
-    def _set_playback_color(self, color, pointer=False):
-        key = 'settings_playback_control_color'
-        color = normalize({key: color})[key]
-        self._values[key] = color
-        self.playback_color.setText(color.upper())
-        self.playback_palette.set_current(color, animate=pointer and segment_motion_enabled(self))
         self.changed.emit()
 
     def _sync_enabled(self):

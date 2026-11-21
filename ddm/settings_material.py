@@ -1,11 +1,9 @@
 """Settings material preferences and derived widget presentation properties."""
-import re
 
 DEFAULTS = {
     'settings_glass_enabled': False,
     'settings_glass_blur': 24,  # Legacy image radius; live compositor blur is system-managed.
     'settings_glass_opacity': 70,
-    'settings_playback_control_color': '#292929',
     'settings_no_shadows': False,
     'settings_segment_motion': False,
     'settings_card_layout': 'auto',
@@ -55,10 +53,6 @@ def normalize(values):
             result[key] = max(0, min(maximum, int(result[key])))
         except (TypeError, ValueError, OverflowError):
             result[key] = DEFAULTS[key]
-    key = 'settings_playback_control_color'
-    color = result[key]
-    result[key] = (color.lower() if isinstance(color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', color)
-                   else DEFAULTS[key])
     return result
 
 

@@ -218,6 +218,7 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        self.settings.pop('settings_playback_control_color', None)
         from .settings_material import set_segment_motion
         set_segment_motion(self, self.settings['settings_segment_motion'])
         from .native_diagnostics import set_dump_enabled

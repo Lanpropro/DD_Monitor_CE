@@ -14,6 +14,7 @@ _MODULES = {
     'ui.color_dialog': ('ColorDialog',),
     'ui.scale_curve': ('ScaleCurveControl',),
     'corner_geometry': ('continuous_path',),
+    'playback_material': ('paint_playback_popup',),
     'avatar_widgets': ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap'),
     'motion': ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack'),
     'playback_controls': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
