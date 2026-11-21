@@ -36,6 +36,8 @@ class RecordingServiceTests(unittest.TestCase):
                                    refresh_status=Mock(), capture_control=Mock())
             auto = AutoRecording(host)
             service = RecordingService(SimpleNamespace(window=host, _active=True))
+            transitions = []
+            recorder.backgroundTransition.connect(lambda event, _room: transitions.append(event))
             live = {'1001': {'live': True, 'live_start_ts': 100}, '1002': {'live': True}}
             with patch('ddm.recording.ffmpeg_path', return_value='fixture-ffmpeg'), \
                     patch.object(recorder, '_free_enough', return_value=True):
@@ -56,8 +58,10 @@ class RecordingServiceTests(unittest.TestCase):
                 self.assertEqual(row['room']['room_id'], '1001')
                 auto.apply_status({'1001': {'live': False, 'live_known': False}})
                 self.assertIs(auto.source_for('1001'), source)
+                recorder.sessions[source].started_at = 1
                 service.control(row['source_id'], 'stop', session_id=row['session_id'])
                 self.assertFalse(service.sources())
+                self.assertFalse(transitions, '手动停止不会被当作下播')
                 auto.apply_status(live)
                 self.assertFalse(service.sources())
                 auto.apply_status({'1001': {'live': True, 'live_start_ts': 200}})
@@ -65,29 +69,49 @@ class RecordingServiceTests(unittest.TestCase):
                 self.assertIsNot(auto.source_for('1001'), source)
                 auto.apply_status({'1001': {'live': False}})
                 self.assertFalse(service.sources())
+                self.assertFalse(transitions, '尚未开录的任务下播时也不发送停止通知')
                 auto.apply_status({'1001': {'live': True, 'live_start_ts': 300}})
                 self.assertEqual(resolve.call_count, 3)
+                session = recorder.sessions[auto.source_for('1001')]
+                session.started_at = 1
+                process = session.process = Mock(returncode=0)
+                process.poll.return_value = None
+                auto.apply_status({'1001': {'live': False}})
+                self.assertFalse(transitions, '录制进程仍在收尾时不会提前通知')
+                process.stdin.write.assert_called_once_with(b'q\n')
+                process.poll.return_value = 0
+                recorder._poll()
+                auto.apply_status({'1001': {'live': False}})
+                self.assertEqual(transitions, ['stopped_offline'])
+                auto.apply_status({'1001': {'live': True, 'live_start_ts': 400}})
                 settings['recording_enabled'] = False
                 auto.settings_changed()
                 self.assertFalse(service.sources())
                 self.assertFalse(auto.monitored_rooms())
 
-    def test_background_notices_use_windows_without_replaying_retry_messages(self):
+    def test_only_opted_in_recording_transitions_use_windows(self):
         host = SimpleNamespace(settings={}, _closing=False, _show_notice=Mock())
         notices = AppNotices(host)
-        room = {'room_id': '1001', '_auto_recording': True}
+        room = {'room_id': '1001', 'uname': '示例主播'}
         with patch('ddm.windows_recording_notifications.send_recording_notification') as send:
             notices.record_notice('示例主播 开始自动录制', room)
-            send.assert_called_once_with('自动录制已开始', '示例主播 开始自动录制')
-            send.reset_mock()
+            send.assert_not_called()
+            notices.background_recording_transition('started', room)
+            send.assert_not_called()
+            host.settings.update(notice_windows_recording=True, notifications_enabled=False)
+            notices.background_recording_transition('started', room)
             notices.record_notice('示例主播 重新获取录制地址失败：网络断开；稍后重试', room)
-            send.assert_not_called()
             notices.record_notice('已保存录制：C:/fixture/示例.mp4', room)
-            send.assert_called_once_with('自动录制已保存', '示例.mp4')
-            host.settings['notifications_enabled'] = False
-            send.reset_mock()
-            notices.record_notice('示例主播 开始自动录制', room)
-            send.assert_not_called()
+            notices.background_recording_transition('stopped_offline', room)
+            notices.record_notice('导出录制失败（原始分段保留）：C:/fixture/示例.mp4', room)
+            self.assertEqual([call.args for call in send.call_args_list], [
+                ('开播 · 已开启自动录制', '示例主播'),
+                ('下播 · 已停止自动录制', '示例主播'),
+            ])
+            self.assertEqual(host._show_notice.call_count, 4)
+            host.settings['notice_windows_recording'] = False
+            notices.background_recording_transition('started', room)
+            self.assertEqual(send.call_count, 2)
         xml = fromstring(toast_xml('测试 <A>', '文件 & 目录'))
         self.assertEqual(xml.get('activationType'), 'protocol')
         self.assertEqual([node.text for node in xml.iter('text')], ['测试 <A>', '文件 & 目录'])

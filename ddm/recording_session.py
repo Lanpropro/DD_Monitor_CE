@@ -45,6 +45,7 @@ class _Session:
         self.url = ""
         self.chunk = 0
         self.stopping = False
+        self.stopped_on_offline = False
         self.save_cache_on_stop = False
         self.next_url = ""
         self.next_headers: dict = {}

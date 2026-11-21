@@ -140,17 +140,22 @@ def check_background_recording(app, root, source):
     auto = AutoRecording(host)
     recorder = host.recorder = RecordingManager(settings, source_resolver=auto.resolve_source)
     notices = []
+    transitions = []
     recorder.noticeWithRoom.connect(lambda message, room: notices.append((message, room['room_id'])))
+    recorder.backgroundTransition.connect(lambda event, room: transitions.append((event, room['room_id'])))
     try:
         auto.apply_status({'fixture:1001': {'live': True}})
         auto.apply_status({'fixture:1001': {'live': True}})
         session, = recorder.sessions.values()
         assert until(app, lambda: session.retry_at > 0), '流结束后等下播状态，保留已录分段'
         assert launched == [('fixture:1001', 720)], '状态重复上报时按配置画质只取流一次'
+        assert transitions == [('started', 'fixture:1001')]
         auto.apply_status({'fixture:1001': {'live': False, 'live_known': False}})
         assert auto.source_for('fixture:1001') is session.tile
         auto.apply_status({'fixture:1001': {'live': False}})
+        auto.apply_status({'fixture:1001': {'live': False}})
         assert until(app, lambda: any(text.startswith('已保存录制：') for text, _ in notices))
+        assert transitions == [('started', 'fixture:1001'), ('stopped_offline', 'fixture:1001')]
         result, = folder.glob('*.mp4')
         assert result.stat().st_size > 0 and not recorder.sessions
         _run_text([ffmpeg_path(settings), '-v', 'error', '-i', str(result), '-f', 'null', '-'])

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from uuid import uuid4
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
@@ -99,6 +100,7 @@ $null = [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, C
 $xml = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType=WindowsRuntime]::new()
 $xml.LoadXml($data.xml)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+$toast.Tag = $data.tag
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($data.appId).Show($toast)
 """
 
@@ -128,7 +130,7 @@ def _send(title, message):
         target = windowless if windowless.is_file() else executable
         arguments = subprocess.list2cmdline(['-c', launcher, str(root / 'main.py')])
         working = root
-    data = dict(xml=toast_xml(title, message), appId=APP_ID, protocol=PROTOCOL,
+    data = dict(xml=toast_xml(title, message), tag=uuid4().hex[:16], appId=APP_ID, protocol=PROTOCOL,
                 shortcut='DD监控室CE 主播监控.lnk', target=str(target), arguments=arguments, working=str(working))
     env = dict(os.environ, DDM_RECORDING_TOAST=b64encode(json.dumps(data).encode('utf-8')).decode('ascii'))
     program = system / 'System32' / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe'

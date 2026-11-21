@@ -32,6 +32,7 @@ class CaptureControl:
         auto_recording = getattr(host, 'auto_recording', None)
         if auto_recording is not None:
             auto_recording.settings_changed()
+            host.sidebar.items_control.set_auto_record_rooms(auto_recording.configured_rooms())
         if not enabled:
             pending = list(host._pending_capture)
             host._pending_capture.clear()

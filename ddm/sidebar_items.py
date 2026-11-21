@@ -11,6 +11,15 @@ from .widget_support import (
 class SidebarItems:
     def __init__(self, host):
         self.host = host
+        self._auto_record_rooms = set()
+
+    def set_auto_record_rooms(self, room_ids) -> None:
+        enabled = set(room_ids)
+        if enabled == self._auto_record_rooms:
+            return
+        self._auto_record_rooms = enabled
+        for item in self.host._items:
+            item.thumb.set_auto_record(str(item.room.get('room_id')) in enabled)
 
     def on_strip_room(self, room_id: str) -> None:
         """点横栏里的头像 = 点列表里那一条（行为和横屏一致）。"""
@@ -138,6 +147,8 @@ class SidebarItems:
         item.thumb.set_compact_background(host.compact_background)
         item.set_portrait_strip(host.side == "top" and not host.card_mode)
         item.set_on_wall(room_id in host._wall_room_ids)
+        if room_id in self._auto_record_rooms:
+            item.thumb.set_auto_record(True)
         item.set_select_mode(host.select_mode)
         host._items.append(item)
         item_height = NAV_ITEM_HEIGHT if host.card_mode else NAV_LIST_ITEM_HEIGHT

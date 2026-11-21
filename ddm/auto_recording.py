@@ -12,14 +12,16 @@ class AutoRecording:
         self.attempted = {}
         self.failed_to_start = set()
 
-    def monitored_rooms(self):
-        settings = self.host.settings
-        saved = settings.get('streamer_defaults')
-        if not settings.get('recording_enabled', True) or not isinstance(saved, dict):
+    def configured_rooms(self):
+        saved = self.host.settings.get('streamer_defaults')
+        if not isinstance(saved, dict):
             return {}
         return {room_id: row for room_id, row in saved.items()
                 if isinstance(room_id, str) and room_id and isinstance(row, dict)
                 and row.get('auto_record') is True}
+
+    def monitored_rooms(self):
+        return self.configured_rooms() if self.host.settings.get('recording_enabled', True) else {}
 
     def settings_changed(self):
         host = self.host
@@ -61,7 +63,7 @@ class AutoRecording:
                 self.failed_to_start.discard(room_id)
                 source = self.source_for(room_id)
                 if source is not None:
-                    host.recorder.stop(source)
+                    host.recorder.stop(source, confirmed_offline=True)
                 continue
             started = info.get('live_start_ts')
             started = started if type(started) is int and started > 0 else 0
@@ -73,7 +75,7 @@ class AutoRecording:
                 self.attempted.pop(room_id)
                 source = self.source_for(room_id)
                 if source is not None:
-                    host.recorder.stop(source)
+                    host.recorder.stop(source, confirmed_offline=True)
             existing = tuple(host.recorder.sessions.values())
             if any(session.room_id == room_id and session.recording and session.stopping for session in existing):
                 continue
@@ -84,7 +86,7 @@ class AutoRecording:
                            for tile, recording in host._pending_capture.items())):
                 continue
             room = {'room_id': room_id, 'uname': info.get('uname') or profile.get('name') or room_id,
-                    'title': info.get('title', ''), 'live': True, '_auto_recording': True}
+                    'title': info.get('title', ''), 'live': True}
             quality = room_defaults(host.settings, room_id).get('recording')
             if not host.recorder.start_background(BackgroundRecordingSource(room, quality)):
                 self.failed_to_start.add(room_id)

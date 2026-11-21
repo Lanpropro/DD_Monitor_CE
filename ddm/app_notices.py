@@ -17,20 +17,19 @@ class AppNotices:
         if self.official_announcement is not None:
             self.official_announcement.cancel()
 
+    def background_recording_transition(self, event: str, room: dict) -> None:
+        host = self.host
+        if host._closing or not host.settings.get('notice_windows_recording', False):
+            return
+        from .windows_recording_notifications import send_recording_notification
+        title = ('开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制')
+        send_recording_notification(title, str(room.get('uname') or room['room_id']))
+
     def record_notice(self, message: str, room=None) -> None:
         host = self.host
         if host._closing:
             return
         prefix, separator, path = message.partition('：')
-        if (room or {}).get('_auto_recording') and host.settings.get('notifications_enabled', True):
-            from .windows_recording_notifications import send_recording_notification
-            if message.endswith(' 开始自动录制'):
-                send_recording_notification('自动录制已开始', message)
-            elif prefix in ('已保存录制', '已保存切片素材'):
-                send_recording_notification('自动录制已保存', Path(path).name)
-            elif (message.startswith(('录制未开始', '录制启动失败', '找不到 FFmpeg', '请先在「设置 → 录制」'))
-                  or '磁盘空间不足，录制已停止' in message or prefix.startswith('导出录制失败')):
-                send_recording_notification('自动录制未完成', message)
         if separator and path and prefix in (
                 '已保存录制', '已保存切片素材', '已保存即时回放', '正在导出录制', '正在导出即时回放',
                 '导出录制失败（原始分段保留）', '导出即时回放失败（原始分段保留）'):

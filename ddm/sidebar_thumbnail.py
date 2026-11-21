@@ -36,6 +36,8 @@ class NavThumb(QFrame):
         self._portrait_strip = False
         self._player: TilePlayer | None = None
         self._overlay_widgets: tuple[QWidget, QWidget, QWidget, QWidget] | None = None
+        self.recording_badge = None
+        self._auto_record = False
 
         self.cover = QLabel(self)
         self.cover.setObjectName("NavThumbCover")
@@ -89,6 +91,15 @@ class NavThumb(QFrame):
         if hasattr(card, '_layout_selection_marker'):
             card._layout_selection_marker()
         compact = self._compact_thumb()
+        recording = self.recording_badge
+        if recording is not None:
+            recording.setVisible(self._auto_record and not self.video.isVisible())
+            if self._auto_record:
+                recording.setText('录' if compact or self._portrait_strip else '自动录制')
+                recording.adjustSize()
+                recording.raise_()
+            else:
+                recording = None
         platform.setVisible(not self.video.isVisible() and
                             platform.property("showPlatform") is not False)
         icon_size = QSize(14, 14) if compact else QSize(24, 22)
@@ -96,6 +107,8 @@ class NavThumb(QFrame):
             platform.setFixedSize(icon_size)
             platform.setPixmap(platform.icon.pixmap(12 if compact else 20, 12 if compact else 20))
         if compact:
+            if recording is not None:
+                recording.move(0, 0)
             platform.move(self.face.pos() + QPoint(0, max(0, self.face.height() - platform.height())))
             platform.setVisible(platform.property("showPlatform") is not False)
             platform.raise_()
@@ -108,6 +121,8 @@ class NavThumb(QFrame):
             platform_pos.setX(max(4, platform_pos.x() - 28))
         platform.move(self.mapTo(platform.parentWidget(), platform_pos))
         if self._portrait_strip:
+            if recording is not None:
+                recording.move(4, 4)
             name.setGeometry(4, 67, max(0, width - 8), 20)
             name.setAlignment(Qt.AlignCenter)
             title.setGeometry(4, 89, max(0, width - 8), 18)
@@ -131,11 +146,28 @@ class NavThumb(QFrame):
         badge.adjustSize()
         badge_width = badge.width()
         badge.move(max(text_left, width - badge_width - right), badge_y)
+        status_left = badge.x()
+        if recording is not None:
+            if recording.width() + 4 > status_left - text_left:
+                recording.setText('录')
+                recording.adjustSize()
+            status_left = max(0, status_left - recording.width() - 4)
+            recording.move(status_left, badge_y)
         title_width = (width - text_left - right if self._card_mode
-                       else max(0, badge.x() - text_left - 6))
+                       else max(0, status_left - text_left - 6))
         title.setGeometry(text_left, second_y, max(0, title_width), 18)
         for widget in self._overlay_widgets:
             widget.raise_()
+
+    def set_auto_record(self, enabled: bool) -> None:
+        if enabled == self._auto_record:
+            return
+        self._auto_record = enabled
+        if enabled and self.recording_badge is None:
+            self.recording_badge = QLabel(self, objectName='BadgeAutoRecord')
+            self.recording_badge.setAccessibleName('已启用自动录制')
+            _ignore_mouse(self.recording_badge)
+        self._layout_overlay()
 
     def set_cover(self, pixmap) -> None:
         if pixmap is None or pixmap.isNull():
@@ -363,6 +395,8 @@ class NavThumb(QFrame):
                               and (not self._portrait_strip or widget is not self._overlay_widgets[2])
                               and (widget is not self._overlay_widgets[3] or
                                    widget.property("showPlatform") is not False))
+        if self.recording_badge is not None:
+            self.recording_badge.setVisible(bool(visible) and self._auto_record)
 
     def set_portrait_strip(self, enabled: bool) -> None:
         enabled = bool(enabled)

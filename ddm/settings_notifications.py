@@ -94,9 +94,10 @@ class NoticeBlurPreview(QWidget):
 
 class NotificationSettingsPage(QWidget):
     ITEMS = [
-        ('notifications_enabled', '开启通知'),
+        ('notifications_enabled', '显示应用内通知'),
         ('live_alert', '启用开播提醒（顶部提示与关注栏动效）'),
         ('notice_hide_fullscreen', '全屏时不弹出通知'),
+        ('notice_windows_recording', '使用 Windows 通知'),
         ('notice_persist_updates', '软件和插件更新'),
         ('notice_persist_pinned_live', '置顶主播开播'),
         ('notice_persist_live', '其他主播开播'),
@@ -137,41 +138,44 @@ class NotificationSettingsPage(QWidget):
             '显示更新、开播和操作结果；关闭后仍可在通知菜单查看历史。',
             '主播开播时显示通知，并突出关注卡片。',
             '全屏观看时隐藏浮动通知，仍可在通知菜单查看。',
+            '将主播开播并开启自动录制、下播并停止自动录制同步到 Windows 通知中心。',
             '发现新版本时保留更新入口。',
             '置顶主播开播后保留提醒。',
             '其他主播开播后保留提醒。',
             '保留异常提示，方便稍后处理。',
             '保留录制、保存等操作结果。',
         )
+        reception_count = 4
         for index, (key, label) in enumerate(self.ITEMS):
-            card = reception if index < 3 else persistence
+            simple = index < reception_count
+            card = reception if simple else persistence
             title = QLabel('接收开播提醒' if index == 1 else label)
             title.setWordWrap(True)
-            box = NotificationSwitch(title.text()) if index < 3 else NotificationRetentionControl(title.text())
-            title.setBuddy(box if index < 3 else box.buttons['auto'])
+            box = NotificationSwitch(title.text()) if simple else NotificationRetentionControl(title.text())
+            title.setBuddy(box if simple else box.buttons['auto'])
             box.setAccessibleDescription(descriptions[index])
             box.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
             state = QLabel(card)
             state.setObjectName('SettingsHint')
-            def update_state(checked, state=state, simple=index < 3):
+            def update_state(checked, state=state, simple=simple):
                 state.setText(('已启用' if checked else '已关闭') if simple
                               else ('手动关闭' if checked else '自动收起'))
             box.toggled.connect(update_state)
             update_state(box.isChecked())
             controls = QHBoxLayout()
             controls.setSpacing(10)
-            if index < 3:
+            if simple:
                 controls.addWidget(state)
             else:
                 state.hide()
             controls.addWidget(box)
-            row = index if index < 3 else index - 3
+            row = index if simple else index - reception_count
             card.grid.addWidget(title, row, 0)
             card.grid.addLayout(controls, row, 1, Qt.AlignRight)
             self._checks[key] = box
             self._states[key] = state
         for card, row, text in (
-                (reception, 3, '关闭通知或全屏隐藏后，仍可在通知菜单查看历史；开播提醒同时控制关注卡片动效。'),
+                (reception, reception_count, 'Windows 通知只发送已启用自动录制的主播的开录和下播收尾提醒。应用内通知仍保留历史。'),
                 (persistence, 5, '选择自动收起后提示会自行消失；手动关闭会持续保留，两种方式均可在通知菜单查看记录。')):
             hint = QLabel(text)
             hint.setObjectName('SettingsHint')

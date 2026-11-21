@@ -50,6 +50,7 @@ class RecordingManager(QObject):
 
     notice = Signal(str)
     noticeWithRoom = Signal(str, dict)
+    backgroundTransition = Signal(str, dict)
     changed = Signal(object)
 
     def __init__(self, settings: dict, parent=None, *, source_resolver=None):
@@ -202,6 +203,7 @@ class RecordingManager(QObject):
         if isinstance(session.tile, BackgroundRecordingSource):
             if first_start:
                 self._say(f"{session.name} 开始自动录制", session.room)
+                self.backgroundTransition.emit('started', session.room)
         elif session.chunk == 1:
             self._say(session.recording_message("start") if session.recording else f"{session.name} 开启即时回放缓存", session.room)
 
@@ -215,11 +217,12 @@ class RecordingManager(QObject):
             except OSError:
                 pass
 
-    def stop(self, tile, *, save_cache: bool = False) -> None:
+    def stop(self, tile, *, save_cache: bool = False, confirmed_offline: bool = False) -> None:
         session = self.sessions.get(tile)
         if session is None or session.stopping:
             return
         session.stopping = True
+        session.stopped_on_offline = confirmed_offline
         session.save_cache_on_stop = bool(save_cache)
         self._cancel_source(session)
         self._end_process(session)
@@ -275,6 +278,8 @@ class RecordingManager(QObject):
         if background:
             from .media_sources import discard
             discard(session.tile.stream_url)
+            if session.stopped_on_offline and session.started_at:
+                self.backgroundTransition.emit('stopped_offline', session.room)
         self.changed.emit(session.tile)
         if session.recording:
             parts = session.finished_parts()

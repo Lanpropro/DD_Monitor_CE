@@ -205,7 +205,7 @@ class NotificationTests(unittest.TestCase):
             target.setFocus()
             QTest.keyClick(target, Qt.Key_Space)
             self.assertEqual(box.isChecked(), not before)
-            expected = ('已启用' if box.isChecked() else '已关闭') if key in ('notifications_enabled', 'live_alert', 'notice_hide_fullscreen') else (
+            expected = ('已启用' if box.isChecked() else '已关闭') if not isinstance(box, SegmentedControl) else (
                 '手动关闭' if box.isChecked() else '自动收起')
             self.assertEqual(page._states[key].text(), expected)
             target = box.buttons['manual' if before else 'auto'] if isinstance(box, SegmentedControl) else box
@@ -216,6 +216,26 @@ class NotificationTests(unittest.TestCase):
             self.assertEqual(target.focusPolicy(), Qt.StrongFocus)
             if isinstance(box, SegmentedControl):
                 self.assertTrue(page._states[key].isHidden())
+
+    def test_windows_recording_switch_round_trips_through_autosave_and_reset(self):
+        dialog = SettingsDialog({}, {}, preview=True)
+        self.addCleanup(self.dispose, dialog)
+        dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['notifications'])
+        page = dialog.notification_page
+        requested = []
+        dialog.auto_save.requested.connect(requested.append)
+        dialog.auto_save.start()
+        self.addCleanup(dialog.auto_save.stop)
+        control = page._checks['notice_windows_recording']
+        self.assertFalse(control.isChecked())
+        control.click()
+        dialog.auto_save.flush()
+        self.assertIs(requested[-1]['settings']['notice_windows_recording'], True)
+        saved = NotificationSettingsPage(dialog.settings())
+        self.addCleanup(self.dispose, saved)
+        self.assertTrue(saved._checks['notice_windows_recording'].isChecked())
+        saved.reset()
+        self.assertFalse(saved.values()['notice_windows_recording'])
 
     def test_notification_master_switch_hides_float_but_keeps_history(self):
         self.owner.settings = {'notifications_enabled': False}

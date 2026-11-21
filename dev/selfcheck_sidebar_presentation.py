@@ -58,6 +58,43 @@ class SidebarPresentationTests(unittest.TestCase):
         navigation.restore_order(['pip', 'clear', 'layout'])
         self.assertEqual(retained, [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())])
 
+    def test_follow_card_marks_configured_auto_recording_before_going_live_or_on_wall(self):
+        sidebar = self.sidebar
+        room, = sidebar._items
+        control = sidebar.items_control
+        sidebar.resize(sidebar.width(), 720)
+        sidebar.setStyleSheet(theme.qss())
+        sidebar.show()
+        self.app.processEvents()
+        self.assertIsNone(room.thumb.recording_badge)
+        control.set_auto_record_rooms({'fixture:1', 'fixture:2'})
+        badge = room.thumb.recording_badge
+        self.assertEqual(badge.text(), '自动录制')
+        self.assertTrue(badge.isVisible())
+        self.assertFalse(room.property('onWall'))
+        self.assertFalse(room.room['live'])
+        self.assertFalse(badge.geometry().intersects(room.badge.geometry()))
+        room.set_live(True)
+        self.assertTrue(badge.isVisible())
+        self.assertFalse(room.property('onWall'))
+        sidebar.set_compact_policy(False, False, 18)
+        self.app.processEvents()
+        self.assertTrue(badge.isVisible())
+        self.assertFalse(badge.geometry().intersects(room.badge.geometry()))
+        room.set_compact(True)
+        self.assertTrue(badge.isVisible())
+        self.assertEqual(badge.text(), '录')
+        room.set_compact(False)
+        sidebar.set_side('top')
+        self.app.processEvents()
+        self.assertTrue(badge.isVisible())
+        self.assertEqual(badge.text(), '录')
+        new = sidebar._append_item({'room_id': 'fixture:2', 'uname': 'Second', 'live': False})
+        self.assertFalse(new.thumb.recording_badge.isHidden())
+        control.set_auto_record_rooms(set())
+        self.assertTrue(badge.isHidden())
+        self.assertTrue(new.thumb.recording_badge.isHidden())
+
     def test_wall_settings_stays_next_to_picture_in_picture_in_both_orientations(self):
         sidebar, nav = self.sidebar, self.sidebar.navigation
         settings, pip = sidebar.wall_settings_button, sidebar.picture_in_picture_button

@@ -245,6 +245,7 @@ class MainWindow(QMainWindow):
         self.settings.pop("recording_ffmpeg", None)
         self.recorder = RecordingManager(self.settings, self, source_resolver=self._refresh_recording_source)
         self.recorder.noticeWithRoom.connect(self._record_notice)
+        self.recorder.backgroundTransition.connect(self.notice_control.background_recording_transition)
         self.recorder.changed.connect(self._record_state_changed)
         self.recorder.changed.connect(self.danmaku_lifecycle.capture_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
@@ -273,6 +274,7 @@ class MainWindow(QMainWindow):
             compact_threshold=int(self.settings.get("sidebar_compact_threshold", 18)),
             compact_background=bool(self.settings.get("sidebar_compact_background", True)),
         )
+        self.sidebar.items_control.set_auto_record_rooms(self.auto_recording.configured_rooms())
 
         self.empty_hint = QLabel(EMPTY_HINT)
         self.empty_hint.setObjectName("EmptyHint")
