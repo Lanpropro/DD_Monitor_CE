@@ -13,6 +13,7 @@ from .shortcut_actions import (
 from .settings_layout import SettingsColumns, SettingsSection
 from .settings_focus import WHEEL_SPEEDS, normalize_wheel_speed
 from .search import matches_query
+from .sidebar_navigation import NavigationButton
 from .ui import SelectControl, StepperControl, ToggleSwitch, page_header as _page_head
 
 
@@ -83,7 +84,11 @@ class ShortcutSettingsPage(QWidget):
         self.search.textChanged.connect(self._filter)
 
     def _build_group(self, group, title, actions, shortcuts, settings):
-        card = SettingsSection(title)
+        reset = NavigationButton('恢复本组', 'reset')
+        reset.setFixedSize(24, 24)
+        reset.setToolTip(f'恢复「{title}」的默认设置')
+        reset.clicked.connect(lambda _checked=False: self._reset_group(actions, wheel=group == 'wheel'))
+        card = SettingsSection(title, heading_action=reset)
         card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         for index, (key, description, default) in enumerate(actions):
             widget = QWidget(card)
@@ -128,17 +133,10 @@ class ShortcutSettingsPage(QWidget):
             row.addWidget(enabled, 0, Qt.AlignVCenter)
             row.addWidget(reset_button)
             card.grid.addWidget(widget, index, 0, 1, 2)
-        row = len(actions)
         if group == 'wheel':
+            row = len(actions)
             self._wheel_options = self._build_wheel_options(settings, card)
             card.grid.addWidget(self._wheel_options, row, 0, 1, 2)
-            row += 1
-        reset = QPushButton('恢复本组')
-        reset.setObjectName('ShortcutAction')
-        reset.setCursor(Qt.PointingHandCursor)
-        reset.clicked.connect(lambda _checked=False: self._reset_group(actions, wheel=group == 'wheel'))
-        if group == 'wheel':
-            footer = QHBoxLayout()
             self._wheel_speed_row = QWidget(card)
             speed_row = QHBoxLayout(self._wheel_speed_row)
             speed_row.setContentsMargins(0, 0, 0, 0)
@@ -155,12 +153,7 @@ class ShortcutSettingsPage(QWidget):
                 normalize_wheel_speed(settings.get('settings_wheel_speed'))))
             speed_row.addWidget(label)
             speed_row.addWidget(self.wheel_speed)
-            footer.addWidget(self._wheel_speed_row)
-            footer.addStretch(1)
-            footer.addWidget(reset)
-            card.grid.addLayout(footer, row, 0, 1, 2)
-        else:
-            card.grid.addWidget(reset, row, 0, 1, 2, Qt.AlignRight)
+            card.grid.addWidget(self._wheel_speed_row, row + 1, 0, 1, 2, Qt.AlignLeft)
         return card
 
     def _build_wheel_options(self, settings, card):

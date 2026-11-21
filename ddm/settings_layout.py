@@ -1,11 +1,11 @@
 """Responsive settings sections; pages keep ownership of controls and values."""
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from .ui import SettingsSurface
 
 
 class SettingsSection(SettingsSurface):
-    def __init__(self, title, parent=None):
+    def __init__(self, title, parent=None, *, heading_action=None):
         super().__init__(parent)
         self.setObjectName('SettingsSection')
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -14,7 +14,15 @@ class SettingsSection(SettingsSurface):
         box.setSpacing(14)
         heading = QLabel(title, self)
         heading.setObjectName('SettingsSectionTitle')
-        box.addWidget(heading)
+        if heading_action is None:
+            box.addWidget(heading)
+        else:
+            header = QHBoxLayout()
+            header.setSpacing(6)
+            header.addWidget(heading)
+            header.addWidget(heading_action)
+            header.addStretch(1)
+            box.addLayout(header)
         self.grid = QGridLayout()
         self.grid.setHorizontalSpacing(12)
         self.grid.setVerticalSpacing(12)
