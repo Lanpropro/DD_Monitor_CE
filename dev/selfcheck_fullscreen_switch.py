@@ -87,6 +87,7 @@ def check_window_capture(window):
                 QTest.qWait(250)
                 original_state = window.windowState()
                 original_geometry = QRect(window.geometry())
+                normal_geometry = QRect(window.normalGeometry())
                 original_saved_geometry = window.current_state()['geometry']
                 original_wall = QRect(wall.geometry())
                 original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
@@ -101,18 +102,37 @@ def check_window_capture(window):
                 assert not tile.isWindow() and tile.parentWidget() is wall
                 assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
                 assert user32.GetAncestor(video_hwnd, 2) == main_hwnd  # GA_ROOT
-                assert tile.video.geometry() == tile.rect() == window.rect()
+                assert tile.video.geometry() == tile.rect() == window.rect(), (
+                    tile.video.geometry(), tile.rect(), wall.geometry(), window.rect())
                 assert tile.video.mapToGlobal(QPoint()) == window.mapToGlobal(QPoint())
                 assert tile.bottom.geometry() == tile.bottom._tile_rect.translated(tile.mapToGlobal(QPoint()))
                 assert not window.sidebar.isVisible() and wall.visible_tiles() == [tile]
                 assert all(not panel.isVisible() for panel in panels)
                 assert window.players[tile] is player
 
-                next(shortcut for shortcut in window._window_shortcuts
-                     if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
-                QTest.qWait(90)
+                restored_sizes = []
+
+                class RestoreEvents(QObject):
+                    def eventFilter(self, watched, event):
+                        if event.type() == QEvent.Resize:
+                            restored_sizes.append(event.size())
+                        return False
+
+                events = RestoreEvents()
+                window.installEventFilter(events)
+                try:
+                    next(shortcut for shortcut in window._window_shortcuts
+                         if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
+                    QTest.qWait(90)
+                finally:
+                    window.removeEventFilter(events)
                 assert not window.isFullScreen() and window.windowState() == original_state
                 assert window.geometry() == original_geometry and wall.geometry() == original_wall
+                assert window.normalGeometry() == normal_geometry
+                if state == Qt.WindowMaximized:
+                    normal_size = normal_geometry.size()
+                    assert normal_size != original_geometry.size(), 'Fixture needs distinct normal and maximized sizes'
+                    assert normal_size not in restored_sizes, f'Exit exposed the normal window size: {restored_sizes}'
                 assert window.sidebar.isVisible() and wall.visible_tiles() == visible
                 assert all(panel.isVisible() for panel in panels)
                 assert [pane.geometry() for pane in wall.tiles] == original_panes

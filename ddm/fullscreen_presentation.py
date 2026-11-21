@@ -4,6 +4,7 @@ import os
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtWidgets import QApplication
 
+from . import window_fullscreen
 from .widget_support import _repolish
 
 
@@ -15,6 +16,7 @@ class FullscreenPresentation(QObject):
         self._owner_hidden = False
         self._windowed_state = None
         self._windowed_geometry = None
+        self._maximized_frame = None
         window.installEventFilter(self)
 
     def save_window_geometry(self):
@@ -73,9 +75,15 @@ class FullscreenPresentation(QObject):
                 self.window.sidebar.hide()
                 self.window.empty_hint.hide()
                 # Keep the video in its original HWND hierarchy for window capture.
-                self.window.setWindowState(Qt.WindowFullScreen)
+                if self._windowed_state & Qt.WindowMaximized:
+                    # Qt's fullscreen exit restores the normal rectangle before maximizing.
+                    self._maximized_frame = window_fullscreen.enter(self.window)
+                else:
+                    self.window.setWindowState(Qt.WindowFullScreen)
                 self._activate_main_layout()
-                geometry = wall.rect()
+                # The native resize can reach Qt after this handoff. Use the
+                # target size for the video even if the wall still has its old size.
+                geometry = QRect(QPoint(), geometry.size()) if self._maximized_frame is not None else wall.rect()
             else:
                 flags = Qt.Window | Qt.FramelessWindowHint
                 background = (self._show_without_activating
@@ -145,7 +153,11 @@ class FullscreenPresentation(QObject):
         self._set_comments_changing(True)
         if in_main_window:
             tile.bottom.hide()
-            self.window.setWindowState(self._windowed_state)
+            if self._maximized_frame is not None:
+                window_fullscreen.exit(self.window, self._maximized_frame)
+                self._maximized_frame = None
+            else:
+                self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None
         # The independent presentation still covers the wall during restoration.
         for pane, visible in self._visible:
