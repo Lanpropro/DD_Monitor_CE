@@ -35,7 +35,7 @@ from .video_caption import VideoCaption
 from .video_danmaku_settings import VideoDanmakuSettings
 from .video_surface import VideoCorner, VideoSurface
 from .widget_support import (
-    DANMAKU_MIME, QUALITY_CHOICES, QUALITY_NAMES, TILE_BAR_HEIGHT, TILE_MIME, WATCHING_TEXT,
+    DANMAKU_CELL_MIME, DANMAKU_MIME, QUALITY_CHOICES, QUALITY_NAMES, TILE_BAR_HEIGHT, TILE_MIME, WATCHING_TEXT,
     _allow_shrink, _ignore_mouse, _repolish, rounded_pixmap
 )
 from .tile_state import TileState
@@ -418,8 +418,8 @@ class Tile(QFrame):
                 play_card_drop(self, event.mimeData(), position, room_id)
         elif event.mimeData().hasFormat(DANMAKU_MIME):
             event.acceptProposedAction()
-            if event.mimeData().hasFormat("application/x-ddm-danmaku-cell"):
-                self.danmakuPaneDropped.emit(int(bytes(event.mimeData().data("application/x-ddm-danmaku-cell"))))
+            if event.mimeData().hasFormat(DANMAKU_CELL_MIME):
+                self.danmakuPaneDropped.emit(int(bytes(event.mimeData().data(DANMAKU_CELL_MIME))))
             else:
                 self.danmakuDropped.emit()
         elif event.mimeData().hasFormat(TILE_MIME):

@@ -8,6 +8,7 @@ from shiboken6 import isValid
 
 from .sidebar_hit_test import widget_at
 from .card_drop import remember_card
+from .widget_support import DANMAKU_CELL_MIME
 
 ROOM_MIME = 'application/x-ddm-room'
 TILE_MIME = 'application/x-ddm-tile'
@@ -56,9 +57,11 @@ class SidebarDrag(QObject):
         self.owner = self.sidebar.window()
         wall = getattr(self.owner, 'wall', None)
         grid = getattr(wall, 'snap_grid', None)
-        if grid is not None and grid.interactive() and (mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
+        pane = mime.hasFormat(DANMAKU_CELL_MIME)
+        if grid is not None and grid.interactive() and (pane or mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
             self.snap_grid = grid
-        self.actions = Qt.MoveAction if (mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)) else Qt.CopyAction | Qt.MoveAction
+        self.actions = (Qt.MoveAction if pane or mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)
+                        else Qt.CopyAction | Qt.MoveAction)
         if not pixmap.isNull():
             self.ghost = QLabel(self.owner, Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowTransparentForInput)
             self.ghost.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -179,7 +182,8 @@ class SidebarDrag(QObject):
             wall = grid.wall
             if widget is not None and (widget is wall or wall.isAncestorOf(widget)):
                 grid.show_drag_guide(self.mime, wall.mapFromGlobal(self.position))
-                if grid.interactive() and self.mime.hasFormat(GRID_GRAB_MIME):
+                if grid.interactive() and (self.mime.hasFormat(GRID_GRAB_MIME)
+                                           or self.mime.hasFormat(DANMAKU_CELL_MIME)):
                     widget = wall
             else:
                 grid.hide_drag_guide()
@@ -260,7 +264,7 @@ class SidebarDrag(QObject):
                 self.ghost = None
             self.snap_grid = None
             folder = self.mime.hasFormat(FOLDER_MIME)
-            tile = self.mime.hasFormat(TILE_MIME)
+            wall_pane = self.mime.hasFormat(TILE_MIME) or self.mime.hasFormat(DANMAKU_CELL_MIME)
             plugin = self.plugin_owner is not None
             callback, self.on_finished = self.on_finished, None
             self.plugin_owner = None
@@ -269,7 +273,7 @@ class SidebarDrag(QObject):
             try:
                 if folder:
                     self.sidebar.end_folder_drag()
-                elif not tile and not plugin:
+                elif not wall_pane and not plugin:
                     self.sidebar.end_drag()
             finally:
                 if callback is not None and source is not None and isValid(source):

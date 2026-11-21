@@ -21,7 +21,7 @@ from .super_chat_model import SC_BODY_PADDING, SC_CONTENT_COLOR, SC_PRICE_COLOR,
 from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 from .super_chat_animation import SuperChatPresentation
 from .super_chat_layout import paint_sc_background, sc_card_height, sc_stack_layout, sc_stack_rects
-from .widget_support import DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
+from .widget_support import DANMAKU_CELL_MIME, DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
 
 
 from .danmaku_format import (_brightness, _medal_chip, _escape)
@@ -362,12 +362,22 @@ class DanmakuPanel(QFrame):
         start = getattr(self, "_press_pos", None)
         if start is None or (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
-        drag = QDrag(self)
+        self._press_pos = None
         mime = QMimeData()
         mime.setData(DANMAKU_MIME, b"1")
-        if self.property("paneCell") is not None:
-            mime.setData("application/x-ddm-danmaku-cell", str(self.property("paneCell")).encode())
+        cell = self.property("paneCell")
+        if cell is not None:
+            mime.setData(DANMAKU_CELL_MIME, str(cell).encode())
         mime.setText("弹幕")
+        window = self.window()
+        wall = getattr(window, 'wall', None)
+        grid = getattr(wall, 'snap_grid', None)
+        session = getattr(getattr(window, 'sidebar', None), 'drag_session', None)
+        if (cell is not None and grid is not None and grid.interactive()
+                and wall.isAncestorOf(self) and session is not None):
+            session.start(self, mime, QPixmap(), QPoint(), event.globalPosition().toPoint())
+            return
+        drag = QDrag(self)
         drag.setMimeData(mime)
         drag.exec(Qt.MoveAction)
 

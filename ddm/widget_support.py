@@ -15,6 +15,7 @@ QUALITY_NAMES[20000] = "4K"
 TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
 TILE_MIME = "application/x-ddm-tile"
 DANMAKU_MIME = "application/x-ddm-danmaku"
+DANMAKU_CELL_MIME = "application/x-ddm-danmaku-cell"
 
 WATCHING_TEXT = "正在获取人数"   # 还没拉到实时在线人数时的占位（不能用"人气"顶上）
 NAV_ITEM_HEIGHT = 128         # 展开时：206x116 左右，接近 16:9，悬停预览才看得清

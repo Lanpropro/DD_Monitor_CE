@@ -439,13 +439,36 @@ def check_snap_grid_and_other_presets(app):
         assert all(any(panel.geometry().contains(point) for panel in panes.rendered()) for point in chat_points)
         assert wheel(tiles[0].video, tiles[0].video.rect().center(), 120)
         assert wall.snap_grid.cells()[0] == (0, 0, 2, 2), 'An independent chat pane also blocks growth'
+
+        panel = next(panel for panel in panes.rendered() if panel.geometry().contains(chat_points[0]))
+        start = panel.rect().center()
+        moved = start + QPoint(18, 0)
+        event = QMouseEvent(QEvent.MouseMove, QPointF(moved), QPointF(panel.mapToGlobal(moved)),
+                            Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        with patch('ddm.sidebar_drag.widget_at', return_value=panel) as hit, \
+                patch('ddm.danmaku_widgets.QDrag', side_effect=AssertionError('Native drag bypasses the grid')):
+            QTest.mousePress(panel, Qt.LeftButton, pos=start)
+            QApplication.sendEvent(panel, event)
+            assert session.active and guide.isVisible()
+            hit.return_value = first.video
+            session.position = first.video.mapToGlobal(first.video.rect().center())
+            session._update_target()
+            assert session.active and guide.isVisible() and guide.target is None
+            assert session.target in (None, wall), 'The video tile cannot take over the drag'
+            hit.return_value = wall
+            destination = units[8].center()
+            QTest.mouseRelease(wall, Qt.LeftButton, pos=destination)
+            assert not session.active and not guide.isVisible()
+            assert panel.geometry() == units[8] and panel in panes.rendered()
+            assert all(tile.room['room_id'] == room['room_id'] for tile, room in zip(tiles, rooms))
+
         wall.grab().save(str(Path(__file__).resolve().parents[1] / 'work' / 'custom-grid16.png'))
 
         point = units[7].center()
         room = dict(room_id='703', uname='拖入测试', live=False)
         previous = wall.layout_ratios()
         with patch.object(window, '_room_dict', return_value=None):
-            assert drop_room(ROOM_MIME, '999', units[8].center()) == (True, False)
+            assert drop_room(ROOM_MIME, '999', units[9].center()) == (True, False)
         assert wall.layout_ratios() == previous
         with patch.object(window, '_room_dict', return_value=room):
             assert drop_room(ROOM_MIME, '703', point) == (True, True)
