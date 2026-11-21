@@ -1,5 +1,6 @@
 """Global tool rail and compact follow controls, using the existing sidebar actions."""
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import (QAbstractAnimation, QByteArray, QEvent, QObject, QPoint, QRectF, QSize, Qt,
+                           Signal, QVariantAnimation)
 from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
@@ -80,6 +81,15 @@ class NavigationButton(QPushButton):
         super().paintEvent(event)
         if not self._navigation_mode:
             return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(self.width()/2, self.height()/2)
+        self._dock_feedback.transform(painter)
+        if self.kind in ('folders_expand', 'folders_collapse') and self.property('horizontalFolderIcon'):
+            painter.rotate(-90)
+        self._paint_icon(painter)
+
+    def _paint_icon(self, painter):
         color = icon_color(self)
         fill = color.name() if self.kind in ('follow', 'functions') and active(self) else 'none'
         svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
@@ -88,14 +98,59 @@ class NavigationButton(QPushButton):
                + PATHS[self.kind]
                + (f'<circle cx="12" cy="12" r="3" fill="{theme.PINK}" stroke="none"/>'
                   if self.kind == 'filter_live' else '') + '</svg>')
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.translate(self.width()/2, self.height()/2)
-        self._dock_feedback.transform(painter)
-        if self.kind in ('folders_expand', 'folders_collapse') and self.property('horizontalFolderIcon'):
-            painter.rotate(-90)
         QSvgRenderer(QByteArray(svg.encode())).render(
             painter, QRectF(-9, -9, 18, 18))
+
+
+class AddRoomButton(NavigationButton):
+    openRequested = Signal()
+
+    def __init__(self, parent):
+        super().__init__('添加与导入', 'plus', parent)
+        self._pointer_click = False
+        self._turn = QVariantAnimation(self)
+        self._turn.setDuration(motion.CONTROL_FEEDBACK_MS)
+        self._turn.setEasingCurve(motion.THEME_WAVE_EASING)
+        self._turn.setStartValue(0.0)
+        self._turn.setEndValue(90.0)
+        self._turn.valueChanged.connect(lambda _angle: self.update())
+        self._turn.finished.connect(self.openRequested.emit)
+        self.clicked.connect(self._open)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._turn.state() == QAbstractAnimation.Running:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._pointer_click = event.button() == Qt.LeftButton
+        try:
+            super().mouseReleaseEvent(event)
+        finally:
+            self._pointer_click = False
+
+    def _open(self):
+        if self._pointer_click and self.isVisible() and motion.enabled():
+            if self._turn.state() != QAbstractAnimation.Running:
+                self._turn.start()
+            return
+        self.cancel_open()
+        self.openRequested.emit()
+
+    def cancel_open(self):
+        if self._turn.state() == QAbstractAnimation.Running:
+            self._turn.stop()
+            self.update()
+
+    def hideEvent(self, event):
+        self.cancel_open()
+        super().hideEvent(event)
+
+    def _paint_icon(self, painter):
+        if self._turn.state() == QAbstractAnimation.Running:
+            painter.rotate(self._turn.currentValue())
+        super()._paint_icon(painter)
 
 
 class SidebarNavigation(QObject):
@@ -161,8 +216,8 @@ class SidebarNavigation(QObject):
         header.addWidget(self.title)
         header.addWidget(self.count)
         header.addStretch(1)
-        self.add_button = NavigationButton('添加与导入', 'plus', self.header)
-        self.add_button.clicked.connect(self.open_add_menu)
+        self.add_button = AddRoomButton(self.header)
+        self.add_button.openRequested.connect(self.open_add_menu)
         self.collapsed_add_button = NavigationButton('添加与导入', 'plus', self.rail)
         self.collapsed_add_button.clicked.connect(lambda: self.open_add_menu(anchor=self.collapsed_add_button))
         self.top.addWidget(self.collapsed_add_button, 0, Qt.AlignHCenter)
@@ -299,8 +354,12 @@ class SidebarNavigation(QObject):
         self.activate(self.follow_button)
 
     def eventFilter(self, watched, event):
-        pointer = event.type() == QEvent.MouseButtonPress
-        keyboard = event.type() == QEvent.FocusIn and event.reason() in (
+        kind = event.type()
+        pointer = kind == QEvent.MouseButtonPress
+        escape = kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and event.key() == Qt.Key_Escape
+        if (pointer and watched is not self.add_button) or escape:
+            self.add_button.cancel_open()
+        keyboard = kind == QEvent.FocusIn and event.reason() in (
             Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
         if (pointer or keyboard) and isinstance(watched, QWidget):
             column = self.sidebar._column

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
@@ -171,6 +171,69 @@ class InlineRoomAddTests(unittest.TestCase):
         self.pump()
         self.assertFalse(panel.isVisible())
         self.assertIs(self.app.focusWidget(), sidebar.search)
+
+    def test_sidebar_plus_turns_clockwise_before_opening_once(self):
+        sidebar = self.host.sidebar
+        button = sidebar.navigation.add_button
+        sidebar.addRoomClicked.connect(lambda: self.catalog.open_add_room(resolver_type=Resolver))
+        requests = QSignalSpy(sidebar.addRoomClicked)
+        turn = button._turn
+
+        with patch.object(motion, 'enabled', return_value=True):
+            QTest.mouseClick(button, Qt.LeftButton)
+            self.assertEqual(turn.state(), QAbstractAnimation.Running)
+            self.assertIsNone(self.catalog._add_panel)
+            start = button.grab().toImage()
+            turn.setCurrentTime(turn.duration() // 4)
+            self.assertGreater(turn.currentValue(), 0)
+            self.assertLess(turn.currentValue(), 90)
+            self.assertNotEqual(button.grab().toImage(), start)
+            elapsed = turn.currentTime()
+            QTest.mouseClick(button, Qt.LeftButton)
+            self.assertEqual(turn.currentTime(), elapsed)
+            self.assertEqual(requests.count(), 0)
+            QTest.mousePress(button, Qt.LeftButton)
+            QTest.qWait(turn.duration() + 60)
+            QTest.mouseRelease(button, Qt.LeftButton)
+            self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+            self.assertEqual(turn.currentValue(), 90)
+            self.assertEqual(requests.count(), 1)
+            panel = self.catalog._add_panel
+            self.assertTrue(panel.isVisible())
+            self.assertGreaterEqual(self.panel_geometry(panel).left(), sidebar.geometry().right())
+            self.assertIs(self.app.focusWidget(), panel.entry)
+
+            panel.close_editor()
+            QTest.mouseClick(button, Qt.LeftButton)
+            self.assertEqual(turn.currentValue(), 0)
+            self.assertFalse(panel.isVisible())
+            turn.setCurrentTime(turn.duration())
+            self.assertTrue(panel.isVisible())
+            self.assertEqual(requests.count(), 2)
+
+    def test_sidebar_plus_skips_or_cancels_turn_for_other_input(self):
+        sidebar = self.host.sidebar
+        button = sidebar.navigation.add_button
+        requests = QSignalSpy(sidebar.addRoomClicked)
+        turn = button._turn
+
+        QTest.mouseClick(button, Qt.LeftButton)  # System animation disabled.
+        self.assertEqual(requests.count(), 1)
+        self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+        with patch.object(motion, 'enabled', return_value=True):
+            QTest.keyClick(button, Qt.Key_Space)
+            self.assertEqual(requests.count(), 2)
+            self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+            for method, cancel in (
+                    ('outside click', lambda: QTest.mouseClick(sidebar.search, Qt.LeftButton)),
+                    ('Escape', lambda: QTest.keyClick(button, Qt.Key_Escape)),
+                    ('hide', self.host.hide)):
+                with self.subTest(method=method):
+                    QTest.mouseClick(button, Qt.LeftButton)
+                    self.assertEqual(turn.state(), QAbstractAnimation.Running)
+                    cancel()
+                    self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+                    self.assertEqual(requests.count(), 2)
 
     def test_native_panel_composes_on_an_owned_surface_with_complete_border(self):
         if self.app.platformName() != 'windows':
