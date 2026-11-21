@@ -9,8 +9,8 @@ os.environ['DDM_NO_SAVE'] = '1'
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt
-from PySide6.QtGui import QAction, QFocusEvent, QMouseEvent, QWheelEvent
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
+from PySide6.QtGui import QAction, QEnterEvent, QFocusEvent, QInputDevice, QMouseEvent, QPointingDevice, QTransform, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
@@ -631,6 +631,47 @@ class WorkspaceControlTests(unittest.TestCase):
         with patch.object(motion, 'enabled', return_value=False):
             feedback.transition(1.1)
             self.assertEqual(feedback.scale, 1)
+        self.assertEqual(button.geometry(), geometry)
+
+    def test_rail_icon_slides_in_from_left_on_mouse_hover(self):
+        button, action = self.add('slide', 'F1 Play')
+        button.setProperty('dockMotion', 'slide-in-left')
+        geometry = button.geometry()
+        feedback = button._dock_feedback
+        pos = QPointF(button.rect().center())
+        global_pos = QPointF(button.mapToGlobal(pos.toPoint()))
+
+        def enter(device):
+            APP.sendEvent(button, QEnterEvent(pos, pos, global_pos, device))
+
+        mouse = QPointingDevice.primaryPointingDevice()
+        touchscreen = QPointingDevice('Touch', 1, QInputDevice.DeviceType.TouchScreen,
+                                      QPointingDevice.PointerType.Finger, QInputDevice.Capability.Position, 1, 0)
+        with patch.object(motion, 'enabled', return_value=True):
+            enter(touchscreen)
+            self.assertEqual(feedback.pose, REST)
+            enter(mouse)
+            transform = QTransform()
+            feedback.transform(transform)
+            self.assertEqual(transform.map(QPointF()), QPointF(-7, 0))
+            feedback.hover_animation.setCurrentTime(40)
+            current = feedback.pose
+            self.assertLess(-7, current[3])
+            self.assertLess(current[3], 0)
+            APP.sendEvent(button, QEvent(QEvent.Leave))
+            enter(mouse)
+            self.assertEqual(feedback.pose, current)
+            feedback.hover_animation.setCurrentTime(motion.CONTROL_FEEDBACK_MS)
+            self.assertEqual(feedback.pose, REST)
+            enter(mouse)
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+            self.assertEqual(feedback.pose, REST)
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
+            QTest.keyClick(button, Qt.Key_Space)
+            self.assertTrue(action.isChecked())
+        with patch.object(motion, 'enabled', return_value=False):
+            enter(mouse)
+            self.assertEqual(feedback.pose, REST)
         self.assertEqual(button.geometry(), geometry)
 
     def test_dock_selected_surface_and_icon_follow_both_themes(self):

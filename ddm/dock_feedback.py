@@ -1,14 +1,15 @@
 """Dock icon feedback without moving buttons or changing their click targets."""
 from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QEnterEvent, QIcon, QInputDevice, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QToolButton
 
 from . import motion, theme
 
 
 # One-shot icon poses adapted from BewlyCat's favorites, home and edit motion.
-# Each pose is (scale_x, scale_y, rotation, vertical_offset); hit targets stay fixed.
+# Each pose is (scale_x, scale_y, rotation, offset); hit targets stay fixed.
 REST = (1.0, 1.0, 0.0, 0.0)
+SLIDE_LEFT = (1.0, 1.0, 0.0, -7.0)
 HOVER_POSES = {
     'follow': [(0, REST), (.3, (1.2, 1.2, 10, 0)), (.62, (.96, .96, -5, 0)), (1, REST)],
     'functions': [(0, REST), (1, (1, 1, 90, 0))],
@@ -80,16 +81,25 @@ class DockFeedback(QObject):
             self._finish_hover()
             return
         kind = self.button.property('dockMotion') or getattr(self.button, 'kind', 'hop')
-        frames = HOVER_POSES.get(kind, HOVER_POSES['hop']) if entering else [(0, REST), (1, REST)]
+        if kind == 'slide-in-left':
+            if entering and self.pose == REST:
+                self.pose = SLIDE_LEFT
+                self.button.update()
+            frames = [(0, REST), (1, REST)]
+        else:
+            frames = HOVER_POSES.get(kind, HOVER_POSES['hop']) if entering else [(0, REST), (1, REST)]
         self._poses = [(0, self.pose), *frames[1:]]
         if self.pose == REST and not entering:
             return
-        self.hover_animation.setDuration(280 if entering else 160)
+        self.hover_animation.setDuration(280 if entering and kind != 'slide-in-left' else motion.CONTROL_FEEDBACK_MS)
         self.hover_animation.start()
 
     def transform(self, painter):
         sx, sy, rotation, offset = self.pose
-        painter.translate(0, offset)
+        if self.button.property('dockMotion') == 'slide-in-left':
+            painter.translate(offset, 0)
+        else:
+            painter.translate(0, offset)
         painter.rotate(rotation)
         painter.scale(self.scale*sx, self.scale*sy)
 
@@ -137,7 +147,9 @@ class DockFeedback(QObject):
             self.transition(1.1 if watched.underMouse() else 1.0)
         elif kind == QEvent.Enter:
             self.transition(1.1)
-            self.hover(entering=True)
+            pointer_hover = (isinstance(event, QEnterEvent) and event.pointingDevice().type()
+                             in (QInputDevice.DeviceType.Mouse, QInputDevice.DeviceType.TouchPad))
+            self.hover(entering=True, animate=pointer_hover or watched.property('dockMotion') != 'slide-in-left')
         elif kind == QEvent.Leave:
             self.transition(1.0)
             self.hover()
