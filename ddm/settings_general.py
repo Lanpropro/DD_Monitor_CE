@@ -160,6 +160,7 @@ class GeneralSettingsPage(QWidget):
         ("fullscreen_solo_audio", "全屏只播放该路声音"),
         ("volume_normalization", "音量均衡（减小直播间音量差异）"),
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
+        ("windowed_transparent_controls", "普通直播格使用透明控制栏"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
         ("preview_on_hover", "关注栏直播预览"),
@@ -266,9 +267,9 @@ class GeneralSettingsPage(QWidget):
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 11, 2, 3, 5), False),
-            ('following', '关注与预览', (0, 6, 7, 8, 9), False),
-            ('codecs', '编解码', (12,), False),
+            ('playback', '播放与声音', (1, 12, 2, 3, 5, 6), False),
+            ('following', '关注与预览', (0, 7, 8, 9, 10), False),
+            ('codecs', '编解码', (13,), False),
             ('normalization', '音量均衡', (4, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         following = self.sections.section('following').grid

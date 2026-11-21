@@ -293,7 +293,7 @@ class VideoCaption(BadgeSurface):
         video = owner.video
         top = video.y() + self.GAP
         bottom = video.y() + video.height()
-        if owner.property("fullscreen"):
+        if owner.property("fullscreen") or getattr(getattr(owner, 'bottom', None), 'windowed_overlay', False):
             try:
                 bottom = min(bottom, owner.bottom.tile_y())
             except (AttributeError, RuntimeError):

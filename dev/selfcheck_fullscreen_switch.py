@@ -183,14 +183,14 @@ def main():
                 original_video_rect = QRect(target.video.geometry())
                 rebuilt = []
 
-                def rebuild_after_video(enabled):
+                def rebuild_after_video(enabled, **kwargs):
                     if enabled != bar.property('fullscreen'):
                         video = target.video
                         assert video.isVisible() and handoff.native_visible(video), 'Video must be visible before rebuilding the bar'
                         assert video.geometry() == (target.rect() if enabled else original_video_rect)
                         assert bar.isHidden(), 'Previous bottom bar must stay hidden during its rebuild'
                         rebuilt.append(enabled)
-                    return set_fullscreen(enabled)
+                    return set_fullscreen(enabled, **kwargs)
 
                 with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout, \
                         patch.object(bar, 'set_fullscreen', side_effect=rebuild_after_video):

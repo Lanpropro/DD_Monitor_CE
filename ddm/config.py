@@ -71,6 +71,7 @@ DEFAULT_SETTINGS = {
     "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
+    "windowed_transparent_controls": False,
     "default_volume": DEFAULT_VOLUME,
     "streamer_defaults": {},
     "streamer_defaults_merge_identical": False,

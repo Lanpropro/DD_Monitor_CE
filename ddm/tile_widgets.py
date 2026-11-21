@@ -140,7 +140,7 @@ class Tile(QFrame):
         self.video_danmaku.actionsRequested.connect(self._show_danmaku_actions)
         self.video_corners = (VideoCorner(self), VideoCorner(self, right=True))
 
-        # 信息条（在画面下方，不遮挡画面）：左侧暂停和音量，右侧录制和全屏
+        # 底部控制栏：左侧暂停和音量，右侧录制和全屏。
         self.bottom = FullscreenBar(self)
         self._bar_progress = 0.0
         self._bar_target = 0.0
@@ -640,6 +640,8 @@ class Tile(QFrame):
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
+        if self.bottom.windowed_overlay:
+            self.bottom.sync_owner_position()
         self._move_repaint_timer.start(0)
         parent = self.parentWidget()
         if parent is not None:
@@ -749,6 +751,8 @@ class Tile(QFrame):
         return super().eventFilter(watched, event)
 
     def hideEvent(self, event) -> None:
+        if self.bottom.windowed_overlay:
+            self.bottom.hide()
         self._mask_refresh_timer.stop()
         self._move_repaint_timer.stop()
         self._volume_hide_timer.stop()
@@ -787,6 +791,8 @@ class Tile(QFrame):
         self._round_video()
         self._update_controls_mask()
         self._layout_cover()
+        if self.bottom.windowed_overlay:
+            self._layout_areas()
 
     # ---- 直播时长 ----
     def _elapsed_visible(self) -> bool:

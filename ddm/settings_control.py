@@ -238,8 +238,12 @@ class SettingsControl:
         from .settings_material import DEFAULTS as MATERIAL_DEFAULTS, set_segment_motion
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
         presentation_only = bool(changed_keys) and changed_keys <= (
-            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | {'notice_banner_enabled', 'tray_context_menu'})
+            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+            | {'notice_banner_enabled', 'tray_context_menu', 'windowed_transparent_controls'})
         host.settings.update(updated_settings)
+        if 'windowed_transparent_controls' in changed_keys:
+            for tile in host.wall.tiles:
+                tile._layout_areas()
         if 'settings_segment_motion' in changed_keys:
             set_segment_motion(host, host.settings['settings_segment_motion'])
         if changed_keys & {"settings_glass_enabled", "settings_glass_opacity", "settings_no_shadows"}:

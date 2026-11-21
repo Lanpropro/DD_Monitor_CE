@@ -82,40 +82,40 @@ TILE_FULLSCREEN_STYLE = '''
 '''
 
 FULLSCREEN_BAR_STYLE = '''
-#TileBottom[fullscreen="true"] {
+#TileBottom[overVideo="true"] {
     background: transparent;
     border: none;
     border-radius: 0px;
 }
-#TileBottom[fullscreen="true"] QLabel,
-#TileBottom[fullscreen="true"] #TileCtrl,
-#TileBottom[fullscreen="true"] #TileToggle {
+#TileBottom[overVideo="true"] QLabel,
+#TileBottom[overVideo="true"] #TileCtrl,
+#TileBottom[overVideo="true"] #TileToggle {
     color: #ffffff;
     background: transparent;
     border: none;
 }
-#TileBottom[fullscreen="true"] #TileCtrl:!disabled:hover,
-#TileBottom[fullscreen="true"] #TileCtrl[hovered="true"]:!disabled,
-#TileBottom[fullscreen="true"] #TileToggle:!disabled:hover,
-#TileBottom[fullscreen="true"] #TileToggle[hovered="true"]:!disabled,
-#TileBottom[fullscreen="true"] #BiliVolumeButton:!disabled:hover,
-#TileBottom[fullscreen="true"] #BiliVolumeButton[hovered="true"]:!disabled,
-#TileBottom[fullscreen="true"] #DanmakuSendButton:!disabled:hover,
-#TileBottom[fullscreen="true"] #DanmakuSendButton[hovered="true"]:!disabled {
+#TileBottom[overVideo="true"] #TileCtrl:!disabled:hover,
+#TileBottom[overVideo="true"] #TileCtrl[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #TileToggle:!disabled:hover,
+#TileBottom[overVideo="true"] #TileToggle[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:hover,
+#TileBottom[overVideo="true"] #BiliVolumeButton[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:hover,
+#TileBottom[overVideo="true"] #DanmakuSendButton[hovered="true"]:!disabled {
     background: palette(highlight);
     color: #04161f;
 }
-#TileBottom[fullscreen="true"] #TileCtrl:!disabled:pressed,
-#TileBottom[fullscreen="true"] #TileToggle:!disabled:pressed,
-#TileBottom[fullscreen="true"] #BiliVolumeButton:!disabled:pressed,
-#TileBottom[fullscreen="true"] #DanmakuSendButton:!disabled:pressed {
+#TileBottom[overVideo="true"] #TileCtrl:!disabled:pressed,
+#TileBottom[overVideo="true"] #TileToggle:!disabled:pressed,
+#TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:pressed,
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:pressed {
     background: palette(link-visited);
     color: #04161f;
 }
-#TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
+#TileBottom[overVideo="true"] #TileCtrl[recording="true"] {
     color: #fb7299;
 }
-#TileBottom[fullscreen="true"] #DanmakuComposer QLineEdit {
+#TileBottom[overVideo="true"] #DanmakuComposer QLineEdit {
     background: rgba(12, 16, 22, 0.62);
     color: #ffffff;
     placeholder-text-color: #edf1f5;

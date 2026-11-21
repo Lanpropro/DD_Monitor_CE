@@ -115,11 +115,11 @@ class VolumeButton(TileButton):
         silent = self.muted or self.level == 0
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
         color = (theme.qcolor(theme.TEXT3 if silent else theme.TEXT1)
-                 if theme.is_light() and not self.property('fullscreen')
+                 if theme.is_light() and not self.property('overVideo')
                  else QColor("#9499a0" if silent else "#f1f2f3"))
-        if _fullscreen_hovered(self):
+        if _overlay_hovered(self):
             color = QColor("#04161f")
-        elif self.underMouse() and not self.property('fullscreen'):
+        elif self.underMouse() and not self.property('overVideo'):
             color = QColor(theme.ACCENT)
         pen = QPen(color, 1.7)
         pen.setCapStyle(Qt.RoundCap)
@@ -156,7 +156,7 @@ class VolumeButton(TileButton):
             ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
             ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
         ):
-            if _fullscreen_hovered(self):
+            if _overlay_hovered(self):
                 colour = QColor("#04161f")
                 if not selected:
                     colour.setAlpha(135)
@@ -197,20 +197,20 @@ class RecordingButton(TileButton):
             self._paint_button(painter, option)
         else:
             self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        painter.setPen(QColor("#04161f" if _fullscreen_hovered(self) else theme.ACCENT))
+        painter.setPen(QColor("#04161f" if _overlay_hovered(self) else theme.ACCENT))
         painter.setFont(self.font())
         painter.drawText(self.rect(), Qt.AlignCenter, self.text())
 
 
-def _fullscreen_hovered(button: QPushButton) -> bool:
-    return bool(button.property('fullscreen') and button.isEnabled()
+def _overlay_hovered(button: QPushButton) -> bool:
+    return bool(button.property('overVideo') and button.isEnabled()
                 and (button.underMouse() or button.property('hovered') is True))
 
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
-    if button.property('fullscreen'):
-        return QColor('#04161f' if _fullscreen_hovered(button) else '#ffffff')
+    if button.property('overVideo'):
+        return QColor('#04161f' if _overlay_hovered(button) else '#ffffff')
     if button.underMouse() or button.property("hovered") is True:
         return QColor("#04161f") if hover_dark else QColor(theme.ACCENT)
     if theme.is_light() and (button.objectName() in ("ChipButton", "BarIcon")
@@ -412,7 +412,7 @@ class DanmakuToggleButton(TileButton):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor("#04161f" if _fullscreen_hovered(self) else theme.ACCENT), 1.8)
+        pen = QPen(QColor("#04161f" if _overlay_hovered(self) else theme.ACCENT), 1.8)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)

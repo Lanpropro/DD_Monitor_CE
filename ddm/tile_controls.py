@@ -294,7 +294,7 @@ class TileControls:
         host = self.host
         controls = getattr(host, '_plugin_controls', None)
         if controls is not None:
-            # The fullscreen bar is a separate tool window. setFocus alone
+            # The overlaid bar is a separate tool window. setFocus alone
             # only records a pending focus child while the video stays active.
             if host.bottom.isWindow() and controls.widget.isVisible():
                 host.bottom.activateWindow()

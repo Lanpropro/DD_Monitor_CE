@@ -545,6 +545,8 @@ exit /b %errorlevel%
 :fullscreenLayersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_controls.py" --windowed
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_controls.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_switch.py"

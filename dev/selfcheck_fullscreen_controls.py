@@ -236,7 +236,9 @@ def check_control_contrast(app, tile):
                 before = render(button, '#ffffff')
                 app.sendEvent(button, QEvent(QEvent.Enter))
                 hovered = render(button, '#ffffff')
-                assert hovered.pixelColor(sample) == accent, button.objectName()
+                assert hovered.pixelColor(sample) == accent, (
+                    type(button).__name__, mode, hovered.pixelColor(sample).name(), accent.name(),
+                    button.underMouse(), button.property('hovered'))
                 assert hovered.pixelColor(0, 0) == QColor('#ffffff'), 'Hover must follow the button corners'
                 app.sendEvent(button, QEvent(QEvent.Leave))
                 assert render(button, '#ffffff') == before, 'Leaving must restore the resting surface'
@@ -253,8 +255,145 @@ def check_control_contrast(app, tile):
         composer.deleteLater()
 
 
+def check_windowed_overlay(app):
+    from ddm.playback_controls import _icon_color
+    from ddm.settings_autosave_apply import apply_changes
+    from ddm.widget_support import TILE_BAR_HEIGHT
+
+    key = 'windowed_transparent_controls'
+    rooms = [{'room_id': str(index), 'uname': f'Fixture {index}', 'live': False} for index in (1, 2)]
+    with patch('ddm.app.QTimer.singleShot'):
+        window = app_module.MainWindow(rooms, rooms, layout_id='2x2',
+            state={'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+    window.setAttribute(Qt.WA_ShowWithoutActivating)
+    window.move(-10000, -10000)
+    window.resize(1280, 800)
+    window.show()
+    page = GeneralSettingsPage(window.settings)
+    first, second, empty = window.wall.tiles[:3]
+    original_video = QRect(first.video.geometry())
+    video_handles = [tile.video.winId() for tile in (first, second)]
+    editor = QLineEdit(first.bottom)
+    editor.setStyleSheet('QLineEdit {background: #236343; color: white; border: none;}')
+    editor.setText('draft')
+    editor.show()
+
+    def check_bar(tile):
+        bar = tile.bottom
+        assert bar.windowed_overlay and bar.isVisible()
+        assert not bar.property('fullscreen') and not tile.property('fullscreen')
+        assert bar.tile_y() == tile.height() - TILE_BAR_HEIGHT - 1
+        assert tile.video.geometry().contains(QRect(1, bar.tile_y(), bar.width(), bar.height()))
+        assert not bar.mask().contains(bar.rect().bottomLeft())
+        assert not tile.video.mask().contains(tile.video.rect().bottomLeft())
+        if app.platformName() == 'windows':
+            assert bar.isWindow() and bar.qt_composited
+            assert bar.windowHandle().format().alphaBufferSize() > 0
+
+    try:
+        assert original_video.bottom() < first.bottom.tile_y()
+        assert not page.values()[key]
+        assert page.sections.section('playback').isAncestorOf(page._checks[key])
+        page._checks[key].click()
+        with patch.object(window, '_restart_codec_tile') as restart:
+            apply_changes(window, {'settings': {key: page.values()[key]}})
+            app.processEvents()
+            restart.assert_not_called()
+        assert window.current_state()['settings'][key]
+        for tile in (first, second):
+            check_bar(tile)
+        assert not empty.bottom.windowed_overlay and not empty.bottom.isWindow()
+        empty.set_room({'room_id': '3'})
+        check_bar(empty)
+        empty.set_room(None)
+        assert not empty.bottom.windowed_overlay and not empty.bottom.isWindow()
+        assert editor.text() == 'draft'
+        editor.setGeometry(first.bottom.width() // 2 - 45, 4, 90, 24)
+        QTest.keyClicks(editor, ' only')
+        assert editor.text() == 'draft only'
+        if app.platformName() == 'windows':
+            app.processEvents()
+            native = native_bar_image(first.bottom)
+            scale = native.devicePixelRatioF()
+            point = editor.mapTo(first.bottom, QPoint(editor.width() // 2, 2))
+            assert native.pixelColor(round(point.x() * scale), round(point.y() * scale)).name() == '#236343'
+        editor.hide()
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            app.processEvents()
+            image = QImage(first.bottom.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(Qt.transparent)
+            with QPainter(image) as painter:
+                first.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+            check_gradient(image, image.width() // 2)
+            assert _icon_color(first.pause_button).name() == '#ffffff'
+        click = Mock()
+        first.pause_button.clicked.connect(click)
+        QTest.mouseClick(first.pause_button, Qt.LeftButton)
+        click.assert_called_once()
+
+        window.move(window.pos() + QPoint(24, 16))
+        window.resize(1160, 750)
+        app.processEvents()
+        for tile in (first, second):
+            check_bar(tile)
+        first.move(first.pos() + QPoint(4, 5))
+        check_bar(first)
+        first.hide()
+        assert not first.bottom.isVisible() and second.bottom.isVisible()
+        first.show()
+        check_bar(first)
+        window.hide()
+        assert not first.bottom.isVisible() and not second.bottom.isVisible()
+        window.show()
+        app.processEvents()
+        check_bar(first)
+        check_bar(second)
+
+        window.showMinimized()
+        app.processEvents()
+        assert not first.bottom.isVisible() and not second.bottom.isVisible()
+        window.showNormal()
+        app.processEvents()
+        check_bar(first)
+        check_bar(second)
+
+        if app.platformName() == 'windows':
+            enter = window._fullscreen_presentation.enter
+            with patch.object(window, '_upgrade_fullscreen_quality'), \
+                    patch.object(window._fullscreen_presentation, 'enter',
+                                 side_effect=lambda tile: enter(tile, QRect(-12000, -12000, 1000, 700))):
+                window._on_fullscreen(first)
+            assert first.bottom.property('fullscreen') and first.bottom.isVisible()
+            assert not second.bottom.isVisible()
+            window._exit_fullscreen()
+            app.processEvents()
+            check_bar(first)
+            check_bar(second)
+
+        page.reset()
+        apply_changes(window, {'settings': {key: page.values()[key]}})
+        app.processEvents()
+        assert not window.current_state()['settings'][key]
+        assert first.video.geometry().bottom() < first.bottom.tile_y()
+        assert not first.bottom.property('overVideo') and not first.bottom.isWindow()
+        assert not second.bottom.isWindow()
+        if app.platformName() == 'windows':
+            assert [tile.video.winId() for tile in (first, second)] == video_handles
+    finally:
+        page.close()
+        window.close()
+        app.processEvents()
+    print('PASS: windowed video overlay, settings, controls, window movement, fullscreen and cleanup')
+
+
 def main():
     app = QApplication([])
+    if '--windowed' in sys.argv:
+        app_module.StatusPoller = app_module.StatsPoller = SilentPoller
+        check_windowed_overlay(app)
+        return
     badge = TimeBadge()
     refreshed = []
     badge.refresh_theme = lambda: refreshed.append(True)

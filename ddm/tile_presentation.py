@@ -246,12 +246,17 @@ class TilePresentation:
                 widget.update() if queued else widget.repaint()
         host.update()
 
+    def windowed_bar_over_video(self) -> bool:
+        host = self.host
+        return bool(host.room.get('room_id') and not host.property('pictureInPicture')
+                    and getattr(host.window(), 'settings', {}).get('windowed_transparent_controls', False))
+
     def layout_video_area(self) -> tuple[int, int]:
         host = self.host
-        # Fullscreen controls overlay the video. An ordinary tile reserves a bottom row.
         fullscreen = bool(host.property('fullscreen'))
         inset = 0 if fullscreen else 1
-        video_height = max(1, host.height() if fullscreen else host.height() - TILE_BAR_HEIGHT)
+        reserved = inset if fullscreen or self.windowed_bar_over_video() else TILE_BAR_HEIGHT
+        video_height = max(1, host.height() - reserved)
         host.video.setGeometry(inset, inset, max(1, host.width() - inset * 2),
                                max(1, video_height - inset))
         return inset, video_height
@@ -292,7 +297,10 @@ class TilePresentation:
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(host.property("fullscreen"))
         compact = bool(host.property('pictureInPicture'))
-        host.bottom.set_fullscreen(fullscreen)
+        windowed_overlay = not fullscreen and self.windowed_bar_over_video()
+        if not fullscreen and windowed_overlay != host.bottom.windowed_overlay:
+            host.bottom.hide()
+        host.bottom.set_fullscreen(fullscreen, windowed_overlay=windowed_overlay)
         if not fullscreen:
             host._bar_clock.stop()
             host._bar_animation.stop()
@@ -327,16 +335,20 @@ class TilePresentation:
         host.pause_overlay.move(
             max(0, (host.video.width() - host.pause_overlay.width()) // 2),
             max(8, (video_height - host.pause_overlay.height()) // 2))
-        bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * host._bar_progress)
-                 if fullscreen else video_height)
-        bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
+        if fullscreen or windowed_overlay:
+            bar_y = height - TILE_BAR_HEIGHT - inset + round(TILE_BAR_HEIGHT * host._bar_progress)
+            bar_height = TILE_BAR_HEIGHT
+        else:
+            bar_y, bar_height = video_height, max(1, height - video_height - inset)
         host.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         host._layout_time_badge()
         host.video_danmaku.setGeometry(host.video.geometry())
         if host.video_caption is not None:
             host.video_caption.sync_geometry()
         host._layout_bottom_controls()
-        if not fullscreen:
+        if windowed_overlay:
+            host.bottom.sync_windowed_visibility()
+        elif not fullscreen:
             host.bottom.show()
         host._layout_cover()
         if host._interactive_resize:
@@ -395,8 +407,9 @@ class TilePresentation:
             corner.move(host.video.x() if index == 0 else
                         host.video.geometry().right() - corner.width() + 1, host.video.y())
             corner.setVisible(not square_corners)
+        round_bottom = host.bottom.windowed_overlay
         key = (host.video.width(), host.video.height(), host.devicePixelRatioF(),
-               square_corners, int(host.video.internalWinId()))
+               square_corners, round_bottom, int(host.video.internalWinId()))
         if key == host._video_mask_key and not host.video.mask().isEmpty():
             host._update_quick_danmaku_mask()
             return
@@ -407,9 +420,10 @@ class TilePresentation:
             path.addRect(rect)
         else:
             path.addPath(continuous_path(rect, 9))
-            bottom = QPainterPath()
-            bottom.addRect(QRectF(0, max(0, host.video.height() - 9), host.video.width(), 9))
-            path = path.united(bottom)
+            if not round_bottom:
+                bottom = QPainterPath()
+                bottom.addRect(QRectF(0, max(0, host.video.height() - 9), host.video.width(), 9))
+                path = path.united(bottom)
             # Leave one physical pixel under the alpha-blended corner edge.
             stroke = QPainterPathStroker()
             stroke.setWidth(2 / host.devicePixelRatioF())
