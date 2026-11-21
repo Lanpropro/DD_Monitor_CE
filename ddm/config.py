@@ -43,6 +43,7 @@ from .shortcut_actions import DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOL
 DEFAULT_SETTINGS = {
     **MATERIAL_DEFAULTS,
     **APPEARANCE_DEFAULTS,
+    "settings_wheel_speed": 1,
     "tile_context_menu": None,
     "tray_context_menu": None,
     "native_crash_dump": False,

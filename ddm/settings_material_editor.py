@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from .settings_material import DEFAULTS, WHEEL_SPEEDS, normalize
+from .settings_material import DEFAULTS, normalize
 from .ui import SettingsSlider, SettingsSurface, SettingsValueLabel, SelectControl, ToggleSwitch
 
 
@@ -80,20 +80,6 @@ class SettingsMaterialEditor(SettingsSurface):
         self.card_layout.currentIndexChanged.connect(self._changed)
         row.addWidget(self.card_layout, 0, Qt.AlignRight)
         layout.addLayout(row)
-        row = QHBoxLayout()
-        label = QLabel('设置页滚轮灵敏度')
-        label.setWordWrap(True)
-        row.addWidget(label, 1)
-        self.wheel_speed = SelectControl()
-        self.wheel_speed.setFixedWidth(180)
-        self.wheel_speed.setAccessibleName(label.text())
-        self.wheel_speed.setAccessibleDescription('调节设置页每格滚轮的移动距离。')
-        label.setBuddy(self.wheel_speed)
-        for speed in WHEEL_SPEEDS:
-            self.wheel_speed.addItem('1×（默认）' if speed == 1 else f'{speed}×', speed)
-        self.wheel_speed.currentIndexChanged.connect(self.changed)
-        row.addWidget(self.wheel_speed, 0, Qt.AlignRight)
-        layout.addLayout(row)
         self.set_values(settings)
 
     def set_values(self, settings):
@@ -107,17 +93,15 @@ class SettingsMaterialEditor(SettingsSurface):
             slider.setValue(self._values[key])
             slider.blockSignals(previous)
             label.setNum(slider.value())
-        for key, control in (('settings_card_layout', self.card_layout), ('settings_wheel_speed', self.wheel_speed)):
-            previous = control.blockSignals(True)
-            control.setCurrentIndex(control.findData(self._values[key]))
-            control.blockSignals(previous)
+        previous = self.card_layout.blockSignals(True)
+        self.card_layout.setCurrentIndex(self.card_layout.findData(self._values['settings_card_layout']))
+        self.card_layout.blockSignals(previous)
         self._sync_enabled()
 
     def values(self):
         return {**self._values, **{key: control.isChecked() for key, control in self.controls.items()},
                 **{key: slider.value() for key, (slider, _label) in self.sliders.items()},
-                'settings_card_layout': self.card_layout.currentData(),
-                'settings_wheel_speed': self.wheel_speed.currentData()}
+                'settings_card_layout': self.card_layout.currentData()}
 
     def _changed(self, *_args):
         self._sync_enabled()

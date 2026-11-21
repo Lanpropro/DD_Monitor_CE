@@ -56,4 +56,6 @@ def handle_request(host, message):
     else:
         if session is not None:
             session.dialog.auto_save.adopt('plugin_controls', message['changes'].get('plugin_controls', {}))
+            if 'settings_wheel_speed' in message['changes'].get('settings', {}):
+                session.stack_input_focus.set_wheel_speed(host.settings['settings_wheel_speed'])
         host._settings_process._send({'kind': 'auto-saved', 'error': ''})

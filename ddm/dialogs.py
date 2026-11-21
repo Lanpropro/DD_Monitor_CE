@@ -44,6 +44,7 @@ class SettingsDialog(SettingsWindow):
         super().__init__(parent)
         self.setProperty('skinPart', 'settings')
         self.set_material(settings)
+        self.input_focus.set_wheel_speed(settings.get('settings_wheel_speed'))
         self._created_at = time.perf_counter()
         self._paint_logged = False
         self._compact_navigation_for_width = False
@@ -84,6 +85,8 @@ class SettingsDialog(SettingsWindow):
             self.general_page = HostedGeneralPage(settings)
         else:
             self.general_page = GeneralSettingsPage(settings)
+            speed = self.general_page.wheel_speed
+            speed.currentIndexChanged.connect(lambda index: self.input_focus.set_wheel_speed(speed.itemData(index)))
         # Build the expensive controls only when their page is first requested.
         # Keep the public page properties so callers and settings validation
         # still use the same controls and value normalization.

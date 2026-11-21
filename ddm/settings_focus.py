@@ -4,6 +4,12 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox,
                                QScrollArea, QSlider, QWidget)
 
+WHEEL_SPEEDS = (1, 2, 3, 4)
+
+
+def normalize_wheel_speed(speed):
+    return speed if type(speed) is int and speed in WHEEL_SPEEDS else 1
+
 
 class SettingsInputFocus(QObject):
     def __init__(self, root):
@@ -11,6 +17,9 @@ class SettingsInputFocus(QObject):
         QApplication.instance().installEventFilter(self)
         from .settings_scroll_diagnostics import install
         install()
+
+    def set_wheel_speed(self, speed):
+        self.parent().setProperty('settings_wheel_speed', normalize_wheel_speed(speed))
 
     def eventFilter(self, watched, event):
         root = self.parent()

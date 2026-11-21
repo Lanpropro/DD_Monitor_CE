@@ -247,7 +247,7 @@ class SettingsControl:
         windowed_bar_settings = {'windowed_transparent_controls', 'windowed_auto_hide_controls'}
         presentation_only = bool(changed_keys) and changed_keys <= (
             MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
-            | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu'})
+            | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu', 'settings_wheel_speed'})
         host.settings.update(updated_settings)
         if changed_keys & windowed_bar_settings:
             for tile in host.wall.tiles:

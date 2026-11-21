@@ -23,6 +23,7 @@ class SettingsHost(QObject):
         self.stack = self.dialog.stack
         from .settings_focus import SettingsInputFocus
         self.stack_input_focus = SettingsInputFocus(self.stack)
+        self.stack_input_focus.set_wheel_speed(self.dialog.settings().get('settings_wheel_speed'))
         from .settings_material import apply_properties
         apply_properties(self.stack, self.dialog.settings())
         self.embedded = False

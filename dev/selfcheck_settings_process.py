@@ -187,6 +187,9 @@ def child(action):
                     self.reject()
                 return
             self.nav.setCurrentRow(index)
+            if action == 'embed-scroll' and index == PAGE_INDEX['general']:
+                control = self.general_page.wheel_speed
+                control.setCurrentIndex(control.findData(3))
             if action == 'embed-coordinates':
                 self.move(self.x() + 9, self.y() + 7)
                 self.resize(self.width() + 8, self.height() + 4)
@@ -836,12 +839,6 @@ def check_host_application(app, action='save', *, installed_controls=False):
                                     wait(app, lambda: bar.value() > 0, timeout=3)
                                     assert bar.value() == speed * bar.singleStep(), (receiver, bar.value(), speed)
                         verify_wheel_distance(session.stack.property('settings_wheel_speed'))
-                        if message['index'] == PAGE_INDEX['appearance']:
-                            control = page.material_editor.wheel_speed
-                            if control.currentData() == 1:
-                                control.setCurrentIndex(control.findData(3))
-                                assert session.stack.property('settings_wheel_speed') == 3
-                                verify_wheel_distance(3)
                         bar.setValue(0)  # Preserve the existing top-of-page rendering assertions.
                         app.processEvents()
                     if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
@@ -876,6 +873,8 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         page.plan_path = str(Path(temporary) / 'synthetic-update-plan.json')
                         page._busy(False)
                         page.action.click()
+                if action == 'embed-scroll' and message['index'] == PAGE_INDEX['general']:
+                    wait(app, lambda: session.stack.property('settings_wheel_speed') == 3, timeout=3)
                 if action == 'embed-scroll':
                     # Acknowledge this step only after both process endpoints pass.
                     user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
