@@ -8,7 +8,9 @@ from .. import theme
 class SettingsSlider(QSlider):
     def __init__(self, parent=None):
         super().__init__(Qt.Horizontal, parent)
+        self.setCursor(Qt.PointingHandCursor)
         self.setFixedWidth(theme.SETTINGS_SLIDER_WIDTH)
+        self.setMinimumHeight(19)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
 

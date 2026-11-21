@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
 from ddm import config, theme
 from ddm.folder_icons import FolderIconDialog, folder_icon, read_image
 from ddm.follow_folders import normalize_folders, normalize_icon
+from ddm.ui import ColorDialog
 from ddm.widgets import NAV_MIME, Sidebar
 
 
@@ -66,6 +67,22 @@ def main():
                 assert not editor.isVisible() and editor.result() == QDialog.Rejected
                 editor.deleteLater()
         theme.apply('dark')
+        editor = FolderIconDialog({'name': 'Custom RGB', 'type': 'normal'})
+        with patch.object(ColorDialog, 'exec', lambda picker: picker.reject()):
+            editor.swatch_palette.buttons['custom'].click()
+        assert editor.selection is None
+        def confirm_rgb(picker):
+            assert picker.swatch_palette is None and not picker.board.isHidden()
+            picker.hex_edit.setText('#D749B6')
+            picker.accept()
+        with patch.object(ColorDialog, 'exec', confirm_rgb):
+            editor.swatch_palette.buttons['custom'].click()
+        editor.accept()
+        assert editor.result_icon == {'type': 'builtin', 'name': 'folder', 'color': '#d749b6'}
+        assert normalize_icon(dict(editor.result_icon, color='#D749B6')) == editor.result_icon
+        assert normalize_icon(dict(editor.result_icon, color='#rgb')) is None
+        assert not folder_icon({'type': 'normal', 'icon': editor.result_icon}, sidebar).isNull()
+        editor.deleteLater()
         changes = []
         sidebar.foldersChanged.connect(lambda: changes.append(True))
         for fid in (normal, smart, '__unclassified__'):

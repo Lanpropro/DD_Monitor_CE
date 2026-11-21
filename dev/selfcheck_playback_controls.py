@@ -226,6 +226,30 @@ assert not any(name in sys.modules for name in (
         self.assertFalse(isValid(button))
         self.assertFalse(isValid(animation))
 
+    def test_playback_button_has_distinct_hover_and_press_feedback(self):
+        self.addCleanup(theme.apply, theme.mode())
+        theme.apply('dark')
+        self.owner.setObjectName('TileBottom')
+        button = ui.PauseButton(self.owner)
+        button.setProperty('tileButton', True)
+        self.owner.layout().addWidget(button)
+        self.owner.show()
+        for mode in ('light', 'dark'):
+            with self.subTest(mode=mode):
+                theme.apply(mode)
+                QApplication.processEvents()
+                point = QPoint(button.width() - 7, button.height() // 2)
+                QTest.mouseMove(button, point)
+                QApplication.processEvents()
+                hovered = button.grab().toImage().pixelColor(point)
+                QTest.mousePress(button, Qt.LeftButton, pos=point)
+                QApplication.processEvents()
+                self.assertTrue(button.isDown())
+                self.assertNotEqual(button.grab().toImage().pixelColor(point), hovered)
+                QTest.mouseRelease(button, Qt.LeftButton, pos=point)
+                self.assertFalse(button.isDown())
+                self.assertEqual(button.cursor().shape(), Qt.PointingHandCursor)
+
     def test_controls_paint_states_in_both_themes_and_multiple_scales(self):
         from ddm.playback_controls import VolumePopup
         buttons = [ui.VolumeButton(self.owner), ui.PauseButton(self.owner),

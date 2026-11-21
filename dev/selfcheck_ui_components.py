@@ -623,6 +623,98 @@ for before, component, after in (
                 control.deleteLater()
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def test_slider_thumb_stays_neutral_on_hover_and_grows_on_press(self):
+        from PySide6.QtGui import QColor
+        self.addCleanup(theme.apply, theme.mode())
+        for mode in ('light', 'dark'):
+            with self.subTest(mode=mode):
+                theme.apply(mode)
+                slider = ui.SettingsSlider()
+                slider.setValue(50)
+                slider.show()
+                self.app.processEvents()
+                def white_pixels():
+                    image = slider.grab().toImage()
+                    return sum(image.pixelColor(x, y) == QColor('white') for y in range(image.height())
+                               for x in range(image.width()))
+                point = slider.rect().center()
+                initial = white_pixels()
+                self.assertGreater(initial, 0)
+                QTest.mouseMove(slider, point)
+                self.assertEqual(white_pixels(), initial)
+                QTest.mousePress(slider, Qt.LeftButton, pos=point)
+                self.assertTrue(slider.isSliderDown())
+                self.assertGreater(white_pixels(), initial)
+                QTest.mouseRelease(slider, Qt.LeftButton, pos=point)
+                self.assertEqual(white_pixels(), initial)
+                slider.close()
+
+    def test_standard_confirmation_buttons_and_combo_cursor_use_common_roles(self):
+        from PySide6.QtWidgets import QComboBox, QDialogButtonBox
+        theme.apply(theme.mode())
+        box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.addCleanup(box.close)
+        box.ensurePolished()
+        for option, role in ((QDialogButtonBox.Ok, 'PrimaryButton'), (QDialogButtonBox.Cancel, 'IconButton')):
+            button = box.button(option)
+            button.ensurePolished()
+            self.assertEqual(button.objectName(), role)
+            self.assertEqual(button.cursor().shape(), Qt.PointingHandCursor)
+        combo = QComboBox()
+        combo.ensurePolished()
+        self.assertEqual(combo.cursor().shape(), Qt.PointingHandCursor)
+
+    def test_stepper_hold_accelerates_and_release_stops(self):
+        from PySide6.QtWidgets import QSpinBox
+        spin = QSpinBox()
+        spin.setRange(0, 99)
+        control = ui.StepperControl(spin)
+        self.addCleanup(control.close)
+        control.show()
+        QTest.mousePress(control.plus, Qt.LeftButton)
+        QTest.qWait(870)
+        self.assertEqual(control.plus.autoRepeatInterval(), 80)
+        self.assertGreaterEqual(spin.value(), 4)
+        QTest.qWait(390)
+        self.assertEqual(control.plus.autoRepeatInterval(), 45)
+        QTest.mouseRelease(control.plus, Qt.LeftButton)
+        released = spin.value()
+        QTest.qWait(180)
+        self.assertEqual(spin.value(), released)
+        QTest.mouseClick(control.minus, Qt.LeftButton)
+        self.assertEqual(spin.value(), released - 1)
+
+    def test_theme_ring_moves_only_with_segment_motion_and_can_reverse(self):
+        from ddm.settings_material import set_segment_motion
+        from ddm.settings_theme_editor import SettingsThemeEditor
+        editor = SettingsThemeEditor({})
+        owner = QWidget()
+        editor.setParent(owner)
+        self.addCleanup(owner.close)
+        owner.show()
+        editor.show()
+        self.app.processEvents()
+        palette = editor.swatch_palette
+        with patch('ddm.motion.enabled', return_value=True):
+            QTest.mouseClick(palette.buttons['#20b976'], Qt.LeftButton)
+            self.assertEqual(palette.ring.offset, palette._center('#20b976'))
+            set_segment_motion(owner, True)
+            QTest.mouseClick(palette.buttons['#f58b32'], Qt.LeftButton)
+            self.assertNotEqual(palette.ring.offset, palette._center('#f58b32'))
+            QTest.qWait(30)
+            current = palette.ring.offset
+            QTest.mouseClick(palette.buttons[''], Qt.LeftButton)
+            self.assertAlmostEqual(palette.ring.offset, current)
+            QTest.qWait(180)
+            self.assertEqual(palette.ring.offset, palette._center(''))
+            QTest.mouseClick(palette.buttons['#f58b32'], Qt.LeftButton)
+            set_segment_motion(owner, False)
+            self.assertEqual(palette.ring.offset, palette._center('#f58b32'))
+        set_segment_motion(owner, True)
+        with patch('ddm.motion.enabled', return_value=False):
+            QTest.mouseClick(palette.buttons[''], Qt.LeftButton)
+            self.assertEqual(palette.ring.offset, palette._center(''))
+
     def test_stepper_selection_is_limited_to_active_edit_and_shadow_is_optional(self):
         from PySide6.QtWidgets import QDoubleSpinBox, QLabel
         from ddm.settings_focus import SettingsInputFocus

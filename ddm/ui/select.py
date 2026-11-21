@@ -53,6 +53,7 @@ class SelectControl(QComboBox):
             return
         self._popup_prepared = True
         view = QListView(self)
+        view.viewport().setCursor(Qt.PointingHandCursor)
         view.setFrameShape(QFrame.NoFrame)
         view.setProperty('customItemSurface', True)
         view.setStyleSheet('QListView {background: transparent; border: none; padding: 4px;}')

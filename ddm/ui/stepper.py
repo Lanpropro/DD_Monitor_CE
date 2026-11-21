@@ -1,5 +1,5 @@
 """One compact surface around an existing Qt numeric editor and step buttons."""
-from PySide6.QtCore import QEvent, QRectF, Qt, QVariantAnimation
+from PySide6.QtCore import QElapsedTimer, QEvent, QRectF, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QAbstractSpinBox, QHBoxLayout, QSizePolicy, QToolButton, QWidget
 
@@ -20,6 +20,7 @@ class StepperControl(QWidget):
         self._hover_animation.setDuration(motion.CONTROL_FEEDBACK_MS)
         self._hover_animation.setEasingCurve(motion.THEME_WAVE_EASING)
         self._hover_animation.valueChanged.connect(self._set_hover)
+        self._hold = QElapsedTimer()
         self.spin = spin
         spin.setObjectName('StepperValue')
         spin.setMinimumWidth(0)
@@ -44,8 +45,10 @@ class StepperControl(QWidget):
             button.setCursor(Qt.PointingHandCursor)
             button.setFocusPolicy(Qt.NoFocus)
             button.setAutoRepeat(True)
+            button.setAutoRepeatDelay(340)
+            button.setAutoRepeatInterval(125)
             button.setFixedSize(theme.CONTROL_HEIGHT - 4, theme.CONTROL_HEIGHT - 4)
-            button.clicked.connect(action)
+            button.clicked.connect(lambda _checked=False, target=button, step=action: self._step(target, step))
             button.installEventFilter(self)
         box.addWidget(self.minus)
         box.addWidget(spin, 1)
@@ -87,6 +90,12 @@ class StepperControl(QWidget):
         self.spin.stepUp()
         self._clear_inactive_selection()
 
+    def _step(self, button, action):
+        if self._hold.isValid():
+            elapsed = self._hold.elapsed()
+            button.setAutoRepeatInterval(45 if elapsed >= 1050 else 80 if elapsed >= 650 else 125)
+        action()
+
     def _set_hover(self, value):
         self._hover = float(value)
         self.update()
@@ -115,6 +124,12 @@ class StepperControl(QWidget):
         super().hideEvent(event)
 
     def eventFilter(self, watched, event):
+        if event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease) and isinstance(watched, QToolButton):
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                watched.setAutoRepeatInterval(125)
+                self._hold.start()
+            elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                self._hold.invalidate()
         if event.type() in (QEvent.FocusIn, QEvent.FocusOut):
             if event.type() == QEvent.FocusOut and event.reason() != Qt.PopupFocusReason:
                 self.spin.lineEdit().deselect()

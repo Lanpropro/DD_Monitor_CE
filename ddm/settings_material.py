@@ -61,6 +61,16 @@ def properties(widget):
                       if widget.property(key) is not None})
 
 
+def segment_motion_enabled(widget):
+    scope = widget.parentWidget()
+    while scope is not None:
+        enabled = scope.property('settings_segment_motion')
+        if enabled is not None:
+            return enabled is True
+        scope = scope.parentWidget()
+    return False
+
+
 def set_segment_motion(widget, enabled):
     enabled = enabled is True
     if widget.property('settings_segment_motion') == enabled:
@@ -69,6 +79,9 @@ def set_segment_motion(widget, enabled):
     from .ui.selection import SegmentedControl
     for control in widget.findChildren(SegmentedControl):
         control.finish_indicator()
+    from .ui.color_dialog import ColorPalette
+    for palette in widget.findChildren(ColorPalette):
+        palette.finish_indicator()
     return True
 
 

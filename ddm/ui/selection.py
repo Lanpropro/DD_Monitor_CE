@@ -243,14 +243,8 @@ class SegmentedControl(QWidget):
             self.valueChanged.emit(self.value())
 
     def sliding_enabled(self):
-        # A popup is its own Qt window but still inherits from its widget owner.
-        scope = self.parentWidget()
-        while scope is not None:
-            enabled = scope.property('settings_segment_motion')
-            if enabled is not None:
-                return enabled is True
-            scope = scope.parentWidget()
-        return False
+        from ..settings_material import segment_motion_enabled
+        return segment_motion_enabled(self)
 
     def _target_rect(self):
         return QRectF(self.buttons[self.value()].geometry()).adjusted(1, 1, -1, -2)

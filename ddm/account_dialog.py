@@ -84,16 +84,10 @@ class AccountPlatformDialog(QDialog):
                 kind in self.owner._accounts and not self.owner._accounts[kind].get("_login_expired"))
             button.setProperty("loggedIn", logged)
             button.setToolTip(f"{label} · 已登录" if logged else label)
+            button.setAccessibleName(button.toolTip())
             picker.actions[kind].setText(f"{label}（已登录）" if logged else label)
-            button.setStyleSheet(f"""
-                QPushButton#IconButton[loggedIn="true"] {{
-                    background: {theme.CONTENT}; border-color: {theme.PINK};
-                }}
-                QPushButton#IconButton[loggedIn="true"]:hover {{
-                    background: {theme.CONTENT_HOVER};
-                }}
-                QPushButton#IconButton[loggedIn="true"]:checked {{ border: 2px solid {theme.ACCENT}; }}
-            """)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _busy(self, busy):
         self._update_platform_labels()

@@ -16,7 +16,8 @@ from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPalette
-from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QToolButton, QWidget
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QDialogButtonBox,
+                               QLineEdit, QPushButton, QSlider, QToolButton, QWidget)
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -102,6 +103,13 @@ FULLSCREEN_BAR_STYLE = '''
 #TileBottom[fullscreen="true"] #DanmakuSendButton:!disabled:hover,
 #TileBottom[fullscreen="true"] #DanmakuSendButton[hovered="true"]:!disabled {
     background: palette(highlight);
+    color: #04161f;
+}
+#TileBottom[fullscreen="true"] #TileCtrl:!disabled:pressed,
+#TileBottom[fullscreen="true"] #TileToggle:!disabled:pressed,
+#TileBottom[fullscreen="true"] #BiliVolumeButton:!disabled:pressed,
+#TileBottom[fullscreen="true"] #DanmakuSendButton:!disabled:pressed {
+    background: palette(link-visited);
     color: #04161f;
 }
 #TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
@@ -375,14 +383,14 @@ def _conditional_light_style(style):
 def _light_style(widget):
     name = widget.objectName()
     if name == 'TileToggle':
-        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
+        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}') + FULLSCREEN_BAR_STYLE
-        return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl:!disabled:pressed {background: #CFE4F2; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}') + FULLSCREEN_BAR_STYLE
+        return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:!disabled:pressed {background: #CFE4F2; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
         'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
@@ -440,6 +448,16 @@ class ThemeSignals(QObject):
         if kind == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
             widget.setMouseTracking(True)
             widget.setAttribute(Qt.WA_Hover, True)
+            box = widget.parentWidget()
+            if isinstance(box, QDialogButtonBox) and not widget.objectName():
+                role = box.buttonRole(widget)
+                if role in (QDialogButtonBox.AcceptRole, QDialogButtonBox.YesRole, QDialogButtonBox.ApplyRole):
+                    widget.setObjectName('PrimaryButton')
+                elif role in (QDialogButtonBox.RejectRole, QDialogButtonBox.NoRole):
+                    widget.setObjectName('IconButton')
+        if (kind == QEvent.Polish and isinstance(widget, (QAbstractButton, QComboBox, QSlider))
+                and not widget.testAttribute(Qt.WA_SetCursor)):
+            widget.setCursor(Qt.PointingHandCursor)
         if kind == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
                 _set_theme_properties(widget)
@@ -736,12 +754,22 @@ QSlider::sub-page:horizontal {{
     border-radius: 2px;
 }}
 QSlider::handle:horizontal {{
-    width: 12px;
+    width: 14px;
     margin: -5px 0;
-    border-radius: 6px;
+    border-radius: 7px;
+    background: #ffffff;
+    border: 1px solid rgba(105, 116, 130, 0.50);
+}}
+QSlider::handle:horizontal:pressed {{
+    width: 17px;
+    margin: -7px 0;
+    border-radius: 8px;
     background: #ffffff;
 }}
-QSlider::handle:horizontal:hover {{
+QSlider::groove:horizontal:hover {{
+    background: {BORDER_STRONG};
+}}
+QSlider::sub-page:horizontal:hover {{
     background: {style_mix("ACCENT", "#ffffff", 0.35)};
 }}
 
@@ -848,18 +876,41 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border: none;
     background: transparent;
 }}
-#PluginTabs QTabBar::tab {{
+#PluginTabs QTabBar, #LoginPlatformSegments {{
     background: {CONTENT};
+    border-radius: 17px;
+}}
+#PluginTabs QTabBar::tab {{
+    background: transparent;
     color: {TEXT2};
-    padding: 8px 18px;
-    margin-right: 6px;
+    padding: 6px 18px;
+    margin: 2px;
     border-radius: 16px;
     border: 1px solid transparent;
 }}
-#PluginTabs QTabBar::tab:selected {{
-    background: {ELEVATED};
+#PluginTabs QTabBar::tab:hover, #LoginPlatformSegment:!disabled:hover {{
+    background: {CONTENT_HOVER};
     color: {TEXT1};
-    border: 1px solid {BORDER_STRONG};
+}}
+#PluginTabs QTabBar::tab:selected, #LoginPlatformSegment:checked {{
+    background: {ACCENT_SOFT};
+    color: {ACCENT};
+}}
+#LoginPlatformSegment {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    color: {TEXT2};
+    padding: 0 4px;
+}}
+#LoginPlatformSegment[loggedIn="true"]:!checked {{
+    border-bottom-color: {PINK};
+}}
+#LoginPlatformSegment:!disabled:pressed {{
+    background: {BORDER};
+}}
+#LoginPlatformSegment:disabled {{
+    color: {TEXT4};
 }}
 #PluginName {{
     font-weight: 600;
@@ -1164,9 +1215,9 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     color: {TEXT1};
 }}
 #LoginWindow #IconButton:pressed {{
-    background: {ACCENT_SOFT};
-    border: 1px solid {ACCENT};
-    color: {ACCENT};
+    background: {style_mix("CONTENT", "#000000", 0.12)};
+    border: 1px solid {BORDER};
+    color: {TEXT1};
 }}
 #IconButton:checked {{
     background: {ACCENT_SOFT};
@@ -1175,8 +1226,26 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 QPushButton#IconButton:pressed {{
     background: {style_mix("CONTENT", "#000000", 0.12)};
-    border: 1px solid {ACCENT};
+    border: 1px solid {BORDER};
     color: {TEXT1};
+}}
+QPushButton#IconButton[text="取消"], QDialogButtonBox QPushButton#IconButton {{
+    background: transparent;
+    border: 1px solid {BORDER_STRONG};
+    color: {TEXT1};
+}}
+QPushButton#IconButton[text="取消"]:hover:!disabled, QDialogButtonBox QPushButton#IconButton:hover:!disabled {{
+    background: {CONTENT_HOVER};
+}}
+QPushButton#IconButton[text="取消"]:focus, QDialogButtonBox QPushButton#IconButton:focus {{
+    border-color: {ACCENT};
+}}
+QPushButton#IconButton[text="取消"]:pressed, QDialogButtonBox QPushButton#IconButton:pressed {{
+    background: {style_mix("CONTENT", "#000000", 0.12)};
+    border: 1px solid {BORDER_STRONG};
+}}
+QPushButton#IconButton[cacheRefreshing="true"]:disabled {{
+    background: {CONTENT}; border: 1px solid {BORDER}; color: {TEXT2}; padding-right: 32px;
 }}
 #IconButton[noticePrimary="true"][updateReady="false"]:!disabled {{
     background: {ACCENT_SOFT};
@@ -1610,6 +1679,10 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 }}
 #TileCtrl:focus, #TileToggle:focus, #BiliVolumeButton:focus {{
     outline: none;
+}}
+#TileCtrl:!disabled:pressed, #TileToggle:!disabled:pressed {{
+    background: {style_mix("ACCENT", "#000000", 0.16)};
+    color: #04161f;
 }}
 #BiliVolumeButton {{
     background: transparent;

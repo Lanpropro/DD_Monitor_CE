@@ -106,6 +106,7 @@ class PluginSettingsPage(QWidget):
         self.store_page = PluginStorePage(manager)
         self.tabs = SlidingTabs()
         self.tabs.setObjectName("PluginTabs")
+        self.tabs.tabBar().setCursor(Qt.PointingHandCursor)
         self.tabs.addTab(installed_page, "已安装")
         self.tabs.addTab(self.store_page, "插件商店")
         self.tabs.currentChanged.connect(self._store_tab_changed)

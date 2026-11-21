@@ -171,6 +171,20 @@ def check_picker(app):
         selected = []
         dialog.colorSelected.connect(lambda color: selected.append(color.name()))
         try:
+            assert dialog.board.isHidden(), 'Presets should start with the RGB board collapsed'
+            QTest.mouseClick(dialog.swatch_palette.buttons['#ffd16a'], Qt.LeftButton)
+            assert dialog.currentColor().name() == '#ffd16a' and not selected
+            assert dialog.board.isHidden()
+            preview = dialog.preview.grab().toImage()
+            middle = preview.height() // 2
+            assert has_color(preview.copy(0, 0, preview.width(), middle), '#ffd16a')
+            assert has_color(preview.copy(0, middle, preview.width(), preview.height() - middle), '#ffd16a')
+            QTest.mouseClick(dialog.swatch_palette.buttons['custom'], Qt.LeftButton)
+            assert dialog.board.isVisible()
+            QTest.mouseClick(dialog.field, Qt.LeftButton, pos=dialog.field.rect().center())
+            assert 0.45 < dialog.currentColor().hsvSaturationF() < 0.55
+            assert 0.45 < dialog.currentColor().valueF() < 0.55
+            dialog.setCurrentColor(QColor('#ffffff'))
             dialog.sliders[0].setValue(32)
             assert dialog.channels[0].value() == 32
             assert dialog.hex_edit.text() == '#20FFFF'

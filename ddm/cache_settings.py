@@ -1,11 +1,11 @@
 """Interactive image-cache usage chart; disk operations stay off the GUI thread."""
 import math
 
-from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSignalBlocker, Qt, QThreadPool, Signal
-from PySide6.QtGui import QLinearGradient, QPainter, QPainterPath
+from PySide6.QtCore import QElapsedTimer, QObject, QPointF, QRectF, QRunnable, QSignalBlocker, Qt, QThreadPool, Signal, QVariantAnimation
+from PySide6.QtGui import QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QBoxLayout, QCheckBox, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
-from . import config, image_cache, theme
+from . import config, image_cache, motion, theme
 from .settings_layout import SettingsSection
 from .ui import ActionButton, HintLabel
 
@@ -133,6 +133,48 @@ def _forget_task(task):
     _live_tasks.discard(task)
 
 
+class CacheRefreshButton(ActionButton):
+    def __init__(self):
+        super().__init__('刷新统计')
+        self._refreshing = False
+        self._spin = QVariantAnimation(self, startValue=0., endValue=360., duration=850, loopCount=-1)
+        self._spin.valueChanged.connect(lambda _angle: self.update())
+
+    def sizeHint(self):
+        size = super().sizeHint()
+        size.setWidth(size.width() + 22)
+        return size
+
+    def set_refreshing(self, refreshing):
+        self._refreshing = refreshing
+        self.setProperty('cacheRefreshing', refreshing)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self._spin.stop()
+        self._spin.setCurrentTime(0)
+        if refreshing and self.isVisible() and motion.enabled():
+            self._spin.start()
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._refreshing:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.5, Qt.SolidLine, Qt.RoundCap))
+            rect = QRectF(self.width() - 23, (self.height() - 12) / 2, 12, 12)
+            painter.drawArc(rect, round(-16 * self._spin.currentValue()), 260 * 16)
+
+    def hideEvent(self, event):
+        self._spin.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._refreshing and motion.enabled():
+            self._spin.start()
+
+
 class CacheUsagePanel(SettingsSection):
     def __init__(self, title, parent=None, *, root=None, backend, labels, colors, hint, details=None, deferred=()):
         super().__init__(title, parent)
@@ -142,6 +184,7 @@ class CacheUsagePanel(SettingsSection):
         self.deferred = frozenset(deferred)
         self.values = {kind: {'bytes': 0, 'files': 0} for kind in labels}
         self._task = None
+        self._refresh_elapsed = QElapsedTimer()
         self.grid.addWidget(HintLabel(hint), 0, 0, 1, 2)
         self.content = QBoxLayout(QBoxLayout.LeftToRight)
         self.content.setSpacing(12)
@@ -176,7 +219,7 @@ class CacheUsagePanel(SettingsSection):
         self.selected_button.clicked.connect(self.clear_selected)
         self.select_all_button = ActionButton('全选')
         self.select_all_button.clicked.connect(self._toggle_all)
-        self.refresh_button = ActionButton('刷新统计')
+        self.refresh_button = CacheRefreshButton()
         self.refresh_button.clicked.connect(self.refresh)
         for button in (self.selected_button, self.select_all_button, self.refresh_button):
             actions.addWidget(button)
@@ -230,7 +273,7 @@ class CacheUsagePanel(SettingsSection):
         for check in self.checks.values():
             check.setEnabled(not busy)
 
-    def _start(self, operation, text):
+    def _start(self, operation, text, *, refreshing=False):
         if self._task is not None:
             return
         self.status.setText(text)
@@ -239,12 +282,15 @@ class CacheUsagePanel(SettingsSection):
         self._task.signals.failed.connect(self._failed)
         _live_tasks.add(self._task)
         self._task.signals.finished.connect(lambda task=self._task: _forget_task(task))
+        if refreshing:
+            self._refresh_elapsed.start()
+            self.refresh_button.set_refreshing(True)
         self._selection_changed()
         QThreadPool.globalInstance().start(self._task)
 
     def refresh(self):
         backend, root = self.backend, self.root
-        self._start(lambda: (None, backend.usage(root)), '正在统计…')
+        self._start(lambda: (None, backend.usage(root)), '正在统计…', refreshing=True)
 
     def clear_selected(self):
         selected, backend, root = self.selected(), self.backend, self.root
@@ -262,8 +308,10 @@ class CacheUsagePanel(SettingsSection):
             pending = ' · 已安排下次网页登录时清理' if value.get('pending') else ''
             self.details[kind].setText(f"{size_text(value['bytes'])} · {value['files']} 个文件 · "
                                        f"{value['bytes'] / max(1, total):.1%}" + pending)
-        message = '统计完成。'
-        if result is not None:
+        self.refresh_button.set_refreshing(False)
+        if result is None:
+            message = f'统计完成 · {size_text(total)} · 耗时 {self._refresh_elapsed.elapsed() / 1000:.2f} 秒'
+        else:
             message = (f"已释放 {size_text(result['bytes'])}，清理 {result['files']} 个文件，"
                        f"跳过 {result['skipped']} 个在用或不可清理文件。")
             if result.get('deferred'):
@@ -273,6 +321,7 @@ class CacheUsagePanel(SettingsSection):
 
     def _failed(self, message):
         self._task = None
+        self.refresh_button.set_refreshing(False)
         self.status.setText('缓存操作未完成：' + message)
         self._selection_changed()
 

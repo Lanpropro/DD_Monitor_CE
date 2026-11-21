@@ -535,6 +535,7 @@ def main():
             assert page.browser.isAncestorOf(page.refresh)
             assert not page.search.geometry().intersects(page.refresh.geometry())
             bar = dialog.plugin_page.tabs.tabBar()
+            assert bar.cursor().shape() == Qt.PointingHandCursor
             tab_rect = bar.tabRect(1)
             tab_image = bar.grab().toImage()
             assert tab_image.pixelColor(tab_rect.topLeft()) != tab_image.pixelColor(

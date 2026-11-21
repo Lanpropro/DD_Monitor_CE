@@ -19,7 +19,7 @@ class ImportPlatformTabs(QWidget):
 
     selectionRequested = Signal(str)
 
-    def __init__(self, platforms, parent=None):
+    def __init__(self, platforms, parent=None, *, segmented=False):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setMinimumHeight(theme.CONTROL_HEIGHT)
@@ -27,14 +27,21 @@ class ImportPlatformTabs(QWidget):
         self.buttons = {}
         self.group = QButtonGroup(self)
         self.actions = {}
-        self._row = QHBoxLayout(self)
-        self._row.setContentsMargins(0, 0, 0, 0)
-        self._row.setSpacing(4)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        surface = QWidget(self, objectName='LoginPlatformSegments' if segmented else 'ImportPlatformButtons')
+        surface.setAttribute(Qt.WA_StyledBackground, segmented)
+        outer.addWidget(surface)
+        outer.addStretch(1)
+        self._row = QHBoxLayout(surface)
+        inset = 3 if segmented else 0
+        self._row.setContentsMargins(inset, inset, inset, inset)
+        self._row.setSpacing(2 if segmented else 4)
         self._row.setSizeConstraint(QLayout.SetNoConstraint)
         self.menu = QMenu(self)
         for kind, label in platforms:
             button = QPushButton(label)
-            button.setObjectName('IconButton')
+            button.setObjectName('LoginPlatformSegment' if segmented else 'IconButton')
             button.setCheckable(True)
             button.setAutoDefault(False)
             button.setCursor(Qt.PointingHandCursor)
@@ -44,8 +51,9 @@ class ImportPlatformTabs(QWidget):
                 path = os.path.join(BRAND_ASSETS_DIR, 'platforms', 'generic.svg')
             button.setIcon(QIcon(path))
             button.setIconSize(QSize(18, 18))
-            button.setFixedSize(min(148, max(64, button.fontMetrics().horizontalAdvance(label) + 44)),
-                                theme.CONTROL_HEIGHT)
+            button.setFixedSize(min(148, max(54 if segmented else 64,
+                                             button.fontMetrics().horizontalAdvance(label) + (34 if segmented else 44))),
+                                theme.CONTROL_HEIGHT - 2 * inset)
             button.clicked.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
             self._row.addWidget(button, 0, Qt.AlignTop)
             self.group.addButton(button)
@@ -55,16 +63,16 @@ class ImportPlatformTabs(QWidget):
             action.triggered.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
             self.actions[kind] = action
         self.more = QPushButton('…')
-        self.more.setObjectName('IconButton')
+        self.more.setObjectName('LoginPlatformSegment' if segmented else 'IconButton')
         self.more.setAutoDefault(False)
-        self.more.setFixedSize(34, theme.CONTROL_HEIGHT)
+        self.more.setFixedSize(34, theme.CONTROL_HEIGHT - 2 * inset)
+        self.more.setCursor(Qt.PointingHandCursor)
         self.more.setToolTip('其他平台')
         self.more.setAccessibleName('其他导入平台')
         self.more.setMenu(self.menu)
-        self.more.setStyleSheet('QPushButton#IconButton {padding:0;} '
-                               'QPushButton#IconButton::menu-indicator {image:none; width:0;}')
+        self.more.setStyleSheet('QPushButton {padding:0;} '
+                               'QPushButton::menu-indicator {image:none; width:0;}')
         self._row.addWidget(self.more, 0, Qt.AlignTop)
-        self._row.addStretch(1)
 
     def set_current(self, kind):
         self._current = kind
@@ -79,7 +87,8 @@ class ImportPlatformTabs(QWidget):
 
     def _reflow(self):
         gap = self._row.spacing()
-        available = self.width()
+        margins = self._row.contentsMargins()
+        available = self.width() - margins.left() - margins.right()
         total = sum(button.width() for button in self.buttons.values()) + gap * max(0, len(self.buttons) - 1)
         visible = set(self.buttons)
         if total > available:
@@ -127,7 +136,7 @@ class AccountImportBar(QWidget):
             self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.account)
             self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.refresh)
         layout.addWidget(self.titlebar)
-        self.platform = ImportPlatformTabs(platforms, self)
+        self.platform = ImportPlatformTabs(platforms, self, segmented=login_only)
         if login_only:
             self.platform.more.setAccessibleName('其他登录平台')
         layout.addWidget(self.platform)

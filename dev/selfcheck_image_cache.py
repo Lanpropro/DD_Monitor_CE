@@ -451,6 +451,25 @@ class CacheTests(unittest.TestCase):
         self.settle(panel)
         self.assertEqual(panel.values['avatars']['files'], 0)
 
+    def test_refresh_button_keeps_label_and_reports_real_completion(self):
+        self.file('cache/avatars/a.png', b'a' * 100)
+        panel = ImageCachePanel(root=str(self.root))
+        self.addCleanup(panel.close)
+        panel.show()
+        self.settle(panel)
+        QTest.mousePress(panel.refresh_button, Qt.LeftButton)
+        self.assertIsNone(panel._task)
+        QTest.mouseRelease(panel.refresh_button, Qt.LeftButton)
+        self.assertEqual(panel.refresh_button.text(), '刷新统计')
+        self.assertTrue(panel.refresh_button.property('cacheRefreshing'))
+        self.assertFalse(panel.refresh_button.isEnabled())
+        self.assertEqual(panel.status.text(), '正在统计…')
+        panel.refresh_button.grab()
+        self.settle(panel)
+        self.assertTrue(panel.refresh_button.isEnabled())
+        self.assertFalse(panel.refresh_button.property('cacheRefreshing'))
+        self.assertRegex(panel.status.text(), r'统计完成 · 100 B · 耗时 \d+\.\d+ 秒')
+
     def test_chart_and_legend_adapt_to_both_themes_without_losing_selection(self):
         self.file('cache/avatars/a.png', b'a' * 100)
         self.file('cache/covers/c.png', b'c' * 300)

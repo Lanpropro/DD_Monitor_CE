@@ -219,6 +219,31 @@ class FollowImportUITests(unittest.TestCase):
         page.sort_control.setCurrentIndex(page.sort_control.findData('original'))
         self.assertEqual(page.list.item(0).data(Qt.UserRole)['anchor_uid'], 'a')
 
+    def test_login_segments_switch_platform_and_keep_overflow_actions(self):
+        owner = QWidget()
+        owner._accounts = {'douyu': {'uname': '测试'}}
+        providers = {kind: SimpleNamespace(kind=kind, label=label, account_login_notice=label) for kind, label in (
+            ('douyin', '抖音'), ('douyu', '斗鱼'), ('huya', '虎牙'), ('twitch', 'Twitch'), ('youtube', 'YouTube'))}
+        dialog = AccountPlatformDialog(owner, providers, platform_kind='douyin')
+        self.addCleanup(dialog.close)
+        dialog.show()
+        self.app.processEvents()
+        tabs = dialog.account_bar.platform
+        self.assertEqual(tabs.buttons['douyin'].parentWidget().objectName(), 'LoginPlatformSegments')
+        self.assertTrue(tabs.buttons['douyin'].isChecked())
+        self.assertTrue(tabs.buttons['douyu'].property('loggedIn'))
+        QTest.mouseClick(tabs.buttons['douyu'], Qt.LeftButton)
+        self.assertEqual(dialog.kind, 'douyu')
+        self.assertTrue(tabs.buttons['douyu'].isChecked())
+        self.assertFalse(tabs.buttons['douyin'].isChecked())
+        dialog.resize(240, dialog.height())
+        self.app.processEvents()
+        self.assertTrue(tabs.more.isVisible())
+        key = next(key for key, action in tabs.actions.items() if action.isVisible() and key != 'bilibili')
+        tabs.actions[key].trigger()
+        self.assertEqual(dialog.kind, key)
+        self.assertTrue(tabs.buttons[key].isChecked())
+
     def test_platform_overflow_keeps_active_and_all_providers_reachable(self):
         owner = QDialog()
         bar = AccountImportBar([(str(i), f'平台{i}') for i in range(8)], owner)
