@@ -316,16 +316,19 @@ class SimulatorTests(unittest.TestCase):
         preview = SuperChatPlacementPreview()
         self.addCleanup(preview.deleteLater)
         self.addCleanup(preview.close)
-        preview.resize(460, 300)
+        preview.resize(430, 300)
         preview.set_layout_mode(1)
-        preview.set_scale(84)
+        preview.set_scale(75)
         preview.set_preview_context({'panel': {'size': [170, 26], 'outer_size': [180, 68],
             'viewport_rect': [0, 32, 170, 26], 'cards': [{'message': '', 'collapsed': True}]}})
         preview.show()
 
         card = preview.card_rect()
-        self.assertGreater(card.height(), 24)
-        self.assertTrue(preview.stage_rect().contains(card))
+        stage = preview.stage_rect()
+        self.assertGreater(card.width(), 50)
+        self.assertGreater(card.width() / card.height(), 3.2)
+        self.assertLess(card.width() / card.height(), 3.6)
+        self.assertTrue(stage.contains(card))
         rendered = preview.grab().toImage()
         ratio = rendered.devicePixelRatio()
         x = round(card.center().x() * ratio)
@@ -343,7 +346,7 @@ class SimulatorTests(unittest.TestCase):
         QTest.mousePress(preview, Qt.LeftButton, pos=corner)
         QTest.mouseMove(preview, corner + QPoint(20, 0))
         QTest.mouseRelease(preview, Qt.LeftButton, pos=corner + QPoint(20, 0))
-        self.assertGreater(preview.scale, 84)
+        self.assertGreater(preview.scale, 75)
 
     def test_panel_preview_clips_overflow_and_uses_visible_resize_corner(self):
         from ddm.super_chat_preview import SuperChatPlacementPreview

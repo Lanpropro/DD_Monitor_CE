@@ -38,7 +38,8 @@ class SuperChatPlacementPreview(SkinPreview):
 
     @staticmethod
     def _panel_example():
-        return {'size': [360, 560], 'outer_size': [360, 624], 'viewport_rect': [0, 32, 360, 560],
+        # Use a wide reference viewport so the shared layout draws a horizontal sample card.
+        return {'size': [900, 1400], 'outer_size': [900, 1560], 'viewport_rect': [0, 80, 900, 1400],
                 'cards': [{'message': '', 'collapsed': False}]}
 
     @property
