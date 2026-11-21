@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QPushButton, QWidget, QLineEdit
@@ -1103,6 +1103,64 @@ class MainNoticesTests(unittest.TestCase):
         window._fullscreen_tile = None
         window._show_notice('窗口提示')
         self.assertTrue(window._result_notice.isVisible())
+
+    def test_fullscreen_notice_stays_above_video_when_bar_hides(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Requires Windows native window ownership and Z order')
+        import ctypes
+        from ctypes import wintypes
+
+        window = self.window([{'room_id': '1001'}], offscreen=True)
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        window.settings['notice_hide_fullscreen'] = False
+        window.settings['notice_persist_warning'] = False
+        tile = window.wall.tiles[0]
+        window._show_notice('进入全屏前的提示', kind='warning')
+        previous = window._result_notice
+        enter = window._fullscreen_presentation.enter
+        with patch.object(window, '_upgrade_fullscreen_quality'), \
+                patch.object(window._fullscreen_presentation, 'enter',
+                             side_effect=lambda target: enter(target, QRect(-9000, -9000, 900, 600))):
+            window._on_fullscreen(tile)
+        window._fullscreen_cursor.stop()
+        self.addCleanup(window._exit_fullscreen)
+
+        action = Mock()
+        window._show_notice('发送未成功，请稍后重试', kind='warning', on_click=action)
+        warning = window._result_notice
+        tile.set_fullscreen_controls_hidden(True)
+        tile.raise_()
+        self.app.processEvents()
+        self.assertTrue(tile.bottom.isHidden())
+        self.assertTrue(warning.isVisible())
+        self.assertTrue(warning.timer.isActive())
+        self.assertEqual(warning.timer.interval(), 6000)
+        self.assertTrue(previous.timer.isActive())
+        get_window = ctypes.windll.user32.GetWindow
+        get_window.argtypes = (wintypes.HWND, wintypes.UINT)
+        get_window.restype = wintypes.HWND
+        warning_handle = int(warning.winId())
+        handle = get_window(int(tile.winId()), 3)  # GW_HWNDPREV
+        while handle and handle != warning_handle:
+            handle = get_window(handle, 3)
+        self.assertEqual(handle, warning_handle, 'Fullscreen tile covered the still-active warning')
+        self.assertEqual(get_window(warning_handle, 4), int(tile.winId()))  # GW_OWNER
+        self.assertEqual(get_window(int(previous.winId()), 4), int(tile.winId()))
+        self.assertIs(warning.windowHandle().transientParent(), tile.windowHandle())
+        self.assertIs(previous.windowHandle().transientParent(), tile.windowHandle())
+        self.assertGreaterEqual(previous.y(), tile.mapToGlobal(tile.stream_badge.geometry().bottomLeft()).y())
+        self.assertGreater(warning.y(), previous.geometry().bottom())
+
+        QTest.mouseClick(warning.action, Qt.LeftButton)
+        action.assert_called_once_with()
+        window._exit_fullscreen()
+        self.assertIs(previous.windowHandle().transientParent(), window.windowHandle())
+        self.assertEqual(get_window(int(previous.winId()), 4), int(window.winId()))
+        self.assertTrue(previous.timer.isActive())
+        previous.timer.timeout.emit()
+        self.assertFalse(previous.isVisible())
+        center = window.sidebar.notification_button.center
+        self.assertIn('进入全屏前的提示', [entry.message for entry in center.entries])
 
     def test_export_updates_one_card_and_history_entry_per_file(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
