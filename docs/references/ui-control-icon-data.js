@@ -12,6 +12,7 @@ const labSourceGlyphs = [
   ["侧栏与功能栏", "rail-tv", "频道预设", "ddm/sidebar_navigation.py", "<rect x=\"3\" y=\"7\" width=\"18\" height=\"13\" rx=\"2\"/><path d=\"m8 3 4 4 4-4\"/>"],
   ["侧栏与功能栏", "rail-open_folder", "打开文件夹", "ddm/sidebar_navigation.py", "<path d=\"M3 19V6a1 1 0 0 1 1-1h5l2 3h8a1 1 0 0 1 1 1v2M3 19l3-8h16l-3 8Z\"/>"],
   ["侧栏与功能栏", "rail-plus", "添加", "ddm/sidebar_navigation.py", "<path d=\"M12 5v14M5 12h14\"/>"],
+  ["画面墙", "rail-replace", "替换直播间", "ddm/sidebar_navigation.py", "<path d=\"M4 8h16m-4-4 4 4-4 4m4 4H4m4-4-4 4 4 4\"/>"],
   ["侧栏与功能栏", "rail-more", "更多", "ddm/sidebar_navigation.py", "<circle cx=\"5\" cy=\"12\" r=\".8\"/><circle cx=\"12\" cy=\"12\" r=\".8\"/><circle cx=\"19\" cy=\"12\" r=\".8\"/>"],
   ["侧栏与功能栏", "rail-collapse", "收起侧栏", "ddm/sidebar_navigation.py", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"3\"/><path d=\"M9 3v18m7-12-3 3 3 3\"/>"],
   ["侧栏与功能栏", "rail-expand", "展开侧栏", "ddm/sidebar_navigation.py", "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"3\"/><path d=\"M9 3v18m4-12 3 3-3 3\"/>"],

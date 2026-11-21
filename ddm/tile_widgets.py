@@ -29,6 +29,7 @@ from .playback_controls import (
     VolumePopup
 )
 from .sidebar_drag import ROOM_MIME
+from .sidebar_navigation import NavigationButton
 from .ui.labels import ElidedLabel
 from .ui.slider import SettingsSlider
 from .video_danmaku import VideoDanmaku
@@ -135,6 +136,19 @@ class Tile(QFrame):
         self.add_room_button.setToolTip("添加到此空位；也可拖入关注的直播间")
         self.add_room_button.clicked.connect(self.addRoomRequested.emit)
         self.add_room_button.hide()
+        self.offline_room_actions = QWidget(self.video)
+        offline_row = QHBoxLayout(self.offline_room_actions)
+        offline_row.setContentsMargins(0, 0, 0, 0)
+        offline_row.setSpacing(6)
+        self.offline_room_status = QLabel(self.offline_room_actions)
+        self.offline_room_status.setObjectName('TilePlaceholder')
+        self.offline_room_status.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        offline_row.addWidget(self.offline_room_status)
+        self.replace_room_button = NavigationButton('替换直播间', 'replace', self.offline_room_actions)
+        self.replace_room_button.setFixedSize(24, 24)
+        self.replace_room_button.clicked.connect(self.addRoomRequested.emit)
+        offline_row.addWidget(self.replace_room_button)
+        self.offline_room_actions.hide()
         self.cover.setAlignment(Qt.AlignCenter)
         self.cover.setObjectName("TilePlaceholder")
         self.cover.setAttribute(Qt.WA_TransparentForMouseEvents, True)

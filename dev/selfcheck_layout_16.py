@@ -121,7 +121,7 @@ def main():
             assert all(not tile.room.get("room_id") for tile in empty), layout
             assert all(tile.add_room_button.isVisible() and tile.add_room_button.isEnabled()
                        and "添加直播间" in tile.add_room_button.text() for tile in empty), layout
-            assert all(tile.add_room_button.isVisible() and tile.add_room_button.text() == '替换直播间'
+            assert all(tile.replace_room_button.isVisible() and tile.replace_room_button.text() == ''
                        for tile in original_rooms), layout
     finally:
         occupied_wall.close()

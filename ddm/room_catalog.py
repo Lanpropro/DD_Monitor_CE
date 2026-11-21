@@ -117,9 +117,12 @@ class RoomCatalog:
                     presets.append((room.as_dict(), (branding or {}).get('avatar_path')))
         self._add_panel.set_presets(presets, file_filters)
         target = self._add_target
+        focus_on_close = None
+        if target is not None:
+            focus_on_close = target.replace_room_button if self._replacement_room is not None else target.add_room_button
         self._add_panel.open(can_choose_followed=target is not None,
                              replacing=self._replacement_room is not None,
-                             focus_on_close=target.add_room_button if target is not None else None)
+                             focus_on_close=focus_on_close)
 
     def _is_replacement(self, target):
         return target is self._add_target and self._replacement_room is not None
