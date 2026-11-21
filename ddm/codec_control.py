@@ -154,8 +154,6 @@ class CodecControl:
         if existing is not None:
             existing.set_presentation_owner(tile.window())
             existing.refresh()
-            if not existing.isVisible():
-                existing.position_for_tile(tile)
             existing.show()
             existing.raise_()
             existing.activateWindow()
@@ -166,7 +164,6 @@ class CodecControl:
         dialog.finished.connect(lambda _result: host._stream_info_dialogs.pop(tile, None))
         host._stream_info_dialogs[tile] = dialog
         dialog.set_presentation_owner(tile.window())
-        dialog.position_for_tile(tile)
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()

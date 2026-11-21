@@ -131,20 +131,6 @@ class StreamInfoTests(unittest.TestCase):
         dialog.hide()
         self.assertFalse(dialog.timer.isActive())
 
-    def test_dialog_prefers_tile_top_left_and_clamps_to_its_screen(self):
-        tile = QWidget()
-        self.addCleanup(tile.deleteLater)
-        area = tile.screen().availableGeometry()
-        tile.setGeometry(QRect(area.topLeft() + QPoint(16, 20), tile.size()))
-        dialog = StreamInfoDialog(lambda: {'state': 'playing'})
-        self.addCleanup(dialog.deleteLater)
-        dialog.position_for_tile(tile)
-        self.assertEqual(dialog.pos(), tile.mapToGlobal(QPoint(10, 10)))
-        tile.move(area.bottomRight() - QPoint(30, 40))
-        dialog.position_for_tile(tile)
-        self.assertTrue(area.contains(dialog.geometry()))
-        self.assertEqual(dialog.geometry().bottomRight(), area.bottomRight())
-
     def test_main_window_menu_is_wired_to_its_own_player(self):
         with ExitStack() as stack:
             for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
@@ -199,9 +185,14 @@ class StreamInfoTests(unittest.TestCase):
         MainWindow._open_tile_stream_info(window, second)
         dialog = window._stream_info_dialogs[first]
         self.addCleanup(dialog.close)
+        dialog.move(QPoint(60, 55))
+        position = dialog.pos()
+        dialog.hide()
+        first.move(QPoint(260, 180))
         self.addCleanup(window._stream_info_dialogs[second].close)
         MainWindow._open_tile_stream_info(window, first)
         self.assertEqual(len(window._stream_info_dialogs), 2)
+        self.assertEqual(dialog.pos(), position)
         self.assertIs(window._stream_info_dialogs[first], dialog)
         first.room = {'room_id': '303', 'uname': 'Replacement'}
         replacement = Mock()
