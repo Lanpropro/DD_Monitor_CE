@@ -25,7 +25,6 @@ PATHS = {
     'open_folder': '<path d="M3 19V6a1 1 0 0 1 1-1h5l2 3h8a1 1 0 0 1 1 1v2M3 19l3-8h16l-3 8Z"/>',
     'plus': '<path d="M12 5v14M5 12h14"/>',
     'more': '<circle cx="5" cy="12" r=".8"/><circle cx="12" cy="12" r=".8"/><circle cx="19" cy="12" r=".8"/>',
-    'list': '<path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/>',
     'collapse': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m7-12-3 3 3 3"/>',
     'expand': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m4-12 3 3-3 3"/>',
     'folders_expand': '<path d="m6 4 6 5 6-5M6 14l6 5 6-5"/>',
@@ -197,10 +196,6 @@ class SidebarNavigation(QObject):
         self.folder_toggle_button.setFixedSize(26, 26)
         self.folder_toggle_button.clicked.connect(sidebar.toggle_all_folders)
         filters.addWidget(self.folder_toggle_button)
-        self.density_button = NavigationButton('切换卡片／列表', 'list', self.filters)
-        self.density_button.setFixedSize(26, 26)
-        self.density_button.clicked.connect(self.toggle_density)
-        filters.addWidget(self.density_button)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
         from .sidebar_icon_drag import SidebarIconDrag
         self.icon_drag = SidebarIconDrag(self)
@@ -330,7 +325,6 @@ class SidebarNavigation(QObject):
         self.live_button.setToolTip(f'仅显示直播中（{live_count}）')
         self.all_button.setChecked(not sidebar.live_only)
         self.live_button.setChecked(sidebar.live_only)
-        self.density_button.setToolTip('切换为列表' if sidebar.card_mode else '切换为封面卡片')
         if hasattr(sidebar, 'plugin_pages'):
             sidebar.plugin_pages.sync()
 
@@ -357,18 +351,15 @@ class SidebarNavigation(QObject):
     def open_manage_menu(self):
         sidebar = self.sidebar
         menu = self._menu(self.manage_button)
-        action = menu.addAction('多选管理')
-        action.setCheckable(True)
-        action.setChecked(sidebar.select_mode)
-        action.triggered.connect(sidebar.set_select_mode)
-        menu.addAction('刷新关注状态').triggered.connect(sidebar.refresh_button.click)
         if sidebar.side != 'top':
-            menu.addSeparator()
+            density = menu.addAction('切换为列表' if sidebar.card_mode else '切换为封面卡片')
+            density.setEnabled(sidebar.plugin_pages.current is None)
+            density.triggered.connect(self.toggle_density)
             menu.addAction('全部展开文件夹').triggered.connect(lambda: sidebar.set_all_folders_collapsed(False))
             fold = menu.addAction('恢复展开前收起的文件夹' if sidebar.folder_collapse_mode == 'previous' and sidebar._bulk_fold_previous
                                   else '全部折叠文件夹')
             fold.triggered.connect(lambda: sidebar.set_all_folders_collapsed(True))
-        menu.addSeparator()
+            menu.addSeparator()
         sorting = menu.addMenu('默认分组排序')
         sidebar.add_folder_sort_menu(sorting, sidebar.default_folder())
         menu.popup(self.manage_button.mapToGlobal(QPoint(0, self.manage_button.height()+4)))
@@ -419,7 +410,6 @@ class SidebarNavigation(QObject):
         self.header.setVisible(left)
         self.filters.setVisible(not sidebar.collapsed and (left or not sidebar.select_mode))
         self.folder_toggle_button.setVisible(left or (not sidebar.collapsed and not sidebar.select_mode))
-        self.density_button.setVisible(left)
         self.divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         self.tools_divider.setVisible(left and bool(sidebar.workspace_controls.pinned()))
         if not left:
@@ -433,6 +423,15 @@ class SidebarNavigation(QObject):
             sidebar._layout.insertWidget(0, self.header)
         sidebar._layout.removeWidget(self.filters)
         sidebar._layout.insertWidget(sidebar._layout.indexOf(sidebar.search)+1, self.filters)
+        for button in (sidebar.batch_button, sidebar.refresh_button):
+            if self.filters.layout().indexOf(button) < 0:
+                sidebar._detach_from_rows(button)
+                self.filters.layout().addWidget(button)
+                button.setObjectName('BarIcon')
+                button.setFixedSize(26, 26)
+                button.style().unpolish(button)
+                button.style().polish(button)
+            button.setVisible(not sidebar.collapsed)
         if not self.in_rail:
             for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
                            sidebar.picture_in_picture_button,

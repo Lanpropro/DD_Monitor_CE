@@ -53,11 +53,11 @@
 
 | 试样 | 软件入口 | 可核对的操作或表现 | 源码 | 详情标识 | 实装外观与状态核对记录 |
 | --- | --- | --- | --- | --- | --- |
-| 收起／展开关注栏 | 关注栏 › 顶部 | 横屏下点击在「«」和「»」之间切换。 | [sidebar_widgets.py](../../ddm/sidebar_widgets.py) | `#control-sidebar-toggle` | 透明底和箭头轮换，接受键盘焦点。 |
+| 收起／展开关注栏 | 关注栏 › 顶部 | 点击切换关注栏，分栏图标的箭头指向收起或展开方向。 | [playback_controls.py](../../ddm/playback_controls.py) | `#control-sidebar-toggle` | 透明底和箭头轮换，接受键盘焦点。 |
 | 关注直播筛选 | 关注栏 › 全部／直播中 | 切换全部直播间与直播中的关注项。 | [sidebar_navigation.py](../../ddm/sidebar_navigation.py) | `#control-sidebar-filter` | 实装图标结构、粉色直播点和选择底色。 |
-| 多选管理按钮 | 竖屏关注栏 › 工具栏 | 在横栏中开始或结束多选管理。 | [sidebar_widgets.py](../../ddm/sidebar_widgets.py) | `#control-sidebar-multi` | 叠层勾选图标和进入／退出多选反馈。 |
+| 多选管理按钮 | 关注栏 › 工具栏 | 点击叠层勾选图标进入多选管理。 | [sidebar_widgets.py](../../ddm/sidebar_widgets.py) | `#control-sidebar-multi` | 叠层勾选图标和进入／退出多选反馈。 |
 | 关注头像条 | 竖屏关注栏 › 收起后的头像条 | 点头像选择示例直播间。粉点表示直播中，圆弧表示置顶。 | [avatar_widgets.py](../../ddm/avatar_widgets.py) | `#control-avatar-strip` | 圆头像、直播点、置顶弧和选择操作。 |
-| 关注管理菜单 | 关注栏 › 关注管理 | 打开多选、刷新、展开收起和分组排序选项。 | [sidebar_navigation.py](../../ddm/sidebar_navigation.py) | `#control-sidebar-menu` | 菜单行、分组、子菜单和选择反馈。 |
+| 关注管理菜单 | 关注栏 › 关注管理 | 管理分组排序，左侧关注栏还可切换卡片／列表以及展开或折叠文件夹。 | [sidebar_navigation.py](../../ddm/sidebar_navigation.py) | `#control-sidebar-menu` | 菜单行、分组、子菜单和选择反馈。 |
 | 长标题省略 | 插件商店 › 插件名称 | 悬停查看完整标题，调整预览宽度可观察省略。 | [plugin_store_ui.py](../../ddm/plugin_store_ui.py) | `#control-elided-title` | 单行截断、完整标题提示及宽度影响。 |
 
 ### 添加与关注

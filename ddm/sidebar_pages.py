@@ -59,6 +59,7 @@ class SidebarPages(QObject):
         sidebar = self.sidebar
         available = sidebar.side == 'left' and not sidebar.collapsed
         if not available:
+            sidebar.batch_button.setEnabled(True)
             if self.current is not None:
                 self.select()
                 return
@@ -85,7 +86,7 @@ class SidebarPages(QObject):
         sidebar.scroll.setVisible(not active)
         nav = sidebar.navigation
         # Preserve the host header/search/filter structure; only swap content.
-        for widget in (nav.folder_toggle_button, nav.density_button):
+        for widget in (nav.folder_toggle_button, sidebar.batch_button):
             widget.setEnabled(not active)
         if active:
             sidebar.batch_bar.hide()

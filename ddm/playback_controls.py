@@ -312,47 +312,36 @@ def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
 
 
 class SidebarToggleButton(QPushButton):
-    """收起 / 展开的箭头键。
-
-    横屏（侧栏在左）沿用原来的左右字形「« / »」；竖屏时侧栏变成顶部横栏，
-    左右箭头方向不对，改成**自己画的上下箭头**（用户要求）。上下箭头不用
-    `⌃`/`⌄` 这类字形 —— 雅黑下不可靠，和 `BarIconButton` 一个路子自己画。
-    展开时箭头朝上（点一下收起来），收起时朝下（点一下放下来）。
-    """
+    """分栏轮廓和方向箭头，随关注栏的摆放方向转动。"""
 
     def __init__(self, parent=None):
-        super().__init__("«", parent)
+        super().__init__(parent)
         self.setObjectName("SidebarToggle")
+        self.setFixedSize(24, 24)
         self.setCursor(Qt.PointingHandCursor)
-        self.portrait = False
-        self.collapsed = False
+        self.set_orientation(False, False)
 
     def set_orientation(self, portrait: bool, collapsed: bool) -> None:
-        """竖屏走自绘的上下箭头，横屏回到原来的字形。"""
         self.portrait = bool(portrait)
         self.collapsed = bool(collapsed)
-        self.setText("" if self.portrait else ("»" if self.collapsed else "«"))
+        self.setAccessibleName('展开关注栏' if self.collapsed else '收起关注栏')
         self.update()
 
     def paintEvent(self, event) -> None:
-        super().paintEvent(event)          # 背景 / 悬停底色交给样式表
-        if not self.portrait:
-            return                         # 横屏：字形已经由 QPushButton 画好
+        super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(theme.qcolor(theme.TEXT1 if self.underMouse() else theme.TEXT3), 1.8)
+        pen = QPen(theme.qcolor(theme.TEXT1 if self.underMouse() else theme.TEXT2), 1.5)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)
-        center = self.rect().center()
-        half = 4.2
-        up = not self.collapsed
-        tip_y = center.y() - 3.4 if up else center.y() + 3.4
-        base_y = center.y() + 3.4 if up else center.y() - 3.4
-        painter.drawLine(QPointF(center.x() - half, base_y),
-                         QPointF(center.x(), tip_y))
-        painter.drawLine(QPointF(center.x() + half, base_y),
-                         QPointF(center.x(), tip_y))
+        painter.translate(QRectF(self.rect()).center())
+        if self.portrait:
+            painter.rotate(90)
+        painter.drawRoundedRect(QRectF(-6.75, -6.75, 13.5, 13.5), 2.25, 2.25)
+        painter.drawLine(QPointF(-2.25, -6.75), QPointF(-2.25, 6.75))
+        tail, tip = (0.75, 3.0) if self.collapsed else (3.0, 0.75)
+        painter.drawPolyline(QPolygonF([QPointF(tail, -2.25), QPointF(tip, 0), QPointF(tail, 2.25)]))
 
 
 class DanmakuSettingsButton(TileButton):

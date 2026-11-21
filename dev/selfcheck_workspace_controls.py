@@ -875,9 +875,26 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.search.clear()
         nav.all_button.click()
         self.assertEqual(len(self.sidebar.visible_items()), 8)
-        nav.density_button.click()
+        calls = []
+        self.sidebar.refreshRequested.connect(lambda: calls.append('refresh'))
+        self.assertTrue(self.sidebar.batch_button.isVisible() and self.sidebar.refresh_button.isVisible())
+        self.sidebar.refresh_button.click()
+        self.assertEqual(calls, ['refresh'])
+        self.sidebar.batch_button.click()
+        self.assertTrue(self.sidebar.select_mode)
+        self.sidebar.batch_button.click()
+        self.assertFalse(self.sidebar.select_mode)
+
+        def choose_density(label):
+            nav.open_manage_menu()
+            actions = {action.text(): action for action in nav.menu.actions()}
+            self.assertTrue({'多选管理', '刷新关注状态'}.isdisjoint(actions))
+            actions[label].trigger()
+            nav.menu.close()
+
+        choose_density('切换为列表')
         self.assertFalse(self.sidebar.card_mode)
-        nav.density_button.click()
+        choose_density('切换为封面卡片')
         self.assertTrue(self.sidebar.card_mode)
         self.assertEqual([room['room_id'] for room in self.sidebar.rooms()], before)
         self.assertEqual(self.sidebar.scroll.width(), theme.SIDEBAR_WIDTH-24)

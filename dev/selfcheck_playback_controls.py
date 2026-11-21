@@ -169,10 +169,15 @@ assert not any(name in sys.modules for name in (
         pause.set_paused(False)
         self.assertEqual(pause.toolTip(), '暂停这一路')
         sidebar = ui.SidebarToggleButton(self.owner)
-        for portrait, collapsed, text in ((False, False, '«'), (False, True, '»'),
-                                           (True, False, ''), (True, True, '')):
-            sidebar.set_orientation(portrait, collapsed)
-            self.assertEqual(sidebar.text(), text)
+        sidebar.show()
+        for portrait in (False, True):
+            sidebar.set_orientation(portrait, False)
+            self.assertEqual(sidebar.accessibleName(), '收起关注栏')
+            before = sidebar.grab().toImage()
+            sidebar.set_orientation(portrait, True)
+            self.assertEqual(sidebar.accessibleName(), '展开关注栏')
+            self.assertFalse(sidebar.text())
+            self.assertNotEqual(sidebar.grab().toImage(), before)
         danmaku = ui.DanmakuToggleButton('弹', self.owner)
         danmaku.setCheckable(True)
         QTest.mouseClick(danmaku, Qt.LeftButton)

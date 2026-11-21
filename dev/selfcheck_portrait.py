@@ -403,37 +403,19 @@ def part_toggle_arrow(app) -> None:
     settle(app, 1.0)
     sidebar = window.sidebar
     toggle = sidebar.toggle_button
+    images = []
     for collapsed in (False, True):
         sidebar.set_collapsed(collapsed, animate=False)
         settle(app, 0.4)
-        image = toggle.grab().toImage()
-        pixels = [(x, y) for y in range(image.height()) for x in range(image.width())
-                  if image.pixelColor(x, y).alpha() > 60]
-        assert pixels, "竖屏收起键要真的画出箭头来"
-        xs = [x for x, _y in pixels]
-        ys = [y for _x, y in pixels]
-        top, bottom = min(ys), max(ys)
-        top_xs = [x for x, y in pixels if y <= top + 1]
-        bottom_xs = [x for x, y in pixels if y >= bottom - 1]
-        top_span = max(top_xs) - min(top_xs)
-        bottom_span = max(bottom_xs) - min(bottom_xs)
-        print(f"  竖屏 collapsed={collapsed}：方向={sidebar.side} 文字={toggle.text()!r} "
-              f"箭头 {max(xs) - min(xs) + 1}x{max(ys) - min(ys) + 1} "
-              f"上沿宽={top_span} 下沿宽={bottom_span}")
+        images.append(toggle.grab().toImage())
         assert sidebar.side == "top"
-        assert toggle.text() == "", "竖屏不该再用左右字形"
+        assert not toggle.text()
+        assert toggle.accessibleName() == ('展开关注栏' if collapsed else '收起关注栏')
         assert toggle.portrait is True and toggle.collapsed == collapsed
-        assert abs((min(xs) + max(xs)) / 2 - image.width() / 2) <= 3, "箭头要横向居中"
-        assert abs((min(ys) + max(ys)) / 2 - image.height() / 2) <= 3, "箭头要纵向居中"
-        if collapsed:
-            assert bottom_span < top_span, \
-                f"收起时箭头要朝下（尖端在下）：上沿 {top_span} 下沿 {bottom_span}"
-        else:
-            assert top_span < bottom_span, \
-                f"展开时箭头要朝上（尖端在上）：上沿 {top_span} 下沿 {bottom_span}"
+    assert images[0] != images[1], '竖屏展开与收起应绘制不同的方向'
     sidebar.set_collapsed(False, animate=False)
     settle(app, 0.4)
-    # 横屏回到左右字形
+    # 横屏分栏轮廓转回左右方向。
     window.resize(1600, 900)
     settle(app, 1.0)
     other = window.sidebar
@@ -441,11 +423,11 @@ def part_toggle_arrow(app) -> None:
     settle(app, 0.4)
     print(f"  横屏：方向={other.side} 文字={other.toggle_button.text()!r} "
           f"portrait={other.toggle_button.portrait}")
-    assert other.side == "left" and other.toggle_button.text() == "«"
+    assert other.side == "left" and other.toggle_button.accessibleName() == '收起关注栏'
     assert other.toggle_button.portrait is False
     other.set_collapsed(True, animate=False)
     settle(app, 0.4)
-    assert other.toggle_button.text() == "»", "横屏收起时还是原来的右箭头"
+    assert other.toggle_button.accessibleName() == '展开关注栏' and not other.toggle_button.text()
     window.close()
     settle(app, 0.4)
 

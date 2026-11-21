@@ -135,15 +135,27 @@ class PortraitUiTests(unittest.TestCase):
                 self.assertEqual(portrait.controls_box.indexOf(self.sidebar.toggle_button),
                                  portrait.controls_box.indexOf(self.sidebar.navigation.add_button) - 1)
                 self.assertEqual(self.sidebar.navigation.folder_toggle_button.isVisible(), not collapsed)
-                self.assertFalse(self.sidebar.navigation.density_button.isVisible())
-                self.assertTrue(all(not button.isVisible() for button in (
-                    self.sidebar.refresh_button, self.sidebar.batch_button)))
+                for button in (self.sidebar.batch_button, self.sidebar.refresh_button):
+                    self.assertEqual(button.isVisible(), not collapsed)
+                    self.assertIs(button.parentWidget(), portrait.controls)
+
+    def test_follow_toolbar_keeps_buttons_inside_narrow_portrait_width(self):
+        sidebar, nav = self.sidebar, self.sidebar.navigation
+        for width in (360, 450, 720):
+            self.portrait(width)
+            row = sidebar.presentation_control.orientation.portrait.controls
+            tools = (sidebar.search, nav.filters, nav.folder_toggle_button, sidebar.batch_button,
+                     sidebar.refresh_button, sidebar.toggle_button, nav.add_button, nav.manage_button)
+            for button in tools:
+                self.assertTrue(button.isVisible() and row.rect().contains(button.geometry()), (width, button.geometry()))
+            for left, right in zip(tools, tools[1:]):
+                self.assertLess(left.geometry().right(), right.x(), width)
 
     def test_landscape_restores_control_identity_parents_styles_and_signals(self):
         sidebar = self.sidebar
         controls = [sidebar.search, sidebar.account_row, sidebar.layout_button,
                     sidebar.picture_in_picture_button, sidebar.notification_button,
-                    sidebar.appearance_button, sidebar.settings_button, sidebar.refresh_button,
+                    sidebar.appearance_button, sidebar.settings_button, sidebar.refresh_button, sidebar.batch_button,
                     sidebar.navigation.add_button, sidebar.navigation.manage_button,
                     sidebar.navigation.filters, sidebar.workspace_controls.launcher,
                     sidebar.navigation.follow_button, sidebar.toggle_button, sidebar.clear_wall_button,
@@ -166,8 +178,9 @@ class PortraitUiTests(unittest.TestCase):
                 self.assertEqual(widget.objectName(), name)
                 self.assertEqual(widget.size(), size, widget.accessibleName())
             self.assertFalse(bool(sidebar.navigation.folder_toggle_button.property('horizontalFolderIcon')))
-            self.assertLess(sidebar.navigation.filters.layout().indexOf(sidebar.navigation.folder_toggle_button),
-                            sidebar.navigation.filters.layout().indexOf(sidebar.navigation.density_button))
+            tools = sidebar.navigation.filters.layout()
+            self.assertLess(tools.indexOf(sidebar.navigation.folder_toggle_button), tools.indexOf(sidebar.batch_button))
+            self.assertLess(tools.indexOf(sidebar.batch_button), tools.indexOf(sidebar.refresh_button))
             self.assertFalse(sidebar.scroll.horizontal_only)
             self.assertTrue(sidebar.navigation.rail.isVisible())
             self.assertEqual(sidebar._layout.indexOf(sidebar.navigation.filters),
@@ -199,16 +212,21 @@ class PortraitUiTests(unittest.TestCase):
         sidebar.addRoomClicked.connect(lambda: called.append('add'))
         sidebar.pictureInPictureRequested.connect(lambda: called.append('pip'))
         sidebar.clearWallRequested.connect(lambda: called.append('clear'))
+        sidebar.refreshRequested.connect(lambda: called.append('refresh'))
         nav.manage_button.click()
         settle()
         actions = {action.text(): action for action in nav.menu.actions()}
         self.assertTrue({'添加直播间…', '导入关注…', '新建文件夹…', '布局预设', '画中画', '切换外观', '切换卡片／列表',
-                         '清空画面墙', '全部展开文件夹', '全部折叠文件夹'}.isdisjoint(actions))
+                         '清空画面墙', '全部展开文件夹', '全部折叠文件夹', '多选管理', '刷新关注状态'}.isdisjoint(actions))
+        nav.menu.close()
+        sidebar.refresh_button.click()
+        sidebar.batch_button.click()
+        self.assertTrue(sidebar.select_mode and sidebar.batch_bar.isVisible())
+        sidebar.set_select_mode(False)
         sidebar.add_button.click()
         sidebar.picture_in_picture_button.click()
         sidebar.clear_wall_button.click()
-        self.assertEqual(called, ['add', 'pip', 'clear'])
-        nav.menu.close()
+        self.assertEqual(called, ['refresh', 'add', 'pip', 'clear'])
 
     def test_external_folder_toggle_uses_existing_expand_and_restore_policy(self):
         self.portrait(450)
