@@ -55,6 +55,7 @@ class SystemTray(QObject):
         super().__init__(window)
         self.window = window
         self.icon = None
+        self.monitor_panel = None
         self.exit_requested = False
         self.playback_suspended = False
         self._saved_playback = {}
@@ -74,12 +75,25 @@ class SystemTray(QObject):
         self.preview_action = QWidgetAction(self.menu)
         self.preview_action.setDefaultWidget(self.layout_preview)
         self.menu.addAction(self.preview_action)
+        from .streamer_monitor_panel import StreamerMonitorPanel
+        self.monitor_menu = self.menu.addMenu('主播监控')
+        self.monitor_menu.setStyleSheet('QMenu::item:selected { background: transparent; }')
+        self.monitor_panel = StreamerMonitorPanel(self.monitor_menu)
+        self.monitor_panel.read_rows = window.capture_control.monitor_rows
+        monitor_content = QWidgetAction(self.monitor_menu)
+        monitor_content.setDefaultWidget(self.monitor_panel)
+        self.monitor_menu.addAction(monitor_content)
+        self.monitor_menu.addSeparator()
+        self.monitor_settings_action = self.monitor_menu.addAction('主播监控设置', self._open_monitor_settings)
+        self.monitor_menu.aboutToShow.connect(self.monitor_panel.refresh)
+        self.monitor_menu.menuAction().setVisible(False)
         self.toggle_action = self.menu.addAction("显示/隐藏窗口", self.toggle)
         self.pip_action = self.menu.addAction("画中画…", self.open_picture_in_picture)
         self.exit_action = self.menu.addAction("退出", self.request_exit)
-        self.menu_actions = dict(layout_preview=self.preview_action, toggle=self.toggle_action,
+        self.menu_actions = dict(layout_preview=self.preview_action, streamer_monitor=self.monitor_menu.menuAction(),
+                                 toggle=self.toggle_action,
                                  pip=self.pip_action, exit=self.exit_action)
-        self.menu_separators = [QAction(self.menu) for _ in range(3)]
+        self.menu_separators = [QAction(self.menu) for _ in range(len(self.menu_actions) - 1)]
         for separator in self.menu_separators:
             separator.setSeparator(True)
         self.menu.aboutToShow.connect(self.update_menu)
@@ -109,7 +123,7 @@ class SystemTray(QObject):
         from .tray_menu import tray_menu_choices
         for action in self.menu.actions():
             self.menu.removeAction(action)
-        groups = dict(layout_preview=0, toggle=1, pip=1, exit=2)
+        groups = dict(layout_preview=0, streamer_monitor=0, toggle=1, pip=1, exit=2)
         previous, separator_index = None, 0
         for entry in tray_menu_choices(self.window.settings.get('tray_context_menu')):
             key = entry['id']
@@ -138,6 +152,12 @@ class SystemTray(QObject):
             self.window.picture_in_picture.restore(activate=True)
         else:
             self.restore()
+
+    def _open_monitor_settings(self):
+        if not self.window._closing:
+            self.monitor_menu.hide()
+            self._restore_from_preview()
+            self.window.open_settings('streamer_defaults')
 
     def open_picture_in_picture(self):
         if not self.window._closing:
@@ -270,4 +290,5 @@ class SystemTray(QObject):
 
     def shutdown(self):
         if self.icon is not None:
+            self.monitor_menu.hide()
             self.icon.hide()

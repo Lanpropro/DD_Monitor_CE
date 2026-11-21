@@ -430,7 +430,7 @@ class TrayMenuChoicesTests(unittest.TestCase):
 
     def test_choices_clean_restore_defaults_and_keep_explicit_all_off(self):
         from ddm.tray_menu import TRAY_MENU_ITEMS, tray_menu_choices
-        defaults = [{'id': key, 'enabled': True} for key, _label in TRAY_MENU_ITEMS]
+        defaults = [{'id': key, 'enabled': key != 'streamer_monitor'} for key, _label in TRAY_MENU_ITEMS]
         self.assertIsNone(config.DEFAULT_SETTINGS['tray_context_menu'])
         for value in (None, [], 'invalid'):
             self.assertEqual(tray_menu_choices(value), defaults)
@@ -438,7 +438,9 @@ class TrayMenuChoicesTests(unittest.TestCase):
             {'id': 'pip', 'enabled': False}, {'id': 'unknown'}, None,
             {'id': 'pip', 'enabled': True}, {'id': 'exit'}, {'id': 'toggle', 'enabled': 0}])
         self.assertEqual(result, [dict(id='pip', enabled=False), dict(id='exit', enabled=True),
-                                  dict(id='toggle', enabled=False), dict(id='layout_preview', enabled=True)])
+                                  dict(id='toggle', enabled=False), dict(id='layout_preview', enabled=True),
+                                  dict(id='streamer_monitor', enabled=False)])
+        self.assertFalse(tray_menu_choices([{'id': 'streamer_monitor'}])[0]['enabled'])
         disabled = [{'id': key, 'enabled': False} for key, _label in TRAY_MENU_ITEMS]
         self.assertEqual(tray_menu_choices(disabled), disabled)
 
@@ -448,6 +450,7 @@ class TrayMenuChoicesTests(unittest.TestCase):
         window = QWidget()
         window.settings = {}
         window._closing = False
+        window.capture_control = SimpleNamespace(monitor_rows=Mock(return_value=()))
         window.picture_in_picture = SimpleNamespace(active=False, manage=Mock())
         window.wall = QWidget(window)
         window.wall.resize(400, 200)
@@ -486,6 +489,11 @@ class TrayMenuChoicesTests(unittest.TestCase):
         self.assertEqual(self.visible_ids(tray), ['exit', 'pip', 'layout_preview', 'toggle'])
         self.assertEqual(sum(action.isSeparator() for action in tray.menu.actions()), 3)
         self.assertEqual(len(tray.menu.findChildren(type(tray.exit_action))), initial_action_count)
+        window.settings['tray_context_menu'] = [dict(id=key, enabled=True) for key in
+            ('layout_preview', 'toggle', 'streamer_monitor', 'pip', 'exit')]
+        tray.menu.aboutToShow.emit()
+        self.assertEqual(self.visible_ids(tray), ['layout_preview', 'toggle', 'streamer_monitor', 'pip', 'exit'])
+        self.assertEqual(sum(action.isSeparator() for action in tray.menu.actions()), 4)
 
     def test_all_off_defaults_and_callbacks_keep_restore_accessible(self):
         from ddm.tray_menu import TRAY_MENU_ITEMS
@@ -512,12 +520,68 @@ class TrayMenuChoicesTests(unittest.TestCase):
 
     def test_choices_roundtrip_uses_only_temporary_configuration(self):
         from ddm.tray_menu import tray_menu_choices
-        choices = tray_menu_choices([dict(id='exit', enabled=False), dict(id='pip', enabled=True)])
+        choices = tray_menu_choices([dict(id='exit', enabled=False), dict(id='streamer_monitor', enabled=True),
+                                     dict(id='pip', enabled=True)])
         with tempfile.TemporaryDirectory(prefix='ddm-tray-menu-') as temporary:
             with (patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')),
                   patch.dict(os.environ, {'DDM_NO_SAVE': ''})):
                 config.save({'version': 1, 'settings': {'tray_context_menu': choices}}, raise_errors=True)
                 self.assertEqual(config.load()['settings']['tray_context_menu'], choices)
+
+    def test_streamer_monitor_submenu_updates_while_hidden_and_routes_to_settings(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+        from ddm.capture_control import MonitorEntry
+
+        window, tray = self.tray()
+        provider = window.capture_control.monitor_rows
+        window.open_settings = Mock()
+        page = TraySettingsPage(window.settings)
+        self.addCleanup(page.deleteLater)
+        enabled = page.tray_menu.checks['streamer_monitor']
+        self.assertFalse(enabled.isChecked())
+        enabled.click()
+        window.settings.update(page.values())
+        self.assertIn('streamer_monitor', [key for key, _ in page.tray_menu.preview.rows()])
+
+        tray.menu.popup(QPoint(30, 30))
+        self.app.processEvents()
+        self.assertEqual(self.visible_ids(tray), ['layout_preview', 'streamer_monitor', 'toggle', 'pip', 'exit'])
+        provider.assert_not_called()
+        self.assertFalse(window.isVisible())
+
+        provider.return_value = (MonitorEntry('1001', '录制示例', 'recording', 'bilibili', '9090', started_at=100),
+                                 *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring')
+                                   for index in range(12)))
+        monitor_action = tray.menu_actions['streamer_monitor']
+        with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=161):
+            tray.menu.setActiveAction(monitor_action)
+            QTest.keyClick(tray.menu, Qt.Key_Right)
+            self.app.processEvents()
+        panel = tray.monitor_panel
+        self.assertTrue(tray.monitor_menu.isVisible())
+        self.assertTrue(panel._timer.isActive())
+        self.assertGreater(panel.scroll.verticalScrollBar().maximum(), 0)
+        self.assertFalse(window.isVisible())
+        row = panel.rows.itemAt(0).widget()
+        self.assertEqual(row.identifier.text(), 'ID 9090')
+        self.assertEqual(row.platform_badge.accessibleName(), '哔哩哔哩')
+        self.assertEqual(row.status.text(), '正在录制')
+        self.assertEqual(row.elapsed.text(), '00:01:01')
+        with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=162):
+            panel._timer.timeout.emit()
+        self.assertEqual(row.elapsed.text(), '00:01:02')
+
+        with patch.object(tray, 'restore', side_effect=window.show) as restore:
+            QTest.keyClick(tray.monitor_menu, Qt.Key_Down)
+            self.assertIs(tray.monitor_menu.activeAction(), tray.monitor_settings_action)
+            QTest.keyClick(tray.monitor_menu, Qt.Key_Return)
+            restore.assert_called_once_with()
+            self.assertTrue(window.isVisible())
+        window.open_settings.assert_called_once_with('streamer_defaults')
+        self.assertFalse(tray.menu.isVisible())
+        self.assertFalse(tray.monitor_menu.isVisible())
+        self.assertFalse(panel._timer.isActive())
 
     def test_settings_preview_references_choices_selects_and_renders_all_off(self):
         from PySide6.QtCore import QPoint

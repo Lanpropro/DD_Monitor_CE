@@ -175,6 +175,7 @@ class RoomImageTests(unittest.TestCase):
 
     def test_callbacks_update_notices_center_and_matching_sidebar_item(self):
         host = Host([{'room_id': '1001'}, {'room_id': '1002'}])
+        host._tray = SimpleNamespace(monitor_panel=Mock())
         notice, row = Mock(), Mock()
         host._notices = [notice, object()]
         host.sidebar.notification_button.center.rows = {'row': row}
@@ -190,7 +191,8 @@ class RoomImageTests(unittest.TestCase):
             getattr(host.sidebar._items[0].thumb, setter).assert_called_once_with(picture)
             getattr(host.sidebar._items[1].thumb, setter).assert_not_called()
         host._on_room_avatar('removed', picture)
-        host.sidebar.navigation.monitor_menu.set_room_avatar.assert_called_with('removed', picture)
+        host.sidebar.navigation.monitor_menu.panel.set_room_avatar.assert_called_with('removed', picture)
+        host._tray.monitor_panel.set_room_avatar.assert_called_with('removed', picture)
         self.assertEqual(host.sidebar.set_room_face.call_count, 1)
 
 

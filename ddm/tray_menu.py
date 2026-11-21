@@ -8,7 +8,7 @@ from .corner_geometry import continuous_path
 
 
 TRAY_MENU_ITEMS = (
-    ('layout_preview', '布局示意'), ('toggle', '显示/隐藏窗口'),
+    ('layout_preview', '布局示意'), ('streamer_monitor', '主播监控'), ('toggle', '显示/隐藏窗口'),
     ('pip', '画中画'), ('exit', '退出'),
 )
 
@@ -18,9 +18,14 @@ def tray_menu_choices(value):
     known = dict(TRAY_MENU_ITEMS)
     for entry in value if isinstance(value, list) else ():
         if isinstance(entry, dict) and entry.get('id') in known and entry['id'] not in seen:
-            seen.add(entry['id'])
-            choices.append({'id': entry['id'], 'enabled': bool(entry.get('enabled', True))})
-    choices.extend({'id': key, 'enabled': True} for key, _label in TRAY_MENU_ITEMS if key not in seen)
+            key = entry['id']
+            seen.add(key)
+            choices.append({'id': key, 'enabled': bool(entry.get('enabled', key != 'streamer_monitor'))})
+    choices.extend({'id': key, 'enabled': True} for key, _label in TRAY_MENU_ITEMS
+                   if key not in seen and key != 'streamer_monitor')
+    if 'streamer_monitor' not in seen:
+        layout_index = next(index for index, entry in enumerate(choices) if entry['id'] == 'layout_preview')
+        choices.insert(layout_index + 1, {'id': 'streamer_monitor', 'enabled': False})
     return choices
 
 
@@ -95,5 +100,9 @@ class TrayMenuPreview(QWidget):
                     painter.drawText(pane, Qt.AlignCenter, text)
             else:
                 painter.setPen(theme.qcolor(theme.TEXT1))
-                text = painter.fontMetrics().elidedText(labels[key], Qt.ElideRight, int(rect.width()) - 20)
-                painter.drawText(rect.adjusted(10, 0, -10, 0), Qt.AlignLeft | Qt.AlignVCenter, text)
+                label_rect = rect.adjusted(10, 0, -10, 0)
+                if key == 'streamer_monitor':
+                    painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, '›')
+                    label_rect.adjust(0, 0, -14, 0)
+                text = painter.fontMetrics().elidedText(labels[key], Qt.ElideRight, int(label_rect.width()))
+                painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, text)
