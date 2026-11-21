@@ -452,7 +452,7 @@ class NotificationTests(unittest.TestCase):
         with patch.object(motion, 'enabled', return_value=True):
             QTest.mouseClick(clear, Qt.LeftButton)
             self.assertTrue(self.center.isVisible())
-            self.wait_until(lambda: not self.center.isVisible(), 1500)
+            self.wait_until(lambda: not self.center.isVisible(), 500)
         self.assertFalse(self.button.isChecked())
         self.assertFalse(self.center.entries)
         self.open()
@@ -610,30 +610,34 @@ class NotificationTests(unittest.TestCase):
         self.assertIn('1 条', self.center.summary.text())
         entry.callback.assert_not_called()
 
-    def test_clear_button_shows_result_before_closing(self):
+    def test_clear_button_closes_with_the_last_card(self):
         for animate in (True, False):
             with self.subTest(animate=animate), patch.object(motion, 'enabled', return_value=animate):
                 first = self.center.add('第一条')
-                self.center.add('第二条')
+                second = self.center.add('第二条')
                 self.open()
                 geometry = self.center.geometry()
                 row = self.center.rows[first]
+                last_row = self.center.rows[second]
                 height = row.height()
                 QTest.mouseClick(self.center.clear_button, Qt.LeftButton)
-                self.assertTrue(self.center.isVisible())
-                self.assertFalse(self.center.clear_button.isEnabled())
                 if animate:
+                    self.assertTrue(self.center.isVisible())
+                    self.assertFalse(self.center.clear_button.isEnabled())
+                    row._close_timer.stop()
+                    last_row._close_timer.stop()
                     row.animation.setCurrentTime(60)
                     self.assertLess(row._progress, 1)
                     self.assertGreater(row._progress, 0)
                     self.assertEqual(row.height(), height)
-                self.wait_until(lambda: not self.center.entries, 500)
-                self.assertTrue(self.center.isVisible())
-                self.assertEqual(self.center.geometry(), geometry)
+                    row.animation.setCurrentTime(row.animation.duration())
+                    self.assertEqual(self.center.entries, [second])
+                    self.assertTrue(self.center.isVisible())
+                    self.assertEqual(self.center.geometry(), geometry)
+                    last_row.animation.setCurrentTime(last_row.animation.duration())
+                self.assertFalse(self.center.isVisible())
+                self.assertFalse(self.center.entries)
                 self.assertEqual(self.center.summary.text(), '本次启动 · 0 条')
-                self.assertTrue(self.center.empty.isVisible())
-                self.assertEqual(self.center.empty.text(), '已清空 2 条通知')
-                self.wait_until(lambda: not self.center.isVisible(), 1500)
                 self.assertFalse(self.button.isChecked())
                 self.open()
                 self.assertEqual(self.center.empty.text(), '暂无通知')
@@ -646,26 +650,23 @@ class NotificationTests(unittest.TestCase):
         with patch.object(motion, 'enabled', return_value=True):
             QTest.mouseClick(self.center.clear_button, Qt.LeftButton)
             self.center.add('清空后新到达', key='fixture', replace=True)
-            self.wait_until(lambda: len(self.center.entries) == 1, 500)
-            self.assertIn('已清空 2 条通知', self.center.summary.text())
-            self.wait_until(lambda: not self.center.isVisible(), 1500)
+            self.wait_until(lambda: not self.center.isVisible(), 500)
         self.assertEqual([entry.message for entry in self.center.entries], ['清空后新到达'])
         self.assertEqual(self.button._unread, 1)
 
-    def test_manual_close_cancels_scheduled_clear_close(self):
-        for animate in (True, False):
-            with self.subTest(animate=animate), patch.object(motion, 'enabled', return_value=animate):
-                self.center.add('清空时已有')
-                self.open()
-                QTest.mouseClick(self.center.clear_button, Qt.LeftButton)
-                self.assertTrue(self.center.isVisible())
-                QTest.mouseClick(self.center.close_button, Qt.LeftButton)
-                self.assertFalse(self.center.isVisible())
-                self.open()
-                QTest.qWait(900)
-                self.assertTrue(self.center.isVisible())
-                self.assertEqual(self.center.empty.text(), '暂无通知')
-                self.center.hide()
+    def test_manual_close_finishes_clear_before_reopening(self):
+        with patch.object(motion, 'enabled', return_value=True):
+            self.center.add('清空时已有')
+            self.open()
+            QTest.mouseClick(self.center.clear_button, Qt.LeftButton)
+            self.assertTrue(self.center.isVisible())
+            QTest.mouseClick(self.center.close_button, Qt.LeftButton)
+            self.assertFalse(self.center.isVisible())
+            self.assertFalse(self.center.entries)
+            self.open()
+            QTest.qWait(250)
+            self.assertTrue(self.center.isVisible())
+            self.assertEqual(self.center.empty.text(), '暂无通知')
 
     def test_recording_paths_keep_cards_and_actions_inside_viewport(self):
         previous = theme.mode()

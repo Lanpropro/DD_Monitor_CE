@@ -327,7 +327,6 @@ class NotificationCenter(QFrame):
     changed = Signal()
     RADIUS = 16
     MIN_GLASS_OPACITY = 75
-    CLEAR_FEEDBACK_MS = 800
 
     def __init__(self, button):
         super().__init__(button, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -341,10 +340,6 @@ class NotificationCenter(QFrame):
         self.rows = {}
         self._owner = None
         self._clear_pending = set()
-        self._clear_count = 0
-        self._clear_timer = QTimer(self)
-        self._clear_timer.setSingleShot(True)
-        self._clear_timer.timeout.connect(self.hide)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -397,7 +392,7 @@ class NotificationCenter(QFrame):
 
     def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False,
             file_path=None, secondary_callback=None, secondary_action='查看详情'):
-        unread = not self.isVisible() or bool(self._clear_count)
+        unread = not self.isVisible() or bool(self._clear_pending)
         if key is not None:
             if key in self._seen_keys:
                 entry = next((entry for entry in reversed(self.entries) if entry.key == key), None)
@@ -453,14 +448,13 @@ class NotificationCenter(QFrame):
             self._clear_pending.remove(entry)
             if self._clear_pending:
                 return
-            self._clear_timer.start(self.CLEAR_FEEDBACK_MS)
+            self.hide()
         self._sync(resize=False)
 
     def _clear_from_button(self):
-        if not self.isVisible() or self._clear_count or not self.entries:
+        if not self.isVisible() or self._clear_pending or not self.entries:
             return
         self._clear_pending.update(self.entries)
-        self._clear_count = len(self._clear_pending)
         self.clear_button.setEnabled(False)
         self.clear()
 
@@ -474,16 +468,13 @@ class NotificationCenter(QFrame):
 
     def _sync(self, *, resize=True):
         count = len(self.entries)
-        feedback = f'已清空 {self._clear_count} 条通知' if self._clear_timer.isActive() else ''
-        summary = f'本次启动 · {count} 条'
-        self.summary.setText(f'{summary} · {feedback}' if count and feedback else summary)
-        self.empty.setText(feedback or '暂无通知')
+        self.summary.setText(f'本次启动 · {count} 条')
         self.empty.setVisible(not count)
         self.scroll.setVisible(bool(count))
-        self.clear_button.setEnabled(bool(count) and not self._clear_count)
+        self.clear_button.setEnabled(bool(count) and not self._clear_pending)
         if self.isVisible():
             self.layout().activate()
-            if resize and not self._clear_count:
+            if resize and not self._clear_pending:
                 self.reposition()
         self.changed.emit()
 
@@ -506,9 +497,7 @@ class NotificationCenter(QFrame):
     def hideEvent(self, event):
         QApplication.instance().removeEventFilter(self)
         self.button.setChecked(False)
-        self._clear_timer.stop()
         self._clear_pending.clear()
-        self._clear_count = 0
         for row in tuple(self.rows.values()):
             if row._paper is not None:
                 row.finish_removal()
