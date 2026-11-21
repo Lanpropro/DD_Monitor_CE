@@ -352,7 +352,10 @@ def check_bulk_import(app):
     dialog.avatarRequested.connect(requests.append)
     dialog.show()
     from PySide6.QtTest import QTest
-    QTest.qWait(40)
+    for _ in range(50):
+        if requests:
+            break
+        QTest.qWait(10)
     assert 0 < sum(len(batch) for batch in requests) < 60, 'Only visible avatars should be requested'
     dialog.hide()
     count = dialog.list.count()

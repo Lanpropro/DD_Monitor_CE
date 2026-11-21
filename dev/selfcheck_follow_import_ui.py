@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QObject, QEvent, QPoint, Qt
 from PySide6.QtGui import QPixmap
@@ -333,6 +333,54 @@ class FollowImportUITests(unittest.TestCase):
             dialog.import_bar.titlebar.close_button.click()
             self.assertFalse(dialog.isVisible())
         owner.close()
+
+    def test_import_reuses_sidebar_avatar_before_requesting_visible_rows(self):
+        owner = QWidget()
+        owner.setAttribute(Qt.WA_DontShowOnScreen)
+        owner.plugins = SimpleNamespace(_platform_owner={})
+        owner._accounts = {'bilibili': dict(uname='测试账号')}
+        owner._closing = False
+        avatar = QPixmap(48, 48)
+        avatar.fill(Qt.red)
+        local = {str(i): dict(room_id=str(i), face=f'https://example.invalid/local/{i}')
+                 for i in (100, 200, 300)}
+        items = [SimpleNamespace(room=room, thumb=SimpleNamespace(
+            face_pixmap=lambda rid=rid: avatar if rid != '300' else None)) for rid, room in local.items()]
+        owner.sidebar = SimpleNamespace(rooms=lambda: list(local.values()), items=lambda: items,
+                                        folder_state=lambda: [], create_folder=lambda _: None)
+        owner._start_avatar_loader = Mock()
+        rooms = [dict(room) for room in ROOMS]
+        rooms[1]['face'] = 'https://example.invalid/updated/200'
+        rooms.append(dict(room_id='400', uname='新增主播', live=False, face='https://example.invalid/new/400'))
+        with patch.object(bili, 'SESSION_DATA', 'fixture'), patch.object(
+                AccountPlatformDialog, '_load_bili', lambda dialog: dialog._show_rooms(rooms)):
+            dialog = AccountPlatformDialog(owner, {}, import_follows=True)
+        dialog.setAttribute(Qt.WA_DontShowOnScreen)
+        dialog.show()
+        try:
+            for _ in range(50):
+                if owner._start_avatar_loader.called:
+                    break
+                QTest.qWait(10)
+            page = dialog.page
+            for rid in ('100', '200'):
+                item = page._avatar_items[rid]
+                self.assertFalse(item.icon().isNull())
+                self.assertEqual(item.icon().pixmap(32, 32).toImage().pixelColor(16, 16), Qt.red)
+                self.assertEqual(item.checkState(), Qt.Checked)
+            requested = {rid: url for call in owner._start_avatar_loader.call_args_list
+                         for rid, url in call.args[0].items()}
+            self.assertEqual(requested, {'200': rooms[1]['face'], '300': local['300']['face'],
+                                         '400': rooms[3]['face']})
+            fresh = QPixmap(48, 48)
+            fresh.fill(Qt.blue)
+            page.set_avatar('200', fresh)
+            self.assertEqual(page._avatar_items['200'].icon().pixmap(32, 32).toImage().pixelColor(16, 16), Qt.blue)
+            self.assertNotIn('face', rooms[0])
+        finally:
+            dialog.reject()
+            dialog.deleteLater()
+            owner.close()
 
 
 if __name__ == '__main__':

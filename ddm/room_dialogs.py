@@ -29,7 +29,7 @@ class FollowImportDialog(QDialog):
     """
 
     def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None,
-                 folder_creator=None, room_menu=False, channels=False):
+                 folder_creator=None, room_menu=False, channels=False, sidebar_avatars=None):
         super().__init__(parent)
         self.room_menu = room_menu
         self.channels = channels
@@ -37,6 +37,7 @@ class FollowImportDialog(QDialog):
         self.resize(660, 620)
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
+        self._sidebar_avatars = sidebar_avatars or {}
         self._explicitly_checked = set()
         self.folder_id = ""
         self.folder_changed = False
@@ -268,9 +269,15 @@ class FollowImportDialog(QDialog):
                 continue
             room = item.data(Qt.UserRole)
             key = str(room.get('room_id') or 'account:' + str(room.get('anchor_uid')))
-            if room.get('face') and key not in self._requested_avatars:
+            if key in self._requested_avatars:
+                continue
+            pixmap, saved_face = self._sidebar_avatars.get(key, (None, None))
+            if pixmap is not None and item.icon().isNull():
+                self.set_avatar(key, pixmap)
+            face = room.get('face') or saved_face
+            if face and (pixmap is None or face != saved_face):
                 self._requested_avatars.add(key)
-                faces[key] = room['face']
+                faces[key] = face
         if faces:
             self.avatarRequested.emit(faces)
 

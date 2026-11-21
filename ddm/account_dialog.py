@@ -421,7 +421,8 @@ class AccountPlatformDialog(QDialog):
             self._show_rooms(self._pending_rooms)
 
     def _show_rooms(self, rooms):
-        existing = {str(room.get("room_id")) for room in self.owner.sidebar.rooms()}
+        sidebar = self.owner.sidebar
+        existing = {str(room.get("room_id")) for room in sidebar.rooms()}
         if self.kind == "douyin":
             cache = getattr(self.owner, "_douyin_follow_cache", None) or {}
             pending = {room.get("anchor_uid"): room for room in cache.get("pending", [])}
@@ -447,10 +448,11 @@ class AccountPlatformDialog(QDialog):
                         room = dict(room, room_id=room["resolved_room_id"], follow_account_ref=False)
                     converted.append(room)
                 rooms = converted
-        page = FollowImportDialog(rooms, existing, self.owner,
-                                  folders=self.owner.sidebar.folder_state(),
-                                  folder_creator=self.owner.sidebar.create_folder,
-                                  room_menu=self.kind == "douyin")
+        sidebar_avatars = {str(item.room['room_id']): (item.thumb.face_pixmap(), item.room.get('face'))
+                           for item in getattr(sidebar, 'items', tuple)()}
+        page = FollowImportDialog(rooms, existing, self.owner, folders=sidebar.folder_state(),
+                                  folder_creator=sidebar.create_folder, room_menu=self.kind == "douyin",
+                                  sidebar_avatars=sidebar_avatars)
         if self.kind in ("douyin", "youtube", "twitch"):
             page.reread_button = self.import_bar.refresh
         if self.kind == "douyin":
