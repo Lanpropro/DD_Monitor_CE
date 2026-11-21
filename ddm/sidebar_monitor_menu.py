@@ -5,7 +5,7 @@ from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
                                QSizePolicy, QVBoxLayout, QWidget)
 
-from . import images
+from . import images, theme
 from .avatar_widgets import FollowAvatar, RoomStrip
 from .follow_folders import PLATFORM_NAMES
 from .room_artwork import platform_icon
@@ -31,20 +31,31 @@ class _MonitorRow(QWidget):
         box.setContentsMargins(4, 4, 6, 4)
         box.setSpacing(8)
         size = RoomStrip.AVATAR
-        self.avatar = FollowAvatar(entry.name, 2, size=size)
+        ring_margin = 7
+        portrait_box = QWidget(self)
+        portrait_size = size + 2 * ring_margin
+        portrait_box.setFixedSize(portrait_size, portrait_size)
+        if entry.state == 'recording':
+            self.avatar = FollowAvatar(entry.name, 2, size=portrait_size, ring_margin=ring_margin,
+                                       recording_color=theme.PINK, parent=portrait_box)
+            self.avatar.set_recording_state('recording')
+        else:
+            self.avatar = FollowAvatar(entry.name, 2, size=size, parent=portrait_box)
+            self.avatar.move(ring_margin, ring_margin)
         self.avatar.set_pixmap_image(images.load_room_avatar(entry.room_id))
         if entry.platform:
             platform_name = PLATFORM_NAMES.get(entry.platform, entry.platform)
-            self.platform_badge = QLabel(self.avatar)
+            self.platform_badge = QLabel(portrait_box)
             self.platform_badge.setFixedSize(16, 16)
             self.platform_badge.setAlignment(Qt.AlignCenter)
             self.platform_badge.setStyleSheet('background: palette(window); border-radius: 8px;')
             self.platform_badge.setPixmap(platform_icon(entry.platform).pixmap(13, 13))
             self.platform_badge.setAccessibleName(platform_name)
-            self.platform_badge.move(size - 16, size - 16)
-        box.addWidget(self.avatar)
+            self.platform_badge.move(ring_margin + size - 16, ring_margin + size - 16)
+        box.addWidget(portrait_box)
 
         identity = QVBoxLayout()
+        identity.setAlignment(Qt.AlignVCenter)
         identity.setSpacing(1)
         self.name = ElidedLabel(entry.name)
         self.name.setTextFormat(Qt.PlainText)
@@ -60,9 +71,13 @@ class _MonitorRow(QWidget):
         box.addLayout(identity, 1)
 
         status_box = QVBoxLayout()
+        status_box.setAlignment(Qt.AlignVCenter)
         status_box.setSpacing(2)
         self.status = QLabel(STATUS_LABELS[entry.state])
         self.status.setObjectName('BadgeLive' if entry.state == 'recording' else 'BadgeOff')
+        if entry.state == 'monitoring':
+            self.status.setStyleSheet(f'background: #006fa3; color: white; border: none; '
+                                      f'border-radius: {theme.RADIUS_MD}px;')
         status_box.addWidget(self.status, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.elapsed = QLabel(self, objectName='AppSubtitle')
         self.elapsed.setAccessibleName('录制时长')
@@ -119,7 +134,7 @@ class StreamerMonitorMenu(QFrame):
         layout.addWidget(self.scroll)
         self.settings_button = QPushButton('主播监控设置', self, objectName='IconButton')
         self.settings_button.clicked.connect(self._open_settings)
-        layout.addWidget(self.settings_button, 0, Qt.AlignRight)
+        layout.addWidget(self.settings_button)
 
         self._timer = QTimer(self)
         self._timer.setInterval(500)

@@ -774,11 +774,13 @@ def main():
         assert cached_session.manual_replay and not cached_session.recording
         replay_started_at = cached_session.started_at
         assert not cached_session.recording_started_at
-        tile.recording_button.click()
+        promotion_time = replay_started_at + 1
+        with patch('ddm.recording.time.monotonic', return_value=promotion_time):
+            tile.recording_button.click()
         assert tile in window.recorder.sessions
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
-        assert replay_started_at < cached_session.recording_started_at == cached_session.output_started_at
+        assert cached_session.recording_started_at == cached_session.output_started_at == promotion_time
         assert tile.recording_button.text() == "● REC"
         assert tile.recording_button.property('replayOnly') is False
         assert tile.recording_button.property("recording") is True

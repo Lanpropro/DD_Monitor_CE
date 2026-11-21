@@ -533,12 +533,14 @@ class WorkspaceControlTests(unittest.TestCase):
 
         cached_avatar = QPixmap(28, 28)
         cached_avatar.fill(Qt.blue)
-        with patch('ddm.sidebar_monitor_menu.images.load_room_avatar', return_value=cached_avatar):
+        with patch.object(motion, 'enabled', return_value=False), patch(
+                'ddm.sidebar_monitor_menu.images.load_room_avatar', return_value=cached_avatar):
             QTest.mouseClick(button, Qt.LeftButton)
-        settle()
+            settle()
         self.assertTrue(menu.isVisible())
         self.assertTrue(button.isChecked())
         self.assertTrue(available.contains(menu.geometry()))
+        self.assertEqual(menu.settings_button.width(), menu.layout().contentsRect().width())
         picture = menu.grab().toImage()
         self.assertTrue(menu.testAttribute(Qt.WA_TranslucentBackground))
         for corner in (picture.rect().topLeft(), picture.rect().topRight(),
@@ -549,22 +551,38 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual(first_row.name.accessibleName(), '一位主播')
         self.assertEqual(first_row.identifier.text(), 'ID 1024')
         self.assertEqual(first_row.status.text(), '监控中')
+        badge = first_row.status.grab().toImage()
+        blue = badge.pixelColor(6, badge.height() // 2)
+        self.assertGreater(blue.blue() - blue.red(), 45)
         self.assertTrue(first_row.elapsed.isHidden())
         self.assertFalse(first_row.avatar.pixmap().isNull())
-        self.assertEqual(first_row.platform_badge.parentWidget(), first_row.avatar)
+        self.assertEqual(first_row.platform_badge.parentWidget(), first_row.avatar.parentWidget())
         self.assertEqual(first_row.platform_badge.accessibleName(), '哔哩哔哩')
         self.assertFalse(first_row.platform_badge.pixmap().isNull())
-        self.assertEqual(menu.rows.itemAt(1).widget().identifier.text(), '房间号 77')
+        self.assertEqual(first_row.avatar.recording_state, '')
+        second_row = menu.rows.itemAt(1).widget()
+        self.assertEqual(second_row.identifier.text(), '房间号 77')
+        self.assertEqual(second_row.avatar.recording_state, 'recording')
+        self.assertIsNone(second_row.avatar._ripple_timer)
 
         self.assertTrue(menu._timer.isActive())
         rows[0] = MonitorEntry('fixture:1', '一位主播', 'recording', 'bilibili', '1024', started_at=100)
-        with patch('ddm.sidebar_monitor_menu.time.monotonic', return_value=3761):
+        with patch.object(motion, 'enabled', return_value=True), patch(
+                'ddm.sidebar_monitor_menu.time.monotonic', return_value=3761):
             menu._timer.timeout.emit()
             settle()
         first_row = menu.rows.itemAt(0).widget()
         self.assertEqual(first_row.status.text(), '正在录制')
         self.assertTrue(first_row.elapsed.isVisible())
         self.assertEqual(first_row.elapsed.text(), '01:01:01')
+        self.assertEqual(first_row.avatar.recording_state, 'recording')
+        self.assertEqual(first_row.avatar.recording_color, theme.PINK)
+        ripple_timer = first_row.avatar._ripple_timer
+        self.assertTrue(ripple_timer.isActive())
+        with patch.object(first_row.avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 100)):
+            early_ripple = first_row.avatar.grab().toImage()
+        with patch.object(first_row.avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 800)):
+            self.assertNotEqual(first_row.avatar.grab().toImage(), early_ripple)
         with patch('ddm.sidebar_monitor_menu.time.monotonic', return_value=3762):
             menu._timer.timeout.emit()
         self.assertIs(menu.rows.itemAt(0).widget(), first_row)
@@ -574,6 +592,7 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertFalse(menu.isVisible())
         self.assertFalse(button.isChecked())
         self.assertFalse(menu._timer.isActive())
+        self.assertFalse(ripple_timer.isActive())
 
         rows[:] = [MonitorEntry(f'fixture:{index}', f'监控主播 {index}', 'monitoring') for index in range(18)]
         button.click()
@@ -594,6 +613,7 @@ class WorkspaceControlTests(unittest.TestCase):
         settle()
         self.assertTrue(menu.isVisible())
         self.assertEqual(menu.rows.itemAt(0).widget().text(), '暂无监控或录制中的主播')
+        self.assertEqual(menu.settings_button.width(), menu.layout().contentsRect().width())
         settings = QSignalSpy(menu.settingsRequested)
         QTest.mouseClick(menu.settings_button, Qt.LeftButton)
         self.assertEqual(settings.count(), 1)

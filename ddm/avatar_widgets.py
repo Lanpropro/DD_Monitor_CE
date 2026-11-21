@@ -103,9 +103,10 @@ class FollowAvatar(Avatar):
     RING_MARGIN = 10
     RING_GAP = 3
 
-    def __init__(self, *args, ring_margin=RING_MARGIN, **kwargs):
+    def __init__(self, *args, ring_margin=RING_MARGIN, recording_color=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.ring_margin = ring_margin
+        self.recording_color = recording_color
         self.recording_state = ''
         self._ripple_timer = None
         self._ripple_clock = QElapsedTimer()
@@ -161,7 +162,8 @@ class FollowAvatar(Avatar):
         margin = self.ring_margin
         face = bounds.adjusted(margin, margin, -margin, -margin)
         radius = min(face.width(), face.height()) / 2 + self.RING_GAP
-        color = theme.qcolor(theme.ERROR if self.recording_state == 'recording' else theme.ACCENT)
+        color = theme.qcolor((self.recording_color or theme.ERROR)
+                             if self.recording_state == 'recording' else theme.ACCENT)
         with QPainter(self) as painter:
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
