@@ -2,6 +2,7 @@
 from copy import deepcopy
 import sys
 import time
+from PySide6.QtCore import QTimer
 from . import layouts
 from .auto_quality import AUTO_QUALITY
 from .streamer_defaults import source_quality_option
@@ -108,5 +109,11 @@ class FullscreenControl:
         host.sync_danmaku()
         laid_out = time.perf_counter()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
-        host._refresh_meta()
         host._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
+
+        def refresh_restored_wall():
+            if not host._closing and host._fullscreen_tile is None:
+                host._refresh_meta()
+
+        # Let the pending native resize run before refreshing the sidebar selection.
+        QTimer.singleShot(0, host, refresh_restored_wall)

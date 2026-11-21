@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('DDM_NO_SAVE', '1')
 
-from ddm import theme
+from ddm import theme, window_fullscreen
 from ddm.app import MainWindow
 
 
@@ -94,7 +94,16 @@ def check_window_capture(window):
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
 
-                window._on_fullscreen(tile)
+                enter_native = window_fullscreen.enter
+
+                def enter_with_prepared_video(widget):
+                    assert tile.video.geometry() == QRect(QPoint(), widget.screen().size()), (
+                        'The selected video must be ready before changing the native frame', tile.video.geometry())
+                    return enter_native(widget)
+
+                with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native:
+                    window._on_fullscreen(tile)
+                    assert native.called == (state == Qt.WindowMaximized)
                 QTest.qWait(90)
                 assert window.isFullScreen(), 'The capture target must fill the screen itself'
                 assert window.geometry() == window.screen().geometry()
@@ -121,9 +130,12 @@ def check_window_capture(window):
                 events = RestoreEvents()
                 window.installEventFilter(events)
                 try:
-                    next(shortcut for shortcut in window._window_shortcuts
-                         if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
-                    QTest.qWait(90)
+                    with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta:
+                        next(shortcut for shortcut in window._window_shortcuts
+                             if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
+                        refresh_meta.assert_not_called()
+                        QTest.qWait(90)
+                        refresh_meta.assert_called()
                 finally:
                     window.removeEventFilter(events)
                 assert not window.isFullScreen() and window.windowState() == original_state
