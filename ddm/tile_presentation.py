@@ -248,7 +248,7 @@ class TilePresentation:
 
     def windowed_bar_over_video(self) -> bool:
         host = self.host
-        return bool(host.room.get('room_id') and not host.property('pictureInPicture')
+        return bool(not host.property('pictureInPicture')
                     and getattr(host.window(), 'settings', {}).get('windowed_transparent_controls', False))
 
     def layout_video_area(self) -> tuple[int, int]:

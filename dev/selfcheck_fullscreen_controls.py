@@ -304,13 +304,19 @@ def check_windowed_overlay(app):
             app.processEvents()
             restart.assert_not_called()
         assert window.current_state()['settings'][key]
-        for tile in (first, second):
+        for tile in (first, second, empty):
             check_bar(tile)
-        assert not empty.bottom.windowed_overlay and not empty.bottom.isWindow()
+        with patch.object(window.room_placement, 'open_add_room') as add_room:
+            assert empty.add_room_button.isVisible()
+            assert (empty.add_room_button.geometry().center() - empty.video.rect().center()).manhattanLength() <= 2
+            QTest.mouseClick(empty.add_room_button, Qt.LeftButton)
+            assert add_room.call_args.kwargs['target_tile'] is empty
         empty.set_room({'room_id': '3'})
         check_bar(empty)
+        assert empty.add_room_button.isHidden()
         empty.set_room(None)
-        assert not empty.bottom.windowed_overlay and not empty.bottom.isWindow()
+        check_bar(empty)
+        assert empty.add_room_button.isVisible()
         assert editor.text() == 'draft'
         editor.setGeometry(first.bottom.width() // 2 - 45, 4, 90, 24)
         QTest.keyClicks(editor, ' only')
@@ -326,12 +332,13 @@ def check_windowed_overlay(app):
         for mode in ('dark', 'light'):
             theme.apply(mode)
             app.processEvents()
-            image = QImage(first.bottom.size(), QImage.Format_ARGB32_Premultiplied)
-            image.fill(Qt.transparent)
-            with QPainter(image) as painter:
-                first.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
-            check_gradient(image, image.width() // 2)
-            assert _icon_color(first.pause_button).name() == '#ffffff'
+            for tile in (first, empty):
+                image = QImage(tile.bottom.size(), QImage.Format_ARGB32_Premultiplied)
+                image.fill(Qt.transparent)
+                with QPainter(image) as painter:
+                    tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+                check_gradient(image, image.width() // 2)
+                assert _icon_color(tile.pause_button).name() == '#ffffff'
         click = Mock()
         first.pause_button.clicked.connect(click)
         QTest.mouseClick(first.pause_button, Qt.LeftButton)
@@ -357,11 +364,11 @@ def check_windowed_overlay(app):
 
         window.showMinimized()
         app.processEvents()
-        assert not first.bottom.isVisible() and not second.bottom.isVisible()
+        assert not any(tile.bottom.isVisible() for tile in (first, second, empty))
         window.showNormal()
         app.processEvents()
-        check_bar(first)
-        check_bar(second)
+        for tile in (first, second, empty):
+            check_bar(tile)
 
         if app.platformName() == 'windows':
             enter = window._fullscreen_presentation.enter
@@ -370,7 +377,7 @@ def check_windowed_overlay(app):
                                  side_effect=lambda tile: enter(tile, QRect(-12000, -12000, 1000, 700))):
                 window._on_fullscreen(first)
             assert first.bottom.property('fullscreen') and first.bottom.isVisible()
-            assert not second.bottom.isVisible()
+            assert not second.bottom.isVisible() and not empty.bottom.isVisible()
             window._exit_fullscreen()
             app.processEvents()
             check_bar(first)
@@ -410,6 +417,8 @@ def check_windowed_overlay(app):
             clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
             poll(point)
             assert first.bottom.isHidden() and second.bottom.isHidden()
+            empty.set_controls_visible(False)
+            check_bar(empty)
             assert first.video.geometry() == geometry
             with patch.object(first._plugin_controls, 'focus_input') as focus, \
                     patch.object(first.bottom, 'activateWindow'):
@@ -447,7 +456,8 @@ def check_windowed_overlay(app):
         assert not window.current_state()['settings'][key]
         assert first.video.geometry().bottom() < first.bottom.tile_y()
         assert not first.bottom.property('overVideo') and not first.bottom.isWindow()
-        assert not second.bottom.isWindow()
+        assert not second.bottom.isWindow() and not empty.bottom.isWindow()
+        assert not empty.bottom.windowed_overlay and empty.add_room_button.isVisible()
         if app.platformName() == 'windows':
             assert [tile.video.winId() for tile in (first, second)] == video_handles
     finally:
