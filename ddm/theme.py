@@ -1254,14 +1254,6 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     font-size: 11px;
     font-weight: 600;
 }}
-#BadgeAutoRecord {{
-    background: rgba(8, 28, 42, 0.94);
-    color: #aee8ff;
-    border-radius: 6px;
-    padding: 1px 4px;
-    font-size: 11px;
-    font-weight: 600;
-}}
 #BadgeGhost {{
     background: rgba(12, 13, 16, 0.66);
     color: {TEXT2};

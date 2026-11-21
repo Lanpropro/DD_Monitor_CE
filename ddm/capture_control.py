@@ -243,6 +243,12 @@ class CaptureControl:
             if tile.room.get("live") and tile.isVisible() and not host._closing:
                 host.start_tile(tile)
 
+    def sync_follow_recording_states(self) -> None:
+        host = self.host
+        host.sidebar.items_control.set_recording_rooms(
+            session.room_id for session in host.recorder.sessions.values()
+            if session.recording and not session.stopping and session.started_at)
+
     def record_state_changed(self, tile) -> None:
         if isinstance(tile, BackgroundRecordingSource):
             return

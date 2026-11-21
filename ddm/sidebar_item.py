@@ -171,6 +171,10 @@ class NavItem(QFrame):
         self.setProperty("onWall", on_wall)
         _repolish(self)
 
+    def set_recording_state(self, state: str) -> None:
+        self.thumb.set_recording_state(state)
+        self._sync_live_dot()
+
     def set_portrait_strip(self, enabled: bool) -> None:
         enabled = bool(enabled)
         if enabled == self._portrait_strip:

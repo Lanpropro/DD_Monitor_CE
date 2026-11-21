@@ -247,6 +247,7 @@ class MainWindow(QMainWindow):
         self.recorder.noticeWithRoom.connect(self._record_notice)
         self.recorder.backgroundTransition.connect(self.notice_control.background_recording_transition)
         self.recorder.changed.connect(self._record_state_changed)
+        self.recorder.changed.connect(self.capture_control.sync_follow_recording_states)
         self.recorder.changed.connect(self.danmaku_lifecycle.capture_changed)
         self._capture_quality: dict[object, tuple[str, int]] = {}
         self._pending_capture: dict[object, bool] = {}

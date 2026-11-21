@@ -12,14 +12,32 @@ class SidebarItems:
     def __init__(self, host):
         self.host = host
         self._auto_record_rooms = set()
+        self._recording_rooms = set()
+        self._recording_states = {}
 
     def set_auto_record_rooms(self, room_ids) -> None:
         enabled = set(room_ids)
         if enabled == self._auto_record_rooms:
             return
         self._auto_record_rooms = enabled
+        self._sync_recording_states()
+
+    def set_recording_rooms(self, room_ids) -> None:
+        active = set(room_ids)
+        if active == self._recording_rooms:
+            return
+        self._recording_rooms = active
+        self._sync_recording_states()
+
+    def _sync_recording_states(self) -> None:
+        states = {room_id: 'recording' if room_id in self._recording_rooms else 'ready'
+                  for room_id in self._auto_record_rooms}
+        if states == self._recording_states:
+            return
+        self._recording_states = states
         for item in self.host._items:
-            item.thumb.set_auto_record(str(item.room.get('room_id')) in enabled)
+            item.set_recording_state(states.get(str(item.room.get('room_id')), ''))
+        self.host._head_strip.set_recording_states(states)
 
     def on_strip_room(self, room_id: str) -> None:
         """点横栏里的头像 = 点列表里那一条（行为和横屏一致）。"""
@@ -147,8 +165,8 @@ class SidebarItems:
         item.thumb.set_compact_background(host.compact_background)
         item.set_portrait_strip(host.side == "top" and not host.card_mode)
         item.set_on_wall(room_id in host._wall_room_ids)
-        if room_id in self._auto_record_rooms:
-            item.thumb.set_auto_record(True)
+        if room_id in self._recording_states:
+            item.set_recording_state(self._recording_states[room_id])
         item.set_select_mode(host.select_mode)
         host._items.append(item)
         item_height = NAV_ITEM_HEIGHT if host.card_mode else NAV_LIST_ITEM_HEIGHT

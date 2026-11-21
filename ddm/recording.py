@@ -202,6 +202,7 @@ class RecordingManager(QObject):
             session.output_started_at = session.started_at
         if isinstance(session.tile, BackgroundRecordingSource):
             if first_start:
+                self.changed.emit(session.tile)
                 self._say(f"{session.name} 开始自动录制", session.room)
                 self.backgroundTransition.emit('started', session.room)
         elif session.chunk == 1:

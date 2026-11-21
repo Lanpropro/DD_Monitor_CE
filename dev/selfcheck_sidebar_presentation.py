@@ -18,6 +18,7 @@ from ddm import config, images, motion, theme
 from ddm import sidebar_widgets as module
 from ddm.account_widgets import AccountRow
 from ddm.avatar_widgets import RoomStrip
+from ddm.capture_control import CaptureControl
 from ddm.sidebar_account_control import SidebarAccountControl
 from ddm.sidebar_presentation import SidebarPresentation
 from ddm.sidebar_navigation import RAIL_WIDTH
@@ -58,7 +59,7 @@ class SidebarPresentationTests(unittest.TestCase):
         navigation.restore_order(['pip', 'clear', 'layout'])
         self.assertEqual(retained, [navigation.bottom.itemAt(index) for index in range(navigation.bottom.count())])
 
-    def test_follow_card_marks_configured_auto_recording_before_going_live_or_on_wall(self):
+    def test_follow_avatar_ring_tracks_recording_off_wall_in_cards_and_strip(self):
         sidebar = self.sidebar
         room, = sidebar._items
         control = sidebar.items_control
@@ -66,34 +67,72 @@ class SidebarPresentationTests(unittest.TestCase):
         sidebar.setStyleSheet(theme.qss())
         sidebar.show()
         self.app.processEvents()
-        self.assertIsNone(room.thumb.recording_badge)
+        avatar = room.thumb.face
+        self.assertEqual(avatar.recording_state, '')
         control.set_auto_record_rooms({'fixture:1', 'fixture:2'})
-        badge = room.thumb.recording_badge
-        self.assertEqual(badge.text(), '自动录制')
-        self.assertTrue(badge.isVisible())
+        self.assertEqual(avatar.recording_state, 'ready')
+        self.assertTrue(avatar.isVisible())
         self.assertFalse(room.property('onWall'))
         self.assertFalse(room.room['live'])
-        self.assertFalse(badge.geometry().intersects(room.badge.geometry()))
+        self.assertIsNone(avatar._ripple_timer)
+        self.assertIsNone(room.thumb.findChild(module.QLabel, 'BadgeAutoRecord'))
+
+        def avatar_pixel(dx):
+            image = avatar.grab().toImage()
+            scale = image.devicePixelRatio()
+            return image.pixelColor(round((avatar.width() - avatar.ring_margin + dx) * scale),
+                                    round(avatar.height() / 2 * scale))
+
+        ready = avatar_pixel(avatar.RING_GAP)
+        self.assertLess(ready.red(), ready.blue())
+        self.assertEqual(avatar_pixel(1).alpha(), 0, '头像和圆环之间有独立的透明间隙')
         room.set_live(True)
-        self.assertTrue(badge.isVisible())
-        self.assertFalse(room.property('onWall'))
+        session = SimpleNamespace(room_id='fixture:1', recording=True, stopping=False, started_at=0)
+        capture = CaptureControl(SimpleNamespace(sidebar=sidebar, recorder=SimpleNamespace(sessions={room: session})))
+        capture.sync_follow_recording_states()
+        self.assertEqual(avatar.recording_state, 'ready')
+        session.started_at = 1
+        with patch.object(motion, 'enabled', return_value=True):
+            capture.sync_follow_recording_states()
+            self.assertEqual(avatar.recording_state, 'recording')
+            self.assertTrue(avatar._ripple_timer.isActive())
+            red = avatar_pixel(avatar.RING_GAP)
+            self.assertGreater(red.red(), red.blue())
+            with patch.object(avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 100)):
+                early = avatar.grab().toImage()
+            with patch.object(avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 800)):
+                self.assertNotEqual(early, avatar.grab().toImage())
+        avatar.hide()
+        self.assertFalse(avatar._ripple_timer.isActive())
+        avatar.show()
+        self.assertFalse(avatar._ripple_timer.isActive())
+        self.assertEqual(avatar.recording_state, 'recording')
+        static_red = avatar_pixel(avatar.RING_GAP)
+        self.assertGreater(static_red.red(), static_red.blue())
         sidebar.set_compact_policy(False, False, 18)
         self.app.processEvents()
-        self.assertTrue(badge.isVisible())
-        self.assertFalse(badge.geometry().intersects(room.badge.geometry()))
+        self.assertTrue(avatar.isVisible())
         room.set_compact(True)
-        self.assertTrue(badge.isVisible())
-        self.assertEqual(badge.text(), '录')
+        self.assertTrue(avatar.isVisible())
+        self.app.processEvents()
+        self.assertTrue(room.rect().contains(avatar.geometry()))
         room.set_compact(False)
         sidebar.set_side('top')
         self.app.processEvents()
-        self.assertTrue(badge.isVisible())
-        self.assertEqual(badge.text(), '录')
+        self.assertTrue(avatar.isVisible())
+        sidebar.set_collapsed(True, animate=False)
+        self.app.processEvents()
+        strip_avatar = sidebar._head_strip._avatars['fixture:1']
+        self.assertEqual(strip_avatar.recording_state, 'recording')
+        session.stopping = True
+        capture.sync_follow_recording_states()
+        self.assertEqual(strip_avatar.recording_state, 'ready')
+        self.assertEqual(avatar.recording_state, 'ready')
         new = sidebar._append_item({'room_id': 'fixture:2', 'uname': 'Second', 'live': False})
-        self.assertFalse(new.thumb.recording_badge.isHidden())
+        self.assertEqual(new.thumb.face.recording_state, 'ready')
         control.set_auto_record_rooms(set())
-        self.assertTrue(badge.isHidden())
-        self.assertTrue(new.thumb.recording_badge.isHidden())
+        self.assertEqual(avatar.recording_state, '')
+        self.assertEqual(new.thumb.face.recording_state, '')
 
     def test_wall_settings_stays_next_to_picture_in_picture_in_both_orientations(self):
         sidebar, nav = self.sidebar, self.sidebar.navigation
