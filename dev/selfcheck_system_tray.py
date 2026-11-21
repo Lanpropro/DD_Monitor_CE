@@ -197,8 +197,9 @@ class SystemTrayTests(unittest.TestCase):
         self.assertEqual(tray._layout_snapshot, before)
         self.assertIsInstance(tray.menu.actions()[0], QWidgetAction)
         self.assertIs(tray.menu.actions()[0].defaultWidget(), tray.layout_preview)
+        self.assertFalse(tray.menu_actions['streamer_monitor'].isVisible())
         self.assertEqual([action.text() for action in tray.menu.actions()
-                          if action.text()], ['显示窗口', '画中画…', '退出'])
+                          if action.isVisible() and action.text()], ['显示窗口', '画中画…', '退出'])
         with patch.object(window.picture_in_picture, 'manage') as manage:
             tray.pip_action.trigger()
             manage.assert_called_once_with()
