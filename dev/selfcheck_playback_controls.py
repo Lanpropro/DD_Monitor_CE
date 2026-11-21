@@ -276,11 +276,14 @@ assert not any(name in sys.modules for name in (
                         disabled = surfaces.values(button, overrides={'disabled': True})
                         for style in (idle, hover, pressed, disabled):
                             self.assertEqual(style['background'], '#15171c')
+                        self.assertEqual(idle['border'], 'none')
+                        self.assertIn('1px solid', hover['border'])
+                        self.assertNotEqual(hover['border'], pressed['border'])
                     else:
                         self.assertTrue(hover['background'].endswith(', 0.15)'))
                         self.assertTrue(pressed['background'].endswith(', 0.27)'))
                         self.assertNotEqual(idle['background'], hover['background'])
-                    self.assertEqual(pressed['border'], 'none')
+                        self.assertEqual(pressed['border'], 'none')
                     self.assertEqual(button.cursor().shape(), Qt.PointingHandCursor)
             tile.set_status('播放中')
             self.assertEqual(tile.status_label.text(), '')
@@ -340,6 +343,10 @@ assert not any(name in sys.modules for name in (
         buttons = (tile.quality_button, tile.reload_button, tile.close_button)
         sizes = [button.geometry() for button in buttons]
         idle = [button.grab().toImage() for button in buttons]
+        for button, before in zip(buttons, idle):
+            button.setProperty('hovered', True)
+            self.assertNotEqual(button.grab().toImage(), before)
+            button.setProperty('hovered', False)
         sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0})
         for button, before in zip(buttons, idle):
             self.assertEqual(button.grab().toImage(), before)

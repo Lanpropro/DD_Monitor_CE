@@ -449,13 +449,15 @@ def _light_style(widget):
         idle = '#15171c' if overlay else 'transparent'
         hover = idle if overlay else f'rgba({rgb}, 0.15)'
         pressed = idle if overlay else f'rgba({rgb}, 0.27)'
+        hover_outline = 'border: 1px solid rgba(231, 235, 240, 0.52);' if overlay else ''
+        press_outline = 'border: 1px solid rgba(231, 235, 240, 0.8);' if overlay else ''
         return f'''
             {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
             {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
             {selector}[playbackPopupOpen="true"]:!disabled {{
-                background: {hover}; color: {ink};
+                background: {hover}; color: {ink}; {hover_outline}
             }}
-            {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
+            {selector}:!disabled:pressed {{background: {pressed}; color: {ink}; {press_outline}}}
             {selector}[overVideo="true"] {{color: #ffffff;}}
             {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
             {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
