@@ -305,6 +305,7 @@ class NoticeRow(QFrame):
 class NotificationCenter(QFrame):
     changed = Signal()
     RADIUS = 16
+    MIN_GLASS_OPACITY = 75
 
     def __init__(self, button):
         super().__init__(button, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -451,7 +452,9 @@ class NotificationCenter(QFrame):
         super().showEvent(event)
         values = normalize_material(getattr(self._owner, 'settings', {}))
         self.setProperty('settings_glass_enabled', values['settings_glass_enabled'])
-        self.setProperty('settings_glass_opacity', values['settings_glass_opacity'])
+        # Keep the full slider range useful while limiting the unblurred video behind the popup.
+        opacity = self.MIN_GLASS_OPACITY + (100 - self.MIN_GLASS_OPACITY) * values['settings_glass_opacity'] / 100
+        self.setProperty('settings_glass_opacity', round(opacity))
         self.update()
 
     def hideEvent(self, event):

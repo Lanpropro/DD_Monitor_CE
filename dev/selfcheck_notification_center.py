@@ -479,7 +479,7 @@ class NotificationTests(unittest.TestCase):
             self.assertEqual(*hovered)
 
     def test_menu_material_keeps_corners_clear_and_follows_opacity_without_native_blur(self):
-        self.owner.settings = {'settings_glass_enabled': False, 'settings_glass_opacity': 40}
+        self.owner.settings = {'settings_glass_enabled': False, 'settings_glass_opacity': 0}
         for _ in range(6):
             self.center.add('操作完成')
 
@@ -499,13 +499,19 @@ class NotificationTests(unittest.TestCase):
             self.owner.settings['settings_glass_enabled'] = True
             self.open()
             translucent = gutter_alpha()
-            self.assertLess(translucent, 255)
-            self.assertGreater(translucent, 102)
+            self.assertGreaterEqual(translucent, 190)
+            self.assertLess(translucent, 210)
 
             self.center.hide()
-            self.owner.settings['settings_glass_opacity'] = 80
+            self.owner.settings.pop('settings_glass_opacity')
             self.open()
-            self.assertGreater(gutter_alpha(), translucent)
+            self.assertGreaterEqual(gutter_alpha(), 232)
+            self.assertLess(gutter_alpha(), 246)
+
+            self.center.hide()
+            self.owner.settings['settings_glass_opacity'] = 100
+            self.open()
+            self.assertEqual(gutter_alpha(), 255)
 
             self.center.hide()
             self.owner.settings['settings_glass_enabled'] = False
