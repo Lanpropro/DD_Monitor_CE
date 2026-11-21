@@ -307,11 +307,11 @@ class _SegmentButton(QAbstractButton):
                      max(theme.CONTROL_HEIGHT - 2 * theme.SEGMENT_PADDING, self.fontMetrics().height() + 4))
 
     def enterEvent(self, event):
-        self.update()
+        self.parentWidget().update(self.geometry())
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.update()
+        self.parentWidget().update(self.geometry())
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
@@ -332,38 +332,32 @@ class _SegmentButton(QAbstractButton):
         if not self.isEnabled():
             painter.setOpacity(0.45)
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -2)
-        if (self.isChecked() and not self.parentWidget().sliding_enabled()) or (
-                not self.isChecked() and (self.underMouse() or self.isDown())):
+        sliding = self.parentWidget().sliding_enabled()
+        if self.isChecked() and not sliding:
             painter.setPen(Qt.NoPen)
-            if self.isChecked():
-                from ..settings_material import shadows_enabled
-                for offset, alpha in (((2, 12), (1, 26)) if shadows_enabled(self) else ()):
-                    painter.setBrush(QColor(0, 0, 0, alpha))
-                    painter.drawRoundedRect(rect.translated(0, offset), rect.height() / 2, rect.height() / 2)
-                from ..settings_material import base_color
-                color = theme.qcolor(theme.mix(base_color(self, 'card', theme.CONTENT), theme.ACCENT, .20))
-                if self.isDown():
-                    color = color.darker(110)
-                fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-                fill.setColorAt(0, color.lighter(108))
-                fill.setColorAt(1, color.darker(108))
-                painter.setBrush(fill)
-            else:
-                painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
+            from ..settings_material import base_color, shadows_enabled
+            for offset, alpha in (((2, 12), (1, 26)) if shadows_enabled(self) else ()):
+                painter.setBrush(QColor(0, 0, 0, alpha))
+                painter.drawRoundedRect(rect.translated(0, offset), rect.height() / 2, rect.height() / 2)
+            color = theme.qcolor(theme.mix(base_color(self, 'card', theme.CONTENT), theme.ACCENT, .20))
+            if self.isDown():
+                color = color.darker(110)
+            fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            fill.setColorAt(0, color.lighter(108))
+            fill.setColorAt(1, color.darker(108))
+            painter.setBrush(fill)
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-            if self.isChecked():
-                edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-                edge.setColorAt(0, QColor(255, 255, 255, 28))
-                edge.setColorAt(.5, QColor(255, 255, 255, 0))
-                edge.setColorAt(1, QColor(0, 0, 0, 20 if shadows_enabled(self) else 0))
-                painter.setPen(QPen(edge, 1))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+            edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            edge.setColorAt(0, QColor(255, 255, 255, 28))
+            edge.setColorAt(.5, QColor(255, 255, 255, 0))
+            edge.setColorAt(1, QColor(0, 0, 0, 20 if shadows_enabled(self) else 0))
+            painter.setPen(QPen(edge, 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
         if self.hasFocus() and not self._pointer_focus:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1.5))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-        sliding = self.parentWidget().sliding_enabled()
         text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight,
                                             max(0, self.width() - 2 * theme.SEGMENT_ITEM_PADDING))
         painter.setPen(theme.qcolor(theme.ACCENT if self.isChecked() and not sliding else theme.TEXT2))
@@ -392,6 +386,8 @@ class SegmentedControl(QWidget):
         self.buttons = {}
         for key, label in options:
             button = _SegmentButton(label, self)
+            button.pressed.connect(self.update)
+            button.released.connect(self.update)
             self.buttons[key] = button
             self.group.addButton(button)
             box.addWidget(button, 1)
@@ -472,6 +468,15 @@ class SegmentedControl(QWidget):
         painter.setPen(QPen(edge, 1))
         painter.setBrush(fill)
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        # Keep hover underneath the moving indicator while child buttons paint their labels above it.
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
+        for button in self.buttons.values():
+            if button.isVisible() and not button.isChecked() and (button.underMouse() or button.isDown()):
+                rect = QRectF(button.geometry()).adjusted(1, 1, -1, -2)
+                painter.setOpacity(1. if button.isEnabled() else .45)
+                painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        painter.setOpacity(1. if self.isEnabled() else .45)
         if self.sliding_enabled():
             from ..settings_material import shadows_enabled
             rect = self._selection.rect

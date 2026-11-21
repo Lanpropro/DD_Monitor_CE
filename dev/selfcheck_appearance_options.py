@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QImage, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
@@ -284,28 +284,33 @@ class AppearanceOptionsTests(unittest.TestCase):
         root.show()
         settle()
         try:
+            selection = control._selection
             with patch('ddm.motion.enabled', return_value=True):
                 QTest.mouseClick(control.buttons['c'], Qt.LeftButton)
                 self.assertTrue(control.buttons['c']._pointer_focus)
                 self.assertEqual(control.value(), 'c')
-                self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Running)
+                self.assertTrue(selection._timer.isActive())
                 QTest.qWait(40)
-                interrupted = control._indicator
-                QTest.mouseClick(control.buttons['a'], Qt.LeftButton)
-                self.assertEqual(control._indicator_animation.startValue(), interrupted)
+                interrupted = selection.rect
+                QTest.mousePress(control.buttons['a'], Qt.LeftButton)
+                self.assertEqual(selection.rect, interrupted)
+                self.assertFalse(selection._timer.isActive())
+                QTest.mouseRelease(control.buttons['a'], Qt.LeftButton)
+                self.assertEqual(control.value(), 'a')
+                self.assertTrue(selection._timer.isActive())
                 control.buttons['b'].setFocus()
                 QTest.keyClick(control.buttons['b'], Qt.Key_Space)
                 self.assertEqual(control.value(), 'b')
                 self.assertFalse(control.buttons['b']._pointer_focus)
-                self.assertEqual(control._indicator, control._target_rect())
-                self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Stopped)
+                self.assertEqual(selection.rect, control._segment_rects()['b'])
+                self.assertFalse(selection._timer.isActive())
                 control.setValue('c')
-                self.assertEqual(control._indicator, control._target_rect())
+                self.assertEqual(selection.rect, control._segment_rects()['c'])
             with patch('ddm.motion.enabled', return_value=False):
                 QTest.mouseClick(control.buttons['a'], Qt.LeftButton)
-                self.assertEqual(control._indicator, control._target_rect())
+                self.assertEqual(selection.rect, control._segment_rects()['a'])
             root.hide()
-            self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Stopped)
+            self.assertFalse(selection._timer.isActive())
         finally:
             dispose(root)
 
@@ -325,21 +330,22 @@ class AppearanceOptionsTests(unittest.TestCase):
             window.sidebar.presentation_control.layout_picker.open_layout_picker()
             picker = window.sidebar._picker
             tabs = picker.tabs
+            selection = tabs._selection
             self.assertIs(tabs.window(), picker)
             self.assertIn('直播间组合', tabs.buttons)
             with patch('ddm.motion.enabled', return_value=True):
                 QTest.mouseClick(tabs.buttons['弹幕布局'], Qt.LeftButton)
                 self.assertEqual(picker.group(), '弹幕布局')
-                self.assertEqual(tabs._indicator_animation.state(), QAbstractAnimation.Running)
+                self.assertTrue(selection._timer.isActive())
                 apply_changes(window, {'settings': {'settings_segment_motion': False}})
-                self.assertEqual(tabs._indicator, tabs._target_rect())
-                self.assertEqual(tabs._indicator_animation.state(), QAbstractAnimation.Stopped)
+                self.assertEqual(selection.rect, tabs._segment_rects()['弹幕布局'])
+                self.assertFalse(selection._timer.isActive())
                 QTest.mouseClick(tabs.buttons['竖屏布局'], Qt.LeftButton)
                 self.assertEqual(picker.group(), '竖屏布局')
-                self.assertEqual(tabs._indicator, tabs._target_rect())
+                self.assertEqual(selection.rect, tabs._segment_rects()['竖屏布局'])
                 apply_changes(window, {'settings': {'settings_segment_motion': True}})
                 QTest.mouseClick(tabs.buttons['普通布局'], Qt.LeftButton)
-                self.assertEqual(tabs._indicator_animation.state(), QAbstractAnimation.Running)
+                self.assertTrue(selection._timer.isActive())
             picker.close()
 
     def test_local_gallery_selection_and_mask_keep_saved_strength(self):

@@ -599,6 +599,49 @@ for before, component, after in (
             self.assertEqual(selection.rect, control._segment_rects()['a'])
             self.assertFalse(selection._timer.isActive())
 
+    def test_layout_picker_hover_stays_behind_moving_selection(self):
+        from PySide6.QtGui import QColor
+        from ddm.layout_picker import LayoutPicker
+        from ddm.settings_material import set_segment_motion
+
+        self.addCleanup(theme.apply, theme.mode())
+        for mode in ('dark', 'light'):
+            with self.subTest(mode=mode):
+                theme.apply(mode)
+                picker = LayoutPicker('2x2')
+                picker.setAttribute(Qt.WA_DontShowOnScreen)
+                self.addCleanup(picker.close)
+                picker.show()
+                set_segment_motion(picker, True)
+                self.app.processEvents()
+                tabs = picker.tabs
+                previous = tabs.buttons['普通布局']
+                next_tab = tabs.buttons['弹幕布局']
+                selection = tabs._selection
+                start = selection.rect
+                with patch('ddm.motion.enabled', return_value=True):
+                    QTest.mouseClick(next_tab, Qt.LeftButton)
+                    self.assertEqual(picker.group(), '弹幕布局')
+                    self.assertTrue(selection._timer.isActive())
+                    selection._timer.stop()
+                destination = tabs._segment_rects()['弹幕布局']
+                selection._draw(start.translated((destination.left() - start.left()) / 2, 0))
+
+                def samples(hovered):
+                    previous.setAttribute(Qt.WA_UnderMouse, hovered)
+                    image = tabs.grab().toImage()
+                    ratio = image.devicePixelRatio()
+                    return tuple(image.pixelColor(round(x * ratio), round((start.top() + 6) * ratio))
+                                 for x in (start.left() + start.width() / 4, start.right() - start.width() / 4))
+
+                normal, selected = samples(False)
+                hover, overlap = samples(True)
+                self.assertNotEqual(normal, hover)
+                self.assertNotEqual(normal, selected)
+                self.assertEqual(hover, QColor(theme.CONTENT_HOVER))
+                self.assertEqual(selected, overlap)
+                picker.close()
+
     def test_settings_preview_switch_does_not_draw_mouse_focus_ring(self):
         from PySide6.QtGui import QColor
         from ddm.settings_general import GeneralSettingsPage
