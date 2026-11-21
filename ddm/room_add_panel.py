@@ -289,6 +289,9 @@ class RoomAddPanel(QFrame):
         point.setY(max(0, min(point.y(), parent.height() - height)))
         if self.isWindow():
             point = parent.mapToGlobal(point)
+            # Hiding a picker invalidates the layout, but the native window still
+            # enforces its previous minimum size until the layout is activated.
+            self.layout().activate()
         self.setGeometry(QRect(point, QSize(width, height)))
         if self.isVisible() and not self.isWindow():
             self.raise_()

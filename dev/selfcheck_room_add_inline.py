@@ -354,6 +354,30 @@ class InlineRoomAddTests(unittest.TestCase):
         QTest.keyClick(search, Qt.Key_Escape)
         self.assertFalse(panel.isVisible())
 
+    def test_collapsing_room_pickers_restores_compact_geometry_and_draft(self):
+        wall = self.install_wall()
+        # Exercise the Windows tool-window layout constraints in offline runs too.
+        with patch.object(QApplication, 'platformName', return_value='windows'):
+            panel = self.open(wall.tiles[0])
+        self.assertTrue(panel.isWindow())
+        panel.set_presets([(dict(room_id='iptv:fixture', uname='频道预设'), None)], [])
+        draft = '1001\n1002'
+        panel.entry.setPlainText(draft)
+        self.pump()
+        compact = self.panel_geometry(panel)
+        for toggle, picker in ((panel.followed_toggle, panel.followed), (panel.preset_button, panel.presets)):
+            with self.subTest(picker=toggle.accessibleName()):
+                QTest.mouseClick(toggle, Qt.LeftButton)
+                self.pump()
+                self.assertTrue(picker.isVisible())
+                self.assertGreater(panel.height(), compact.height())
+                QTest.mouseClick(toggle, Qt.LeftButton)
+                self.assertTrue(picker.isHidden())
+                self.assertEqual(self.panel_geometry(panel), compact)
+                self.pump()
+                self.assertEqual(self.panel_geometry(panel), compact)
+                self.assertEqual(panel.entry.toPlainText(), draft)
+
     def test_no_dialog_and_sidebar_query_or_wall_geometry_changes(self):
         self.host.sidebar.search.setText('原搜索')
         query = self.host.sidebar.search.text()
