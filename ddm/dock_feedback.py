@@ -1,15 +1,15 @@
 """Dock icon feedback without moving buttons or changing their click targets."""
 from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import QEnterEvent, QIcon, QInputDevice, QPainter, QPen, QPixmap
+from PySide6.QtGui import (QBrush, QEnterEvent, QIcon, QInputDevice, QLinearGradient, QPainter, QPen,
+                          QPixmap)
 from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QToolButton
 
 from . import motion, theme
 
 
 # One-shot icon poses adapted from BewlyCat's favorites, home and edit motion.
-# Each pose is (scale_x, scale_y, rotation, offset); hit targets stay fixed.
+# Each pose is (scale_x, scale_y, rotation, vertical_offset); hit targets stay fixed.
 REST = (1.0, 1.0, 0.0, 0.0)
-SLIDE_LEFT = (1.0, 1.0, 0.0, -7.0)
 HOVER_POSES = {
     'follow': [(0, REST), (.3, (1.2, 1.2, 10, 0)), (.62, (.96, .96, -5, 0)), (1, REST)],
     'functions': [(0, REST), (1, (1, 1, 90, 0))],
@@ -55,11 +55,18 @@ class DockFeedback(QObject):
         self.animation.valueChanged.connect(self._set_scale)
         self.pose = REST
         self._poses = [(0, REST), (1, REST)]
+        self.sweeps_highlight = button.property('dockMotion') == 'slide-in-left'
+        self.highlight = 0.0
         self.hover_animation = QVariantAnimation(self)
-        self.hover_animation.setStartValue(0.0)
-        self.hover_animation.setEndValue(1.0)
-        self.hover_animation.valueChanged.connect(self._hover_frame)
-        self.hover_animation.finished.connect(self._finish_hover)
+        if self.sweeps_highlight:
+            self.hover_animation.setDuration(motion.CONTROL_FEEDBACK_MS)
+            self.hover_animation.setEasingCurve(motion.THEME_WAVE_EASING)
+            self.hover_animation.valueChanged.connect(self._set_highlight)
+        else:
+            self.hover_animation.setStartValue(0.0)
+            self.hover_animation.setEndValue(1.0)
+            self.hover_animation.valueChanged.connect(self._hover_frame)
+            self.hover_animation.finished.connect(self._finish_hover)
         button.installEventFilter(self)
 
     def _hover_frame(self, progress):
@@ -77,29 +84,51 @@ class DockFeedback(QObject):
 
     def hover(self, *, entering=False, animate=True):
         self.hover_animation.stop()
+        if self.sweeps_highlight:
+            pointer_allowed = self.button.property('dockRail') and not self.keyboard and self.button.isEnabled()
+            target = float(bool(entering and pointer_allowed))
+            if target != self.highlight and animate and motion.enabled():
+                self.hover_animation.setStartValue(self.highlight)
+                self.hover_animation.setEndValue(target)
+                self.hover_animation.start()
+            else:
+                self._set_highlight(target)
+            return
         if not self.button.property('dockRail') or self.keyboard or not motion.enabled() or not animate:
             self._finish_hover()
             return
         kind = self.button.property('dockMotion') or getattr(self.button, 'kind', 'hop')
-        if kind == 'slide-in-left':
-            if entering and self.pose == REST:
-                self.pose = SLIDE_LEFT
-                self.button.update()
-            frames = [(0, REST), (1, REST)]
-        else:
-            frames = HOVER_POSES.get(kind, HOVER_POSES['hop']) if entering else [(0, REST), (1, REST)]
+        frames = HOVER_POSES.get(kind, HOVER_POSES['hop']) if entering else [(0, REST), (1, REST)]
         self._poses = [(0, self.pose), *frames[1:]]
         if self.pose == REST and not entering:
             return
-        self.hover_animation.setDuration(280 if entering and kind != 'slide-in-left' else motion.CONTROL_FEEDBACK_MS)
+        self.hover_animation.setDuration(280 if entering else motion.CONTROL_FEEDBACK_MS)
         self.hover_animation.start()
+
+    def _set_highlight(self, value):
+        self.highlight = float(value)
+        self.button.update()
+
+    def _icon_tint(self, width):
+        button = self.button
+        if not self.sweeps_highlight or not button.isEnabled():
+            return icon_color(button)
+        selected = active(button)
+        base = (icon_color(button) if selected else theme.qcolor(theme.TEXT2))
+        accent = theme.qcolor(theme.mix(base.name(), theme.ACCENT, .20) if selected else theme.ACCENT)
+        if self.highlight <= 0:
+            return base
+        if self.highlight >= 1:
+            return accent
+        edge = .5 / width
+        gradient = QLinearGradient(0, 0, width, 0)
+        gradient.setColorAt(max(0, self.highlight - edge), accent)
+        gradient.setColorAt(min(1, self.highlight + edge), base)
+        return QBrush(gradient)
 
     def transform(self, painter):
         sx, sy, rotation, offset = self.pose
-        if self.button.property('dockMotion') == 'slide-in-left':
-            painter.translate(offset, 0)
-        else:
-            painter.translate(0, offset)
+        painter.translate(0, offset)
         painter.rotate(rotation)
         painter.scale(self.scale*sx, self.scale*sy)
 
@@ -109,6 +138,8 @@ class DockFeedback(QObject):
 
     def transition(self, target, *, animate=True):
         target = float(target)
+        if self.sweeps_highlight:
+            target = min(1.0, target)
         self.animation.stop()
         if not self.button.property('dockRail') or self.keyboard or not motion.enabled():
             target, animate = 1.0, False
@@ -142,14 +173,17 @@ class DockFeedback(QObject):
         elif kind == QEvent.MouseButtonPress:
             self._keyboard_focus(False)
             self.transition(.9, animate=False)
-            self.hover()
+            if not self.sweeps_highlight:
+                self.hover()
         elif kind == QEvent.MouseButtonRelease:
             self.transition(1.1 if watched.underMouse() else 1.0)
         elif kind == QEvent.Enter:
-            self.transition(1.1)
-            pointer_hover = (isinstance(event, QEnterEvent) and event.pointingDevice().type()
-                             in (QInputDevice.DeviceType.Mouse, QInputDevice.DeviceType.TouchPad))
-            self.hover(entering=True, animate=pointer_hover or watched.property('dockMotion') != 'slide-in-left')
+            if self.sweeps_highlight:
+                self.hover(entering=isinstance(event, QEnterEvent) and event.pointingDevice().type()
+                           in (QInputDevice.DeviceType.Mouse, QInputDevice.DeviceType.TouchPad))
+            else:
+                self.transition(1.1)
+                self.hover(entering=True)
         elif kind == QEvent.Leave:
             self.transition(1.0)
             self.hover()
@@ -180,7 +214,7 @@ class DockFeedback(QObject):
             tint = QPainter(tinted)
             tint.drawPixmap(0, 0, pixmap)
             tint.setCompositionMode(QPainter.CompositionMode_SourceIn)
-            tint.fillRect(tinted.rect(), icon_color(watched))
+            tint.fillRect(tinted.rect(), self._icon_tint(size.width()))
             tint.end()
             width, height = size.width(), size.height()
             painter.save()

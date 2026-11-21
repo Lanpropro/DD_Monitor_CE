@@ -9,7 +9,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
+from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QPoint, QPointF, Qt
 from PySide6.QtGui import QAction, QEnterEvent, QFocusEvent, QInputDevice, QMouseEvent, QPointingDevice, QTransform, QWheelEvent
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
@@ -153,11 +153,13 @@ class WorkspaceControlTests(unittest.TestCase):
         self.host.deleteLater()
         settle()
 
-    def add(self, key, text, priority=0):
+    def add(self, key, text, priority=0, *, dock_motion=None):
         action = QAction(text, self.host)
         action.setCheckable(True)
         action.setIcon(self.host.style().standardIcon(QStyle.SP_DialogSaveButton))
         widget = QToolButton(self.host)
+        if dock_motion is not None:
+            widget.setProperty('dockMotion', dock_motion)
         widget.setDefaultAction(action)
         self.assertTrue(self.context.register_workspace_control(key, widget, priority=priority))
         settle()
@@ -633,9 +635,8 @@ class WorkspaceControlTests(unittest.TestCase):
             self.assertEqual(feedback.scale, 1)
         self.assertEqual(button.geometry(), geometry)
 
-    def test_rail_icon_slides_in_from_left_on_mouse_hover(self):
-        button, action = self.add('slide', 'F1 Play')
-        button.setProperty('dockMotion', 'slide-in-left')
+    def test_rail_icon_sweeps_highlight_from_left_without_motion(self):
+        button, action = self.add('slide', 'F1 Play', dock_motion='slide-in-left')
         geometry = button.geometry()
         feedback = button._dock_feedback
         pos = QPointF(button.rect().center())
@@ -649,29 +650,42 @@ class WorkspaceControlTests(unittest.TestCase):
                                       QPointingDevice.PointerType.Finger, QInputDevice.Capability.Position, 1, 0)
         with patch.object(motion, 'enabled', return_value=True):
             enter(touchscreen)
-            self.assertEqual(feedback.pose, REST)
+            self.assertEqual(feedback.highlight, 0)
             enter(mouse)
+            self.assertEqual(feedback.highlight, 0)
+            feedback.hover_animation.setCurrentTime(40)
+            current = feedback.highlight
+            self.assertLess(0, current)
+            self.assertLess(current, 1)
             transform = QTransform()
             feedback.transform(transform)
-            self.assertEqual(transform.map(QPointF()), QPointF(-7, 0))
-            feedback.hover_animation.setCurrentTime(40)
-            current = feedback.pose
-            self.assertLess(-7, current[3])
-            self.assertLess(current[3], 0)
+            self.assertTrue(transform.isIdentity())
+            brush = feedback._icon_tint(18)
+            colors = [color for _, color in brush.gradient().stops()]
+            self.assertEqual(colors, [theme.qcolor(theme.ACCENT), theme.qcolor(theme.TEXT2)])
             APP.sendEvent(button, QEvent(QEvent.Leave))
+            self.assertAlmostEqual(feedback.highlight, current)
             enter(mouse)
-            self.assertEqual(feedback.pose, current)
+            self.assertAlmostEqual(feedback.highlight, current)
             feedback.hover_animation.setCurrentTime(motion.CONTROL_FEEDBACK_MS)
-            self.assertEqual(feedback.pose, REST)
+            self.assertEqual(feedback.highlight, 1)
+            APP.sendEvent(button, QEvent(QEvent.Leave))
+            feedback.hover_animation.setCurrentTime(motion.CONTROL_FEEDBACK_MS)
+            self.assertEqual(feedback.highlight, 0)
             enter(mouse)
+            feedback.hover_animation.setCurrentTime(40)
             APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
-            self.assertEqual(feedback.pose, REST)
+            self.assertEqual(feedback.highlight, 0)
             APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
             QTest.keyClick(button, Qt.Key_Space)
             self.assertTrue(action.isChecked())
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
         with patch.object(motion, 'enabled', return_value=False):
             enter(mouse)
-            self.assertEqual(feedback.pose, REST)
+            self.assertEqual(feedback.highlight, 1)
+            self.assertEqual(feedback.hover_animation.state(), QAbstractAnimation.Stopped)
+            APP.sendEvent(button, QEvent(QEvent.Leave))
+            self.assertEqual(feedback.highlight, 0)
         self.assertEqual(button.geometry(), geometry)
 
     def test_dock_selected_surface_and_icon_follow_both_themes(self):
