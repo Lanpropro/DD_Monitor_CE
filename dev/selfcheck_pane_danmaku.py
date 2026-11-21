@@ -21,7 +21,7 @@ import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
 from ddm.widget_support import TILE_MIME
@@ -320,6 +320,7 @@ class PaneDanmakuTests(unittest.TestCase):
         window.sidebar.wall_settings_button.click()
         menu = controls.menu
         self.assertTrue(menu.isVisible())
+        self.assertNotIn('无边界布局', {label.text() for label in menu.findChildren(QLabel)})
         self.assertEqual(menu.volume_value.text(), '混合')
         self.assertEqual(menu.quality.currentText(), '选择画质')
 
@@ -387,13 +388,18 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(first.video.mask().contains(QPoint(0, 0)))
         self.assertEqual(first.cover.pixmap().toImage().pixelColor(0, 0).alpha(), 0)
 
-        window.sidebar.wall_settings_button.click()
-        menu = window.wall_quick_settings.menu
-        self.assertFalse(menu.seamless.isChecked())
-        self.assertTrue(menu.seamless.isEnabled())
-        QTest.mouseClick(menu.seamless, Qt.LeftButton)
+        dialog = window._create_settings_dialog()
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.auto_save.stop)
+        dialog.auto_save.start()
+        switch = dialog.general_page._checks['wall_seamless']
+        self.assertFalse(switch.isChecked())
+        self.assertTrue(switch.isEnabled())
+        with patch.object(config, 'save') as save:
+            switch.click()
+            self.assertTrue(dialog.auto_save.flush())
+            self.assertTrue(save.call_args.args[0]['settings']['wall_seamless'])
         self.app.processEvents()
-        self.assertTrue(window._save_timer.isActive())
         self.assertEqual(wall.grid.contentsMargins(), margins)
         self.assertEqual(first.geometry().right() + 1, second.x())
         self.assertEqual(first.geometry().bottom() + 1, lower.y())
@@ -413,7 +419,6 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(reopened.wall.seamless)
         self.assertEqual(reopened.wall.grid.spacing(), 0)
 
-        menu.hide()
         wall.set_layout('custom_grid9')
         first, second, third = wall.tiles[:3]
         second.set_room(dict(room_id='1002', live=False))
@@ -433,9 +438,9 @@ class PaneDanmakuTests(unittest.TestCase):
         second.set_room(None)
         third.set_room(None)
         wall.set_layout('2x2')
-        window.sidebar.wall_settings_button.click()
-        self.assertTrue(menu.seamless.isChecked())
-        QTest.mouseClick(menu.seamless, Qt.LeftButton)
+        self.assertTrue(switch.isChecked())
+        switch.click()
+        self.assertTrue(dialog.auto_save.flush())
         self.app.processEvents()
         self.assertFalse(window.settings['wall_seamless'])
         self.assertEqual(wall.grid.spacing(), 8)

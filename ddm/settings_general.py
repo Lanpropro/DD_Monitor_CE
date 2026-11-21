@@ -166,6 +166,7 @@ class GeneralSettingsPage(QWidget):
         ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
         ("preview_on_hover", "关注栏直播预览"),
         ("sidebar_platform_logos", "显示关注栏平台 Logo"),
+        ("wall_seamless", "无边界布局"),
     ]
 
     def __init__(self, settings: dict, parent=None):
@@ -224,6 +225,8 @@ class GeneralSettingsPage(QWidget):
             box.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
             if key == "volume_normalization":
                 box.setToolTip("自动调整偏轻或偏响的声音；保存后应用于所有播放格子，仍可独立调节音量。")
+            if key == "wall_seamless":
+                box.setToolTip("移除画面墙格子之间的间距")
             self._checks[key] = box
             if key == "sidebar_platform_logos":
                 # Retain the saved master value and insertion anchor for plugin controls.
@@ -272,9 +275,9 @@ class GeneralSettingsPage(QWidget):
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 13, 2, 3, 5, 6, 7), False),
+            ('playback', '播放与声音', (1, 14, 2, 3, 5, 6, 7, 13), False),
             ('following', '关注与预览', (0, 8, 9, 10, 11), False),
-            ('codecs', '编解码', (14,), False),
+            ('codecs', '编解码', (15,), False),
             ('normalization', '音量均衡', (4, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         following = self.sections.section('following').grid
