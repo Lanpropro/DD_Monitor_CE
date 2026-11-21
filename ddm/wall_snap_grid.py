@@ -56,6 +56,38 @@ class WallSnapGrid:
             if any(tile.isHidden() == (tile in wanted) for tile in wall.tiles):
                 wall._relayout_preset(apply_visibility=True)
 
+    def watch_new_room_aspect(self, tile):
+        if self.interactive():
+            cell = self.wall.layout_control.cell_of(tile)
+            if cell is not None and cell[2:] == (1, 1):
+                tile.state_control.pending_grid_aspect = self.wall.layout_id
+
+    def wants_video_aspect(self, tile):
+        return tile.state_control.pending_grid_aspect is not None
+
+    def cancel_aspect_requests(self, base):
+        for tile in self.wall.tiles:
+            if tile.state_control.pending_grid_aspect == base:
+                tile.state_control.pending_grid_aspect = None
+
+    def apply_video_aspect(self, tile, aspect):
+        base = tile.state_control.pending_grid_aspect
+        tile.state_control.pending_grid_aspect = None
+        if (base != self.wall.layout_id or not self.interactive() or tile.isHidden()
+                or aspect is None or aspect >= 1):
+            return
+        index = self.wall.pane_danmaku.cell_for_tile(tile)
+        if index is None or index in self.wall.pane_danmaku.bindings():
+            return
+        cells = self.cells()
+        cell = cells[index]
+        if cell is None or cell[2:] != (1, 1) or cell[0] + 2 > self.size:
+            return
+        row, column, _, _ = cell
+        result = snap_grid.place(self.size, cells, index, (row, column, 2, 1), self.occupied())
+        if result != cells:
+            self._commit(result)
+
     def _commit(self, cells):
         wall = self.wall
         hidden = [tile for tile in wall.tiles if tile.isHidden() and tile.room.get('room_id')]
@@ -74,6 +106,7 @@ class WallSnapGrid:
         cells = self.cells()
         cell = cells[index]
         if cell is not None:
+            tile.state_control.pending_grid_aspect = None
             resized = snap_grid.resize(self.size, cell, step)
             result = snap_grid.place(self.size, cells, index, resized, self.occupied())
             if result != cells:

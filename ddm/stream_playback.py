@@ -323,8 +323,10 @@ class StreamPlayback:
             player.autoQualityRequested.connect(lambda qn, p=player: host._on_auto_quality(p, qn))
             player.decoderFallback.connect(lambda mode, p=player: host._on_decoder_fallback(p, mode))
             host.players[tile] = player
-        player.report_video_resolution = source_quality_option(tile.quality_options) is not None
-        if player.report_video_resolution:
+        fixed_quality = source_quality_option(tile.quality_options) is not None
+        grid = getattr(host.wall, 'snap_grid', None)
+        player.report_video_resolution = fixed_quality or (grid is not None and grid.wants_video_aspect(tile))
+        if fixed_quality:
             tile.state_control.set_source_resolution('')
         player.freeze_watch = bool(host.settings.get("freeze_watch", True))
         player.set_volume_normalization(bool(host.settings.get("volume_normalization", False)), host.settings.get('volume_normalization_curve'))
@@ -379,6 +381,11 @@ class StreamPlayback:
         tile = host._tile_of_player(player)
         if tile is not None and not host._closing:
             tile.state_control.set_source_resolution(resolution)
+            grid = getattr(host.wall, 'snap_grid', None)
+            if grid is not None and grid.wants_video_aspect(tile):
+                from .pip_geometry import video_aspect
+                grid.apply_video_aspect(tile, video_aspect(player))
+            player.report_video_resolution = source_quality_option(tile.quality_options) is not None
 
     def auto_quality(self, player, quality: int) -> None:
         host = self.host

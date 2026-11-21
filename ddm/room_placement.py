@@ -48,6 +48,7 @@ class RoomPlacement:
             return
         if other is None:
             room = self.prepare_wall_entry(room)
+        newly_placed = other is None and not tile.room.get("room_id")
         to_start = []
         follows_room = other is not None and self._audio_follows_room()
         if other is not None and other is not tile:
@@ -65,7 +66,7 @@ class RoomPlacement:
             if previous and previous.get("room_id"):
                 to_start.append(other)
         tile.set_room(room)
-        self._sync_snap_grid()
+        self._sync_snap_grid(new_tile=tile if newly_placed else None)
         if other is not None:
             host.wall.pane_danmaku.swap_sources(other, tile)
             if follows_room:
@@ -290,7 +291,7 @@ class RoomPlacement:
             host.recorder.stop(empty)
             host._stop_tile(empty)
             empty.set_room(room)
-            self._sync_snap_grid()
+            self._sync_snap_grid(new_tile=empty)
             host._wire_tile(empty)
             host.start_tile(empty)
             host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
@@ -312,9 +313,11 @@ class RoomPlacement:
                           room=dict(tile.room or {}))
         host._refresh_meta()
 
-    def _sync_snap_grid(self):
+    def _sync_snap_grid(self, *, new_tile=None):
         grid = getattr(self.host.wall, 'snap_grid', None)
         if grid is not None:
+            if new_tile is not None:
+                grid.watch_new_room_aspect(new_tile)
             grid.sync_visibility()
 
     def remove_room(self, room: dict) -> None:

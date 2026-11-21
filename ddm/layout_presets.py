@@ -58,7 +58,9 @@ class LayoutPresets:
     def save_override(self, base, ratios):
         ratios = validate_ratios(base, ratios)
         if layouts.snap_grid_size(base):
-            self.host.wall.layout_control.set_preset_ratios(base, ratios)
+            wall = self.host.wall
+            wall.snap_grid.cancel_aspect_requests(base)
+            wall.layout_control.set_preset_ratios(base, ratios)
         else:
             self.overrides.setdefault(base, {'shortcut': ''})['ratios'] = ratios
         if base == self.host.wall.layout_id:

@@ -494,6 +494,94 @@ def check_snap_grid_and_other_presets(app):
         app.processEvents()
 
 
+def check_portrait_live_defaults(app):
+    from PySide6.QtCore import QMimeData, QPointF
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    from ddm import snap_grid
+    from ddm.sidebar_drag import ROOM_MIME
+    from selfcheck_stream_playback import Player
+
+    landscape = {'w': 1920, 'h': 1080, 'dw': 1920, 'dh': 1080}
+    rotated = {**landscape, 'rotate': 90}
+    portrait = {'w': 1080, 'h': 1920}
+    for layout_id, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+        window = MainWindow([], [], layout_id=layout_id, state={
+            'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False}})
+        window.resize(1500, 850)
+        window.show()
+        app.processEvents()
+        wall = window.wall
+        grid = wall.snap_grid
+        units = snap_grid.geometry(size, layouts.even_cells(size, size),
+                                   wall._corner_area(), wall.grid.spacing())
+
+        def drop_room(rid, point):
+            mime = QMimeData()
+            mime.setData(ROOM_MIME, rid.encode())
+            room = dict(room_id=rid, uname=rid, live=False)
+            enter = QDragEnterEvent(point, Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+            QApplication.sendEvent(wall, enter)
+            event = QDropEvent(QPointF(point), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+            with patch.object(window, '_room_dict', return_value=room):
+                QApplication.sendEvent(wall, event)
+            assert enter.isAccepted() and event.isAccepted()
+            return window._tile_of(rid)
+
+        def first_frame(tile, params, *, pending=True):
+            with patch.object(window.recorder, 'on_resolved'), patch.object(window, '_sync_replay_scope'):
+                window.stream_playback.play_on(tile, 'http://127.0.0.1/fixture', player_type=Player)
+            player = window.players[tile]
+            try:
+                assert player.report_video_resolution == pending
+                player._prop = Mock(return_value=params)
+                if pending:
+                    player.videoResolutionChanged.emit(f"{params['w']}×{params['h']}")
+                    assert player._prop.called and not player.report_video_resolution
+                assert not grid.wants_video_aspect(tile)
+                player._prop.reset_mock()
+                player.videoResolutionChanged.emit('720×1280')
+                player._prop.assert_not_called()
+            finally:
+                window.players.pop(tile, None)
+                player.deleteLater()
+
+        try:
+            # This test uses the actual host resolution callback, with decoded metadata
+            # supplied by the offline player fixture.
+            window.add_to_wall(dict(room_id='801', uname='竖屏直播', live=False))
+            first = window._tile_of('801')
+            assert wall.layout_control.cell_of(first) == (0, 0, 1, 1)
+            first_frame(first, rotated)
+            assert wall.layout_control.cell_of(first) == (0, 0, 2, 1)
+            assert wall.layout_ratios()[layout_id]['grid'][0] == (0, 0, 2, 1)
+
+            grid.add_danmaku(units[size + 1].center())
+            blocked = drop_room('802', units[1].center())
+            first_frame(blocked, portrait)
+            assert wall.layout_control.cell_of(blocked) == (0, 1, 1, 1)
+            assert len(wall.pane_danmaku.panels) == 1
+
+            edge = drop_room('803', units[size * (size - 1)].center())
+            first_frame(edge, portrait)
+            assert wall.layout_control.cell_of(edge) == (size - 1, 0, 1, 1)
+
+            wide = drop_room('804', units[2].center())
+            first_frame(wide, landscape)
+            assert wall.layout_control.cell_of(wide) == (0, 2, 1, 1)
+
+            manual = drop_room('805', units[size + 2].center())
+            assert grid.resize_tile(manual, -1)
+            first_frame(manual, portrait, pending=False)
+            assert wall.layout_control.cell_of(manual) == (1, 2, 1, 1)
+
+            window.layout_presets.select_builtin('4x4')
+            window.add_to_wall(dict(room_id='806', uname='普通布局直播', live=False))
+            first_frame(window._tile_of('806'), portrait, pending=False)
+        finally:
+            window.close()
+            app.processEvents()
+
+
 def main():
     app = QApplication([])
     font_path = Path('C:/Windows/Fonts/msyh.ttc')
@@ -516,6 +604,7 @@ def main():
             stack.enter_context(patch.object(MainWindow, method))
         check_layout_only_presets(app, Path(temporary))
         check_snap_grid_and_other_presets(app)
+        check_portrait_live_defaults(app)
         window = MainWindow(deepcopy(fixture), deepcopy(fixture), layout_id='corner',
                             state={'plugins_enabled': [], 'settings': {'auto_update': False,
                                    'preview_on_hover': False, 'recording_replay_enabled': False}})

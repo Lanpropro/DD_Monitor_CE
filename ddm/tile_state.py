@@ -12,10 +12,12 @@ class TileState:
     def __init__(self, host):
         self.host = host
         self.source_resolution = ''
+        self.pending_grid_aspect = None
 
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         host = self.host
+        self.pending_grid_aspect = None
         host.room = dict(room or {})
         volume = host.room.pop('_streamer_initial_volume', None)
         if volume is not None:

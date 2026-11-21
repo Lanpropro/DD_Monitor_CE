@@ -160,6 +160,8 @@ class RoomPresetController:
                     None if item["source"] is None else by_cell.get(item["source"], -1)
                     for item in snapshot["layout"]["panels"]}
             host.wall.set_layout(identifier, relayout=False)
+            if layouts.snap_grid_size(identifier):
+                host.wall.snap_grid.cancel_aspect_requests(identifier)
             host.wall._danmaku_cell = snapshot["layout"]["danmaku_cell"]
             if identifier == "corner":
                 host.wall.restore_corner_ratios(snapshot["layout"]["ratios"])
