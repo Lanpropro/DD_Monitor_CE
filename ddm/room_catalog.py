@@ -297,6 +297,7 @@ class RoomCatalog:
             getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
 
     def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
+        from . import layouts
         host = self.host
         if host._closing:
             return
@@ -309,7 +310,9 @@ class RoomCatalog:
                 show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
         status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")
-        if (target_tile in host.wall.tiles and not target_tile.room.get('room_id')
+        destinations = (host.wall.visible_tiles() if layouts.snap_grid_size(getattr(host.wall, 'layout_id', ''))
+                        else host.wall.tiles)
+        if (target_tile in destinations and not target_tile.room.get('room_id')
                 and host._tile_of(str(room.get('room_id'))) is None):
             host.room_placement.drop_room(target_tile, str(room['room_id']), room=room)
         else:

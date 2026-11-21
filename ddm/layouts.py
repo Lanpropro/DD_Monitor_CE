@@ -59,12 +59,16 @@ LAYOUTS: list[dict] = [
      "spec": (3, 3, [(0, 0, 2, 2), (0, 2, 1, 1), (1, 2, 1, 1), (2, 0, 1, 1), (2, 1, 1, 1), (2, 2, 1, 1)])},
     {"id": "two_rows", "name": "双主画面 + 4 小",
      "spec": (4, 3, [(0, 0, 2, 2), (2, 0, 2, 2)] + [(row, 2, 1, 1) for row in range(4)])},
+    {"id": "custom_grid9", "name": "自定义九格", "spec": (3, 3, even_cells(3, 3)),
+     "snap_grid": 3, "section": "自定义"},
+    {"id": "custom_grid16", "name": "自定义十六格", "spec": (4, 4, even_cells(4, 4)),
+     "snap_grid": 4},
 ]
 
 DANMAKU_LAYOUTS: list[dict] = [
     {"id": "dm_pair", "name": "主画面 + 弹幕",
      "hint": "左边一路直播，右边整格给弹幕",
-     "spec": (1, 2, even_cells(1, 2)), "danmaku": 1},
+     "spec": (1, 5, [(0, 0, 1, 4), (0, 4, 1, 1)]), "danmaku": 1},
     {"id": "dm_top", "name": "上 1 大 + 小 + 弹幕",
      "spec": (2, 2, [(0, 0, 1, 2), (1, 0, 1, 1), (1, 1, 1, 1)]), "danmaku": 2},
     {"id": "dm_main2", "name": "主画面 + 1 小 + 弹幕",
@@ -159,6 +163,10 @@ GROUPS: list[tuple[str, list[dict]]] = [
 
 BY_ID = {layout["id"]: layout
          for layout in LAYOUTS + DANMAKU_LAYOUTS + PORTRAIT_LAYOUTS + PORTRAIT_DANMAKU_LAYOUTS}
+
+
+def snap_grid_size(layout_id):
+    return BY_ID.get(layout_id, {}).get('snap_grid', 0)
 
 
 def is_portrait_layout(layout_id: str) -> bool:

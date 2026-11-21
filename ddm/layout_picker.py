@@ -43,6 +43,7 @@ class LayoutPicker(QFrame):
         self.setMouseTracking(True)
         self._reset_layout_id = current
         self._can_reset_layout = layouts.capacity(current) > 1
+        self._choosing_edit = False
         self.presets_page = None
         self.custom_layouts_page = None
         self.layout_presets = getattr(presets_host, 'layout_presets', None)
@@ -103,8 +104,7 @@ class LayoutPicker(QFrame):
             outer.addWidget(self.custom_layouts_page, 1)
         if self.layout_presets is not None:
             self.edit_button = ActionButton('修改当前布局', self)
-            self.edit_button.setToolTip('在画面墙预览并调整当前预设的比例')
-            self.edit_button.clicked.connect(lambda: self._edit_layout(current))
+            self.edit_button.clicked.connect(self._request_edit)
             footer.addWidget(self.edit_button)
         self.reset_button = ActionButton('恢复默认比例', self)
         self.reset_button.setToolTip('恢复当前布局的全部分隔线比例，保留直播间和音频设置')
@@ -236,6 +236,8 @@ class LayoutPicker(QFrame):
     def hideEvent(self, event):
         QApplication.instance().removeEventFilter(self)
         self._resize_gesture = None
+        self._choosing_edit = False
+        self._update_edit_button()
         self.unsetCursor()
         super().hideEvent(event)
 
@@ -272,6 +274,7 @@ class LayoutPicker(QFrame):
         if name not in self._cards:
             return
         self._group = name
+        self._choosing_edit = False
         with QSignalBlocker(self.tabs):
             self.tabs.setValue(name)
         showing_presets = name == self._presets_key
@@ -292,9 +295,28 @@ class LayoutPicker(QFrame):
                 heading.setVisible(key == name)
         current_in_group = any(card.property('layoutId') == self._reset_layout_id for card in self._cards[name])
         self.reset_button.setVisible(self._can_reset_layout and current_in_group)
-        if self.edit_button is not None:
-            self.edit_button.setVisible(self._can_reset_layout and current_in_group)
+        self._update_edit_button()
         self.scroll.verticalScrollBar().setValue(0)
+
+    def _update_edit_button(self):
+        if self.edit_button is None:
+            return
+        entries = self.card_ids()
+        editable = any(layouts.capacity(key) > 1 for key in entries)
+        if self._choosing_edit:
+            self.edit_button.setText('选择要修改的布局')
+        elif self._can_reset_layout and self._reset_layout_id in entries:
+            self.edit_button.setText('修改当前布局')
+        else:
+            self.edit_button.setText('修改布局')
+        self.edit_button.setVisible(editable)
+
+    def _request_edit(self):
+        if self._can_reset_layout and self._reset_layout_id in self.card_ids():
+            self._edit_layout(self._reset_layout_id)
+        else:
+            self._choosing_edit = not self._choosing_edit
+            self._update_edit_button()
 
     def group(self) -> str:
         return self._group
@@ -303,6 +325,10 @@ class LayoutPicker(QFrame):
         return [card.property('layoutId') for card in self._cards[self.group()]]
 
     def _choose(self, layout_id: str) -> None:
+        if self._choosing_edit:
+            if layouts.capacity(layout_id) > 1:
+                self._edit_layout(layout_id)
+            return
         self.chosen.emit(layout_id)
         self.close()
 

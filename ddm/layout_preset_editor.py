@@ -8,44 +8,57 @@ from .corner_geometry import continuous_path
 from .ui import ActionButton
 
 
-class LayoutPreview(QWidget):
+class LayoutDraftPreview(QWidget):
     undoAvailable = Signal(bool)
 
-    def __init__(self, wall, base, ratios, parent):
+    def __init__(self, wall, base, draft, defaults, parent):
         super().__init__(parent)
         self.base = base
-        self.tree = room_presets.partition(base)
-        self.weights = room_presets.partition_weights(base, ratios)
+        self.draft = draft
+        self.defaults = defaults
         self.wall = wall
         self.drag = None
         self._history = []
         self.setMouseTracking(True)
-        self.setAccessibleName('拖动格子之间的分隔线调整布局')
 
     def _remember(self, previous):
-        if self.weights != previous:
+        if self.draft != previous:
             self._history.append(previous)
             self.undoAvailable.emit(True)
 
     def cancel_drag(self):
         if self.drag is not None:
-            self.weights = self.drag[2]
+            self.draft = self.drag[2]
             self.drag = None
             self.update()
 
     def reset_to_default(self):
         self.cancel_drag()
-        previous = self.weights
-        self.weights = room_presets.partition_weights(self.base, room_presets.default_layout_ratios(self.base))
+        previous = self.draft
+        self.draft = self.defaults
         self._remember(previous)
         self.update()
 
     def undo(self):
         if self._history:
             self.cancel_drag()
-            self.weights = self._history.pop()
+            self.draft = self._history.pop()
             self.undoAvailable.emit(bool(self._history))
             self.update()
+
+    def ratios(self):
+        return self.draft
+
+
+class LayoutPreview(LayoutDraftPreview):
+    def __init__(self, wall, base, ratios, parent):
+        super().__init__(wall, base, room_presets.partition_weights(base, ratios),
+                         room_presets.partition_weights(base, room_presets.default_layout_ratios(base)), parent)
+        self.tree = room_presets.partition(base)
+        self.setAccessibleName('拖动格子之间的分隔线调整布局')
+
+    def ratios(self):
+        return room_presets.corner_ratios_from_weights(self.draft) if self.base == 'corner' else self.draft
 
     def _geometry(self):
         wall = self.wall
@@ -54,7 +67,7 @@ class LayoutPreview(QWidget):
         if self.base == wall.layout_id:
             _, _, _, minimum, defaults = wall._border_model()
             if self.base == 'corner':
-                leaves, handles = wall._corner_rectangles(self.weights, area)
+                leaves, handles = wall._corner_rectangles(self.draft, area)
                 sizes = {
                     'root': [leaves[cell].height() for cell in (0, 3)],
                     'root/0': [leaves[cell].width() for cell in (0, 1)],
@@ -65,7 +78,7 @@ class LayoutPreview(QWidget):
                             for node in self.tree.nodes() for index in range(len(node.children) - 1)]
             else:
                 area.setSize(area.size().expandedTo(self.tree.minimum(gap, minimum)))
-                leaves, entries = resize_layout.geometry(self.tree, area, gap, minimum, self.weights, defaults)
+                leaves, entries = resize_layout.geometry(self.tree, area, gap, minimum, self.draft, defaults)
                 dividers = [(node, index, rect, sizes) for node, index, rect, _, sizes in entries]
             return leaves, dividers, 1, QPoint(), minimum
 
@@ -80,7 +93,7 @@ class LayoutPreview(QWidget):
         bounds.moveCenter(area.center())
         scale = drawn.width() / max(1, size.width())
         leaves, entries = resize_layout.geometry(
-            self.tree, QRect(QPoint(), size), gap, minimum, self.weights,
+            self.tree, QRect(QPoint(), size), gap, minimum, self.draft,
             lambda node, rect: room_presets.partition_defaults(self.base, node, rect, gap))
         dividers = [(node, index, rect, sizes) for node, index, rect, _, sizes in entries]
         return leaves, dividers, scale, bounds.topLeft(), minimum
@@ -88,6 +101,17 @@ class LayoutPreview(QWidget):
     def _mapped(self, rect, scale, origin):
         return QRectF(origin.x() + rect.x() * scale, origin.y() + rect.y() * scale,
                       rect.width() * scale, rect.height() * scale)
+
+    @staticmethod
+    def _grip(rect, axis):
+        rect = QRectF(rect)
+        if axis == Qt.Horizontal:
+            inset = max(rect.height() * .35, (rect.height() - 44) / 2)
+            rect.adjust(0, inset, 0, -inset)
+        else:
+            inset = max(rect.width() * .35, (rect.width() - 44) / 2)
+            rect.adjust(inset, 0, -inset, 0)
+        return rect
 
     def _hit(self, point):
         _, dividers, scale, origin, minimum = self._geometry()
@@ -99,9 +123,11 @@ class LayoutPreview(QWidget):
             if rect.adjusted(-4, -4, 4, 4).contains(point):
                 center = rect.center()
                 dx, dy = abs(point.x() - center.x()), abs(point.y() - center.y())
-                matches.append((dx if node.axis == Qt.Horizontal else dy, dx + dy, node, index, sizes))
+                over_grip = self._grip(rect, node.axis).adjusted(-4, -4, 4, 4).contains(point)
+                matches.append((not over_grip, dx if node.axis == Qt.Horizontal else dy,
+                                dx + dy, node, index, sizes))
         if matches:
-            _, _, node, index, sizes = min(matches, key=lambda match: match[:2])
+            _, _, _, node, index, sizes = min(matches, key=lambda match: match[:3])
             return node, index, sizes, scale, minimum
         return None
 
@@ -121,19 +147,12 @@ class LayoutPreview(QWidget):
             painter.drawText(frame, Qt.AlignCenter, '弹幕' if chat else str(cell + 1))
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(235, 246, 255, 200))
-        for _, _, rect, _ in dividers:
-            grip = self._mapped(rect, scale, origin)
-            if grip.width() < grip.height():
-                inset = max(grip.height() * .35, (grip.height() - 44) / 2)
-                grip.adjust(0, inset, 0, -inset)
-            else:
-                inset = max(grip.width() * .35, (grip.width() - 44) / 2)
-                grip.adjust(inset, 0, -inset, 0)
-            painter.drawRoundedRect(grip, 3, 3)
+        for node, _, rect, _ in dividers:
+            painter.drawRoundedRect(self._grip(self._mapped(rect, scale, origin), node.axis), 3, 3)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and (target := self._hit(event.position())):
-            self.drag = target, event.position(), self.weights
+            self.drag = target, event.position(), self.draft
             event.accept()
             return
         super().mousePressEvent(event)
@@ -149,7 +168,7 @@ class LayoutPreview(QWidget):
         delta = event.position() - start
         movement = round((delta.x() if horizontal else delta.y()) / scale)
         if movement == 0:
-            self.weights = weights
+            self.draft = weights
         else:
             sizes = list(original)
             total = sizes[index] + sizes[index + 1]
@@ -159,11 +178,11 @@ class LayoutPreview(QWidget):
             upper = total - (second.width() if horizontal else second.height())
             position = max(lower, min(upper, sizes[index] + movement))
             if position == sizes[index]:
-                self.weights = weights
+                self.draft = weights
             else:
                 sizes[index] = position
                 sizes[index + 1] = total - position
-                self.weights = {**weights, node.key: [size / sum(sizes) for size in sizes]}
+                self.draft = {**weights, node.key: [size / sum(sizes) for size in sizes]}
         self.update()
 
     def mouseReleaseEvent(self, event):
@@ -185,7 +204,11 @@ class LayoutPresetEditor(QDialog):
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowModality(Qt.WindowModal)
         self.setWindowTitle('修改布局 · ' + layouts.BY_ID[base]['name'])
-        self.preview = LayoutPreview(self.wall, base, ratios, self)
+        if layouts.snap_grid_size(base):
+            from .snap_grid_editor import SnapGridPreview
+            self.preview = SnapGridPreview(self.wall, base, ratios, self)
+        else:
+            self.preview = LayoutPreview(self.wall, base, ratios, self)
         self.actions = QWidget(self)
         bar = QHBoxLayout(self.actions)
         bar.setContentsMargins(0, 0, 0, 0)
@@ -235,5 +258,4 @@ class LayoutPresetEditor(QDialog):
         return super().eventFilter(watched, event)
 
     def ratios(self):
-        weights = self.preview.weights
-        return room_presets.corner_ratios_from_weights(weights) if self.preview.base == 'corner' else weights
+        return self.preview.ratios()

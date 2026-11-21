@@ -1,7 +1,7 @@
 """Named wall snapshots: validate only the fields belonging to a room combination."""
 from copy import deepcopy
 
-from . import layouts, resize_layout
+from . import layouts, resize_layout, snap_grid
 
 
 def collection(value):
@@ -31,6 +31,10 @@ def partition(identifier):
 def validate_ratios(identifier, ratios):
     if not isinstance(ratios, dict):
         raise ValueError("布局比例无效")
+    if size := layouts.snap_grid_size(identifier):
+        if not ratios:
+            return {}
+        return {'grid': snap_grid.validate(size, ratios.get('grid'))}
     if identifier == "corner":
         keys = ("width", "height", "right")
         values = [ratios.get(key) for key in keys]
@@ -161,6 +165,9 @@ def thumbnail_geometry(snapshot, area):
     """Use the same partition geometry as playback; no screenshot or player is created."""
     from PySide6.QtCore import QSize
     identifier = snapshot["layout"]["id"]
+    if size := layouts.snap_grid_size(identifier):
+        return snap_grid.geometry(size, snapshot['layout']['ratios'].get('grid', layouts.even_cells(size, size)),
+                                  area, 3)
     ratios = partition_weights(identifier, snapshot['layout']['ratios'])
     def defaults(node, rect):
         if node.key != "root" or not layouts.is_portrait_layout(identifier):

@@ -1,7 +1,7 @@
 """Video wall layout geometry, ratios and resize settlement; WallGrid owns all mutable state."""
 import math
 from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
-from . import layouts, resize_layout, theme
+from . import layouts, resize_layout, snap_grid, theme
 from .tile_widgets import Tile
 
 
@@ -38,7 +38,8 @@ class WallLayout:
         order = host._cell_order()
         if not cells or not order:
             return None
-        areas = [0 if cell in host.pane_danmaku.bindings() else cells[cell][2] * cells[cell][3]
+        cells = host._layout_ratios.get(host.layout_id, {}).get('grid', cells)
+        areas = [0 if not cells[cell] or cell in host.pane_danmaku.bindings() else cells[cell][2] * cells[cell][3]
                  for cell in order]
         if len(set(areas)) <= 1:
             return None
@@ -55,7 +56,7 @@ class WallLayout:
         cells = host._cells()
         if not cells or index >= len(order):
             return None
-        return cells[order[index]]
+        return host._layout_ratios.get(host.layout_id, {}).get('grid', cells)[order[index]]
 
     def danmaku_geometry_cell(self):
         """弹幕格当前用的 cell。"""
@@ -155,7 +156,10 @@ class WallLayout:
         changed = bool(host._layout_ratios.get(host.layout_id))
         host._layout_ratios[host.layout_id] = {}
         if host.fullscreen_tile is None:
-            host._relayout_preset()
+            if layouts.snap_grid_size(host.layout_id):
+                host._relayout_preset(apply_visibility=True)
+            else:
+                host._relayout_preset()
         if changed:
             host.layoutRatiosChanged.emit()
 
@@ -211,9 +215,15 @@ class WallLayout:
         # 顶层窗口尺寸变更可能在下一次事件循环才完成，计算区域也遵守最小尺寸。
         area.setWidth(max(area.width(), minimum.width()))
         area.setHeight(max(area.height(), minimum.height()))
-        leaves, dividers = resize_layout.geometry(
-            tree, area, gap, host._preset_minimum,
-            host._layout_ratios[host.layout_id], host._preset_defaults)
+        if size := layouts.snap_grid_size(host.layout_id):
+            cells = host._layout_ratios[host.layout_id].get('grid', host._cells())
+            leaves = snap_grid.geometry(size, cells, area, gap)
+            dividers = []
+            widgets = {cell: widget for cell, widget in widgets.items() if cell in leaves}
+        else:
+            leaves, dividers = resize_layout.geometry(
+                tree, area, gap, host._preset_minimum,
+                host._layout_ratios[host.layout_id], host._preset_defaults)
         for cell, rect in leaves.items():
             widget = widgets[cell]
             same_size = widget.size() == rect.size()

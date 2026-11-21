@@ -57,7 +57,7 @@ def main():
             before_slots = first.current_state()['wall']
             # 所有可拖预设各写一次，各自的比例互不覆盖。
             for identifier in layouts.BY_ID:
-                if identifier in ('corner', '1x1'):
+                if identifier in ('corner', '1x1') or layouts.snap_grid_size(identifier):
                     continue
                 first.wall.set_layout(identifier)
                 app.processEvents()

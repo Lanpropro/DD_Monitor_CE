@@ -226,6 +226,125 @@ def check_layout_only_presets(app, directory):
         app.processEvents()
 
 
+def check_snap_grid_and_other_presets(app):
+    from PySide6.QtCore import QMimeData, QPointF
+    from PySide6.QtGui import QDropEvent
+    from ddm.layout_preset_editor import LayoutPresetEditor
+    from ddm import snap_grid
+    from ddm.tile_widgets import ROOM_MIME
+
+    rooms = [dict(room_id=str(n), uname=str(n), live=False) for n in (701, 702)]
+    window = MainWindow(rooms, deepcopy(rooms), layout_id='corner',
+                        state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
+    window.resize(1800, 1000)
+    window.show()
+    app.processEvents()
+    wall = window.wall
+    presets = window.layout_presets
+    tiles = wall.tiles[:2]
+    handles = [int(tile.video.winId()) for tile in tiles]
+
+    def open_from(group, base):
+        window.sidebar.open_layout_picker()
+        picker = window.sidebar._picker
+        picker.set_group(group)
+        assert picker.edit_button.isVisible()
+        picker.edit_button.click()
+        if picker.isVisible():
+            assert picker.edit_button.text() == '选择要修改的布局'
+            card = next(card for card in picker._cards[group] if card.property('layoutId') == base)
+            card.click()
+        app.processEvents()
+        editor = next(dialog for dialog in window.findChildren(LayoutPresetEditor) if dialog.isVisible())
+        assert editor.preview.base == base
+        return editor
+
+    def gesture(view, start, end):
+        QTest.mousePress(view, Qt.LeftButton, pos=start)
+        QTest.mouseMove(view, end)
+        QTest.mouseRelease(view, Qt.LeftButton, pos=end)
+
+    try:
+        for group, base in (('弹幕布局', 'dm_pair'), ('竖屏布局', 'portrait_dm2')):
+            editor = open_from(group, base)
+            assert wall.layout_id == 'corner'
+            view = editor.preview
+            _, dividers, scale, origin, _ = view._geometry()
+            node, _, handle, _ = next(entry for entry in dividers if entry[0].key == 'root' and entry[1] == 0)
+            start = view._mapped(handle, scale, origin).center().toPoint()
+            assert view._hit(start)[0].key == node.key
+            delta = QPoint(-30, 0) if node.axis == Qt.Horizontal else QPoint(0, -30)
+            gesture(view, start, start + delta)
+            assert editor.ratios(), base
+            editor.reject()
+        presets.select_builtin('dm_pair')
+        app.processEvents()
+        video, chat = wall._preset_widgets().values()
+        assert abs(video.width() / (video.width() + chat.width()) - .8) < .005
+        editor = presets.edit('dm_pair')
+        assert editor.preview.base == 'dm_pair'
+        editor.reject()
+
+        for base, count in (('custom_grid9', 3), ('custom_grid16', 4)):
+            presets.select_builtin(base)
+            app.processEvents()
+            assert wall.visible_tiles() == wall.tiles[:count * count]
+            editor = open_from('普通布局', base)
+            view = editor.preview
+            original = view.draft
+            rects = view._rectangles(original)
+            start = view._grip(rects[0]).center()
+            gesture(view, start, start + QPoint(rects[1].x() - rects[0].x(), 0))
+            assert view.draft == original, 'A resize cannot cover an occupied video cell'
+            gesture(view, rects[0].center(), rects[1].center())
+            assert view.draft[:2] == [original[1], original[0]]
+            view.undo()
+            assert view.draft == original
+            gesture(view, start, start + QPoint(0, rects[count].y() - rects[0].y()))
+            assert view.draft[0] == (0, 0, 2, 1) and view.draft[count] is None
+            assert wall.tiles[0].geometry() == rects[0]
+            editor.accept()
+            app.processEvents()
+            assert wall.visible_tiles() == [tile for index, tile in enumerate(wall.tiles) if index != count][:count * count - 1]
+            assert wall.tiles[:2] == tiles and [int(tile.video.winId()) for tile in tiles] == handles
+            snapshot = window.room_preset_snapshot()
+            assert snapshot['layout']['ratios']['grid'][0] == (0, 0, 2, 1)
+            assert count not in room_presets.thumbnail_geometry(snapshot, wall.rect())
+
+        available = wall.tiles[2]
+        room = dict(room_id='703', uname='拖入测试', live=False)
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, b'703')
+        drop = QDropEvent(QPointF(available.rect().center()), Qt.CopyAction, mime,
+                          Qt.LeftButton, Qt.NoModifier)
+        with patch.object(window, '_room_dict', return_value=room), patch('ddm.card_drop.play_card_drop'):
+            available.dropEvent(drop)
+        assert drop.isAccepted() and available.room['room_id'] == '703' and available.isVisible()
+
+        restored_state = window.current_state()
+        resumed = MainWindow([], [], layout_id='custom_grid16', state=restored_state)
+        try:
+            assert resumed.wall.layout_ratios()['custom_grid16']['grid'][0] == (0, 0, 2, 1)
+            resumed.layout_presets.select_builtin('custom_grid9')
+            assert resumed.wall.layout_ratios()['custom_grid9']['grid'][3] is None
+            resumed.layout_presets.reset_current()
+            resumed.show()
+            app.processEvents()
+            assert len(resumed.wall.visible_tiles()) == 9
+        finally:
+            resumed.close()
+        for invalid in ([None] * 9, [(0, 0, 3, 4)] + [None] * 8):
+            try:
+                snap_grid.validate(3, invalid)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError('Damaged grid must be rejected')
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def main():
     app = QApplication([])
     font_path = Path('C:/Windows/Fonts/msyh.ttc')
@@ -247,6 +366,7 @@ def main():
                        '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, method))
         check_layout_only_presets(app, Path(temporary))
+        check_snap_grid_and_other_presets(app)
         window = MainWindow(deepcopy(fixture), deepcopy(fixture), layout_id='corner',
                             state={'plugins_enabled': [], 'settings': {'auto_update': False,
                                    'preview_on_hover': False, 'recording_replay_enabled': False}})

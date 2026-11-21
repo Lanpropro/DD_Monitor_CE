@@ -120,7 +120,7 @@ class WindowLayout:
                     else:
                         layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
             if layout_id != host.wall.layout_id:
-                if not first:
+                if not first and not layouts.snap_grid_size(host.wall.layout_id):
                     host._clear_expanded_slots(layout_id)
                 host.wall.set_layout(layout_id, relayout=False)
                 host.sidebar.set_layout_name(layout_id)
@@ -187,6 +187,8 @@ class WindowLayout:
 
     def on_layout_changed(self, layout_id: str, *, preserve_rooms: bool = False) -> None:
         host = self.host
+        preserve_rooms = preserve_rooms or bool(layouts.snap_grid_size(host.wall.layout_id)
+                                                or layouts.snap_grid_size(layout_id))
         if host.picture_in_picture.moves_main_wall:
             host.picture_in_picture.restore()
         host._cancel_interactive_resize()
@@ -197,6 +199,8 @@ class WindowLayout:
         if layout_id == host.wall.layout_id and not reshape:
             if preserve_rooms:
                 host.wall.relayout(force=True)
+                if layouts.snap_grid_size(layout_id):
+                    host._sync_tile_playback(start_visible=True)
                 return
             host.wall.reset_layout_ratios()
             if panes_reset:

@@ -20,7 +20,7 @@ class TilePresentation:
                 or wall.picture_in_picture_tiles is not None):
             return host.width()
         spec = layouts.BY_ID.get(wall.layout_id, {}).get('spec')
-        if spec is None:
+        if spec is None or layouts.snap_grid_size(wall.layout_id):
             return host.width()
         rows, columns, cells = spec
         ratios = wall._layout_ratios.get(wall.layout_id, {})

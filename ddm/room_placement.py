@@ -1,5 +1,6 @@
 """Room placement and tile swaps; the host owns playback, recording and UI services."""
 import sys
+from . import layouts
 from .room_catalog import RoomCatalog
 from .room_navigation import RoomNavigation
 from .streamer_defaults import room_defaults
@@ -273,7 +274,8 @@ class RoomPlacement:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
         room = self.prepare_wall_entry(room)
-        candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
+        snap_grid = layouts.snap_grid_size(host.wall.layout_id)
+        candidates = host.wall.visible_tiles() if empty_only or snap_grid else host.wall.tiles
         panes = host.wall.pane_danmaku
         chat_cells = panes.bindings()
         chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
@@ -290,6 +292,9 @@ class RoomPlacement:
             host._refresh_meta()
             return
         if empty_only:
+            return
+        if snap_grid:
+            print('自定义网格没有空闲的画面格')
             return
         if len(host.wall.tiles) >= MAX_TILES:
             print(f"画面墙已满（{MAX_TILES} 路）")

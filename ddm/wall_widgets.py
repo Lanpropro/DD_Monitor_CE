@@ -105,6 +105,13 @@ class WallGrid(QWidget):
         self._layout_ratios = {
             identifier: resize_layout.validated_weights(saved.get(identifier), tree)
             for identifier, tree in self._partitions.items()}
+        from .room_presets import validate_ratios
+        for identifier in self._partitions:
+            if layouts.snap_grid_size(identifier):
+                try:
+                    self._layout_ratios[identifier] = validate_ratios(identifier, saved.get(identifier, {}))
+                except ValueError:
+                    pass
         self._preset_dividers = {}
         self._divider_rects = {}
 
