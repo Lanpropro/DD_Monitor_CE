@@ -39,7 +39,7 @@ const labApplicationControls = [
   ['smart-folder', '智能分组规则', '关注管理 › 新建智能文件夹', 240, 'sidebar_folders.py', '组合来源文件夹、开播状态与平台条件。'],
   ['account-platform', '登录平台选择', '关注栏 › 登录', 340, 'account_dialog.py', '在六个平台之间切换，查看分段选中状态。'],
   ['danmaku-source', '弹幕来源选择', '弹幕格 › 关联画面', 220, 'pane_source_picker.py', '展开头像列表，切换关联的画面。'],
-  ['comment-actions', '单条弹幕工具条', '弹幕消息 › 点击', 240, 'danmaku_actions.py', '点击示例弹幕，在同一面板内试用复制、复读和屏蔽。'],
+  ['comment-actions', '单条弹幕工具条', '弹幕消息 › 点击', 240, 'danmaku_actions.py', '点击示例弹幕可试用复制、复读和屏蔽。屏蔽后可撤回。'],
   ['danmaku-float', '弹幕浮窗与收回', '弹幕格 › 浮动窗口', 224, 'danmaku_float_window.py', '切换浮窗并用占位按钮收回弹幕。'],
   ['caption-placement', '字幕位置与大小', '字幕工具 › 宿主位置预览', 230, 'caption_preview.py', '拖动字幕或用方向键移动，试用大小调节与复位。'],
   ['theme-editor', '主题自定义值', '外观 › 主题', 240, 'settings_theme_editor.py', '填写颜色值，切换字体并调整界面字号。'],
@@ -351,7 +351,8 @@ function labAppExample(item, popupId, detail) {
     case 'comment-actions':
       html = popupButton('小岚：晚上好', `${b('复制','comment-copy')}${b('+1','comment-report')}
         <span class="lab-comment-divider" aria-hidden="true"></span>
-        ${b('屏蔽弹幕','comment-report')}${b('屏蔽用户','comment-report')}`, '', 'lab-comment-popup'); break;
+        ${b('屏蔽弹幕','comment-block')}${b('屏蔽用户','comment-block')}`, '', 'lab-comment-popup')
+        + `<div class="lab-comment-undo" hidden><span role="status"></span>${b('撤回','comment-undo')}</div>`; break;
     case 'danmaku-float':
       html = `<div class="lab-app-note" data-app-float-panel>弹幕 · 示例直播间<p>小岚：晚上好</p></div>
         ${b('弹幕浮窗','chat-float',true)}<div data-app-float-slot hidden>${b('收回弹幕栏','chat-return')}</div>`; break;
@@ -439,6 +440,7 @@ function labBindApplication(host, item, report, paintIcon) {
     report('已调整顺序');
   };
   let lastRemoved = [];
+  let blockedComment = '';
   let captionSize = 16;
   let dragged;
   const popupTrigger = select('button[popovertarget]');
@@ -1146,6 +1148,25 @@ function labBindApplication(host, item, report, paintIcon) {
       case 'comment-report':
         popup.hidePopover();
         report('已触发 ' + label);
+        break;
+      case 'comment-block': {
+        popup.hidePopover();
+        blockedComment = label;
+        const undo = select('.lab-comment-undo');
+        popupTrigger.hidden = true;
+        undo.hidden = false;
+        undo.querySelector('[role=status]').textContent = '已' + label;
+        report('');
+        undo.querySelector('button').focus({preventScroll:true});
+        break;
+      }
+      case 'comment-undo':
+        if (!blockedComment) break;
+        select('.lab-comment-undo').hidden = true;
+        popupTrigger.hidden = false;
+        popupTrigger.focus({preventScroll:true});
+        report('已撤回' + blockedComment);
+        blockedComment = '';
         break;
       case 'chat-float':
       case 'chat-return': {

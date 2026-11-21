@@ -94,7 +94,7 @@
 | 弹幕格消息与工具 | 画面墙 › 弹幕格 | 切换跟随、返回底部、调字号和输入示例。 | [danmaku_widgets.py](../../ddm/danmaku_widgets.py) | `#control-danmaku-panel` | 消息面板、粉点标题、字号滑块和跟随操作。 |
 | 醒目留言卡片 | 弹幕格 › 醒目留言 | 展开或收起内容，关闭后可恢复示例。 | [super_chat_widgets.py](../../ddm/super_chat_widgets.py) | `#control-super-chat` | 浅色头部、价格、深蓝正文、折叠关闭和示例恢复。 |
 | 弹幕来源选择 | 弹幕格 › 关联画面 | 展开头像列表，切换关联的画面。 | [pane_source_picker.py](../../ddm/pane_source_picker.py) | `#control-danmaku-source` | 弹幕栏、来源头像与已选来源反馈。 |
-| 单条弹幕工具条 | 弹幕消息 › 点击 | 点击或右键打开菜单，试用复制、复读和屏蔽，试样使用本地文本。 | [danmaku_actions.py](../../ddm/danmaku_actions.py) | `#control-comment-actions` | 四个动作共用一个圆角浮层，复制和复读与两项屏蔽操作之间有一条分隔线。 |
+| 单条弹幕工具条 | 弹幕消息 › 点击 | 点击或右键打开菜单，试用复制、复读和屏蔽，试样使用本地文本。 | [danmaku_actions.py](../../ddm/danmaku_actions.py) | `#control-comment-actions` | 四个动作共用一个圆角浮层。屏蔽弹幕或用户后，试样隐藏该消息并显示撤回按钮。 |
 | 弹幕浮窗与收回 | 弹幕格 › 浮动窗口 | 浮出弹幕面板，再用占位按钮收回。 | [danmaku_float_window.py](../../ddm/danmaku_float_window.py) | `#control-danmaku-float` | 浮窗面板和收回入口，系统级拖拽保留原生验收。 |
 | 字幕位置与大小 | 字幕工具 › 宿主位置预览 | 拖动或用方向键移动字幕，调整大小，双击复位。 | [caption_preview.py](../../ddm/caption_preview.py) | `#control-caption-placement` | 双语字幕、虚线区域、拖动与键盘移动、双击复位。 |
 

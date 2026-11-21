@@ -923,6 +923,11 @@ input[type=range]:enabled:active::-moz-range-thumb,
 .lab-comment-popup > .lab-control { width: auto; justify-content: center; border-radius: 6px; padding-inline: 7px; }
 .lab-comment-popup > .lab-control:active:enabled { background: color-mix(in srgb, var(--lab-hover) 75%, var(--lab-menu)); }
 .lab-comment-divider { width: 1px; height: 18px; margin: 0 3px; flex: none; background: var(--lab-menu-line); }
+.lab-comment-undo {
+  display: flex; justify-content: center; align-items: center; gap: 8px;
+  min-height: var(--lab-height, 30px); color: var(--lab-muted);
+}
+.lab-comment-undo .lab-control { min-height: 26px; }
 .lab-color-dialog {
   width: min(440px, calc(100vw - 24px));
   padding: 16px;
