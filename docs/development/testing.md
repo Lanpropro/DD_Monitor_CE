@@ -443,7 +443,7 @@ SC 自动缩放：设置 → 弹幕中的“SC 随画面缩放”默认关闭，
 
 单格全屏窗口捕获试验：退出软件后，从根目录运行 `run.cmd --try-fullscreen-capture`。在 OBS 中用「窗口捕获」选中 DD监控室CE 主窗口，捕获方式选用 Windows Graphics Capture。播放一路直播，按 `F` 全屏、按 `Esc` 退出。同一捕获源应持续显示视频，退回后应恢复原窗口和画面墙。可在相同直播房间与画质下用普通 `run.cmd` 对照，结合 `logs/fullscreen.jsonl` 中的切换耗时和 OBS 统计检查差异。
 
-`run.cmd --check-fullscreen-layers` 包含普通窗口和最大化窗口的句柄、播放格几何及还原回归。离线 Windows Graphics Capture 用同一会话在窗口、4K 全屏和退出后读到了 libmpv D3D11 播放的本地视频色块。OBS 实机和多路直播性能另行验收。
+`run.cmd --check-fullscreen-layers` 包含普通窗口和最大化窗口的句柄、播放格几何及还原回归。离线 Windows Graphics Capture 用同一会话在窗口、4K 全屏和退出后读到了 libmpv D3D11 播放的本地视频色块。2026-11-21，维护者确认 `19aa18ee` 的 OBS 单格全屏窗口捕获实机验收通过。多路直播性能仍待量化对照。
 
 全屏透明渐变：`run.cmd --check-fullscreen-layers` 的底栏项在 Windows 原生窗口中检查深浅主题、上沿透出视频、中段浅暗、下沿逐步加深、普通皮肤底色隔离和退出后恢复普通绘制，并保留弹幕编辑、点击、显隐与往返检查。仅全屏由底栏绘制渐变，原有布局、输入控件和窗口生命周期继续沿用。复测时用根 `run.cmd` 打开一场直播，分别在亮画面和暗画面中观察底栏，输入弹幕草稿，等待自动隐藏再唤出，反复退出和进入全屏，确认草稿在原位且只有一份。
 
