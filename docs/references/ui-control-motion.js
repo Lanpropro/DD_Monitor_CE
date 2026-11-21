@@ -3,7 +3,7 @@ const galleryReducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const gallerySegmentSwitch = document.getElementById('segment-motion');
 const galleryClamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-const galleryStepButtons = 'button[data-lab-step], .stepper button[data-step], .lab-qt-number-step button';
+const galleryStepButtons = 'button[data-lab-step], .stepper button[data-step], .lab-qt-number-step button, .lab-match-step > button';
 let galleryStopStepHold;
 let galleryRepeatedStep;
 

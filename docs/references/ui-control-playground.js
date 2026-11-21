@@ -396,12 +396,17 @@ function labRenderDetail(item) {
     <div><h2 id="playground-name" tabindex="-1">${type.title}</h2><p>${item.group} › ${item.location}</p></div>
     <a class="lab-link" href="#overview">返回总览</a></header>`;
   if (item.nativeSize) {
-    labDetail.innerHTML = `${header}<section class="lab-panel lab-native-panel" aria-label="Windows Qt 实拍">
+    const interactive = labMatchInteractive(item.id);
+    labDetail.innerHTML = `${header}<section class="lab-panel lab-native-panel" aria-label="${interactive ? '网页试用与 Windows Qt 实拍' : 'Windows Qt 实拍'}">
+      ${interactive ? `<p class="lab-native-note">可操作试样 · 使用示例房间</p>
+        <div data-match-workspace></div>
+        ${item.id === 'match-room' ? '<p class="lab-native-note"><a class="lab-link" href="#control-match-console">查看完整播放控制台</a></p>' : ''}` : ''}
       ${labMatchCapture(item, labOverview.dataset.themeMode, true)}
       <div class="lab-source"><p>${item.usage}</p>
         <p>源码快照 <code title="${labMatchRevision}">${labMatchRevision.slice(0, 7)}</code> ·
           <code>${labMatchSource(item.source)}</code></p></div>
     </section>`;
+    if (interactive) labMountMatchWorkspace(labDetail.querySelector('[data-match-workspace]'), item);
     return;
   }
   const playback = type === labPlaybackType;
@@ -489,7 +494,7 @@ function labShowRoute() {
   labGallery.hidden = Boolean(item);
   labDetail.hidden = !item;
   labContext.textContent = item
-    ? (item.nativeSize ? 'Windows Qt 实拍 · 示例数据'
+    ? (item.nativeSize ? (labMatchInteractive(item.id) ? '网页交互试样 · 对照 Windows Qt 实拍' : 'Windows Qt 实拍 · 示例数据')
       : item.sheet === 'extension' ? '网页交互试样 · 对照源码' : '网页交互试样 · 对照当前 Qt 外观')
     : `${labCatalog.length} 类控件 · ${labControls.length} 个场景`;
   labOverview.querySelector('.lab-group-links').hidden = Boolean(item);
@@ -512,15 +517,17 @@ labOverview.querySelector('.lab-group-links').innerHTML = labGroups.map((area, i
 function labRenderGallery() {
   labGallery.innerHTML = labGroups.map((area, index) =>
     `<section class="qt-group" id="lab-group-${index}"><h2>${area}</h2>
-      ${area === labMatchGroup ? '<p class="lab-native-note">Windows Qt 实拍 · 点击详情查看原尺寸</p>' : ''}
+      ${area === labMatchGroup ? '<p class="lab-native-note">Windows Qt 实拍 · 播放控制台与来源行可试用</p>' : ''}
       <div class="qt-grid${area === labMatchGroup ? ' qt-grid-match' : ''}">${labCatalog
       .filter(type => type.examples[0].group === area).map(type => {
         const item = type.examples[0];
         const playback = type === labPlaybackType;
         return `<article class="qt-card${playback ? ' qt-card-playback' : ''}" data-lab-type="${item.id}"${item.nativeSize ? ` data-native-size="${item.nativeSize}"` : ''}>
           <header><div><h3>${type.title}</h3><small>${playback ? '底部信息条与右上角' : type.examples.length > 1 ? `${type.examples.length} 个使用场景` : item.location}</small></div>
-          <a class="lab-link" href="#control-${item.id}" aria-label="${type.title}详情">详情</a></header>
-          ${item.nativeSize ? labMatchCapture(item, labOverview.dataset.themeMode ?? 'dark')
+          <a class="lab-link" href="#control-${item.id}" aria-label="${type.title}${labMatchInteractive(item.id) ? '试用' : '详情'}">${labMatchInteractive(item.id) ? '试用' : '详情'}</a></header>
+          ${item.nativeSize ? (labMatchInteractive(item.id)
+            ? `<a class="lab-match-entry" href="#control-${item.id}" aria-label="试用${type.title}">${labMatchCapture(item, labOverview.dataset.themeMode ?? 'dark')}</a>`
+            : labMatchCapture(item, labOverview.dataset.themeMode ?? 'dark'))
             : playback ? '<div class="lab-playback-preview"></div>' : '<div class="lab-demo"></div>'}</article>`;
       }).join('')}</div></section>`).join('');
   labGallery.querySelectorAll('[data-lab-type]').forEach(card => {

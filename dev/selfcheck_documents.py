@@ -135,6 +135,15 @@ class DocumentStructureTests(unittest.TestCase):
                 self.assertEqual(dark[16:24], light[16:24])
                 self.assertNotEqual(dark, light)
 
+    def test_match_workspace_trial_links_are_catalog_routes(self):
+        references = DOCS / "references"
+        catalog = read(references / "ui-control-match.js")
+        coverage = read(references / "ui-control-coverage.md")
+        trial_links = re.findall(r"\]\(ui-control-library\.html#control-(match-[a-z]+)\)", coverage)
+        self.assertCountEqual(trial_links, ["match-console", "match-room"])
+        for route in trial_links:
+            self.assertIn(f"['{route}',", catalog)
+
     def test_link_validation_checks_same_page_and_duplicate_anchors(self):
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "page.md"
