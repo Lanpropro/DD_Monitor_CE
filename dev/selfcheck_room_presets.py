@@ -790,18 +790,20 @@ def main():
             app.processEvents()
             with patch('ddm.room_presets_ui.QMessageBox.question', side_effect=AssertionError('Delete must stay inline')):
                 panel, card, confirm, cancel = page.delete_panels[discarded]
+                assert confirm.objectName() == 'PrimaryButton' and confirm.property('deleteConfirm')
+                assert cancel.objectName() == 'IconButton'
                 delete = next(button for button in card.parentWidget().findChildren(QPushButton)
                               if button.accessibleName() == '删除组合 待删除')
                 page.scroll.ensureWidgetVisible(delete)
                 QTest.mouseClick(delete, Qt.LeftButton)
                 assert panel.isVisible() and card.isHidden() and panel.window() is picker
                 assert any(item['id'] == discarded for item in window.room_presets['items'])
-                error_color = theme.qcolor(theme.ERROR)
+                danger_fills = [theme.qcolor(color) for color in ('#b52b32', '#c3333c')]
                 for button in (cancel, confirm):
                     button.setFocus()
                     image = confirm.grab().toImage()
-                    assert image.pixelColor(image.width() // 2, 0) == error_color
-                    assert image.pixelColor(0, 0) != error_color
+                    assert image.pixelColor(image.width() // 2, round(5 * image.devicePixelRatio())) in danger_fills
+                    assert image.pixelColor(0, 0) not in danger_fills
                 QTest.mouseClick(cancel, Qt.LeftButton)
                 assert panel.isHidden() and card.isVisible()
                 assert any(item['id'] == discarded for item in window.room_presets['items'])

@@ -31,7 +31,7 @@ class SettingsMaterialEditor(SettingsSurface):
         parameters.addWidget(self.background_status)
         entries = (
             ('settings_glass_enabled', '启用毛玻璃效果', '设置窗口和公告详情使用系统模糊。通知菜单使用半透明底色，随底色不透明度调整。'),
-            ('settings_segment_motion', '滑动分段指示器', '鼠标切换时滑动选中底片，系统关闭动画时直接切换。'),
+            ('settings_segment_motion', '滑动分段指示器', '用鼠标点选或拖动选中底片，系统关闭动画时直接切换。'),
             ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
         )
         for key, label, hint in entries:

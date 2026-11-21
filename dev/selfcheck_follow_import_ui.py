@@ -220,7 +220,10 @@ class FollowImportUITests(unittest.TestCase):
         self.assertEqual(page.list.item(0).data(Qt.UserRole)['anchor_uid'], 'a')
 
     def test_login_segments_switch_platform_and_keep_overflow_actions(self):
+        from ddm import motion
+        from ddm.settings_material import set_segment_motion
         owner = QWidget()
+        set_segment_motion(owner, True)
         owner._accounts = {'douyu': {'uname': '测试'}}
         providers = {kind: SimpleNamespace(kind=kind, label=label, account_login_notice=label) for kind, label in (
             ('douyin', '抖音'), ('douyu', '斗鱼'), ('huya', '虎牙'), ('twitch', 'Twitch'), ('youtube', 'YouTube'))}
@@ -232,7 +235,14 @@ class FollowImportUITests(unittest.TestCase):
         self.assertEqual(tabs.buttons['douyin'].parentWidget().objectName(), 'LoginPlatformSegments')
         self.assertTrue(tabs.buttons['douyin'].isChecked())
         self.assertTrue(tabs.buttons['douyu'].property('loggedIn'))
-        QTest.mouseClick(tabs.buttons['douyu'], Qt.LeftButton)
+        selection = tabs._selection
+        origin = selection.rect
+        with patch.object(motion, 'enabled', return_value=True):
+            QTest.mouseClick(tabs.buttons['douyu'], Qt.LeftButton)
+            self.assertEqual(selection.rect, origin)
+            self.assertTrue(selection._timer.isActive())
+            QTest.qWait(220)
+            self.assertNotEqual(selection.rect, origin)
         self.assertEqual(dialog.kind, 'douyu')
         self.assertTrue(tabs.buttons['douyu'].isChecked())
         self.assertFalse(tabs.buttons['douyin'].isChecked())
@@ -243,6 +253,7 @@ class FollowImportUITests(unittest.TestCase):
         tabs.actions[key].trigger()
         self.assertEqual(dialog.kind, key)
         self.assertTrue(tabs.buttons[key].isChecked())
+        self.assertEqual(selection.rect, tabs._segment_rects()[key])
 
     def test_platform_overflow_keeps_active_and_all_providers_reachable(self):
         owner = QDialog()

@@ -1,7 +1,8 @@
 """Tile context menu; mutable state and Qt ownership stay with Tile."""
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QLabel, QMenu, QSlider, QVBoxLayout, QWidget, QWidgetAction
+from PySide6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget, QWidgetAction
 from .streamer_defaults import source_quality_option
+from .ui.slider import SettingsSlider
 
 
 class TileContextMenu:
@@ -23,7 +24,7 @@ class TileContextMenu:
         volume_label = QLabel(f"音量 {host.volume}")
         volume_label.setObjectName("AppSubtitle")
         holder_layout.addWidget(volume_label)
-        slider = QSlider(Qt.Horizontal, holder)
+        slider = SettingsSlider(holder, fixed_width=False)
         slider.setRange(0, 100)
         slider.setValue(host.volume)
         slider.setFixedWidth(170)

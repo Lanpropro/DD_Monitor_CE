@@ -564,6 +564,96 @@ for before, component, after in (
         self.assertNotEqual(snapshots[0], snapshots[1])
         self.assertEqual(snapshots[0], snapshots[2])
 
+    def test_segment_indicator_follows_drag_and_commits_only_on_release(self):
+        from ddm import motion
+        from ddm.settings_material import set_segment_motion
+        owner = QWidget()
+        self.addCleanup(owner.close)
+        control = ui.SegmentedControl((('a', 'First'), ('b', 'Second'), ('c', 'Third')), parent=owner)
+        control.setFixedWidth(300)
+        owner.resize(360, 80)
+        owner.show()
+        control.show()
+        set_segment_motion(owner, True)
+        events = []
+        control.valueChanged.connect(events.append)
+        first, last = control.buttons['a'], control.buttons['c']
+        finish = first.mapFromGlobal(last.mapToGlobal(last.rect().center()))
+        selection = control._selection
+        with patch.object(motion, 'enabled', return_value=True):
+            start = selection.rect
+            QTest.mousePress(first, Qt.LeftButton)
+            QTest.mouseMove(first, finish)
+            self.assertGreater(selection.rect.left(), start.left())
+            self.assertEqual(control.value(), 'a')
+            self.assertFalse(events)
+            QTest.mouseRelease(first, Qt.LeftButton, pos=finish)
+            self.assertEqual(events, ['c'])
+            self.assertEqual(control.value(), 'c')
+            self.assertTrue(selection._timer.isActive())
+            QTest.qWait(900)
+            self.assertEqual(selection.rect, control._segment_rects()['c'])
+            self.assertFalse(selection._timer.isActive())
+        with patch.object(motion, 'enabled', return_value=False):
+            QTest.mouseClick(first, Qt.LeftButton)
+            self.assertEqual(selection.rect, control._segment_rects()['a'])
+            self.assertFalse(selection._timer.isActive())
+
+    def test_settings_preview_switch_does_not_draw_mouse_focus_ring(self):
+        from PySide6.QtGui import QColor
+        from ddm.settings_general import GeneralSettingsPage
+        self.addCleanup(theme.apply, theme.mode())
+        theme.apply('dark')
+        page = GeneralSettingsPage({})
+        self.addCleanup(page.close)
+        page.show()
+        page.activateWindow()
+        self.app.processEvents()
+        switch = page._checks['preview_on_hover']
+        def edge_has_accent():
+            image = switch.grab().toImage()
+            return any(image.pixelColor(x, y) == QColor(theme.ACCENT)
+                       for x in range(image.width()) for y in range(round(2 * image.devicePixelRatio())))
+        QTest.mousePress(switch, Qt.LeftButton)
+        self.assertTrue(switch.isDown())
+        self.assertFalse(edge_has_accent())
+        QTest.mouseRelease(switch, Qt.LeftButton)
+        switch.clearFocus()
+        switch.setFocus(Qt.TabFocusReason)
+        self.assertTrue(edge_has_accent())
+
+    def test_plugin_tab_indicator_drags_without_switching_page_mid_gesture(self):
+        from ddm import motion
+        from ddm.online_ui import PluginStorePage
+        from ddm.settings_material import set_segment_motion
+        from ddm.settings_plugins import PluginSettingsPage
+        owner = QWidget()
+        self.addCleanup(owner.close)
+        layout = QVBoxLayout(owner)
+        owner.resize(750, 580)
+        with patch.object(PluginStorePage, 'open_catalog'), patch.object(motion, 'enabled', return_value=True):
+            layout.addWidget(page := PluginSettingsPage(parent=owner))
+            owner.show()
+            self.app.processEvents()
+            set_segment_motion(owner, True)
+            tabs = page.tabs
+            bar = tabs.tabBar()
+            selection = bar._selection
+            start = selection.rect
+            QTest.mousePress(bar, Qt.LeftButton, pos=bar.tabRect(0).center())
+            QTest.mouseMove(bar, bar.tabRect(1).center())
+            self.assertEqual(tabs.currentIndex(), 0)
+            self.assertGreater(selection.rect.left(), start.left())
+            QTest.mouseRelease(bar, Qt.LeftButton, pos=bar.tabRect(1).center())
+            self.assertEqual(tabs.currentIndex(), 1)
+            self.assertTrue(selection._timer.isActive())
+            QTest.qWait(900)
+            self.assertEqual(selection.rect, bar._tab_rects()[1])
+            self.assertFalse(selection._timer.isActive())
+            QTest.keyClick(bar, Qt.Key_Left)
+            self.assertEqual(tabs.currentIndex(), 0)
+            self.assertEqual(selection.rect, bar._tab_rects()[0])
+
     def test_selected_segment_has_a_raised_surface_in_both_themes(self):
         control = ui.SegmentedControl((('a', 'First'), ('b', 'Second')), 'b')
         control.resize(320, theme.CONTROL_HEIGHT)

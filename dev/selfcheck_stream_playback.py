@@ -388,13 +388,16 @@ class StreamPlaybackTests(unittest.TestCase):
         self.host.start_tile(self.tile)
         first = self.host._resolvers[self.tile]
         self.tile.reload_button.set_refreshing.assert_called_with(True)
+        self.tile.reload_button.setEnabled.assert_called_with(False)
         self.tile.quality_button.setText.assert_called_with('获取画质…')
         self.host.start_tile(self.tile)
         second = self.host._resolvers[self.tile]
         first.finished.emit()
         self.tile.reload_button.set_refreshing.assert_called_with(True)
+        self.tile.reload_button.setEnabled.assert_called_with(False)
         second.resolved.emit('1001', 'fixture:stream', 250, 'web', [])
         self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.tile.reload_button.setEnabled.assert_called_with(True)
         self.tile.quality_button.setText.assert_called_with('自动 · 720p')
 
     def test_resolving_failure_and_unexpected_finish_clear_feedback(self):
@@ -402,9 +405,11 @@ class StreamPlaybackTests(unittest.TestCase):
         current = self.host._resolvers[self.tile]
         current.failed.emit('1001', 'fixture failure')
         self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.tile.reload_button.setEnabled.assert_called_with(True)
         self.host.start_tile(self.tile)
         self.host._resolvers[self.tile].finished.emit()
         self.tile.reload_button.set_refreshing.assert_called_with(False)
+        self.tile.reload_button.setEnabled.assert_called_with(True)
 
     def test_resolved_pause_then_normal_result_uses_old_factory_and_headers(self):
         self.host._play_on = Mock()

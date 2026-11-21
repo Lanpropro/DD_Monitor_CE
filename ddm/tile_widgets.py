@@ -10,7 +10,7 @@ from PySide6.QtGui import (
     QRegion
 )
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QMenu, QPushButton, QSizePolicy, QSlider,
+    QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QMenu, QPushButton, QSizePolicy,
     QVBoxLayout, QWidget, QWidgetAction
 )
 
@@ -30,6 +30,7 @@ from .playback_controls import (
 )
 from .sidebar_drag import ROOM_MIME
 from .ui.labels import ElidedLabel
+from .ui.slider import SettingsSlider
 from .video_danmaku import VideoDanmaku
 from .video_caption import VideoCaption
 from .video_danmaku_settings import VideoDanmakuSettings
@@ -227,7 +228,7 @@ class Tile(QFrame):
         self.volume_button.clicked.connect(self._volume_clicked)
         self.volume_button.volumeChanged.connect(self.set_volume)
         bottom_layout.addWidget(self.volume_button)
-        self.volume_slider = QSlider(Qt.Horizontal)
+        self.volume_slider = SettingsSlider(fixed_width=False)
         self.volume_slider.setFixedWidth(86)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(self.volume)
@@ -243,7 +244,7 @@ class Tile(QFrame):
         volume_layout = QVBoxLayout(self.volume_menu)
         volume_layout.setContentsMargins(4, 6, 4, 4)
         volume_layout.setSpacing(2)
-        self.vertical_volume = QSlider(Qt.Vertical, self.volume_menu)
+        self.vertical_volume = SettingsSlider(self.volume_menu, orientation=Qt.Vertical)
         self.vertical_volume.setFocusPolicy(Qt.NoFocus)
         self.vertical_volume.setRange(0, 100)
         self.vertical_volume.setFixedSize(20, 88)

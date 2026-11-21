@@ -21,6 +21,7 @@ class StreamPlayback:
         if active and fixed:
             tile.state_control.set_source_resolution('')
         tile.reload_button.set_refreshing(active)
+        tile.reload_button.setEnabled(not active)
         if active:
             tile.reload_button.setToolTip('正在重新获取直播地址…' if fixed else '正在重新获取直播地址和画质…')
         else:

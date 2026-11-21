@@ -28,6 +28,7 @@ class TileState:
         host.codec_probe_note = ""
         host.codec_reconnect_pending = False
         host.reload_button.set_refreshing(False)
+        host.reload_button.setEnabled(True)
         host.reload_button.setToolTip('重新连接这一路')
         host.video_danmaku.clear()
         host.clear_translation_caption()

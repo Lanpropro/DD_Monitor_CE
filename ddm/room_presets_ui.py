@@ -201,7 +201,7 @@ class RoomPresetsPage(QWidget):
             confirmation_box.addWidget(prompt, 1)
             buttons = QHBoxLayout()
             confirm = QPushButton("确认删除")
-            confirm.setObjectName("IconButton")
+            confirm.setObjectName("PrimaryButton")
             confirm.setProperty("deleteConfirm", True)
             confirm.clicked.connect(lambda _checked=False, key=record.get('id'): self._delete_confirmed(key))
             buttons.addWidget(confirm)

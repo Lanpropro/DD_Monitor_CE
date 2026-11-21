@@ -7,15 +7,19 @@ from .. import theme
 
 
 class SettingsSlider(QSlider):
-    def __init__(self, parent=None, *, fixed_width=True):
-        super().__init__(Qt.Horizontal, parent)
+    def __init__(self, parent=None, *, fixed_width=True, orientation=Qt.Horizontal):
+        super().__init__(orientation, parent)
         self.setProperty('settingsSlider', True)
         self.setProperty('customControlSurface', True)
         self.setCursor(Qt.PointingHandCursor)
-        if fixed_width:
+        if orientation == Qt.Vertical:
+            self.setMinimumWidth(19)
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        else:
+            self.setSizePolicy(QSizePolicy.Fixed if fixed_width else QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.setMinimumHeight(19)
+        if fixed_width and orientation == Qt.Horizontal:
             self.setFixedWidth(theme.SETTINGS_SLIDER_WIDTH)
-        self.setSizePolicy(QSizePolicy.Fixed if fixed_width else QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(19)
         self.sliderPressed.connect(self.update)
         self.sliderReleased.connect(self.update)
         theme.signals().changed.connect(self.update)
@@ -37,13 +41,20 @@ class SettingsSlider(QSlider):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setOpacity(1. if self.isEnabled() else .5)
         hover = self.underMouse() and self.isEnabled()
-        track = QRectF(0, center.y() - 2, self.width(), 4)
+        vertical = self.orientation() == Qt.Vertical
+        track = (QRectF(center.x() - 2, 0, 4, self.height()) if vertical
+                 else QRectF(0, center.y() - 2, self.width(), 4))
         groove = QPainterPath()
         groove.addRoundedRect(track, 2, 2)
         painter.fillPath(groove, theme.qcolor(theme.BORDER_STRONG) if hover else QColor(131, 131, 145, 77))
         painter.save()
         painter.setClipPath(groove)
-        if option.upsideDown:
+        if vertical:
+            if option.upsideDown:
+                track.setTop(center.y())
+            else:
+                track.setBottom(center.y())
+        elif option.upsideDown:
             track.setLeft(center.x())
         else:
             track.setRight(center.x())

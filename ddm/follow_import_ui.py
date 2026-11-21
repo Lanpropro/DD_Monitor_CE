@@ -12,6 +12,17 @@ from .playback_controls import RefreshButton
 from .corner_geometry import continuous_path
 from .widget_support import BRAND_ASSETS_DIR
 from .settings_window import SettingsTitleBar
+from .ui.selection import SegmentMotion
+
+
+class _LoginSegments(QWidget):
+    indicator = None
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.indicator is not None:
+            with QPainter(self) as painter:
+                self.indicator.paint(painter)
 
 
 class ImportPlatformTabs(QWidget):
@@ -29,7 +40,8 @@ class ImportPlatformTabs(QWidget):
         self.actions = {}
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        surface = QWidget(self, objectName='LoginPlatformSegments' if segmented else 'ImportPlatformButtons')
+        surface = (_LoginSegments(self, objectName='LoginPlatformSegments') if segmented
+                   else QWidget(self, objectName='ImportPlatformButtons'))
         surface.setAttribute(Qt.WA_StyledBackground, segmented)
         outer.addWidget(surface)
         outer.addStretch(1)
@@ -73,6 +85,19 @@ class ImportPlatformTabs(QWidget):
         self.more.setStyleSheet('QPushButton {padding:0;} '
                                'QPushButton::menu-indicator {image:none; width:0;}')
         self._row.addWidget(self.more, 0, Qt.AlignTop)
+        self._selection = None
+        if segmented:
+            self._selection = surface.indicator = SegmentMotion(
+                surface, self._segment_rects, lambda: self._current, self._choose_segment)
+            for button in self.buttons.values():
+                self._selection.watch(button)
+
+    def _segment_rects(self):
+        return {key: QRectF(button.geometry()).adjusted(0, 0, 0, -1) for key, button in self.buttons.items()
+                if not button.isHidden() and (button.isEnabled() or key == self._current)}
+
+    def _choose_segment(self, key):
+        self.buttons[key].click()
 
     def set_current(self, kind):
         self._current = kind
@@ -106,6 +131,9 @@ class ImportPlatformTabs(QWidget):
             button.setVisible(key in visible)
             self.actions[key].setVisible(key not in visible)
         self.more.setVisible(len(visible) < len(self.buttons))
+        if self._selection is not None:
+            self._row.activate()
+            self._selection.sync()
 
 
 class AccountImportBar(QWidget):

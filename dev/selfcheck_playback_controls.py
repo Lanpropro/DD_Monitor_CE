@@ -317,6 +317,45 @@ assert not any(name in sys.modules for name in (
         tile.volume_menu.hide()
         self.assertFalse(tile.volume_button.property('playbackPopupOpen'))
 
+    def test_playback_volume_thumbs_enlarge_without_changing_hit_geometry(self):
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QStyle, QStyleOptionSlider
+        from ddm.tile_widgets import Tile
+
+        self.addCleanup(theme.apply, theme.mode())
+        theme.apply('dark')
+        self.owner.setAttribute(Qt.WA_DontShowOnScreen)
+        self.owner.resize(720, 320)
+        tile = Tile({'room_id': '1000'}, self.owner)
+        self.owner.layout().addWidget(tile)
+        self.owner.show()
+        tile.volume_menu.setAttribute(Qt.WA_DontShowOnScreen)
+        tile.volume_menu.show()
+        QApplication.processEvents()
+
+        def handle(slider):
+            option = QStyleOptionSlider()
+            slider.initStyleOption(option)
+            return slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider)
+
+        def white_pixels(slider):
+            image = slider.grab().toImage()
+            return sum(image.pixelColor(x, y) == QColor('white') for x in range(image.width())
+                       for y in range(image.height()))
+
+        for slider in (tile.volume_slider, tile.vertical_volume):
+            with self.subTest(orientation=slider.orientation()):
+                rect = handle(slider)
+                value = slider.value()
+                idle = white_pixels(slider)
+                QTest.mousePress(slider, Qt.LeftButton, pos=rect.center())
+                self.assertTrue(slider.isSliderDown())
+                self.assertEqual(handle(slider), rect)
+                self.assertGreater(white_pixels(slider), idle)
+                QTest.mouseRelease(slider, Qt.LeftButton, pos=rect.center())
+                self.assertEqual(slider.value(), value)
+                self.assertEqual(white_pixels(slider), idle)
+
     def test_controls_paint_states_in_both_themes_and_multiple_scales(self):
         from ddm.playback_controls import VolumePopup
         buttons = [ui.VolumeButton(self.owner), ui.PauseButton(self.owner),

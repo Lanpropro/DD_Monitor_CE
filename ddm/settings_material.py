@@ -76,9 +76,9 @@ def set_segment_motion(widget, enabled):
     if widget.property('settings_segment_motion') == enabled:
         return False
     widget.setProperty('settings_segment_motion', enabled)
-    from .ui.selection import SegmentedControl
-    for control in widget.findChildren(SegmentedControl):
-        control.finish_indicator()
+    from .ui.selection import SegmentMotion
+    for control in widget.findChildren(SegmentMotion):
+        control.finish()
     from .ui.color_dialog import ColorPalette
     for palette in widget.findChildren(ColorPalette):
         palette.finish_indicator()

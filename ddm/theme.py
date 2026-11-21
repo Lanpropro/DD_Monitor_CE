@@ -410,6 +410,7 @@ def _light_style(widget):
             {selector}[recording="true"]:!disabled {{color: #e5484d;}}
             {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
             {selector}:disabled {{background: transparent; color: palette(placeholder-text);}}
+            {selector}[refreshing="true"]:disabled {{background: {hover};}}
         '''
     if name == 'TileToggle':
         return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
@@ -795,8 +796,9 @@ QSlider::handle:horizontal:pressed {{
     border-radius: 8px;
     background: #ffffff;
 }}
+QSlider[settingsSlider="true"]::handle:horizontal,
 QSlider[settingsSlider="true"]::handle:horizontal:pressed {{
-    width: 14px;
+    width: 16px;
     margin: -5px 0;
 }}
 QSlider::groove:horizontal:hover {{
@@ -921,12 +923,12 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border-radius: 16px;
     border: 1px solid transparent;
 }}
-#PluginTabs QTabBar::tab:hover, #LoginPlatformSegment:!disabled:hover {{
+#PluginTabs QTabBar::tab:!selected:hover, #LoginPlatformSegment:!checked:!disabled:hover {{
     background: {CONTENT_HOVER};
     color: {TEXT1};
 }}
 #PluginTabs QTabBar::tab:selected, #LoginPlatformSegment:checked {{
-    background: {ACCENT_SOFT};
+    background: transparent;
     color: {ACCENT};
 }}
 #LoginPlatformSegment {{
@@ -1618,7 +1620,9 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 }}
 #RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {CONTENT_HOVER};}}
 #RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
-#RoomPresetEntry QPushButton#IconButton[deleteConfirm="true"] {{border-color: {ERROR};}}
+#RoomPresetEntry #PrimaryButton[deleteConfirm="true"] {{background: #b52b32; color: #ffffff;}}
+#RoomPresetEntry #PrimaryButton[deleteConfirm="true"]:hover {{background: #c3333c;}}
+#RoomPresetEntry #PrimaryButton[deleteConfirm="true"]:pressed {{background: #99232b;}}
 #RoomPresetEntry #LayoutCard {{
     background: transparent; border: none; padding: 0; color: {TEXT2};
 }}
@@ -1766,6 +1770,9 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #TileVolumePopup QSlider::handle:vertical {{
     height: 12px; margin: 0 -4px; border-radius: 6px;
     background: {TEXT1}; border: 1px solid {BORDER};
+}}
+#TileVolumePopup QSlider[settingsSlider="true"]::handle:vertical {{
+    height: 16px;
 }}
 
 /* 弹幕格：占画面墙里的一整格，和别的格子同一套规格 */
