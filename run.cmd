@@ -561,7 +561,7 @@ set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_main_notices.py" MainNoticesTests.test_live_replacement_accepts_window_dispatch_before_widget_events MainNoticesTests.test_live_replacement_trace_preserves_window_dispatch
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=offscreen"
-"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_main_notices.py" MainNoticesTests.test_live_notice_selects_one_replacement_without_expanding_full_wall MainNoticesTests.test_live_replacement_can_cancel_and_does_not_accept_sidebar_clicks MainNoticesTests.test_live_notice_uses_visible_empty_slot_before_replacement_and_skips_duplicates
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_main_notices.py" MainNoticesTests.test_live_notice_selects_one_replacement_without_expanding_full_wall MainNoticesTests.test_live_replacement_can_cancel_and_does_not_accept_sidebar_clicks MainNoticesTests.test_live_notice_uses_visible_empty_slot_before_replacement_and_skips_duplicates MainNoticesTests.test_live_notice_places_room_in_clicked_custom_grid_vacancy
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_wall_card_replacement.py"
 exit /b %errorlevel%

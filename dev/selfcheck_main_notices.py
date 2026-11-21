@@ -1380,6 +1380,57 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(window.room_placement.replacement.replacement_rooms)
         self.assertIsNone(QApplication.overrideCursor())
 
+    def test_live_notice_places_room_in_clicked_custom_grid_vacancy(self):
+        from ddm import layouts, snap_grid
+
+        for base, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+            with self.subTest(base=base):
+                window = self.window([{'room_id': '1', 'live': False}], offscreen=True)
+                window.layout_presets.select_builtin(base)
+                wall = window.wall
+                units = snap_grid.geometry(size, layouts.even_cells(size, size),
+                                           wall._corner_area(), wall.grid.spacing())
+                wall.snap_grid.add_danmaku(units[1].center())
+                panel = next(iter(wall.pane_danmaku.panels.values()))
+                target = units[size + 1].center()
+                window._show_notice('新主播开播了', rooms=[{'room_id': '999', 'live': True}], kind='live')
+                button = window.sidebar.notification_button
+                button.click()
+                center = button.center
+                entry = next(entry for entry in center.entries if entry.kind == 'live')
+                action = center.rows[entry].action
+                self.assertEqual(action.text(), '替换')
+                QTest.mouseClick(action, Qt.LeftButton)
+                self.assertFalse(center.isVisible())
+                selection = window.room_placement.replacement
+                self.assertTrue(selection.replacement_rooms)
+                QTest.mouseClick(panel, Qt.LeftButton, pos=panel.rect().center())
+                QTest.mousePress(wall, Qt.LeftButton, pos=units[2].center())
+                QTest.mouseRelease(wall, Qt.LeftButton, pos=target)
+                self.app.processEvents()
+                self.assertIsNone(window._tile_of('999'))
+                self.assertTrue(selection.replacement_rooms)
+
+                window.start_tile.reset_mock()
+                with patch.object(window, '_room_dict', side_effect=AssertionError('No network lookup')):
+                    QTest.mouseClick(wall, Qt.LeftButton, pos=target)
+                    self.app.processEvents()
+                added = window._tile_of('999')
+                self.assertIsNotNone(added)
+                self.assertTrue(added.isVisible())
+                self.assertEqual(added.geometry(), units[size + 1])
+                self.assertTrue(window._tile_of('1').isVisible())
+                self.assertEqual(added.state_control.pending_grid_aspect, base)
+                window.start_tile.assert_called_once_with(added)
+                self.assertFalse(selection.replacement_rooms)
+                self.assertIsNone(QApplication.overrideCursor())
+
+                window._place_live_notice_rooms([{'room_id': '998'}])
+                QTest.mouseClick(added.video, Qt.LeftButton, pos=added.video.rect().center())
+                self.app.processEvents()
+                self.assertIs(window._tile_of('998'), added)
+                self.assertEqual(added.geometry(), units[size + 1])
+
     @unittest.skipUnless(sys.platform == 'win32', 'Windows click diagnostics')
     def test_live_replacement_trace_preserves_window_dispatch(self):
         from ddm.wall_replacement import WallReplacement

@@ -5,9 +5,7 @@ from PySide6.QtWidgets import QMenu
 
 from . import layouts, snap_grid
 from .sidebar_drag import GRID_GRAB_MIME, ROOM_MIME, TILE_MIME
-from .widget_support import DANMAKU_MIME
-
-DANMAKU_CELL_MIME = 'application/x-ddm-danmaku-cell'
+from .widget_support import DANMAKU_CELL_MIME, DANMAKU_MIME
 
 
 @dataclass
@@ -126,9 +124,8 @@ class WallSnapGrid:
         return next((defaults[i] for i, rect in units.items()
                      if rect.adjusted(-gap // 2, -gap // 2, gap // 2, gap // 2).contains(point)), None)
 
-    def _vacancy(self, point):
-        unit = self._unit_at(point)
-        if unit is None:
+    def _vacancy(self, unit):
+        if unit is None or not self.interactive():
             return None
         row, column, _, _ = unit
         cells = self.cells()
@@ -136,8 +133,20 @@ class WallSnapGrid:
                      if cell is not None and cell[0] <= row < cell[0] + cell[2]
                      and cell[1] <= column < cell[1] + cell[3])
         if index not in self.occupied():
-            return unit, cells
+            return index, cells
         return None
+
+    def vacant_unit_at(self, point):
+        unit = self._unit_at(point)
+        return unit if self._vacancy(unit) is not None else None
+
+    def place_room_in_unit(self, unit, room_id, assign):
+        vacancy = self._vacancy(unit)
+        if vacancy is None:
+            return False
+        index, cells = vacancy
+        result = snap_grid.place(self.size, cells, index, unit, self.occupied())
+        return self._place_room(_Placement(index, unit, result, result != cells, room_id), assign)
 
     def mark_drag(self, mime, tile, press):
         if not self.interactive():
@@ -230,25 +239,28 @@ class WallSnapGrid:
         plan = self._placement(mime, point)
         if plan is None:
             return False
+        if plan.new_room is not None:
+            return self._place_room(plan, self.wall.roomDropped.emit)
+        if plan.changed:
+            self._commit(plan.cells)
+        return True
+
+    def _place_room(self, plan, assign):
         wall = self.wall
-        if plan.new_room is None:
-            if plan.changed:
-                self._commit(plan.cells)
-        else:
-            base = wall.layout_id
-            previous = wall._layout_ratios[base]
-            if plan.changed:
-                wall.layout_control.set_preset_ratios(base, {'grid': plan.cells})
-            tile = wall.tiles[plan.index]
-            wall.roomDropped.emit(tile, plan.new_room)
-            if str(tile.room.get('room_id') or '') != plan.new_room:
-                wall._layout_ratios[base] = previous
-                return False
-            wall.layoutRatiosChanged.emit()
+        base = wall.layout_id
+        previous = wall._layout_ratios[base]
+        if plan.changed:
+            wall.layout_control.set_preset_ratios(base, {'grid': plan.cells})
+        tile = wall.tiles[plan.index]
+        assign(tile, plan.new_room)
+        if str(tile.room.get('room_id') or '') != plan.new_room:
+            wall._layout_ratios[base] = previous
+            return False
+        wall.layoutRatiosChanged.emit()
         return True
 
     def open_menu(self, point, global_point):
-        if self._vacancy(point) is None:
+        if self.vacant_unit_at(point) is None:
             return False
         menu = QMenu(self.wall)
         menu.addAction('添加弹幕格', lambda: self.add_danmaku(point))
@@ -257,9 +269,10 @@ class WallSnapGrid:
         return True
 
     def add_danmaku(self, point):
-        vacancy = self._vacancy(point)
+        unit = self._unit_at(point)
+        vacancy = self._vacancy(unit)
         if vacancy is not None:
-            unit, cells = vacancy
+            _, cells = vacancy
             occupied = self.occupied()
             index = next(i for i in reversed(range(len(cells))) if i not in occupied)
             result = snap_grid.place(self.size, cells, index, unit, occupied)
