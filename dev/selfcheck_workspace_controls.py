@@ -10,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QPoint, QPointF, Qt
-from PySide6.QtGui import QAction, QEnterEvent, QFocusEvent, QInputDevice, QMouseEvent, QPointingDevice, QTransform, QWheelEvent
+from PySide6.QtGui import (QAction, QEnterEvent, QFocusEvent, QIcon, QInputDevice, QMouseEvent, QPainter,
+                          QPixmap, QPointingDevice, QTransform, QWheelEvent)
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
@@ -637,6 +638,12 @@ class WorkspaceControlTests(unittest.TestCase):
 
     def test_rail_speed_lines_move_right_behind_stationary_icon(self):
         button, action = self.add('slide', 'F1 Play', dock_motion='slide-in-left')
+        glyph = QPixmap(button.iconSize())
+        glyph.fill(Qt.transparent)
+        painter = QPainter(glyph)
+        painter.fillRect(7, 7, 4, 4, Qt.white)
+        painter.end()
+        action.setIcon(QIcon(glyph))
         geometry = button.geometry()
         feedback = button._dock_feedback
         pos = QPointF(button.rect().center())
@@ -647,7 +654,8 @@ class WorkspaceControlTests(unittest.TestCase):
 
         def red_pixels():
             frame = button.grab().toImage()
-            return [x / frame.devicePixelRatio() for y in range(frame.height()) for x in range(frame.width())
+            scale = frame.devicePixelRatio()
+            return [(x / scale, y / scale) for y in range(frame.height()) for x in range(frame.width())
                     if (color := frame.pixelColor(x, y)).red() > color.green() + 40
                     and color.red() > color.blue() + 30]
 
@@ -655,31 +663,38 @@ class WorkspaceControlTests(unittest.TestCase):
         touchscreen = QPointingDevice('Touch', 1, QInputDevice.DeviceType.TouchScreen,
                                       QPointingDevice.PointerType.Finger, QInputDevice.Capability.Position, 1, 0)
         with patch.object(motion, 'enabled', return_value=True):
+            duration = feedback.hover_animation.duration()
+            self.assertEqual(duration, 260)
             enter(touchscreen)
             self.assertEqual(feedback.streak_progress, 1)
             enter(mouse)
             self.assertEqual(feedback.streak_progress, 0)
             self.assertEqual(red_pixels(), [])
-            feedback.hover_animation.setCurrentTime(40)
+            feedback.hover_animation.setCurrentTime(65)
             first = red_pixels()
             self.assertTrue(first)
             transform = QTransform()
             feedback.transform(transform)
             self.assertTrue(transform.isIdentity())
-            feedback.hover_animation.setCurrentTime(95)
+            feedback.hover_animation.setCurrentTime(duration // 2)
+            middle = red_pixels()
+            center = button.height() / 2
+            for offset in (-10, -6, 0, 6, 10):
+                self.assertTrue(any(abs(y - center - offset) <= 1 for _, y in middle))
+            feedback.hover_animation.setCurrentTime(155)
             later = red_pixels()
             self.assertTrue(later)
-            self.assertGreater(sum(later) / len(later), sum(first) / len(first))
-            self.assertTrue(all(3 <= x < button.width() - 3 for x in first + later))
+            self.assertGreater(sum(x for x, _ in later) / len(later), sum(x for x, _ in first) / len(first))
+            self.assertTrue(all(3 <= x < button.width() - 3 for x, _ in first + later + middle))
             current = feedback.streak_progress
             APP.sendEvent(button, QEvent(QEvent.Leave))
             self.assertAlmostEqual(feedback.streak_progress, current)
             enter(mouse)
             self.assertAlmostEqual(feedback.streak_progress, current)
-            feedback.hover_animation.setCurrentTime(motion.CONTROL_FEEDBACK_MS)
+            feedback.hover_animation.setCurrentTime(duration)
             self.assertEqual(red_pixels(), [])
             enter(mouse)
-            feedback.hover_animation.setCurrentTime(40)
+            feedback.hover_animation.setCurrentTime(65)
             APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
             self.assertEqual(red_pixels(), [])
             APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))

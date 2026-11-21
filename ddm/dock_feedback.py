@@ -9,6 +9,7 @@ from . import motion, theme
 # One-shot icon poses adapted from BewlyCat's favorites, home and edit motion.
 # Each pose is (scale_x, scale_y, rotation, vertical_offset); hit targets stay fixed.
 REST = (1.0, 1.0, 0.0, 0.0)
+SPEED_LINES_MS = 260
 HOVER_POSES = {
     'follow': [(0, REST), (.3, (1.2, 1.2, 10, 0)), (.62, (.96, .96, -5, 0)), (1, REST)],
     'functions': [(0, REST), (1, (1, 1, 90, 0))],
@@ -60,7 +61,7 @@ class DockFeedback(QObject):
         self.hover_animation.setStartValue(0.0)
         self.hover_animation.setEndValue(1.0)
         if self.has_speed_lines:
-            self.hover_animation.setDuration(motion.CONTROL_FEEDBACK_MS)
+            self.hover_animation.setDuration(SPEED_LINES_MS)
             self.hover_animation.valueChanged.connect(self._set_streak_progress)
         else:
             self.hover_animation.valueChanged.connect(self._hover_frame)
@@ -116,9 +117,11 @@ class DockFeedback(QObject):
         center = bounds.center().y()
         # (height offset, lead offset, length, thickness, head color)
         for y, lead, length, thickness, tip in (
+                (-10, -1, 8, 1.0, '#ff344d'),
                 (-6, 4, 11, 1.0, '#ff344d'),
                 (0, 0, 18, 1.5, '#ffb9c0'),
-                (6, -5, 9, 1.0, '#ff344d')):
+                (6, -5, 9, 1.0, '#ff344d'),
+                (10, 2, 10, 1.0, '#ff344d')):
             start, end = head + lead - length, head + lead
             trail = QLinearGradient(start, 0, end, 0)
             trail.setColorAt(0, QColor(255, 52, 77, 0))
