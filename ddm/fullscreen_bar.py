@@ -161,6 +161,7 @@ class FullscreenBar(QWidget):
     def sync_owner_position(self):
         if self.qt_composited:
             self.set_tile_geometry(*self._tile_rect.getRect())
+        self.sync_windowed_visibility()
 
     def sync_windowed_visibility(self):
         if self.windowed_overlay:
@@ -168,9 +169,15 @@ class FullscreenBar(QWidget):
             owner = tile.window()
             auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
             visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
-            if visible and self.isHidden():
-                self.sync_owner_position()
-            self.setVisible(visible)
+            settings = getattr(owner, '_settings_process', None)
+            if visible and self.qt_composited and settings is not None and settings.visible and not settings.closing:
+                bar_rect = QRect(tile.mapToGlobal(self._tile_rect.topLeft()), self._tile_rect.size())
+                visible = bool(settings.window_hwnd) and not settings.occlusion.intersects(bar_rect)
+            if self.isHidden() == visible:
+                if visible and self.qt_composited:
+                    self.set_tile_geometry(*self._tile_rect.getRect())
+                self.setVisible(visible)
+                tile._update_quick_danmaku_mask()
 
     def refresh_theme(self):
         self.update()

@@ -402,6 +402,35 @@ def check_windowed_overlay(app):
             check_bar(tile)
 
         if app.platformName() == 'windows':
+            settings = window._get_settings_process()
+            settings.visible = True
+            settings._set_occlusion(QRect(), force=True)
+            assert first.bottom.isHidden() and second.bottom.isHidden(), 'Wait for the settings window'
+            settings.window_hwnd = 1
+            settings._set_occlusion(QRect(first.bottom.geometry()))
+            assert first.bottom.isHidden() and second.bottom.isVisible()
+            first._layout_areas()
+            assert first.bottom.isHidden(), 'Layout must not remap an occluded bar'
+            overlap = QRect(first.bottom.geometry())
+            overlap.setWidth(8)
+            settings._set_occlusion(overlap)
+            position = first.pos()
+            first.move(position + QPoint(12, 0))
+            assert first.bottom.isVisible()
+            first.move(position)
+            assert first.bottom.isHidden()
+            settings._set_occlusion(QRect(second.bottom.geometry()))
+            assert first.bottom.isVisible() and second.bottom.isHidden()
+            with patch.dict(window.settings, {auto_hide: True}):
+                second.set_controls_visible(False)
+                settings.visible = False
+                settings.window_hwnd = 0
+                settings._set_occlusion(QRect())
+                assert second.bottom.isHidden(), 'Closing settings still respects auto-hide'
+            settings._set_occlusion(QRect(), force=True)
+            check_bar(first)
+            check_bar(second)
+
             enter = window._fullscreen_presentation.enter
             with patch.object(window, '_upgrade_fullscreen_quality'), \
                     patch.object(window._fullscreen_presentation, 'enter',

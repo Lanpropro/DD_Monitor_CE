@@ -66,12 +66,19 @@ class SettingsControl:
             host._settings_process.autoSaveRequested.connect(lambda message: handle_request(host, message))
             host._settings_process.hostRequest.connect(host._settings_host_request)
             host._settings_process.closed.connect(host._close_settings_host)
-            host._settings_process.occlusionChanged.connect(
-                lambda: host.wall._quick_danmaku_layer.show()
-                if not host._closing and host.wall._quick_danmaku_layer is not None else None)
+            host._settings_process.occlusionChanged.connect(self._sync_settings_occlusion)
             host._settings_process.failed.connect(lambda message: host._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=host.open_settings))
         return host._settings_process
+
+    def _sync_settings_occlusion(self):
+        host = self.host
+        if host._closing:
+            return
+        for tile in host.wall.tiles:
+            tile.bottom.sync_windowed_visibility()
+        if host.wall._quick_danmaku_layer is not None:
+            host.wall._quick_danmaku_layer.show()
 
     def remote_settings_saved(self, changes):
         host = self.host
