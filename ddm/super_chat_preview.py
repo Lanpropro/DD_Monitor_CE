@@ -33,9 +33,13 @@ class SuperChatPlacementPreview(SkinPreview):
         self.layout_mode = 'video'
         self.preview_context = {
             'video': {'size': [1280, 720], 'cards': [{'message': '', 'collapsed': False}]},
-            'panel': {'size': [640, 400], 'outer_size': [640, 464], 'viewport_rect': [0, 32, 640, 400],
-                      'cards': [{'message': '', 'collapsed': False}]}}
+            'panel': self._panel_example()}
         self._gesture = None
+
+    @staticmethod
+    def _panel_example():
+        return {'size': [360, 560], 'outer_size': [360, 624], 'viewport_rect': [0, 32, 360, 560],
+                'cards': [{'message': '', 'collapsed': False}]}
 
     @property
     def position(self):
@@ -128,6 +132,10 @@ class SuperChatPlacementPreview(SkinPreview):
 
     def set_preview_context(self, context):
         self.preview_context.update(context)
+        width, height = self.preview_context['panel']['size']
+        # The live viewport needs room for a 100 px expanded card and its 8 px margins.
+        if width <= 16 or height < 116:
+            self.preview_context['panel'] = self._panel_example()
         self.update()
 
     def set_layout_mode(self, index):

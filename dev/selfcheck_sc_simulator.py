@@ -310,7 +310,42 @@ class SimulatorTests(unittest.TestCase):
         page.reset()
         self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
 
-    def test_short_panel_preview_clips_cards_and_uses_visible_resize_corner(self):
+    def test_short_panel_preview_shows_a_draggable_expanded_card(self):
+        from ddm.super_chat_preview import SuperChatPlacementPreview
+
+        preview = SuperChatPlacementPreview()
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview.close)
+        preview.resize(460, 300)
+        preview.set_layout_mode(1)
+        preview.set_scale(84)
+        preview.set_preview_context({'panel': {'size': [170, 26], 'outer_size': [180, 68],
+            'viewport_rect': [0, 32, 170, 26], 'cards': [{'message': '', 'collapsed': True}]}})
+        preview.show()
+
+        card = preview.card_rect()
+        self.assertGreater(card.height(), 24)
+        self.assertTrue(preview.stage_rect().contains(card))
+        rendered = preview.grab().toImage()
+        ratio = rendered.devicePixelRatio()
+        x = round(card.center().x() * ratio)
+        header = round((card.top() + card.height() * .25) * ratio)
+        body = round((card.top() + card.height() * .8) * ratio)
+        self.assertNotEqual(rendered.pixelColor(x, header), rendered.pixelColor(x, body))
+
+        start = card.center().toPoint()
+        moved = start + QPoint(-22, 55)
+        QTest.mousePress(preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(preview, moved)
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=moved)
+        self.assertGreater(preview.values()['super_chat_panel_position'][1], 0)
+        corner = preview.card_rect().bottomRight().toPoint() - QPoint(2, 2)
+        QTest.mousePress(preview, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(preview, corner + QPoint(20, 0))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=corner + QPoint(20, 0))
+        self.assertGreater(preview.scale, 84)
+
+    def test_panel_preview_clips_overflow_and_uses_visible_resize_corner(self):
         from ddm.super_chat_preview import SuperChatPlacementPreview
 
         preview = SuperChatPlacementPreview()
@@ -321,14 +356,15 @@ class SimulatorTests(unittest.TestCase):
         preview.set_scale(84)
         preview.set_opacity(79)
         preview.scale_with_video = True
-        preview.set_preview_context({'panel': {'size': [170, 26], 'outer_size': [180, 68],
-            'viewport_rect': [0, 32, 170, 26], 'cards': [{'message': '', 'collapsed': False}]}})
+        preview.set_preview_context({'panel': {'size': [320, 180], 'outer_size': [330, 250],
+            'viewport_rect': [0, 32, 320, 180],
+            'cards': [{'message': '', 'collapsed': False} for _ in range(4)]}})
         preview.show()
 
-        raw = preview.card_rects()[0]
-        outside = QPoint(round(raw.center().x()), round(preview._panel_rect().bottom()) + 3)
+        raw, *_ = preview.card_rects()
+        outside = QPoint(round(raw.center().x()), round(preview.stage_rect().bottom()) + 3)
         inside = QPoint(round(raw.center().x()), round(raw.top()) + 3)
-        self.assertTrue(raw.contains(QPointF(outside)))
+        self.assertTrue(any(card.contains(QPointF(outside)) for card in preview.card_rects()))
         rendered = preview.grab().toImage()
         preview.opacity = 0
         background = preview.grab().toImage()
