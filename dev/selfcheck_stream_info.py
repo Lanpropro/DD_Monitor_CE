@@ -11,7 +11,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
@@ -130,6 +130,20 @@ class StreamInfoTests(unittest.TestCase):
         self.assertEqual(dialog.values['host'].text(), 'changed.test')
         dialog.hide()
         self.assertFalse(dialog.timer.isActive())
+
+    def test_dialog_prefers_tile_top_left_and_clamps_to_its_screen(self):
+        tile = QWidget()
+        self.addCleanup(tile.deleteLater)
+        area = tile.screen().availableGeometry()
+        tile.setGeometry(QRect(area.topLeft() + QPoint(16, 20), tile.size()))
+        dialog = StreamInfoDialog(lambda: {'state': 'playing'})
+        self.addCleanup(dialog.deleteLater)
+        dialog.position_for_tile(tile)
+        self.assertEqual(dialog.pos(), tile.mapToGlobal(QPoint(10, 10)))
+        tile.move(area.bottomRight() - QPoint(30, 40))
+        dialog.position_for_tile(tile)
+        self.assertTrue(area.contains(dialog.geometry()))
+        self.assertEqual(dialog.geometry().bottomRight(), area.bottomRight())
 
     def test_main_window_menu_is_wired_to_its_own_player(self):
         with ExitStack() as stack:

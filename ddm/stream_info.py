@@ -1,8 +1,8 @@
 """Read-only, per-tile stream information and its live display."""
 import math
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QFormLayout, QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QFormLayout, QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from .settings_window import SettingsWindow
 from .ui import SettingsSurface, TitleLabel
@@ -144,6 +144,14 @@ class StreamInfoDialog(SettingsWindow):
         owner.winId()
         self.winId()
         self.windowHandle().setTransientParent(owner.windowHandle())
+
+    def position_for_tile(self, tile):
+        anchor = tile.mapToGlobal(QPoint(10, 10))
+        screen = QApplication.screenAt(anchor) or tile.screen()
+        area = screen.availableGeometry()
+        self.resize(min(self.width(), area.width()), min(self.height(), area.height()))
+        self.move(max(area.left(), min(anchor.x(), area.right() - self.width() + 1)),
+                  max(area.top(), min(anchor.y(), area.bottom() - self.height() + 1)))
 
     def set_material(self, settings):
         super().set_material({key: settings[key] for key in
