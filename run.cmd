@@ -469,6 +469,8 @@ exit /b %errorlevel%
 
 :settingsControlCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_appearance_options -- AppearanceOptionsTests.test_saved_segment_motion_reaches_layout_picker AppearanceOptionsTests.test_segment_motion_interrupts_and_keyboard_reduced_motion_snap
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings

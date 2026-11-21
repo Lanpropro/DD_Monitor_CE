@@ -309,6 +309,39 @@ class AppearanceOptionsTests(unittest.TestCase):
         finally:
             dispose(root)
 
+    def test_saved_segment_motion_reaches_layout_picker(self):
+        from ddm.app import MainWindow
+        from ddm.settings_autosave_apply import apply_changes
+
+        state = {'plugins_enabled': [], 'settings': {'settings_segment_motion': True, 'close_behavior': 'exit'}}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('ddm.plugins.DEFAULT_PLUGINS_DIR', directory), \
+                patch('ddm.app.QTimer.singleShot'), patch.object(MainWindow, 'sync_danmaku'):
+            window = MainWindow([], layout_id='2x2', state=state)
+            self.addCleanup(dispose, window)
+            window.resize(1280, 800)
+            window.show()
+            settle()
+            window.sidebar.presentation_control.layout_picker.open_layout_picker()
+            picker = window.sidebar._picker
+            tabs = picker.tabs
+            self.assertIs(tabs.window(), picker)
+            self.assertIn('直播间组合', tabs.buttons)
+            with patch('ddm.motion.enabled', return_value=True):
+                QTest.mouseClick(tabs.buttons['弹幕布局'], Qt.LeftButton)
+                self.assertEqual(picker.group(), '弹幕布局')
+                self.assertEqual(tabs._indicator_animation.state(), QAbstractAnimation.Running)
+                apply_changes(window, {'settings': {'settings_segment_motion': False}})
+                self.assertEqual(tabs._indicator, tabs._target_rect())
+                self.assertEqual(tabs._indicator_animation.state(), QAbstractAnimation.Stopped)
+                QTest.mouseClick(tabs.buttons['竖屏布局'], Qt.LeftButton)
+                self.assertEqual(picker.group(), '竖屏布局')
+                self.assertEqual(tabs._indicator, tabs._target_rect())
+                apply_changes(window, {'settings': {'settings_segment_motion': True}})
+                QTest.mouseClick(tabs.buttons['普通布局'], Qt.LeftButton)
+                self.assertEqual(tabs._indicator_animation.state(), QAbstractAnimation.Running)
+            picker.close()
+
     def test_local_gallery_selection_and_mask_keep_saved_strength(self):
         from types import SimpleNamespace
         from ddm.skin_settings import SkinSettings
