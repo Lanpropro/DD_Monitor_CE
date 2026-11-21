@@ -1,4 +1,6 @@
-"""Rounded playback popups and tint for the native video controls."""
+"""Playback popup material and the independent color of video overlay controls."""
+from functools import lru_cache
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QMenu
 
@@ -9,12 +11,15 @@ from .settings_material import BASE_COLORS, normalize
 
 def sync_controls(tile, settings):
     values = normalize(settings)
+    color = values['settings_playback_control_color']
+    if tile.controls.property('playbackControlColor') != color:
+        tile.controls.setProperty('playbackControlColor', color)
+        for button in tile.controls.findChildren(QAbstractButton, options=Qt.FindDirectChildrenOnly):
+            button.update()
     opacity = values['settings_glass_opacity'] if values['settings_glass_enabled'] else None
     if tile.controls.property('playbackGlassOpacity') == opacity:
         return
     tile.controls.setProperty('playbackGlassOpacity', opacity)
-    for button in tile.controls.findChildren(QAbstractButton, options=Qt.FindDirectChildrenOnly):
-        button.update()
     for menu in tile.findChildren(QMenu, options=Qt.FindDirectChildrenOnly):
         if hasattr(menu, '_playback_base_style'):
             style_menu(menu, opacity)
@@ -36,11 +41,23 @@ def style_menu(menu, opacity):
         menu.setStyleSheet(styled)
 
 
-def tint_button(values, opacity):
-    fill = values.get('background')
-    if opacity is None or not fill or fill == 'transparent':
-        return values
-    # The native button HWNDs share an opaque backing store. Keep the video
-    # hit regions and use a precomposited tint instead of changing ownership.
-    tint = theme.mix(theme.qcolor(fill).name(), '#66748a', .62 - .42 * opacity / 100)
-    return {**values, 'background': tint}
+def button_colors(button):
+    parent = button.parentWidget()
+    color = parent.property('playbackControlColor') if parent is not None else None
+    if not color or not button.isEnabled():
+        return None
+    active = button.underMouse() or button.property('hovered') or button.property('playbackPopupOpen')
+    strength = .18 if button.isDown() else .10 if active else 0
+    return _button_colors(color, strength)
+
+
+@lru_cache(maxsize=32)
+def _button_colors(color, strength):
+    def ink_for(background):
+        rgb = (component / 255 for component in theme.qcolor(background).getRgb()[:3])
+        linear = (x / 12.92 if x <= .04045 else ((x + .055) / 1.055) ** 2.4 for x in rgb)
+        luminance = sum(component * weight for component, weight in zip(linear, (.2126, .7152, .0722)))
+        return '#000000' if luminance > .179 else '#ffffff'
+
+    background = theme.mix(color, ink_for(color), strength) if strength else color
+    return background, ink_for(background)

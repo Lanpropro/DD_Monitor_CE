@@ -273,8 +273,8 @@ assert not any(name in sys.modules for name in (
                     hover = surfaces.values(button, overrides={'hover': True})
                     pressed = surfaces.values(button, overrides={'hover': True, 'pressed': True})
                     if button.parentWidget() is tile.controls:
-                        self.assertEqual(hover['background'], '#404b5d')
-                        self.assertEqual(pressed['background'], '#4d5a6e')
+                        self.assertEqual(hover['background'], '#3e3e3e')
+                        self.assertEqual(pressed['background'], '#505050')
                     else:
                         self.assertTrue(hover['background'].endswith(', 0.15)'))
                         self.assertTrue(pressed['background'].endswith(', 0.27)'))
@@ -322,8 +322,9 @@ assert not any(name in sys.modules for name in (
         tile.volume_menu.hide()
         self.assertFalse(tile.volume_button.property('playbackPopupOpen'))
 
-    def test_playback_glass_tints_all_top_buttons_and_both_menus(self):
-        from ddm.playback_material import sync_controls
+    def test_playback_control_color_is_independent_of_popup_glass(self):
+        from ddm.playback_material import button_colors, sync_controls
+        from ddm.playback_controls import _icon_color
         from ddm.tile_widgets import Tile
 
         self.addCleanup(theme.apply, theme.mode())
@@ -338,10 +339,16 @@ assert not any(name in sys.modules for name in (
         tile._control_hover_timer.stop()
         buttons = (tile.quality_button, tile.reload_button, tile.close_button)
         sizes = [button.geometry() for button in buttons]
+        sync_controls(tile, {})
         idle = [button.grab().toImage() for button in buttons]
         sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0})
+        self.assertEqual([button.grab().toImage() for button in buttons], idle)
+        sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0,
+                             'settings_playback_control_color': '#f4e4d1'})
         for button, before in zip(buttons, idle):
             self.assertNotEqual(button.grab().toImage(), before)
+            self.assertEqual(button_colors(button)[1], '#000000')
+        self.assertEqual(_icon_color(tile.reload_button).name(), '#000000')
         self.assertEqual([button.geometry() for button in buttons], sizes)
 
         def background_alpha(menu):
@@ -352,6 +359,9 @@ assert not any(name in sys.modules for name in (
         menu = tile.danmaku_settings_menu
         menu.open_at(tile.danmaku_settings_button, tile.video_danmaku.settings)
         frosted = background_alpha(menu)
+        sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0,
+                             'settings_playback_control_color': '#242424'})
+        self.assertEqual(background_alpha(menu), frosted)
         sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 100})
         self.assertLess(frosted, background_alpha(menu))
         sync_controls(tile, {'settings_glass_enabled': False})

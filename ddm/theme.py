@@ -446,9 +446,9 @@ def _light_style(widget):
         light = _light and not overlay
         ink = '#202630' if light else '#e7ebf0'
         rgb = '32, 38, 48' if light else '231, 235, 240'
-        idle = '#2b323e' if overlay else 'transparent'
-        hover = '#404b5d' if overlay else f'rgba({rgb}, 0.15)'
-        pressed = '#4d5a6e' if overlay else f'rgba({rgb}, 0.27)'
+        idle = '#292929' if overlay else 'transparent'
+        hover = '#3e3e3e' if overlay else f'rgba({rgb}, 0.15)'
+        pressed = '#505050' if overlay else f'rgba({rgb}, 0.27)'
         return f'''
             {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
             {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,

@@ -112,21 +112,26 @@ class TileButton(QPushButton):
         if focused:
             painter.setClipPath(continuous_path(frame.adjusted(1, 1, -1, -1), max(0, radius - 1)))
         from . import continuous_corners
+        from .playback_material import button_colors
         surfaces = continuous_corners._filter
+        colors = button_colors(self) if surfaces is not None else None
         if surfaces is not None:
             values = surfaces.values(self)
-            parent = self.parentWidget()
-            if parent is not None and parent.objectName() == 'TileControls':
-                from .playback_material import tint_button
-                values = tint_button(values, parent.property('playbackGlassOpacity'))
+            if colors is not None:
+                values = {**values, 'background': colors[0]}
             continuous_corners._paint(painter, self.rect(), values, self.palette())
         else:
             self.style().drawPrimitive(QStyle.PE_Widget, option, painter, self)
         painter.restore()
-        self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
+        if colors is None:
+            self.style().drawControl(QStyle.CE_PushButtonLabel, option, painter, self)
+        elif option.text:
+            painter.setPen(QColor(colors[1]))
+            painter.setFont(self.font())
+            painter.drawText(self.rect(), Qt.AlignCenter, option.text)
         if focused:
             painter.setRenderHint(QPainter.Antialiasing)
-            painter.setPen(QPen(QColor('#ffffff'), 1.2))
+            painter.setPen(QPen(QColor(colors[1] if colors is not None else '#ffffff'), 1.2))
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(continuous_path(frame, radius))
 
@@ -302,6 +307,10 @@ def _overlay_hovered(button: QPushButton) -> bool:
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
     if button.property('tileButton'):
+        from .playback_material import button_colors
+        colors = button_colors(button)
+        if colors is not None:
+            return QColor(colors[1])
         parent = button.parentWidget()
         on_video = button.property('overVideo') or (parent is not None and parent.objectName() == 'TileControls')
         ink = '#ffffff' if button.property('overVideo') else ('#202630' if theme.is_light() and not on_video else '#e7ebf0')

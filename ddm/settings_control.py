@@ -265,7 +265,7 @@ class SettingsControl:
         if theme.configure_appearance(host.settings):
             theme.apply(host.settings['appearance_mode'])
         playback_material = {'settings_glass_enabled', 'settings_glass_opacity'}
-        if changed_keys & playback_material:
+        if changed_keys & (playback_material | {'settings_playback_control_color'}):
             from .playback_material import sync_controls
             for tile in host.wall.tiles:
                 sync_controls(tile, host.settings)

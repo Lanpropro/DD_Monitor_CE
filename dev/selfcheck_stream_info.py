@@ -169,9 +169,12 @@ class StreamInfoTests(unittest.TestCase):
                 self.assertTrue(dialog.property('settings_glass_enabled'))
                 self.assertEqual(dialog.property('settings_glass_opacity'), 45)
                 self.assertEqual(tile.controls.property('playbackGlassOpacity'), 45)
+                window._remote_settings_saved({'settings': {'settings_playback_control_color': '#474747'}})
+                self.assertEqual(tile.controls.property('playbackControlColor'), '#474747')
                 window._remote_settings_saved({'settings': {'settings_glass_opacity': 62}})
                 self.assertEqual(dialog.property('settings_glass_opacity'), 62)
                 self.assertEqual(tile.controls.property('playbackGlassOpacity'), 62)
+                self.assertEqual(tile.controls.property('playbackControlColor'), '#474747')
             finally:
                 window.close()
             self.assertFalse(window._stream_info_dialogs)
