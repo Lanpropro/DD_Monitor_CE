@@ -142,10 +142,11 @@ function labExample({ id, title }, popupId) {
     case 'decoder': return labSelect(title, ['自动解码（推荐）', '兼容硬解（回传内存）', '软件解码（CPU）',
       'D3D11VA 显卡解码', 'DXVA2 显卡解码（旧设备）']);
     case 'theme': return labChoice(title, [['dark', '深色'], ['light', '浅色'], ['system', '跟随系统']]);
-    case 'palette': return `<div class="lab-swatches" role="group" aria-label="${title}">
+    case 'palette': return `<div class="lab-swatches lab-theme-swatches" role="group" aria-label="${title}">
       ${labPresets.map(([color, label], index) => `<button type="button" class="lab-control lab-swatch-dot"
         aria-label="${label}" title="${label}" aria-pressed="${index === 0}" data-lab-choice="${color}"
         style="--swatch:${index === 0 ? 'var(--lab-blue)' : color}" ${index === 0 ? 'data-primary' : ''}></button>`).join('')}
+        <span class="lab-theme-ring" aria-hidden="true" style="--lab-swatch-offset:${(1 - labPresets.length) / 2}"></span>
       </div>`;
     case 'volume': return labFlip(id, '静音／取消静音') + labRange(title, 0, 100, 40);
     case 'danmaku': return labFlip(id, '切换画面弹幕', true)
@@ -176,7 +177,7 @@ function labSetTheme(mode, slidingGroup = null) {
   labSyncColors();
 }
 
-const labMotionMilliseconds = id => ({ preview: 320, 'follow-card': 180, 'pip-composer': 260 }[id] ?? 120);
+const labMotionMilliseconds = id => ({ palette: 150, preview: 320, 'follow-card': 180, 'pip-composer': 260 }[id] ?? 120);
 
 function labMount(host, item) {
   const { id, width, height, radius } = item;
@@ -294,7 +295,12 @@ function labMount(host, item) {
     else if (group) gallerySelectSegment(group, clicked, pointer);
     if (id === 'plugin-tabs') host.querySelector('[data-extra-content]').textContent = value;
     if (id === 'palette') {
-      host.querySelectorAll('[data-lab-choice]').forEach(button => button.setAttribute('aria-pressed', button === clicked));
+      const swatches = clicked.parentElement;
+      const buttons = [...swatches.querySelectorAll('[data-lab-choice]')];
+      const ring = swatches.querySelector('.lab-theme-ring');
+      buttons.forEach(button => button.setAttribute('aria-pressed', button === clicked));
+      ring.toggleAttribute('data-sliding', pointer);
+      ring.style.setProperty('--lab-swatch-offset', buttons.indexOf(clicked) - (buttons.length - 1) / 2);
       const surface = host.querySelector('.lab-controls');
       if (clicked.hasAttribute('data-primary')) surface.style.removeProperty('--lab-accent');
       else surface.style.setProperty('--lab-accent', value);

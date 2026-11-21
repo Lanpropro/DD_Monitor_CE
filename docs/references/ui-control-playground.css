@@ -1,3 +1,9 @@
+:where(a[href], summary, button:enabled, select:enabled, select:enabled option:enabled,
+  input:enabled:is([type=checkbox], [type=radio], [type=range], [type=color]),
+  label:has(> input:enabled:is([type=checkbox], [type=radio], [type=color]), > select:enabled)) { cursor: pointer; }
+:where(textarea, input:not([type]), input:is([type=text], [type=search], [type=number])):enabled:read-write { cursor: text; }
+:where(button, select, input, textarea, option):disabled { cursor: default; }
+
 .qt-toolbar {
   display: flex;
   align-items: center;
@@ -138,11 +144,12 @@
 .lab-match-workspace button[data-match-action=main] { border-color: var(--lab-line); font-size: 12px; }
 .lab-match-row output { width: 24px; font-variant-numeric: tabular-nums; text-align: right; }
 .lab-match-row input[type=range] {
-  margin: 0; width: 72px; height: 4px; appearance: none; cursor: pointer; border-radius: 99px;
-  background: linear-gradient(to right, var(--lab-accent) var(--match-volume), var(--match-control) var(--match-volume));
+  --lab-track-bg: var(--match-control);
+  margin: 0; width: 72px; height: 4px; appearance: none; border-radius: 99px;
+  background: linear-gradient(to right, var(--lab-range-fill) var(--match-volume), var(--lab-range-rail) var(--match-volume));
 }
 .lab-match-row input[type=range]::-webkit-slider-thumb {
-  appearance: none; width: 13px; height: 13px; background: #fff; border: 1px solid #a1a7af; border-radius: 50%;
+  appearance: none; width: 13px; height: 13px; background: var(--lab-range-thumb); border: 1px solid #a1a7af; border-radius: 50%;
 }
 .lab-match-channels, .lab-match-color, .lab-match-step {
   display: inline-flex; align-items: center; background: var(--match-control); border-radius: 6px;
@@ -150,7 +157,7 @@
 .lab-match-color { position: relative; width: 46px; height: 28px; }
 .lab-match-color span { width: 14px; height: 14px; margin-left: 7px; border: 1px solid var(--lab-ink); border-radius: 3px; background: var(--match-color); }
 .lab-match-color select {
-  position: absolute; inset: 0; width: 100%; color: transparent; cursor: pointer;
+  position: absolute; inset: 0; width: 100%; color: transparent;
   border: none; border-radius: inherit; appearance: none; background: transparent;
 }
 .lab-match-color::after { content: '⌄'; position: absolute; right: 6px; top: 3px; pointer-events: none; }
@@ -278,7 +285,7 @@
 }
 .lab-control:disabled, .lab-control:disabled:hover { opacity: .55; cursor: default; }
 @media (hover: hover) and (pointer: fine) {
-  .lab-control:hover:not(:disabled, :active), .lab-range input:hover:not(:disabled),
+  .lab-control:hover:not(:disabled, :active),
   .lab-switch:hover:has(input:enabled) .lab-track { background: var(--lab-hover); }
 }
 .lab-demo :focus-visible, .lab-demo[data-state=focus] [data-primary] {
@@ -291,7 +298,7 @@
   background: color-mix(in srgb, var(--lab-accent) 18%, var(--lab-surface));
 }
 .lab-control:active:enabled,
-.lab-demo[data-state=pressed] :is([data-primary]:not(.lab-switch, :disabled), [data-primary] .lab-track) {
+.lab-demo[data-state=pressed] :is([data-primary]:not(.lab-switch, :disabled, input[type=range]), [data-primary] .lab-track) {
   background: color-mix(in srgb, var(--lab-surface) 88%, black);
 }
 button.lab-control { -webkit-tap-highlight-color: transparent; }
@@ -542,14 +549,23 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-step-value { width: 2.2ch; padding: 0; text-align: end; }
 .lab-step-value::-webkit-inner-spin-button { appearance: none; }
 .lab-range { display: inline-flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 7px; min-width: 0; font-variant-numeric: tabular-nums; }
-.lab-range input { width: 100%; min-width: 36px; margin: 0; height: var(--lab-height, 27px); accent-color: var(--lab-accent); border-radius: var(--lab-radius, 7px); cursor: pointer; }
+.lab-range input { width: 100%; min-width: 36px; margin: 0; height: var(--lab-height, 27px); accent-color: var(--lab-range-fill); border-radius: var(--lab-radius, 7px); }
 .lab-range output { min-width: 2.5ch; text-align: right; }
+:is(.lab-range input, .lab-match-row input[type=range]) {
+  --lab-range-fill: color-mix(in srgb, var(--lab-accent), white var(--lab-range-hover, 0%));
+  --lab-range-rail: color-mix(in srgb, var(--lab-track-bg, #8383914d), var(--lab-ink) var(--lab-range-hover, 0%));
+  --lab-range-thumb: color-mix(in srgb, var(--lab-thumb-rest, white), var(--lab-accent) calc(var(--lab-range-hover, 0%) * 3));
+}
+.lab-demo:is([data-state=hover], [data-state=pressed]) .lab-range [data-primary]:enabled { --lab-range-hover: 20%; }
+@media (hover: hover) and (pointer: fine) {
+  :is(.lab-range input, .lab-match-row input[type=range]):enabled:hover { --lab-range-hover: 20%; }
+}
 @supports selector(input::-webkit-slider-thumb) {
   .lab-range input { appearance: none; background: transparent; }
   .lab-range input::-webkit-slider-runnable-track {
     height: 4px;
     border-radius: 2px;
-    background: linear-gradient(90deg, var(--lab-accent) var(--lab-level), var(--lab-track-bg, #8383914d) var(--lab-level));
+    background: linear-gradient(90deg, var(--lab-range-fill) var(--lab-level), var(--lab-range-rail) var(--lab-level));
   }
   .lab-range input::-webkit-slider-thumb {
     appearance: none;
@@ -557,10 +573,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
     height: 12px;
     margin-top: -4px;
     border-radius: 50%;
-    background: #fff;
-  }
-  .lab-range input:hover::-webkit-slider-thumb {
-    background: color-mix(in srgb, var(--lab-accent) 65%, white);
+    background: var(--lab-range-thumb);
   }
 }
 [data-lab-demo=initial-volume] .lab-range output { width: 40px; font-weight: 700; }
@@ -568,8 +581,29 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-swatches .lab-control { padding: 2px 4px; background: var(--swatch, var(--lab-surface)); }
 .lab-swatch-dot { width: 20px; min-height: 20px; border-radius: 50%; padding: 0; border: 0; }
 .lab-swatches .lab-swatch-dot[aria-pressed=true] { background: var(--swatch); }
-.lab-swatch-dot[aria-pressed=true] { outline: 2px solid var(--lab-ink); outline-offset: 1px; }
+:where(.lab-swatches:not(.lab-theme-swatches)) > .lab-swatch-dot[aria-pressed=true] { outline: 2px solid var(--lab-ink); outline-offset: 1px; }
 .lab-swatches .lab-swatch-dot:hover:not(:disabled) { background: var(--swatch); filter: brightness(1.17); }
+.lab-theme-swatches {
+  --lab-swatch-size: 20px;
+  --lab-swatch-gap: 7px;
+  position: relative;
+  flex-wrap: nowrap;
+  min-width: max-content;
+  gap: var(--lab-swatch-gap);
+}
+.lab-theme-swatches .lab-swatch-dot { flex: 0 0 var(--lab-swatch-size); }
+.lab-theme-ring {
+  position: absolute; left: 50%; top: 50%;
+  width: var(--lab-swatch-size); height: var(--lab-swatch-size);
+  margin: calc(var(--lab-swatch-size) / -2) 0 0 calc(var(--lab-swatch-size) / -2);
+  border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 1px var(--lab-bg), 0 0 0 3px white, 0 0 0 4px #0003;
+  transform: translateX(calc((var(--lab-swatch-size) + var(--lab-swatch-gap)) * var(--lab-swatch-offset)));
+}
+.lab-theme-ring[data-sliding] { transition: transform var(--lab-motion, 150ms) cubic-bezier(.77, 0, .175, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .lab-theme-ring[data-sliding] { transition: none; }
+}
 .lab-demo:is([data-lab-area=bottom], [data-lab-area=overlay]) {
   --lab-bg: #101114;
   --lab-surface: #101114;
@@ -619,7 +653,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
     color: var(--lab-tile-hover-ink);
   }
 }
-.lab-demo[data-state=hover] :is([data-primary]:not(.lab-switch), [data-primary] .lab-track) { background: var(--lab-hover); }
+.lab-demo[data-state=hover] :is([data-primary]:not(.lab-switch, input[type=range]), [data-primary] .lab-track) { background: var(--lab-hover); }
 .lab-demo:is([data-lab-area=bottom],[data-lab-area=overlay])[data-state=hover] [data-primary] { color: var(--lab-tile-hover-ink); }
 .lab-demo:is([data-lab-area=bottom],[data-lab-area=overlay]) .lab-control:focus-visible,
 .lab-demo:is([data-lab-area=bottom],[data-lab-area=overlay])[data-state=focus] .lab-control[data-primary] {
@@ -645,8 +679,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   overflow: auto;
 }
 .lab-danmaku-popup .lab-range-row { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 8px; align-items: center; margin-bottom: 9px; }
-.lab-danmaku-popup .lab-range input { --lab-accent: #fb7299; height: 22px; }
-.lab-danmaku-popup .lab-range input::-webkit-slider-thumb { background: var(--lab-ink); }
+.lab-danmaku-popup .lab-range input { --lab-accent: #fb7299; --lab-thumb-rest: var(--lab-ink); height: 22px; }
 .lab-danmaku-popup .lab-range output { flex: 0 0 44px; font-weight: 700; white-space: nowrap; }
 .lab-danmaku-color { border-radius: 20px; height: 35px; gap: 4px; }
 .lab-danmaku-color input { width: 18px; height: 18px; padding: 0; border: 0; background: transparent; }
@@ -781,7 +814,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
   padding: 3px 6px;
 }
 .lab-color-input { display: flex; gap: 7px; align-items: center; background: #f7f9fd; border: 1px solid #cdd9e9; border-radius: 6px; padding: 2px 6px; }
-.lab-color-input input { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.lab-color-input input { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; }
 .lab-color-input output { font-family: Consolas, monospace; }
 .lab-motion-note { margin-top: 9px; color: #536884; font-size: 11px; }
 
@@ -902,7 +935,7 @@ body:has(#segment-motion:checked) :is(.lab-choice, [data-example-segment]) { tou
 .lab-color-hue { display: flex; align-items: center; gap: 10px; margin: 8px 0 3px; }
 .lab-color-hue span { flex: none; color: var(--lab-muted); }
 .lab-color-hue input {
-  appearance: none; height: 8px; border-radius: 8px; cursor: pointer;
+  appearance: none; height: 8px; border-radius: 8px;
   background: linear-gradient(90deg, red, yellow, lime, cyan, blue, magenta, red);
 }
 .lab-color-hue input::-webkit-slider-thumb {
@@ -998,7 +1031,7 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
 .lab-app-follow {
   display: grid; position: relative; align-content: space-between; gap: 7px; width: 100%; min-height: 98px;
   padding: 9px 12px; border: 1px solid var(--lab-line); border-radius: var(--lab-radius);
-  background: var(--lab-surface); cursor: pointer; min-width: 0;
+  background: var(--lab-surface); min-width: 0;
 }
 .lab-app-follow:has(input:checked) { background: color-mix(in srgb,var(--lab-accent) 16%,var(--lab-bg)); }
 .lab-app-follow:hover { border-color: var(--lab-accent); }
@@ -1248,8 +1281,9 @@ fieldset:disabled .lab-curve-graph { pointer-events: none; }
   position: relative; overflow: clip; padding: 14px 7px; border: 1px solid var(--lab-line); border-radius: var(--lab-radius);
 }
 [data-lab-demo=pip-composer] .lab-app-panes button {
-  min-height: 41px; cursor: grab; touch-action: none; user-select: none; transition: none;
+  min-height: 41px; touch-action: none; user-select: none; transition: none;
 }
+[data-lab-demo=pip-composer] .lab-app-panes button:enabled { cursor: grab; }
 [data-lab-demo=pip-composer] .lab-app-panes [data-pip-dragging] { z-index: 1; opacity: .88; cursor: grabbing; }
 [data-lab-demo=pip-composer] .lab-app-panes[data-pip-target]::after {
   content: ''; position: absolute; z-index: 2; pointer-events: none;

@@ -17,11 +17,11 @@
 | 全部展开后的收起方式 | 常规 › 关注与预览 | 收起全部关注文件夹，或恢复本次全部展开前的状态。 | [settings_general.py](../../ddm/settings_general.py) | `#control-collapse` | 共同底板、两段选中块和恢复原状反馈。 |
 | 关注列表刷新间隔 | 常规 › 关注与预览 | 单点加减逐格调整，长按加速连发，也可直接输入 1–30 分钟。 | [settings_general.py](../../ddm/settings_general.py) | `#control-interval` | 一体底板、数字与单位、长按停止及 1–30 分钟边界。 |
 | 关注栏直播预览 | 常规 › 关注与预览 | 开启后，在关注栏的直播间上悬停会显示播放预览。 | [settings_general.py](../../ddm/settings_general.py) | `#control-preview` | 即时状态、默认 320 毫秒的弹簧滑动、滑块随速度轻微拉伸、键盘切换。 |
-| 新建格子的初始音量 | 常规 › 播放与声音 | 设置新建播放格使用的默认音量。 | [settings_general.py](../../ddm/settings_general.py) | `#control-initial-volume` | 实装滑轨位置、白色滑块和独立数值列。 |
+| 新建格子的初始音量 | 常规 › 播放与声音 | 设置新建播放格使用的默认音量。 | [settings_general.py](../../ddm/settings_general.py) | `#control-initial-volume` | 实装滑轨位置、白色滑钮和独立数值列。鼠标悬停时仅滑钮和轨道变色。 |
 | 直播源格式 | 常规 › 编解码 | 选择直播流编码偏好，可选 H.264、HEVC 和 AV1。 | [settings_codec_editor.py](../../ddm/settings_codec_editor.py) | `#control-codec` | 三段底板、当前编码高亮、切换反馈。 |
 | 本机解码方式 | 常规 › 编解码 | 选择本机处理视频的方式，自动解码会优先使用可用的硬件。 | [settings_codec_editor.py](../../ddm/settings_codec_editor.py) | `#control-decoder` | 闭合边框、箭头、圆角下拉、悬停及当前项、键盘确认和取消。 |
 | 界面主题 | 外观 › 主题 | 切换深色、浅色或跟随系统，此处会同步改变图鉴的预览主题。 | [settings_appearance.py](../../ddm/settings_appearance.py) | `#control-theme` | 深色、浅色与跟随系统共用底板和选中块。 |
-| 主题色 | 外观 › 主题 | 在默认主题色与预设颜色间切换，详情可直接调任意强调色。 | [settings_theme_editor.py](../../ddm/settings_theme_editor.py) | `#control-palette` | 默认色点、实装色点、选中色标和悬停反馈。 |
+| 主题色 | 外观 › 主题 | 在默认主题色与预设颜色间切换，详情可直接调任意强调色。 | [settings_theme_editor.py](../../ddm/settings_theme_editor.py) | `#control-palette` | 点选时白色选中环滑向新色点。系统开启减少动态效果时，选中环直接更新位置。 |
 
 ### 播放格
 
