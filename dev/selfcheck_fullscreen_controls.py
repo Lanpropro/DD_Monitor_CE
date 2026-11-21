@@ -262,6 +262,7 @@ def check_windowed_overlay(app):
     from ddm.widget_support import TILE_BAR_HEIGHT
 
     key = 'windowed_transparent_controls'
+    auto_hide = 'windowed_auto_hide_controls'
     rooms = [{'room_id': str(index), 'uname': f'Fixture {index}', 'live': False} for index in (1, 2)]
     with patch('ddm.app.QTimer.singleShot'):
         window = app_module.MainWindow(rooms, rooms, layout_id='2x2',
@@ -295,7 +296,9 @@ def check_windowed_overlay(app):
         assert original_video.bottom() < first.bottom.tile_y()
         assert not page.values()[key]
         assert page.sections.section('playback').isAncestorOf(page._checks[key])
+        assert not page.values()[auto_hide] and not page._checks[auto_hide].isEnabled()
         page._checks[key].click()
+        assert page._checks[auto_hide].isEnabled()
         with patch.object(window, '_restart_codec_tile') as restart:
             apply_changes(window, {'settings': {key: page.values()[key]}})
             app.processEvents()
@@ -373,6 +376,71 @@ def check_windowed_overlay(app):
             check_bar(first)
             check_bar(second)
 
+        geometry = QRect(first.video.geometry())
+        page._checks[auto_hide].click()
+        apply_changes(window, {'settings': {auto_hide: page.values()[auto_hide]}})
+        assert window.current_state()['settings'][auto_hide]
+        with patch('ddm.tile_controls.QCursor.pos') as pointer, \
+                patch('ddm.tile_controls.time') as clock, \
+                patch('ddm.tile_widgets.set_native_cursor'):
+            clock.monotonic.return_value = 10.0
+
+            def poll(x):
+                pointer.return_value = x
+                first._poll_control_hover()
+                second._poll_control_hover()
+
+            point = first.video.mapToGlobal(first.video.rect().center())
+            poll(second.video.mapToGlobal(second.video.rect().center()))
+            assert second.bottom.isVisible() and first.bottom.isHidden()
+            poll(point)
+            check_bar(first)
+            assert second.bottom.isHidden()
+            clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS - .1
+            poll(point)
+            assert first.bottom.isVisible()
+            with patch.object(first, 'plugin_interaction_active', return_value=True):
+                clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS
+                poll(point)
+                assert first.bottom.isVisible()
+            with patch.object(first.volume_menu, 'isVisible', return_value=True):
+                clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS
+                poll(point)
+                assert first.bottom.isVisible()
+            clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
+            poll(point)
+            assert first.bottom.isHidden() and second.bottom.isHidden()
+            assert first.video.geometry() == geometry
+            with patch.object(first._plugin_controls, 'focus_input') as focus, \
+                    patch.object(first.bottom, 'activateWindow'):
+                first.focus_danmaku_input()
+                focus.assert_called_once()
+                check_bar(first)
+            first.set_controls_visible(False)
+            first._control_hover_timer.stop()
+            pointer.return_value = point + QPoint(5, 0)
+            with patch.object(window, 'isActiveWindow', return_value=True):
+                window._wall_control_hover.sync()
+            check_bar(first)
+            assert second.bottom.isHidden()
+
+            if app.platformName() == 'windows':
+                clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
+                poll(point + QPoint(5, 0))
+                assert first.bottom.isHidden()
+                with patch.object(window, '_upgrade_fullscreen_quality'), \
+                        patch.object(window._fullscreen_presentation, 'enter',
+                                     side_effect=lambda tile: enter(tile, QRect(-12000, -12000, 1000, 700))):
+                    window._on_fullscreen(first)
+                assert first.bottom.property('fullscreen') and first.bottom.isVisible()
+                window._exit_fullscreen()
+                assert first.bottom.windowed_overlay
+
+        page._checks[auto_hide].click()
+        apply_changes(window, {'settings': {auto_hide: page.values()[auto_hide]}})
+        first.set_controls_visible(False)
+        check_bar(first)
+        check_bar(second)
         page.reset()
         apply_changes(window, {'settings': {key: page.values()[key]}})
         app.processEvents()
@@ -386,7 +454,7 @@ def check_windowed_overlay(app):
         page.close()
         window.close()
         app.processEvents()
-    print('PASS: windowed video overlay, settings, controls, window movement, fullscreen and cleanup')
+    print('PASS: windowed video overlay, settings, per-tile idle, controls, fullscreen and cleanup')
 
 
 def main():

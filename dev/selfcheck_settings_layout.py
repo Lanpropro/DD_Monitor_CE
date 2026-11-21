@@ -220,10 +220,9 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_general_codecs_have_a_compact_card_and_keep_edits_across_widths(self):
         page = self.page(0)
         card = page.sections.section('codecs')
-        playback = page.sections.section('playback')
         self.assertTrue(card.isAncestorOf(page.codec_editor))
         self.assertTrue(page.codec_editor.isVisible())
-        self.assertLess(playback.height(), page.sections.section('following').height())
+        self.assertLess(card.height(), page.sections.section('playback').height())
         with patch('ddm.dialogs.CodecSettingsDialog') as factory:
             page.codec_editor.source_buttons['hevc'].click()
             page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))

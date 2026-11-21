@@ -28,7 +28,8 @@ class WallControlHover(QObject):
 
     def sync(self):
         wall = self.wall
-        if not wall.window().isActiveWindow():
+        if not wall.window().isActiveWindow() and not any(
+                tile.bottom.windowed_overlay and tile.bottom.isActiveWindow() for tile in wall.tiles):
             return
         point = QCursor.pos()
         if not wall.rect().contains(wall.mapFromGlobal(point)):
@@ -141,6 +142,8 @@ class TileControls:
         host.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
         host._overlay_visible = visible
+        if not visible:
+            host.bottom.sync_windowed_visibility()
         host._sync_stream_badge()
         # 右下角的直播时长和它们一样：鼠标在格子上才露出来
         host.time_badge.setVisible(host._elapsed_visible())
@@ -208,7 +211,8 @@ class TileControls:
         position, now = QCursor.pos(), time.monotonic()
         protected = (host.plugin_interaction_active() or QApplication.activePopupWidget() is not None
                      or QApplication.activeModalWidget() is not None or bool(QApplication.mouseButtons())
-                     or QApplication.overrideCursor() is not None)
+                     or QApplication.overrideCursor() is not None
+                     or (host.bottom.windowed_overlay and host.volume_menu.isVisible()))
         if protected:
             host._restore_normal_cursor()
             host._control_last_move = now
@@ -258,7 +262,8 @@ class TileControls:
     def hide_controls_if_outside(self) -> None:
         host = self.host
         if (host.plugin_interaction_active() or QApplication.activePopupWidget() is not None
-                or QApplication.activeModalWidget() is not None or QApplication.mouseButtons()):
+                or QApplication.activeModalWidget() is not None or QApplication.mouseButtons()
+                or (host.bottom.windowed_overlay and host.volume_menu.isVisible())):
             return
         local = host.mapFromGlobal(QCursor.pos())
         if host.rect().contains(local):
@@ -294,6 +299,9 @@ class TileControls:
         host = self.host
         controls = getattr(host, '_plugin_controls', None)
         if controls is not None:
+            if host.bottom.windowed_overlay and host.bottom.isHidden():
+                host._control_last_move = time.monotonic()
+                host.set_controls_visible(True)
             # The overlaid bar is a separate tool window. setFocus alone
             # only records a pending focus child while the video stays active.
             if host.bottom.isWindow() and controls.widget.isVisible():

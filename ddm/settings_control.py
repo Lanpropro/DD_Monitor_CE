@@ -237,11 +237,12 @@ class SettingsControl:
         changed_keys = {key for key, value in updated_settings.items() if host.settings.get(key) != value}
         from .settings_material import DEFAULTS as MATERIAL_DEFAULTS, set_segment_motion
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+        windowed_bar_settings = {'windowed_transparent_controls', 'windowed_auto_hide_controls'}
         presentation_only = bool(changed_keys) and changed_keys <= (
             MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
-            | {'notice_banner_enabled', 'tray_context_menu', 'windowed_transparent_controls'})
+            | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu'})
         host.settings.update(updated_settings)
-        if 'windowed_transparent_controls' in changed_keys:
+        if changed_keys & windowed_bar_settings:
             for tile in host.wall.tiles:
                 tile._layout_areas()
         if 'settings_segment_motion' in changed_keys:

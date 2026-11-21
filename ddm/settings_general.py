@@ -161,6 +161,7 @@ class GeneralSettingsPage(QWidget):
         ("volume_normalization", "音量均衡（减小直播间音量差异）"),
         ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
         ("windowed_transparent_controls", "普通直播格使用透明控制栏"),
+        ("windowed_auto_hide_controls", "闲置时自动隐藏普通直播格透明控制栏"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
         ("preview_on_hover", "关注栏直播预览"),
@@ -244,6 +245,10 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_stepper.setEnabled)
                 self.compact_threshold_stepper.setEnabled(box.isChecked())
                 row += 1
+        transparent_bar = self._checks['windowed_transparent_controls']
+        auto_hide_bar = self._checks['windowed_auto_hide_controls']
+        transparent_bar.toggled.connect(auto_hide_bar.setEnabled)
+        auto_hide_bar.setEnabled(transparent_bar.isChecked())
         from .settings_codec_editor import InlineCodecEditor
         self.codec_editor = InlineCodecEditor(settings)
         self.codec_editor.setAccessibleName("编解码设置")
@@ -267,9 +272,9 @@ class GeneralSettingsPage(QWidget):
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 12, 2, 3, 5, 6), False),
-            ('following', '关注与预览', (0, 7, 8, 9, 10), False),
-            ('codecs', '编解码', (13,), False),
+            ('playback', '播放与声音', (1, 13, 2, 3, 5, 6, 7), False),
+            ('following', '关注与预览', (0, 8, 9, 10, 11), False),
+            ('codecs', '编解码', (14,), False),
             ('normalization', '音量均衡', (4, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         following = self.sections.section('following').grid

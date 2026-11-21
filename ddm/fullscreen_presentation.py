@@ -55,6 +55,7 @@ class FullscreenPresentation(QObject):
             self._windowed_state = self.window.windowState()
             self._windowed_geometry = self.window.saveGeometry()
             wall_widgets.extend((self.window.sidebar, self.window.empty_hint))
+        native_maximized = in_main_window and bool(self._windowed_state & Qt.WindowMaximized)
         self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall_widgets)]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
@@ -67,7 +68,7 @@ class FullscreenPresentation(QObject):
         wall._sync_danmaku_controls()
         tile.installEventFilter(self)
         bar = tile.bottom
-        bar_visible = not bar.isHidden()
+        bar_visible = bar.windowed_overlay or not bar.isHidden()
         tile._presentation_changing = True
         try:
             bar.hide()
@@ -75,15 +76,10 @@ class FullscreenPresentation(QObject):
                 self.window.sidebar.hide()
                 self.window.empty_hint.hide()
                 # Keep the video in its original HWND hierarchy for window capture.
-                if self._windowed_state & Qt.WindowMaximized:
-                    # Qt's fullscreen exit restores the normal rectangle before maximizing.
-                    self._maximized_frame = window_fullscreen.enter(self.window)
-                else:
+                if not native_maximized:
                     self.window.setWindowState(Qt.WindowFullScreen)
                 self._activate_main_layout()
-                # The native resize can reach Qt after this handoff. Use the
-                # target size for the video even if the wall still has its old size.
-                geometry = QRect(QPoint(), geometry.size()) if self._maximized_frame is not None else wall.rect()
+                geometry = QRect(QPoint(), geometry.size()) if native_maximized else wall.rect()
             else:
                 flags = Qt.Window | Qt.FramelessWindowHint
                 background = (self._show_without_activating
@@ -102,9 +98,14 @@ class FullscreenPresentation(QObject):
             # Expose the existing video HWND before rebuilding the native bar.
             tile.presentation_control.layout_video_area()
             tile.show()
+            tile.raise_()
+            if native_maximized:
+                # Applying the native frame can dispatch intermediate paints.
+                # Give them the fullscreen video instead of the old video rectangle.
+                self._maximized_frame = window_fullscreen.enter(self.window)
+                self._activate_main_layout()
         finally:
             tile._presentation_changing = False
-        tile.raise_()
         tile._layout_areas()
         if bar.qt_composited:
             bar.setWindowOpacity(0.0)

@@ -165,7 +165,9 @@ class FullscreenBar(QWidget):
     def sync_windowed_visibility(self):
         if self.windowed_overlay:
             tile = self.parentWidget()
-            visible = tile.isVisible() and not tile.window().isMinimized()
+            owner = tile.window()
+            auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
+            visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
             if visible and self.isHidden():
                 self.sync_owner_position()
             self.setVisible(visible)
