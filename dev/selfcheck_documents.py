@@ -108,6 +108,11 @@ def local_link_error(source, target):
 
 
 class DocumentStructureTests(unittest.TestCase):
+    def test_gallery_guides_link_to_the_same_offline_page(self):
+        for name in ("README.md", "ui-control-library-draft.md", "ui-control-coverage.md"):
+            with self.subTest(document=name):
+                self.assertIn("ui-control-library.html", links(read(DOCS / "references" / name)))
+
     def test_match_gallery_routes_have_both_native_captures(self):
         references = DOCS / "references"
         catalog = read(references / "ui-control-match.js")
