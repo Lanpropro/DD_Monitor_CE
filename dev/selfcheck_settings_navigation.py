@@ -80,7 +80,8 @@ class SettingsNavigationTests(unittest.TestCase):
                           'folder_id': 'later', 'folder': '音乐', 'folder_order': 1, 'clip_recording_available': True},
                  'huya:1001': {'name': '主播乙', 'followed': True, 'platform': '虎牙',
                                'folder_id': 'first', 'folder': '游戏', 'folder_order': 0}}
-        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True, streamer_rooms=rooms)
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, notice_windows_recording=True), {},
+                                preview=True, streamer_rooms=rooms)
         self.addCleanup(dialog.deleteLater)
         dialog.auto_save.start()
         sent = []
@@ -196,7 +197,8 @@ class SettingsNavigationTests(unittest.TestCase):
                  for key in ('1001', '1002')}
         rows = {key: {'name': key, 'auto_record': True} for key in rooms}
         dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows,
-                                     streamer_defaults_merge_identical=True), {}, preview=True, streamer_rooms=rooms)
+                                     streamer_defaults_merge_identical=True, notice_windows_recording=True), {},
+                                preview=True, streamer_rooms=rooms)
         self.addCleanup(dialog.deleteLater)
         dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
         page = dialog.stack.currentWidget()
@@ -213,6 +215,81 @@ class SettingsNavigationTests(unittest.TestCase):
             self.assertIn(field, page.entries['1002'])
             page.edit(field, {'1002': None})
             APP.processEvents()
+
+    def test_streamer_windows_notice_tracks_total_switch_in_both_page_orders(self):
+        streamer = PAGE_INDEX['streamer_defaults']
+        notifications = PAGE_INDEX['notifications']
+        rows = {'1001': {'name': '主播', 'auto_record': True, 'auto_record_mode': 'clip'}}
+        for first, second in ((streamer, notifications), (notifications, streamer)):
+            dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows), {}, preview=True)
+            self.addCleanup(dialog.deleteLater)
+            dialog.nav.setCurrentRow(first)
+            if first == notifications:
+                dialog.notification_page.windows_recording_notice.click()
+            dialog.nav.setCurrentRow(second)
+            page = dialog._loaded_pages[streamer]
+            card = page.cards[('1001',)]
+            self.assertEqual(card.windows_notice.isEnabled(), first == notifications)
+            self.assertEqual(card.windows_notice_hint.isHidden(), first == notifications)
+            self.assertEqual(card.mode_summary_value.text(), '切片')
+            self.assertFalse(card.auto_record_summary.isHidden())
+            self.assertTrue(card.windows_notice_summary.isHidden())
+            switch = dialog.notification_page.windows_recording_notice
+            if first == streamer:
+                card.windows_notice.click()
+                self.assertNotIn('windows_recording_notice', page.entries['1001'])
+                switch.click()
+            self.assertTrue(card.windows_notice.isEnabled())
+            self.assertTrue(card.windows_notice_hint.isHidden())
+            card.windows_notice.click()
+            APP.processEvents()
+            self.assertFalse(card.windows_notice_summary.isHidden())
+            self.assertTrue(card.windows_notice_summary.isEnabled())
+            dialog.notification_page.reset()
+            self.assertFalse(card.windows_notice.isEnabled())
+            self.assertFalse(card.windows_notice_hint.isHidden())
+            self.assertFalse(card.windows_notice_summary.isEnabled())
+            self.assertTrue(card.windows_notice.isChecked())
+            self.assertTrue(dialog.settings()['streamer_defaults']['1001']['windows_recording_notice'])
+            switch.click()
+            self.assertTrue(card.windows_notice.isEnabled())
+            self.assertTrue(card.windows_notice.isChecked())
+
+    def test_streamer_quality_stays_editable_without_common_platform_tiers(self):
+        rooms = {'1001': '主播甲', '1002': '主播乙'}
+        rows = {key: {'name': name} for key, name in rooms.items()}
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows,
+                                     streamer_defaults_merge_identical=True), {}, preview=True, streamer_rooms=rooms)
+        self.addCleanup(dialog.deleteLater)
+        requests = {}
+        dialog.streamerQualityRequested.connect(lambda key, token: requests.update({key: token}))
+        dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
+        page = dialog.stack.currentWidget()
+        card = page.cards[('1001', '1002')]
+        card.toggle.click()
+        self.assertTrue(card.playback.isEnabled() and card.recording.isEnabled())
+        self.assertIn('正在读取', card.status.text())
+        dialog.receive_streamer_quality('1001', requests['1001'], [{'qn': 400, 'label': '蓝光'}], '')
+        dialog.receive_streamer_quality('1002', requests['1002'], [], '')
+        self.assertIn('点击头像', card.status.text())
+        for control in (card.playback, card.recording):
+            self.assertEqual([control.itemText(index) for index in range(control.count())], ['继承', '最高可用'])
+            control.setCurrentIndex(control.findText('最高可用'))
+        APP.processEvents()
+        self.assertEqual({(row['playback'], row['recording']) for row in page.entries.values()}, {(0, 0)})
+        stale = requests['1002']
+        card.toggle.click()
+        card.toggle.click()
+        self.assertNotEqual(requests['1002'], stale)
+        self.assertEqual(card.recording.currentText(), '最高可用')
+        dialog.receive_streamer_quality('1002', requests['1002'], [{'qn': 250, 'label': '超清'}], '')
+        card.avatars['1001'].click()
+        self.assertEqual(card.playback.currentText(), '最高可用')
+        self.assertIn('蓝光', [card.playback.itemText(index) for index in range(card.playback.count())])
+        card.playback.setCurrentIndex(card.playback.findText('继承'))
+        APP.processEvents()
+        self.assertNotIn('playback', page.entries['1001'])
+        self.assertEqual(page.entries['1002']['playback'], 0)
 
     def test_collapsed_group_removal_and_undo_respect_avatar_selection(self):
         rows = {'1001': {'name': '甲', 'volume': 20}, 'huya:1002': {'name': '乙', 'volume': 20},

@@ -22,6 +22,7 @@ class StreamerDefaultsPage(QWidget):
         self.rooms = {key: dict(value) if isinstance(value, dict) else {'name': str(value), 'followed': True}
                       for key, value in rooms.items()}
         self.clip_recording_available = any(room.get('clip_recording_available') for room in self.rooms.values())
+        self.windows_notice_available = bool(settings.get('notice_windows_recording'))
         self.entries = {}
         saved = settings.get('streamer_defaults')
         if isinstance(saved, dict):
@@ -154,6 +155,11 @@ class StreamerDefaultsPage(QWidget):
         else:
             self.expanded.difference_update(room_ids)
 
+    def set_windows_notice_available(self, enabled):
+        self.windows_notice_available = enabled
+        for card in self.cards.values():
+            card.update_summary()
+
     def remove(self, room_ids):
         removed = [room_id for room_id in room_ids if room_id in self.entries]
         if not removed:
@@ -212,7 +218,8 @@ class StreamerDefaultsPage(QWidget):
             self.changed.emit()
 
     def request_quality(self, room_id):
-        if room_id in self.requests or (room_id in self.qualities and not self.qualities[room_id][1]):
+        options, error = self.qualities.get(room_id, ([], ''))
+        if room_id in self.requests or (options and not error):
             return
         token = self.requests[room_id] = uuid4().hex
         self._update_quality_views(room_id)

@@ -892,6 +892,17 @@ def main():
             assert tile.quality == 250 and not tile.quality_locked
             assert tile not in window._pending_capture
 
+        # The shared highest-quality setting also works for a fixed source with no selectable tiers.
+        tile.set_room({'room_id': 'fixture:7', 'live': True, '_streamer_recording_height': 0})
+        tile.set_quality_options([{'qn': 0, 'desc': '直播源决定'}])
+        tile.stream_url = str(source)
+        with patch.object(window, 'start_tile') as resolve, patch.object(
+                window.recorder, 'start', return_value=True) as record:
+            window._start_capture(tile, recording=True)
+            record.assert_called_once_with(tile, recording=True)
+            resolve.assert_not_called()
+            assert tile not in window._pending_capture
+
         # A platform-specific tier may have no numerical resolution mapping.
         tile.set_room({'room_id': 'fixture:7', 'live': True,
                        '_streamer_recording_choice': {'qn': 7, 'label': '原始码率'}})

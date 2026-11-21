@@ -6,8 +6,13 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushBu
 
 from . import theme
 from .room_artwork import platform_icon, room_platform
+from .settings_layout import SettingsColumns
+from .settings_navigation import _icon as paint_settings_icon
 from .streamer_defaults import QUALITY_LABELS
 from .ui import Avatar, ElidedLabel, NavigationButton, SelectControl, StepperControl, ToggleSwitch
+
+RECORDING_MODES = (('沿用全局', None), ('普通录制', 'normal'), ('DDCut 切片录制', 'clip'))
+RECORDING_MODE_SUMMARY = {None: '全局', 'normal': '普通', 'clip': '切片'}
 
 
 def quality_label(value):
@@ -25,10 +30,20 @@ class _SummaryIcon(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(theme.qcolor(theme.TEXT2), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        if self.field in ('auto_record', 'windows_notice'):
+            color = theme.qcolor(theme.ACCENT if self.isEnabled() else theme.TEXT3)
+            paint_settings_icon(painter, 'recording' if self.field == 'auto_record' else 'notifications',
+                                QRectF(self.rect()), color)
+            return
+        color = theme.qcolor(theme.TEXT2)
+        painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         if self.field == 'recording':
-            painter.setBrush(theme.qcolor(theme.TEXT2))
+            painter.setBrush(color)
             painter.drawEllipse(QRectF(4.2, 4.2, 7.6, 7.6))
+            return
+        if self.field == 'recording_mode':
+            painter.drawRoundedRect(QRectF(3, 5, 10, 8), 1.5, 1.5)
+            painter.drawLine(5, 2, 11, 2)
             return
         path = QPainterPath()
         if self.field == 'playback':
@@ -128,43 +143,38 @@ class StreamerProfileCard(QFrame):
             metric.addWidget(value, 1)
             summary.addLayout(metric, 1)
             self.summary_values[key] = value
-        self.auto_record_summary = QLabel('已开启自动录制', objectName='SettingsHint')
-        summary.addWidget(self.auto_record_summary)
+        indicators = QHBoxLayout()
+        indicators.setSpacing(5)
+        self.auto_record_summary = _SummaryIcon('auto_record', self.summary)
+        self.windows_notice_summary = _SummaryIcon('windows_notice', self.summary)
+        self.mode_summary_icon = _SummaryIcon('recording_mode', self.summary)
+        self.mode_summary_value = QLabel(objectName='SettingsHint')
+        for indicator in (self.auto_record_summary, self.windows_notice_summary,
+                          self.mode_summary_icon, self.mode_summary_value):
+            indicators.addWidget(indicator)
+        summary.addLayout(indicators)
         layout.addWidget(self.summary)
 
-        self.details = QWidget()
+        self.details = SettingsColumns(self)
         layout.addWidget(self.details)
-        form = QFormLayout(self.details)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+        playback_options, capture_options = QWidget(), QWidget()
+        playback_form, capture_form = QFormLayout(playback_options), QFormLayout(capture_options)
+        for form in (playback_form, capture_form):
+            form.setContentsMargins(0, 0, 0, 0)
+            form.setHorizontalSpacing(12)
+            form.setVerticalSpacing(8)
+            form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
+            form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        self.details.add_section('playback', playback_options)
+        self.details.add_section('capture', capture_options)
         self.playback, self.recording = SelectControl(), SelectControl()
         for key, label, control in (('playback', '默认播放画质', self.playback),
                                     ('recording', '录制画质', self.recording)):
             control.setAccessibleName(label)
-            control.setMaximumWidth(285)
+            control.setFixedWidth(theme.SETTINGS_STEPPER_WIDTH)
             control.currentIndexChanged.connect(
                 lambda _index, field=key, widget=control: self._edit_quality(field, widget.currentData()))
-            form.addRow(label, control)
-        self.auto_record = ToggleSwitch('开播时自动录制')
-        self.auto_record.setToolTip('自动录制须开启「设置 → 录制」中的录制功能。')
-        self.auto_record.toggled.connect(lambda enabled: page.edit(
-            'auto_record', dict.fromkeys(self.editing_rooms, True if enabled else None)))
-        form.addRow('开播时自动录制', self.auto_record)
-        self.windows_notice = ToggleSwitch('使用 Windows 通知')
-        self.windows_notice.setToolTip('还需在「设置 → 通知」开启 Windows 通知总开关。')
-        self.windows_notice.toggled.connect(lambda enabled: page.edit(
-            'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
-        form.addRow('使用 Windows 通知', self.windows_notice)
-        self.auto_record_mode = None
-        if page.clip_recording_available:
-            self.auto_record_mode = SelectControl()
-            self.auto_record_mode.setAccessibleName('自动录制方式')
-            self.auto_record_mode.setToolTip('普通录制保存到本体录制目录，切片录制使用 DDCut 切片设置。')
-            for label, mode in (('沿用全局', None), ('普通录制', 'normal'), ('DDCut 切片录制', 'clip')):
-                self.auto_record_mode.addItem(label, mode)
-            self.auto_record_mode.currentIndexChanged.connect(lambda _index: page.edit(
-                'auto_record_mode', dict.fromkeys(self.editing_rooms, self.auto_record_mode.currentData())))
-            form.addRow('自动录制方式', self.auto_record_mode)
+            playback_form.addRow(label, control)
         self.volume = QSpinBox()
         self.volume.setAccessibleName('默认音量')
         self.volume.setRange(-1, 100)
@@ -172,10 +182,33 @@ class StreamerProfileCard(QFrame):
         self.volume.setSuffix('%')
         volume_stepper = StepperControl(self.volume)
         self.volume.valueChanged.connect(self._edit_volume)
-        form.addRow('默认音量', volume_stepper)
+        playback_form.addRow('默认音量', volume_stepper)
         self.status = QLabel(objectName='SettingsHint')
         self.status.setWordWrap(True)
-        form.addRow(self.status)
+        playback_form.addRow(self.status)
+
+        self.auto_record = ToggleSwitch('开播时自动录制')
+        self.auto_record.setToolTip('自动录制须开启「设置 → 录制」中的录制功能。')
+        self.auto_record.toggled.connect(lambda enabled: page.edit(
+            'auto_record', dict.fromkeys(self.editing_rooms, True if enabled else None)))
+        capture_form.addRow('开播时自动录制', self.auto_record)
+        self.auto_record_mode = None
+        if page.clip_recording_available:
+            self.auto_record_mode = SelectControl()
+            self.auto_record_mode.setAccessibleName('自动录制方式')
+            self.auto_record_mode.setAccessibleDescription('普通录制保存到本体录制目录，切片录制使用 DDCut 切片设置。')
+            for label, mode in RECORDING_MODES:
+                self.auto_record_mode.addItem(label, mode)
+            self.auto_record_mode.currentIndexChanged.connect(lambda _index: page.edit(
+                'auto_record_mode', dict.fromkeys(self.editing_rooms, self.auto_record_mode.currentData())))
+            capture_form.addRow('自动录制方式', self.auto_record_mode)
+        self.windows_notice = ToggleSwitch('使用 Windows 通知')
+        self.windows_notice.toggled.connect(lambda enabled: page.edit(
+            'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
+        capture_form.addRow('使用 Windows 通知', self.windows_notice)
+        self.windows_notice_hint = QLabel('请先在「设置 → 通知」开启 Windows 通知。', objectName='SettingsHint')
+        self.windows_notice_hint.setWordWrap(True)
+        capture_form.addRow(self.windows_notice_hint)
         self._loading = False
         self.load()
 
@@ -236,15 +269,37 @@ class StreamerProfileCard(QFrame):
 
     def update_summary(self):
         values = self.page.entries[self.editing_rooms[0]]
-        enabled = bool(values.get('auto_record'))
+        auto_record = bool(values.get('auto_record'))
+        windows_notice = bool(values.get('windows_recording_notice'))
+        windows_available = self.page.windows_notice_available
+        mode = values.get('auto_record_mode')
         with QSignalBlocker(self.auto_record):
-            self.auto_record.setChecked(enabled)
+            self.auto_record.setChecked(auto_record)
         with QSignalBlocker(self.windows_notice):
-            self.windows_notice.setChecked(bool(values.get('windows_recording_notice')))
+            self.windows_notice.setChecked(windows_notice)
+        self.windows_notice.setEnabled(windows_available)
+        self.windows_notice.setAccessibleDescription('提示自动开录和下播收尾。' if windows_available
+                                                     else self.windows_notice_hint.text())
+        self.windows_notice_hint.setVisible(not windows_available)
         if self.auto_record_mode is not None:
             with QSignalBlocker(self.auto_record_mode):
-                self.auto_record_mode.setCurrentIndex({'normal': 1, 'clip': 2}.get(values.get('auto_record_mode'), 0))
-        self.auto_record_summary.setVisible(enabled)
+                self.auto_record_mode.setCurrentIndex(0 if mode is None else self.auto_record_mode.findData(mode))
+        self.auto_record_summary.setVisible(auto_record)
+        self.windows_notice_summary.setVisible(windows_notice)
+        self.windows_notice_summary.setEnabled(windows_available)
+        show_mode = self.auto_record_mode is not None or mode is not None
+        self.mode_summary_icon.setVisible(show_mode)
+        self.mode_summary_value.setVisible(show_mode)
+        self.mode_summary_value.setText(RECORDING_MODE_SUMMARY[mode])
+        mode_hint = next(label for label, value in RECORDING_MODES if value == mode)
+        for indicator, hint in (
+                (self.auto_record_summary, '已开启自动录制'),
+                (self.windows_notice_summary, '已开启该主播的 Windows 通知' if windows_available
+                 else 'Windows 通知暂停 · 通知页总开关已关闭'),
+                (self.mode_summary_icon, f'自动录制方式 · {mode_hint}'),
+                (self.mode_summary_value, f'自动录制方式 · {mode_hint}')):
+            indicator.setAccessibleName(hint)
+            indicator.setToolTip(hint)
         for key, view in self.summary_values.items():
             if key == 'volume':
                 value = f"{values['volume']}%" if 'volume' in values else '继承'
@@ -260,16 +315,18 @@ class StreamerProfileCard(QFrame):
         pending = any(room_id in self.page.requests for room_id in rooms)
         catalogs = {room_id: self.page.qualities.get(room_id, ([], '')) for room_id in rooms}
         available = False
+        highest = QUALITY_LABELS[0]
         for key, control in (('playback', self.playback), ('recording', self.recording)):
             selected = {room_id: self.page.entries[room_id].get(key) for room_id in rooms}
             saved = selected[rooms[0]]
             with QSignalBlocker(control):
                 control.clear()
                 control.addItem('继承', None)
-                index = 0
+                control.addItem(highest, dict.fromkeys(rooms, 0))
+                index = 1 if all(value == 0 for value in selected.values()) else 0
                 for label, choices in self._quality_choices(key, catalogs):
                     available = True
-                    control.addItem(label, choices)
+                    control.addItem(f'{label}（平台）' if label == highest else label, choices)
                     if all(isinstance(selected[room_id], dict)
                            and selected[room_id]['qn'] == choice['qn'] for room_id, choice in choices.items()):
                         index = control.count() - 1
@@ -277,10 +334,11 @@ class StreamerProfileCard(QFrame):
                     control.addItem(f'{quality_label(saved)}（已保存）', selected)
                     index = control.count() - 1
                 control.setCurrentIndex(index)
-                control.setEnabled(not pending and control.count() > 1)
         error = next((error for _choices, error in catalogs.values() if error), '')
-        empty = '暂无共同画质，可选中头像单独调整' if self.room_id is None else '暂无可用画质'
-        self.status.setText('正在读取平台画质…' if pending else error or ('' if available else empty))
+        empty = '暂无共同平台档位，可点击头像查看各主播画质。' if self.room_id is None else '暂无平台档位。'
+        message = '正在读取平台画质…' if pending else error or ('' if available else empty)
+        self.status.setText(message)
+        self.status.setVisible(bool(message))
 
     def _quality_choices(self, field, catalogs):
         options = {room_id: [choice for choice in choices if field != 'recording' or choice['qn'] != -1]

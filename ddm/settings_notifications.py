@@ -174,6 +174,7 @@ class NotificationSettingsPage(QWidget):
             card.grid.addLayout(controls, row, 1, Qt.AlignRight)
             self._checks[key] = box
             self._states[key] = state
+        self.windows_recording_notice = self._checks['notice_windows_recording']
         for card, row, text in (
                 (reception, reception_count, '还需在「主播监控」为该主播开启 Windows 通知。系统通知仅提示开录和下播收尾。'),
                 (persistence, 5, '选择自动收起后提示会自行消失；手动关闭会持续保留，两种方式均可在通知菜单查看记录。')):

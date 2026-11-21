@@ -234,6 +234,13 @@ class SettingsDialog(SettingsWindow):
                 self._update_save_button()
             if index == PAGE_INDEX['streamer_defaults']:
                 page.qualityRequested.connect(self.streamerQualityRequested)
+            if index in (PAGE_INDEX['streamer_defaults'], PAGE_INDEX['notifications']):
+                streamers = self._loaded_pages.get(PAGE_INDEX['streamer_defaults'])
+                notifications = self._loaded_pages.get(PAGE_INDEX['notifications'])
+                if streamers is not None and notifications is not None:
+                    switch = notifications.windows_recording_notice
+                    switch.toggled.connect(streamers.set_windows_notice_available)
+                    streamers.set_windows_notice_available(switch.isChecked())
             self.pageCreated.emit(index, page)
             print(f"[设置耗时] 创建 {self.PAGES[index][0]} 页 {(time.perf_counter() - started) * 1000:.1f}ms",
                   file=sys.stderr, flush=True)

@@ -185,10 +185,14 @@ class CaptureControl:
                 target = tiers[0] if tiers else target
         elif height is not None:
             tiers = quality_tiers(room_id, tile.quality_options, height, allow_lower=False)
-            if not tiers:
+            if tiers:
+                target = tiers[0]
+            elif height:
                 host._record_notice(f"直播源未提供 {QUALITY_LABELS[height]}，录制未开始", tile.room)
                 return
-            target = tiers[0]
+            elif source_quality_option(tile.quality_options) is not None:
+                host.recorder.start(tile, recording=recording)
+                return
         host._capture_quality[tile] = (room_id, int(tile.quality))
         host._pending_capture[tile] = recording
         tile.quality_button.setEnabled(False)
