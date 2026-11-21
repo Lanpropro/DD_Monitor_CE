@@ -141,6 +141,7 @@ class RoomImages:
 
     def apply_avatar(self, room_id: str, pixmap) -> None:
         host = self.host
+        host.sidebar.navigation.monitor_menu.set_room_avatar(room_id, pixmap)
         for notice in getattr(host, '_notices', []):
             if hasattr(notice, 'set_room_avatar'):
                 notice.set_room_avatar(room_id, pixmap)

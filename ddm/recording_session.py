@@ -58,6 +58,7 @@ class _Session:
         self.retry_count = 0
         self.retry_at = 0.0
         self.started_at = 0.0
+        self.recording_started_at = 0.0
         self.output_started_at = 0.0
         self.rotating = False
         self.resolver = None

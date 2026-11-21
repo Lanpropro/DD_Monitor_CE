@@ -11,6 +11,7 @@ class AutoRecording:
         self.settings_key = None
         self.attempted = {}
         self.failed_to_start = set()
+        self.room_details = {}
 
     def configured_rooms(self):
         saved = self.host.settings.get('streamer_defaults')
@@ -57,6 +58,7 @@ class AutoRecording:
                     or not background and session.recording and session.room_id in rooms):
                 host.recorder.stop(source)
         self.attempted = {room: started for room, started in self.attempted.items() if room in rooms}
+        self.room_details = {room: details for room, details in self.room_details.items() if room in rooms}
         if self._sync_settings_key(rooms) and rooms and not host._closing:
             host.refresh_status(force=True)
 
@@ -68,11 +70,18 @@ class AutoRecording:
     def apply_status(self, status):
         host = self.host
         if host._closing:
-            return
+            return {}
         rooms = self.monitored_rooms()
         self._sync_settings_key(rooms)
+        faces = {}
         for room_id, profile in rooms.items():
             info = status.get(room_id)
+            if info:
+                details = self.room_details.setdefault(room_id, {})
+                if info.get('face') and info['face'] != details.get('face'):
+                    faces[room_id] = info['face']
+                details.update({key: info[key] for key in ('uname', 'uid', 'anchor_uid', 'display_room_id',
+                                                          'platform', 'face') if info.get(key)})
             if not info or not info.get('live_known', True) or 'live' not in info:
                 continue
             if not info['live']:
@@ -108,6 +117,7 @@ class AutoRecording:
             if not host.recorder.start_background(BackgroundRecordingSource(
                     room, quality, recording_mode=profile.get('auto_record_mode'))):
                 self.failed_to_start.add(room_id)
+        return faces
 
     def resolve_source(self, session):
         host = self.host

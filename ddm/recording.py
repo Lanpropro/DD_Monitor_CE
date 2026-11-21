@@ -144,6 +144,8 @@ class RecordingManager(QObject):
             if recording and not session.recording:
                 session.recording = True
                 session.output_started_at = time.monotonic()
+                if session.started_at:
+                    session.recording_started_at = session.output_started_at
                 if session.recording_started() and session.process is not None:
                     session.next_url = session.url
                     session.next_headers = dict(tile.stream_headers or {})
@@ -220,8 +222,11 @@ class RecordingManager(QObject):
         session.url = url
         session.retry_at = 0.0
         session.started_at = time.monotonic()
-        if session.recording and not session.output_started_at:
-            session.output_started_at = session.started_at
+        if session.recording:
+            if not session.recording_started_at:
+                session.recording_started_at = session.started_at
+            if not session.output_started_at:
+                session.output_started_at = session.started_at
         if isinstance(session.tile, BackgroundRecordingSource):
             if first_start:
                 self.changed.emit(session.tile)

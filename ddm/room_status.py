@@ -259,9 +259,9 @@ class RoomStatus:
         if covers:
             host._aside_cover_loader = host._start_avatar_loader(
                 covers, host._on_room_cover, subdir="covers")
-        if faces:
-            host._status_avatar_loader = host._start_avatar_loader(faces, host._on_room_avatar)
         host._load_room_banners(host.sidebar.rooms())
         auto_recording = getattr(host, 'auto_recording', None)
         if auto_recording is not None:
-            auto_recording.apply_status(status)
+            faces.update(auto_recording.apply_status(status))
+        if faces:
+            host._status_avatar_loader = host._start_avatar_loader(faces, host._on_room_avatar)

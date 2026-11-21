@@ -17,7 +17,7 @@ from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
 from ddm.auto_recording import AutoRecording
-from ddm.capture_control import CaptureControl
+from ddm.capture_control import CaptureControl, MonitorEntry
 from ddm.dock_feedback import REST, active, icon_color
 from ddm.plugins import PluginContext, PluginManager
 from ddm.sidebar_navigation import RAIL_WIDTH
@@ -490,59 +490,92 @@ class WorkspaceControlTests(unittest.TestCase):
                                    '3': {'auto_record': False},
                                }})
         host.auto_recording = AutoRecording(host)
+        self.sidebar.rooms()[1]['uid'] = 1024
+        host.auto_recording.room_details['off-wall'] = {'anchor_uid': '117', 'platform': 'douyin'}
         capture = CaptureControl(host)
         active = SimpleNamespace(room_id='1', name='示例主播1', recording=True, stopping=False,
-                                 started_at=1, retry_at=0, refreshing=False)
+                                 started_at=11, recording_started_at=1, retry_at=0, refreshing=False, room={})
         reconnecting = SimpleNamespace(room_id='manual', name='手动录制主播', recording=True,
-                                       stopping=False, started_at=1, retry_at=1, refreshing=False)
+                                       stopping=False, started_at=1, retry_at=1, refreshing=False, room={})
         duplicate = SimpleNamespace(room_id='1', name='同一主播旧会话', recording=True,
-                                    stopping=True, started_at=1, retry_at=0, refreshing=False)
+                                    stopping=True, started_at=1, retry_at=0, refreshing=False, room={})
         cache = SimpleNamespace(room_id='3', recording=False)
         host.recorder.sessions = dict(active=active, reconnecting=reconnecting, duplicate=duplicate, cache=cache)
         pending = QWidget(self.host)
         pending.room = {'room_id': 'pending', 'uname': '待录制主播'}
         host._pending_capture[pending] = True
 
-        self.assertEqual(capture.monitor_rows(), (('示例主播1', 'recording'), ('手动录制主播', 'reconnecting'),
-                         ('待录制主播', 'preparing'), ('后台主播', 'monitoring'), ('示例主播2', 'monitoring')))
+        rows = capture.monitor_rows()
+        self.assertEqual([(row.name, row.state) for row in rows], [('示例主播1', 'recording'),
+                         ('手动录制主播', 'reconnecting'), ('待录制主播', 'preparing'),
+                         ('后台主播', 'monitoring'), ('示例主播2', 'monitoring')])
+        self.assertEqual((rows[0].account_id, rows[0].platform, rows[0].started_at), ('1024', 'bilibili', 1))
+        self.assertEqual((rows[3].account_id, rows[3].platform), ('117', 'douyin'))
+        self.assertEqual(rows[4].display_room_id, '2')
         host.auto_recording.failed_to_start.add('2')
-        self.assertIn(('示例主播2', 'failed'), capture.monitor_rows())
+        self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '2'), 'failed')
         active.stopping = True
-        self.assertIn(('示例主播1', 'stopping'), capture.monitor_rows())
+        self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '1'), 'stopping')
         host.recorder.sessions.clear()
         host._pending_capture.clear()
-        self.assertIn(('示例主播1', 'monitoring'), capture.monitor_rows())
+        self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '1'), 'monitoring')
         host.settings['recording_enabled'] = False
         self.assertEqual(capture.monitor_rows(), ())
 
     def test_sidebar_monitor_popup_shows_updates_and_closes(self):
         navigation = self.sidebar.navigation
         button, menu = navigation.monitor_button, navigation.monitor_menu
-        rows = [('一位主播', 'monitoring'), ('另一位主播', 'recording')]
+        rows = [MonitorEntry('fixture:1', '一位主播', 'monitoring', 'bilibili', '1024'),
+                MonitorEntry('fixture:2', '另一位主播', 'recording', 'douyin', display_room_id='77')]
         menu.read_rows = lambda: tuple(rows)
         available = button.screen().availableGeometry()
         self.assertNotIn(button, navigation.movable_tools())
 
-        QTest.mouseClick(button, Qt.LeftButton)
+        cached_avatar = QPixmap(28, 28)
+        cached_avatar.fill(Qt.blue)
+        with patch('ddm.sidebar_monitor_menu.images.load_room_avatar', return_value=cached_avatar):
+            QTest.mouseClick(button, Qt.LeftButton)
         settle()
         self.assertTrue(menu.isVisible())
         self.assertTrue(button.isChecked())
         self.assertTrue(available.contains(menu.geometry()))
-        first_row = menu.rows.itemAt(0).widget().layout()
-        self.assertEqual(first_row.itemAt(0).widget().accessibleName(), '一位主播')
-        self.assertEqual(first_row.itemAt(1).widget().text(), '监控中')
+        picture = menu.grab().toImage()
+        self.assertTrue(menu.testAttribute(Qt.WA_TranslucentBackground))
+        for corner in (picture.rect().topLeft(), picture.rect().topRight(),
+                       picture.rect().bottomLeft(), picture.rect().bottomRight()):
+            self.assertEqual(picture.pixelColor(corner).alpha(), 0)
+        self.assertEqual(picture.pixelColor(picture.rect().center()).alpha(), 255)
+        first_row = menu.rows.itemAt(0).widget()
+        self.assertEqual(first_row.name.accessibleName(), '一位主播')
+        self.assertEqual(first_row.identifier.text(), 'ID 1024')
+        self.assertEqual(first_row.status.text(), '监控中')
+        self.assertTrue(first_row.elapsed.isHidden())
+        self.assertFalse(first_row.avatar.pixmap().isNull())
+        self.assertEqual(first_row.platform_badge.parentWidget(), first_row.avatar)
+        self.assertEqual(first_row.platform_badge.accessibleName(), '哔哩哔哩')
+        self.assertFalse(first_row.platform_badge.pixmap().isNull())
+        self.assertEqual(menu.rows.itemAt(1).widget().identifier.text(), '房间号 77')
 
         self.assertTrue(menu._timer.isActive())
-        rows[0] = ('一位主播', 'recording')
-        menu._timer.timeout.emit()
-        self.assertEqual(menu.rows.itemAt(0).widget().layout().itemAt(1).widget().text(), '正在录制')
+        rows[0] = MonitorEntry('fixture:1', '一位主播', 'recording', 'bilibili', '1024', started_at=100)
+        with patch('ddm.sidebar_monitor_menu.time.monotonic', return_value=3761):
+            menu._timer.timeout.emit()
+            settle()
+        first_row = menu.rows.itemAt(0).widget()
+        self.assertEqual(first_row.status.text(), '正在录制')
+        self.assertTrue(first_row.elapsed.isVisible())
+        self.assertEqual(first_row.elapsed.text(), '01:01:01')
+        with patch('ddm.sidebar_monitor_menu.time.monotonic', return_value=3762):
+            menu._timer.timeout.emit()
+        self.assertIs(menu.rows.itemAt(0).widget(), first_row)
+        self.assertEqual(first_row.elapsed.text(), '01:01:02')
         QTest.keyClick(menu.scroll, Qt.Key_Escape)
         settle()
         self.assertFalse(menu.isVisible())
         self.assertFalse(button.isChecked())
         self.assertFalse(menu._timer.isActive())
 
-        rows[:] = [(f'监控主播 {index}', 'monitoring') for index in range(18)]
+        rows[:] = [MonitorEntry(f'fixture:{index}', f'监控主播 {index}', 'monitoring') for index in range(18)]
         button.click()
         settle()
         self.assertEqual(menu.rows.count(), 18)
@@ -561,6 +594,11 @@ class WorkspaceControlTests(unittest.TestCase):
         settle()
         self.assertTrue(menu.isVisible())
         self.assertEqual(menu.rows.itemAt(0).widget().text(), '暂无监控或录制中的主播')
+        settings = QSignalSpy(menu.settingsRequested)
+        QTest.mouseClick(menu.settings_button, Qt.LeftButton)
+        self.assertEqual(settings.count(), 1)
+        self.assertFalse(menu.isVisible())
+        button.click()
         self.sidebar.set_side('top')
         settle()
         self.assertFalse(menu.isVisible())

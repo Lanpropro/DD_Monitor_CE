@@ -70,7 +70,8 @@ class Host(QObject):
     def __init__(self, rooms):
         super().__init__()
         self.sidebar = SimpleNamespace(rooms=lambda: rooms, _items=[item(room) for room in rooms],
-            set_room_face=Mock(), notification_button=SimpleNamespace(center=SimpleNamespace(rows={})))
+            set_room_face=Mock(), notification_button=SimpleNamespace(center=SimpleNamespace(rows={})),
+            navigation=SimpleNamespace(monitor_menu=Mock()))
         self.wall = SimpleNamespace(pane_danmaku=Mock())
         self.room_images = RoomImages(self)
         self._closing = False
@@ -189,6 +190,7 @@ class RoomImageTests(unittest.TestCase):
             getattr(host.sidebar._items[0].thumb, setter).assert_called_once_with(picture)
             getattr(host.sidebar._items[1].thumb, setter).assert_not_called()
         host._on_room_avatar('removed', picture)
+        host.sidebar.navigation.monitor_menu.set_room_avatar.assert_called_with('removed', picture)
         self.assertEqual(host.sidebar.set_room_face.call_count, 1)
 
 

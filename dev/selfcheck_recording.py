@@ -147,7 +147,10 @@ def check_background_recording(app, root, source):
     recorder.changed.connect(lambda source: activity.append(any(
         session.started_at and not session.stopping for session in recorder.sessions.values())))
     try:
-        auto.apply_status({'fixture:1001': {'live': True}})
+        status = {'fixture:1001': {'live': True, 'uid': '123', 'face': 'https://fixture.invalid/avatar.jpg'}}
+        assert auto.apply_status(status) == {'fixture:1001': status['fixture:1001']['face']}
+        assert auto.room_details['fixture:1001']['uid'] == '123'
+        assert auto.apply_status(status) == {}
         auto.apply_status({'fixture:1001': {'live': True}})
         session, = recorder.sessions.values()
         assert until(app, lambda: session.retry_at > 0), '流结束后等下播状态，保留已录分段'
@@ -503,6 +506,8 @@ def main():
                 side_effect=lambda url, _headers: ["-re", "-stream_loop", "-1", "-i", url]):
             assert manager.start(split, recording=True)
             split_session = manager.sessions[split]
+            recording_started_at = split_session.recording_started_at
+            assert recording_started_at > 0
             time.sleep(2.3)
             with patch("ddm.recording.time.monotonic",
                        return_value=split_session.output_started_at + 61):
@@ -511,6 +516,7 @@ def main():
             assert until(app, lambda: split_session.chunk >= 2 and
                          not split_session.rotating and not manager.exports, 10), \
                 "第一段导出后应自动启动下一段"
+            assert split_session.recording_started_at == recording_started_at < split_session.output_started_at
             time.sleep(1.3)
             manager.stop(split)
             assert until(app, lambda: split not in manager.sessions and
@@ -766,10 +772,13 @@ def main():
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
+        replay_started_at = cached_session.started_at
+        assert not cached_session.recording_started_at
         tile.recording_button.click()
         assert tile in window.recorder.sessions
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
+        assert replay_started_at < cached_session.recording_started_at == cached_session.output_started_at
         assert tile.recording_button.text() == "● REC"
         assert tile.recording_button.property('replayOnly') is False
         assert tile.recording_button.property("recording") is True
