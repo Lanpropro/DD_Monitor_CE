@@ -81,6 +81,22 @@ assert not any(name in sys.modules for name in (
         self.assertFalse(tile.muted)
         self.assertNotEqual(button.grab().toImage(), silent)
 
+    def test_selected_volume_channels_keep_theme_blue_over_video(self):
+        from unittest.mock import Mock
+
+        button = ui.VolumeButton(self.owner)
+        button.setProperty('tileButton', True)
+        button.setProperty('overVideo', True)
+        for hovered in (False, True):
+            button.setProperty('hovered', hovered)
+            for channel, selected in ((0, (True, True)), (button.CHANNEL_LEFT, (True, False)),
+                                      (button.CHANNEL_RIGHT, (False, True))):
+                button.set_state(False, 40, channel)
+                painter = Mock()
+                button._paint_channel(painter, 0, 0)
+                colors = tuple(call.args[1] for call in painter.fillPath.call_args_list)
+                self.assertEqual(tuple(color == theme.qcolor(theme.ACCENT) for color in colors), selected)
+
     def test_volume_wheel_clamps_emits_and_keeps_channel(self):
         button = ui.VolumeButton(self.owner)
         changed = []

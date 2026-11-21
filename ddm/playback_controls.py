@@ -229,11 +229,7 @@ class VolumeButton(TileButton):
             ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
             ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
         ):
-            if self.property('tileButton') and self.property('overVideo'):
-                colour = _icon_color(self)
-                if not selected:
-                    colour.setAlpha(min(colour.alpha(), 135))
-            elif _overlay_hovered(self):
+            if not self.property('tileButton') and _overlay_hovered(self):
                 colour = QColor("#04161f")
                 if not selected:
                     colour.setAlpha(135)
