@@ -7,10 +7,10 @@
 免费、开源的 Windows 多窗口直播观看与监控工具。
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-0.7.3-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
+[![版本](https://img.shields.io/badge/版本-0.8%20Hotfix%202-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
-[下载软件](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
+[下载软件](#下载) · [快速开始](#快速开始) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
 
 </div>
 
@@ -18,7 +18,7 @@
 
 将多个直播间集中放进同一面画面墙，自由安排布局，逐路控制画质、声音和弹幕。
 
-本体支持 B 站，通过独立插件接入虎牙、斗鱼、抖音、Twitch 和 YouTube。软件免费使用，无付费解锁功能。
+本体支持 B 站，可通过独立插件接入其他直播平台、导入 IPTV 频道，或扩展比赛二路和直播互动。软件免费使用，无付费解锁功能。
 
 ![DD监控室CE 横屏画面墙](docs/overview4_Landscape_mode.png)
 
@@ -37,10 +37,11 @@
 | --- | --- |
 | 多路同屏 | 最多 16 路直播，逐路播放、暂停、关闭和全屏 |
 | 布局预设 | 横竖屏预设、跨行跨列布局、方向自动切换，保存与恢复直播间组合 |
-| 关注管理 | 账号关注导入、拼音搜索、置顶与拖动排序、普通与智能文件夹、常看优先 |
+| 关注管理 | 导入账号关注，按主播名或直播间标题搜索，支持拼音、置顶、拖动排序、常看优先及普通与智能文件夹 |
 | 直播监控 | 开播提醒、直播状态刷新、关注悬停预览、断流重连与画面卡死检测 |
 | 逐路控制 | 独立画质、音量与静音，左右声道路由，全局与单窗口编解码设置 |
-| 弹幕观看 | 独立弹幕格与滚动画面弹幕，字体、字号、颜色显示与屏蔽词过滤 |
+| 画中画 | 可与主画面墙同时播放，独立调整小窗布局和音量 |
+| 弹幕观看 | 独立弹幕格与滚动画面弹幕，可调字体、字号、颜色及缩放曲线，支持屏蔽词过滤 |
 | 录制回放 | 每路独立录制、保存最近数分钟的即时回放，原始流直存与显卡重编码 |
 | 外观主题 | 深浅主题、自定义图片或静音视频背景、皮肤与美化插件 |
 | 软件更新 | 本体与插件独立更新，软件内置更新入口 |
@@ -48,7 +49,7 @@
 
 首次关闭窗口时可选择“隐藏到托盘”或“退出程序”。勾选“记住我的选择”后按所选方式关闭；
 未勾选则下次继续询问。可在“设置 → 常规 → 关闭窗口时”更改。
-隐藏到托盘后继续播放和录制，双击托盘图标恢复窗口；右键菜单可显示/隐藏窗口或退出程序。
+双击托盘图标可恢复窗口，右键菜单可显示、隐藏或退出。可在常规设置中选择隐藏到托盘时暂停观看，录制继续运行。
 
 ## 插件扩展
 
@@ -56,10 +57,12 @@
 
 | 插件 | 功能 |
 | --- | --- |
-| 国内直播平台 | 接入虎牙、斗鱼、抖音 |
-| 海外直播平台 | 接入 Twitch、YouTube |
+| 国内直播平台 | 按需安装虎牙、斗鱼、抖音和企鹅体育扩展 |
+| 海外直播平台 | 按需安装 Twitch、YouTube 和 CHZZK 扩展 |
+| IPTV Play | 导入本地 M3U 文件或在线频道列表，在画面墙观看频道 |
 | 比赛二路同步 | 多路比赛画面对齐、声音与弹幕合并 |
 | B 站直播互动 | 弹幕发送、表情选择与礼物互动 |
+| B 站稍后再看 | 在侧栏浏览和播放账号的稍后再看列表 |
 | 网络代理 | 导入订阅与节点，按需启动内置代理内核 |
 
 平台与互动插件不随本体内置，可从软件内的插件商店获取。具体能力及兼容要求以插件说明为准。
@@ -70,13 +73,21 @@
 
 ## 下载
 
-当前已发布版本 **0.7.3**，支持 **Windows 10 / 11 64 位**。
+当前已发布版本 **0.8**（Hotfix 2，内部修订号 2），支持 **Windows 10 / 11 64 位**。
 
-[查看本次更新说明](docs/releases/RELEASE-v0.7.3.md)。
+[查看本次更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/v0.8)。
 
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7.3/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.7.3/DDMonitorCE-v0.7.3-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
+[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.8/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.8/DDMonitorCE-v0.8-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
-安装版与便携版均无需安装 Python。官方下载与更新请认准本仓库 Releases。
+安装版与便携版均无需安装 Python。已安装 0.8 的用户可打开「设置 → 软件更新」检查更新，也可下载新安装包覆盖升级。
+
+从本分支源码自行打包时，本地候选版本 **0.7.3**。
+
+## 快速开始
+
+1. 运行安装程序，或解压便携版后打开软件。
+2. 在主窗口打开「添加直播间」，可一次粘贴多个房间号或分享链接。点击空白播放格的添加按钮，从关注列表选取直播间上墙。
+3. 从「布局预设」选择画面排列，或保存当前直播间组合。需要其他平台时，到「设置 → 插件 → 插件商店」安装对应扩展。
 
 ## 文档
 
