@@ -8,7 +8,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QAbstractButton, QApplication
 from shiboken6 import isValid
 
-from .dock_feedback import active
+from .dock_feedback import active, hovered
 
 
 def native_hit():
@@ -68,7 +68,7 @@ class DockHoverTrace(QObject):
         plugin = next((identity for identity, (_, widget) in entries.items() if widget is button), None)
         role = ':'.join(plugin) if plugin else getattr(button, 'kind', type(button).__name__)
         return dict(button=role, buttonId=id(button), underMouse=button.underMouse(),
-                    hoverProperty=button.property('hovered'), selected=active(button),
+                    hoverProperty=button.property('hovered'), effectiveHover=hovered(button), selected=active(button),
                     enabled=button.isEnabled(), visible=button.isVisible())
 
     def sample_pointer(self):
@@ -107,8 +107,8 @@ class DockHoverTrace(QObject):
                           modal=app.activeModalWidget() is not None, pressed=bool(app.mouseButtons()))
             eligible = (actual is button and sample['enabled'] and not sample['selected']
                         and not (sample['popup'] or sample['modal'] or sample['pressed']))
-            self.saw_hover |= eligible and sample['underMouse']
-            self.misses = self.misses + 1 if eligible and not sample['underMouse'] else 0
+            self.saw_hover |= eligible and sample['effectiveHover']
+            self.misses = self.misses + 1 if eligible and not sample['effectiveHover'] else 0
         if sample != self.last_sample:
             self.last_sample = sample
             self.emit('dock-hover-pointer', gapMs=round((now - previous) * 1000, 1), **sample)

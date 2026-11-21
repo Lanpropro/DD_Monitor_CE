@@ -401,6 +401,7 @@ class Sidebar(QFrame):
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
         self.navigation = SidebarNavigation(self, self._outer_layout)
+        self._hover_sync_timer.timeout.connect(self.navigation.sync_pointer_hover)
         from .sidebar_pages import SidebarPages
         self.plugin_pages = SidebarPages(self)
         self.refresh_filter()

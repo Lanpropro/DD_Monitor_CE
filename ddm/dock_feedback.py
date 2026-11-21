@@ -27,11 +27,16 @@ def active(button):
     return button.isChecked() if selected is None else bool(selected)
 
 
+def hovered(widget):
+    value = widget.property('dockHovered')
+    return value if value is not None and widget.property('dockRail') else widget.underMouse()
+
+
 def icon_color(button):
     if button.property('dockRail') and active(button):
         color = theme.qcolor('#ffffff' if theme.is_light() else theme.BG)
     else:
-        color = theme.qcolor(theme.ACCENT if button.underMouse() else theme.TEXT2)
+        color = theme.qcolor(theme.ACCENT if hovered(button) else theme.TEXT2)
     if not button.isEnabled():
         color.setAlpha(90)
     return color
@@ -141,6 +146,8 @@ class DockFeedback(QObject):
             self.transition(1.0, animate=False)
             self.hover(animate=False)
         elif kind == QEvent.Hide:
+            if watched.property('dockHovered') is not None:
+                watched.setProperty('dockHovered', None)
             self.transition(1.0, animate=False)
             self.hover(animate=False)
         elif kind == QEvent.Paint and isinstance(watched, QToolButton) and watched.property('dockRail'):

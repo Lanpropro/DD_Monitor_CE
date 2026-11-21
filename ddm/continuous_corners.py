@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QApplication, QAbstractItemView, QCheckBox, QMenu
 
 
 from .corner_geometry import continuous_path
+from .dock_feedback import hovered
 
 
 _RULE = re.compile(r'([^{}]+)\{([^{}]*)\}')
@@ -113,7 +114,7 @@ def stylesheet(source, *, application=False):
 
 
 def _states(widget):
-    return {'hover': widget.underMouse(), 'focus': widget.hasFocus(),
+    return {'hover': hovered(widget), 'focus': widget.hasFocus(),
             'disabled': not widget.isEnabled(),
             'pressed': getattr(widget, 'isDown', lambda: False)(),
             'checked': getattr(widget, 'isChecked', lambda: False)(),

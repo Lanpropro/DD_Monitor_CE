@@ -1,9 +1,10 @@
 """Global tool rail and compact follow controls, using the existing sidebar actions."""
 from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QCursor, QPainter
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea,
                               QSizePolicy, QVBoxLayout, QWidget)
+from shiboken6 import isValid
 
 from . import motion, theme
 from .dock_feedback import active, attach, icon_color
@@ -104,6 +105,7 @@ class SidebarNavigation(QObject):
         super().__init__(sidebar)
         self.sidebar = sidebar
         self.in_rail = False
+        self._pointer_button = None
         self._tool_order = []
         self.rail = QFrame(sidebar)
         self.rail.setObjectName('SidebarRail')
@@ -203,6 +205,25 @@ class SidebarNavigation(QObject):
         from .sidebar_icon_drag import SidebarIconDrag
         self.icon_drag = SidebarIconDrag(self)
         QApplication.instance().installEventFilter(self)
+
+    def sync_pointer_hover(self):
+        hit = None
+        if (self.rail.isVisible() and not QApplication.activePopupWidget()
+                and not QApplication.activeModalWidget() and not QApplication.mouseButtons()):
+            point = QCursor.pos()
+            if self.rail.rect().contains(self.rail.mapFromGlobal(point)):
+                # A missing Qt Enter can leave underMouse false even on a hit.
+                hit = QApplication.widgetAt(point)
+        button = (hit if isinstance(hit, QAbstractButton) and self.rail.isAncestorOf(hit)
+                  and hit.property('dockRail') and hit.isEnabled() else None)
+        previous, self._pointer_button = self._pointer_button, button
+        if previous is not button and previous is not None and isValid(previous):
+            if previous.property('dockHovered') is True:
+                previous.setProperty('dockHovered', False)
+                previous.update()
+        if button is not None and button.property('dockHovered') is not True:
+            button.setProperty('dockHovered', True)
+            button.update()
 
     def movable_tools(self):
         fixed = (self.fixed_divider, self.sidebar.notification_button,

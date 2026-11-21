@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QAction, QFocusEvent, QMouseEvent, QWheelEvent
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
 from ddm.dock_feedback import REST, active, icon_color
@@ -649,6 +649,43 @@ class WorkspaceControlTests(unittest.TestCase):
                 scale = image.devicePixelRatio()
                 self.assertEqual(image.pixelColor(round(button.width()/2*scale), round(3*scale)).name(),
                                  theme.qcolor(getattr(theme, background)).name())
+
+    def test_dock_hover_recovers_without_qt_enter_and_clears_on_miss(self):
+        first, action = self.add('first', '插件入口')
+        second, _ = self.add('second', '另一入口')
+        clicked = QSignalSpy(first.clicked)
+        nav = self.sidebar.navigation
+        with patch('PySide6.QtGui.QCursor.pos') as cursor, \
+                patch.object(QApplication, 'widgetAt') as hit:
+            for button in (first, second, self.sidebar.layout_button):
+                button.setAttribute(Qt.WA_UnderMouse, False)
+                cursor.return_value = button.mapToGlobal(button.rect().center())
+                hit.return_value = button
+                self.sidebar._hover_sync_timer.timeout.emit()
+                self.assertFalse(button.underMouse())
+                self.assertEqual(icon_color(button), theme.qcolor(theme.ACCENT))
+                self.assertEqual(corners._filter.values(button)['background'], theme.CONTENT_HOVER)
+                image = button.grab().toImage()
+                scale = image.devicePixelRatio()
+                self.assertEqual(image.pixelColor(round(button.width() / 2 * scale), round(3 * scale)).name(),
+                                 theme.qcolor(theme.CONTENT_HOVER).name())
+                if button is not first:
+                    self.assertEqual(icon_color(first), theme.qcolor(theme.TEXT2))
+            layout_button = self.sidebar.layout_button
+            layout_button.setAttribute(Qt.WA_UnderMouse, True)
+            hit.return_value = None
+            self.sidebar._hover_sync_timer.timeout.emit()
+            self.assertEqual(icon_color(layout_button), theme.qcolor(theme.TEXT2))
+            self.assertNotEqual(corners._filter.values(layout_button)['background'], theme.CONTENT_HOVER)
+            layout_button.setAttribute(Qt.WA_UnderMouse, False)
+            cursor.return_value = first.mapToGlobal(first.rect().center())
+            hit.return_value = first
+            self.sidebar._hover_sync_timer.timeout.emit()
+            self.assertEqual(clicked.count(), 0)
+            self.assertIs(nav.active_button, nav.follow_button)
+            QTest.mouseClick(first, Qt.LeftButton)
+            self.assertEqual(clicked.count(), 1)
+            self.assertTrue(action.isChecked())
 
     def test_running_badge_survives_final_dock_tint_and_selected_surface(self):
         self.addCleanup(theme.apply, theme.mode())

@@ -62,7 +62,12 @@ def child(mode, directory):
                 button.setAttribute(Qt.WA_UnderMouse, False)
                 for _ in range(3):
                     trace.sample_pointer()
+                with patch('ddm.sidebar_navigation.QCursor.pos', return_value=position):
+                    window.sidebar.navigation.sync_pointer_hover()
+                for _ in range(3):
+                    trace.sample_pointer()
                 hit.return_value = None
+                window.sidebar.navigation.sync_pointer_hover()
                 for _ in range(3):
                     trace.sample_pointer()
         elif mode == 'tiles':
@@ -126,6 +131,8 @@ def child(mode, directory):
             assert {'Enter', 'Leave', 'ActionChanged'} <= {row['event'] for row in events}
             assert any(row['stage'] == 'dock-hover-pointer' and row.get('qtHit') == 'none'
                        for row in metadata)
+            assert any(row['stage'] == 'dock-hover-pointer' and row.get('effectiveHover')
+                       and not row.get('underMouse') for row in metadata)
             assert ready['linked_sessions']['dock-hover'] == ready['run']
         if mode == 'tiles':
             startup = [row for row in metadata if row['stage'] == 'tile-startup']
