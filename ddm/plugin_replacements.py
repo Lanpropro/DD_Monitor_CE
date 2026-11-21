@@ -1,7 +1,7 @@
 """Migration from a bundled plugin to independently installed providers."""
 from copy import deepcopy
 from pathlib import Path
-from .plugins import PLUGIN_INVENTORY
+from .plugin_manifest import PLUGIN_INVENTORY, RETIRED_BUNDLED_PLUGINS
 
 
 def inherit_settings(manager, plugin_id, manifest, *, enable_from_legacy=False):
@@ -19,7 +19,7 @@ def prepare(manager, manifest_reader):
     manifests = {}
     entries = []
     for folder in sorted(Path(manager.plugins_dir).iterdir()):
-        if folder.name.startswith(('.', '_')):
+        if folder.name.startswith(('.', '_')) or folder.name in RETIRED_BUNDLED_PLUGINS:
             continue
         try:
             if not (folder / 'plugin.py').is_file():

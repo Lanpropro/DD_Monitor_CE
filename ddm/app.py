@@ -437,6 +437,7 @@ class MainWindow(QMainWindow):
         self.plugins.register_credentials('bilibili', bili._cookies,
             update=self._update_bilibili_credentials,
             identity_keys=('SESSDATA', 'bili_jct'), writable_fields=('buvid3',))
+        self.plugins.load_bili_interaction()
         self.plugins.load()
         for tile in self.wall.tiles:
             self.plugins.attach_tile(tile)

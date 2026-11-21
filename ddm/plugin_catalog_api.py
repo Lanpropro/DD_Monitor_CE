@@ -10,7 +10,7 @@ import requests
 from . import image_cache
 from .cache_cleanup import store_catalog
 from .update_version import version_key
-from .plugin_manifest import PLUGIN_ID, read_manifest
+from .plugin_manifest import PLUGIN_ID, RETIRED_BUNDLED_PLUGINS, read_manifest
 from .plugin_icons import package_icon
 from .plugin_packages import PluginPackages
 from .file_ops import replace_directory
@@ -64,6 +64,8 @@ def plugin_catalog(client, current_version, cache=None):
                 continue
             plugin_id, plugin_version = match.groups()
             plugin_id = plugin_id.replace('-', '_')
+            if plugin_id in RETIRED_BUNDLED_PLUGINS:
+                continue
             previous = candidates.get(plugin_id)
             if previous is None or version_key(plugin_version) > version_key(previous[0]):
                 candidates[plugin_id] = (plugin_version, asset, release)
@@ -101,6 +103,8 @@ def plugin_catalog(client, current_version, cache=None):
 def _compatible_offers(offers, current_version):
     result = []
     for offer in offers:
+        if offer['id'] in RETIRED_BUNDLED_PLUGINS:
+            continue
         offer = dict(offer)
         minimum = offer.get('min_app_version', '0.3')
         if offer.get('reason', '').startswith('请先更新本体至 '):

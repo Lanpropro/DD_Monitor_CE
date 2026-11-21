@@ -162,6 +162,16 @@ class DiscoveryTests(unittest.TestCase):
             online.plugin_catalog(Client([online.requests.ConnectionError('offline')]), '0.7.3')
         self.assertEqual(online.plugin_catalog(Client([published([])]), '0.7.3'), [])
 
+    def test_integrated_bili_interaction_is_hidden_from_live_and_cached_offers(self):
+        client = Client([published([release('bili_live')])])
+        self.assertEqual(online.plugin_catalog(client, '0.8'), [])
+        self.assertEqual(len(client.calls), 1)
+        cached = {'offers': [{'id': 'bili_live', 'available': True},
+                             {'id': 'other_plugin', 'available': True}]}
+        offline = Client([online.requests.ConnectionError('offline')])
+        self.assertEqual([offer['id'] for offer in online.plugin_catalog(offline, '0.8', cache=cached)],
+                         ['other_plugin'])
+
 
 class CacheTests(unittest.TestCase):
     def test_old_cache_backfills_logo_and_keeps_it_offline(self):

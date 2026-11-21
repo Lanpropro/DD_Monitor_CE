@@ -11,7 +11,7 @@ PLUGIN_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 PLUGIN_INVENTORY = '.ddm-plugin-files.txt'
 
 
-RETIRED_BUNDLED_PLUGINS = frozenset({"danmaku_log"})
+RETIRED_BUNDLED_PLUGINS = frozenset({"danmaku_log", "bili_live"})
 
 
 RENAMED_PLUGINS = {"huya_watch": "domestic_live"}

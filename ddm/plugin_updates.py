@@ -6,6 +6,7 @@ import tempfile
 
 from .online import version_key
 from .file_ops import replace_directory
+from .plugin_manifest import RETIRED_BUNDLED_PLUGINS
 from .version import VERSION
 
 
@@ -17,6 +18,8 @@ def check_compatibility(manifest):
 
 def stage(manager, archive, plugin_id, expected_version):
     from .plugins import PluginManager, read_manifest
+    if plugin_id in RETIRED_BUNDLED_PLUGINS:
+        raise ValueError('此功能已由本体提供')
     target = Path(manager.plugins_dir) / plugin_id
     if not target.is_dir() or target.is_symlink():
         raise ValueError('待升级插件不存在或目录无效')
@@ -47,6 +50,8 @@ def pending_versions(manager):
     result = {}
     if root.is_dir() and not root.is_symlink():
         for folder in root.iterdir():
+            if folder.name in RETIRED_BUNDLED_PLUGINS:
+                continue
             if folder.is_dir() and not folder.is_symlink() and PLUGIN_ID.fullmatch(folder.name):
                 try:
                     manifest = read_manifest(str(folder), folder.name)

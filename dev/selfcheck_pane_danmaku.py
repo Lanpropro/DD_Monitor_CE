@@ -21,9 +21,10 @@ import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
+from ddm.bili_interaction.composer import DanmakuComposer
 from ddm.widget_support import TILE_MIME
 from ddm.widgets import DanmakuPanel, WallGrid
 from selfcheck_video_danmaku import Client, Snapshot
@@ -140,22 +141,15 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertIn('1001', window._danmaku_clients)
 
     def test_float_uses_the_same_panel_and_returns_the_composer_to_video(self):
-        from ddm.plugins import TileControl
-
-        class Composer(TileControl):
-            def __init__(self, context):
-                super().__init__(QLineEdit(context.parent), minimum_width=50)
-
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
         source = wall.tiles[0]
-        window.plugins.register_tile_control('fixture', 'composer', Composer)
-        window.plugins.attach_tile(source)
         window.configure_wall_panes({2: source, 3: source})
         panel, = panes.rendered()
         original_size, document = panel.size(), panel.body.document()
         composer = source._plugin_controls
-        editor = composer.entries[0].control.widget
+        builtin, = composer.widget.findChildren(DanmakuComposer)
+        editor = builtin.edit
         editor.setText('未发送草稿')
         client = window._danmaku_clients['1001']
         client.message.emit(dict(kind='danmaku', text='浮出前'))

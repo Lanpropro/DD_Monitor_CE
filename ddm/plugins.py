@@ -94,6 +94,7 @@ class PluginManager:
         self.plugins_dir = plugins_dir or DEFAULT_PLUGINS_DIR
         self.enabled = None if enabled is None else {str(name) for name in enabled}
         self.plugins: list = []
+        self._bili_interaction = None
         self.skipped: list = []                  # [(目录名, 原因)]
         self.platforms: dict = {}                # kind -> Platform
         self._platform_owner: dict = {}          # kind -> 插件名
@@ -131,6 +132,16 @@ class PluginManager:
         return self._credentials.update(platform, changes, expected_generation=expected_generation)
 
     # ---- 装载 ----
+    def load_bili_interaction(self):
+        from .bili_interaction import BiliInteraction
+        if self._bili_interaction is None:
+            self._bili_interaction = BiliInteraction(self)
+
+    def _runtime_components(self):
+        if self._bili_interaction is not None:
+            yield self._bili_interaction
+        yield from self.plugins
+
     def load(self) -> None:
         if not os.path.isdir(self.plugins_dir):
             return
@@ -234,7 +245,7 @@ class PluginManager:
         for tile in tuple(self._tiles):
             self.detach_tile(tile)
         self._tile_providers.clear()
-        for plugin in self.plugins:
+        for plugin in self._runtime_components():
             try:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
@@ -312,7 +323,7 @@ class PluginManager:
 
     # ---- 事件 ----
     def emit(self, event: str, **payload) -> None:
-        for plugin in self.plugins:
+        for plugin in self._runtime_components():
             try:
                 plugin.on_event(event, payload)
             except Exception as error:           # noqa: BLE001

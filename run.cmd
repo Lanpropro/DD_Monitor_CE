@@ -62,6 +62,7 @@ if /i "%~1"=="--check-app-updates" goto appUpdatesCheck
 if /i "%~1"=="--check-update-progress" goto updateProgressCheck
 if /i "%~1"=="--preview-updates" goto updatePreview
 if /i "%~1"=="--check-bili-profile" goto biliProfileCheck
+if /i "%~1"=="--check-bili-interaction" goto biliInteractionCheck
 if /i "%~1"=="--check-settings-control" goto settingsControlCheck
 if /i "%~1"=="--check-settings-scroll" goto settingsScrollCheck
 if /i "%~1"=="--check-settings-shutdown" goto settingsShutdownCheck
@@ -496,6 +497,11 @@ exit /b %errorlevel%
 :biliProfileCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_mobile_share
+exit /b %errorlevel%
+
+:biliInteractionCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_plugin_boundary
 exit /b %errorlevel%
 
 :appUpdatesCheck
