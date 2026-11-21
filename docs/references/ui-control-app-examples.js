@@ -39,7 +39,7 @@ const labApplicationControls = [
   ['smart-folder', '智能分组规则', '关注管理 › 新建智能文件夹', 240, 'sidebar_folders.py', '组合来源文件夹、开播状态与平台条件。'],
   ['account-platform', '登录平台选择', '关注栏 › 登录', 340, 'account_dialog.py', '在六个平台之间切换，查看分段选中状态。'],
   ['danmaku-source', '弹幕来源选择', '弹幕格 › 关联画面', 220, 'pane_source_picker.py', '展开头像列表，切换关联的画面。'],
-  ['comment-actions', '单条弹幕工具条', '弹幕消息 › 右键', 240, 'danmaku_actions.py', '打开复制、复读和屏蔽动作。'],
+  ['comment-actions', '单条弹幕工具条', '弹幕消息 › 点击', 240, 'danmaku_actions.py', '点击示例弹幕，在同一面板内试用复制、复读和屏蔽。'],
   ['danmaku-float', '弹幕浮窗与收回', '弹幕格 › 浮动窗口', 224, 'danmaku_float_window.py', '切换浮窗并用占位按钮收回弹幕。'],
   ['caption-placement', '字幕位置与大小', '字幕工具 › 宿主位置预览', 230, 'caption_preview.py', '拖动字幕或用方向键移动，试用大小调节与复位。'],
   ['theme-editor', '主题自定义值', '外观 › 主题', 240, 'settings_theme_editor.py', '填写颜色值，切换字体并调整界面字号。'],
@@ -131,9 +131,9 @@ function labAppExample(item, popupId, detail) {
   const dialog = (trigger, title, body, extraClass = '') =>
     `${b(trigger, 'open', true)}<dialog class="lab-color-dialog lab-app-dialog ${extraClass}" aria-label="${title}">
       <h3>${title}</h3>${body}</dialog>`;
-  const popupButton = (label, body, glyph = '') =>
+  const popupButton = (label, body, glyph = '', extraClass = '') =>
     `${labButton(label, glyph, glyph ? '' : label, `popovertarget="${popupId}"`, true)}
-      <div class="lab-extra-popup lab-app-popup" id="${popupId}" popover aria-label="${label}">${body}</div>`;
+      <div class="lab-extra-popup lab-app-popup ${extraClass}" id="${popupId}" popover aria-label="${label}">${body}</div>`;
   const line = (label, control) => `<div class="lab-app-line"><span>${label}</span>${control}</div>`;
   const roomRows = `<div class="lab-qt-room-grid">
     <button class="lab-app-row lab-control" data-app-action="room" data-app-find="小岚 xiaolan xl 10001" data-app-live><i>小</i><span>小岚</span></button>
@@ -192,7 +192,9 @@ function labAppExample(item, popupId, detail) {
         <p>内置图标</p><div class="lab-qt-icon-grid">${[['文件夹','folder'],['星标','star'],['爱心','heart'],
           ['游戏','game'],['音乐','music'],['视频','qt-tabs']].map(([label,glyph]) =>
           labButton(label,glyph,label,`data-app-action="folder-icon" data-app-folder-glyph="${glyph}" aria-pressed="false"`)).join('')}</div>
-        <div class="lab-folder-colors"><span>图标颜色</span>${labMovingSwatches('图标颜色', labFolderColors, 'data-app-folder-color')}</div>
+        <div class="lab-folder-colors"><span>图标颜色</span>${labMovingSwatches('图标颜色', [...labFolderColors,
+          ['custom', '自定义 RGB 色板', 'var(--lab-folder-custom-color, var(--lab-custom-rainbow))']], 'data-app-folder-color')}</div>
+        ${labColorBoard(popupId + '-rgb', labColorFields())}
         <button type="button" class="lab-control lab-folder-drop" data-app-action="folder-file"><span>将图片拖到这里<br>或点击选择 PNG / JPEG / ICO</span></button>
         <input type="file" accept=".png,.jpg,.jpeg,.ico" data-app-folder-file hidden>
         <p class="lab-folder-hint">最大 5MB，图片保留原色。保存后应用。</p>
@@ -347,8 +349,9 @@ function labAppExample(item, popupId, detail) {
         ${popupButton('选择弹幕来源', `<div class="lab-app-choice lab-app-source">${avatar('小岚','source')}${avatar('阿海','source')}</div>`, 'qt-tabs')}
         ${b('跟随新弹幕','toggle',false,'qt-live')}</header>`; break;
     case 'comment-actions':
-      html = popupButton('小岚：晚上好', `<div class="lab-app-choice">${b('复制','comment-copy')}${b('+1','report')}
-        ${b('屏蔽弹幕','report')}${b('屏蔽用户','report')}</div>`); break;
+      html = popupButton('小岚：晚上好', `${b('复制','comment-copy')}${b('+1','comment-report')}
+        <span class="lab-comment-divider" aria-hidden="true"></span>
+        ${b('屏蔽弹幕','comment-report')}${b('屏蔽用户','comment-report')}`, '', 'lab-comment-popup'); break;
     case 'danmaku-float':
       html = `<div class="lab-app-note" data-app-float-panel>弹幕 · 示例直播间<p>小岚：晚上好</p></div>
         ${b('弹幕浮窗','chat-float',true)}<div data-app-float-slot hidden>${b('收回弹幕栏','chat-return')}</div>`; break;
@@ -486,8 +489,21 @@ function labBindApplication(host, item, report, paintIcon) {
     });
   }
   const folderDialog = select('.lab-folder-dialog');
+  const folderCustom = select('[data-app-folder-color=custom]');
+  const folderSave = folderDialog?.querySelector('[data-app-action=save]');
   let savedFolder = {name: '默认分组', glyph: '', color: '', image: ''};
   let folderDraft = savedFolder;
+  const folderColorEditor = folderDialog && labBindColorFields(folderDialog, value => {
+    folderSave.disabled = !value;
+    if (value) {
+      folderDraft = {...folderDraft, glyph: folderDraft.glyph || 'folder', color: value.toLowerCase()};
+      syncFolder();
+    }
+  }, folderCustom);
+  function closeFolderColor() {
+    folderColorEditor.open(false);
+    folderSave.disabled = false;
+  }
   function paintFolderIcon(target, {glyph, color, image}) {
     target.style.color = color || (glyph ? 'var(--lab-muted)' : '#efb83f');
     if (image) {
@@ -512,7 +528,9 @@ function labBindApplication(host, item, report, paintIcon) {
     const swatches = all('[data-app-folder-color]');
     swatches.forEach(button => { button.disabled = Boolean(image); });
     swatches[0].parentElement.toggleAttribute('data-folder-image', Boolean(image));
-    labSelectSwatch(swatches.find(button => button.dataset.appFolderColor === color), pointer);
+    const preset = swatches.find(button => button.dataset.appFolderColor === color);
+    folderCustom.style.setProperty('--lab-folder-custom-color', preset ? '' : color);
+    labSelectSwatch(preset || folderCustom, pointer);
     folderError();
   }
   if (folderDialog) {
@@ -538,6 +556,7 @@ function labBindApplication(host, item, report, paintIcon) {
           if (folderDraft !== draft || !folderDialog.open) return;
           if (Math.max(image.naturalWidth, image.naturalHeight) > 4096) { fail(); return; }
           folderDraft = {...draft, glyph: '', image: image.src};
+          closeFolderColor();
           syncFolder();
         } catch {
           fail();
@@ -845,6 +864,12 @@ function labBindApplication(host, item, report, paintIcon) {
     const dialog = select('dialog');
     const popup = select('[popover]');
     if (button.hasAttribute('data-app-folder-color')) {
+      if (button === folderCustom) {
+        if (button.getAttribute('aria-expanded') === 'true') folderColorEditor.sync(folderDraft.color || '#00a1d6');
+        folderSave.disabled = false;
+        return;
+      }
+      closeFolderColor();
       folderDraft = {...folderDraft, glyph: folderDraft.glyph || 'folder', color: button.dataset.appFolderColor};
       syncFolder(event.detail > 0);
       return;
@@ -895,6 +920,7 @@ function labBindApplication(host, item, report, paintIcon) {
           if (folderDialog) {
             folderDraft = {...savedFolder};
             input.value = folderDraft.name;
+            closeFolderColor();
             syncFolder();
           }
           dialog.showModal();
@@ -962,10 +988,12 @@ function labBindApplication(host, item, report, paintIcon) {
         break;
       }
       case 'folder-icon':
+        closeFolderColor();
         folderDraft = {...folderDraft, glyph: button.dataset.appFolderGlyph, image: ''};
         syncFolder();
         break;
       case 'folder-reset':
+        closeFolderColor();
         folderDraft = {...folderDraft, glyph: '', color: '', image: ''};
         syncFolder();
         break;
@@ -1114,6 +1142,10 @@ function labBindApplication(host, item, report, paintIcon) {
         if (navigator.clipboard) {
           navigator.clipboard.writeText('晚上好').then(() => report('已复制示例弹幕'), () => report('示例弹幕：晚上好'));
         } else report('示例弹幕：晚上好');
+        break;
+      case 'comment-report':
+        popup.hidePopover();
+        report('已触发 ' + label);
         break;
       case 'chat-float':
       case 'chat-return': {

@@ -75,16 +75,8 @@ function labAdditionalExample(item, popupId) {
                 aria-expanded="false" aria-controls="${popupId}-rgb" aria-label="自定义 RGB 色板" title="自定义 RGB 色板"></button>
             </div>
           </div>
-          <div id="${popupId}-rgb" class="lab-color-board" data-extra-color-board hidden>
-            <div class="lab-color-plane" data-extra-color-plane role="group" tabindex="0"
-              aria-label="饱和度和亮度，用方向键调整"><span></span></div>
-            <label class="lab-color-hue"><span>色相</span><input type="range" min="0" max="359" data-extra-color-hue></label>
-          </div>
-          ${['红 R', '绿 G', '蓝 B'].map((label, index) => `<label class="lab-extra-rgb"><span>${label}</span>
-            <input type="range" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label}">
-            <input type="number" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label} 数值">
-          </label>`).join('')}
-          <label class="lab-extra-rgb">HEX<input type="text" maxlength="7" aria-label="HEX 色值" data-extra-hex></label>
+          ${labColorBoard(popupId + '-rgb')}
+          ${labColorFields()}
           <div class="lab-color-actions">${labButton('取消', '', '取消', 'data-extra-cancel data-dialog-action="cancel"')}
             ${labButton('确定', '', '确定', 'data-extra-apply data-dialog-action="confirm"')}</div>
         </dialog>`;
@@ -142,9 +134,25 @@ function labAdditionalExample(item, popupId) {
   return `<div class="lab-extended">${sample}</div>`;
 }
 
-function labBindColorBoard(dialog, updateColor) {
+function labColorBoard(id, content = '') {
+  return `<div id="${id}" class="lab-color-board" data-extra-color-board hidden>
+    <div class="lab-color-plane" data-extra-color-plane role="group" tabindex="0"
+      aria-label="饱和度和亮度，用方向键调整"><span></span></div>
+    <label class="lab-color-hue"><span>色相</span><input type="range" min="0" max="359" data-extra-color-hue></label>
+    ${content}
+  </div>`;
+}
+
+function labColorFields() {
+  return `${['红 R', '绿 G', '蓝 B'].map((label, index) => `<label class="lab-extra-rgb"><span>${label}</span>
+    <input type="range" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label}">
+    <input type="number" min="0" max="255" value="255" data-extra-channel="${index}" aria-label="${label} 数值">
+  </label>`).join('')}
+  <label class="lab-extra-rgb">HEX<input type="text" maxlength="7" aria-label="HEX 色值" data-extra-hex></label>`;
+}
+
+function labBindColorBoard(dialog, updateColor, toggle) {
   const panel = dialog.querySelector('[data-extra-color-board]');
-  const toggle = dialog.querySelector('[data-extra-color-board-toggle]');
   const plane = panel.querySelector('[data-extra-color-plane]');
   const hueInput = panel.querySelector('[data-extra-color-hue]');
   let hue = 196;
@@ -155,6 +163,8 @@ function labBindColorBoard(dialog, updateColor) {
     panel.hidden = !opened;
     toggle.setAttribute('aria-expanded', opened);
   }
+  toggle.setAttribute('aria-controls', panel.id);
+  toggle.setAttribute('aria-expanded', 'false');
   toggle.addEventListener('click', () => open(panel.hidden));
 
   function paint() {
@@ -210,47 +220,57 @@ function labBindColorBoard(dialog, updateColor) {
   return { open, fromRgb };
 }
 
-function labBindColorDialog(demo, report) {
-  const dialog = demo.querySelector('dialog');
-  const opener = demo.querySelector('[data-extra-color-open]');
+function labBindColorFields(dialog, onColor, toggle = dialog.querySelector('[data-extra-color-board-toggle]')) {
   const hex = dialog.querySelector('[data-extra-hex]');
-  const confirm = dialog.querySelector('[data-extra-apply]');
-  const preview = dialog.querySelector('.lab-color-preview');
   const channels = [...dialog.querySelectorAll('[data-extra-channel]')];
-  const presets = dialog.querySelectorAll('[data-extra-color-preset]');
-  const board = labBindColorBoard(dialog, sync);
-  let applied = '#FFFFFF';
+  const board = labBindColorBoard(dialog, update, toggle);
+  function update(value, fromBoard = false) {
+    onColor(sync(value, fromBoard));
+  }
   function sync(value, fromBoard = false) {
     value = value.toUpperCase();
     const valid = /^#[0-9A-F]{6}$/.test(value);
     hex.setAttribute('aria-invalid', !valid);
-    confirm.disabled = !valid;
-    presets.forEach(preset => preset.setAttribute('aria-pressed', valid && preset.dataset.extraColorPreset === value));
-    if (!valid) return;
+    if (!valid) return '';
     hex.value = value;
     const rgb = value.slice(1).match(/../g).map(channel => parseInt(channel, 16));
     channels.forEach(field => { field.value = rgb[Number(field.dataset.extraChannel)]; });
     if (!fromBoard) board.fromRgb(rgb);
-    preview.style.color = value;
+    return value;
   }
-  opener.onclick = () => { sync(applied); board.open(false); dialog.showModal(); };
-  presets.forEach(preset => preset.addEventListener('click', () => sync(preset.dataset.extraColorPreset)));
-  dialog.querySelector('[data-extra-cancel]').onclick = () => dialog.close();
-  confirm.onclick = () => {
-    applied = hex.value;
-    opener.querySelector('.lab-label').textContent = applied;
-    opener.style.setProperty('--lab-dialog-color', applied);
-    report('已选 ' + applied);
-    dialog.close();
-  };
-  hex.addEventListener('input', () => sync(hex.value));
+  hex.addEventListener('input', () => update(hex.value));
   channels.forEach(field => field.addEventListener('input', () => {
     if (!field.validity.valid || field.value === '') return;
     const parts = hex.value.match(/[0-9a-f]{2}/gi) || ['ff', 'ff', 'ff'];
     const channelsHex = parts.length === 3 ? parts : ['ff', 'ff', 'ff'];
     channelsHex[Number(field.dataset.extraChannel)] = Number(field.value).toString(16).padStart(2, '0');
-    sync('#' + channelsHex.join(''));
+    update('#' + channelsHex.join(''));
   }));
+  return {open: board.open, sync, update};
+}
+
+function labBindColorDialog(demo, report) {
+  const dialog = demo.querySelector('dialog');
+  const opener = demo.querySelector('[data-extra-color-open]');
+  const confirm = dialog.querySelector('[data-extra-apply]');
+  const preview = dialog.querySelector('.lab-color-preview');
+  const presets = dialog.querySelectorAll('[data-extra-color-preset]');
+  const editor = labBindColorFields(dialog, value => {
+    confirm.disabled = !value;
+    presets.forEach(preset => preset.setAttribute('aria-pressed', preset.dataset.extraColorPreset === value));
+    if (value) preview.style.color = value;
+  });
+  let applied = '#FFFFFF';
+  opener.onclick = () => { editor.update(applied); editor.open(false); dialog.showModal(); };
+  presets.forEach(preset => preset.addEventListener('click', () => editor.update(preset.dataset.extraColorPreset)));
+  dialog.querySelector('[data-extra-cancel]').onclick = () => dialog.close();
+  confirm.onclick = () => {
+    applied = dialog.querySelector('[data-extra-hex]').value;
+    opener.querySelector('.lab-label').textContent = applied;
+    opener.style.setProperty('--lab-dialog-color', applied);
+    report('已选 ' + applied);
+    dialog.close();
+  };
 }
 
 function labBindCurve(demo, report) {

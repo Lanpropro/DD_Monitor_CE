@@ -70,7 +70,7 @@
 | 导入关注列表 | 添加与导入 › 导入关注 | 核对复选、已关注禁用和导入数量。 | [follow_import_ui.py](../../ddm/follow_import_ui.py) | `#control-follow-import` | 头像、状态副标题、右侧勾选和已关注禁用。 |
 | 关注卡片多选 | 关注列表 › 多选管理 | 选择卡片，查看主播标题和开播状态。在详情拖动把手试用排序。 | [sidebar_item.py](../../ddm/sidebar_item.py) | `#control-follow-card` | 卡片层级、选择标记、直播牌，以及快速改向时的弹簧让位。 |
 | 关注文件夹标题 | 关注列表 › 文件夹 | 展开或收起文件夹，也可进入行内重命名。 | [sidebar_folders.py](../../ddm/sidebar_folders.py) | `#control-folder-head` | 圆头文件夹标题、文件夹图标、展开和行内改名。 |
-| 文件夹名称与图标 | 关注列表 › 新建／编辑文件夹 | 填写名称、选择内置图标和颜色或导入图片，保存后应用到示例文件夹。 | [folder_icons.py](../../ddm/folder_icons.py) | `#control-folder-edit` | 复用主题色的圆形选中环，使用实装的六个文件夹预设色。 |
+| 文件夹名称与图标 | 关注列表 › 新建／编辑文件夹 | 填写名称、选择内置图标和颜色或导入图片，保存后应用到示例文件夹。 | [folder_icons.py](../../ddm/folder_icons.py) | `#control-folder-edit` | 六个实装预设色加上网页自定义色板，可调色相、饱和度和亮度，也可输入 RGB 或 HEX。 |
 | 功能中心 | 侧栏 › 功能中心 | 搜索功能、切换固定状态，或打开插件管理入口。 | [workspace_controls.py](../../ddm/workspace_controls.py) | `#control-function-hub` | 搜索浮层、结果数量、条目与固定图标。 |
 | 账号行与账号菜单 | 关注栏底部 › 账号 | 打开账号操作菜单。示例使用虚构账号。 | [account_widgets.py](../../ddm/account_widgets.py) | `#control-account-menu` | 头像、账号名、ID、平台标识及账号菜单。 |
 | 智能分组规则 | 关注管理 › 新建智能文件夹 | 组合来源文件夹、开播状态、平台条件和排序。 | [sidebar_folders.py](../../ddm/sidebar_folders.py) | `#control-smart-folder` | 名称、来源多选、显示规则、开播、排序和平台复选。 |
@@ -94,7 +94,7 @@
 | 弹幕格消息与工具 | 画面墙 › 弹幕格 | 切换跟随、返回底部、调字号和输入示例。 | [danmaku_widgets.py](../../ddm/danmaku_widgets.py) | `#control-danmaku-panel` | 消息面板、粉点标题、字号滑块和跟随操作。 |
 | 醒目留言卡片 | 弹幕格 › 醒目留言 | 展开或收起内容，关闭后可恢复示例。 | [super_chat_widgets.py](../../ddm/super_chat_widgets.py) | `#control-super-chat` | 浅色头部、价格、深蓝正文、折叠关闭和示例恢复。 |
 | 弹幕来源选择 | 弹幕格 › 关联画面 | 展开头像列表，切换关联的画面。 | [pane_source_picker.py](../../ddm/pane_source_picker.py) | `#control-danmaku-source` | 弹幕栏、来源头像与已选来源反馈。 |
-| 单条弹幕工具条 | 弹幕消息 › 右键 | 查看复制、复读和屏蔽动作，试样使用本地文本。 | [danmaku_actions.py](../../ddm/danmaku_actions.py) | `#control-comment-actions` | 消息右键浮层、横排动作和取消。 |
+| 单条弹幕工具条 | 弹幕消息 › 点击 | 点击或右键打开菜单，试用复制、复读和屏蔽，试样使用本地文本。 | [danmaku_actions.py](../../ddm/danmaku_actions.py) | `#control-comment-actions` | 四个动作共用一个圆角浮层，复制和复读与两项屏蔽操作之间有一条分隔线。 |
 | 弹幕浮窗与收回 | 弹幕格 › 浮动窗口 | 浮出弹幕面板，再用占位按钮收回。 | [danmaku_float_window.py](../../ddm/danmaku_float_window.py) | `#control-danmaku-float` | 浮窗面板和收回入口，系统级拖拽保留原生验收。 |
 | 字幕位置与大小 | 字幕工具 › 宿主位置预览 | 拖动或用方向键移动字幕，调整大小，双击复位。 | [caption_preview.py](../../ddm/caption_preview.py) | `#control-caption-placement` | 双语字幕、虚线区域、拖动与键盘移动、双击复位。 |
 
