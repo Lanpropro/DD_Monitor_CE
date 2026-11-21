@@ -1,5 +1,7 @@
 """Settings material preferences and derived widget presentation properties."""
 
+WHEEL_SPEEDS = (1, 2, 3, 4)
+
 DEFAULTS = {
     'settings_glass_enabled': False,
     'settings_glass_blur': 24,  # Legacy image radius; live compositor blur is system-managed.
@@ -7,6 +9,7 @@ DEFAULTS = {
     'settings_no_shadows': False,
     'settings_segment_motion': False,
     'settings_card_layout': 'auto',
+    'settings_wheel_speed': 1,
 }
 
 # Flat colours sampled from the user's light/dark BewlyCat recordings.
@@ -48,6 +51,9 @@ def normalize(values):
             result[key] = DEFAULTS[key]
     if result['settings_card_layout'] not in ('auto', 'vertical', 'horizontal'):
         result['settings_card_layout'] = 'auto'
+    speed = result['settings_wheel_speed']
+    if type(speed) is not int or speed not in WHEEL_SPEEDS:
+        result['settings_wheel_speed'] = DEFAULTS['settings_wheel_speed']
     for key, maximum in (('settings_glass_blur', 40), ('settings_glass_opacity', 100)):
         try:
             result[key] = max(0, min(maximum, int(result[key])))
@@ -96,7 +102,7 @@ def apply_properties(widget, values):
         elif widget.property(key) != value:
             layout_changed |= key == 'settings_card_layout'
             widget.setProperty(key, value)
-            changed = True
+            changed |= key != 'settings_wheel_speed'
     if 'settings_backdrop_path' in values or 'skin_background' in values:
         path = values.get('settings_backdrop_path')
         if path is None:

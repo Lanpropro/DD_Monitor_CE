@@ -31,8 +31,10 @@ class SettingsInputFocus(QObject):
         if popup is not None and (watched is popup or popup.isAncestorOf(watched)):
             return False
         owner, blocked = watched, False
-        delta = event.pixelDelta().y() or event.angleDelta().y()
-        while owner is not None and owner is not self.parent():
+        root = self.parent()
+        pixels = event.pixelDelta().y()
+        delta = pixels or event.angleDelta().y()
+        while owner is not None and owner is not root:
             if owner.property('settingsWheelLocal'):
                 return False
             if isinstance(owner, QSlider):
@@ -55,8 +57,14 @@ class SettingsInputFocus(QObject):
                     blocked = True
                     owner = owner.parentWidget()
                     continue
-                amount = abs(delta)
-                step = bar.singleStep() * max(1, round(amount / 120)) if amount else bar.singleStep()
+                step = bar.singleStep() * max(1, round(abs(delta) / 120))
+                speed = root.property('settings_wheel_speed') or 1
+                if speed > 1 and not pixels:
+                    ancestor = owner.parentWidget()
+                    while ancestor is not None and ancestor is not root and not isinstance(ancestor, QScrollArea):
+                        ancestor = ancestor.parentWidget()
+                    if ancestor is root:
+                        step *= speed
                 bar.setValue(bar.value() - step if delta > 0 else bar.value() + step)
                 event.accept()
                 return True

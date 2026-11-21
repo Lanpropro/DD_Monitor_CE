@@ -437,7 +437,7 @@ exit /b %errorlevel%
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=offscreen"
-"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_appearance_options.py" AppearanceOptionsTests.test_scroll_capture_is_bounded_and_does_not_consume_wheel_or_record_text AppearanceOptionsTests.test_wheel_changes_only_horizontal_sliders_and_chains_nested_lists AppearanceOptionsTests.test_appearance_page_wheel_moves_its_outer_scroll_area AppearanceOptionsTests.test_embedded_native_wheels_reach_appearance_and_update_pages_repeatedly
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_appearance_options.py" AppearanceOptionsTests.test_scroll_capture_is_bounded_and_does_not_consume_wheel_or_record_text AppearanceOptionsTests.test_wheel_changes_only_horizontal_sliders_and_chains_nested_lists AppearanceOptionsTests.test_appearance_page_wheel_moves_its_outer_scroll_area AppearanceOptionsTests.test_settings_wheel_speed_auto_saves_and_reopens AppearanceOptionsTests.test_embedded_native_wheels_reach_appearance_and_update_pages_repeatedly
 if errorlevel 1 exit /b %errorlevel%
 set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --scroll-native

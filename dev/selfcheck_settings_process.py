@@ -197,6 +197,8 @@ def child(action):
                 assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
+                if action == 'embed-scroll' and index == PAGE_INDEX['general']:
+                    assert self.property('settings_wheel_speed') == 3, 'Wheel speed did not reach the worker shell'
                 extra = {}
                 if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
                     import ctypes
@@ -826,11 +828,20 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         scale = session.stack.devicePixelRatioF()
                         x, y = rect.left + round(local.x() * scale), rect.top + round(local.y() * scale)
                         point = (y & 0xffff) << 16 | (x & 0xffff)
-                        for receiver in (int(session.stack.winId()), message['hwnd']):
-                            for _ in range(3):
-                                bar.setValue(0)
-                                user32.PostMessageW(ctypes.c_void_p(receiver), 0x20A, 0xff880000, point)
-                                wait(app, lambda: bar.value() > 0, timeout=3)
+                        def verify_wheel_distance(speed):
+                            for receiver in (int(session.stack.winId()), message['hwnd']):
+                                for _ in range(3):
+                                    bar.setValue(0)
+                                    user32.PostMessageW(ctypes.c_void_p(receiver), 0x20A, 0xff880000, point)
+                                    wait(app, lambda: bar.value() > 0, timeout=3)
+                                    assert bar.value() == speed * bar.singleStep(), (receiver, bar.value(), speed)
+                        verify_wheel_distance(session.stack.property('settings_wheel_speed'))
+                        if message['index'] == PAGE_INDEX['appearance']:
+                            control = page.material_editor.wheel_speed
+                            if control.currentData() == 1:
+                                control.setCurrentIndex(control.findData(3))
+                                assert session.stack.property('settings_wheel_speed') == 3
+                                verify_wheel_distance(3)
                         bar.setValue(0)  # Preserve the existing top-of-page rendering assertions.
                         app.processEvents()
                     if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
@@ -916,6 +927,8 @@ def check_host_application(app, action='save', *, installed_controls=False):
                     assert len({tuple(message['size']) for message in shells}) == len(shells)
                 else:
                     assert len({tuple(message['size']) for message in shells}) == 1, 'Shell geometry changed'
+                if action == 'embed-scroll':
+                    assert window.settings['settings_wheel_speed'] == 3
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
                 assert window.settings['default_volume'] == 17
                 assert window.settings['auto_update'] is (action not in ('embed-footer', 'embed-appearance'))

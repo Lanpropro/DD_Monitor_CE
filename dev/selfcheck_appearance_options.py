@@ -163,8 +163,11 @@ class AppearanceOptionsTests(unittest.TestCase):
 
     def test_preferences_validation_and_accent_survive_mode_changes(self):
         from ddm.appearance_preferences import DEFAULTS, normalize
+        from ddm.settings_material import normalize as normalize_material
         self.assertEqual(normalize({'appearance_accent': 'red; color: black',
                                     'appearance_font': 'font"; color:red'}), DEFAULTS)
+        for invalid in (0, 5, True, '3'):
+            self.assertEqual(normalize_material({'settings_wheel_speed': invalid})['settings_wheel_speed'], 1)
         theme.configure_appearance({'appearance_accent': '#fff000', 'appearance_font': 'Segoe UI'})
         for mode in ('dark', 'light', 'system', 'dark'):
             theme.apply(mode)
@@ -584,6 +587,7 @@ class AppearanceOptionsTests(unittest.TestCase):
         from PySide6.QtWidgets import QComboBox, QLabel, QListWidget, QScrollArea, QSlider, QSpinBox
         window = SettingsWindow()
         window.resize(620, 450)
+        window.set_material({'settings_wheel_speed': 3})
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
@@ -600,7 +604,12 @@ class AppearanceOptionsTests(unittest.TestCase):
         nested = QListWidget()
         nested.addItems([str(index) for index in range(30)])
         nested.setFixedHeight(90)
-        for widget in (combo, spin, horizontal, vertical, nested):
+        local_scroll = QScrollArea()
+        local_scroll.setFixedHeight(90)
+        local_content = QLabel('嵌套滚动区')
+        local_content.setFixedHeight(400)
+        local_scroll.setWidget(local_content)
+        for widget in (combo, spin, horizontal, vertical, nested, local_scroll):
             layout.addWidget(widget)
         blank = QLabel('页面末尾')
         blank.setMinimumHeight(900)
@@ -609,9 +618,9 @@ class AppearanceOptionsTests(unittest.TestCase):
         window.body_layout.addWidget(scroll)
         window.show()
         settle()
-        def wheel(widget, delta=-120):
+        def wheel(widget, delta=-120, pixels=0):
             point = widget.rect().center()
-            event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(),
+            event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(0, pixels),
                                 QPoint(0, delta), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
             APP.sendEvent(widget, event)
             settle()
@@ -619,7 +628,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             for widget in (combo, spin, spin.lineEdit(), vertical):
                 scroll.verticalScrollBar().setValue(0)
                 wheel(widget)
-                self.assertGreater(scroll.verticalScrollBar().value(), 0)
+                self.assertEqual(scroll.verticalScrollBar().value(), 3 * scroll.verticalScrollBar().singleStep())
                 self.assertEqual(combo.currentIndex(), 0)
                 self.assertEqual(spin.value(), 50)
                 self.assertEqual(vertical.value(), 50)
@@ -635,6 +644,11 @@ class AppearanceOptionsTests(unittest.TestCase):
             wheel(nested.viewport())
             self.assertGreater(nested.verticalScrollBar().value(), 0)
             self.assertEqual(scroll.verticalScrollBar().value(), 0)
+            wheel(local_scroll.viewport())
+            self.assertEqual(local_scroll.verticalScrollBar().value(), local_scroll.verticalScrollBar().singleStep())
+            self.assertEqual(scroll.verticalScrollBar().value(), 0)
+            wheel(scroll.viewport(), pixels=-10)
+            self.assertEqual(scroll.verticalScrollBar().value(), scroll.verticalScrollBar().singleStep())
         finally:
             dispose(window)
 
@@ -662,8 +676,42 @@ class AppearanceOptionsTests(unittest.TestCase):
                 values.append(scroll.verticalScrollBar().value())
             self.assertEqual(values, sorted(values))
             self.assertGreater(values[-1], values[0])
+            speed = page.material_editor.wheel_speed
+            speed.setCurrentIndex(speed.findData(4))
+            scroll.verticalScrollBar().setValue(0)
+            APP.sendEvent(scroll.viewport(), QWheelEvent(
+                QPointF(point), QPointF(scroll.viewport().mapToGlobal(point)), QPoint(), QPoint(0, -120),
+                Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+            self.assertEqual(scroll.verticalScrollBar().value(), 4 * values[0])
+            page.reset()
+            self.assertEqual(speed.currentData(), 1)
+            self.assertEqual(dialog.property('settings_wheel_speed'), 1)
         finally:
             dispose(dialog)
+
+    def test_settings_wheel_speed_auto_saves_and_reopens(self):
+        settings = deepcopy(config.DEFAULT_SETTINGS)
+        dialog = SettingsDialog(settings, {}, preview=True)
+        dialog.auto_save.start()
+        saved = []
+        dialog.auto_save.requested.connect(saved.append)
+        try:
+            dialog.nav.setCurrentRow(1)
+            control = dialog.appearance_page.material_editor.wheel_speed
+            self.assertEqual(control.currentData(), 1)
+            control.setCurrentIndex(control.findData(3))
+            dialog.auto_save.flush()
+            self.assertEqual(saved, [{'settings': {'settings_wheel_speed': 3}}])
+            settings.update(saved[0]['settings'])
+            dialog.auto_save.acknowledge()
+        finally:
+            dispose(dialog)
+        reopened = SettingsDialog(settings, {}, preview=True)
+        try:
+            self.assertEqual(reopened.property('settings_wheel_speed'), 3)
+            self.assertEqual(reopened.appearance_page.material_editor.wheel_speed.currentData(), 3)
+        finally:
+            dispose(reopened)
 
 
 if __name__ == '__main__':
