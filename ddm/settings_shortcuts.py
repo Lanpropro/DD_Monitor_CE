@@ -11,8 +11,9 @@ from .shortcut_actions import (
     SHORTCUT_ACTIONS, WHEEL_SHORTCUTS, wheel_volume_step
 )
 from .settings_layout import SettingsColumns, SettingsSection
+from .settings_focus import WHEEL_SPEEDS, normalize_wheel_speed
 from .search import matches_query
-from .ui import StepperControl, ToggleSwitch, page_header as _page_head
+from .ui import SelectControl, StepperControl, ToggleSwitch, page_header as _page_head
 
 
 _SHORTCUT_TITLES = {
@@ -68,7 +69,7 @@ class ShortcutSettingsPage(QWidget):
             ('home', '主窗口 · 画面与关注', ('focus', 'restore', 'close_tile', 'danmaku_input', 'toggle_folders')),
             ('general', '主窗口 · 播放控制', ('mute', 'audio_cycle', 'record', 'video_danmaku', 'solo')),
             ('fullscreen', '主窗口 · 全屏音量', FULLSCREEN_VOLUME_SHORTCUTS),
-            ('wheel', '主窗口 · 滚轮音量', WHEEL_SHORTCUTS),
+            ('wheel', '滚轮设置', WHEEL_SHORTCUTS),
             ('pip', '画中画快捷键', ('pip_volume_up', 'pip_volume_down', 'pip_mute', 'pip_solo', 'pip_exit')),
         )
         actions_by_key = {key: item for item in SHORTCUT_ACTIONS for key in (item[0],)}
@@ -136,7 +137,30 @@ class ShortcutSettingsPage(QWidget):
         reset.setObjectName('ShortcutAction')
         reset.setCursor(Qt.PointingHandCursor)
         reset.clicked.connect(lambda _checked=False: self._reset_group(actions, wheel=group == 'wheel'))
-        card.grid.addWidget(reset, row, 0, 1, 2, Qt.AlignRight)
+        if group == 'wheel':
+            footer = QHBoxLayout()
+            self._wheel_speed_row = QWidget(card)
+            speed_row = QHBoxLayout(self._wheel_speed_row)
+            speed_row.setContentsMargins(0, 0, 0, 0)
+            label = QLabel('设置页滚轮灵敏度')
+            label.setWordWrap(True)
+            self.wheel_speed = SelectControl()
+            self.wheel_speed.setFixedWidth(88)
+            self.wheel_speed.setAccessibleName(label.text())
+            self.wheel_speed.setAccessibleDescription('调节设置页每格滚轮的移动距离，默认 1×。')
+            label.setBuddy(self.wheel_speed)
+            for speed in WHEEL_SPEEDS:
+                self.wheel_speed.addItem(f'{speed}×', speed)
+            self.wheel_speed.setCurrentIndex(self.wheel_speed.findData(
+                normalize_wheel_speed(settings.get('settings_wheel_speed'))))
+            speed_row.addWidget(label)
+            speed_row.addWidget(self.wheel_speed)
+            footer.addWidget(self._wheel_speed_row)
+            footer.addStretch(1)
+            footer.addWidget(reset)
+            card.grid.addLayout(footer, row, 0, 1, 2)
+        else:
+            card.grid.addWidget(reset, row, 0, 1, 2, Qt.AlignRight)
         return card
 
     def _build_wheel_options(self, settings, card):
@@ -188,15 +212,18 @@ class ShortcutSettingsPage(QWidget):
                 visible.add(key)
         self.sections.entries = []
         wheel_match = matches_query('主窗口 滚轮音量 悬停画面 调节音量 音量步长 直接滚动 组合键滚动', query)
+        speed_match = matches_query('滚轮设置 设置页滚轮灵敏度 页面滚动速度', query)
         self._wheel_options.setVisible(wheel_match)
+        self._wheel_speed_row.setVisible(speed_match)
         for entry in self._all_sections:
             key, card, _wide = entry
-            match = (key == 'wheel' and wheel_match) or any(name in visible for name in self._group_keys[key])
+            match = (key == 'wheel' and (wheel_match or speed_match)
+                     or any(name in visible for name in self._group_keys[key]))
             card.setVisible(match)
             if match:
                 self.sections.entries.append(entry)
         self.sections._arrange()
-        self.empty.setVisible(not visible and not wheel_match)
+        self.empty.setVisible(not visible and not wheel_match and not speed_match)
 
     def _reset_one(self, key):
         self._row_toggles[key].setChecked(True)
@@ -213,6 +240,7 @@ class ShortcutSettingsPage(QWidget):
             self.hover_wheel_volume.setChecked(False)
             self.hover_wheel_step.setValue(DEFAULT_HOVER_WHEEL_VOLUME_STEP)
             self.wheel_step.setValue(DEFAULT_WHEEL_VOLUME_STEP)
+            self.wheel_speed.setCurrentIndex(0)
 
     def reset(self) -> None:
         self._reset_group(SHORTCUT_ACTIONS, wheel=True)
@@ -220,7 +248,8 @@ class ShortcutSettingsPage(QWidget):
     def settings_values(self) -> dict:
         return {'hover_wheel_volume': self.hover_wheel_volume.isChecked(),
                 'hover_wheel_volume_step': self.hover_wheel_step.value(),
-                'wheel_volume_step': self.wheel_step.value()}
+                'wheel_volume_step': self.wheel_step.value(),
+                'settings_wheel_speed': self.wheel_speed.currentData()}
 
     def values(self) -> dict:
         result = {}

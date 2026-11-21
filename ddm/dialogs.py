@@ -85,8 +85,6 @@ class SettingsDialog(SettingsWindow):
             self.general_page = HostedGeneralPage(settings)
         else:
             self.general_page = GeneralSettingsPage(settings)
-            speed = self.general_page.wheel_speed
-            speed.currentIndexChanged.connect(lambda index: self.input_focus.set_wheel_speed(speed.itemData(index)))
         # Build the expensive controls only when their page is first requested.
         # Keep the public page properties so callers and settings validation
         # still use the same controls and value normalization.
@@ -219,6 +217,9 @@ class SettingsDialog(SettingsWindow):
             if index == 1:
                 page.modeChanged.connect(self.appearanceChanged)
                 page.materialChanged.connect(self.set_material)
+            elif index == PAGE_INDEX['shortcuts']:
+                speed = page.wheel_speed
+                speed.currentIndexChanged.connect(lambda index: self.input_focus.set_wheel_speed(speed.itemData(index)))
             elif index == PAGE_INDEX['plugins'] and not self._preview_only:
                 from .online_ui import UpdateDot
                 from PySide6.QtWidgets import QTabBar

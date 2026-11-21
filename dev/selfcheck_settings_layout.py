@@ -10,7 +10,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QScrollArea, QWidget
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QPushButton, QScrollArea, QWidget
 from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -886,6 +886,18 @@ class SettingsLayoutTests(unittest.TestCase):
             edit = page._edits[key]
             self.assertIsInstance(edit, QLineEdit)
             self.assertEqual(edit.property('mouseShortcut'), True)
+        wheel = page.sections.section('wheel')
+        reset = next(button for button in wheel.findChildren(QPushButton) if button.text() == '恢复本组')
+        self.assertLessEqual(abs(page.wheel_speed.mapTo(wheel, page.wheel_speed.rect().center()).y()
+                                 - reset.mapTo(wheel, reset.rect().center()).y()), 1)
+        page.search.setText('灵敏度')
+        self.assertEqual([key for key, *_ in page.sections.entries], ['wheel'])
+        self.assertTrue(page.wheel_speed.isVisibleTo(wheel))
+        self.assertTrue(page._wheel_options.isHidden())
+        page.wheel_speed.setCurrentIndex(page.wheel_speed.findData(4))
+        self.assertEqual(self.dialog.property('settings_wheel_speed'), 4)
+        reset.click()
+        self.assertEqual(page.settings_values()['settings_wheel_speed'], 1)
         self.assertIn('pip_volume_up', page.values())
         self.assertIn('pip_volume_down', page.values())
 

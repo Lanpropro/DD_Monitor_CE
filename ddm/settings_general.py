@@ -271,26 +271,11 @@ class GeneralSettingsPage(QWidget):
         from .audio_normalization_ui import AudioNormalizationEditor
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
-        normalization_row = row
-        row += 1
-        from .settings_focus import WHEEL_SPEEDS, normalize_wheel_speed
-        wheel_label = QLabel('设置页滚轮灵敏度')
-        self.wheel_speed = SelectControl()
-        self.wheel_speed.setFixedWidth(180)
-        self.wheel_speed.setAccessibleName(wheel_label.text())
-        self.wheel_speed.setAccessibleDescription('调节设置页每格滚轮的移动距离。')
-        wheel_label.setBuddy(self.wheel_speed)
-        for speed in WHEEL_SPEEDS:
-            self.wheel_speed.addItem('1×（默认）' if speed == 1 else f'{speed}×', speed)
-        self.wheel_speed.setCurrentIndex(self.wheel_speed.findData(normalize_wheel_speed(settings.get('settings_wheel_speed'))))
-        grid.addWidget(wheel_label, row, 0)
-        grid.addWidget(self.wheel_speed, row, 1, Qt.AlignRight)
         self.sections = section_grid(grid, (
-            ('settings_window', '设置窗口', (row,), True),
             ('playback', '播放与声音', (1, 13, 2, 3, 5, 6, 7), False),
             ('following', '关注与预览', (0, 8, 9, 10, 11), False),
             ('codecs', '编解码', (14,), False),
-            ('normalization', '音量均衡', (4, normalization_row), True),
+            ('normalization', '音量均衡', (4, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         following = self.sections.section('following').grid
         collapse_label = QLabel('全部展开后的收起方式')
@@ -337,7 +322,6 @@ class GeneralSettingsPage(QWidget):
         self.folder_collapse_mode.setValue(config_module.DEFAULT_SETTINGS['folder_collapse_mode'])
         self.codec_editor.set_values(codec_settings(config_module.DEFAULT_SETTINGS))
         self.volume_slider.setValue(config_module.DEFAULT_SETTINGS["default_volume"])
-        self.wheel_speed.setCurrentIndex(self.wheel_speed.findData(config_module.DEFAULT_SETTINGS['settings_wheel_speed']))
 
     def values(self) -> dict:
         result = {
@@ -347,7 +331,6 @@ class GeneralSettingsPage(QWidget):
             "volume_normalization_curve": self.normalization_editor.values(),
             "sidebar_compact_threshold": int(self.compact_threshold_spin.value()),
             "folder_collapse_mode": self.folder_collapse_mode.value(),
-            'settings_wheel_speed': self.wheel_speed.currentData(),
             **self.codec_editor.values(),
         }
         for key, _label in self.ITEMS:

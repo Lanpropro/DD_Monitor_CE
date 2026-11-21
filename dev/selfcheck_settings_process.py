@@ -25,7 +25,7 @@ def embedded_page_indices(action):
     sequences = {
         'embed-footer': ('plugins', 'general', 'plugins'),
         'embed-shutdown': ('appearance',),
-        'embed-scroll': ('appearance', 'general', 'updates', 'appearance', 'updates'),
+        'embed-scroll': ('appearance', 'shortcuts', 'updates', 'appearance', 'updates'),
         'embed-coordinates': ('appearance', 'general', 'updates', 'general', 'plugins', 'appearance', 'updates'),
         'embed-appearance': ('appearance', 'general', 'appearance', 'plugins', 'appearance'),
     }
@@ -187,8 +187,8 @@ def child(action):
                     self.reject()
                 return
             self.nav.setCurrentRow(index)
-            if action == 'embed-scroll' and index == PAGE_INDEX['general']:
-                control = self.general_page.wheel_speed
+            if action == 'embed-scroll' and index == PAGE_INDEX['shortcuts']:
+                control = self.shortcut_page.wheel_speed
                 control.setCurrentIndex(control.findData(3))
             if action == 'embed-coordinates':
                 self.move(self.x() + 9, self.y() + 7)
@@ -200,7 +200,7 @@ def child(action):
                 assert int(self.winId()) == self.shell_hwnd and self.isVisible() and self.isEnabled()
                 assert self.nav.currentRow() == index
                 assert self.general_page.volume_slider.value() == 17
-                if action == 'embed-scroll' and index == PAGE_INDEX['general']:
+                if action == 'embed-scroll' and index == PAGE_INDEX['shortcuts']:
                     assert self.property('settings_wheel_speed') == 3, 'Wheel speed did not reach the worker shell'
                 extra = {}
                 if action in ('embed-footer', 'embed-appearance', 'embed-coordinates'):
@@ -873,7 +873,7 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         page.plan_path = str(Path(temporary) / 'synthetic-update-plan.json')
                         page._busy(False)
                         page.action.click()
-                if action == 'embed-scroll' and message['index'] == PAGE_INDEX['general']:
+                if action == 'embed-scroll' and message['index'] == PAGE_INDEX['shortcuts']:
                     wait(app, lambda: session.stack.property('settings_wheel_speed') == 3, timeout=3)
                 if action == 'embed-scroll':
                     # Acknowledge this step only after both process endpoints pass.

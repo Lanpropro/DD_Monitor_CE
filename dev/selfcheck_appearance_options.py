@@ -676,14 +676,14 @@ class AppearanceOptionsTests(unittest.TestCase):
                 values.append(scroll.verticalScrollBar().value())
             self.assertEqual(values, sorted(values))
             self.assertGreater(values[-1], values[0])
-            speed = dialog.general_page.wheel_speed
+            speed = dialog.shortcut_page.wheel_speed
             speed.setCurrentIndex(speed.findData(4))
             scroll.verticalScrollBar().setValue(0)
             APP.sendEvent(scroll.viewport(), QWheelEvent(
                 QPointF(point), QPointF(scroll.viewport().mapToGlobal(point)), QPoint(), QPoint(0, -120),
                 Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
             self.assertEqual(scroll.verticalScrollBar().value(), 4 * values[0])
-            dialog.general_page.reset()
+            dialog.shortcut_page.reset()
             self.assertEqual(speed.currentData(), 1)
             self.assertEqual(dialog.property('settings_wheel_speed'), 1)
         finally:
@@ -696,8 +696,9 @@ class AppearanceOptionsTests(unittest.TestCase):
         saved = []
         dialog.auto_save.requested.connect(saved.append)
         try:
-            control = dialog.general_page.wheel_speed
+            control = dialog.shortcut_page.wheel_speed
             self.assertEqual(control.currentData(), 1)
+            self.assertFalse(hasattr(dialog.general_page, 'wheel_speed'))
             self.assertFalse(hasattr(dialog.appearance_page.material_editor, 'wheel_speed'))
             control.setCurrentIndex(control.findData(3))
             dialog.auto_save.flush()
@@ -709,7 +710,7 @@ class AppearanceOptionsTests(unittest.TestCase):
         reopened = SettingsDialog(settings, {}, preview=True)
         try:
             self.assertEqual(reopened.property('settings_wheel_speed'), 3)
-            self.assertEqual(reopened.general_page.wheel_speed.currentData(), 3)
+            self.assertEqual(reopened.shortcut_page.wheel_speed.currentData(), 3)
         finally:
             dispose(reopened)
 
