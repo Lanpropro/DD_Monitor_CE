@@ -181,24 +181,24 @@ def check_picker(app):
             assert has_color(preview.copy(0, middle, preview.width(), preview.height() - middle), '#ffd16a')
             QTest.mouseClick(dialog.swatch_palette.buttons['custom'], Qt.LeftButton)
             assert dialog.board.isVisible()
-            QTest.mouseClick(dialog.field, Qt.LeftButton, pos=dialog.field.rect().center())
+            QTest.mouseClick(dialog.board.field, Qt.LeftButton, pos=dialog.board.field.rect().center())
             assert 0.45 < dialog.currentColor().hsvSaturationF() < 0.55
             assert 0.45 < dialog.currentColor().valueF() < 0.55
             dialog.setCurrentColor(QColor('#ffffff'))
-            dialog.sliders[0].setValue(32)
-            assert dialog.channels[0].value() == 32
-            assert dialog.hex_edit.text() == '#20FFFF'
-            dialog.channels[1].setValue(64)
-            assert dialog.sliders[1].value() == 64
-            dialog.hex_edit.setText('#123456')
-            assert [spin.value() for spin in dialog.channels] == [18, 52, 86]
+            dialog.board.sliders[0].setValue(32)
+            assert dialog.board.channels[0].value() == 32
+            assert dialog.board.hex_edit.text() == '#20FFFF'
+            dialog.board.channels[1].setValue(64)
+            assert dialog.board.sliders[1].value() == 64
+            dialog.board.hex_edit.setText('#123456')
+            assert [spin.value() for spin in dialog.board.channels] == [18, 52, 86]
             assert dialog.currentColor().name() == '#123456'
-            dialog.hex_edit.setText('#12xx')
+            dialog.board.hex_edit.setText('#12xx')
             assert not dialog.confirm.isEnabled()
             dialog.accept()
             assert dialog.isVisible() and not selected, 'Invalid HEX must not confirm the old color'
-            dialog.hex_edit.setText('aBcDeF')
-            assert dialog.hex_edit.text() == '#ABCDEF'
+            dialog.board.hex_edit.setText('aBcDeF')
+            assert dialog.board.hex_edit.text() == '#ABCDEF'
             assert dialog.confirm.isEnabled()
             assert not selected, 'Editing only changes the preview'
             dialog.accept()

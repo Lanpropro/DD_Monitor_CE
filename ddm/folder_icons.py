@@ -6,13 +6,13 @@ from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QLineEdit,
-    QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QStyle, QStyleOption,
+    QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QStyle, QStyleOption,
     QToolButton, QVBoxLayout, QWidget)
 
 from . import config, theme
 from .follow_folders import ICON_COLORS, ICON_NAMES, normalize_icon
 from .ui import ActionButton
-from .ui.color_dialog import ColorDialog, ColorPalette
+from .ui.color_dialog import ColorBoard, ColorPalette
 
 NAMES = ('文件夹', '星标', '爱心', '游戏', '音乐', '视频')
 COLORS = dict(zip(ICON_COLORS, ('', '#4D8DFF', '#E95C93', '#2FA678', '#DE8534', '#A579D4')))
@@ -219,6 +219,17 @@ class FolderIconDialog(QDialog):
         self.swatch_palette.selected.connect(self._choose_color)
         colors.addWidget(self.swatch_palette)
         layout.addWidget(self.color)
+        self.color_scroll = QScrollArea(self)
+        self.color_scroll.setFrameShape(QFrame.NoFrame)
+        self.color_scroll.setWidgetResizable(True)
+        self.color_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.color_board = ColorBoard(QColor(theme.ACCENT), compact=True)
+        self.color_scroll.setWidget(self.color_board)
+        self.color_board.setAutoFillBackground(False)
+        self.color_scroll.viewport().setAutoFillBackground(False)
+        self.color_board.colorChanged.connect(self._preview_custom_color)
+        self.color_scroll.hide()
+        layout.addWidget(self.color_scroll)
         self.drop_area = IconDropArea(self)
         self.drop_area.clicked.connect(self._choose)
         self.drop_area.fileDropped.connect(self.import_image)
@@ -254,6 +265,8 @@ class FolderIconDialog(QDialog):
         save.setObjectName('IconSave')
         save.setDefault(True)
         save.clicked.connect(self.accept)
+        self.save_button = save
+        self.color_board.validityChanged.connect(save.setEnabled)
         buttons.addWidget(save)
         layout.addLayout(buttons)
         self.refresh_theme()
@@ -321,13 +334,40 @@ class FolderIconDialog(QDialog):
 
     def _choose_color(self, key, _pointer):
         if key != 'custom':
+            self._close_color_board()
             self.set_color(key)
             return
+        if not self.color_scroll.isHidden():
+            self._close_color_board()
+            self._sync_color_swatch()
+            return
         initial = COLORS.get(self._color, self._color) or theme.ACCENT
-        dialog = ColorDialog(QColor(initial), self, title='自定义图标颜色', presets=False)
-        dialog.colorSelected.connect(lambda color: self.set_color(color.name()))
-        dialog.exec()
-        dialog.deleteLater()
+        self.color_board.setCurrentColor(QColor(initial))
+        area = self.screen().availableGeometry()
+        collapsed_height = self.layout().totalSizeHint().height()
+        board_height = min(self.color_board.sizeHint().height(),
+                           max(60, area.height() - collapsed_height - self.layout().spacing() - 12))
+        self.color_scroll.setFixedHeight(board_height)
+        self.color_scroll.verticalScrollBar().setValue(0)
+        self.color_scroll.show()
+        self._sync_color_swatch()
+        self.resize(self.width(), self.layout().totalSizeHint().height())
+        if self.isVisible() and self.y() >= area.top() and self.geometry().bottom() > area.bottom():
+            self.move(self.x(), max(area.top(), area.bottom() - self.height() + 1))
+
+    def _preview_custom_color(self, color):
+        if not self.color_scroll.isHidden():
+            self.set_color(color.name())
+
+    def _close_color_board(self):
+        if not self.color_scroll.isHidden():
+            self.color_scroll.hide()
+            self.save_button.setEnabled(True)
+            self.resize(self.width(), self.layout().totalSizeHint().height())
+
+    def _sync_color_swatch(self):
+        key = self._color if self.color_scroll.isHidden() and self._color in COLORS else 'custom'
+        self.swatch_palette.set_current(key)
 
     def set_color(self, color):
         if not self.color.isEnabled():
@@ -348,8 +388,10 @@ class FolderIconDialog(QDialog):
             button.setText(NAMES[ICON_NAMES.index(name)] + (' ✓' if selected else ''))
             button.setIcon(folder_icon(dict(self.folder, icon={'type': 'builtin', 'name': name,
                 'color': self._color}), self, 24))
-        self.swatch_palette.set_current(self._color if self._color in COLORS else 'custom')
         is_image = self.image is not None or bool(self.selection and self.selection['type'] == 'image')
+        if is_image:
+            self._close_color_board()
+        self._sync_color_swatch()
         self.color.setEnabled(not is_image)
         for label in self.image_previews:
             label.setVisible(is_image)
@@ -371,12 +413,15 @@ class FolderIconDialog(QDialog):
         self.refresh()
 
     def reset(self):
+        self._close_color_board()
         self.selection = None
         self.image = None
         self._color = 'default'
         self.refresh()
 
     def accept(self):
+        if not self.save_button.isEnabled():
+            return
         name = self.name_edit.text().strip()
         if not name or name in self.existing_names:
             self.error.setText('文件夹名称不能为空' if not name else '已存在同名文件夹')

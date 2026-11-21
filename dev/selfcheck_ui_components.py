@@ -624,29 +624,50 @@ for before, component, after in (
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_slider_thumb_stays_neutral_on_hover_and_grows_on_press(self):
-        from PySide6.QtGui import QColor
+        from PySide6.QtCore import QPointF, QRect
+        from PySide6.QtGui import QColor, QEnterEvent
+        from PySide6.QtWidgets import QStyle, QStyleOptionSlider
         self.addCleanup(theme.apply, theme.mode())
         for mode in ('light', 'dark'):
             with self.subTest(mode=mode):
                 theme.apply(mode)
                 slider = ui.SettingsSlider()
-                slider.setValue(50)
+                slider.setAttribute(Qt.WA_DontShowOnScreen)
+                slider.setValue(40)
                 slider.show()
                 self.app.processEvents()
+                option = QStyleOptionSlider()
+                slider.initStyleOption(option)
+                handle = slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider)
+                point = handle.center()
+                def paint_sample():
+                    image = slider.grab().toImage()
+                    scale = image.devicePixelRatio()
+                    crop = QRect(round((point.x() - 10) * scale), 0, round(21 * scale), round(6 * scale))
+                    return image.copy(crop), image.pixelColor(round(20 * scale), round((point.y() + .5) * scale))
                 def white_pixels():
                     image = slider.grab().toImage()
                     return sum(image.pixelColor(x, y) == QColor('white') for y in range(image.height())
                                for x in range(image.width()))
-                point = slider.rect().center()
+                thumb, track = paint_sample()
                 initial = white_pixels()
                 self.assertGreater(initial, 0)
-                QTest.mouseMove(slider, point)
+                slider.setAttribute(Qt.WA_UnderMouse)
+                position = QPointF(point)
+                self.app.sendEvent(slider, QEnterEvent(position, position, QPointF(slider.mapToGlobal(point))))
+                hovered, hovered_track = paint_sample()
+                self.assertEqual(hovered, thumb, 'Hover may recolor the track only')
+                self.assertNotEqual(hovered_track, track)
                 self.assertEqual(white_pixels(), initial)
                 QTest.mousePress(slider, Qt.LeftButton, pos=point)
                 self.assertTrue(slider.isSliderDown())
+                slider.initStyleOption(option)
+                self.assertEqual(slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider),
+                                 handle, 'Visual enlargement must not move the drag hit box')
                 self.assertGreater(white_pixels(), initial)
                 QTest.mouseRelease(slider, Qt.LeftButton, pos=point)
                 self.assertEqual(white_pixels(), initial)
+                self.assertEqual(slider.value(), 40)
                 slider.close()
 
     def test_standard_confirmation_buttons_and_combo_cursor_use_common_roles(self):

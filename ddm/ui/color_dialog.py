@@ -3,11 +3,13 @@ import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QConicalGradient, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QAbstractButton, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QGridLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget)
 
 from .. import motion, theme
 from ..motion import AnimatedDialog
 from .basics import ActionButton, page_header
+from .slider import SettingsSlider
 
 
 class _ColorSwatch(QAbstractButton):
@@ -211,40 +213,23 @@ class _ColorPreview(QLabel):
         painter.drawText(rect, Qt.AlignCenter, self.text())
 
 
-class ColorDialog(AnimatedDialog):
-    colorSelected = Signal(QColor)
+class ColorBoard(QWidget):
+    colorChanged = Signal(QColor)
+    validityChanged = Signal(bool)
 
-    def __init__(self, color, parent=None, *, title='弹幕颜色', presets=True):
+    def __init__(self, color, parent=None, *, compact=False):
         super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setFixedWidth(440)
         self._color = QColor(color)
         self._hue = max(0., self._color.hsvHueF())
-        self._custom = False
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-        layout.addLayout(page_header(title, '选择预设色，或打开 RGB 色板自定义。' if presets else '调整 RGB 或输入 HEX 色值，确认后应用。'))
-        self.preview = _ColorPreview(self)
-        if presets:
-            layout.addWidget(self.preview)
-            self.swatch_palette = ColorPalette((
-                ('#ffffff', '白色', '#ffffff'), ('#ffd16a', '黄色', '#ffd16a'), ('#8de89b', '绿色', '#8de89b'),
-                ('#72d8f7', '蓝色', '#72d8f7'), ('#c4a4ff', '紫色', '#c4a4ff'),
-                ('#ff95b1', '粉色', '#ff95b1'), ('custom', '自定义 RGB 色板', None)), self)
-            self.swatch_palette.selected.connect(self._choose_preset)
-            layout.addWidget(self.swatch_palette, 0, Qt.AlignLeft)
-        else:
-            self.swatch_palette = None
-            self.preview.hide()
-        self.board = QWidget(self)
-        board = QVBoxLayout(self.board)
+        board = QVBoxLayout(self)
         board.setContentsMargins(0, 0, 0, 0)
         board.setSpacing(9)
-        self.field = _ColorField(self.board)
+        self.field = _ColorField(self)
+        if compact:
+            self.field.setMinimumHeight(100)
         self.field.picked.connect(self._pick_field)
         board.addWidget(self.field)
-        self.hue = QSlider(Qt.Horizontal, self.board)
+        self.hue = QSlider(Qt.Horizontal, self)
         self.hue.setAccessibleName('色相')
         self.hue.setCursor(Qt.PointingHandCursor)
         self.hue.setRange(0, 359)
@@ -256,67 +241,46 @@ class ColorDialog(AnimatedDialog):
         self.hue.valueChanged.connect(self._pick_hue)
         board.addWidget(self.hue)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
+        grid.setHorizontalSpacing(6 if compact else 12)
         grid.setVerticalSpacing(8)
-        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(7 if compact else 1, 1)
         self.sliders, self.channels = [], []
-        for index, label in enumerate(('红 R', '绿 G', '蓝 B')):
-            grid.addWidget(QLabel(label), index, 0)
-            slider = QSlider(Qt.Horizontal, self.board)
-            slider.setRange(0, 255)
-            slider.setMinimumHeight(19)
-            slider.setCursor(Qt.PointingHandCursor)
-            slider.setAccessibleName(label)
+        for index, (label, channel) in enumerate((('红', 'R'), ('绿', 'G'), ('蓝', 'B'))):
+            row, column = (0, 2 * index) if compact else (index, 0)
+            grid.addWidget(QLabel(channel if compact else f'{label} {channel}'), row, column)
             spin = QSpinBox(self)
             spin.setRange(0, 255)
-            spin.setFixedWidth(80)
+            spin.setFixedWidth(58 if compact else 80)
+            if compact:
+                spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
+                spin.setAlignment(Qt.AlignCenter)
+                spin.setStyleSheet('QSpinBox {padding: 0 5px;} '
+                                   'QLineEdit {padding: 0; border: none; background: transparent;}')
             spin.setAccessibleName(label + ' 数值')
-            self.sliders.append(slider)
             self.channels.append(spin)
-            for widget in (slider, spin):
-                widget.valueChanged.connect(lambda value, i=index: self._set_channel(i, value))
-            grid.addWidget(slider, index, 1)
-            grid.addWidget(spin, index, 2)
-        grid.addWidget(QLabel('HEX'), 3, 0)
+            spin.valueChanged.connect(lambda value, i=index: self._set_channel(i, value))
+            if not compact:
+                slider = SettingsSlider(self, fixed_width=False)
+                slider.setRange(0, 255)
+                slider.setAccessibleName(label)
+                slider.valueChanged.connect(lambda value, i=index: self._set_channel(i, value))
+                self.sliders.append(slider)
+                grid.addWidget(slider, row, 1)
+            grid.addWidget(spin, row, column + (1 if compact else 2))
+        grid.addWidget(QLabel('HEX'), 0 if compact else 3, 6 if compact else 0)
         self.hex_edit = QLineEdit(self)
         self.hex_edit.setMaxLength(7)
         self.hex_edit.setPlaceholderText('#RRGGBB')
         self.hex_edit.setAccessibleName('HEX 色值')
         self.hex_edit.textChanged.connect(self._edit_hex)
-        grid.addWidget(self.hex_edit, 3, 1, 1, 2)
+        grid.addWidget(self.hex_edit, 0 if compact else 3, 7 if compact else 1, 1, 1 if compact else 2)
         board.addLayout(grid)
-        layout.addWidget(self.board)
         self.hint = QLabel(self)
         self.hint.setObjectName('SettingsHint')
-        self.hint.setMinimumHeight(18)
-        layout.addWidget(self.hint)
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        cancel = ActionButton('取消', self)
-        cancel.clicked.connect(self.reject)
-        buttons.addWidget(cancel)
-        self.confirm = QPushButton('确定', self)
-        self.confirm.setObjectName('PrimaryButton')
-        self.confirm.setDefault(True)
-        self.confirm.clicked.connect(self.accept)
-        buttons.addWidget(self.confirm)
-        layout.addLayout(buttons)
-        theme.signals().changed.connect(self._refresh_preview)
+        self.hint.setWordWrap(True)
+        self.hint.hide()
+        board.addWidget(self.hint)
         self.setCurrentColor(self._color)
-        if self.swatch_palette and self._color.name() in self.swatch_palette.buttons:
-            self.board.hide()
-        else:
-            self._custom = True
-
-    def _choose_preset(self, key, _pointer):
-        self._custom = key == 'custom'
-        if self._custom:
-            self.board.show()
-            self.swatch_palette.set_current(key)
-        else:
-            self.setCurrentColor(QColor(key))
-            self.board.hide()
-        self.adjustSize()
 
     def _pick_field(self, saturation, value):
         self.setCurrentColor(QColor.fromHsvF(self._hue, saturation, value))
@@ -332,8 +296,9 @@ class ColorDialog(AnimatedDialog):
 
     def _edit_hex(self, text):
         valid = re.fullmatch(r'#?[0-9a-fA-F]{6}', text) is not None
-        self.confirm.setEnabled(valid)
+        self.validityChanged.emit(valid)
         self.hint.setText('' if valid else '请输入 6 位十六进制颜色，例如 #FFFFFF')
+        self.hint.setVisible(not valid)
         if valid:
             self.setCurrentColor(QColor('#' + text.lstrip('#')))
 
@@ -348,27 +313,84 @@ class ColorDialog(AnimatedDialog):
         previous = self.hue.blockSignals(True)
         self.hue.setValue(min(359, round(self._hue * 360)))
         self.hue.blockSignals(previous)
-        if self.swatch_palette:
-            name = self._color.name()
-            self.swatch_palette.set_current(name if not self._custom and name in self.swatch_palette.buttons else 'custom')
-        for index, value in enumerate(self._color.getRgb()[:3]):
-            for widget in (self.sliders[index], self.channels[index]):
+        rgb = self._color.getRgb()[:3]
+        for controls in (self.channels, self.sliders):
+            for widget, value in zip(controls, rgb):
                 widget.blockSignals(True)
                 widget.setValue(value)
                 widget.blockSignals(False)
         self.hex_edit.blockSignals(True)
         self.hex_edit.setText(self._color.name().upper())
         self.hex_edit.blockSignals(False)
-        self.confirm.setEnabled(True)
         self.hint.clear()
-        self._refresh_preview()
-
-    def _refresh_preview(self):
-        self.preview.color = self._color
-        self.preview.update()
+        self.hint.hide()
+        self.validityChanged.emit(True)
+        self.colorChanged.emit(self.currentColor())
 
     def currentColor(self):
         return QColor(self._color)
+
+
+class ColorDialog(AnimatedDialog):
+    colorSelected = Signal(QColor)
+
+    def __init__(self, color, parent=None):
+        super().__init__(parent)
+        title = '弹幕颜色'
+        self.setWindowTitle(title)
+        self.setFixedWidth(440)
+        self._custom = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        layout.addLayout(page_header(title, '选择预设色，或打开 RGB 色板自定义。'))
+        self.preview = _ColorPreview(self)
+        layout.addWidget(self.preview)
+        self.swatch_palette = ColorPalette((
+            ('#ffffff', '白色', '#ffffff'), ('#ffd16a', '黄色', '#ffd16a'), ('#8de89b', '绿色', '#8de89b'),
+            ('#72d8f7', '蓝色', '#72d8f7'), ('#c4a4ff', '紫色', '#c4a4ff'),
+            ('#ff95b1', '粉色', '#ff95b1'), ('custom', '自定义 RGB 色板', None)), self)
+        self.swatch_palette.selected.connect(self._choose_preset)
+        layout.addWidget(self.swatch_palette, 0, Qt.AlignLeft)
+        self.board = ColorBoard(color, self)
+        self.board.colorChanged.connect(self._refresh_preview)
+        layout.addWidget(self.board)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel = ActionButton('取消', self)
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+        self.confirm = QPushButton('确定', self)
+        self.confirm.setObjectName('PrimaryButton')
+        self.confirm.setDefault(True)
+        self.confirm.clicked.connect(self.accept)
+        self.board.validityChanged.connect(self.confirm.setEnabled)
+        buttons.addWidget(self.confirm)
+        layout.addLayout(buttons)
+        self._refresh_preview(color)
+        self._custom = self.swatch_palette.current == 'custom'
+        self.board.setVisible(self._custom)
+
+    def _choose_preset(self, key, _pointer):
+        self._custom = key == 'custom'
+        if self._custom:
+            self.swatch_palette.set_current(key)
+        else:
+            self.setCurrentColor(QColor(key))
+        self.board.setVisible(self._custom)
+        self.adjustSize()
+
+    def _refresh_preview(self, color):
+        name = color.name()
+        self.swatch_palette.set_current(name if not self._custom and name in self.swatch_palette.buttons else 'custom')
+        self.preview.color = QColor(color)
+        self.preview.update()
+
+    def setCurrentColor(self, color):
+        self.board.setCurrentColor(color)
+
+    def currentColor(self):
+        return self.board.currentColor()
 
     def accept(self):
         if self.confirm.isEnabled():

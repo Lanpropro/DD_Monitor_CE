@@ -766,6 +766,10 @@ QSlider::handle:horizontal:pressed {{
     border-radius: 8px;
     background: #ffffff;
 }}
+QSlider[settingsSlider="true"]::handle:horizontal:pressed {{
+    width: 14px;
+    margin: -5px 0;
+}}
 QSlider::groove:horizontal:hover {{
     background: {BORDER_STRONG};
 }}
