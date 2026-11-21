@@ -532,8 +532,9 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual(first_row.itemAt(0).widget().accessibleName(), '一位主播')
         self.assertEqual(first_row.itemAt(1).widget().text(), '监控中')
 
+        self.assertTrue(menu._timer.isActive())
         rows[0] = ('一位主播', 'recording')
-        QTest.qWait(650)
+        menu._timer.timeout.emit()
         self.assertEqual(menu.rows.itemAt(0).widget().layout().itemAt(1).widget().text(), '正在录制')
         QTest.keyClick(menu.scroll, Qt.Key_Escape)
         settle()
