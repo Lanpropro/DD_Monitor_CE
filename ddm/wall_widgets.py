@@ -519,8 +519,7 @@ class WallGrid(QWidget):
             event.ignore()
 
     def dropEvent(self, event):
-        if (self.snap_grid.can_drop(event.mimeData(), event.position().toPoint())
-                and self.snap_grid.drop(event.mimeData(), event.position().toPoint())):
+        if self.snap_grid.drop(event.mimeData(), event.position().toPoint()):
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -533,7 +532,14 @@ class WallGrid(QWidget):
 
     def paintEvent(self, event) -> None:
         # 原生视频移动后重绘空隙；皮肤启用时保留背景层的透明通路。
-        if not theme._skin_active:
+        if theme._skin_active:
+            controller = getattr(self.window(), 'skin_controller', None)
+            if self.snap_grid.interactive() and controller is not None and controller.layer.mask > 0:
+                with QPainter(self) as painter:
+                    backdrop = theme.qcolor(theme.BG)
+                    backdrop.setAlphaF(.84)  # Same theme tint as the clip workspace.
+                    painter.fillRect(event.rect(), backdrop)
+        else:
             painter = QPainter(self)
             painter.fillRect(event.rect(), theme.qcolor(theme.BG))
             option = QStyleOption()

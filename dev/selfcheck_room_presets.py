@@ -230,8 +230,8 @@ def check_layout_only_presets(app, directory):
 
 
 def check_snap_grid_and_other_presets(app):
-    from PySide6.QtCore import QMimeData, QPointF
-    from PySide6.QtGui import QContextMenuEvent, QDragEnterEvent, QDropEvent, QWheelEvent
+    from PySide6.QtCore import QEvent, QMimeData, QPointF
+    from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QMouseEvent, QWheelEvent
     from PySide6.QtWidgets import QMenu
     from ddm.layout_preset_editor import LayoutPresetEditor
     from ddm import snap_grid
@@ -282,6 +282,17 @@ def check_snap_grid_and_other_presets(app):
         drop = QDropEvent(QPointF(point), action, mime, Qt.LeftButton, Qt.NoModifier)
         QApplication.sendEvent(wall, drop)
         return enter.isAccepted(), drop.isAccepted()
+
+    def begin_wall_drag(grab_point):
+        local = first.mapFrom(wall, grab_point)
+        QTest.mousePress(first, Qt.LeftButton, pos=local)
+        moved = local + QPoint(18, 0)
+        event = QMouseEvent(QEvent.MouseMove, QPointF(moved), QPointF(first.mapToGlobal(moved)),
+                            Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(first, event)
+        assert session.active and session.ghost is None
+        assert wall.snap_grid.guide.isVisible()
+        assert len(wall.snap_grid.guide.units) == 16
 
     try:
         for group, base in (('弹幕布局', 'dm_pair'), ('竖屏布局', 'portrait_dm2')):
@@ -342,8 +353,77 @@ def check_snap_grid_and_other_presets(app):
             assert snapshot['layout']['ratios']['grid'][0] == (0, 0, 2, 2)
             assert set(room_presets.thumbnail_geometry(snapshot, wall.rect())) == {0, 1}
 
-        assert drop_room(TILE_MIME, '701', units[3].center()) == (True, False)
+        assert drop_room(TILE_MIME, '701', units[3].center()) == (False, False)
         assert wall.snap_grid.cells()[0] == (0, 0, 2, 2), 'Moving a large tile cannot cross the grid edge'
+
+        assert wheel(first.video, first.video.rect().center(), -120)
+        assert wheel(first.video, first.video.rect().center(), 120)
+        session = window.sidebar.drag_session
+        with patch('ddm.sidebar_drag.widget_at', side_effect=lambda point:
+                   first if first.geometry().contains(wall.mapFromGlobal(point)) else wall):
+            begin_wall_drag(units[5].center())
+            guide = wall.snap_grid.guide
+            assert guide.target == first.geometry()
+            session.position = wall.mapToGlobal(units[6].center())
+            session._update_target()
+            assert guide.target == units[1].united(units[6])
+            assert session.finish() and not guide.isVisible()
+            assert first.geometry() == units[1].united(units[6])
+
+            begin_wall_drag(units[6].center())
+            session.position = wall.mapToGlobal(units[15].center())
+            session._update_target()
+            assert guide.target is None and guide.isVisible()
+            session.cancel()
+            assert not guide.isVisible()
+            assert first.geometry() == units[1].united(units[6])
+
+            begin_wall_drag(units[6].center())
+            session.position = wall.mapToGlobal(units[5].center())
+            assert session.finish() and not guide.isVisible()
+            assert first.geometry() == units[0].united(units[5])
+            assert [int(tile.video.winId()) for tile in wall.tiles[:2]] == handles
+
+        item = window.sidebar.items()[0]
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, b'701')
+        with patch('ddm.sidebar_drag.widget_at', return_value=wall) as hit:
+            assert session.start(item, mime, item._drag_pixmap(), QPoint(), wall.mapToGlobal(units[8].center()))
+            assert guide.isVisible() and session.ghost is not None
+            hit.return_value = window.sidebar
+            session._update_target()
+            assert not guide.isVisible()
+            session.cancel()
+
+        controller = window.skin_controller
+        with tempfile.TemporaryDirectory(prefix='ddm-grid-wallpaper-') as temporary:
+            asset = Path(temporary) / 'utils' / 'skins' / 'background.png'
+            asset.parent.mkdir(parents=True)
+            wallpaper = QColor('#efb531')
+            image = QImage(QSize(12, 12), QImage.Format_RGB32)
+            image.fill(wallpaper)
+            assert image.save(str(asset))
+            sample = wall.mapTo(window, units[12].center())
+            with patch.object(config, 'data_root', return_value=temporary), patch.dict(window.settings, {
+                    'skin_background': 'utils/skins/background.png', 'skin_mask': 35, 'skin_mask_enabled': True}):
+                controller.refresh()
+                app.processEvents()
+                base = controller.layer.grab().toImage().pixelColor(controller.layer.rect().center())
+                masked = window.grab().toImage().pixelColor(sample)
+                tint = theme.qcolor(theme.BG)
+                opacity = .84
+                assert all(abs(result - (original * (1 - opacity) + color * opacity)) <= 2
+                           for result, original, color in zip(masked.getRgb()[:3], base.getRgb()[:3], tint.getRgb()[:3]))
+                window.settings['skin_mask'] = 70
+                controller.refresh()
+                app.processEvents()
+                assert window.grab().toImage().pixelColor(sample) != masked
+                window.settings['skin_mask_enabled'] = False
+                controller.refresh()
+                app.processEvents()
+                assert window.grab().toImage().pixelColor(sample) == wallpaper
+            controller.refresh()
+            app.processEvents()
 
         chat_points = [units[index].center() for index in (2, 6)]
         for point in chat_points:

@@ -1,16 +1,28 @@
 """Placement and gestures for the wall's two free-placement layouts."""
+from dataclasses import dataclass
+
 from PySide6.QtWidgets import QMenu
 
 from . import layouts, snap_grid
-from .sidebar_drag import ROOM_MIME, TILE_MIME
+from .sidebar_drag import GRID_GRAB_MIME, ROOM_MIME, TILE_MIME
 from .widget_support import DANMAKU_MIME
 
 DANMAKU_CELL_MIME = 'application/x-ddm-danmaku-cell'
 
 
+@dataclass
+class _Placement:
+    index: int
+    target: tuple
+    cells: list
+    changed: bool
+    new_room: str | None
+
+
 class WallSnapGrid:
     def __init__(self, wall):
         self.wall = wall
+        self.guide = None
 
     @property
     def size(self):
@@ -68,7 +80,7 @@ class WallSnapGrid:
                 self._commit(result)
         return True
 
-    def _vacancy(self, point):
+    def _unit_at(self, point):
         if not self.interactive():
             return None
         wall = self.wall
@@ -78,8 +90,11 @@ class WallSnapGrid:
         gap = wall.grid.spacing()
         defaults = wall._cells()
         units = snap_grid.geometry(self.size, defaults, area, gap)
-        unit = next((defaults[i] for i, rect in units.items()
+        return next((defaults[i] for i, rect in units.items()
                      if rect.adjusted(-gap // 2, -gap // 2, gap // 2, gap // 2).contains(point)), None)
+
+    def _vacancy(self, point):
+        unit = self._unit_at(point)
         if unit is None:
             return None
         row, column, _, _ = unit
@@ -91,49 +106,109 @@ class WallSnapGrid:
             return unit, cells
         return None
 
-    def can_drop(self, mime, point):
-        return (any(mime.hasFormat(kind) for kind in (ROOM_MIME, TILE_MIME, DANMAKU_CELL_MIME))
-                and self._vacancy(point) is not None)
-
-    def drop(self, mime, point):
-        vacancy = self._vacancy(point)
-        if vacancy is None:
+    def mark_drag(self, mime, tile, press):
+        if not self.interactive():
             return False
+        index = self.wall.pane_danmaku.cell_for_tile(tile)
+        unit = self._unit_at(tile.mapTo(self.wall, press))
+        if index is None or unit is None or (cell := self.cells()[index]) is None:
+            return False
+        row, column, height, width = cell
+        dy, dx = unit[0] - row, unit[1] - column
+        if not (0 <= dy < height and 0 <= dx < width):
+            return False
+        mime.setData(GRID_GRAB_MIME, bytes((index, dy, dx)))
+        return True
+
+    def show_drag_guide(self, mime, point):
+        if not self.interactive():
+            self.hide_drag_guide()
+            return
+        if self.guide is None:
+            from .snap_grid_guide import SnapGridGuide
+            self.guide = SnapGridGuide(self.wall)
         wall = self.wall
-        unit, cells = vacancy
+        area, gap = wall._corner_area(), wall.grid.spacing()
+        units = tuple(snap_grid.geometry(self.size, wall._cells(), area, gap).values())
+        plan = self._placement(mime, point)
+        target = snap_grid.geometry(self.size, [plan.target], area, gap)[0] if plan else None
+        self.guide.present(units, target)
+
+    def hide_drag_guide(self):
+        if self.guide is not None:
+            self.guide.hide()
+
+    def can_drop(self, mime, point):
+        return self._placement(mime, point) is not None
+
+    def _placement(self, mime, point):
+        unit = self._unit_at(point)
+        if unit is None:
+            return None
+        wall = self.wall
+        cells = self.cells()
+        occupied = self.occupied()
+        new_room = None
+        dy, dx = 0, 0
         if mime.hasFormat(DANMAKU_MIME):
             value = bytes(mime.data(DANMAKU_CELL_MIME))
-            if not value.isdigit() or (source := int(value)) not in wall.pane_danmaku.bindings():
-                return False
-        else:
+            if not value.isdigit() or (index := int(value)) not in wall.pane_danmaku.bindings():
+                return None
+        elif mime.hasFormat(TILE_MIME) or mime.hasFormat(ROOM_MIME):
             kind = TILE_MIME if mime.hasFormat(TILE_MIME) else ROOM_MIME
             room_id = bytes(mime.data(kind)).decode('utf-8', 'ignore')
             if not room_id:
-                return False
-            source = next((i for i, tile in wall.pane_danmaku.cell_tiles().items()
-                           if str(tile.room.get('room_id') or '') == room_id
-                           and not tile.isHidden()), None)
-        if source is not None:
-            if cells[source] is None:
-                return False
-            row, column, _, _ = unit
-            height, width = cells[source][2:]
-            if row + height > self.size or column + width > self.size:
-                return False
-            result = snap_grid.place(self.size, cells, source, (row, column, height, width), self.occupied())
-            if result == cells:
-                return False
-            self._commit(result)
+                return None
+            tiles = wall.pane_danmaku.cell_tiles()
+            if mime.hasFormat(GRID_GRAB_MIME):
+                grab = bytes(mime.data(GRID_GRAB_MIME))
+                if len(grab) != 3:
+                    return None
+                index, dy, dx = grab
+                tile = tiles.get(index)
+                if tile is None or tile.isHidden() or str(tile.room.get('room_id') or '') != room_id:
+                    return None
+            else:
+                index = next((i for i, tile in tiles.items() if not tile.isHidden()
+                              and str(tile.room.get('room_id') or '') == room_id), None)
         else:
-            index = next(i for i in range(len(cells)) if i not in self.occupied())
-            result = snap_grid.place(self.size, cells, index, unit, self.occupied())
+            return None
+        row, column, height, width = unit
+        if index is None:
+            index = next((i for i in range(len(cells)) if i not in occupied), None)
+            if index is None:
+                return None
+            new_room = room_id
+        elif cells[index] is not None:
+            height, width = cells[index][2:]
+            row, column = row - dy, column - dx
+        else:
+            return None
+        if not (0 <= row <= self.size - height and 0 <= column <= self.size - width):
+            return None
+        target = row, column, height, width
+        result = snap_grid.place(self.size, cells, index, target, occupied)
+        changed = result != cells
+        if changed or target == cells[index]:
+            return _Placement(index, target, result, changed, new_room)
+        return None
+
+    def drop(self, mime, point):
+        plan = self._placement(mime, point)
+        if plan is None:
+            return False
+        wall = self.wall
+        if plan.new_room is None:
+            if plan.changed:
+                self._commit(plan.cells)
+        else:
             base = wall.layout_id
             previous = wall._layout_ratios[base]
-            if result != cells:
-                wall.layout_control.set_preset_ratios(base, {'grid': result})
-            tile = wall.tiles[index]
-            wall.roomDropped.emit(tile, room_id)
-            if str(tile.room.get('room_id') or '') != room_id:
+            if plan.changed:
+                wall.layout_control.set_preset_ratios(base, {'grid': plan.cells})
+            tile = wall.tiles[plan.index]
+            wall.roomDropped.emit(tile, plan.new_room)
+            if str(tile.room.get('room_id') or '') != plan.new_room:
                 wall._layout_ratios[base] = previous
                 return False
             wall.layoutRatiosChanged.emit()

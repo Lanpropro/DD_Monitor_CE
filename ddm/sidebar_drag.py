@@ -11,6 +11,7 @@ from .card_drop import remember_card
 
 ROOM_MIME = 'application/x-ddm-room'
 TILE_MIME = 'application/x-ddm-tile'
+GRID_GRAB_MIME = 'application/x-ddm-grid-grab'
 NAV_MIME = 'application/x-ddm-nav'
 FOLDER_MIME = 'application/x-ddm-folder'
 
@@ -29,6 +30,7 @@ class SidebarDrag(QObject):
         self.plugin_owner = None
         self.on_finished = None
         self.area = None
+        self.snap_grid = None
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
@@ -46,19 +48,24 @@ class SidebarDrag(QObject):
         self.source, self.mime = source, mime
         self.plugin_owner, self.on_finished = plugin_owner, on_finished
         self.area = source if isinstance(source, QAbstractScrollArea) else self.sidebar.scroll
-        if mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME):
+        if not pixmap.isNull() and (mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
             remember_card(mime, pixmap, hotspot)
         self.position = QPoint(global_pos)
         self.hotspot = QPoint(hotspot)
         self._last_update = None
         self.owner = self.sidebar.window()
+        wall = getattr(self.owner, 'wall', None)
+        grid = getattr(wall, 'snap_grid', None)
+        if grid is not None and grid.interactive() and (mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
+            self.snap_grid = grid
         self.actions = Qt.MoveAction if (mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)) else Qt.CopyAction | Qt.MoveAction
-        self.ghost = QLabel(self.owner, Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowTransparentForInput)
-        self.ghost.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.ghost.setAttribute(Qt.WA_TranslucentBackground)
-        self.ghost.setPixmap(pixmap)
-        self.ghost.resize(pixmap.deviceIndependentSize().toSize())
+        if not pixmap.isNull():
+            self.ghost = QLabel(self.owner, Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowTransparentForInput)
+            self.ghost.setAttribute(Qt.WA_ShowWithoutActivating)
+            self.ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self.ghost.setAttribute(Qt.WA_TranslucentBackground)
+            self.ghost.setPixmap(pixmap)
+            self.ghost.resize(pixmap.deviceIndependentSize().toSize())
         QApplication.instance().installEventFilter(self)
         source.destroyed.connect(self.cancel)
         try:
@@ -67,17 +74,21 @@ class SidebarDrag(QObject):
             elif mime.hasFormat(NAV_MIME):
                 rid = bytes(mime.data(NAV_MIME)).decode()
                 self.sidebar.show_drop_indicator(rid, source._index_in_host())
-            self.ghost.move(self.position - self.hotspot)
-            self.ghost.show()
-            if plugin_owner is not None:
-                self.ghost.repaint()
-            handle = self.ghost.windowHandle()
-            self._set_frame_interval(handle.screen())
-            handle.screenChanged.connect(self._set_frame_interval)
+            if self.ghost is not None:
+                self.ghost.move(self.position - self.hotspot)
+                self.ghost.show()
+                if plugin_owner is not None:
+                    self.ghost.repaint()
+                handle = self.ghost.windowHandle()
+                self._set_frame_interval(handle.screen())
+                handle.screenChanged.connect(self._set_frame_interval)
             self.owner.grabMouse()
             self.owner.grabKeyboard()
             self.timer.start()
-            self.visual_timer.start()
+            if self.ghost is not None:
+                self.visual_timer.start()
+            if self.snap_grid is not None:
+                self._update_target()
             return self.active
         except BaseException:
             self.cancel()
@@ -144,7 +155,7 @@ class SidebarDrag(QObject):
         self.visual_timer.setInterval(max(1, int(1000 / rate)))
 
     def _move_ghost(self):
-        if self.active:
+        if self.active and self.ghost is not None:
             target = self.position - self.hotspot
             if self.ghost.pos() != target:
                 self.ghost.move(target)
@@ -163,6 +174,15 @@ class SidebarDrag(QObject):
 
     def _update_target(self):
         widget = widget_at(self.position)
+        grid = self.snap_grid
+        if grid is not None:
+            wall = grid.wall
+            if widget is not None and (widget is wall or wall.isAncestorOf(widget)):
+                grid.show_drag_guide(self.mime, wall.mapFromGlobal(self.position))
+                if grid.interactive() and self.mime.hasFormat(GRID_GRAB_MIME):
+                    widget = wall
+            else:
+                grid.hide_drag_guide()
         candidate = None
         while widget is not None:
             if widget.acceptDrops() and widget.isEnabled():
@@ -191,7 +211,8 @@ class SidebarDrag(QObject):
         try:
             hovered = type(self.target).__name__ if self.target is not None else 'none'
             # Exclude our transparent top-level from Qt's mask-based widgetAt lookup.
-            self.ghost.hide()
+            if self.ghost is not None:
+                self.ghost.hide()
             self._update_target()  # Release position wins over the last throttled move.
             target = self.target
             drop = self._event(QDropEvent, target) if target is not None else None
@@ -219,7 +240,10 @@ class SidebarDrag(QObject):
             self.owner.releaseMouse()
         if QWidget.keyboardGrabber() is self.owner:
             self.owner.releaseKeyboard()
-        self.ghost.hide()
+        if self.ghost is not None:
+            self.ghost.hide()
+        if self.snap_grid is not None:
+            self.snap_grid.hide_drag_guide()
 
     def _cleanup(self):
         source, self.source = self.source, None
@@ -231,8 +255,10 @@ class SidebarDrag(QObject):
                 source._press_pos = None
                 if hasattr(source, 'setDown'):
                     source.setDown(False)
-            self.ghost.deleteLater()
-            self.ghost = None
+            if self.ghost is not None:
+                self.ghost.deleteLater()
+                self.ghost = None
+            self.snap_grid = None
             folder = self.mime.hasFormat(FOLDER_MIME)
             tile = self.mime.hasFormat(TILE_MIME)
             plugin = self.plugin_owner is not None

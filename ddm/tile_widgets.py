@@ -453,6 +453,11 @@ class Tile(QFrame):
         mime = QMimeData()
         mime.setData(TILE_MIME, room_id.encode("utf-8"))
         mime.setText(room_id)
+        grid = getattr(self.parentWidget(), 'snap_grid', None)
+        session = getattr(getattr(self.window(), 'sidebar', None), 'drag_session', None)
+        if session is not None and grid is not None and grid.mark_drag(mime, self, start):
+            session.start(self, mime, QPixmap(), QPoint(), event.globalPosition().toPoint())
+            return
         from .tile_drag import tile_drag_visual
         session, snapshot, hotspot = tile_drag_visual(self, event.position().toPoint())
         if session is not None:

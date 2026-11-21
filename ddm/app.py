@@ -307,6 +307,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         from .skins import SkinController
         self.skin_controller = SkinController(self)
+        self.skin_controller.changed.connect(self.wall.update)
         self.orientation = ""                  # 由 _apply_orientation 填
         #: 各方向「切走之前在用的布局」：切回来时还原，别被容量折算换掉
         self._layout_by_orientation: dict[str, str] = {}
