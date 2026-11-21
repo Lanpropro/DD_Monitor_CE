@@ -30,7 +30,7 @@ class SettingsMaterialEditor(SettingsSurface):
         self.background_status.setWordWrap(True)
         parameters.addWidget(self.background_status)
         entries = (
-            ('settings_glass_enabled', '启用毛玻璃效果', '实时模糊设置窗口、通知菜单和公告详情背后的内容。底色不透明度在开启时生效。'),
+            ('settings_glass_enabled', '启用毛玻璃效果', '设置窗口和公告详情使用系统模糊。通知菜单使用半透明底色，随底色不透明度调整。'),
             ('settings_segment_motion', '滑动分段指示器', '鼠标切换时滑动选中底片，系统关闭动画时直接切换。'),
             ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
         )
@@ -112,8 +112,8 @@ class SettingsMaterialEditor(SettingsSurface):
             slider.setEnabled(self.controls['settings_glass_enabled'].isChecked())
             label.setEnabled(slider.isEnabled())
         from .settings_backdrop import blur_available
-        self.background_status.setText('显示窗口背后的实时内容；模糊程度由 Windows 控制，仅影响设置窗口。'
-            if blur_available() else '当前平台不支持系统毛玻璃，将使用纯色底板。')
+        self.background_status.setText('系统实时模糊的程度由 Windows 控制。' if blur_available()
+            else '当前平台不支持系统模糊。设置窗口和公告详情使用纯色底板。')
 
     def reset(self):
         self.set_values(DEFAULTS)

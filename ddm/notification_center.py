@@ -14,9 +14,8 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLayou
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .dock_feedback import icon_color
-from .settings_backdrop import apply_blur
 from .settings_material import normalize as normalize_material
-from .settings_material_paint import glass_active, glass_tint, paint_glass_border, window_background_tint
+from .settings_material_paint import glass_tint, paint_glass_border, window_background_tint
 from .ui import NavigationButton
 
 
@@ -285,7 +284,7 @@ class NoticeRow(QFrame):
                 painter.setRenderHint(QPainter.Antialiasing)
                 rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
                 path = continuous_path(rect, theme.RADIUS_LG)
-                glass = glass_active(self)
+                glass = self.window().property('settings_glass_enabled')
                 if glass:
                     painter.fillPath(path, glass_tint(self, card=True))
                 else:
@@ -318,7 +317,6 @@ class NotificationCenter(QFrame):
         self._seen_keys = set()
         self.rows = {}
         self._owner = None
-        self._native_glass = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -452,11 +450,8 @@ class NotificationCenter(QFrame):
         self._sync()
         super().showEvent(event)
         values = normalize_material(getattr(self._owner, 'settings', {}))
-        enabled = values['settings_glass_enabled']
-        self.setProperty('settings_glass_enabled', enabled)
+        self.setProperty('settings_glass_enabled', values['settings_glass_enabled'])
         self.setProperty('settings_glass_opacity', values['settings_glass_opacity'])
-        # DWM blurs the content behind the popup HWND, including native video.
-        self._native_glass = apply_blur(self, enabled)
         self.update()
 
     def hideEvent(self, event):
@@ -506,7 +501,8 @@ class NotificationCenter(QFrame):
         with QPainter(self) as painter:
             painter.setRenderHint(QPainter.Antialiasing)
             path = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS)
-            if glass_active(self):
+            if self.property('settings_glass_enabled'):
+                # The native blur can extend beyond this popup's rounded mask.
                 painter.fillPath(path, glass_tint(self, window_background_tint(self)))
                 painter.fillPath(path, glass_tint(self, card=True))
                 paint_glass_border(painter, path)

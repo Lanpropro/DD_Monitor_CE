@@ -458,8 +458,7 @@ class NotificationTests(unittest.TestCase):
         self.addCleanup(theme.apply, theme.mode())
         self.owner.settings = {'settings_glass_enabled': True}
         self.center.add('操作完成')
-        with patch('ddm.notification_center.apply_blur', return_value=True):
-            self.open()
+        self.open()
 
         def surface_pixel(button):
             self.app.processEvents()
@@ -479,25 +478,26 @@ class NotificationTests(unittest.TestCase):
                     self.assertNotEqual(idle, hovered[-1])
             self.assertEqual(*hovered)
 
-    def test_menu_glass_follows_saved_setting_and_compositor_support(self):
+    def test_menu_material_keeps_corners_clear_and_follows_opacity_without_native_blur(self):
         self.owner.settings = {'settings_glass_enabled': False, 'settings_glass_opacity': 40}
-        self.center.add('操作完成')
+        for _ in range(6):
+            self.center.add('操作完成')
 
         def gutter_alpha():
             image = self.center.grab().toImage()
-            self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+            for point in (image.rect().topLeft(), image.rect().topRight(),
+                          image.rect().bottomLeft(), image.rect().bottomRight()):
+                self.assertEqual(image.pixelColor(point).alpha(), 0, point)
             scale = image.devicePixelRatio()
             return image.pixelColor(round(6 * scale), round(self.center.height() / 2 * scale)).alpha()
 
-        with patch('ddm.notification_center.apply_blur', side_effect=lambda _window, enabled: bool(enabled)) as blur:
+        with patch('ddm.notification_center.apply_blur', return_value=True, create=True) as native_blur:
             self.open()
             self.assertEqual(gutter_alpha(), 255)
-            blur.assert_called_with(self.center, False)
 
             self.center.hide()
             self.owner.settings['settings_glass_enabled'] = True
             self.open()
-            blur.assert_called_with(self.center, True)
             translucent = gutter_alpha()
             self.assertLess(translucent, 255)
             self.assertGreater(translucent, 102)
@@ -508,10 +508,10 @@ class NotificationTests(unittest.TestCase):
             self.assertGreater(gutter_alpha(), translucent)
 
             self.center.hide()
-            blur.side_effect = None
-            blur.return_value = False
+            self.owner.settings['settings_glass_enabled'] = False
             self.open()
             self.assertEqual(gutter_alpha(), 255)
+            native_blur.assert_not_called()
 
     def test_child_dialog_notifications_reach_the_same_session(self):
         dialog = QWidget(self.owner, Qt.Dialog)
