@@ -31,6 +31,7 @@ class RoomAddPanel(QFrame):
         self._header_add_button.closeRequested.connect(self.close_editor)
         self.dismissed.connect(self._header_add_button.panel_dismissed)
         self.busy = False
+        self._replacing = False
         self._focus_on_close = None
         self.folder_id = ''
         self.folder_names = set()
@@ -129,9 +130,12 @@ class RoomAddPanel(QFrame):
         navigation = self.sidebar.navigation
         return navigation.collapsed_add_button if self.sidebar.collapsed else navigation.add_button
 
-    def open(self, *, can_choose_followed=False, focus_on_close=None):
+    def open(self, *, can_choose_followed=False, focus_on_close=None, replacing=False):
         self._focus_on_close = self._sidebar_add_button() if focus_on_close is None else focus_on_close
         if not self.busy:
+            self._replacing = replacing
+            self.entry.setPlaceholderText('输入要替换到此格的房间号或链接' if replacing else '房间号或链接，每行一个')
+            self._update_count()
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
             self.followed.search.clear()
@@ -197,7 +201,10 @@ class RoomAddPanel(QFrame):
 
     def _update_count(self):
         count = len({line.strip() for line in self.entry.toPlainText().splitlines() if line.strip()})
-        self.submit_button.setText('添加中…' if self.busy else (f'添加 {count} 个' if count else '添加'))
+        if self._replacing:
+            self.submit_button.setText('替换中…' if self.busy else '替换')
+        else:
+            self.submit_button.setText('添加中…' if self.busy else (f'添加 {count} 个' if count else '添加'))
         self.submit_button.setEnabled(bool(count) and not self.busy)
         if not self.busy:
             self.error.hide()

@@ -263,7 +263,7 @@ class RoomPlacement:
     def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
         return self.catalog.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id, target_tile=target_tile)
 
-    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> str | None:
         return self.catalog.on_room_added(room, folder_id=folder_id, max_tiles=max_tiles, target_tile=target_tile, notify=notify)
 
     def add_to_wall(self, room: dict, *, empty_only=False, max_tiles) -> None:

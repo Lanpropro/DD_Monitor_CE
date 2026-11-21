@@ -6,6 +6,7 @@ class RoomCatalog:
         self.host = host
         self._add_panel = None
         self._add_target = None
+        self._replacement_room = None
         ui = getattr(host, 'state', {}).get('ui') or {}
         self.followed_live_only = ui.get('room_add_followed_live_only') is True
 
@@ -92,10 +93,13 @@ class RoomCatalog:
             self._add_panel.followed_requested.connect(self._load_followed)
             self._add_panel.followed_selected.connect(self._select_followed)
             self._add_panel.preset_selected.connect(self._select_preset)
+            self._add_panel.dismissed.connect(self._clear_add_target)
             self._add_panel.followed.live_only.setChecked(self.followed_live_only)
             self._add_panel.followed.live_only.toggled.connect(self._remember_followed_live_only)
         if not self._add_panel.busy:
             self._add_target = target_tile
+            self._replacement_room = (target_tile.room if target_tile is not None and target_tile.can_replace_room()
+                                      else None)
             self._add_resolver_type = resolver_type or InfoResolver
         hints = [getattr(platform, 'room_input_hint', '') for platform in host.plugins.platforms.values()]
         self._add_panel.entry.setToolTip('房间号或直播间链接，每行一个；Ctrl+Enter 添加'
@@ -114,7 +118,26 @@ class RoomCatalog:
         self._add_panel.set_presets(presets, file_filters)
         target = self._add_target
         self._add_panel.open(can_choose_followed=target is not None,
+                             replacing=self._replacement_room is not None,
                              focus_on_close=target.add_room_button if target is not None else None)
+
+    def _is_replacement(self, target):
+        return target is self._add_target and self._replacement_room is not None
+
+    def _clear_add_target(self):
+        if not self._add_panel.busy:
+            self._add_target = None
+            self._replacement_room = None
+
+    def replacement_error(self, target, room_id=None):
+        if not self._is_replacement(target):
+            return ''
+        if (target not in self.host.wall.visible_tiles() or target.room is not self._replacement_room
+                or not target.can_replace_room()):
+            return '原直播格的房间或开播状态已变化，请重新选择'
+        if room_id is not None and self.host._tile_of(room_id) is not None:
+            return '该直播间已在画面墙上，请选择其他直播间'
+        return ''
 
     def _load_followed(self):
         occupied = {str(tile.room.get('room_id') or '') for tile in self.host.wall.tiles}
@@ -143,7 +166,11 @@ class RoomCatalog:
         host, panel, target = self.host, self._add_panel, self._add_target
         if host._closing or panel.busy or target is None:
             return
-        if target not in host.wall.visible_tiles() or target.room.get('room_id'):
+        if error := self.replacement_error(target, room_id):
+            panel.show_error(error)
+            return
+        if (target not in host.wall.visible_tiles()
+                or not self._is_replacement(target) and target.room.get('room_id')):
             panel.show_error('原空格已不可用，请从其他空格重新打开')
             return
         if host._tile_of(room_id) is not None:
@@ -157,7 +184,6 @@ class RoomCatalog:
             return
         host._on_room_added(dict(room), target_tile=target)
         panel.close_editor()
-        self._add_target = None
 
     def _submit_inline(self, text, folder_id):
         from .room_add_input import normalize_room_lines, normalize_room_text
@@ -170,6 +196,13 @@ class RoomCatalog:
             panel.show_error(str(error))
             return
         target = self._add_target
+        if self._is_replacement(target):
+            if error := self.replacement_error(target):
+                panel.show_error(error)
+                return
+            if len(rooms) != 1:
+                panel.show_error('替换此格时，请输入一个房间号或链接')
+                return
         panel.set_busy(True)
         if len(rooms) == 1:
             self.add_room_id(rooms[0], folder_id=folder_id, target_tile=target,
@@ -187,7 +220,7 @@ class RoomCatalog:
         if success:
             panel.entry.clear()
             panel.close_editor()
-            self._add_target = None
+            self._clear_add_target()
         else:
             panel.show_error(message)
 
@@ -207,16 +240,17 @@ class RoomCatalog:
         def added(room):
             if host._closing:
                 return
-            host._on_room_added(room, folder_id=folder_id, target_tile=target_tile)
+            error = host._on_room_added(room, folder_id=folder_id, target_tile=target_tile)
             if on_complete is not None:
-                on_complete(True, '')
+                message = error if isinstance(error, str) else ''
+                on_complete(not message, message)
         short_link = is_bili_short_url(room_id)
         profile_link = bool(bili_profile_uid(room_id))
         existing = next((room for room in host.sidebar.rooms() if str(room.get("room_id")) == room_id), None)
         if existing is not None:
             if target_tile is not None:
-                host._on_room_added(existing, folder_id=folder_id, target_tile=target_tile)
-            if on_complete is not None:
+                added(existing)
+            elif on_complete is not None:
                 on_complete(True, '')
             print(f"房间 {room_id} 已在关注列表里")
             return
@@ -296,11 +330,23 @@ class RoomCatalog:
         QMessageBox.warning(host, "添加直播间", "平台房间获取失败\n\n" + (
             getattr(resolver, "error_message", "") or "请检查房间链接或稍后重试"))
 
-    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
+    def place_in_target(self, target, room):
         from . import layouts
+        host = self.host
+        destinations = (host.wall.visible_tiles() if layouts.snap_grid_size(getattr(host.wall, 'layout_id', ''))
+                        else host.wall.tiles)
+        if (target in destinations and (self._is_replacement(target) or not target.room.get('room_id'))
+                and host._tile_of(str(room['room_id'])) is None):
+            host.room_placement.drop_room(target, str(room['room_id']), room=room)
+            return True
+        return False
+
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> str | None:
         host = self.host
         if host._closing:
             return
+        if error := self.replacement_error(target_tile, str(room['room_id'])):
+            return error
         if host.sidebar.add_room(room):
             if folder_id:
                 host.sidebar.move_to_folder([str(room.get("room_id"))], folder_id)
@@ -310,12 +356,7 @@ class RoomCatalog:
                 show_result(host, "已添加 " + str(room.get("uname") or room.get("room_id")), rooms=[room])
         status = "直播中" if room.get("live") else "未开播"
         print(f"已添加 {room.get('uname')}（{status}）")
-        destinations = (host.wall.visible_tiles() if layouts.snap_grid_size(getattr(host.wall, 'layout_id', ''))
-                        else host.wall.tiles)
-        if (target_tile in destinations and not target_tile.room.get('room_id')
-                and host._tile_of(str(room.get('room_id'))) is None):
-            host.room_placement.drop_room(target_tile, str(room['room_id']), room=room)
-        else:
+        if not self.place_in_target(target_tile, room):
             host.add_to_wall(room)
         host._refresh_meta()
         host._save_timer.start()

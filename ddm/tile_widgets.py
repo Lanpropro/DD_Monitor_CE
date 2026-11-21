@@ -120,6 +120,7 @@ class Tile(QFrame):
         self._video_danmaku_global_settings = dict(DEFAULT_SETTINGS)
         self.codec_reconnect_pending = False
         self.codec_probe_note = ""
+        self._connecting = False
         self._buffering = False
         self.actual_quality = 0
         self.quality_options: list[dict] = []
@@ -502,6 +503,11 @@ class Tile(QFrame):
 
     def set_video_active(self, active: bool) -> None:
         return self.state_control.set_video_active(active)
+
+    def can_replace_room(self) -> bool:
+        from .wall_removal import offline
+        return bool(offline(self) and not (self._player_active or self._buffering or self._connecting or self._status_detail
+                                            or self.property('pictureInPicture') or self.property('roomDropOnly')))
 
     def set_status(self, text: str, *, detail: str = '') -> None:
         return self.state_control.set_status(text, detail=detail)

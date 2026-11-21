@@ -20,6 +20,8 @@ from ddm.room_add_panel import RoomAddPanel
 from ddm.room_add_input import normalize_room_lines, normalize_room_text
 from ddm.avatar_widgets import circular_pixmap
 from ddm.room_placement import RoomPlacement
+from ddm.room_list_import import RoomListImport
+from ddm.plugin_types import RoomInfo, RoomList
 from ddm.wall_widgets import WallGrid
 from selfcheck_room_add_entry import Resolver
 
@@ -568,6 +570,80 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(Resolver.created)
         self.assertFalse(panel.busy)
 
+    def test_offline_slot_replaces_from_followed_and_then_by_room_id(self):
+        wall = self.install_wall()
+        target = wall.tiles[0]
+        self.host.sidebar.add_room(dict(room_id='1002', uname='第二个主播', live=False))
+        target.set_room(dict(room_id='old', uname='测试关注', live=False))
+        target.add_room_button.click()
+        panel = self.catalog._add_panel
+        self.assertEqual(panel.submit_button.text(), '替换')
+        self.assertTrue(panel.followed_toggle.isVisible())
+        self.catalog._select_followed('1002')
+        self.assertEqual(target.room['room_id'], '1002')
+        self.host.start_tile.assert_called_with(target)
+        self.assertFalse(panel.isVisible())
+        target.add_room_button.click()
+        panel.entry.setPlainText('1003\n1004')
+        panel.submit_button.click()
+        self.assertIn('一个房间号', panel.error.toolTip())
+        self.assertFalse(Resolver.created)
+        panel.entry.setPlainText('1003')
+        panel.submit_button.click()
+        self.assertTrue(panel.busy)
+        Resolver.created[-1].resolved.emit(dict(room_id='1003', uname='第三个主播', live=True))
+        self.assertEqual(target.room['room_id'], '1003')
+        self.assertTrue(target.add_room_button.isHidden())
+        self.assertFalse(panel.isVisible())
+        self.assertEqual({room['room_id'] for room in self.host.sidebar.rooms()}, {'old', '1002', '1003'})
+
+    def test_replacement_resolution_preserves_restarted_or_changed_target(self):
+        target = self.install_wall().tiles[0]
+        self.host.add_to_wall = Mock()
+        for new_room in (False, True):
+            target.set_room(dict(room_id='old', uname='测试关注', live=False))
+            panel = self.open(target)
+            panel.entry.setPlainText('1004')
+            panel.submit_button.click()
+            self.assertTrue(panel.busy)
+            if new_room:
+                target.set_room(dict(room_id='other', live=False))
+            else:
+                target.set_live(True)
+            Resolver.created[-1].resolved.emit(dict(room_id='1004', uname='候选主播', live=True))
+            self.assertTrue(panel.isVisible())
+            self.assertIn('已变化', panel.error.toolTip())
+            self.assertEqual(target.room['room_id'], 'other' if new_room else 'old')
+            self.assertEqual([room['room_id'] for room in self.host.sidebar.rooms()], ['old'])
+            self.host.add_to_wall.assert_not_called()
+            panel.close_editor()
+
+    def test_offline_slot_uses_selected_channel_after_playlist_import(self):
+        host = self.host
+        target = self.install_wall().tiles[0]
+        host.room_placement.catalog = self.catalog
+        target.set_room(dict(room_id='old', uname='测试关注', live=False))
+        self.open(target)
+        channel = RoomInfo('fixture:channel', '替换频道', live=True)
+        result = Mock()
+
+        def import_channels(rooms, *, folder_id, on_complete):
+            host.sidebar.add_rooms(rooms)
+            on_complete()
+
+        host._import_selected_follows = import_channels
+        lookup = RoomListImport(host, lambda *_args: RoomList([channel]), 'fixture:list',
+                                folder_id='', target_tile=target, on_complete=result)
+        with patch.object(lookup, '_choose', return_value=([channel.as_dict()], '')):
+            lookup.start()
+            for _ in range(100):
+                QTest.qWait(10)
+                if result.called:
+                    break
+        result.assert_called_once_with(1, 0, '')
+        self.assertEqual(target.room['room_id'], 'fixture:channel')
+        self.assertIn('old', {room['room_id'] for room in host.sidebar.rooms()})
+
     def test_one_input_uses_existing_resolver_target_and_closes_on_success(self):
         target = self.install_wall().tiles[0]
         panel = self.open(target)
@@ -578,7 +654,8 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(panel.submit_button.isEnabled())
         Resolver.created[-1].complete()
         self.assertFalse(panel.isVisible())
-        self.assertFalse(target.add_room_button.isVisible())
+        self.assertTrue(target.add_room_button.isVisible())
+        self.assertEqual(target.add_room_button.text(), '替换直播间')
         self.assertEqual(panel.entry.toPlainText(), '')
         self.assertIsNot(self.app.focusWidget(), self.host.sidebar.search)
         self.assertIs(self.host._on_room_added.call_args.kwargs['target_tile'], target)

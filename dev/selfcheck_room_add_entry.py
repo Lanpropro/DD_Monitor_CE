@@ -141,7 +141,7 @@ class AddRoomEntryTests(unittest.TestCase):
         sidebar.set_collapsed(False, animate=False)
         self.assertTrue(button.isHidden())
 
-    def test_empty_slot_button_and_context_menu_route_target_and_hide_when_occupied(self):
+    def test_slot_button_routes_empty_and_offline_targets_and_hides_during_playback(self):
         wall = self.own(WallGrid([], 'grid4'))
         wall.resize(900, 650)
         wall.show()
@@ -162,9 +162,23 @@ class AddRoomEntryTests(unittest.TestCase):
         tile.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Mouse, point, tile.mapToGlobal(point)))
         self.assertEqual(targets, [tile, tile])
         tile.set_room(dict(room_id='1001', uname='测试', live=False))
+        self.assertTrue(tile.add_room_button.isVisible())
+        self.assertEqual(tile.add_room_button.text(), '替换直播间')
+        self.assertEqual(tile.cover.text(), '未开播')
+        tile.add_room_button.click()
+        self.assertEqual(targets, [tile, tile, tile])
+        tile.set_live(True)
+        self.assertTrue(tile.add_room_button.isHidden())
+        tile.set_offline()
+        self.assertEqual(tile.cover.text(), '已下播')
+        self.assertTrue(tile.add_room_button.isVisible())
+        tile.set_video_active(True)
+        self.assertTrue(tile.add_room_button.isHidden())
+        tile.set_room(dict(room_id='1001', live=False, live_known=False))
         self.assertTrue(tile.add_room_button.isHidden())
         tile.set_room(None)
         self.assertTrue(tile.add_room_button.isVisible())
+        self.assertEqual(tile.add_room_button.text(), '＋ 添加直播间')
 
     def host(self):
         host = self.own(QWidget())

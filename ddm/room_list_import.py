@@ -65,6 +65,11 @@ class RoomListImport(QThread):
             if not chosen:
                 self.on_complete(0, 0, '未选择频道，可以重新导入')
                 return
+            if self.result.choose and self.target_tile is not None:
+                catalog = host.room_placement.catalog
+                if error := catalog.replacement_error(self.target_tile, str(chosen[0]['room_id'])):
+                    self.on_complete(0, 0, error)
+                    return
             if self.result.choose and getattr(host, '_follow_import_timer', None) is not None:
                 self.on_complete(0, 0, '正在导入其他频道或关注，请稍后重试')
                 return
@@ -82,7 +87,10 @@ class RoomListImport(QThread):
             else:
                 room = chosen[0]
                 if room['room_id'] not in existing or self.target_tile is not None:
-                    host._on_room_added(room, folder_id=folder_id, target_tile=self.target_tile)
+                    error = host._on_room_added(room, folder_id=folder_id, target_tile=self.target_tile)
+                    if isinstance(error, str):
+                        self.on_complete(0, 0, error)
+                        return
             added = sum(room['room_id'] not in existing for room in chosen)
             self.on_complete(added, len(chosen) - added, '')
         finally:
@@ -93,9 +101,12 @@ class RoomListImport(QThread):
         host = self.host
         target = self.target_tile
         room = chosen[0]
-        if (target is not None and target in host.wall.visible_tiles()
-                and not target.room.get('room_id') and host._tile_of(room['room_id']) is None):
-            host.room_placement.drop_room(target, room['room_id'], room=room)
+        error = ''
+        if target is not None and not host._closing:
+            catalog = host.room_placement.catalog
+            error = catalog.replacement_error(target, str(room['room_id']))
+            if not error and target in host.wall.visible_tiles():
+                catalog.place_in_target(target, room)
         added = sum(room['room_id'] not in existing for room in chosen)
-        self.on_complete(added, len(chosen) - added, '')
+        self.on_complete(added, len(chosen) - added, error)
         self.deleteLater()

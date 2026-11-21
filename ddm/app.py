@@ -1375,7 +1375,7 @@ class MainWindow(QMainWindow):
     def _on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
         return self.room_placement.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id, target_tile=target_tile)
 
-    def _on_room_added(self, room: dict, *, folder_id: str = "", target_tile=None, notify=True) -> None:
+    def _on_room_added(self, room: dict, *, folder_id: str = "", target_tile=None, notify=True) -> str | None:
         return self.room_placement.on_room_added(room, folder_id=folder_id, max_tiles=MAX_TILES, target_tile=target_tile, notify=notify)
 
     def add_to_wall(self, room: dict, *, empty_only=False) -> None:

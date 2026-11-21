@@ -192,8 +192,7 @@ class TileState:
         host._player_active = active
         host.video_danmaku.set_active(active)
         host.cover.setVisible(not active)
-        if not active:
-            host._layout_cover()
+        host._layout_cover()
         if active:
             host.spinner.stop()
             host._connecting = False

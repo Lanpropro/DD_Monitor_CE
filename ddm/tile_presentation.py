@@ -186,18 +186,33 @@ class TilePresentation:
         rounded_pixmap = render_pixmap
         host = self.host
         host.cover.setGeometry(host.video.rect())
-        button = host.add_room_button
-        button.setVisible(not host.room.get("room_id") and not host.property('pictureInPicture')
-                          and not host.property('roomDropOnly'))
-        if not button.isHidden():
-            button.adjustSize()
-            button.move(max(0, (host.video.width() - button.width()) // 2),
-                        max(0, (host.video.height() - button.height()) // 2))
-            button.raise_()
         source = getattr(host, "_cover_source", None)
+        has_cover = bool(source and not source.isNull())
+        button = host.add_room_button
+        replacing = host.can_replace_room()
+        empty = not host.room.get('room_id') and not host._player_active
+        button.setVisible((empty or replacing) and not host.property('pictureInPicture')
+                          and not host.property('roomDropOnly'))
+        status_gap = 0
+        if not button.isHidden():
+            text = '替换直播间' if replacing else '＋ 添加直播间'
+            if button.text() != text:
+                button.setText(text)
+                button.setToolTip('选择直播间替换此格' if replacing
+                                  else '添加到此空位；也可拖入关注的直播间')
+            button.adjustSize()
+            status_height = host.cover.fontMetrics().height() + 8
+            if replacing and not has_cover and host.video.height() >= button.height() + status_height:
+                status_gap = status_height
+            button.move(max(0, (host.video.width() - button.width()) // 2),
+                        max(0, (host.video.height() - button.height() + status_gap) // 2))
+            button.raise_()
+        bottom_margin = button.height() + 8 if status_gap else 0
+        if host.cover.contentsMargins().bottom() != bottom_margin:
+            host.cover.setContentsMargins(0, 0, 0, bottom_margin)
         if host.cover.isHidden():
             return
-        if source and not source.isNull():
+        if has_cover:
             radius = 0 if host.property('pictureInPicture') else 8
             key = (source.cacheKey(), host.video.width(), host.video.height(),
                    host.devicePixelRatioF(), bool(host.property("fullscreen")), radius)
@@ -218,7 +233,7 @@ class TilePresentation:
             host._cover_cached = QPixmap()
             host.cover.setScaledContents(False)
             host.cover.setPixmap(QPixmap())
-            if host._player_active or getattr(host, "_connecting", False) or host._status_detail:
+            if host._player_active or host._connecting or host._status_detail or (replacing and not status_gap):
                 host.cover.setText("")        # 播放中 / 连接中都不显示文字，避免和动画重叠
             else:
                 fallback = host.room.get("uname", "") if host.room.get("live") else "未开播"
