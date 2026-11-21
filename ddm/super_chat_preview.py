@@ -12,8 +12,8 @@ from .super_chat_layout import paint_sc_background, sc_stack_layout
 class SuperChatPlacementPreview(SkinPreview):
     """Edit independent video/panel positions and the shared live SC scale."""
     changed = Signal(dict)
-    VIDEO_AREA = QRectF(10, 10, 540, 474)
-    PANEL_AREA = QRectF(560, 332, 230, 178)
+    VIDEO_AREA = QRectF(10, 10, 480, 474)
+    PANEL_AREA = QRectF(500, 10, 290, 500)
 
     def __init__(self, parent=None):
         super().__init__(parent, editable_parts=frozenset())
@@ -187,10 +187,10 @@ class SuperChatPlacementPreview(SkinPreview):
         return bounds
 
     def _main(self, painter):
-        for index, rect in enumerate((QRectF(10, 10, 540, 500), QRectF(560, 10, 230, 151), QRectF(560, 171, 230, 151))):
-            self._box(painter, '', rect, '主画面' if index == 0 else '画面', default='#D6151A22')
-            bar = QRectF(rect.x(), rect.bottom() - 24, rect.width(), 24)
-            self._box(painter, 'controls', bar, 'Ⅱ   ♪  ━━━   ⚙')
+        video = self.VIDEO_AREA.adjusted(0, 0, 0, 26)
+        self._box(painter, '', video, '主画面', default='#D6151A22')
+        bar = QRectF(video.x(), video.bottom() - 24, video.width(), 24)
+        self._box(painter, 'controls', bar, 'Ⅱ   ♪  ━━━   ⚙')
         self._box(painter, '', self.PANEL_AREA, default='#17202B')
 
     def paintEvent(self, event):
