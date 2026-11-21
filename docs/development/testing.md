@@ -441,7 +441,7 @@ SC 自动缩放：设置 → 弹幕中的“SC 随画面缩放”默认关闭，
 
 全屏底栏交接：`python dev/run_checks.py --script selfcheck_fullscreen_switch`。检查进入及退出时，原生视频窗口先以目标尺寸显示，底栏再重建并在新位置出现。从根 `run.cmd` 播放多路直播，连续进出不同格子的全屏，观察视频切换间隔是否仍露出软件背景，以及底栏随后是否完整显示；同时检查输入草稿、透明底色、控件位置与自动隐藏。`logs/fullscreen.jsonl` 分别记录视频和底栏的显隐事件及底栏重建耗时。桌面合成效果以录屏为准。
 
-单格全屏窗口捕获试验：退出软件后，从根目录运行 `run.cmd --try-fullscreen-capture`。在 OBS 中用「窗口捕获」选中 DD监控室CE 主窗口，捕获方式选用 Windows Graphics Capture。播放一路直播，按 `F` 全屏、按 `Esc` 退出。同一捕获源应持续显示视频，退回后应恢复原窗口和画面墙。可在相同直播房间与画质下用普通 `run.cmd` 对照，结合 `logs/fullscreen.jsonl` 中的切换耗时和 OBS 统计检查差异。
+单格全屏窗口捕获：从根目录运行 `run.cmd`。在 OBS 中用「窗口捕获」选中 DD监控室CE 主窗口，捕获方式选用 Windows Graphics Capture。播放一路直播，按 `F` 全屏、按 `Esc` 退出。同一捕获源应持续显示视频，退回后应恢复原窗口和画面墙。可在相同直播房间与画质下设 `DDM_FULLSCREEN_WINDOW_CAPTURE=0` 启动对照，结合 `logs/fullscreen.jsonl` 中的切换耗时和 OBS 统计检查差异。
 
 `run.cmd --check-fullscreen-layers` 包含普通窗口和最大化窗口的句柄、播放格几何及还原回归。离线 Windows Graphics Capture 用同一会话在窗口、4K 全屏和退出后读到了 libmpv D3D11 播放的本地视频色块。2026-11-21，维护者确认 `19aa18ee` 的 OBS 单格全屏窗口捕获实机验收通过。多路直播性能仍待量化对照。
 

@@ -80,7 +80,8 @@ def check_window_capture(window):
     main_hwnd, video_hwnd = int(window.winId()), int(tile.video.winId())
     window.players[tile] = player
     try:
-        with patch.dict(os.environ, {'DDM_FULLSCREEN_WINDOW_CAPTURE': '1'}):
+        with patch.dict(os.environ):
+            os.environ.pop('DDM_FULLSCREEN_WINDOW_CAPTURE', None)
             for state in (Qt.WindowNoState, Qt.WindowMaximized):
                 window.setWindowState(state)
                 QTest.qWait(250)
@@ -132,7 +133,7 @@ def main():
         return
     app.setStyleSheet(theme.qss())
     rooms = [dict(room_id=str(9800+i), uname=f'Fixture {i}', live=False) for i in range(9)]
-    with patch.dict(os.environ, {'DDM_FULLSCREEN_WINDOW_CAPTURE': '0'}), ExitStack() as stack:
+    with ExitStack() as stack:
         for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats',
                      'refresh_account', 'load_room_avatars', 'load_cached_avatars', 'sync_danmaku',
                      'load_cached_covers', '_check_startup_update', '_check_startup_plugins'):
@@ -306,7 +307,8 @@ def main():
             finally:
                 for widget in (*panels, *viewports):
                     widget.removeEventFilter(chat_handoff)
-            check_window_capture(window)
+            with patch.object(presentation, 'enter', enter):
+                check_window_capture(window)
             window._on_fullscreen(tiles[0])
         finally:
             # Release stored focus while fixture buttons are still alive;

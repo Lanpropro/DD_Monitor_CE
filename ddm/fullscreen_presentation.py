@@ -35,8 +35,8 @@ class FullscreenPresentation(QObject):
 
     def enter(self, tile, geometry=None):
         wall = self.window.wall
-        in_main_window = (os.environ.get('DDM_FULLSCREEN_WINDOW_CAPTURE') == '1'
-                          and QApplication.platformName() == 'windows')
+        in_main_window = (geometry is None and QApplication.platformName() == 'windows'
+                          and os.environ.get('DDM_FULLSCREEN_WINDOW_CAPTURE') != '0')
         geometry = QRect(geometry if geometry is not None else self.window.screen().geometry())
         self.tile = tile
         self._flags, self._geometry = tile.windowFlags(), QRect(tile.geometry())
