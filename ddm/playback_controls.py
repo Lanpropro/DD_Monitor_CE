@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QFrame, QPushButton, QStyle, QStyleOption, QStyleO
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .config import DEFAULT_VOLUME
+from .dock_feedback import icon_color as navigation_icon_color
 
 
 class TileButton(QPushButton):
@@ -469,14 +470,17 @@ class RefreshButton(TileButton):
         painter.translate(center)
         painter.rotate(self._angle)
         painter.translate(-center)
+        navigation = self.objectName() == 'NavigationButton'
         if self.property("refreshing"):
             color = QColor(theme.ACCENT)
+        elif navigation:
+            color = navigation_icon_color(self)
         else:
             color = _icon_color(self, hover_dark=self.objectName() not in ("ChipButton", "BarIcon"))
-        radius = min(7.0, self.height() / 2 - 5)
+        radius = min(6.0 if navigation else 7.0, self.height() / 2 - 5)
         rect = QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
-        pen = QPen(color, 1.7)
-        pen.setCapStyle(Qt.FlatCap)
+        pen = QPen(color, 1.3 if navigation else 1.7)
+        pen.setCapStyle(Qt.RoundCap if navigation else Qt.FlatCap)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawArc(rect, 40 * 16, 140 * 16)
@@ -484,7 +488,7 @@ class RefreshButton(TileButton):
         painter.setPen(Qt.NoPen)
         painter.setBrush(color)
         for angle, direction in ((40, -1), (220, -1)):
-            _draw_arrow_head(painter, center, radius, angle, direction)
+            _draw_arrow_head(painter, center, radius, angle, direction, 2.5 if navigation else 3.4)
 
 
 class DanmakuToggleButton(TileButton):

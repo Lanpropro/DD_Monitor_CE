@@ -29,6 +29,7 @@ PATHS = {
     'expand': '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18m4-12 3 3-3 3"/>',
     'folders_expand': '<path d="m6 4 6 5 6-5M6 14l6 5 6-5"/>',
     'folders_collapse': '<path d="m6 9 6-5 6 5M6 19l6-5 6 5"/>',
+    'multiselect': '<rect x="3.5" y="8" width="12.5" height="12.5" rx="2"/><path d="M8 4h12v12m-14-2 2 2 5-5"/>',
     'filter_all': '<path d="M6 3h12"/><rect x="3" y="7" width="18" height="14" rx="2"/><path d="m10 11 6 3-6 3Z"/>',
     'filter_live': '<path d="M8 8a6 6 0 0 0 0 8m8-8a6 6 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
     'pin': '<path d="m9 3 6 0-1 7 4 4v2H6v-2l4-4ZM12 16v6"/>',
@@ -427,10 +428,6 @@ class SidebarNavigation(QObject):
             if self.filters.layout().indexOf(button) < 0:
                 sidebar._detach_from_rows(button)
                 self.filters.layout().addWidget(button)
-                button.setObjectName('BarIcon')
-                button.setFixedSize(26, 26)
-                button.style().unpolish(button)
-                button.style().polish(button)
             button.setVisible(not sidebar.collapsed)
         if not self.in_rail:
             for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,

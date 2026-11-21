@@ -139,6 +139,32 @@ class PortraitUiTests(unittest.TestCase):
                     self.assertEqual(button.isVisible(), not collapsed)
                     self.assertIs(button.parentWidget(), portrait.controls)
 
+    def test_follow_actions_share_folder_button_style_in_both_orientations(self):
+        sidebar = self.sidebar
+        folder = sidebar.navigation.folder_toggle_button
+        previous = theme.mode()
+        self.addCleanup(theme.apply, previous)
+
+        def background(button):
+            image = button.grab().toImage()
+            scale = image.devicePixelRatio()
+            return image.pixelColor(round(4 * scale), round(button.height() * scale / 2))
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            self.host.setStyleSheet(theme.qss())
+            for side in ('left', 'top'):
+                sidebar.set_side(side)
+                settle()
+                for button in (sidebar.batch_button, sidebar.refresh_button):
+                    with self.subTest(mode=mode, side=side, button=button.accessibleName()):
+                        self.assertEqual(button.objectName(), folder.objectName())
+                        self.assertEqual(button.size(), folder.size())
+                        for hovered in (False, True):
+                            for item in (folder, button):
+                                item.setAttribute(Qt.WA_UnderMouse, hovered)
+                            self.assertEqual(background(button), background(folder))
+
     def test_follow_toolbar_keeps_buttons_inside_narrow_portrait_width(self):
         sidebar, nav = self.sidebar, self.sidebar.navigation
         for width in (360, 450, 720):

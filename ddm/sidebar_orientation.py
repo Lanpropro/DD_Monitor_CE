@@ -3,7 +3,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLayout, QSizePolicy, QWidget
 from . import theme
 from .sidebar_navigation import RAIL_WIDTH
-from .ui.toolbar import BarIconButton
 from .sidebar_portrait import PortraitSidebar
 from .widget_support import NAV_ITEM_GAP, NAV_ITEM_HEIGHT, _repolish
 from PySide6.QtCore import QPoint, QRect, QRectF, QTimer, Qt, Signal
@@ -195,41 +194,22 @@ class SidebarOrientation:
                 host._bar_right_box.setStretch(index, 0)
 
     def bar_icons(self) -> tuple:
-        """横栏里当小图标用的三个按钮（横屏时它们各有各的文字位置）。"""
+        """在状态行和顶部工具栏之间切换样式的按钮。"""
         host = self.host
-        return (host.batch_button, host.notification_button, host.appearance_button, host.refresh_button,
-                host.clear_wall_button)
+        return (host.notification_button, host.appearance_button, host.clear_wall_button)
 
     def sync_bar_icons(self) -> None:
-        """竖屏工具统一用图标；横屏多选仍为紧凑图标。"""
+        """同步横竖屏状态行按钮样式。"""
         if self.host.side == 'top':
             return self.portrait.sync_density()
         host = self.host
-        top = host.side == "top"
-        host.batch_button.setProperty("sidebarCompact", not top)
-        host.notification_button.setProperty("sidebarCompact", not top)
-        if top:
-            # 图标是自己画的（BarIconButton）：字形在雅黑下会偏左 / 偏小。
-            # 按钮换成 #BarIcon 那套方形样式，ChipButton 的 10px 内边距会挤掉图标
-            for button in host._bar_icons():
-                button.setObjectName("BarIcon")
-                button.setFixedSize(30, 30)
-                if isinstance(button, BarIconButton):
-                    button.set_icon_mode(True)
-        else:
-            for button in host._bar_icons():
-                button.setObjectName("ChipButton")
-                button.setMinimumSize(0, 0)
-                button.setMaximumSize(16_777_215, 16_777_215)
-                if isinstance(button, BarIconButton):
-                    button.set_icon_mode(False)
-            host.batch_button.setObjectName("BarIcon")
-            host.batch_button.set_icon_mode(True)
-            host.batch_button.setFixedSize(22, 22)
-            host.refresh_button.setFixedSize(28, 22)  # RefreshButton 的原始尺寸
-        if not top:
-            host.notification_button.setObjectName("BarIcon")
-            host.notification_button.setFixedSize(22, 22)
+        host.notification_button.setProperty("sidebarCompact", True)
+        for button in host._bar_icons():
+            button.setObjectName("ChipButton")
+            button.setMinimumSize(0, 0)
+            button.setMaximumSize(16_777_215, 16_777_215)
+        host.notification_button.setObjectName("BarIcon")
+        host.notification_button.setFixedSize(22, 22)
         host.appearance_button.setFixedSize(22, 22)
         for button in host._bar_icons():
             _repolish(button)

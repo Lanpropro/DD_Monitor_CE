@@ -98,9 +98,6 @@ class PortraitSidebar:
             for widget in (nav.filters, nav.folder_toggle_button, host.batch_button, host.refresh_button,
                            host.toggle_button, nav.add_button, nav.manage_button):
                 self.controls_box.addWidget(widget)
-            for button in (host.batch_button, host.refresh_button):
-                button.setObjectName('BarIcon')
-                button.setFixedSize(26, 26)
             nav.filters.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             host.search.setMinimumWidth(96)
             self._detach(host.scroll)

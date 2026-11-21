@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from . import follow_folders, layouts, motion, theme, version as version_module
 from .account_widgets import AccountPopupMenu, AccountRow
 from .avatar_widgets import RoomStrip
-from .dock_feedback import icon_color
+from .dock_feedback import attach, icon_color
 from .folder_icons import create_folder_dialog
 from .playback_controls import RefreshButton, SidebarToggleButton
 from .sidebar_item import NavItem
@@ -22,7 +22,6 @@ from .sidebar_list import CarouselScroll, RoomListBox
 from .sidebar_folders import FollowFolderButton, SmartFolderCard, SmartFolderDialog
 from .sidebar_drag import SidebarDrag
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
-from .ui.toolbar import BarIconButton
 from .watch_history import WatchHistory
 from .widget_support import (
     BRAND_ASSETS_DIR, NAV_ITEM_GAP, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, _repolish
@@ -214,16 +213,10 @@ class Sidebar(QFrame):
         self.title_box.addWidget(title)
         self.title_box.addWidget(subtitle)
         self._set_brand_header(compact=False)
-        self.batch_button = BarIconButton("多选", "check")
-        self.batch_button.setObjectName("ChipButton")
-        self.batch_button.setCursor(Qt.PointingHandCursor)
+        self.batch_button = NavigationButton("多选直播间", "multiselect")
         self.batch_button.setToolTip("多选卡片后可一起拖动、移到最前或最后，也可批量删除")
         self.batch_button.setCheckable(True)
-        self.batch_button.setAccessibleName("多选直播间")
-        self.batch_button.setObjectName("BarIcon")
-        self.batch_button.setProperty("sidebarCompact", True)
-        self.batch_button.set_icon_mode(True)
-        self.batch_button.setFixedSize(22, 22)
+        self.batch_button.setFixedSize(26, 26)
         self.batch_button.clicked.connect(lambda: self.set_select_mode(not self.select_mode))
         self.toggle_button = SidebarToggleButton(self)
         self.toggle_button.setToolTip("收起 / 展开房间列表")
@@ -262,7 +255,11 @@ class Sidebar(QFrame):
         self.count_label.setToolTip("右键文件夹标题可设置该文件夹的排序")
         from .notification_center import NotificationButton
         self.notification_button = NotificationButton(self)
-        self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
+        self.refresh_button = RefreshButton(object_name="NavigationButton")
+        self.refresh_button.setFixedSize(26, 26)
+        self.refresh_button.setAccessibleName("刷新关注状态")
+        self.refresh_button.setFocusPolicy(Qt.TabFocus)
+        attach(self.refresh_button)
         self.appearance_button = AppearanceButton(self)
         self.appearance_button.clicked.connect(lambda: self.appearanceChanged.emit(
             "dark" if theme.is_light() else "light"))
