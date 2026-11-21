@@ -428,16 +428,49 @@ def check_windowed_overlay(app):
             assert first.bottom.isHidden() and second.bottom.isVisible()
             first._layout_areas()
             assert first.bottom.isHidden(), 'Layout must not remap an occluded bar'
-            overlap = QRect(first.bottom.geometry())
+            bar = first.bottom
+            overlap = QRect(bar.geometry())
+            overlap.setWidth(bar.width() // 2)
+            settings._set_occlusion(overlap)
+            covered = bar.mapFromGlobal(overlap.center())
+            exposed = QPoint(3 * bar.width() // 4, bar.height() // 2)
+            assert bar.isVisible(), 'A partial overlap must keep the exposed controls available'
+            assert not bar.mask().contains(covered) and bar.mask().contains(exposed)
+            user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+            user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
+            gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+            gdi32.CreateRectRgn.restype = wintypes.HRGN
+            gdi32.PtInRegion.argtypes = (wintypes.HRGN, ctypes.c_int, ctypes.c_int)
+            gdi32.DeleteObject.argtypes = (wintypes.HGDIOBJ,)
+            native_region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            try:
+                assert user32.GetWindowRgn(int(bar.winId()), native_region)
+                scale = bar.devicePixelRatioF()
+                assert not gdi32.PtInRegion(native_region, round(covered.x() * scale), round(covered.y() * scale))
+                assert gdi32.PtInRegion(native_region, round(exposed.x() * scale), round(exposed.y() * scale))
+            finally:
+                gdi32.DeleteObject(native_region)
+            first._layout_areas()
+            assert not bar.mask().contains(covered) and bar.mask().contains(exposed)
+
+            with patch.dict(window.settings, {auto_hide: True}):
+                first.set_controls_visible(False)
+                assert bar.isHidden()
+                first.set_controls_visible(True)
+                assert bar.isVisible() and not bar.mask().contains(covered)
+
             overlap.setWidth(8)
             settings._set_occlusion(overlap)
+            edge = QPoint(4, bar.height() // 2)
+            assert not bar.mask().contains(edge)
             position = first.pos()
             first.move(position + QPoint(12, 0))
-            assert first.bottom.isVisible()
+            assert bar.mask().contains(edge)
             first.move(position)
-            assert first.bottom.isHidden()
+            assert bar.isVisible() and not bar.mask().contains(edge)
             settings._set_occlusion(QRect(second.bottom.geometry()))
             assert first.bottom.isVisible() and second.bottom.isHidden()
+            assert bar.mask().contains(covered)
             with patch.dict(window.settings, {auto_hide: True}):
                 second.set_controls_visible(False)
                 settings.visible = False

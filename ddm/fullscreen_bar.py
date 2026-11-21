@@ -135,15 +135,12 @@ class FullscreenBar(QWidget):
             # An independent tile already has global geometry before Qt exposes it.
             position += tile.geometry().topLeft() if tile.isWindow() else tile.mapToGlobal(QPoint())
         self.setGeometry(QRect(position, self._tile_rect.size()))
-        if self.windowed_overlay:
-            outline = continuous_path(tile.rect().adjusted(1, 1, -1, -1), 9)
-            visible = QRegion(outline.toFillPolygon().toPolygon()).intersected(self._tile_rect)
-            self.setMask(visible.translated(-self._tile_rect.topLeft()))
-        elif self.qt_composited:
-            visible = self._tile_rect.intersected(tile.rect())
-            self.setMask(QRegion(visible.translated(-self._tile_rect.topLeft())))
-        else:
-            self.clearMask()
+        if not self.windowed_overlay:
+            if self.qt_composited:
+                visible = self._tile_rect.intersected(tile.rect())
+                self.setMask(QRegion(visible.translated(-self._tile_rect.topLeft())))
+            else:
+                self.clearMask()
 
     def prepare_fullscreen_frame(self):
         if not self.qt_composited:
@@ -165,20 +162,36 @@ class FullscreenBar(QWidget):
         self.sync_windowed_visibility()
 
     def sync_windowed_visibility(self):
-        if self.windowed_overlay:
-            tile = self.parentWidget()
-            owner = tile.window()
-            auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
-            visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
-            settings = getattr(owner, '_settings_process', None)
-            if visible and self.qt_composited and settings is not None and settings.visible and not settings.closing:
-                bar_rect = QRect(tile.mapToGlobal(self._tile_rect.topLeft()), self._tile_rect.size())
-                visible = bool(settings.window_hwnd) and not settings.occlusion.intersects(bar_rect)
-            if self.isHidden() == visible:
-                if visible and self.qt_composited:
-                    self.set_tile_geometry(*self._tile_rect.getRect())
-                self.setVisible(visible)
-                tile._update_quick_danmaku_mask()
+        if not self.windowed_overlay:
+            return
+        tile = self.parentWidget()
+        owner = tile.window()
+        auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
+        visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
+        composited = self.qt_composited
+        settings = getattr(owner, '_settings_process', None) if composited else None
+        mask_changed = False
+        if visible:
+            if composited and self.isHidden():
+                self.set_tile_geometry(*self._tile_rect.getRect())
+            outline = continuous_path(tile.rect().adjusted(1, 1, -1, -1), 9)
+            region = QRegion(outline.toFillPolygon().toPolygon()).intersected(self._tile_rect)
+            region.translate(-self._tile_rect.topLeft())
+            if settings is not None and settings.visible and not settings.closing:
+                if settings.window_hwnd:
+                    region -= QRegion(settings.occlusion.translated(-self.geometry().topLeft()))
+                else:
+                    region = QRegion()
+            # Qt treats an empty window mask as unmasked, so hide a fully covered bar.
+            visible = not region.isEmpty()
+            mask_changed = visible and region != self.mask()
+            if mask_changed:
+                self.setMask(region)
+        visibility_changed = self.isHidden() == visible
+        if visibility_changed:
+            self.setVisible(visible)
+        if mask_changed or visibility_changed:
+            tile._update_quick_danmaku_mask()
 
     def refresh_theme(self):
         self.update()
