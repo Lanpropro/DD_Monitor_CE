@@ -104,21 +104,24 @@ class NavigationButton(QPushButton):
 
 class AddRoomButton(NavigationButton):
     openRequested = Signal()
+    closeRequested = Signal()
+    _OPEN_ANGLE = 45.0
 
     def __init__(self, parent):
         super().__init__('添加与导入', 'plus', parent)
         self._pointer_click = False
+        self._opening = False
+        self.panel_open = False
+        self._angle = 0.0
         self._turn = QVariantAnimation(self)
         self._turn.setDuration(motion.CONTROL_FEEDBACK_MS)
         self._turn.setEasingCurve(motion.THEME_WAVE_EASING)
-        self._turn.setStartValue(0.0)
-        self._turn.setEndValue(90.0)
-        self._turn.valueChanged.connect(lambda _angle: self.update())
-        self._turn.finished.connect(self.openRequested.emit)
-        self.clicked.connect(self._open)
+        self._turn.valueChanged.connect(self._set_angle)
+        self._turn.finished.connect(self._finish_open)
+        self.clicked.connect(self._toggle_panel)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self._turn.state() == QAbstractAnimation.Running:
+        if event.button() == Qt.LeftButton and self._opening:
             event.accept()
             return
         super().mousePressEvent(event)
@@ -130,26 +133,54 @@ class AddRoomButton(NavigationButton):
         finally:
             self._pointer_click = False
 
-    def _open(self):
-        if self._pointer_click and self.isVisible() and motion.enabled():
-            if self._turn.state() != QAbstractAnimation.Running:
-                self._turn.start()
+    def _toggle_panel(self):
+        if self.panel_open:
+            self.closeRequested.emit()
             return
-        self.cancel_open()
+        if self._opening and self._pointer_click:
+            return
+        self._opening = True
+        self._rotate_to(self._OPEN_ANGLE, animate=self._pointer_click)
+        if self._turn.state() == QAbstractAnimation.Stopped:
+            self._finish_open()
+
+    def _finish_open(self):
+        if not self._opening:
+            return
+        self._opening = False
+        self.panel_open = True
         self.openRequested.emit()
 
+    def _set_angle(self, angle):
+        self._angle = angle
+        self.update()
+
+    def _rotate_to(self, angle, *, animate):
+        self._turn.stop()
+        if animate and self.isVisible() and motion.enabled() and self._angle != angle:
+            self._turn.setStartValue(self._angle)
+            self._turn.setEndValue(angle)
+            self._turn.start()
+        else:
+            self._set_angle(angle)
+
     def cancel_open(self):
-        if self._turn.state() == QAbstractAnimation.Running:
-            self._turn.stop()
-            self.update()
+        if self._opening:
+            self._opening = False
+            self._rotate_to(0.0, animate=False)
+
+    def panel_dismissed(self):
+        if self.panel_open:
+            self.panel_open = False
+            self._rotate_to(0.0, animate=True)
 
     def hideEvent(self, event):
-        self.cancel_open()
+        self._opening = False
+        self._rotate_to(self._OPEN_ANGLE if self.panel_open else 0.0, animate=False)
         super().hideEvent(event)
 
     def _paint_icon(self, painter):
-        if self._turn.state() == QAbstractAnimation.Running:
-            painter.rotate(self._turn.currentValue())
+        painter.rotate(self._angle)
         super()._paint_icon(painter)
 
 

@@ -27,6 +27,9 @@ class RoomAddPanel(QFrame):
         super().__init__(sidebar.window(), flags)
         self.sidebar = sidebar
         sidebar.room_add_panel = self
+        self._header_add_button = sidebar.navigation.add_button
+        self._header_add_button.closeRequested.connect(self.close_editor)
+        self.dismissed.connect(self._header_add_button.panel_dismissed)
         self.busy = False
         self._focus_on_close = None
         self.folder_id = ''
@@ -240,6 +243,10 @@ class RoomAddPanel(QFrame):
         self.preset_button.setChecked(False)
         self.dismissed.emit()
 
+    def closeEvent(self, event):
+        self.close_editor()
+        super().closeEvent(event)
+
     def _import(self):
         self.close_editor()
         self.sidebar.import_button.click()
@@ -314,5 +321,6 @@ class RoomAddPanel(QFrame):
             elif (event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget)
                   and watched.window() is owner and watched is not self
                   and not self.isAncestorOf(watched)):
-                self.close_editor(click_target=watched)
+                if watched is not self._header_add_button or not self._header_add_button.panel_open:
+                    self.close_editor(click_target=watched)
         return super().eventFilter(watched, event)

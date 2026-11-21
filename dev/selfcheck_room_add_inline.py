@@ -185,8 +185,8 @@ class InlineRoomAddTests(unittest.TestCase):
             self.assertIsNone(self.catalog._add_panel)
             start = button.grab().toImage()
             turn.setCurrentTime(turn.duration() // 4)
-            self.assertGreater(turn.currentValue(), 0)
-            self.assertLess(turn.currentValue(), 90)
+            self.assertGreater(button._angle, 0)
+            self.assertLess(button._angle, 45)
             self.assertNotEqual(button.grab().toImage(), start)
             elapsed = turn.currentTime()
             QTest.mouseClick(button, Qt.LeftButton)
@@ -196,7 +196,7 @@ class InlineRoomAddTests(unittest.TestCase):
             QTest.qWait(turn.duration() + 60)
             QTest.mouseRelease(button, Qt.LeftButton)
             self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
-            self.assertEqual(turn.currentValue(), 90)
+            self.assertEqual(button._angle, 45)
             self.assertEqual(requests.count(), 1)
             panel = self.catalog._add_panel
             self.assertTrue(panel.isVisible())
@@ -204,26 +204,71 @@ class InlineRoomAddTests(unittest.TestCase):
             self.assertIs(self.app.focusWidget(), panel.entry)
 
             panel.close_editor()
+            turn.setCurrentTime(turn.duration() // 4)
+            returning_angle = button._angle
+            self.assertGreater(returning_angle, 0)
+            self.assertLess(returning_angle, 45)
             QTest.mouseClick(button, Qt.LeftButton)
-            self.assertEqual(turn.currentValue(), 0)
+            self.assertAlmostEqual(button._angle, returning_angle)
             self.assertFalse(panel.isVisible())
             turn.setCurrentTime(turn.duration())
             self.assertTrue(panel.isVisible())
+            self.assertEqual(button._angle, 45)
             self.assertEqual(requests.count(), 2)
+
+    def test_sidebar_plus_turns_back_after_each_panel_dismissal(self):
+        sidebar = self.host.sidebar
+        button = sidebar.navigation.add_button
+        sidebar.addRoomClicked.connect(lambda: self.catalog.open_add_room(resolver_type=Resolver))
+        turn = button._turn
+        with patch.object(motion, 'enabled', return_value=True):
+            for method in ('close button', 'Escape', 'outside click', 'rotated plus', 'window close'):
+                with self.subTest(method=method):
+                    QTest.mouseClick(button, Qt.LeftButton)
+                    turn.setCurrentTime(turn.duration())
+                    panel = self.catalog._add_panel
+                    self.assertTrue(panel.isVisible())
+                    self.assertEqual(button._angle, 45)
+                    if method == 'Escape':
+                        QTest.keyClick(panel.entry, Qt.Key_Escape)
+                    elif method == 'window close':
+                        panel.close()
+                    else:
+                        target = {'close button': panel.close_button, 'outside click': sidebar.search,
+                                  'rotated plus': button}[method]
+                        QTest.mouseClick(target, Qt.LeftButton)
+                    self.assertFalse(panel.isVisible())
+                    self.assertEqual(turn.state(), QAbstractAnimation.Running)
+                    self.assertEqual(button._angle, 45)
+                    turn.setCurrentTime(turn.duration() // 4)
+                    self.assertGreater(button._angle, 0)
+                    self.assertLess(button._angle, 45)
+                    turn.setCurrentTime(turn.duration())
+                    self.assertEqual(button._angle, 0)
+                    self.assertFalse(panel.isVisible())
 
     def test_sidebar_plus_skips_or_cancels_turn_for_other_input(self):
         sidebar = self.host.sidebar
         button = sidebar.navigation.add_button
+        sidebar.addRoomClicked.connect(lambda: self.catalog.open_add_room(resolver_type=Resolver))
         requests = QSignalSpy(sidebar.addRoomClicked)
         turn = button._turn
 
         QTest.mouseClick(button, Qt.LeftButton)  # System animation disabled.
         self.assertEqual(requests.count(), 1)
         self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+        self.assertEqual(button._angle, 45)
+        panel = self.catalog._add_panel
+        panel.close_editor()
+        self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+        self.assertEqual(button._angle, 0)
         with patch.object(motion, 'enabled', return_value=True):
             QTest.keyClick(button, Qt.Key_Space)
             self.assertEqual(requests.count(), 2)
             self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+            self.assertEqual(button._angle, 45)
+            panel.close_editor()
+            turn.setCurrentTime(turn.duration())
             for method, cancel in (
                     ('outside click', lambda: QTest.mouseClick(sidebar.search, Qt.LeftButton)),
                     ('Escape', lambda: QTest.keyClick(button, Qt.Key_Escape)),
@@ -233,6 +278,7 @@ class InlineRoomAddTests(unittest.TestCase):
                     self.assertEqual(turn.state(), QAbstractAnimation.Running)
                     cancel()
                     self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
+                    self.assertEqual(button._angle, 0)
                     self.assertEqual(requests.count(), 2)
 
     def test_native_panel_composes_on_an_owned_surface_with_complete_border(self):
