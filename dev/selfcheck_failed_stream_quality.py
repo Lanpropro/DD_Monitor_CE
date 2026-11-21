@@ -69,7 +69,7 @@ player.report_video_resolution = True
 properties = {'time-pos': 1, 'vo-configured': True, 'video-params': {'w': 1920, 'h': 1080}}
 player._prop = lambda name, default=None: properties.get(name, default)
 player._recover_decoder = lambda: False
-playback = StreamPlayback(SimpleNamespace(_tile_of_player=lambda _: tile, _closing=False))
+playback = StreamPlayback(SimpleNamespace(_tile_of_player=lambda _: tile, _closing=False, wall=SimpleNamespace()))
 reported = []
 player.videoResolutionChanged.connect(reported.append)
 player.videoResolutionChanged.connect(lambda resolution: playback.on_video_resolution(player, resolution))

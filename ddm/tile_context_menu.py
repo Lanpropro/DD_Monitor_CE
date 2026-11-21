@@ -43,9 +43,11 @@ class TileContextMenu:
             quality.setEnabled(False)
         elif host.room.get('room_id'):
             quality_menu = menu.addMenu("画质")
+            quality_menu.setToolTipsVisible(True)
             quality_menu.menuAction().setData('quality')
             for name, value in host._quality_choices():
                 action = quality_menu.addAction(name)
+                action.setToolTip(host._quality_name(value))
                 action.setCheckable(True)
                 action.setChecked(value == host.quality)
                 action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))

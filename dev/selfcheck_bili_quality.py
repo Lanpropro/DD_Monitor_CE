@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMenu  # noqa: E402
 from ddm import bili  # noqa: E402
+from ddm.quality_labels import compact_quality_label  # noqa: E402
 from ddm.widgets import Tile  # noqa: E402
 
 
@@ -40,6 +41,11 @@ def app_payload(accepted):
 
 def main():
     application = QApplication([])
+    for raw, expected in (("原画高码率 · 1920×1080 · 59.94 fps · 8 Mbps", "1080P · 59.94FPS"),
+                          ("原画1080P60", "1080P · 60FPS"),
+                          ("原画1080P@60.0", "1080P · 60FPS"),
+                          ("1080P 80Mbps 高码率", "1080P"), ("杜比 4K 120 帧", "4K · 120FPS")):
+        assert compact_quality_label({'qn': 10000, 'desc': raw}) == expected
     payload = app_payload([25000, 10000, 400, 250])
     with patch.object(bili.requests, "get", return_value=response(payload)) as get:
         options = bili.room_quality_options("27183290")
@@ -72,7 +78,7 @@ def main():
     selected = []
     tile.qualityChanged.connect(lambda *args: selected.append(args))
     def choose(menu, *_):
-        action = next(action for action in menu.actions() if action.text() == "2K 原画")
+        action = next(action for action in menu.actions() if action.text() == "2K")
         action.trigger()
         menu.close()
     def create_menu(parent):
@@ -85,9 +91,21 @@ def main():
     tile.set_actual_quality(25000)
     assert tile._quality_text() == "2K"
     tile.set_actual_quality(10000)
-    assert tile._quality_text() == "原画"
+    assert tile._quality_text() == "1080P"
     assert "2K 原画" in tile.quality_button.toolTip(), tile.quality_button.toolTip()
     assert "1080P 高码率" in tile.quality_button.toolTip()
+    same_resolution = dict(tile._quality_choices())
+    assert same_resolution['1080P · 高码率'] == 10000 and 400 in same_resolution.values()
+    tile.set_quality_options([{"qn": 10000, "desc": "原画"}, {"qn": 400, "desc": "蓝光"}])
+    assert tile._quality_text() == '原画'
+    tile.state_control.set_source_resolution('1920×1080')
+    assert tile._quality_text() == '1080P'
+    tile.state_control.set_source_resolution('3840×2160')
+    assert tile._quality_text() == '4K'
+    tile.set_actual_quality(400)
+    assert tile._quality_text() == '1080P'
+    tile.set_quality(10000)
+    assert tile._quality_text() == '原画', 'The last stream resolution must not leak into a new selection'
     resolved = []
     resolver = bili.StreamResolver("27183290", 25000)
     resolver.resolved.connect(lambda *args: resolved.append(args))

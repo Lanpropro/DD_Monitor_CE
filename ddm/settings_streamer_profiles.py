@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushBu
                               QScrollArea, QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
+from .quality_labels import compact_quality_label, distinguish_quality_labels
 from .room_artwork import platform_icon, room_platform
 from .settings_layout import SettingsColumns
 from .settings_navigation import _icon as paint_settings_icon
@@ -15,9 +16,9 @@ RECORDING_MODES = (('沿用全局', None), ('普通录制', 'normal'), ('DDCut �
 RECORDING_MODE_SUMMARY = {None: '全局', 'normal': '普通', 'clip': '切片'}
 
 
-def quality_label(value):
+def quality_label(value, room_id=None):
     if isinstance(value, dict):
-        return value['label']
+        return value['label'] if room_id is None else compact_quality_label(value, bili=room_id.isdigit())
     return QUALITY_LABELS.get(value, '继承')
 
 
@@ -268,7 +269,8 @@ class StreamerProfileCard(QFrame):
         self.update_quality()
 
     def update_summary(self):
-        values = self.page.entries[self.editing_rooms[0]]
+        first = self.editing_rooms[0]
+        values = self.page.entries[first]
         auto_record = bool(values.get('auto_record'))
         windows_notice = bool(values.get('windows_recording_notice'))
         windows_available = self.page.windows_notice_available
@@ -304,7 +306,7 @@ class StreamerProfileCard(QFrame):
             if key == 'volume':
                 value = f"{values['volume']}%" if 'volume' in values else '继承'
             else:
-                value = quality_label(values.get(key))
+                value = quality_label(values.get(key), first)
             hint = f"{view.property('summaryLabel')} · {value}"
             view.setText(value)
             view.setAccessibleName(hint)
@@ -312,26 +314,31 @@ class StreamerProfileCard(QFrame):
 
     def update_quality(self):
         rooms = self.editing_rooms
+        first = rooms[0]
         pending = any(room_id in self.page.requests for room_id in rooms)
         catalogs = {room_id: self.page.qualities.get(room_id, ([], '')) for room_id in rooms}
         available = False
         highest = QUALITY_LABELS[0]
         for key, control in (('playback', self.playback), ('recording', self.recording)):
             selected = {room_id: self.page.entries[room_id].get(key) for room_id in rooms}
-            saved = selected[rooms[0]]
+            saved = selected[first]
             with QSignalBlocker(control):
                 control.clear()
                 control.addItem('继承', None)
                 control.addItem(highest, dict.fromkeys(rooms, 0))
                 index = 1 if all(value == 0 for value in selected.values()) else 0
-                for label, choices in self._quality_choices(key, catalogs):
+                choices_by_tier = self._quality_choices(key, catalogs)
+                options = [choices[first] for choices in choices_by_tier]
+                labels = distinguish_quality_labels(
+                    [quality_label(option, first) for option in options], options)
+                for label, choices in zip(labels, choices_by_tier):
                     available = True
                     control.addItem(f'{label}（平台）' if label == highest else label, choices)
                     if all(isinstance(selected[room_id], dict)
                            and selected[room_id]['qn'] == choice['qn'] for room_id, choice in choices.items()):
                         index = control.count() - 1
                 if saved is not None and index == 0:
-                    control.addItem(f'{quality_label(saved)}（已保存）', selected)
+                    control.addItem(f'{quality_label(saved, first)}（已保存）', selected)
                     index = control.count() - 1
                 control.setCurrentIndex(index)
         error = next((error for _choices, error in catalogs.values() if error), '')
@@ -345,12 +352,15 @@ class StreamerProfileCard(QFrame):
                    for room_id, (choices, _) in catalogs.items()}
         first = self.editing_rooms[0]
         if self.room_id is not None:
-            return [(choice['label'], {first: choice}) for choice in options[first]]
+            return [{first: choice} for choice in options[first]]
+        bili_group = all(room_id.isdigit() for room_id in options)
         by_label = {}
         for room_id, choices in options.items():
             labels = by_label[room_id] = {}
             for choice in choices:
-                labels.setdefault(choice['label'].strip().casefold(), choice)
-        return [(choice['label'], {room_id: labels[key] for room_id, labels in by_label.items()})
-                for key, choice in by_label[first].items()
+                key = ((quality_label(choice, room_id), choice['qn']) if bili_group
+                       else choice['label'].strip().casefold())
+                labels.setdefault(key, choice)
+        return [{room_id: labels[key] for room_id, labels in by_label.items()}
+                for key in by_label[first]
                 if all(key in labels for labels in by_label.values())]

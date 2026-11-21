@@ -282,10 +282,13 @@ class SettingsNavigationTests(unittest.TestCase):
         card.toggle.click()
         self.assertNotEqual(requests['1002'], stale)
         self.assertEqual(card.recording.currentText(), '最高可用')
-        dialog.receive_streamer_quality('1002', requests['1002'], [{'qn': 250, 'label': '超清'}], '')
+        dialog.receive_streamer_quality('1002', requests['1002'], [
+            {'qn': 250, 'label': '超清'}, {'qn': 400, 'label': '1080p 常规画质'}], '')
+        self.assertEqual(card.playback.itemData(card.playback.findText('1080P')), {
+            '1001': {'qn': 400, 'label': '蓝光'}, '1002': {'qn': 400, 'label': '1080p 常规画质'}})
         card.avatars['1001'].click()
         self.assertEqual(card.playback.currentText(), '最高可用')
-        self.assertIn('蓝光', [card.playback.itemText(index) for index in range(card.playback.count())])
+        self.assertIn('1080P', [card.playback.itemText(index) for index in range(card.playback.count())])
         card.playback.setCurrentIndex(card.playback.findText('继承'))
         APP.processEvents()
         self.assertNotIn('playback', page.entries['1001'])

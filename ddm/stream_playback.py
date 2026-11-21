@@ -325,9 +325,12 @@ class StreamPlayback:
             player.decoderFallback.connect(lambda mode, p=player: host._on_decoder_fallback(p, mode))
             host.players[tile] = player
         fixed_quality = source_quality_option(tile.quality_options) is not None
+        bili_room = str(tile.room.get('room_id', '')).isdigit()
+        report_original_resolution = bili_room and (quality or tile.quality) == 10000
         grid = getattr(host.wall, 'snap_grid', None)
-        player.report_video_resolution = fixed_quality or (grid is not None and grid.wants_video_aspect(tile))
-        if fixed_quality:
+        player.report_video_resolution = (fixed_quality or report_original_resolution
+                                          or (grid is not None and grid.wants_video_aspect(tile)))
+        if fixed_quality or bili_room:
             tile.state_control.set_source_resolution('')
         player.freeze_watch = bool(host.settings.get("freeze_watch", True))
         player.set_volume_normalization(bool(host.settings.get("volume_normalization", False)), host.settings.get('volume_normalization_curve'))
