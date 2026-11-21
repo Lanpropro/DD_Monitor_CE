@@ -128,13 +128,16 @@ class TileState:
         host.apply_video_danmaku_settings()
         host.videoDanmakuSettingsChanged.emit({})
 
-    def set_recording_state(self, state: str) -> None:
+    def set_recording_state(self, state: str, *, managed: bool = False) -> None:
         host = self.host
         host._recording_state = state
+        host.recording_button.setProperty("managedRecording", managed)
+        host.recording_button.setEnabled(not managed)
         host._update_recording_button()
         host.recording_button.setProperty("recording", state == "record")
         _repolish(host.recording_button)
         host.recording_button.setToolTip(
+            "录制由「主播监控」管理" if managed else
             "停止录制这一路" if state == "record" else
             "即时回放缓存中；点击开始完整录制" if state == "cache" else
             "开始录制这一路（右键可保存即时回放）")
@@ -168,14 +171,17 @@ class TileState:
             return
         narrow = host.width() < 320
         state = getattr(host, "_recording_state", "")
+        managed = bool(host.recording_button.property('managedRecording'))
+        compact_rec = narrow and managed and state == 'record'
         host.recording_button.setProperty('replayOnly', state == 'cache')
         host.recording_button.setAccessibleName(
+            ('正在录制，由主播监控管理' if state == 'record' else '录制由主播监控管理') if managed else
             '即时回放缓存中；点击开始完整录制' if state == 'cache' else
             '停止录制这一路' if state == 'record' else '开始录制这一路')
         labels = ({"record": "●", "cache": "●", "": "●"} if narrow else
                   {"record": "● REC", "cache": "● REC", "": "● 录制"})
-        host.recording_button.setFixedWidth(26 if narrow else 64)
-        host.recording_button.setText(labels.get(state, "●"))
+        host.recording_button.setFixedWidth(42 if compact_rec else 26 if narrow else 64)
+        host.recording_button.setText('REC' if compact_rec else labels.get(state, "●"))
         host.recording_button.update()
         if layout:
             host._layout_bottom_controls()

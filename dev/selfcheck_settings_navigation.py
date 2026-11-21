@@ -77,7 +77,7 @@ class SettingsNavigationTests(unittest.TestCase):
 
     def test_streamer_cards_keep_two_native_configs_and_split_display_groups(self):
         rooms = {'1001': {'name': '主播甲', 'followed': True, 'platform': 'B 站',
-                          'folder_id': 'later', 'folder': '音乐', 'folder_order': 1},
+                          'folder_id': 'later', 'folder': '音乐', 'folder_order': 1, 'clip_recording_available': True},
                  'huya:1001': {'name': '主播乙', 'followed': True, 'platform': '虎牙',
                                'folder_id': 'first', 'folder': '游戏', 'folder_order': 0}}
         dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS), {}, preview=True, streamer_rooms=rooms)
@@ -154,9 +154,14 @@ class SettingsNavigationTests(unittest.TestCase):
         card.toggle.click()
         self.assertTrue(card.details.isHidden())
         self.assertTrue(card.remove_button.isVisibleTo(card))
+        self.assertEqual(card.remove_button.accessibleName(), '移除设置')
+        self.assertFalse(card.remove_button.text())
+        self.assertFalse(any(widget.accessibleName() == '刷新画质' for widget in card.findChildren(QWidget)))
         self.assertIn('57%', card.summary_values['volume'].text())
         self.assertFalse(card.auto_record.isChecked())
         card.auto_record.click()
+        card.windows_notice.click()
+        card.auto_record_mode.setCurrentIndex(card.auto_record_mode.findData('clip'))
         APP.processEvents()
         card = page.cards[('huya:1001',)]
         self.assertFalse(card.auto_record_summary.isHidden())
@@ -166,11 +171,16 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertEqual(saved['1001']['playback']['qn'], 10000)
         self.assertEqual(saved['huya:1001']['playback']['qn'], 1)
         self.assertIs(saved['huya:1001']['auto_record'], True)
+        self.assertIs(saved['huya:1001']['windows_recording_notice'], True)
+        self.assertEqual(saved['huya:1001']['auto_record_mode'], 'clip')
         self.assertNotIn('auto_record', saved['1001'])
+        self.assertNotIn('windows_recording_notice', saved['1001'])
+        self.assertNotIn('auto_record_mode', saved['1001'])
         dialog.auto_save.acknowledge()
         saved_page = type(page)(dialog.settings(), {})
         self.addCleanup(saved_page.deleteLater)
         self.assertEqual(saved_page.values()['streamer_defaults'], saved)
+        self.assertIsNone(saved_page.cards[('huya:1001',)].auto_record_mode)
         card.remove_button.click()
         dialog.auto_save.flush()
         self.assertEqual(set(sent[-1]['settings']['streamer_defaults']), {'1001'})
@@ -180,6 +190,29 @@ class SettingsNavigationTests(unittest.TestCase):
         dialog.auto_save.flush()
         self.assertEqual(sent[-1]['settings']['streamer_defaults'], saved)
         self.assertEqual(list(page.entries), ['huya:1001', '1001'])
+
+    def test_streamer_recording_options_independently_split_merged_cards(self):
+        rooms = {key: {'name': key, 'followed': True, 'clip_recording_available': True}
+                 for key in ('1001', '1002')}
+        rows = {key: {'name': key, 'auto_record': True} for key in rooms}
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows,
+                                     streamer_defaults_merge_identical=True), {}, preview=True, streamer_rooms=rooms)
+        self.addCleanup(dialog.deleteLater)
+        dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
+        page = dialog.stack.currentWidget()
+        group = ('1001', '1002')
+        for field, change in (
+                ('windows_recording_notice', lambda card: card.windows_notice.click()),
+                ('auto_record_mode', lambda card: card.auto_record_mode.setCurrentIndex(
+                    card.auto_record_mode.findData('normal')))):
+            page.cards[group].avatars['1002'].click()
+            change(page.cards[group])
+            APP.processEvents()
+            self.assertEqual(list(page.cards), [('1001',), ('1002',)])
+            self.assertNotIn(field, page.entries['1001'])
+            self.assertIn(field, page.entries['1002'])
+            page.edit(field, {'1002': None})
+            APP.processEvents()
 
     def test_collapsed_group_removal_and_undo_respect_avatar_selection(self):
         rows = {'1001': {'name': '甲', 'volume': 20}, 'huya:1002': {'name': '乙', 'volume': 20},

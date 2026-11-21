@@ -15,6 +15,7 @@ class BackgroundRecordingSource:
     stream_url: str = ''
     stream_headers: dict = field(default_factory=dict)
     stream_codec: str = ''
+    recording_mode: str | None = None
 
 
 class _Session:

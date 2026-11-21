@@ -1,5 +1,6 @@
 """Main window app notices; window remains the only state and Qt lifetime owner."""
 from pathlib import Path
+from .streamer_defaults import room_defaults
 
 
 class AppNotices:
@@ -20,6 +21,8 @@ class AppNotices:
     def background_recording_transition(self, event: str, room: dict) -> None:
         host = self.host
         if host._closing or not host.settings.get('notice_windows_recording', False):
+            return
+        if not room_defaults(host.settings, room['room_id']).get('windows_recording_notice'):
             return
         from .windows_recording_notifications import send_recording_notification
         title = ('开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制')

@@ -42,6 +42,7 @@ class CaptureControl:
             setter = getattr(tile, "set_recording_available", None)
             if setter is not None:
                 setter(enabled)
+                self.sync_tile_recording(tile)
             if enabled:
                 continue
             session = host.recorder.sessions.get(tile)
@@ -129,8 +130,14 @@ class CaptureControl:
             host._replay_suppressed[tile] = str(tile.room.get("room_id") or "")
             host.recorder.stop(tile, save_cache=True)
 
+    def monitors_recording(self, tile) -> bool:
+        auto = getattr(self.host, 'auto_recording', None)
+        return bool(auto and auto.controls_room(tile.room.get('room_id')))
+
     def toggle_recording(self, tile) -> None:
         host = self.host
+        if self.monitors_recording(tile):
+            return
         if tile in host._pending_capture:
             host._pending_capture.pop(tile)
             host._restore_capture_quality(tile)
@@ -143,9 +150,7 @@ class CaptureControl:
 
     def start_capture(self, tile, *, recording: bool) -> None:
         host = self.host
-        auto_recording = getattr(host, 'auto_recording', None)
-        if recording and auto_recording and auto_recording.source_for(str(tile.room.get('room_id'))):
-            host._record_notice("该主播正在后台录制，可在录制中心停止", tile.room)
+        if recording and self.monitors_recording(tile):
             return
         if recording and not host._recording_enabled():
             host._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
@@ -212,6 +217,9 @@ class CaptureControl:
         if tile in self.waiting_for_cache:
             return
         recording = host._pending_capture.pop(tile)
+        if recording and self.monitors_recording(tile):
+            host._restore_capture_quality(tile)
+            return
         if tile.actual_quality != tile.quality:
             height = tile.room.get('_streamer_recording_height') if recording else None
             choice = tile.room.get('_streamer_recording_choice') if recording else None
@@ -250,9 +258,12 @@ class CaptureControl:
             if session.recording and not session.stopping and session.started_at)
 
     def record_state_changed(self, tile) -> None:
-        if isinstance(tile, BackgroundRecordingSource):
-            return
         host = self.host
+        if isinstance(tile, BackgroundRecordingSource):
+            for wall_tile in host.wall.tiles:
+                if str(wall_tile.room.get('room_id')) == str(tile.room.get('room_id')):
+                    self.sync_tile_recording(wall_tile)
+            return
         session = host.recorder.sessions.get(tile)
         if tile in host._preset_retired_tiles and session is None:
             host._preset_retired_tiles.remove(tile)
@@ -272,10 +283,22 @@ class CaptureControl:
                 return
         if session is None and tile not in host._pending_capture:
             host._restore_capture_quality(tile)
+        self.sync_tile_recording(tile)
+        host._tick_record_clock()
+
+    def sync_tile_recording(self, tile) -> None:
+        host = self.host
+        session = host.recorder.sessions.get(tile)
+        managed = self.monitors_recording(tile)
+        if managed:
+            source = host.auto_recording.source_for(str(tile.room.get('room_id')))
+            background = host.recorder.sessions.get(source)
+            if background and background.started_at and not background.stopping:
+                session = background
         recording = bool(session and session.recording and not session.stopping)
         state = "record" if recording else (
             "cache" if session and not session.stopping else "")
-        tile.set_recording_state(state)
+        tile.set_recording_state(state, managed=managed)
         if recording:
             # 记下开录时刻，交给 _tick_record_clock() 每秒刷「● REC 00:12:34」
             host._recording_since[tile] = float(
@@ -283,7 +306,6 @@ class CaptureControl:
         else:
             host._recording_since.pop(tile, None)
             tile.set_recording_elapsed("")
-        host._tick_record_clock()
 
     def tick_record_clock(self) -> None:
         """刷新每格的录制时长（REC 旁边那个）。"""

@@ -99,8 +99,8 @@ class Avatar(QLabel):
 class FollowAvatar(Avatar):
     """Paint the recording ring outside the visible portrait."""
 
-    RIPPLE_MS = 1400
-    RING_MARGIN = 8
+    RIPPLE_MS = 1600
+    RING_MARGIN = 10
     RING_GAP = 3
 
     def __init__(self, *args, ring_margin=RING_MARGIN, **kwargs):
@@ -176,12 +176,14 @@ class FollowAvatar(Avatar):
                 painter.drawText(face, Qt.AlignCenter, self.text())
             painter.setBrush(Qt.NoBrush)
             if self._ripple_timer is not None and self._ripple_timer.isActive():
-                progress = (self._ripple_clock.elapsed() % self.RIPPLE_MS) / self.RIPPLE_MS
-                ripple_color = QColor(color)
-                ripple_color.setAlphaF(.7 * (1.0 - progress))
-                painter.setPen(QPen(ripple_color, 1.25))
-                wave = radius + (margin - self.RING_GAP - 1) * progress
-                painter.drawEllipse(center, wave, wave)
+                cycle = (self._ripple_clock.elapsed() % self.RIPPLE_MS) / self.RIPPLE_MS
+                for offset in (0.0, 0.5):
+                    progress = (cycle + offset) % 1.0
+                    ripple_color = color.lighter(130)
+                    ripple_color.setAlphaF(.9 * min(1.0, progress * 10) * (1.0 - progress))
+                    painter.setPen(QPen(ripple_color, 1.6))
+                    wave = radius + 1 + (margin - self.RING_GAP - 2) * progress
+                    painter.drawEllipse(center, wave, wave)
             painter.setPen(QPen(color, 1.7))
             painter.drawEllipse(center, radius, radius)
 
@@ -368,7 +370,7 @@ class RoomStrip(QFrame):
     def _add_avatar(self, text: str, live: bool, tooltip: str = "",
                     face=None, room_id: str = "", pinned: bool = False,
                     on_wall: bool = False) -> QWidget:
-        avatar = FollowAvatar(text, 2, self.AVATAR, ring_margin=5)
+        avatar = FollowAvatar(text, 2, self.AVATAR, ring_margin=7)
         avatar.setFixedSize(self.AVATAR, self.AVATAR)
         avatar.setProperty("roomId", room_id)
         avatar.set_recording_state(self._recording_states.get(room_id, ''))

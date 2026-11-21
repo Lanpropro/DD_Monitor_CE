@@ -175,7 +175,7 @@ class NotificationSettingsPage(QWidget):
             self._checks[key] = box
             self._states[key] = state
         for card, row, text in (
-                (reception, reception_count, 'Windows 通知只发送已启用自动录制的主播的开录和下播收尾提醒。应用内通知仍保留历史。'),
+                (reception, reception_count, '还需在「主播监控」为该主播开启 Windows 通知。系统通知仅提示开录和下播收尾。'),
                 (persistence, 5, '选择自动收起后提示会自行消失；手动关闭会持续保留，两种方式均可在通知菜单查看记录。')):
             hint = QLabel(text)
             hint.setObjectName('SettingsHint')

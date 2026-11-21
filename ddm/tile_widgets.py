@@ -66,6 +66,7 @@ class Tile(QFrame):
     audioChannelChanged = Signal(dict, int)
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
+    roomChanged = Signal()
     codecSettingsRequested = Signal()
     streamInfoRequested = Signal()
     videoDanmakuChanged = Signal(bool)
@@ -338,7 +339,8 @@ class Tile(QFrame):
     # ---- 播放状态 ----
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
-        return self.state_control.set_room(room, cover)
+        self.state_control.set_room(room, cover)
+        self.roomChanged.emit()
 
     def _toggle_video_danmaku(self, enabled: bool) -> None:
         return self.state_control.toggle_video_danmaku(enabled)
@@ -384,8 +386,8 @@ class Tile(QFrame):
     def _layout_bottom_controls(self) -> None:
         return self.presentation_control.layout_bottom_controls()
 
-    def set_recording_state(self, state: str) -> None:
-        return self.state_control.set_recording_state(state)
+    def set_recording_state(self, state: str, *, managed: bool = False) -> None:
+        return self.state_control.set_recording_state(state, managed=managed)
 
     def set_recording_elapsed(self, text: str) -> None:
         """更新「● REC」旁边的已录制时长；空串就把标签收起来。"""

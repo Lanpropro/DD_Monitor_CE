@@ -80,8 +80,7 @@ class RecordingManager(QObject):
         self.notice.emit(message)
         self.noticeWithRoom.emit(message, dict(room or {}))
 
-    def _directory(self) -> Path:
-        text = self.directory_setting
+    def _directory(self, text: str) -> Path:
         if not text:
             raise ValueError("请先在「设置 → 录制」选择保存目录")
         folder = Path(text).expanduser().resolve()
@@ -90,8 +89,25 @@ class RecordingManager(QObject):
 
     @property
     def directory_setting(self):
-        return str(getattr(self.session_factory, 'recording_directory', '')
+        return self._directory_setting(self.session_factory)
+
+    def _directory_setting(self, factory):
+        return str(getattr(factory, 'recording_directory', '')
                    or self.settings.get('recording_dir') or '').strip()
+
+    @property
+    def background_clip_factory(self):
+        return getattr(self.backend_owner, 'background_clip_factory', None)
+
+    def _background_factory(self, mode):
+        if mode == 'normal':
+            return RecordingSession
+        if mode == 'clip':
+            return self.background_clip_factory
+        return self.session_factory
+
+    def background_directory(self, mode):
+        return self._directory_setting(self._background_factory(mode))
 
     def _free_enough(self, folder: Path) -> bool:
         return shutil.disk_usage(folder).free >= max(
@@ -111,9 +127,13 @@ class RecordingManager(QObject):
     def start_background(self, source: BackgroundRecordingSource) -> bool:
         if not self.settings.get('recording_enabled', True) or self.source_resolver is None:
             return False
-        return self._start(source, recording=True)
+        factory = self._background_factory(source.recording_mode)
+        if factory is None:
+            self._say("自动录制未开始：DDCut 切片录制不可用", source.room)
+            return False
+        return self._start(source, recording=True, factory=factory)
 
-    def _start(self, tile, *, recording: bool) -> bool:
+    def _start(self, tile, *, recording: bool, factory=None) -> bool:
         background = isinstance(tile, BackgroundRecordingSource)
         room = tile.room if background else None
         if tile in self.sessions:
@@ -132,7 +152,9 @@ class RecordingManager(QObject):
                 if session.process is not None:
                     self._say(f"{session.name} 开始录制", session.room)
             return True
-        if not self.directory_setting:
+        factory = factory or self.session_factory
+        directory = self._directory_setting(factory)
+        if not directory:
             self._say("请先在「设置 → 录制」选择保存目录", room)
             return False
         executable = ffmpeg_path(self.settings)
@@ -143,14 +165,14 @@ class RecordingManager(QObject):
             self._say("这一格仍在连接中，请等画面出现后重试")
             return False
         try:
-            folder = self._directory()
+            folder = self._directory(directory)
             if not self._free_enough(folder):
                 self._say("录制未开始：保存目录所在磁盘剩余空间不足", room)
                 return False
             # 取不到 stream_codec 的老格子（或插件造的假格子）按空串处理：
             # segment_extension 认不出编码就原样返回，行为跟改动前一致。
-            session = self.session_factory(tile, self.settings, recording, folder,
-                                           str(getattr(tile, "stream_codec", "") or ""))
+            session = factory(tile, self.settings, recording, folder,
+                              str(getattr(tile, "stream_codec", "") or ""))
             for destination in session.recording_directories():
                 destination.mkdir(parents=True, exist_ok=True)
                 if not self._free_enough(destination):

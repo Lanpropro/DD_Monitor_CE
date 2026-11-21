@@ -14,6 +14,7 @@ def room_choices(host):
     default_folder = sidebar.default_folder()['id'] if folders else ''
     rooms = {str(room['room_id']): room for room in sidebar.rooms() if room.get('room_id')}
     saved = host.settings.get('streamer_defaults')
+    clip_recording_available = getattr(getattr(host, 'recorder', None), 'background_clip_factory', None) is not None
     choices = {}
     for room_id in dict.fromkeys([*rooms, *(saved if isinstance(saved, dict) else ())]):
         if not isinstance(room_id, str) or not room_id:
@@ -33,6 +34,7 @@ def room_choices(host):
             'display_room_id': str((room or {}).get('display_room_id') or ''),
             'live': bool(room and room.get('live') and room.get('live_known', True)),
             'followed': room is not None, 'avatar': room_avatar_path(room_id),
+            'clip_recording_available': clip_recording_available,
         }
     return choices
 
@@ -80,7 +82,7 @@ class StreamerSettingsCatalog(QObject):
 
     def _failed(self, payload):
         task, _error = payload
-        self._deliver(task, [], '画质读取失败，请重试')
+        self._deliver(task, [], '画质读取失败，重新展开可重试')
 
     def _deliver(self, task, options, error):
         if not self.host._closing:

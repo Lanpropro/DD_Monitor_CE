@@ -270,7 +270,8 @@ class VolumePopup(QFrame):
 
 class RecordingButton(TileButton):
     def paintEvent(self, event):
-        if not self.property('replayOnly'):
+        managed_recording = self.property('managedRecording') and self.property('recording')
+        if not self.property('replayOnly') and not managed_recording:
             return super().paintEvent(event)
         option = QStyleOptionButton()
         self.initStyleOption(option)
@@ -281,7 +282,8 @@ class RecordingButton(TileButton):
             self._paint_button(painter, option)
         else:
             self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        ink = '#04161f' if not self.property('tileButton') and _overlay_hovered(self) else theme.ACCENT
+        ink = theme.ERROR if managed_recording else (
+            '#04161f' if not self.property('tileButton') and _overlay_hovered(self) else theme.ACCENT)
         painter.setPen(QColor(ink))
         painter.setFont(self.font())
         painter.drawText(self.rect(), Qt.AlignCenter, self.text())

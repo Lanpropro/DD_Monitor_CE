@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushBu
 from . import theme
 from .room_artwork import platform_icon, room_platform
 from .streamer_defaults import QUALITY_LABELS
-from .ui import Avatar, ElidedLabel, SelectControl, StepperControl, ToggleSwitch
+from .ui import Avatar, ElidedLabel, NavigationButton, SelectControl, StepperControl, ToggleSwitch
 
 
 def quality_label(value):
@@ -108,7 +108,7 @@ class StreamerProfileCard(QFrame):
         self.name = ElidedLabel('', self)
         self.name.setTextFormat(Qt.PlainText)
         header.addWidget(self.name, 1)
-        self.remove_button = QPushButton('移除设置', objectName='IconButton')
+        self.remove_button = NavigationButton('移除设置', 'clear', self)
         self.remove_button.setAutoDefault(False)
         self.remove_button.clicked.connect(lambda: page.remove(self.editing_rooms))
         header.addWidget(self.remove_button)
@@ -146,10 +146,25 @@ class StreamerProfileCard(QFrame):
                 lambda _index, field=key, widget=control: self._edit_quality(field, widget.currentData()))
             form.addRow(label, control)
         self.auto_record = ToggleSwitch('开播时自动录制')
-        self.auto_record.setToolTip('自动录制遵循全局录制开关和保存目录。')
+        self.auto_record.setToolTip('自动录制须开启「设置 → 录制」中的录制功能。')
         self.auto_record.toggled.connect(lambda enabled: page.edit(
             'auto_record', dict.fromkeys(self.editing_rooms, True if enabled else None)))
         form.addRow('开播时自动录制', self.auto_record)
+        self.windows_notice = ToggleSwitch('使用 Windows 通知')
+        self.windows_notice.setToolTip('还需在「设置 → 通知」开启 Windows 通知总开关。')
+        self.windows_notice.toggled.connect(lambda enabled: page.edit(
+            'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
+        form.addRow('使用 Windows 通知', self.windows_notice)
+        self.auto_record_mode = None
+        if page.clip_recording_available:
+            self.auto_record_mode = SelectControl()
+            self.auto_record_mode.setAccessibleName('自动录制方式')
+            self.auto_record_mode.setToolTip('普通录制保存到本体录制目录，切片录制使用 DDCut 切片设置。')
+            for label, mode in (('沿用全局', None), ('普通录制', 'normal'), ('DDCut 切片录制', 'clip')):
+                self.auto_record_mode.addItem(label, mode)
+            self.auto_record_mode.currentIndexChanged.connect(lambda _index: page.edit(
+                'auto_record_mode', dict.fromkeys(self.editing_rooms, self.auto_record_mode.currentData())))
+            form.addRow('自动录制方式', self.auto_record_mode)
         self.volume = QSpinBox()
         self.volume.setAccessibleName('默认音量')
         self.volume.setRange(-1, 100)
@@ -158,15 +173,9 @@ class StreamerProfileCard(QFrame):
         volume_stepper = StepperControl(self.volume)
         self.volume.valueChanged.connect(self._edit_volume)
         form.addRow('默认音量', volume_stepper)
-        actions = QHBoxLayout()
         self.status = QLabel(objectName='SettingsHint')
         self.status.setWordWrap(True)
-        actions.addWidget(self.status, 1)
-        self.refresh_button = QPushButton('刷新画质', objectName='IconButton')
-        self.refresh_button.setAutoDefault(False)
-        self.refresh_button.clicked.connect(lambda: self._request_quality(refresh=True))
-        actions.addWidget(self.refresh_button)
-        form.addRow(actions)
+        form.addRow(self.status)
         self._loading = False
         self.load()
 
@@ -181,9 +190,9 @@ class StreamerProfileCard(QFrame):
     def _edit_quality(self, field, values):
         self.page.edit(field, values if values is not None else dict.fromkeys(self.editing_rooms))
 
-    def _request_quality(self, *, refresh=False):
+    def _request_quality(self):
         for room_id in self.editing_rooms:
-            self.page.request_quality(room_id, refresh=refresh)
+            self.page.request_quality(room_id)
 
     def _toggle(self):
         self.page.set_expanded(self.editing_rooms, self.details.isHidden())
@@ -230,6 +239,11 @@ class StreamerProfileCard(QFrame):
         enabled = bool(values.get('auto_record'))
         with QSignalBlocker(self.auto_record):
             self.auto_record.setChecked(enabled)
+        with QSignalBlocker(self.windows_notice):
+            self.windows_notice.setChecked(bool(values.get('windows_recording_notice')))
+        if self.auto_record_mode is not None:
+            with QSignalBlocker(self.auto_record_mode):
+                self.auto_record_mode.setCurrentIndex({'normal': 1, 'clip': 2}.get(values.get('auto_record_mode'), 0))
         self.auto_record_summary.setVisible(enabled)
         for key, view in self.summary_values.items():
             if key == 'volume':
@@ -245,7 +259,6 @@ class StreamerProfileCard(QFrame):
         rooms = self.editing_rooms
         pending = any(room_id in self.page.requests for room_id in rooms)
         catalogs = {room_id: self.page.qualities.get(room_id, ([], '')) for room_id in rooms}
-        self.refresh_button.setEnabled(not pending)
         available = False
         for key, control in (('playback', self.playback), ('recording', self.recording)):
             selected = {room_id: self.page.entries[room_id].get(key) for room_id in rooms}
@@ -266,7 +279,7 @@ class StreamerProfileCard(QFrame):
                 control.setCurrentIndex(index)
                 control.setEnabled(not pending and control.count() > 1)
         error = next((error for _choices, error in catalogs.values() if error), '')
-        empty = '暂无共同画质，可选中头像单独调整' if self.room_id is None else '暂无可用画质，直播开始后可刷新'
+        empty = '暂无共同画质，可选中头像单独调整' if self.room_id is None else '暂无可用画质'
         self.status.setText('正在读取平台画质…' if pending else error or ('' if available else empty))
 
     def _quality_choices(self, field, catalogs):

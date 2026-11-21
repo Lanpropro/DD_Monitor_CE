@@ -47,6 +47,7 @@ YouTube和Twitch导入页提供“重新读取”，重新请求当前账号的�
 
 `control(source_id, action, session_id=...)` 支持 `record`、`stop`、`buffer`、
 `stop_buffer`、`save_replay`，沿用本体画质/设置流程。传入 `session_id` 时会核对当前会话，变化后拒绝旧操作；省略时不做会话代次校验。
+主播监控的后台来源可通过 `sources()` 的 `recording_mode` 获取会话启动时的选项（`normal`、`clip`、`None` 表示沿用全局）。录制启停由主播监控管理。
 `open_settings()` 打开本体录制设置。
 
 `register_backend(RecordingSessionSubclass, enabled=True)` 将本体后续新建的录制/缓存会话交给插件，
@@ -63,6 +64,7 @@ HLS 会话可生成含初始化段/断点的冻结 VOD 输入。`snapshot_info(p
 此项是 v1 的新增能力，插件应检查方法是否存在；已发布版本号不保证包含该开发接口。
 
 `select_backend(session_factory=None)` 在注册所有权内选择本体或插件会话类，有活动录制/缓存时拒绝更换；不传会话类表示本体。它允许插件提供同时输出本体文件和切片归档的会话类，不必另开一套取流或操作宿主私有状态。
+可选的 `register_background_clip_backend(RecordingSessionSubclass)` 由已注册后端的插件调用，用于主播监控中明确选择切片的后续会话。既有会话继续使用原实现。插件应检查宿主是否提供此方法。
 `record_danmaku(room_id, message)` 在GUI线程向匹配房间、实现了该可选方法的录制会话转交弹幕副本。
 录制会话可设置 `wants_danmaku = True`。本体为录制中的房间保持共享弹幕订阅，和画面及面板共用连接。仅缓存、停止录制和明确不支持直播弹幕的来源不产生订阅需求。
 会话的 `recording_started()` 在纯缓存升级为录制时返回是否需重新建立输出分段，重启由本体管理；`recording_directories()` 返回需要核验剩余空间的目录，默认仅本体保存位置。

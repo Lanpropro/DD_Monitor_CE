@@ -21,6 +21,7 @@ class StreamerDefaultsPage(QWidget):
         self.setObjectName('SettingsPage')
         self.rooms = {key: dict(value) if isinstance(value, dict) else {'name': str(value), 'followed': True}
                       for key, value in rooms.items()}
+        self.clip_recording_available = any(room.get('clip_recording_available') for room in self.rooms.values())
         self.entries = {}
         saved = settings.get('streamer_defaults')
         if isinstance(saved, dict):
@@ -91,7 +92,8 @@ class StreamerDefaultsPage(QWidget):
         for room_id, row in self.entries.items():
             names = tuple(quality_label(row[key]).strip().casefold() if key in row else None
                           for key in ('playback', 'recording'))
-            groups.setdefault((*names, row.get('volume'), bool(row.get('auto_record'))), []).append(room_id)
+            groups.setdefault((*names, row.get('volume'), bool(row.get('auto_record')),
+                               bool(row.get('windows_recording_notice')), row.get('auto_record_mode')), []).append(room_id)
         return [tuple(group) for group in groups.values()]
 
     def _render_profiles(self):
@@ -209,8 +211,8 @@ class StreamerDefaultsPage(QWidget):
             self.regroup_timer.start(0)
             self.changed.emit()
 
-    def request_quality(self, room_id, *, refresh=False):
-        if room_id in self.requests or (not refresh and room_id in self.qualities):
+    def request_quality(self, room_id):
+        if room_id in self.requests or (room_id in self.qualities and not self.qualities[room_id][1]):
             return
         token = self.requests[room_id] = uuid4().hex
         self._update_quality_views(room_id)

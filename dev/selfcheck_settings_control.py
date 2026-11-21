@@ -130,6 +130,8 @@ class SettingsControlTests(unittest.TestCase):
 
     def test_sidebar_entry_preserves_normal_and_process_modes(self):
         host = self.host
+        self.assertFalse(host.settings_control.streamer_rooms()['1001']['clip_recording_available'])
+        host.recorder = SimpleNamespace(background_clip_factory=object())
         with patch.object(host, 'open_settings', return_value=True) as normal, \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '0'}):
             self.assertTrue(host._open_sidebar_settings())
@@ -142,6 +144,7 @@ class SettingsControlTests(unittest.TestCase):
             host.settings, host.shortcuts, {'fixture': True}, streamer_rooms=host.settings_control.streamer_rooms())
         room = host._settings_process.open.call_args.kwargs['streamer_rooms']['1001']
         self.assertEqual((room['name'], room['followed']), ('主播', True))
+        self.assertTrue(room['clip_recording_available'])
 
     def test_streamer_snapshot_includes_sidebar_folder_order_and_default_membership(self):
         sidebar = self.host.sidebar

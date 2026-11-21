@@ -1283,11 +1283,13 @@ class MainWindow(QMainWindow):
         tile.pauseToggled.connect(self._on_pause_toggled)
         if not getattr(tile, "_recording_wired", False):
             tile.recordingRequested.connect(lambda t=tile: self._toggle_recording(t))
+            tile.roomChanged.connect(lambda t=tile: self.capture_control.sync_tile_recording(t))
             tile._recording_wired = True
         # 录制总开关关掉时，新格子也别露出「● 录制」按钮
         setter = getattr(tile, "set_recording_available", None)
         if setter is not None:
             setter(self._recording_enabled())
+            self.capture_control.sync_tile_recording(tile)
         tile.fullscreenRequested.connect(self._on_fullscreen)
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
@@ -1305,10 +1307,10 @@ class MainWindow(QMainWindow):
         manager = getattr(self, "plugins", None)
         collected = []
         session = self.recorder.sessions.get(tile)
-        if not self._recording_enabled():
-            pass                        # 录制总开关关掉：菜单里不放录制项
+        if not self._recording_enabled() or self.capture_control.monitors_recording(tile):
+            pass
         elif session and session.recording:
-            collected.append(("● 停止录制这一路", lambda t=tile: self.recorder.stop(t)))
+            collected.append(("● 停止录制这一路", lambda t=tile: self._toggle_recording(t)))
         else:
             collected.append(("● 开始录制这一路", lambda t=tile:
                               self._start_capture(t, recording=True)))
