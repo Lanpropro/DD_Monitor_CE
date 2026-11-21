@@ -402,9 +402,11 @@ class TileState:
             action.setChecked(value == host.quality)
             action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
             menu.addAction(action)
+        host.quality_button.set_popup_open(True)
         try:
             menu.exec(host.quality_button.mapToGlobal(host.quality_button.rect().bottomLeft()))
         finally:
+            host.quality_button.set_popup_open(False)
             menu.deleteLater()
 
     def set_quality(self, value: int) -> None:

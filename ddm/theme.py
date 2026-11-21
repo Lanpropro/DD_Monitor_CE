@@ -382,6 +382,35 @@ def _conditional_light_style(style):
 
 def _light_style(widget):
     name = widget.objectName()
+    if widget.property('tileButton'):
+        selector = f'#{name}[tileButton="true"]'
+        parent = widget.parentWidget()
+        overlay = parent is not None and parent.objectName() == 'TileControls'
+        light = _light and not overlay
+        ink = '#202630' if light else '#e7ebf0'
+        rgb = '32, 38, 48' if light else '231, 235, 240'
+        idle = 'rgba(12, 13, 16, 0.90)' if overlay else 'transparent'
+        hover = 'rgba(48, 51, 57, 0.89)' if overlay else f'rgba({rgb}, 0.15)'
+        pressed = 'rgba(68, 71, 77, 0.93)' if overlay else f'rgba({rgb}, 0.27)'
+        return f'''
+            {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
+            {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
+            {selector}[playbackPopupOpen="true"]:!disabled {{
+                background: {hover}; color: {ink};
+            }}
+            {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
+            {selector}[overVideo="true"] {{color: #ffffff;}}
+            {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
+            {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
+                background: rgba(231, 235, 240, 0.15); color: #ffffff;
+            }}
+            {selector}[overVideo="true"]:!disabled:pressed {{
+                background: rgba(231, 235, 240, 0.27); color: #ffffff;
+            }}
+            {selector}[recording="true"]:!disabled {{color: #e5484d;}}
+            {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
+            {selector}:disabled {{background: transparent; color: palette(placeholder-text);}}
+        '''
     if name == 'TileToggle':
         return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
     if name == 'TileCtrl':

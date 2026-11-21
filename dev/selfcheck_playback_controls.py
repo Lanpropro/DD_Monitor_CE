@@ -226,29 +226,80 @@ assert not any(name in sys.modules for name in (
         self.assertFalse(isValid(button))
         self.assertFalse(isValid(animation))
 
-    def test_playback_button_has_distinct_hover_and_press_feedback(self):
+    def test_live_tile_controls_use_neutral_feedback_without_moving_hit_areas(self):
+        from ddm import continuous_corners
+        from ddm.tile_widgets import Tile
         self.addCleanup(theme.apply, theme.mode())
         theme.apply('dark')
-        self.owner.setObjectName('TileBottom')
-        button = ui.PauseButton(self.owner)
-        button.setProperty('tileButton', True)
-        self.owner.layout().addWidget(button)
+        self.owner.setAttribute(Qt.WA_DontShowOnScreen)
+        self.owner.resize(720, 320)
+        tile = Tile({'room_id': '1000', 'live': False}, self.owner)
+        self.owner.layout().addWidget(tile)
         self.owner.show()
+        tile.set_controls_visible(True)
+        tile._control_hover_timer.stop()
+        buttons = (tile.pause_button, tile.volume_button, tile.danmaku_button, tile.danmaku_settings_button,
+                   tile.recording_button, tile.fullscreen_button, tile.quality_button, tile.reload_button,
+                   tile.close_button)
+        surfaces = continuous_corners._filter
         for mode in ('light', 'dark'):
-            with self.subTest(mode=mode):
-                theme.apply(mode)
-                QApplication.processEvents()
-                point = QPoint(button.width() - 7, button.height() // 2)
-                QTest.mouseMove(button, point)
-                QApplication.processEvents()
-                hovered = button.grab().toImage().pixelColor(point)
-                QTest.mousePress(button, Qt.LeftButton, pos=point)
-                QApplication.processEvents()
-                self.assertTrue(button.isDown())
-                self.assertNotEqual(button.grab().toImage().pixelColor(point), hovered)
-                QTest.mouseRelease(button, Qt.LeftButton, pos=point)
-                self.assertFalse(button.isDown())
-                self.assertEqual(button.cursor().shape(), Qt.PointingHandCursor)
+            theme.apply(mode)
+            QApplication.processEvents()
+            for button in buttons:
+                with self.subTest(mode=mode, tip=button.toolTip()):
+                    button.setProperty('hovered', False)
+                    idle = surfaces.values(button, overrides={'hover': False})
+                    hover = surfaces.values(button, overrides={'hover': True})
+                    pressed = surfaces.values(button, overrides={'hover': True, 'pressed': True})
+                    if button.parentWidget() is tile.controls:
+                        self.assertEqual(hover['background'], 'rgba(48, 51, 57, 0.89)')
+                        self.assertEqual(pressed['background'], 'rgba(68, 71, 77, 0.93)')
+                    else:
+                        self.assertTrue(hover['background'].endswith(', 0.15)'))
+                        self.assertTrue(pressed['background'].endswith(', 0.27)'))
+                    self.assertNotEqual(idle['background'], hover['background'])
+                    self.assertEqual(pressed['border'], 'none')
+                    self.assertEqual(button.cursor().shape(), Qt.PointingHandCursor)
+            tile.set_status('播放中')
+            self.assertEqual(tile.status_label.text(), '')
+        button = tile.pause_button
+        geometry = button.geometry()
+        button.setProperty('hovered', True)
+        point = QPoint(button.width() - 7, button.height() // 2)
+        hovered = button.grab().toImage().pixelColor(point)
+        with patch.object(motion, 'enabled', return_value=True):
+            QTest.mousePress(button, Qt.LeftButton)
+            self.assertNotEqual(button.grab().toImage().pixelColor(point), hovered)
+            animation = button._press_animation
+            animation.setCurrentTime(animation.duration())
+            self.assertEqual(button._press_scale, .97)
+            QTest.mouseRelease(button, Qt.LeftButton)
+            animation.setCurrentTime(animation.duration())
+            self.assertEqual(button._press_scale, 1.)
+        with patch.object(motion, 'enabled', return_value=False):
+            QTest.mousePress(button, Qt.LeftButton)
+            self.assertTrue(button.isDown())
+            self.assertEqual(button._press_scale, 1.)
+            QTest.mouseRelease(button, Qt.LeftButton)
+        self.assertEqual(button.geometry(), geometry)
+
+        tile.bottom.set_fullscreen(True)
+        theme.apply('light')
+        self.assertEqual(surfaces.values(tile.pause_button, overrides={'hover': True})['background'],
+                         'rgba(231, 235, 240, 0.15)')
+        tile.bottom.set_fullscreen(False)
+
+        menu = tile.danmaku_settings_menu
+        menu.setAttribute(Qt.WA_DontShowOnScreen)
+        menu.open_at(tile.danmaku_settings_button, tile.video_danmaku.settings)
+        self.assertTrue(tile.danmaku_settings_button.property('playbackPopupOpen'))
+        menu.hide()
+        self.assertFalse(tile.danmaku_settings_button.property('playbackPopupOpen'))
+        tile.volume_menu.setAttribute(Qt.WA_DontShowOnScreen)
+        tile.volume_menu.show()
+        self.assertTrue(tile.volume_button.property('playbackPopupOpen'))
+        tile.volume_menu.hide()
+        self.assertFalse(tile.volume_button.property('playbackPopupOpen'))
 
     def test_controls_paint_states_in_both_themes_and_multiple_scales(self):
         from ddm.playback_controls import VolumePopup

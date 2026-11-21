@@ -11,6 +11,59 @@ from .config import DEFAULT_VOLUME
 
 
 class TileButton(QPushButton):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pointer_press = False
+        self._press_scale = 1.
+        self._press_animation = None
+        self.pressed.connect(self._press_feedback)
+        self.released.connect(self._release_feedback)
+
+    def _press_feedback(self):
+        if self.property('tileButton') and self._pointer_press:
+            self._animate_press(.97)
+
+    def _release_feedback(self):
+        if self._press_animation is not None:
+            self._animate_press(1.)
+
+    def _animate_press(self, target):
+        if self._press_animation is not None:
+            self._press_animation.stop()
+        if not motion.enabled():
+            self._set_press_scale(1.)
+            return
+        if target == self._press_scale:
+            return
+        if self._press_animation is None:
+            self._press_animation = QVariantAnimation(self)
+            self._press_animation.setDuration(120)
+            self._press_animation.setEasingCurve(motion.THEME_WAVE_EASING)
+            self._press_animation.valueChanged.connect(self._set_press_scale)
+        animation = self._press_animation
+        animation.setStartValue(self._press_scale)
+        animation.setEndValue(target)
+        animation.start()
+
+    def _set_press_scale(self, scale):
+        self._press_scale = scale
+        self.update()
+
+    def _scale_press(self, painter):
+        if self._press_scale != 1.:
+            center = QRectF(self.rect()).center()
+            painter.translate(center)
+            painter.scale(self._press_scale, self._press_scale)
+            painter.translate(-center)
+
+    def set_popup_open(self, open_):
+        if self.property('playbackPopupOpen') == open_:
+            return
+        self.setProperty('playbackPopupOpen', open_)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
     def focusInEvent(self, event):
         self._keyboard_focus = event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason)
         super().focusInEvent(event)
@@ -23,8 +76,22 @@ class TileButton(QPushButton):
 
     def mousePressEvent(self, event):
         self._keyboard_focus = False
+        if event.button() == Qt.LeftButton:
+            self._pointer_press = True
         super().mousePressEvent(event)
         self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._pointer_press = False
+        super().mouseReleaseEvent(event)
+
+    def hideEvent(self, event):
+        self._pointer_press = False
+        if self._press_animation is not None:
+            self._press_animation.stop()
+            self._set_press_scale(1.)
+        super().hideEvent(event)
 
     def paintEvent(self, event):
         if not self.property('tileButton'):
@@ -39,6 +106,7 @@ class TileButton(QPushButton):
         option.state &= ~QStyle.State_HasFocus
         frame = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
         radius = frame.height() / 2
+        self._scale_press(painter)
         painter.save()
         if focused:
             painter.setClipPath(continuous_path(frame.adjusted(1, 1, -1, -1), max(0, radius - 1)))
@@ -111,13 +179,18 @@ class VolumeButton(TileButton):
     def paintEvent(self, event) -> None:
         super().paintEvent(event)          # 背景由样式表画
         painter = QPainter(self)
+        self._scale_press(painter)
         painter.setRenderHint(QPainter.Antialiasing, True)
         silent = self.muted or self.level == 0
         # B 站播放器风格：细线喇叭；悬停时切成主题蓝。
         color = (theme.qcolor(theme.TEXT3 if silent else theme.TEXT1)
                  if theme.is_light() and not self.property('overVideo')
                  else QColor("#9499a0" if silent else "#f1f2f3"))
-        if _overlay_hovered(self):
+        if self.property('tileButton'):
+            color = _icon_color(self)
+            if silent:
+                color.setAlpha(min(color.alpha(), 165))
+        elif _overlay_hovered(self):
             color = QColor("#04161f")
         elif self.underMouse() and not self.property('overVideo'):
             color = QColor(theme.ACCENT)
@@ -156,7 +229,11 @@ class VolumeButton(TileButton):
             ("L", left + 14.75, self.audio_channel in (0, self.CHANNEL_LEFT)),
             ("R", left + 20.25, self.audio_channel in (0, self.CHANNEL_RIGHT)),
         ):
-            if _overlay_hovered(self):
+            if self.property('tileButton') and self.property('overVideo'):
+                colour = _icon_color(self)
+                if not selected:
+                    colour.setAlpha(min(colour.alpha(), 135))
+            elif _overlay_hovered(self):
                 colour = QColor("#04161f")
                 if not selected:
                     colour.setAlpha(135)
@@ -176,6 +253,16 @@ class VolumeButton(TileButton):
 
 
 class VolumePopup(QFrame):
+    visibilityChanged = Signal(bool)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
+
     def paintEvent(self, event) -> None:
         # Paint the styled background explicitly for this translucent tool window.
         option = QStyleOption()
@@ -197,7 +284,8 @@ class RecordingButton(TileButton):
             self._paint_button(painter, option)
         else:
             self.style().drawControl(QStyle.CE_PushButton, option, painter, self)
-        painter.setPen(QColor("#04161f" if _overlay_hovered(self) else theme.ACCENT))
+        ink = '#04161f' if not self.property('tileButton') and _overlay_hovered(self) else theme.ACCENT
+        painter.setPen(QColor(ink))
         painter.setFont(self.font())
         painter.drawText(self.rect(), Qt.AlignCenter, self.text())
 
@@ -209,6 +297,14 @@ def _overlay_hovered(button: QPushButton) -> bool:
 
 def _icon_color(button: QPushButton, hover_dark: bool = True) -> QColor:
     """图标颜色：平时浅色；悬停时按钮底变成主题色，图标要反过来用深色。"""
+    if button.property('tileButton'):
+        parent = button.parentWidget()
+        on_video = button.property('overVideo') or (parent is not None and parent.objectName() == 'TileControls')
+        ink = '#ffffff' if button.property('overVideo') else ('#202630' if theme.is_light() and not on_video else '#e7ebf0')
+        color = QColor(ink)
+        if not button.isEnabled():
+            color.setAlpha(105)
+        return color
     if button.property('overVideo'):
         return QColor('#04161f' if _overlay_hovered(button) else '#ffffff')
     if button.underMouse() or button.property("hovered") is True:
@@ -276,6 +372,7 @@ class DanmakuSettingsButton(TileButton):
     def paintEvent(self, event):
         super().paintEvent(event)
         painter = QPainter(self)
+        self._scale_press(painter)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.translate(QRectF(self.rect()).center())
         painter.setPen(QPen(_icon_color(self), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -316,6 +413,7 @@ class PauseButton(TileButton):
     def paintEvent(self, event) -> None:
         super().paintEvent(event)          # 背景交给样式表
         painter = QPainter(self)
+        self._scale_press(painter)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setPen(Qt.NoPen)
         painter.setBrush(_icon_color(self))
@@ -380,6 +478,7 @@ class RefreshButton(TileButton):
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         painter = QPainter(self)
+        self._scale_press(painter)
         painter.setRenderHint(QPainter.Antialiasing, True)
         center = QPointF(self.width() / 2, self.height() / 2)
         painter.translate(center)
@@ -411,8 +510,10 @@ class DanmakuToggleButton(TileButton):
         if not self.isChecked():
             return
         painter = QPainter(self)
+        self._scale_press(painter)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor("#04161f" if _overlay_hovered(self) else theme.ACCENT), 1.8)
+        ink = '#04161f' if not self.property('tileButton') and _overlay_hovered(self) else theme.ACCENT
+        pen = QPen(QColor(ink), 1.8)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
         painter.setPen(pen)

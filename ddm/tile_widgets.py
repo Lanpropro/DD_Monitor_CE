@@ -236,6 +236,7 @@ class Tile(QFrame):
         bottom_layout.addWidget(self.volume_slider)
         self.volume_menu = VolumePopup(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.volume_menu.setObjectName("TileVolumePopup")
+        self.volume_menu.visibilityChanged.connect(self.volume_button.set_popup_open)
         self.volume_menu.setAttribute(Qt.WA_TranslucentBackground)
         self.volume_menu.setAttribute(Qt.WA_StyledBackground)
         self.volume_menu.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -294,6 +295,7 @@ class Tile(QFrame):
                        self.danmaku_button, self.danmaku_settings_button, self.recording_button):
             button.setFocusPolicy(Qt.TabFocus)
             button.setProperty('tileButton', True)
+            button.setCursor(Qt.PointingHandCursor)
         self.controls.setVisible(False)
         #: 悬停才露的浮层（LIVE 浮标 + 标题）：和控制条同一套显隐（用户要求：
         #: 「live 和人数改成和右上角悬浮按钮一样，自动消失、鼠标移上出现」）
@@ -348,6 +350,8 @@ class Tile(QFrame):
             menu.settingsChanged.connect(self._change_video_danmaku_settings)
             menu.independentChanged.connect(self._set_video_danmaku_independent)
             menu.advancedRequested.connect(self.videoDanmakuAdvancedRequested)
+            menu.aboutToShow.connect(lambda: self.danmaku_settings_button.set_popup_open(True))
+            menu.aboutToHide.connect(lambda: self.danmaku_settings_button.set_popup_open(False))
             self._danmaku_settings_menu = menu
         return self._danmaku_settings_menu
 
