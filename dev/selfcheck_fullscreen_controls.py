@@ -396,6 +396,7 @@ def check_windowed_overlay(app):
                 pointer.return_value = x
                 first._poll_control_hover()
                 second._poll_control_hover()
+                empty._poll_control_hover()
 
             point = first.video.mapToGlobal(first.video.rect().center())
             poll(second.video.mapToGlobal(second.video.rect().center()))
@@ -417,8 +418,14 @@ def check_windowed_overlay(app):
             clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
             poll(point)
             assert first.bottom.isHidden() and second.bottom.isHidden()
-            empty.set_controls_visible(False)
+            assert empty.bottom.isHidden()
+            empty_point = empty.video.mapToGlobal(empty.video.rect().center())
+            poll(empty_point)
             check_bar(empty)
+            assert first.bottom.isHidden() and second.bottom.isHidden()
+            clock.monotonic.return_value += empty.CONTROL_IDLE_SECONDS + .1
+            poll(empty_point)
+            assert empty.bottom.isHidden() and empty.add_room_button.isVisible()
             assert first.video.geometry() == geometry
             with patch.object(first._plugin_controls, 'focus_input') as focus, \
                     patch.object(first.bottom, 'activateWindow'):
