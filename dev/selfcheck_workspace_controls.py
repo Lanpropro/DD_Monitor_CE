@@ -635,7 +635,7 @@ class WorkspaceControlTests(unittest.TestCase):
             self.assertEqual(feedback.scale, 1)
         self.assertEqual(button.geometry(), geometry)
 
-    def test_rail_icon_sweeps_highlight_from_left_without_motion(self):
+    def test_rail_speed_lines_move_right_behind_stationary_icon(self):
         button, action = self.add('slide', 'F1 Play', dock_motion='slide-in-left')
         geometry = button.geometry()
         feedback = button._dock_feedback
@@ -645,47 +645,51 @@ class WorkspaceControlTests(unittest.TestCase):
         def enter(device):
             APP.sendEvent(button, QEnterEvent(pos, pos, global_pos, device))
 
+        def red_pixels():
+            frame = button.grab().toImage()
+            return [x / frame.devicePixelRatio() for y in range(frame.height()) for x in range(frame.width())
+                    if (color := frame.pixelColor(x, y)).red() > color.green() + 40
+                    and color.red() > color.blue() + 30]
+
         mouse = QPointingDevice.primaryPointingDevice()
         touchscreen = QPointingDevice('Touch', 1, QInputDevice.DeviceType.TouchScreen,
                                       QPointingDevice.PointerType.Finger, QInputDevice.Capability.Position, 1, 0)
         with patch.object(motion, 'enabled', return_value=True):
             enter(touchscreen)
-            self.assertEqual(feedback.highlight, 0)
+            self.assertEqual(feedback.streak_progress, 1)
             enter(mouse)
-            self.assertEqual(feedback.highlight, 0)
+            self.assertEqual(feedback.streak_progress, 0)
+            self.assertEqual(red_pixels(), [])
             feedback.hover_animation.setCurrentTime(40)
-            current = feedback.highlight
-            self.assertLess(0, current)
-            self.assertLess(current, 1)
+            first = red_pixels()
+            self.assertTrue(first)
             transform = QTransform()
             feedback.transform(transform)
             self.assertTrue(transform.isIdentity())
-            brush = feedback._icon_tint(18)
-            colors = [color for _, color in brush.gradient().stops()]
-            self.assertEqual(colors, [theme.qcolor(theme.ACCENT), theme.qcolor(theme.TEXT2)])
+            feedback.hover_animation.setCurrentTime(95)
+            later = red_pixels()
+            self.assertTrue(later)
+            self.assertGreater(sum(later) / len(later), sum(first) / len(first))
+            self.assertTrue(all(3 <= x < button.width() - 3 for x in first + later))
+            current = feedback.streak_progress
             APP.sendEvent(button, QEvent(QEvent.Leave))
-            self.assertAlmostEqual(feedback.highlight, current)
+            self.assertAlmostEqual(feedback.streak_progress, current)
             enter(mouse)
-            self.assertAlmostEqual(feedback.highlight, current)
+            self.assertAlmostEqual(feedback.streak_progress, current)
             feedback.hover_animation.setCurrentTime(motion.CONTROL_FEEDBACK_MS)
-            self.assertEqual(feedback.highlight, 1)
-            APP.sendEvent(button, QEvent(QEvent.Leave))
-            feedback.hover_animation.setCurrentTime(motion.CONTROL_FEEDBACK_MS)
-            self.assertEqual(feedback.highlight, 0)
+            self.assertEqual(red_pixels(), [])
             enter(mouse)
             feedback.hover_animation.setCurrentTime(40)
             APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
-            self.assertEqual(feedback.highlight, 0)
+            self.assertEqual(red_pixels(), [])
             APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
             QTest.keyClick(button, Qt.Key_Space)
             self.assertTrue(action.isChecked())
             APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
         with patch.object(motion, 'enabled', return_value=False):
             enter(mouse)
-            self.assertEqual(feedback.highlight, 1)
+            self.assertEqual(red_pixels(), [])
             self.assertEqual(feedback.hover_animation.state(), QAbstractAnimation.Stopped)
-            APP.sendEvent(button, QEvent(QEvent.Leave))
-            self.assertEqual(feedback.highlight, 0)
         self.assertEqual(button.geometry(), geometry)
 
     def test_dock_selected_surface_and_icon_follow_both_themes(self):

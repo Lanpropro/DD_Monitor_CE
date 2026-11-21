@@ -1,7 +1,6 @@
 """Dock icon feedback without moving buttons or changing their click targets."""
-from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import (QBrush, QEnterEvent, QIcon, QInputDevice, QLinearGradient, QPainter, QPen,
-                          QPixmap)
+from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QRectF, Qt, QVariantAnimation
+from PySide6.QtGui import QBrush, QColor, QEnterEvent, QIcon, QInputDevice, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QToolButton
 
 from . import motion, theme
@@ -55,16 +54,15 @@ class DockFeedback(QObject):
         self.animation.valueChanged.connect(self._set_scale)
         self.pose = REST
         self._poses = [(0, REST), (1, REST)]
-        self.sweeps_highlight = button.property('dockMotion') == 'slide-in-left'
-        self.highlight = 0.0
+        self.has_speed_lines = button.property('dockMotion') == 'slide-in-left'
+        self.streak_progress = 1.0
         self.hover_animation = QVariantAnimation(self)
-        if self.sweeps_highlight:
+        self.hover_animation.setStartValue(0.0)
+        self.hover_animation.setEndValue(1.0)
+        if self.has_speed_lines:
             self.hover_animation.setDuration(motion.CONTROL_FEEDBACK_MS)
-            self.hover_animation.setEasingCurve(motion.THEME_WAVE_EASING)
-            self.hover_animation.valueChanged.connect(self._set_highlight)
+            self.hover_animation.valueChanged.connect(self._set_streak_progress)
         else:
-            self.hover_animation.setStartValue(0.0)
-            self.hover_animation.setEndValue(1.0)
             self.hover_animation.valueChanged.connect(self._hover_frame)
             self.hover_animation.finished.connect(self._finish_hover)
         button.installEventFilter(self)
@@ -83,18 +81,17 @@ class DockFeedback(QObject):
         self.button.update()
 
     def hover(self, *, entering=False, animate=True):
-        self.hover_animation.stop()
-        if self.sweeps_highlight:
-            pointer_allowed = self.button.property('dockRail') and not self.keyboard and self.button.isEnabled()
-            target = float(bool(entering and pointer_allowed))
-            if target != self.highlight and animate and motion.enabled():
-                self.hover_animation.setStartValue(self.highlight)
-                self.hover_animation.setEndValue(target)
+        allowed = animate and self.button.property('dockRail') and not self.keyboard and motion.enabled()
+        if self.has_speed_lines:
+            if not allowed or not self.button.isEnabled():
+                self.hover_animation.stop()
+                self._set_streak_progress(1.0)
+            elif entering and self.hover_animation.state() != QAbstractAnimation.Running:
+                self._set_streak_progress(0.0)
                 self.hover_animation.start()
-            else:
-                self._set_highlight(target)
             return
-        if not self.button.property('dockRail') or self.keyboard or not motion.enabled() or not animate:
+        self.hover_animation.stop()
+        if not allowed:
             self._finish_hover()
             return
         kind = self.button.property('dockMotion') or getattr(self.button, 'kind', 'hop')
@@ -105,26 +102,30 @@ class DockFeedback(QObject):
         self.hover_animation.setDuration(280 if entering else motion.CONTROL_FEEDBACK_MS)
         self.hover_animation.start()
 
-    def _set_highlight(self, value):
-        self.highlight = float(value)
+    def _set_streak_progress(self, value):
+        self.streak_progress = float(value)
         self.button.update()
 
-    def _icon_tint(self, width):
-        button = self.button
-        if not self.sweeps_highlight or not button.isEnabled():
-            return icon_color(button)
-        selected = active(button)
-        base = (icon_color(button) if selected else theme.qcolor(theme.TEXT2))
-        accent = theme.qcolor(theme.mix(base.name(), theme.ACCENT, .20) if selected else theme.ACCENT)
-        if self.highlight <= 0:
-            return base
-        if self.highlight >= 1:
-            return accent
-        edge = .5 / width
-        gradient = QLinearGradient(0, 0, width, 0)
-        gradient.setColorAt(max(0, self.highlight - edge), accent)
-        gradient.setColorAt(min(1, self.highlight + edge), base)
-        return QBrush(gradient)
+    def _paint_speed_lines(self, painter):
+        if not self.has_speed_lines or self.streak_progress >= 1.0:
+            return
+        bounds = QRectF(self.button.rect())
+        painter.save()
+        painter.setClipRect(bounds.adjusted(3, 2, -3, -2))
+        head = (bounds.width() + 24) * self.streak_progress - 5
+        center = bounds.center().y()
+        # (height offset, lead offset, length, thickness, head color)
+        for y, lead, length, thickness, tip in (
+                (-6, 4, 11, 1.0, '#ff344d'),
+                (0, 0, 18, 1.5, '#ffb9c0'),
+                (6, -5, 9, 1.0, '#ff344d')):
+            start, end = head + lead - length, head + lead
+            trail = QLinearGradient(start, 0, end, 0)
+            trail.setColorAt(0, QColor(255, 52, 77, 0))
+            trail.setColorAt(.75, QColor('#e1223c'))
+            trail.setColorAt(1, QColor(tip))
+            painter.fillRect(QRectF(start, center + y - thickness / 2, length, thickness), QBrush(trail))
+        painter.restore()
 
     def transform(self, painter):
         sx, sy, rotation, offset = self.pose
@@ -138,7 +139,7 @@ class DockFeedback(QObject):
 
     def transition(self, target, *, animate=True):
         target = float(target)
-        if self.sweeps_highlight:
+        if self.has_speed_lines:
             target = min(1.0, target)
         self.animation.stop()
         if not self.button.property('dockRail') or self.keyboard or not motion.enabled():
@@ -173,12 +174,12 @@ class DockFeedback(QObject):
         elif kind == QEvent.MouseButtonPress:
             self._keyboard_focus(False)
             self.transition(.9, animate=False)
-            if not self.sweeps_highlight:
+            if not self.has_speed_lines:
                 self.hover()
         elif kind == QEvent.MouseButtonRelease:
             self.transition(1.1 if watched.underMouse() else 1.0)
         elif kind == QEvent.Enter:
-            if self.sweeps_highlight:
+            if self.has_speed_lines:
                 self.hover(entering=isinstance(event, QEnterEvent) and event.pointingDevice().type()
                            in (QInputDevice.DeviceType.Mouse, QInputDevice.DeviceType.TouchPad))
             else:
@@ -204,6 +205,7 @@ class DockFeedback(QObject):
             option.state &= ~QStyle.State_HasFocus
             painter = QPainter(watched)
             watched.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, watched)
+            self._paint_speed_lines(painter)
             size = watched.iconSize()
             pixmap = watched.icon().pixmap(size, watched.devicePixelRatioF(),
                                           QIcon.Normal if watched.isEnabled() else QIcon.Disabled,
@@ -214,7 +216,9 @@ class DockFeedback(QObject):
             tint = QPainter(tinted)
             tint.drawPixmap(0, 0, pixmap)
             tint.setCompositionMode(QPainter.CompositionMode_SourceIn)
-            tint.fillRect(tinted.rect(), self._icon_tint(size.width()))
+            color = (theme.qcolor(theme.TEXT2) if self.has_speed_lines and watched.isEnabled()
+                     and not active(watched) else icon_color(watched))
+            tint.fillRect(tinted.rect(), color)
             tint.end()
             width, height = size.width(), size.height()
             painter.save()
