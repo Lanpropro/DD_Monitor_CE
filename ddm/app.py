@@ -128,6 +128,8 @@ class MainWindow(QMainWindow):
         self.state = state or {}
         self._tray_hint_shown = bool((self.state.get("ui") or {}).get("tray_hint_shown", False))
         self.room_presets = room_presets.collection(self.state.get("room_presets"))
+        from .layout_presets import LayoutPresets
+        self.layout_presets = LayoutPresets(self, (self.state.get('ui') or {}).get('custom_layout_presets'))
         self._active_room_preset_id = (self.state.get("ui") or {}).get("room_preset_id", "")
         self._applying_room_preset = False
         self._room_preset_fullscreen_layout = None
@@ -775,6 +777,7 @@ class MainWindow(QMainWindow):
             ],
             "ui": {
                 "layout_picker_size": self.sidebar.presentation_control.layout_picker.size_state(),
+                "custom_layout_presets": self.layout_presets.state(),
                 "room_add_followed_live_only": self.room_placement.catalog.followed_live_only,
                 "picture_in_picture": self.picture_in_picture.state(),
                 "tray_hint_shown": self._tray_hint_shown,

@@ -11,8 +11,8 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QFont, QFontDatabase, QInputMethodEvent, QPalette
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
+from PySide6.QtGui import QFont, QFontDatabase, QInputMethodEvent, QKeySequence, QPalette
+from PySide6.QtWidgets import QApplication, QDialog, QKeySequenceEdit, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
@@ -39,6 +39,88 @@ def contrast(first, second):
     return (b + .05) / (a + .05)
 
 
+def check_layout_only_presets(app, directory):
+    rooms = [dict(room_id=str(n), uname=str(n), live=False) for n in range(20, 26)]
+    state = {'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}}
+    window = MainWindow(rooms, deepcopy(rooms), layout_id='corner', state=state)
+    window.resize(1400, 850)
+    window.show()
+    app.processEvents()
+    try:
+        presets = window.layout_presets
+        wall = window.wall
+        handle, point = border_for(wall, ('root/0', 0))
+        drag(app, handle, QPoint(-100, 0), pos=point)
+        saved_ratios = wall.corner_ratios()
+        window.sidebar.open_layout_picker()
+        picker = window.sidebar._picker
+        with patch('ddm.layout_presets_ui.QInputDialog.getText', return_value=('大画面', True)):
+            QTest.mouseClick(picker.save_layout_button, Qt.LeftButton)
+        assert picker.group() == '自定义布局' and picker.custom_layouts_page.list.count() == 1
+        wide = picker.custom_layouts_page.list.item(0).data(Qt.UserRole)
+        def choose_shortcut(dialog):
+            dialog.findChild(QKeySequenceEdit).setKeySequence(QKeySequence('Ctrl+1'))
+            return QDialog.Accepted
+        with patch.object(QDialog, 'exec', choose_shortcut):
+            picker.custom_layouts_page._edit_shortcut(wide)
+        assert 'Ctrl+1' in picker.custom_layouts_page.list.item(0).text()
+        picker.close()
+        wall.reset_layout_ratios()
+        assert wall.corner_ratios() != saved_ratios
+        alternative = presets.save('原始比例')
+        for binding in ('Ctrl+1', 'F'):
+            try:
+                presets.bind(alternative, binding)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f'Occupied shortcut {binding} must be rejected')
+
+        # The saved composition never substitutes rooms or audio with the values at save time.
+        wall.tiles[0], wall.tiles[1] = wall.tiles[1], wall.tiles[0]
+        wall.tiles[0].set_volume(77)
+        before = [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel)
+                  for tile in wall.tiles]
+        window._on_layout_changed('1x1')
+        small = presets.save('单画面')
+        presets.bind(small, 'Ctrl+2')
+        assert len(wall.visible_tiles()) == 1
+        window.activateWindow()
+        window.setFocus()
+        app.processEvents()
+        QTest.keySequence(window, QKeySequence('Ctrl+1'))
+        assert wall.layout_id == 'corner' and wall.corner_ratios() == saved_ratios
+        assert [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel)
+                for tile in wall.tiles] == before
+        assert presets.items[alternative]['ratios'] != saved_ratios
+        window.sidebar.search.setFocus()
+        app.processEvents()
+        assert not window._handle_shortcut('Ctrl+2') and wall.layout_id == 'corner'
+
+        saved = window.current_state()
+        records = saved['ui']['custom_layout_presets']
+        assert all(set(record) == {'id', 'name', 'base', 'ratios', 'shortcut'} for record in records)
+        assert not saved['room_presets']['items']
+        with patch.object(config, 'CONFIG_PATH', str(directory / 'layouts.json')), patch.dict(os.environ):
+            os.environ.pop('DDM_NO_SAVE', None)
+            config.save(saved, raise_errors=True)
+            reopened_state = config.load()
+        reopened = MainWindow([], layout_id='1x1', state=reopened_state)
+        try:
+            assert reopened.layout_presets.state() == records
+            assert reopened.layout_presets.shortcuts()['Ctrl+1'] == wide
+            assert reopened.layout_presets.apply(wide)
+            assert reopened.wall.corner_ratios() == saved_ratios
+            assert not any(tile.room.get('room_id') for tile in reopened.wall.tiles)
+            reopened.layout_presets.delete(wide)
+            assert 'Ctrl+1' not in reopened.layout_presets.shortcuts()
+        finally:
+            reopened.close()
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def main():
     app = QApplication([])
     font_path = Path('C:/Windows/Fonts/msyh.ttc')
@@ -59,6 +141,7 @@ def main():
                        'load_avatars_for', 'load_room_avatars', 'load_cached_covers', 'load_cached_avatars',
                        '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, method))
+        check_layout_only_presets(app, Path(temporary))
         window = MainWindow(deepcopy(fixture), deepcopy(fixture), layout_id='corner',
                             state={'plugins_enabled': [], 'settings': {'auto_update': False,
                                    'preview_on_hover': False, 'recording_replay_enabled': False}})

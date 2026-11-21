@@ -39,6 +39,9 @@ class AppShortcuts(QObject):
         sequences.extend(fullscreen_volume)
         if host.shortcuts.get("danmaku_input") == "Return":
             sequences.append("Enter")
+        presets = getattr(host, 'layout_presets', None)
+        layout_sequences = presets.shortcuts() if presets is not None else {}
+        sequences.extend(layout_sequences)
         for sequence in dict.fromkeys(sequences):
             if not sequence:
                 continue
@@ -47,6 +50,7 @@ class AppShortcuts(QObject):
             shortcut.setAutoRepeat(False)
             shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
             shortcut.setProperty('fullscreenVolume', sequence in fullscreen_volume)
+            shortcut.setProperty('layoutPreset', sequence in layout_sequences)
             shortcut.setProperty("danmakuInput", sequence in (
                 host.shortcuts.get("danmaku_input"),
                 "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
@@ -109,7 +113,9 @@ class AppShortcuts(QObject):
         editing = isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))
         for shortcut in host._window_shortcuts:
             sequence = shortcut.key().toString()
-            if (sequence in ("Up", "Down") or shortcut.property("fullscreenVolume")
+            if shortcut.property('layoutPreset'):
+                shortcut.setEnabled(not editing and host._fullscreen_tile is None)
+            elif (sequence in ("Up", "Down") or shortcut.property("fullscreenVolume")
                     or shortcut.property("danmakuInput") or shortcut.property('folderToggle')):
                 shortcut.setEnabled(not editing)
 
@@ -189,6 +195,11 @@ class AppShortcuts(QObject):
         elif pressed and pressed == shortcuts.get("restore") and host._fullscreen_tile:
             host._exit_fullscreen()
         else:
+            presets = getattr(host, 'layout_presets', None)
+            if pressed and presets is not None and (key := presets.shortcuts().get(pressed)):
+                if isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit)):
+                    return False
+                return presets.apply(key)
             return False
         return True
 

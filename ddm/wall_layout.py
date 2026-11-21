@@ -139,6 +139,12 @@ class WallLayout:
         return {identifier: {key: list(values) for key, values in ratios.items()}
                 for identifier, ratios in host._layout_ratios.items() if ratios}
 
+    def set_preset_ratios(self, identifier, ratios):
+        if identifier == 'corner':
+            self.host.restore_corner_ratios(ratios)
+        else:
+            self.host._layout_ratios[identifier] = {key: list(values) for key, values in ratios.items()}
+
     def reset_layout_ratios(self) -> None:
         """只恢复当前预设，不影响其他预设保存的比例。"""
         host = self.host

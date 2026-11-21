@@ -28,6 +28,34 @@ def partition(identifier):
     return resize_layout.build_partition(preset["spec"][2])
 
 
+def validate_ratios(identifier, ratios):
+    if not isinstance(ratios, dict):
+        raise ValueError("布局比例无效")
+    if identifier == "corner":
+        keys = ("width", "height", "right")
+        values = [ratios.get(key) for key in keys]
+        bottom = ratios.get("bottom")
+        if (not isinstance(bottom, (list, tuple)) or len(bottom) != 2
+                or not all(type(v) in (int, float) and 0 < v < 1 for v in values + list(bottom))
+                or bottom[0] >= bottom[1]):
+            raise ValueError("布局比例无效")
+        return dict(zip(keys, values), bottom=list(bottom))
+    weights = resize_layout.validated_weights(ratios, partition(identifier))
+    if weights.keys() != ratios.keys():
+        raise ValueError("布局比例无效")
+    return weights
+
+
+def snapshot_ratios(wall):
+    if wall.layout_id == 'corner':
+        return wall.corner_ratios()
+    ratios = {key: list(values) for key, values in wall._layout_ratios.get(wall.layout_id, {}).items()}
+    # Freeze viewport-dependent defaults, such as the portrait main pane's 16:9 ratio.
+    for (key, _), (_, _, sizes) in wall._preset_dividers.items():
+        ratios.setdefault(key, [size / sum(sizes) for size in sizes])
+    return ratios
+
+
 def validate(snapshot):
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("layout"), dict):
         raise ValueError("组合数据不完整")
@@ -53,24 +81,7 @@ def validate(snapshot):
     elif type(dm) is not int or not 0 <= dm < count or (
             layouts.is_portrait_layout(identifier) and dm != default_dm):
         raise ValueError("弹幕格位置无效")
-    ratios = source.get("ratios")
-    if not isinstance(ratios, dict):
-        raise ValueError("布局比例无效")
-    if identifier == "corner":
-        values = [ratios.get(key) for key in ("width", "height", "right")]
-        bottom = ratios.get("bottom")
-        if not isinstance(bottom, (list, tuple)) or len(bottom) != 2:
-            raise ValueError("布局比例无效")
-        if not all(type(v) in (int, float) and 0 < v < 1 for v in values + list(bottom)):
-            raise ValueError("布局比例无效")
-        if bottom[0] >= bottom[1]:
-            raise ValueError("布局比例无效")
-        ratios = dict(zip(("width", "height", "right"), values), bottom=list(bottom))
-    else:
-        weights = resize_layout.validated_weights(ratios, partition(identifier))
-        if set(weights) != set(ratios):
-            raise ValueError("布局比例无效")
-        ratios = weights
+    ratios = validate_ratios(identifier, source.get("ratios"))
     slots = snapshot.get("slots")
     cells = set(range(count)) - {dm}
     if not isinstance(slots, list) or len(slots) != len(cells):

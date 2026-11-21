@@ -28,6 +28,7 @@ class LayoutPicker(QFrame):
     DEFAULT_SIZE = QSize(456, 360)
     _icon_size = QSize(76, 42)
     _presets_key = '直播间组合'
+    custom_layouts_key = '自定义布局'
 
     def __init__(self, current: str, parent=None, portrait: bool = False, *,
                  presets_host=None, preferred_size=None, available=None):
@@ -43,6 +44,7 @@ class LayoutPicker(QFrame):
         self._reset_layout_id = current
         self._can_reset_layout = layouts.capacity(current) > 1
         self.presets_page = None
+        self.custom_layouts_page = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 12, 14, 12)
@@ -59,6 +61,8 @@ class LayoutPicker(QFrame):
         groups = [(name, group) for name, group in layouts.GROUPS if group]
         active = next((name for name, group in groups if any(item['id'] == current for item in group)), groups[0][0])
         keys = [name for name, _group in groups]
+        if getattr(presets_host, 'layout_presets', None) is not None:
+            keys.append(self.custom_layouts_key)
         if presets_host is not None:
             keys.append(self._presets_key)
         self.tabs = SegmentedControl([(name, name) for name in keys], active, self)
@@ -87,11 +91,24 @@ class LayoutPicker(QFrame):
             self._sections[self._presets_key] = []
             self.presets_page = RoomPresetsPage(presets_host, self)
             outer.addWidget(self.presets_page, 1)
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        if self.custom_layouts_key in keys:
+            from .layout_presets_ui import LayoutPresetsPage
+            self._cards[self.custom_layouts_key] = []
+            self._sections[self.custom_layouts_key] = []
+            self.custom_layouts_page = LayoutPresetsPage(self, presets_host)
+            outer.addWidget(self.custom_layouts_page, 1)
+            self.save_layout_button = ActionButton('保存当前布局', self)
+            self.save_layout_button.setToolTip('只保存预设和分隔线比例')
+            self.save_layout_button.clicked.connect(self.custom_layouts_page.save)
+            footer.addWidget(self.save_layout_button)
         self.reset_button = ActionButton('恢复默认比例', self)
         self.reset_button.setObjectName('LayoutResetButton')
         self.reset_button.setToolTip('恢复当前布局的全部分隔线比例，保留直播间和音频设置')
         self.reset_button.clicked.connect(self._reset_ratios)
-        outer.addWidget(self.reset_button, 0, Qt.AlignRight)
+        footer.addWidget(self.reset_button)
+        outer.addLayout(footer)
 
         for name, group in groups:
             self._add_group(board, name, group, current)
@@ -250,7 +267,13 @@ class LayoutPicker(QFrame):
         with QSignalBlocker(self.tabs):
             self.tabs.setValue(name)
         showing_presets = name == self._presets_key
-        self.scroll.setVisible(not showing_presets)
+        showing_custom = name == self.custom_layouts_key
+        self.scroll.setVisible(not (showing_presets or showing_custom))
+        if self.custom_layouts_page is not None:
+            self.custom_layouts_page.setVisible(showing_custom)
+            self.save_layout_button.setVisible(not showing_presets)
+            if showing_custom:
+                self.custom_layouts_page.refresh()
         if self.presets_page is not None:
             self.presets_page.setVisible(showing_presets)
             if showing_presets:

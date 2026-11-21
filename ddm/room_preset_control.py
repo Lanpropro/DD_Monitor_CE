@@ -13,13 +13,7 @@ class RoomPresetController:
         host = self.host
         wall = host.wall
         identifier = wall.layout_id
-        if identifier == "corner":
-            ratios = wall.corner_ratios()
-        else:
-            ratios = deepcopy(wall._layout_ratios.get(identifier, {}))
-            # Defaults such as portrait 16:9 depend on the viewport; freeze their current proportions.
-            for (key, _index), (_node, _area, sizes) in wall._preset_dividers.items():
-                ratios.setdefault(key, [size / sum(sizes) for size in sizes])
+        ratios = room_presets.snapshot_ratios(wall)
         custom = wall.pane_danmaku.custom
         dm = None if custom else (layouts.danmaku_cell(identifier) if
             layouts.is_portrait_layout(identifier) else wall._danmaku_cell)

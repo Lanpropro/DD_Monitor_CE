@@ -185,16 +185,19 @@ class WindowLayout:
                     player.set_audio_channel(int(tile.audio_channel))
                     player.reapply_audio_channel()
 
-    def on_layout_changed(self, layout_id: str) -> None:
+    def on_layout_changed(self, layout_id: str, *, preserve_rooms: bool = False) -> None:
         host = self.host
         if host.picture_in_picture.moves_main_wall:
             host.picture_in_picture.restore()
         host._cancel_interactive_resize()
-        panes_reset = host.wall.pane_danmaku.reset_preset(layout_id)
+        panes_reset = not preserve_rooms and host.wall.pane_danmaku.reset_preset(layout_id)
         want_portrait = layouts.is_portrait_layout(layout_id)
         reshape = (want_portrait != (host.orientation == "portrait")
                    or want_portrait != (host._resize_orientation() == "portrait"))
         if layout_id == host.wall.layout_id and not reshape:
+            if preserve_rooms:
+                host.wall.relayout(force=True)
+                return
             host.wall.reset_layout_ratios()
             if panes_reset:
                 host.wall.relayout(force=True)
@@ -203,8 +206,9 @@ class WindowLayout:
                 host._refresh_meta()
                 host._save_timer.start()
             return
-        host._prioritize_live_tiles(layout_id)
-        host._clear_expanded_slots(layout_id)
+        if not preserve_rooms:
+            host._prioritize_live_tiles(layout_id)
+            host._clear_expanded_slots(layout_id)
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
