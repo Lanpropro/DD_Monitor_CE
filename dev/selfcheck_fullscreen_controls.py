@@ -12,7 +12,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QImage, QKeyEvent, QPainter, QPalette, QRegion
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
 from ddm import app as app_module, skin_parts, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
@@ -203,11 +203,22 @@ def check_control_contrast(app, tile):
 
     composer = QWidget(tile.bottom)
     composer.setObjectName('DanmakuComposer')
-    composer.setGeometry(tile.bottom.width() // 2 - 90, 0, 180, 30)
-    composer.setStyleSheet('#DanmakuComposer QLineEdit {padding: 3px 6px;}')
+    composer.setAttribute(Qt.WA_StyledBackground)
+    composer.setGeometry(tile.bottom.width() // 2 - 115, 4, 230, 26)
+    # Match the installed composer, including the plugin's local background and button rules.
+    composer.setStyleSheet('#DanmakuComposer {background: transparent; border: none;}'
+                           '#DanmakuComposer QLineEdit {padding: 3px 6px;}')
+    row = QHBoxLayout(composer)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
     editor = QLineEdit(composer)
     editor.setPlaceholderText('Local input')
-    editor.setGeometry(composer.rect())
+    row.addWidget(editor, 1)
+    send = QPushButton('发送', composer, objectName='TileCtrl')
+    send.setFixedSize(44, 26)
+    send.setStyleSheet('QPushButton#TileCtrl:disabled {background: transparent; color: palette(tooltip-text);}')
+    editor.textChanged.connect(lambda text: send.setEnabled(bool(text)))
+    row.addWidget(send)
     composer.show()
     try:
         for mode in ('light', 'dark'):
@@ -248,9 +259,29 @@ def check_control_contrast(app, tile):
             assert render(tile.pause_button, '#ffffff').pixelColor(sample) == QColor('#ffffff')
             app.sendEvent(tile.pause_button, QEvent(QEvent.Leave))
             tile.pause_button.setEnabled(True)
-            pixel = render(editor, '#ffffff').pixelColor(editor.width() - 16, editor.height() // 2)
-            assert 80 < pixel.value() < 130, 'Only the composer field needs a translucent dark backing'
-            assert editor.palette().color(QPalette.PlaceholderText).value() > 220
+            row.activate()
+            gap = QPoint(editor.geometry().right() + 2, composer.height() // 2)
+            field = QPoint(editor.geometry().right() - 16, editor.geometry().center().y())
+            for draft in ('', 'Local draft'):
+                editor.setText(draft)
+                send.setEnabled(bool(draft))
+                bright = render(composer, '#ffffff', QWidget.DrawWindowBackground | QWidget.DrawChildren)
+                dim = render(composer, '#101010', QWidget.DrawWindowBackground | QWidget.DrawChildren)
+                assert bright.pixelColor(gap) == dim.pixelColor(gap) == QColor(theme.BG)
+                assert bright.pixelColor(field) == dim.pixelColor(field)
+                assert bright.pixelColor(0, 0) == QColor('#ffffff'), 'The backing keeps its rounded corners'
+                placeholder = editor.palette().color(QPalette.PlaceholderText)
+                assert placeholder == app.palette().color(QPalette.Text), (mode, placeholder.getRgb())
+                assert editor.palette().color(QPalette.Text) == app.palette().color(QPalette.WindowText)
+                ink = send.palette().color(QPalette.ButtonText)
+                role = QPalette.WindowText if draft else QPalette.Text
+                assert ink == app.palette().color(role), (mode, draft, ink.getRgb())
+            app.sendEvent(send, QEvent(QEvent.Enter))
+            hovered = render(composer, '#ffffff', QWidget.DrawWindowBackground | QWidget.DrawChildren)
+            role = QPalette.Button if mode == 'light' else QPalette.Highlight
+            point = send.geometry().topLeft() + QPoint(5, send.height() // 2)
+            assert hovered.pixelColor(point) == app.palette().color(role)
+            app.sendEvent(send, QEvent(QEvent.Leave))
     finally:
         composer.hide()
         composer.deleteLater()

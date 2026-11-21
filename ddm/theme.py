@@ -101,24 +101,53 @@ FULLSCREEN_BAR_STYLE = '''
 #TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:hover,
 #TileBottom[overVideo="true"] #BiliVolumeButton[hovered="true"]:!disabled,
 #TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:hover,
-#TileBottom[overVideo="true"] #DanmakuSendButton[hovered="true"]:!disabled {
+#TileBottom[overVideo="true"] #DanmakuSendButton[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton:!disabled:hover,
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton[hovered="true"]:!disabled {
     background: palette(highlight);
     color: #04161f;
 }
 #TileBottom[overVideo="true"] #TileCtrl:!disabled:pressed,
 #TileBottom[overVideo="true"] #TileToggle:!disabled:pressed,
 #TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:pressed,
-#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:pressed {
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:pressed,
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton:!disabled:pressed {
     background: palette(link-visited);
     color: #04161f;
 }
 #TileBottom[overVideo="true"] #TileCtrl[recording="true"] {
     color: #fb7299;
 }
+#TileBottom[overVideo="true"] #DanmakuComposer {
+    background: palette(window);
+    border: 1px solid palette(dark);
+    border-radius: 13px;
+}
 #TileBottom[overVideo="true"] #DanmakuComposer QLineEdit {
-    background: rgba(12, 16, 22, 0.62);
-    color: #ffffff;
-    placeholder-text-color: #edf1f5;
+    background: palette(base);
+    color: palette(window-text);
+    placeholder-text-color: palette(text);
+    border-color: palette(mid);
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QLineEdit:focus {
+    background: palette(button);
+    border-color: palette(dark);
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton {
+    color: palette(window-text);
+    font-weight: 600;
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton:disabled {
+    color: palette(text);
+}
+#TileBottom[appearanceLight="true"][overVideo="true"] #DanmakuComposer QPushButton:!disabled:hover,
+#TileBottom[appearanceLight="true"][overVideo="true"] #DanmakuComposer QPushButton[hovered="true"]:!disabled {
+    background: palette(button);
+    color: palette(highlight);
+}
+#TileBottom[appearanceLight="true"][overVideo="true"] #DanmakuComposer QPushButton:!disabled:pressed {
+    background: palette(mid);
+    color: palette(highlight);
 }
 '''
 
@@ -414,6 +443,9 @@ def _light_style(widget):
         '''
     if name == 'TileToggle':
         return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
+    if name == 'DanmakuComposer':
+        # The plugin gives the composer and its editor local styles of their own.
+        return FULLSCREEN_BAR_STYLE
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
