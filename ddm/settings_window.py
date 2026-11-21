@@ -43,7 +43,8 @@ class SettingsTitleBar(QWidget):
         super().__init__(window)
         self.setMinimumHeight(52)
         self.row = QHBoxLayout(self)
-        self.row.setContentsMargins(20, 6, 16, 6)
+        # Keep the close button's hit area clear of the vertical scrollbars below.
+        self.row.setContentsMargins(20, 6, 40, 6)
         self.row.setSpacing(14)
         self.breadcrumb = QLabel('设置', self)
         self.breadcrumb.setObjectName('SettingsBreadcrumb')

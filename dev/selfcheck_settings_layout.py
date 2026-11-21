@@ -328,6 +328,29 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(self.dialog.result(), QDialog.Rejected)
         self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
 
+    def test_danmaku_scrollbar_and_close_button_have_separate_click_areas(self):
+        page = self.page(self.dialog.PAGE_INDEX['danmaku'])
+        # Dialog-relative logical position of the reported click at 125% scaling.
+        position = QPoint(1158, 28)
+        receiver = self.dialog.childAt(position)
+        QTest.mouseClick(receiver, Qt.LeftButton, pos=receiver.mapFrom(self.dialog, position))
+        self.assertTrue(self.dialog.isVisible())
+
+        button = self.dialog.window_header.close_button
+        scrollbar = page.scroll.verticalScrollBar()
+        for width in (1200, 760):
+            with self.subTest(width=width):
+                self.dialog.resize(width, 800)
+                settle()
+                self.assertTrue(scrollbar.isVisible())
+                button_right = button.mapTo(self.dialog, button.rect().topRight()).x()
+                scrollbar_left = scrollbar.mapTo(self.dialog, QPoint()).x()
+                self.assertLess(button_right, scrollbar_left)
+
+        QTest.keyClick(self.dialog, Qt.Key_Escape)
+        self.assertFalse(self.dialog.isVisible())
+        self.assertEqual(self.dialog.result(), QDialog.Rejected)
+
     def test_material_controls_preview_reset_and_shadow_rendering(self):
         from ddm.settings_material import DEFAULTS, normalize
         self.assertTrue(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
