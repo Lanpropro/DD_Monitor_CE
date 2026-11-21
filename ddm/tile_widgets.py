@@ -326,6 +326,7 @@ class Tile(QFrame):
         self._mask_refresh_timer = QTimer(self)
         self._mask_refresh_timer.setSingleShot(True)
         self._mask_refresh_timer.timeout.connect(self._refresh_overlay_masks)
+        self.video.setMouseTracking(True)
         self.video.installEventFilter(self)
         self.controls.installEventFilter(self)
         self.volume_button.installEventFilter(self)
@@ -724,7 +725,10 @@ class Tile(QFrame):
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.video:
-            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if (event.type() in (QEvent.Enter, QEvent.MouseMove) and not self._overlay_visible
+                    and not self.property('fullscreen') and not self.property('pictureInPicture')):
+                self._poll_control_hover()
+            elif event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
                 if self.property('fullscreen'):
                     # Native video clicks do not take Qt focus by default.
                     # End input mode so idle hiding and shortcuts can resume.

@@ -15,7 +15,9 @@ class WallControlHover(QObject):
         super().__init__(wall)
         self.wall = wall
         self.timer = QTimer(self)
-        self.timer.setInterval(25)
+        # Native video can miss Enter during a quick pass across a tile.
+        self.timer.setTimerType(Qt.PreciseTimer)
+        self.timer.setInterval(8)
         self.timer.timeout.connect(self.sync)
         wall.installEventFilter(self)
 

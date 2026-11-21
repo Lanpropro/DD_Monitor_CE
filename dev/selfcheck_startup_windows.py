@@ -14,7 +14,8 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 
-from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, Qt
+from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import config, plugins, theme
@@ -355,6 +356,9 @@ class StartupWindowsTests(unittest.TestCase):
         self.app.processEvents()
         first, second = window.wall.visible_tiles()[:2]
         try:
+            timer = window._wall_control_hover.timer
+            self.assertEqual(timer.timerType(), Qt.PreciseTimer)
+            self.assertLess(timer.interval(), 16)
             with patch('ddm.tile_controls.QCursor') as cursor, \
                     patch.object(window, 'isActiveWindow', return_value=True) as active:
                 for tile in (first, second):
@@ -381,6 +385,31 @@ class StartupWindowsTests(unittest.TestCase):
 
                 window.hide()
                 self.assertFalse(window._wall_control_hover.timer.isActive())
+        finally:
+            window.close()
+            self.app.processEvents()
+
+    def test_video_mouse_move_wakes_controls_without_tile_enter_or_timer_tick(self):
+        window = MainWindow([], [], layout_id='corner', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        window.move(-10000, -10000)
+        window.show()
+        self.app.processEvents()
+        tile = window.wall.visible_tiles()[0]
+        try:
+            window._wall_control_hover.timer.stop()
+            tile._normal_hover_active = False
+            tile.set_controls_visible(False)
+            point = tile.video.rect().center()
+            global_point = tile.video.mapToGlobal(point)
+            with patch('ddm.tile_controls.QCursor') as cursor:
+                cursor.pos.return_value = global_point
+                event = QMouseEvent(QEvent.MouseMove, QPointF(point), QPointF(global_point),
+                                    Qt.NoButton, Qt.NoButton, Qt.NoModifier)
+                self.app.sendEvent(tile.video, event)
+            self.assertTrue(tile.controls.isVisible())
+            self.assertTrue(tile.video.hasMouseTracking())
         finally:
             window.close()
             self.app.processEvents()
