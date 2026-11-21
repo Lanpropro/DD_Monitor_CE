@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QElapsedTimer, QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, QUrl, QVariantAnimation, Signal
 from PySide6.QtGui import QDesktopServices, QPainter, QPainterPath, QPen, QTextOption
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLayout, QPushButton,
                                QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget)
@@ -117,6 +117,7 @@ class NoticeMessage(QTextEdit):
 
 class NoticeRow(QFrame):
     removed = Signal(object)
+    DISMISS_MS = 180
     TYPES = {'live': ('开播提醒', '●'), 'warning': ('需要留意', '!'),
              'error': ('操作失败', '!'), 'update': ('版本更新', '↑'),
              'announcement': ('官方公告', 'i')}
@@ -218,11 +219,19 @@ class NoticeRow(QFrame):
             layout.addLayout(footer)
         self._paper = None
         self._progress = 0.0
-        self.animation = motion.paper_animation(self, self._frame, self.finish_removal)
+        self._collapse_height = 0
+        self.animation = QVariantAnimation(self)
+        self.animation.setDuration(self.DISMISS_MS)
+        self.animation.setEasingCurve(motion.THEME_WAVE_EASING)
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
+        self.animation.valueChanged.connect(self._frame)
+        self.animation.finished.connect(self.finish_removal)
         self._removed = False
+        self._close_clock = QElapsedTimer()
         self._close_timer = QTimer(self)
-        self._close_timer.setSingleShot(True)
-        self._close_timer.timeout.connect(self.finish_removal)
+        self._close_timer.setInterval(16)
+        self._close_timer.timeout.connect(self._advance_close)
         self.ensurePolished()
         style_room_notice(self, self.artwork)
         self.setMinimumHeight(layout.totalHeightForWidth(max(80, parent.width())))
@@ -250,22 +259,34 @@ class NoticeRow(QFrame):
             self.setMinimumHeight(self.layout().totalHeightForWidth(self.width()))
             self.layout().activate()
 
-    def remove(self):
+    def remove(self, *, collapse=True):
         if self._removed or self._paper is not None:
             return
         if not self.isVisible() or self.visibleRegion().isEmpty() or not motion.enabled():
             self.finish_removal()
             return
         self._paper = self.grab()
-        self.setFixedHeight(self.height())
+        height = self.height()
+        self._collapse_height = height if collapse else 0
+        self.setFixedHeight(height)
         for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
             child.hide()
         self.animation.start()
-        # Removal cannot depend solely on Qt's shared animation clock.
-        self._close_timer.start(motion.PAPER_DISMISS_MS + 100)
+        # The shared Qt animation clock can stall while Qt Quick video is active.
+        self.animation.pause()
+        self._close_clock.start()
+        self._close_timer.start()
+
+    def _advance_close(self):
+        elapsed = self._close_clock.elapsed()
+        self.animation.setCurrentTime(min(elapsed, self.DISMISS_MS))
+        if elapsed >= self.DISMISS_MS and not self._removed:
+            self.finish_removal()
 
     def _frame(self, progress):
         self._progress = progress
+        if self._collapse_height:
+            self.setFixedHeight(round(self._collapse_height * (1.0 - progress)))
         self.update()
 
     def finish_removal(self):
@@ -297,15 +318,16 @@ class NoticeRow(QFrame):
                 if glass:
                     paint_glass_border(painter, path)
             return
-        painter = QPainter(self)
-        motion.paint_paper_discard(painter, QRectF(self.rect()), self._paper, self._progress)
-        painter.end()
+        with QPainter(self) as painter:
+            painter.setOpacity(1.0 - self._progress)
+            painter.drawPixmap(0, 0, self._paper)
 
 
 class NotificationCenter(QFrame):
     changed = Signal()
     RADIUS = 16
     MIN_GLASS_OPACITY = 75
+    CLEAR_FEEDBACK_MS = 800
 
     def __init__(self, button):
         super().__init__(button, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -318,6 +340,11 @@ class NotificationCenter(QFrame):
         self._seen_keys = set()
         self.rows = {}
         self._owner = None
+        self._clear_pending = set()
+        self._clear_count = 0
+        self._clear_timer = QTimer(self)
+        self._clear_timer.setSingleShot(True)
+        self._clear_timer.timeout.connect(self.hide)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -338,8 +365,7 @@ class NotificationCenter(QFrame):
         labels.addWidget(self.summary)
         heading.addLayout(labels, 1)
         self.clear_button = NavigationButton('清空通知', 'clear', self.heading)
-        self.clear_button.clicked.connect(self.clear)
-        self.clear_button.clicked.connect(self.hide)
+        self.clear_button.clicked.connect(self._clear_from_button)
         heading.addWidget(self.clear_button)
         self.close_button = NavigationButton('收起通知面板', 'close', self.heading)
         self.close_button.clicked.connect(self.hide)
@@ -371,17 +397,20 @@ class NotificationCenter(QFrame):
 
     def add(self, message, *, kind='info', callback=None, action='查看详情', key=None, rooms=(), replace=False,
             file_path=None, secondary_callback=None, secondary_action='查看详情'):
+        unread = not self.isVisible() or bool(self._clear_count)
         if key is not None:
             if key in self._seen_keys:
-                entry = next((entry for entry in self.entries if entry.key == key), None)
+                entry = next((entry for entry in reversed(self.entries) if entry.key == key), None)
                 if not replace:
                     return entry
-                if entry is not None:
+                row = self.rows.get(entry)
+                if (entry is not None and entry not in self._clear_pending
+                        and (row is None or row._paper is None)):
                     entry.message, entry.kind = str(message), kind
                     entry.callback, entry.action = callback, action
                     entry.secondary_callback, entry.secondary_action = secondary_callback, secondary_action
                     entry.time = datetime.now().strftime('%H:%M:%S')
-                    entry.unread = not self.isVisible()
+                    entry.unread = unread
                     entry.rooms = tuple(dict(room) for room in rooms[:3])
                     entry.file_path = str(file_path or '')
                     row = self.rows.pop(entry, None)
@@ -394,7 +423,7 @@ class NotificationCenter(QFrame):
                     self._sync()
                     return entry
         entry = NoticeEntry(str(message), kind, datetime.now().strftime('%H:%M:%S'),
-                            callback, action, not self.isVisible(), tuple(dict(room) for room in rooms[:3]), key,
+                            callback, action, unread, tuple(dict(room) for room in rooms[:3]), key,
                             str(file_path or ''), secondary_callback, secondary_action)
         self.entries.append(entry)
         if key is not None:
@@ -420,25 +449,42 @@ class NotificationCenter(QFrame):
             self.list_layout.removeWidget(row)
             row.hide()
             row.deleteLater()
-        self._sync()
+        if entry in self._clear_pending:
+            self._clear_pending.remove(entry)
+            if self._clear_pending:
+                return
+            self._clear_timer.start(self.CLEAR_FEEDBACK_MS)
+        self._sync(resize=False)
+
+    def _clear_from_button(self):
+        if not self.isVisible() or self._clear_count or not self.entries:
+            return
+        self._clear_pending.update(self.entries)
+        self._clear_count = len(self._clear_pending)
+        self.clear_button.setEnabled(False)
+        self.clear()
 
     def clear(self):
         for entry in tuple(self.entries):
             row = self.rows.get(entry)
             if row is not None:
-                row.remove()
+                row.remove(collapse=False)
             else:
                 self._remove(entry)
 
-    def _sync(self):
+    def _sync(self, *, resize=True):
         count = len(self.entries)
-        self.summary.setText(f'本次启动 · {count} 条')
+        feedback = f'已清空 {self._clear_count} 条通知' if self._clear_timer.isActive() else ''
+        summary = f'本次启动 · {count} 条'
+        self.summary.setText(f'{summary} · {feedback}' if count and feedback else summary)
+        self.empty.setText(feedback or '暂无通知')
         self.empty.setVisible(not count)
         self.scroll.setVisible(bool(count))
-        self.clear_button.setEnabled(bool(count))
+        self.clear_button.setEnabled(bool(count) and not self._clear_count)
         if self.isVisible():
             self.layout().activate()
-            self.reposition()
+            if resize and not self._clear_count:
+                self.reposition()
         self.changed.emit()
 
     def showEvent(self, event):
@@ -460,6 +506,9 @@ class NotificationCenter(QFrame):
     def hideEvent(self, event):
         QApplication.instance().removeEventFilter(self)
         self.button.setChecked(False)
+        self._clear_timer.stop()
+        self._clear_pending.clear()
+        self._clear_count = 0
         for row in tuple(self.rows.values()):
             if row._paper is not None:
                 row.finish_removal()

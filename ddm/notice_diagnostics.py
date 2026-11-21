@@ -157,8 +157,9 @@ class NoticeCloseTrace(QObject):
                     trace.watch(notice)
                 elif label.endswith('.show_message'):
                     trace.watch(notice, trigger=False)
-                trace.record(label + ':before', notice,
-                             handled=bool(kwargs.get('handled', False)))
+                if label != 'NoticeRow._frame':
+                    trace.record(label + ':before', notice,
+                                 handled=bool(kwargs.get('handled', False)))
                 started = time.perf_counter()
                 try:
                     return method(notice, *args, **kwargs)

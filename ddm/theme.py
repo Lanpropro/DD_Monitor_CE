@@ -1055,6 +1055,11 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     background: {CONTENT_HOVER};
     border-radius: {RADIUS_SM}px;
 }}
+#HistoryNotice #NoticeClose:pressed {{
+    color: #ffffff;
+    background: rgba(12, 19, 30, 0.72);
+    border-radius: 6px;
+}}
 
 /* ---------- 侧栏 ---------- */
 #Sidebar {{
