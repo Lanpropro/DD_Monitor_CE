@@ -41,6 +41,7 @@ class RepositoryMapTests(unittest.TestCase):
                      "docs/development/testing.md", "CONTRIBUTING.md",
                      "docs/development/workspace-maintenance.md",
                      "docs/references/README.md",
+                     "docs/references/biliup-recording.md",
                      "docs/archive/appearance-implementation-202610.md",
                      "docs/archive/skins-implementation-202610.md",
                      "docs/archive/resize-performance-202611.md",

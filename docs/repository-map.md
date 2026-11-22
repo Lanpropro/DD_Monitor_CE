@@ -550,6 +550,7 @@
 - `docs/README.md`
 - `docs/features/README.md`
 - `docs/references/README.md`
+- `docs/references/biliup-recording.md`
 - `docs/references/ui-control-coverage.md`
 - `docs/references/ui-control-icon-data.js`
 - `docs/references/ui-control-icons.js`
