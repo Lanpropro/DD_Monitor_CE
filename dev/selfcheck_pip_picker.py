@@ -103,12 +103,16 @@ class PipPickerTests(unittest.TestCase):
         QTest.mouseClick(button, Qt.LeftButton)
         dialog = pip.dialog
         other = QWidget()
+        self.addCleanup(other.close)
+        other.setAttribute(Qt.WA_ShowWithoutActivating)
         other.show()
-        other.activateWindow()
-        QTest.qWait(60)
-        self.assertIsNot(QApplication.activeWindow(), dialog)
+        # Deliver the Qt activation transition even when Windows denies foreground focus to CI.
+        QApplication.setActiveWindow(dialog)
+        self.assertIs(QApplication.activeWindow(), dialog)
+        QApplication.setActiveWindow(other)
+        self.assertIs(QApplication.activeWindow(), other)
+        self.app.processEvents()
         self.assertIsNone(pip.dialog)
-        other.close()
 
     def test_toolbar_picker_remembers_resized_dimensions_after_reopen_and_restore(self):
         from selfcheck_picture_in_picture import pointer
