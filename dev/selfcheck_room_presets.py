@@ -529,15 +529,10 @@ def check_portrait_live_defaults(app):
     rotated = {**landscape, 'rotate': 90}
     portrait = {'w': 1080, 'h': 1920}
 
-    def portrait_actions(tile):
-        menu = tile.build_menu()
-        submenu = next(action.menu() for action in menu.actions() if action.data() == 'portrait_footprint')
-        return menu, dict(zip((2, 3), submenu.actions(), strict=True))
-
-    def resize_with_wheel(tile, delta):
+    def resize_with_wheel(tile, delta, modifiers=Qt.ControlModifier):
         point = tile.video.rect().center()
         event = QWheelEvent(QPointF(point), QPointF(tile.video.mapToGlobal(point)), QPoint(),
-                            QPoint(0, delta), Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
+                            QPoint(0, delta), Qt.NoButton, modifiers, Qt.NoScrollPhase, False)
         assert QApplication.sendEvent(tile.video, event) and event.isAccepted()
 
     for layout_id, size in (('custom_grid9', 3), ('custom_grid16', 4)):
@@ -605,6 +600,11 @@ def check_portrait_live_defaults(app):
             wide = drop_room('804', units[2].center())
             first_frame(wide, landscape)
             assert wall.layout_control.cell_of(wide) == (0, 2, 1, 1)
+            with patch.dict(window.shortcuts, {'volume_up': 'Alt+WheelUp'}), \
+                    patch.object(window, '_tile_under_cursor', return_value=wide):
+                volume = wide.volume
+                resize_with_wheel(wide, 120, Qt.AltModifier)
+                assert wide.volume > volume and wall.layout_control.cell_of(wide) == (0, 2, 1, 1)
 
             manual = drop_room('805', units[size + 2].center())
             assert grid.resize_tile(manual, -1)
@@ -686,17 +686,12 @@ def check_portrait_live_defaults(app):
                     assert session.finish() and window._tile_of('811').geometry() == expected
                     tile = window._tile_of('811')
 
-                menu, choices = portrait_actions(tile)
-                assert choices[preferred].isChecked() and all(action.isEnabled() for action in choices.values())
                 other = 5 - preferred
-                choices[other].trigger()
-                menu.deleteLater()
+                resize_with_wheel(tile, 120 if other == 3 else -120, Qt.AltModifier)
                 index = wall.pane_danmaku.cell_for_tile(tile)
                 assert wall.layout_ratios()[layout_id]['grid'][index][2:] == (other, 1)
-                menu, choices = portrait_actions(tile)
-                assert choices[other].isChecked() and not choices[preferred].isChecked()
-                choices[2].trigger()
-                menu.deleteLater()
+                resize_with_wheel(tile, -120, Qt.AltModifier)
+                assert wall.layout_control.cell_of(tile)[2:] == (2, 1)
 
                 move = QMimeData()
                 move.setData(TILE_MIME, b'811')
@@ -710,22 +705,22 @@ def check_portrait_live_defaults(app):
                     resize_with_wheel(tile, -120)
                     assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
 
-                menu, choices = portrait_actions(tile)
-                choices[3].trigger()
-                menu.deleteLater()
+                resize_with_wheel(tile, 120, Qt.AltModifier)
                 resize_with_wheel(tile, 120)
                 resize_with_wheel(tile, -120)
                 assert wall.layout_control.cell_of(tile) == (0, 0, 3, 1)
-                menu, choices = portrait_actions(tile)
-                choices[2].trigger()
-                menu.deleteLater()
+                resize_with_wheel(tile, -120, Qt.AltModifier)
 
                 grid.add_danmaku(units[2 * size].center())
-                menu, choices = portrait_actions(tile)
-                assert choices[2].isChecked() and choices[2].isEnabled()
-                assert not choices[3].isEnabled() and choices[3].toolTip() == '没有连续空位'
-                menu.deleteLater()
+                with patch.dict(window.shortcuts, {'volume_up': 'Alt+WheelUp'}), \
+                        patch.object(window, '_tile_under_cursor', return_value=tile):
+                    volume = tile.volume
+                    resize_with_wheel(tile, 120, Qt.AltModifier)
+                    assert tile.volume == volume
                 assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
+                menu = tile.build_menu()
+                assert all(action.data() != 'portrait_footprint' for action in menu.actions())
+                menu.deleteLater()
         finally:
             release.set()
             session.cancel()

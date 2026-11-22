@@ -157,7 +157,7 @@ class ShortcutSettingsPage(QWidget):
             self._layout_shortcut_hints = []
             for offset, (text, aliases) in enumerate((
                 ('自定义布局等比缩放 · 悬停直播格，Ctrl＋滚轮', 'Ctrl+滚轮 Ctrl+WheelUp Ctrl+WheelDown 画面格 调整大小'),
-                ('切换 1×2／1×3 · 右键直播格 → 竖屏占位', '自定义布局 鼠标右键'),
+                ('竖屏占位 · Alt＋滚轮，上滚 1×3、下滚 1×2', '自定义布局 Alt+滚轮 Alt+WheelUp Alt+WheelDown'),
             ), start=2):
                 hint = QLabel(text, card)
                 hint.setWordWrap(True)

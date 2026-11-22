@@ -103,33 +103,19 @@ class WallSnapGrid:
                 return _Placement(index, target, result, result != cells, room_id)
         return None
 
-    def portrait_options(self, tile):
+    def switch_portrait_rows(self, tile, step):
         index = self._room_cell(tile)
         if index is None:
-            return {}
+            return False
         cells = self.cells()
         cell = cells[index]
-        if cell is None:
-            return {}
-        occupied = self.occupied()
-        options = {}
-        for rows in (2, 3):
-            target = self._portrait_cell(cell, rows)
-            checked = target == cell
-            options[rows] = (checked, checked or snap_grid.place(self.size, cells, index, target, occupied) != cells)
-        return options
-
-    def set_portrait_rows(self, tile, rows):
-        index = self._room_cell(tile)
-        if index is None:
-            return
-        cells = self.cells()
-        if (cell := cells[index]) is not None:
-            target = self._portrait_cell(cell, rows)
-            result = snap_grid.place(self.size, cells, index, target, self.occupied())
-            if result != cells:
-                tile.state_control.pending_grid_aspect = None
-                self._commit(result)
+        if cell is None or cell[2:] not in ((2, 1), (3, 1)):
+            return False
+        target = self._portrait_cell(cell, 3 if step > 0 else 2)
+        result = snap_grid.place(self.size, cells, index, target, self.occupied())
+        if result != cells:
+            self._commit(result)
+        return True
 
     def prepare_room_drag(self, mime):
         if not mime.hasFormat(ROOM_MIME):

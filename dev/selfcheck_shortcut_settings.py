@@ -106,7 +106,8 @@ class ShortcutSettingsTests(unittest.TestCase):
         page = self.page(width=500)
         before = page.values()
         for query, expected in (('Ctrl+滚轮', 'Ctrl＋滚轮'), ('Ctrl+WheelDown', 'Ctrl＋滚轮'),
-                                ('1×3', '右键直播格'), ('竖屏占位', '右键直播格')):
+                                ('Alt+滚轮', 'Alt＋滚轮'), ('Alt+WheelUp', 'Alt＋滚轮'),
+                                ('1×3', 'Alt＋滚轮'), ('竖屏占位', 'Alt＋滚轮')):
             page.search.setText(query)
             settle()
             visible = [label.text() for label, _terms in page._layout_shortcut_hints if label.isVisible()]

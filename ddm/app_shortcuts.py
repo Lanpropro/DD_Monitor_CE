@@ -71,15 +71,18 @@ class AppShortcuts(QObject):
         delta = angle or event.pixelDelta().y()
         if not delta:
             return False
+        modifiers = event.modifiers()
         snap_grid = getattr(host.wall, 'snap_grid', None)
-        if (not in_pip and event.modifiers() == Qt.ControlModifier and snap_grid is not None and snap_grid.interactive()
+        if (not in_pip and modifiers in (Qt.ControlModifier, Qt.AltModifier)
+                and snap_grid is not None and snap_grid.interactive()
                 and QApplication.activePopupWidget() is None):
             point = host.wall.mapFromGlobal(event.globalPosition().toPoint())
             tile = next((tile for tile in host.wall.visible_tiles() if tile.geometry().contains(point)), None)
-            if tile is not None and snap_grid.resize_tile(tile, 1 if delta > 0 else -1):
+            adjust = snap_grid.resize_tile if modifiers == Qt.ControlModifier else snap_grid.switch_portrait_rows
+            if tile is not None and adjust(tile, 1 if delta > 0 else -1):
                 event.accept()
                 return True
-        if not in_pip and event.modifiers() == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
+        if not in_pip and modifiers == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
             if (not isinstance(watched, VideoSurface)
                     or not watched.rect().contains(event.position().toPoint())
                     or QApplication.activePopupWidget() is not None):
@@ -89,7 +92,7 @@ class AppShortcuts(QObject):
                 return False
             step = wheel_volume_step(host.settings.get('hover_wheel_volume_step'), DEFAULT_HOVER_WHEEL_VOLUME_STEP)
         else:
-            if not self._matches_volume_wheel(event.modifiers(), delta):
+            if not self._matches_volume_wheel(modifiers, delta):
                 return False
             tile = pip_window._tile_at(event.globalPosition().toPoint()) if in_pip else host._tile_under_cursor()
             if tile is None or (in_pip and not tile.room.get('room_id')):
