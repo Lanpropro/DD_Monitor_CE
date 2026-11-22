@@ -235,6 +235,9 @@ class SystemTrayTests(unittest.TestCase):
             player = Mock()
             window.players[first] = player
             pip.restore(activate=False)
+            # Qt retires the floating window before the later tray restore action.
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
             player.release.assert_called_once()
             self.assertTrue(first.paused)
             self.assertTrue(tray.playback_suspended)
