@@ -26,6 +26,8 @@ class LayoutPicker(QFrame):
     COLUMNS = 4
     DEFAULT_SIZE = QSize(456, 360)
     _icon_size = QSize(76, 42)
+    _portrait_icon_size = QSize(74, 120)
+    _portrait_group = '竖屏布局'
     _presets_key = '直播间组合'
     custom_layouts_key = '已保存布局'
 
@@ -36,7 +38,7 @@ class LayoutPicker(QFrame):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._cards = {}
         self._sections = {}
-        self._columns = 0
+        self._grid_arrangement = None
         self._resize_gesture = None
         self._resize_area = (available or self.screen().availableGeometry()).adjusted(6, 6, -6, -6)
         self.setMouseTracking(True)
@@ -136,7 +138,7 @@ class LayoutPicker(QFrame):
             button = _LayoutCard(board)
             button.setObjectName('LayoutCard')
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            button.setIconSize(self._icon_size)
+            button.setIconSize(self._portrait_icon_size if item.get('portrait') else self._icon_size)
             button.setText(item['name'])
             button.setCheckable(True)
             button.setChecked(item['id'] == current)
@@ -161,30 +163,37 @@ class LayoutPicker(QFrame):
         margins = self.layout().contentsMargins()
         width = self.width() - margins.left() - margins.right() - self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
         spacing = self._grid.spacing()
-        columns = min(self.COLUMNS, max(1, (width + spacing) // (122 + spacing)))
+        cards = self._cards[self._group]
+        portrait = self._group == self._portrait_group
+        min_width = 122
+        if portrait:
+            min_width = max(min_width, max(card.fontMetrics().horizontalAdvance(card.text()) + 16 for card in cards))
+        columns = min(3 if portrait else self.COLUMNS, max(1, (width + spacing) // (min_width + spacing)))
         cell_width = max(1, (width - (columns - 1) * spacing) // columns)
         height = self._icon_size.height() + QFontMetrics(self.font()).height() + 14
-        for cards in self._cards.values():
-            for card in cards:
-                card.setFixedSize(cell_width, height)
-        if columns == self._columns:
+        if portrait:
+            cell_width = min(cell_width, max(152, min_width))
+            height = max(self._portrait_icon_size.height() + cards[0].fontMetrics().height() + 30, cell_width + 12)
+        for card in cards:
+            card.setFixedSize(cell_width, height)
+        arrangement = self._group, columns
+        if arrangement == self._grid_arrangement:
             return
-        self._columns = columns
+        self._grid_arrangement = arrangement
         while self._grid.count():
             self._grid.takeAt(self._grid.count() - 1)
-        for name, cards in self._cards.items():
-            headings = iter(self._sections[name])
-            row = column = 0
-            for index, card in enumerate(cards):
-                if self._section(name, index, layouts.BY_ID[card.property('layoutId')]):
-                    if column:
-                        row, column = row + 1, 0
-                    self._grid.addWidget(next(headings), row, 0, 1, columns, Qt.AlignLeft)
-                    row += 1
-                self._grid.addWidget(card, row, column)
-                column += 1
-                if column == columns:
+        headings = iter(self._sections[self._group])
+        row = column = 0
+        for index, card in enumerate(cards):
+            if self._section(self._group, index, layouts.BY_ID[card.property('layoutId')]):
+                if column:
                     row, column = row + 1, 0
+                self._grid.addWidget(next(headings), row, 0, 1, columns, Qt.AlignLeft)
+                row += 1
+            self._grid.addWidget(card, row, column)
+            column += 1
+            if column == columns:
+                row, column = row + 1, 0
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -267,7 +276,7 @@ class LayoutPicker(QFrame):
         for cards in self._cards.values():
             for card in cards:
                 item = layouts.BY_ID[card.property('layoutId')]
-                size = (32, self._icon_size.height()) if item.get('portrait') else self._icon_size.toTuple()
+                size = card.iconSize().toTuple()
                 card.setIcon(QIcon(layouts.thumbnail(item['spec'], size=size, danmaku=item.get('danmaku'), preset=True)))
 
     def set_group(self, name: str) -> None:
@@ -293,6 +302,7 @@ class LayoutPicker(QFrame):
                 card.setVisible(key == name)
             for heading in self._sections[key]:
                 heading.setVisible(key == name)
+        self._reflow()
         self._update_edit_button()
         self.scroll.verticalScrollBar().setValue(0)
 

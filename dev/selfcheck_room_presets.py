@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QKeySequenceEdit, QMessageB
 from PySide6.QtTest import QTest
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
+from ddm.layout_picker import LayoutPicker
 from ddm.player import TilePlayer
 from ddm.room_presets_ui import thumbnail
 from selfcheck_corner_resize import border_for, drag
@@ -37,6 +38,50 @@ def contrast(first, second):
         return sum(a * b for a, b in zip(values, (.2126, .7152, .0722)))
     a, b = sorted((luminance(first), luminance(second)))
     return (b + .05) / (a + .05)
+
+
+def check_portrait_preset_cards():
+    picker = LayoutPicker('portrait_main2', preferred_size=QSize(568, 532))
+    picker.setAttribute(Qt.WA_ShowWithoutActivating)
+    picker.show()
+    QTest.qWait(20)
+    try:
+        assert picker.group() == '竖屏布局'
+        cards = picker._cards[picker.group()]
+        assert len(cards) == 6
+        for width, columns in ((568, 3), (320, 2), (568, 3)):
+            picker.resize(width, 532)
+            QTest.qWait(20)
+            assert len({card.x() for card in cards}) == columns, width
+            assert len({card.y() for card in cards}) == 6 // columns
+            assert cards[columns].y() == cards[0].height() + picker._grid.spacing()
+            for card in cards:
+                assert card.isVisible() and card.height() > card.width()
+                assert card.iconSize().height() >= 100
+                assert card.icon().actualSize(card.iconSize()) == card.iconSize()
+                assert card.fontMetrics().horizontalAdvance(card.text()) <= card.width() - 16
+                assert card.geometry().right() < picker.scroll.viewport().width()
+        picker.resize(320, 245)
+        QTest.qWait(20)
+        scrollbar = picker.scroll.verticalScrollBar()
+        assert scrollbar.maximum() > 0
+        scrollbar.setValue(scrollbar.maximum())
+        assert picker.scroll.viewport().rect().contains(cards[-1].mapTo(
+            picker.scroll.viewport(), cards[-1].rect().center()))
+
+        picker.set_group('普通布局')
+        QTest.qWait(20)
+        assert all(not card.isVisible() for card in cards)
+        assert all(card.width() > card.height() for card in picker._cards['普通布局'])
+        picker.set_group('竖屏布局')
+        QTest.qWait(20)
+        assert scrollbar.value() == 0 and cards[0].isChecked()
+        chosen = []
+        picker.chosen.connect(chosen.append)
+        QTest.mouseClick(cards[0], Qt.LeftButton)
+        assert chosen == ['portrait_main2'] and not picker.isVisible()
+    finally:
+        picker.close()
 
 
 def check_layout_only_presets(app, directory):
@@ -784,6 +829,7 @@ def main():
             app.setFont(QFont(families[0], 10))
     refresh_status = MainWindow.refresh_status
     app.setStyleSheet(theme.qss())
+    check_portrait_preset_cards()
     fixture = [dict(room_id=str(1000 + i) if i != 2 else '', uname=f'主播 {i + 1}',
                     live=True, live_known=True, volume=0 if i == 2 else (100 if i == 5 else 20 + i * 7),
                     muted=i % 2 == 0, audio_channel=(0, 3, 4)[i % 3]) for i in range(6)]

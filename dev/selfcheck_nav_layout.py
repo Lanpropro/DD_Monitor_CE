@@ -216,9 +216,9 @@ def main() -> None:
     assert not any(card.isVisible() for card in picker._cards["弹幕布局"])
     assert picker._tabs["普通布局"].isChecked()
     assert picker.size() == compact_size, "切换到普通布局时弹层不能突然向屏幕外增长"
-    # 用户报的：不同布局的卡片大小不一样、上下没对齐 —— 卡片尺寸必须统一
+    # 普通布局和弹幕布局沿用统一卡片尺寸，竖屏布局使用放大的竖向卡片。
     sizes = {(card.width(), card.height())
-             for group in picker._cards.values() for card in group}
+             for group in ("普通布局", "弹幕布局") for card in picker._cards[group]}
     row_tops = sorted({card.y() for card in picker._cards["普通布局"]})
     row_heights = {card.y(): card.height() for card in picker._cards["普通布局"]}
     print(f"  卡片尺寸: {sizes} 各行 y={row_tops} 行高={sorted(set(row_heights.values()))}")
