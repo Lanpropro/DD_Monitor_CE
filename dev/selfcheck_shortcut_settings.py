@@ -102,6 +102,20 @@ class ShortcutSettingsTests(unittest.TestCase):
         page.reset()
         self.assertEqual(page.values(), {key: default for key, _label, default in SHORTCUT_ACTIONS})
 
+    def test_custom_layout_gestures_are_searchable_help_and_do_not_add_bindings(self):
+        page = self.page(width=500)
+        before = page.values()
+        for query, expected in (('Ctrl+滚轮', 'Ctrl＋滚轮'), ('Ctrl+WheelDown', 'Ctrl＋滚轮'),
+                                ('1×3', '右键直播格'), ('竖屏占位', '右键直播格')):
+            page.search.setText(query)
+            settle()
+            visible = [label.text() for label, _terms in page._layout_shortcut_hints if label.isVisible()]
+            self.assertEqual(len(visible), 1)
+            self.assertIn(expected, visible[0])
+            self.assertFalse(page.empty.isVisible())
+            self.assertEqual([key for key, _card, _wide in page.sections.entries], ['wheel'])
+        self.assertEqual(page.values(), before)
+
     def test_compact_rows_fit_narrow_width_large_font_and_descriptions_are_not_repeated(self):
         previous = dict(theme._preferences)
         self.addCleanup(theme.configure_appearance, previous)
@@ -155,7 +169,8 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.assertEqual(requested[-1]['shortcuts']['focus'], '')
 
     def test_wheel_options_save_in_shortcuts_page_and_restore_defaults(self):
-        dialog = SettingsDialog({'wheel_volume_step': 7, 'hover_wheel_volume': False}, {}, preview=True)
+        dialog = SettingsDialog({'wheel_volume_step': 7, 'hover_wheel_volume': False,
+                                 'settings_wheel_speed': 3}, {}, preview=True)
         self.addCleanup(dispose, dialog)
         self.assertNotIn('hover_wheel_volume', dialog.general_page.values())
         self.assertEqual(dialog.settings()['wheel_volume_step'], 7)
@@ -165,6 +180,7 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.assertEqual(page.wheel_step.value(), 7)
         self.assertEqual(page.hover_wheel_step.value(), 3)
         self.assertFalse(page.hover_wheel_volume.isChecked())
+        self.assertEqual(page.wheel_speed.currentData(), 3)
         requested = []
         dialog.auto_save.requested.connect(requested.append)
         dialog.auto_save.start()
@@ -182,9 +198,11 @@ class ShortcutSettingsTests(unittest.TestCase):
         dialog.auto_save.flush()
         self.assertEqual(requested[-1]['settings'], {'wheel_volume_step': 8})
         dialog.auto_save.acknowledge()
-        page.sections.section('wheel').findChildren(QPushButton)[-1].click()
+        reset = next(button for button in page.sections.section('wheel').findChildren(QPushButton)
+                     if button.accessibleName() == '恢复本组')
+        reset.click()
         self.assertEqual(page.settings_values(), {'wheel_volume_step': 10, 'hover_wheel_volume_step': 3,
-                                                   'hover_wheel_volume': False})
+                                                   'hover_wheel_volume': False, 'settings_wheel_speed': 1})
 
     def test_shared_legacy_bindings_are_copied_and_explicit_context_bindings_win(self):
         bindings = configured_shortcuts({'mute': 'Ctrl+M', 'solo': '',

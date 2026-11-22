@@ -520,15 +520,28 @@ def check_snap_grid_and_other_presets(app):
 def check_portrait_live_defaults(app):
     from threading import Event
     from PySide6.QtCore import QMimeData, QPointF
-    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QWheelEvent
     from ddm import snap_grid
-    from ddm.sidebar_drag import ROOM_MIME
+    from ddm.sidebar_drag import ROOM_MIME, TILE_MIME
     from selfcheck_stream_playback import Player
 
     landscape = {'w': 1920, 'h': 1080, 'dw': 1920, 'dh': 1080}
     rotated = {**landscape, 'rotate': 90}
     portrait = {'w': 1080, 'h': 1920}
+
+    def portrait_actions(tile):
+        menu = tile.build_menu()
+        submenu = next(action.menu() for action in menu.actions() if action.data() == 'portrait_footprint')
+        return menu, dict(zip((2, 3), submenu.actions(), strict=True))
+
+    def resize_with_wheel(tile, delta):
+        point = tile.video.rect().center()
+        event = QWheelEvent(QPointF(point), QPointF(tile.video.mapToGlobal(point)), QPoint(),
+                            QPoint(0, delta), Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
+        assert QApplication.sendEvent(tile.video, event) and event.isAccepted()
+
     for layout_id, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+        preferred = 3 if size == 4 else 2
         window = MainWindow([], [], layout_id=layout_id, state={
             'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False}})
         window.resize(1500, 850)
@@ -576,8 +589,8 @@ def check_portrait_live_defaults(app):
             first = window._tile_of('801')
             assert wall.layout_control.cell_of(first) == (0, 0, 1, 1)
             first_frame(first, rotated)
-            assert wall.layout_control.cell_of(first) == (0, 0, 2, 1)
-            assert wall.layout_ratios()[layout_id]['grid'][0] == (0, 0, 2, 1)
+            assert wall.layout_control.cell_of(first) == (0, 0, preferred, 1)
+            assert wall.layout_ratios()[layout_id]['grid'][0] == (0, 0, preferred, 1)
 
             grid.add_danmaku(units[size + 1].center())
             blocked = drop_room('802', units[1].center())
@@ -587,7 +600,7 @@ def check_portrait_live_defaults(app):
 
             edge = drop_room('803', units[size * (size - 1)].center())
             first_frame(edge, portrait)
-            assert wall.layout_control.cell_of(edge) == ((size - 1, 0, 1, 1) if size == 3 else (2, 0, 2, 1))
+            assert wall.layout_control.cell_of(edge) == (size - 1, 0, 1, 1)
 
             wide = drop_room('804', units[2].center())
             first_frame(wide, landscape)
@@ -610,7 +623,11 @@ def check_portrait_live_defaults(app):
 
             window.layout_presets.select_builtin('4x4')
             window.add_to_wall(dict(room_id='806', uname='普通布局直播', live=False))
-            first_frame(window._tile_of('806'), portrait, pending=False)
+            fixed = window._tile_of('806')
+            first_frame(fixed, portrait, pending=False)
+            menu = fixed.build_menu()
+            assert all(action.data() != 'portrait_footprint' for action in menu.actions())
+            menu.deleteLater()
         finally:
             window.close()
             app.processEvents()
@@ -627,7 +644,7 @@ def check_portrait_live_defaults(app):
         units = snap_grid.geometry(size, layouts.even_cells(size, size),
                                    wall._corner_area(), wall.grid.spacing())
         point = units[len(units) - 1].center()
-        expected = units[len(units) - 1].united(units[len(units) - size - 1])
+        expected = units[len(units) - 1].united(units[len(units) - size * (preferred - 1) - 1])
         mime = QMimeData()
         mime.setData(ROOM_MIME, b'811')
         release = Event()
@@ -656,10 +673,10 @@ def check_portrait_live_defaults(app):
                     assert session.finish()
                 tile = window._tile_of('811')
                 assert tile is not None and tile.geometry() == expected
-                assert wall.layout_control.cell_of(tile) == (size - 2, size - 1, 2, 1)
+                assert wall.layout_control.cell_of(tile) == (size - preferred, size - 1, preferred, 1)
                 assert not grid.wants_video_aspect(tile)
 
-                assert grid.resize_tile(tile, 1)
+                resize_with_wheel(tile, 120)
                 assert tile.geometry() == expected, 'A portrait tile at the grid edge must not widen into a square'
                 if size == 4:
                     tile.set_room(None)
@@ -667,7 +684,48 @@ def check_portrait_live_defaults(app):
                     begin_drag()
                     assert grid.guide.target == expected
                     assert session.finish() and window._tile_of('811').geometry() == expected
-                    assert snap_grid.resize(size, (0, 0, 2, 1), 1) == (0, 0, 4, 2)
+                    tile = window._tile_of('811')
+
+                menu, choices = portrait_actions(tile)
+                assert choices[preferred].isChecked() and all(action.isEnabled() for action in choices.values())
+                other = 5 - preferred
+                choices[other].trigger()
+                menu.deleteLater()
+                index = wall.pane_danmaku.cell_for_tile(tile)
+                assert wall.layout_ratios()[layout_id]['grid'][index][2:] == (other, 1)
+                menu, choices = portrait_actions(tile)
+                assert choices[other].isChecked() and not choices[preferred].isChecked()
+                choices[2].trigger()
+                menu.deleteLater()
+
+                move = QMimeData()
+                move.setData(TILE_MIME, b'811')
+                grid.show_drag_guide(move, units[0].center())
+                assert grid.guide.target == units[0].united(units[size])
+                assert grid.drop(move, units[0].center())
+                grid.hide_drag_guide()
+                if size == 4:
+                    resize_with_wheel(tile, 120)
+                    assert wall.layout_control.cell_of(tile) == (0, 0, 4, 2)
+                    resize_with_wheel(tile, -120)
+                    assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
+
+                menu, choices = portrait_actions(tile)
+                choices[3].trigger()
+                menu.deleteLater()
+                resize_with_wheel(tile, 120)
+                resize_with_wheel(tile, -120)
+                assert wall.layout_control.cell_of(tile) == (0, 0, 3, 1)
+                menu, choices = portrait_actions(tile)
+                choices[2].trigger()
+                menu.deleteLater()
+
+                grid.add_danmaku(units[2 * size].center())
+                menu, choices = portrait_actions(tile)
+                assert choices[2].isChecked() and choices[2].isEnabled()
+                assert not choices[3].isEnabled() and choices[3].toolTip() == '没有连续空位'
+                menu.deleteLater()
+                assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
         finally:
             release.set()
             session.cancel()

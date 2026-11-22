@@ -49,9 +49,10 @@ def with_occupied(cells, occupied):
 
 def resize(size, cell, step):
     row, col, height, width = cell
-    if height == 2 * width and (step > 0 or width > 1):
-        rows, columns = height + 2 * step, width + step
-        if row + rows <= size and col + columns <= size:
+    if height in (2 * width, 3 * width):
+        columns = width + step
+        rows = columns * (height // width)
+        if 1 <= columns <= size - col and rows <= size - row:
             return row, col, rows, columns
         return cell
     # Other saved rectangles step to the nearest smaller or larger square.

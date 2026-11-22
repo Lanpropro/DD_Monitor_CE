@@ -14,13 +14,14 @@ MENU_ITEMS = (
     ('volume', '音量'), ('quality', '画质'), ('codec', '当前窗口编解码设置'),
     ('stream_info', '直播流信息'), ('audio_channel', '声道'), ('mute', '静音／取消静音'),
     ('danmaku_settings', '弹幕观看设置'), ('danmaku_float', '打开弹幕浮窗'),
-    ('reload', '刷新重连'), ('fullscreen', '全屏查看'),
+    ('reload', '刷新重连'), ('fullscreen', '全屏查看'), ('portrait_footprint', '竖屏占位'),
     ('plugins', '插件扩展功能'), ('switch_danmaku', '切换为弹幕'), ('close', '关闭这一路'),
 )
 
 
 MENU_GROUPS = {'volume': 0, 'quality': 1, 'codec': 1, 'stream_info': 1, 'audio_channel': 1,
                'mute': 2, 'danmaku_settings': 2, 'danmaku_float': 2, 'reload': 2, 'fullscreen': 2,
+               'portrait_footprint': 2,
                'plugins': 3, 'switch_danmaku': 4, 'close': 4}
 
 def menu_choices(value):

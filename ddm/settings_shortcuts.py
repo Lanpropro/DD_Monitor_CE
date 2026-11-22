@@ -154,6 +154,16 @@ class ShortcutSettingsPage(QWidget):
             speed_row.addWidget(label)
             speed_row.addWidget(self.wheel_speed)
             card.grid.addWidget(self._wheel_speed_row, row + 1, 0, 1, 2, Qt.AlignLeft)
+            self._layout_shortcut_hints = []
+            for offset, (text, aliases) in enumerate((
+                ('自定义布局等比缩放 · 悬停直播格，Ctrl＋滚轮', 'Ctrl+滚轮 Ctrl+WheelUp Ctrl+WheelDown 画面格 调整大小'),
+                ('切换 1×2／1×3 · 右键直播格 → 竖屏占位', '自定义布局 鼠标右键'),
+            ), start=2):
+                hint = QLabel(text, card)
+                hint.setWordWrap(True)
+                hint.setObjectName('SettingsHint')
+                card.grid.addWidget(hint, row + offset, 0, 1, 2)
+                self._layout_shortcut_hints.append((hint, text + ' ' + aliases))
         return card
 
     def _build_wheel_options(self, settings, card):
@@ -208,15 +218,21 @@ class ShortcutSettingsPage(QWidget):
         speed_match = matches_query('滚轮设置 设置页滚轮灵敏度 页面滚动速度', query)
         self._wheel_options.setVisible(wheel_match)
         self._wheel_speed_row.setVisible(speed_match)
+        layout_match = False
+        for hint, text in self._layout_shortcut_hints:
+            match = matches_query(text, query)
+            hint.setVisible(match)
+            layout_match |= match
+        wheel_matches = wheel_match or speed_match or layout_match
         for entry in self._all_sections:
             key, card, _wide = entry
-            match = (key == 'wheel' and (wheel_match or speed_match)
+            match = (key == 'wheel' and wheel_matches
                      or any(name in visible for name in self._group_keys[key]))
             card.setVisible(match)
             if match:
                 self.sections.entries.append(entry)
         self.sections._arrange()
-        self.empty.setVisible(not visible and not wheel_match and not speed_match)
+        self.empty.setVisible(not visible and not wheel_matches)
 
     def _reset_one(self, key):
         self._row_toggles[key].setChecked(True)

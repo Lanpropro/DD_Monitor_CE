@@ -1,5 +1,6 @@
 """Tile context menu; mutable state and Qt ownership stay with Tile."""
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget, QWidgetAction
 from .streamer_defaults import source_quality_option
 from .ui.slider import SettingsSlider
@@ -56,6 +57,22 @@ class TileContextMenu:
         info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, host, host.streamInfoRequested.emit))
         info.setEnabled(bool(host.room.get('room_id')))
         info.setData('stream_info')
+
+        grid = getattr(host.parentWidget(), 'snap_grid', None)
+        if grid is not None and (options := grid.portrait_options(host)):
+            portrait = menu.addMenu('竖屏占位')
+            portrait.menuAction().setData('portrait_footprint')
+            portrait.setToolTipsVisible(True)
+            choices = QActionGroup(portrait)
+            for rows, (checked, enabled) in options.items():
+                action = portrait.addAction(f'1 列 × {rows} 行')
+                choices.addAction(action)
+                action.setCheckable(True)
+                action.setChecked(checked)
+                action.setEnabled(enabled)
+                if not enabled:
+                    action.setToolTip('没有连续空位')
+                action.triggered.connect(lambda _checked=False, value=rows: grid.set_portrait_rows(host, value))
 
         # 声道：0 默认、3 只左、4 只右、2 反向立体声、5 杜比。
         # 只有「只左 / 只右」能把两路画面分到两只耳朵，其余是原程序的音效档。
