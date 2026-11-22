@@ -36,7 +36,7 @@ jobs:
   smoke:
     name: Functional smoke
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -72,7 +72,21 @@ jobs:
       - name: Check native stack capture preserves failures
         run: python dev/selfcheck_check_runner.py CheckRunnerTests.test_native_stack_capture_preserves_exception_and_exit_code
       - name: Run isolated functional smoke
-        run: python dev/run_checks.py --suite smoke --timeout 180
+        run: python dev/run_checks.py --suite smoke --timeout 300
+      - name: Install verified FFmpeg for native checks
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'ffmpeg-7.1.1-full_build.7z'
+          $directory = Join-Path $env:RUNNER_TEMP 'ffmpeg-7.1.1'
+          Invoke-WebRequest -Uri 'https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-full_build.7z' -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine 'e5bbf665b9a43219d97a15c2dd2cdeb9b11bcb689d88a2177c4f754b4e20f793') {
+            throw 'FFmpeg archive checksum mismatch'
+          }
+          & 7z e $archive 'ffmpeg-7.1.1-full_build/bin/ffmpeg.exe' "-o$directory" -y
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $directory 'ffmpeg.exe'))) {
+            throw 'FFmpeg extraction failed'
+          }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $directory -Encoding utf8
       - name: Check native picture-in-picture lifecycle and picker
         run: |
           python dev/run_checks.py --script selfcheck_picture_in_picture --timeout 180

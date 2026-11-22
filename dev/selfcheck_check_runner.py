@@ -21,7 +21,7 @@ from ddm import check_diagnostics
 
 
 class CheckRunnerTests(unittest.TestCase):
-    def test_native_pip_lifecycle_checks_are_not_run_with_offscreen_backend(self):
+    def test_native_pip_lifecycle_checks_run_with_verified_ffmpeg(self):
         suites = runner.load_suites()
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for name in ('selfcheck_picture_in_picture', 'selfcheck_pip_picker'):
@@ -29,6 +29,11 @@ class CheckRunnerTests(unittest.TestCase):
             self.assertNotIn(name, suites['smoke']['scripts'])
             self.assertNotIn(name, suites['offline']['scripts'])
             self.assertIn('--script '+name+' --timeout 180', workflow)
+        install_step = workflow.split('- name: Install verified FFmpeg for native checks', 1)[1]
+        install_step, pip_step = install_step.split('- name: Check native picture-in-picture lifecycle and picker', 1)
+        self.assertIn('Get-FileHash -LiteralPath $archive -Algorithm SHA256', install_step)
+        self.assertIn('Add-Content -LiteralPath $env:GITHUB_PATH -Value $directory', install_step)
+        self.assertIn('--script selfcheck_picture_in_picture', pip_step)
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD exit status')
     def test_memory_entry_preserves_negative_native_exit_status(self):
@@ -265,7 +270,7 @@ if __name__ == '__main__':
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',
                      'libmpv-SOURCE.json', '$source.sha256', '$source.dll_sha256',
-                     'python dev/run_checks.py --suite smoke --timeout 180'):
+                     'python dev/run_checks.py --suite smoke --timeout 300'):
             self.assertIn(text, workflow)
 
     def test_shared_scripts_require_the_same_isolation_mode(self):

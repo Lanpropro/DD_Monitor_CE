@@ -311,7 +311,7 @@ SC可读性验收：根 `run.cmd --sc-simulator` 使用临时合成消息，不�
 | 套件 | 依赖与行为 | 命令 |
 | --- | --- | --- |
 | `repository` | Python 标准库和 Git；不导入 Qt，不读取账号，不联网 | `python dev/run_checks.py` |
-| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 180` |
+| `smoke` | 开发依赖和 libmpv；离屏核心功能检查，使用合成数据与本机服务 | `python dev/run_checks.py --suite smoke --timeout 300` |
 | `offline` | 开发依赖；离屏 Qt、替身接口或本机 HTTP/WebSocket 服务，不访问真实直播 | `python dev/run_checks.py --suite offline` |
 | `native` | Windows、开发依赖、libmpv；部分项目需 FFmpeg，会创建原生窗口 | `python dev/run_checks.py --suite native` |
 | `live` | Windows、运行库和网络；显式指定公开开播房间，只读接收 | 使用下方单项命令 |
