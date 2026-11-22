@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QDeadlineTimer, QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPalette, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QMenu, QScrollArea, QWidget
@@ -102,17 +102,14 @@ class PipPickerTests(unittest.TestCase):
 
         QTest.mouseClick(button, Qt.LeftButton)
         dialog = pip.dialog
-        other = QWidget()
-        self.addCleanup(other.close)
-        other.setAttribute(Qt.WA_ShowWithoutActivating)
-        other.show()
-        # Deliver the Qt activation transition even when Windows denies foreground focus to CI.
-        QApplication.setActiveWindow(dialog)
-        self.assertIs(QApplication.activeWindow(), dialog)
-        QApplication.setActiveWindow(other)
-        self.assertIs(QApplication.activeWindow(), other)
-        self.app.processEvents()
-        self.assertIsNone(pip.dialog)
+        self.assertTrue(dialog.isVisible())
+        # Keep native foreground activation out of the deferred Qt dismissal check.
+        with patch.object(dialog, 'isActiveWindow', return_value=False):
+            self.app.sendEvent(dialog, QEvent(QEvent.WindowDeactivate))
+            deadline = QDeadlineTimer(1000)
+            while pip.dialog is not None and not deadline.hasExpired():
+                QTest.qWait(10)
+            self.assertIsNone(pip.dialog)
 
     def test_toolbar_picker_remembers_resized_dimensions_after_reopen_and_restore(self):
         from selfcheck_picture_in_picture import pointer
