@@ -16,6 +16,7 @@ os.environ.setdefault('DDM_NO_SAVE', '1')
 
 from ddm import theme, window_fullscreen
 from ddm.app import MainWindow
+from ddm.result_notice import show_result
 
 
 class HandoffEvents(QObject):
@@ -93,6 +94,8 @@ def check_window_capture(window):
                 original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
+                show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
+                notice = window._result_notice
 
                 enter_native = window_fullscreen.enter
 
@@ -110,6 +113,7 @@ def check_window_capture(window):
                 assert window.current_state()['geometry'] == original_saved_geometry
                 assert not tile.isWindow() and tile.parentWidget() is wall
                 assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
+                assert notice.isVisible() and notice.windowHandle().transientParent() is window.windowHandle()
                 assert user32.GetAncestor(video_hwnd, 2) == main_hwnd  # GA_ROOT
                 assert tile.video.geometry() == tile.rect() == window.rect(), (
                     tile.video.geometry(), tile.rect(), wall.geometry(), window.rect())
@@ -152,6 +156,8 @@ def check_window_capture(window):
                 assert user32.GetAncestor(video_hwnd, 2) == main_hwnd
                 assert window.players[tile] is player and tile.bottom.isVisible()
                 assert not player.play.called and not player.release.called
+                assert notice.isVisible() and notice.windowHandle().transientParent() is window.windowHandle()
+                notice.dismiss(animate=False)
     finally:
         window._exit_fullscreen()
         window.players.pop(tile, None)

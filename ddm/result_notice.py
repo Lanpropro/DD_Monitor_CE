@@ -2,17 +2,18 @@
 from pathlib import Path
 import subprocess
 import sys
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices, QPainter
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMenu, QWidget
 from . import motion, theme
 from .update_notice import UpdateNotice, _notifications_hidden
-from .update_notice import _notifications_hidden
 
 
 class ResultNotice(UpdateNotice):
     """顶部通知卡片：不抢焦点，按提示类型自动收起。"""
+    _slide_distance = 12
+
     def __init__(self, parent):
         super().__init__(parent)
         from .room_artwork import RoomArtwork
@@ -194,11 +195,6 @@ class ResultNotice(UpdateNotice):
     def _motion_frame(self, value):
         self._progress = value
         self.reposition()
-
-    def reposition(self):
-        parent = self.parentWidget()
-        offset = round(-12 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False,

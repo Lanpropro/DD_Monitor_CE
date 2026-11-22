@@ -124,6 +124,8 @@ class FullscreenPresentation(QObject):
             bar.setWindowOpacity(1.0)
         if not tile.window().testAttribute(Qt.WA_ShowWithoutActivating):
             tile.activateWindow()
+        for notice in tuple(getattr(self.window, '_notices', ())):
+            notice.set_presentation_owner(tile.window())
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
             dialog.set_presentation_owner(tile.window())
@@ -182,6 +184,8 @@ class FullscreenPresentation(QObject):
             layer.set_presentation_window(None)
         tile.removeEventFilter(self)
         self.tile = None
+        for notice in tuple(getattr(self.window, '_notices', ())):
+            notice.set_presentation_owner(self.window)
         tile._presentation_changing = True
         try:
             tile.bottom.hide()

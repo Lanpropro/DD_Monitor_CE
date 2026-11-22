@@ -477,6 +477,8 @@ SC 自动缩放：设置 → 弹幕中的“SC 随画面缩放”默认关闭，
 
 ## 顶部通知关闭
 
+全屏发送提示：在 Windows 原生 Qt 后端运行 `python dev/checks/bootstrap.py dev/selfcheck_main_notices.py MainNoticesTests.test_fullscreen_notice_stays_above_video_when_bar_hides`，并设置 `QT_QPA_PLATFORM=windows` 与 `DDM_CHECK_MODE=offline`。使用合成发送结果核对隐藏底栏后提示仍可见、详情可点击、退出时通知归属恢复、计时与历史记录保留。
+
 `run.cmd --check-notice-close` 验证通知关闭生命周期、多条通知互不影响、入场中关闭、窗口重用及图片回调不会无条件重新打开已隐藏的通知。保留现有退出动画，悬浮通知和通知列表删除增加独立单次定时收尾：即使共享动画不推进，GUI 事件循环仍运行时也能完成关闭；重开取消旧收尾，重复删除只触发一次。检查会暂停动画进行故障注入，随后执行顶部通知与通知中心既有回归。这是功能回归，不证明真实久用或高负载残留已复现或根治，也不能在整个 GUI 线程阻塞时即时关闭通知。
 
 若再次出现残留，可用 `run.cmd --diagnose-notice-close` 运行并按原操作复现。关闭按钮按下、悬浮通知关闭或通知列表删除后采集相关对象五秒、最多六个对象及 2000 条事件，记录按钮按下／释放／clicked、通知类别、`dismiss`、列表 `remove/finish_removal`、图像更新、绘制耗时、重排、动画与关闭定时器、显示／隐藏、Qt 与 Windows 原生可见状态和界面定时器间隔，写入 `logs/notice-close.jsonl`。不记录通知正文、路径、账号或截图，不改变窗口层级和几何，不接入渲染线程。
