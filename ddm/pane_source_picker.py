@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton, QScroll
 from . import motion, theme
 from .avatar_widgets import Avatar
 from .corner_geometry import continuous_path
+from .danmaku_sources import is_live_danmaku_source
 
 
 class SourceAvatar(QPushButton):
@@ -117,7 +118,7 @@ class SourcePicker(QWidget):
     def refresh(self):
         controller = self.controller
         tiles = [(cell, tile) for cell, tile in controller.cell_tiles().items()
-                 if cell not in controller.bindings() and tile.room.get('room_id')]
+                 if cell not in controller.bindings() and is_live_danmaku_source(tile.room)]
         faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in
                  controller.wall.window().sidebar.items()} if hasattr(controller.wall.window(), 'sidebar') else {}
         selected = controller.target(self.panel)
@@ -144,6 +145,7 @@ class SourcePicker(QWidget):
         else:
             self.anchor.sync('选择弹幕来源', 0, '', None)
         self.anchor.setChecked(selected is not None)
+        self.panel.float_button.setVisible(selected is not None or self.panel in controller.floating)
         self.empty.setVisible(not tiles)
         self._place()
 
@@ -162,17 +164,18 @@ class SourcePicker(QWidget):
         left = layout.contentsMargins().left()
         if self.covered is not None:
             avatars = max(self.SIZE, len(self.buttons) * self.STEP - 4)
+            button = self.panel.float_button
+            float_width = 0 if button.isHidden() else button.width() + layout.spacing()
             controls = sum(max(widget.minimumWidth(), min(widget.maximumWidth(), widget.sizeHint().width()))
                            for widget in self.covered)
-            required = (left + controls + layout.spacing() * (len(self.covered) + 1)
+            required = (left + controls + float_width + layout.spacing() * (len(self.covered) + 1)
                         + avatars + self.panel.count.width() + layout.contentsMargins().right())
             compact = header.width() < required
             for widget in self.covered:
                 widget.setVisible(not compact)
             layout.activate()
-            if not compact:
-                left = max((widget.geometry().right() + 1 for widget in self.covered), default=left)
-                left += layout.spacing()
+            left = max((widget.geometry().right() + 1 + layout.spacing()
+                        for widget in (*self.covered, button) if not widget.isHidden()), default=left)
         width = max(self.SIZE, self.panel.count.x() - layout.spacing() - left)
         self.tray.setGeometry(left, 0, width, header.height())
         self.scroll.setGeometry(0, (header.height() - self.SIZE) // 2, width, self.SIZE)
@@ -199,6 +202,7 @@ class SourcePicker(QWidget):
         if not self.expanded:
             self.tray.hide()
             if self.covered is not None:
+                self._move_float_button(expanded=False)
                 for widget in self.covered:
                     widget.show()
                 self.covered = None
@@ -215,8 +219,9 @@ class SourcePicker(QWidget):
                 layout = self.panel.header.layout()
                 self.covered = [layout.itemAt(index).widget() for index in range(layout.count())
                     if layout.itemAt(index).widget() is not None and
-                    layout.itemAt(index).widget() not in (self, self.panel.count) and
+                    layout.itemAt(index).widget() not in (self, self.panel.count, getattr(self.panel, 'float_button', None)) and
                     not layout.itemAt(index).widget().isHidden()]
+                self._move_float_button(expanded=True)
             self.refresh()
             self.anchor.hide()
             self.tray.show()
@@ -237,11 +242,17 @@ class SourcePicker(QWidget):
             self._frame(target)
             self._settled()
 
+    def _move_float_button(self, *, expanded):
+        layout = self.panel.header.layout()
+        button = self.panel.float_button
+        layout.removeWidget(button)
+        # The stretch holds the avatar on the right and gives the expanded tray room.
+        layout.insertWidget(layout.indexOf(self) - int(expanded), button)
+
     def choose(self, tile):
-        cell = next((cell for cell, panel in self.controller.panels.items() if panel is self.panel), None)
-        if cell is None or tile not in self.buttons:
+        if tile not in self.buttons:
             return
-        self.controller.request(cell, tile)
+        self.controller.choose_source(self.panel, tile)
         self.refresh()
         if self.controller.target(self.panel) is tile:
             self.set_expanded(False, animate=self.buttons[tile].pointer_activation)

@@ -3,14 +3,28 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QPainterPath, QRegion
+from PySide6.QtGui import QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QWidget
+from .window_capture import print_window
 
 
 class _ThumbnailProperties(ctypes.Structure):
     _fields_ = [('flags', wintypes.DWORD), ('destination', wintypes.RECT),
                 ('source', wintypes.RECT), ('opacity', wintypes.BYTE),
                 ('visible', wintypes.BOOL), ('client_only', wintypes.BOOL)]
+
+
+class _ResizePreview(QWidget):
+    def __init__(self, flags):
+        super().__init__(None, flags)
+        self.frame = QPixmap()
+
+    def paintEvent(self, event):
+        if self.frame.isNull():
+            super().paintEvent(event)
+        else:
+            painter = QPainter(self)
+            painter.drawPixmap(self.rect(), self.frame)
 
 
 class LiveResize:
@@ -22,7 +36,7 @@ class LiveResize:
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint | Qt.WindowDoesNotAcceptFocus
         if source.controller.pinned:
             flags |= Qt.WindowStaysOnTopHint
-        self.preview = QWidget(None, flags)
+        self.preview = _ResizePreview(flags)
         self.preview.setAttribute(Qt.WA_ShowWithoutActivating)
         self.preview.setStyleSheet('background: black;')
         self.preview.setGeometry(source.geometry())
@@ -52,7 +66,7 @@ class LiveResize:
     def _surfaces(self):
         source = self.source
         yield source
-        layer = source.controller.host.wall._quick_danmaku_layer
+        layer = source.controller.display_wall._quick_danmaku_layer
         if layer is not None and layer.window.isVisible():
             yield layer.window
         for widget in QApplication.topLevelWidgets():
@@ -103,7 +117,7 @@ class LiveResize:
         # No screenshot, frame readback, second decoder or audio instance.
         desktop = QApplication.primaryScreen().virtualGeometry()
         self.source.move(desktop.left() - self.source.width() - 256, self.source.y())
-        for tile in self.source.controller.host.wall.visible_tiles():
+        for tile in self.source.controller.display_wall.visible_tiles():
             tile.video_danmaku.super_chat_overlay.sync(tile.video_danmaku)
         self.starting = False
         if not self.sync():
@@ -123,22 +137,41 @@ class LiveResize:
     def finish(self, *, immediate=False):
         if not self.finishing:
             self.finishing = True
+            if not immediate and self.source.size() != self.preview.size():
+                self._freeze_frame()
             self.source.setGeometry(self.preview.geometry())
-            for tile in self.source.controller.host.wall.visible_tiles():
+            for tile in self.source.controller.display_wall.visible_tiles():
                 tile.video_danmaku.super_chat_overlay.sync(tile.video_danmaku)
-            self.sync()
+            if self.preview.frame.isNull():
+                self.sync()
         if immediate:
             self.stop()
         else:
             # Cover the one final player resize while its swapchains settle.
             self.reveal.start(80)
 
-    def stop(self):
-        self.reveal.stop()
+    def _freeze_frame(self):
+        # The live thumbnail would also show the native child's intermediate resize.
+        # Paint its last complete composition before disconnecting the source.
+        self.dwm.DwmFlush()
+        rect = self._client_rect(self.preview)
+        image = print_window(int(self.preview.winId()), rect.width(), rect.height(), client_only=True)
+        if image.isNull():
+            return
+        self.preview.frame = QPixmap.fromImage(image)
+        self.preview.repaint()
+        self.dwm.DwmFlush()
+        self._clear_thumbnails()
+
+    def _clear_thumbnails(self):
         for handle in self.thumbnails.values():
             self.dwm.DwmUnregisterThumbnail(handle)
         self.thumbnails.clear()
+
+    def stop(self):
+        self.reveal.stop()
         self.preview.hide()
+        self._clear_thumbnails()
         self.preview.deleteLater()
         self.reveal.deleteLater()
         if self.source._live_resize is self:

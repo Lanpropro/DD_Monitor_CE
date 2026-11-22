@@ -98,7 +98,7 @@ def main():
         assert page.platform_notice.isVisible()
         assert page.list.count() == 11 and '待识别' in page.list.item(2).text()
         assert not page.list.item(0).isHidden() and page.list.item(2).isHidden()
-        assert not page.show_pending.isChecked() and '2 个直播间' in page.header.text()
+        assert not page.show_pending.isChecked() and '2 个直播间' in page.header.toolTip()
         page.show_pending.setChecked(True)
         assert not page.list.item(2).isHidden()
         page.show_pending.setChecked(False)
@@ -115,7 +115,7 @@ def main():
             wait_for(app, entered.is_set)
             worker = dialog._account_resolver
             assert page.resolve_status.isVisible()
-            assert page.import_button.isEnabled() and all(b.isEnabled() for b in dialog.platform_buttons.values())
+            assert page.import_button.isEnabled() and dialog.import_bar.platform.isEnabled()
             page.resolve_button.click()
             release.set()
             wait_for(app, lambda: dialog._account_resolver is None)
@@ -155,7 +155,7 @@ def main():
         assert len(owner._douyin_follow_cache['rooms']) == 11
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
         assert dialog.page.selected()[0]['anchor_uid'] == '104'
-        assert dialog.page.import_button.text() == '保存待识别选择'
+        assert dialog.page.import_button.text() == '应用选择' and '待识别 1' in dialog.page.header.text()
         assert '不会加入关注栏' in dialog.page.resolve_status.text()
         dialog.page.show_pending.setChecked(True)
         dialog.page._check_all(False)
@@ -225,8 +225,7 @@ def check_account_reference_import(app):
     reference = 'douyin:uid_105'
     assert page.rooms[0]['room_id'] == reference and not page.list.item(0).isHidden()
     assert not any(button.text() == '关联直播间链接' for button in page.findChildren(QPushButton))
-    notice = ('受抖音网页接口及访问验证限制，部分未开播账号的直播间资料可能暂时无法完整获取。'
-              '你仍可直接勾选账号导入，软件会随后台刷新继续查询')
+    notice = '部分账号资料暂不完整，可先勾选，稍后继续识别。'
     assert '账号关注' in page.list.item(0).text() and page.platform_notice.text() == notice
     assert page.resolve_status.isHidden()
     reply = requests.Response()

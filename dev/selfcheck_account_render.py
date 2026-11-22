@@ -22,6 +22,18 @@ from ddm.login import LoginWindow  # noqa: E402
 ROOMS = [{"room_id": "123", "uname": "test", "title": "render test", "live": True, "face": ""}]
 
 
+def choose_platform(dialog, kind):
+    if dialog.import_follows:
+        picker = dialog.import_bar.platform
+        assert picker.isEnabled()
+        if picker.buttons[kind].isVisible():
+            QTest.mouseClick(picker.buttons[kind], Qt.LeftButton)
+        else:
+            picker.actions[kind].trigger()
+    else:
+        QTest.mouseClick(dialog.platform_buttons[kind], Qt.LeftButton)
+
+
 def wait_for(app, predicate):
     for _ in range(500):
         if predicate():
@@ -104,7 +116,7 @@ def main():
                         sizes = []
                         for cycle in range(4):
                             old = dialog.page
-                            QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                            choose_platform(dialog, "douyu")
                             page = dialog.page
                             assert not old.isVisible() and page.window() is dialog
                             if retained is not None:
@@ -137,7 +149,7 @@ def main():
                             color = "#947043" if imports else "#32b464"
                             screen_color(dialog, widget, color, f"{imports}-douyu-{cycle}")
                             sizes.append(dialog.size())
-                            QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                            choose_platform(dialog, "bilibili")
                             widget, color = show_bili()
                             assert not page.isVisible() and page.window() is dialog
                             screen_color(dialog, widget, color, f"{imports}-bili-{cycle}")
@@ -170,10 +182,10 @@ def main():
                         page.list.setStyleSheet("background: #947043; color: white;")
                         QTest.qWait(200)
                         screen_color(dialog, page.list, "#947043", f"reopen-{reopen}")
-                        QTest.mouseClick(dialog.platform_buttons["bilibili"], Qt.LeftButton)
+                        choose_platform(dialog, "bilibili")
                         wait_for(app, lambda: isinstance(dialog.page, FollowImportDialog)
                                  and not dialog.page.property("loading"))
-                        QTest.mouseClick(dialog.platform_buttons["douyu"], Qt.LeftButton)
+                        choose_platform(dialog, "douyu")
                         assert dialog.page is page and len(navigations) == count
                         QTest.qWait(200)
                         screen_color(dialog, page.list, "#947043", f"reopen-switch-{reopen}")

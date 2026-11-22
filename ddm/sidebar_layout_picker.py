@@ -1,5 +1,5 @@
 """Sidebar layout-preset menu positioning and selection coordination."""
-from PySide6.QtCore import QPoint, QRect, QRectF, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, QRect, QRectF, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QCursor, QKeySequence, QPainter, QPen, QPixmap, QRegion, QShortcut
 )
@@ -10,9 +10,24 @@ from PySide6.QtWidgets import (
 from . import follow_folders, layouts, motion, theme, version as version_module
 
 
-class SidebarLayoutPicker:
+class SidebarLayoutPicker(QObject):
+    sizeChanged = Signal()
+
     def __init__(self, host):
+        super().__init__(host)
         self.host = host
+        self.preferred_size = None
+
+    def restore_size(self, stored):
+        self.preferred_size = (QSize(*stored) if isinstance(stored, (list, tuple)) and len(stored) == 2
+                               and all(type(value) is int and 0 < value <= 32767 for value in stored) else None)
+
+    def size_state(self):
+        return self.preferred_size.toTuple() if self.preferred_size else ()
+
+    def _remember_size(self, size):
+        self.preferred_size = QSize(size)
+        self.sizeChanged.emit()
 
     def set_layout_name(self, layout_id: str) -> None:
         """按钮只写「布局预设」，当前用的是哪套放在悬停提示里。"""
@@ -26,14 +41,9 @@ class SidebarLayoutPicker:
         # 只列当前方向能用的布局：横屏不列竖屏预设（套上去画面会变形）
         host = self.host
         from .layout_picker import LayoutPicker
-        picker = LayoutPicker(host._layout_id, host, portrait=host.side == "top",
-                              presets_host=getattr(host, "room_presets_host", None))
-        picker.chosen.connect(host._on_layout_chosen)
-        picker.resetRequested.connect(host.layoutResetRequested.emit)
         # 收起时「布局预设」按钮是藏起来的，改从头像那个位置弹出来
         source = host.account_row if host.collapsed else host.layout_button
         anchor = source.mapToGlobal(source.rect().topLeft())
-        picker.adjustSize()
         screen = (QApplication.screenAt(anchor)
                   or QApplication.screenAt(QCursor.pos())
                   or QApplication.primaryScreen())
@@ -44,6 +54,11 @@ class SidebarLayoutPicker:
             primary = QApplication.primaryScreen()
             if primary is not None:
                 available = primary.availableGeometry()
+        picker = LayoutPicker(host._layout_id, host, portrait=host.side == "top",
+                              presets_host=getattr(host, "room_presets_host", None),
+                              preferred_size=self.preferred_size, available=available)
+        picker.chosen.connect(host._on_layout_chosen)
+        picker.sizeChanged.connect(self._remember_size)
         x = anchor.x()
         if host.collapsed:
             x = anchor.x() + source.width() + 6

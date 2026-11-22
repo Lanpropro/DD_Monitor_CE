@@ -69,6 +69,28 @@ class DiagnosticTests(unittest.TestCase):
             report = json.loads(archive.read('native-crashes.json'))
             self.assertTrue(report['dump_export_requested'])
 
+    def test_fatal_process_evidence_survives_newer_launch_logs(self):
+        report = 'logs/native-crash-12-abcdef.json'
+        lifecycle = 'logs/qt-lifecycle-12.jsonl'
+        stack = 'logs/ddm-crash-12.log'
+        self.put(report, json.dumps({'pid': 12, 'tid': 34, 'at_unix_ms': 1794977105650,
+                                     'access_type': 'read', 'access_address': '0x0000000000000000'}))
+        self.put(lifecycle, '{"pid":12,"thread":34,"kind":"AvatarLoader","source":"video-emoticon"}')
+        self.put(stack, 'fixture Python stack')
+        for path in (report, lifecycle, stack):
+            os.utime(self.app / path, (100000, 100000))
+        for pid in range(100, 130):
+            self.put(f'logs/qt-lifecycle-{pid}.jsonl', '{"stage":"construct.request"}')
+        with zipfile.ZipFile(self.cli()) as archive:
+            evidence = json.loads(archive.read('native-crashes.json'))['files']
+            self.assertEqual(len(evidence), 24)
+            self.assertTrue({report, lifecycle, stack}.issubset(evidence))
+            self.assertEqual(json.loads(archive.read(report))['at_unix_ms'], 1794977105650)
+            self.assertEqual(json.loads(archive.read(report))['access_type'], 'read')
+            self.assertEqual(json.loads(archive.read(report))['access_address'], '0x0000000000000000')
+            self.assertEqual(json.loads(archive.read(lifecycle))['source'], 'video-emoticon')
+            self.assertEqual(archive.read(stack), b'fixture Python stack')
+
     @classmethod
     def compile(cls, target, sources, gui=False):
         references = ['System.Management', 'System.Web.Extensions', 'System.IO.Compression',
@@ -180,6 +202,32 @@ class DiagnosticTests(unittest.TestCase):
         report = json.loads(entries['specialized-diagnostics.json'])
         self.assertEqual(report['status'], 'not_recorded')
         self.assertEqual(report['files'], [])
+
+    def test_settings_traces_include_close_evidence_without_desktop_titles_or_typed_keys(self):
+        self.put('logs/settings-scroll-123.jsonl', '{"stage":"qt-wheel","pid":123,"angle":120}\n')
+        self.put('logs/settings-performance-456.jsonl.1', '{"phase":"first-paint","pid":456}\n')
+        self.put('logs/settings-performance-other.jsonl', 'PRIVATE_UNRELATED')
+        events = [
+            {'kind': 'settings_gone', 't': '19:42:13.669', 'settingsHwnd': '0x42', 'isWindow': False,
+             'leftDownAtGone': False, 'escWithin2s': False, 'lastInputAgeMs': 585, 'fgTitle': 'PRIVATE_TITLE'},
+            {'kind': 'mouseup', 'settingsOpen': True, 'x': 1977, 'y': 225, 'targetTitle': 'PRIVATE_WINDOW'},
+            {'kind': 'keydown', 'settingsOpen': True, 'vk': '0x1B', 'key': 'PRIVATE_ESC_LABEL'},
+            {'kind': 'keydown', 'settingsOpen': True, 'vk': 65, 'key': 'PRIVATE_TYPED_KEY'},
+            {'kind': 'mousedown', 'settingsOpen': False, 'x': 9999},
+        ]
+        self.put('logs/settings-capture.jsonl', '\n'.join(json.dumps(row) for row in events))
+        entries = self.collect()
+        files = {row['log']: row for row in json.loads(entries['specialized-diagnostics.json'])['files']}
+        self.assertEqual(json.loads(entries['problem.json'])['tool_version'], '1.4')
+        self.assertEqual(files['logs/settings-scroll-123.jsonl']['stages'], {'qt-wheel': 1})
+        self.assertEqual(files['logs/settings-performance-456.jsonl.1']['stages'], {'first-paint': 1})
+        self.assertEqual(files['logs/settings-capture.jsonl']['stages'], {'settings_gone': 1, 'mouseup': 1, 'keydown': 1})
+        gone, mouse, key = map(json.loads, entries['logs/settings-capture.jsonl'].splitlines())
+        self.assertEqual((gone['lastInputAgeMs'], gone['settingsHwnd'], gone['isWindow']), (585, '0x42', False))
+        self.assertEqual(gone['t'], '19:42:13.669')
+        self.assertEqual((mouse['x'], mouse['y'], key['vk']), (1977, 225, 27))
+        self.assertNotIn('PRIVATE_', str(entries))
+        self.assertNotIn('9999', entries['logs/settings-capture.jsonl'])
 
     def test_folder_model_evidence_is_summarized_as_observation_not_a_root_cause(self):
         rows = [{'phase': 'folder-motion', 'schema': 2,

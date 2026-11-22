@@ -1,6 +1,7 @@
 """Opt-in theme-switch and animation capture hooks."""
 import cProfile
 import functools
+import sys
 import time
 from .responsiveness_probe import profile_functions, Probe
 
@@ -14,9 +15,30 @@ def install_theme_capture(path, *, profile_calls=False):
 
     probe = capture_api.Probe(path)
     original = ThemeTransition.change
+    apply_theme = theme.apply
+    transition_depth = 0
+
+    @functools.wraps(apply_theme)
+    def apply(mode):
+        if probe.stopped.is_set():
+            return apply_theme(mode)
+        started = time.perf_counter()
+        source = 'transition' if transition_depth else 'direct'
+        profile = cProfile.Profile() if profile_calls and not transition_depth and sys.getprofile() is None else None
+        if profile is not None:
+            profile.enable()
+        try:
+            return apply_theme(mode)
+        finally:
+            if profile is not None:
+                profile.disable()
+            probe.write('theme-apply', mode=theme.normalize_mode(mode), source=source,
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                functions=capture_api.profile_functions(profile) if profile is not None else [])
 
     @functools.wraps(original)
     def change(transition, mode, *args, **kwargs):
+        nonlocal transition_depth
         if probe.stopped.is_set():
             return original(transition, mode, *args, **kwargs)
         profile = cProfile.Profile() if profile_calls else None
@@ -24,9 +46,11 @@ def install_theme_capture(path, *, profile_calls=False):
         transition._theme_request_started = started
         if profile is not None:
             profile.enable()
+        transition_depth += 1
         try:
             return original(transition, mode, *args, **kwargs)
         finally:
+            transition_depth -= 1
             if profile is not None:
                 profile.disable()
             probe.write('theme-switch', mode=theme.normalize_mode(mode),
@@ -34,9 +58,66 @@ def install_theme_capture(path, *, profile_calls=False):
                 functions=capture_api.profile_functions(profile) if profile is not None else [])
 
     ThemeTransition.change = change
+    theme.apply = apply
+    _install_settings_paint_capture(probe)
     atexit.register(probe.stop)
     probe.write('start', mode='theme-switches-only')
     return probe
+
+
+def _install_settings_paint_capture(probe):
+    from PySide6.QtCore import QEvent, QObject
+    from .settings_appearance import AppearanceSettingsPage
+
+    class FirstPaint(QObject):
+        button = None
+
+        def cancel(self):
+            if self.button is not None:
+                self.button.removeEventFilter(self)
+                self.button = None
+
+        def arm(self, button, mode):
+            self.cancel()
+            self.button, self.mode = button, mode
+            self.started = time.perf_counter()
+            self.returned = None
+            button.installEventFilter(self)
+
+        def eventFilter(self, button, event):
+            if event.type() == QEvent.Hide or probe.stopped.is_set():
+                self.cancel()
+            elif event.type() == QEvent.Paint and self.returned is not None:
+                painted = time.perf_counter()
+                self.cancel()
+                probe.write('settings-theme-paint', mode=self.mode,
+                    request_to_paint_ms=round((painted - self.started) * 1000, 3),
+                    returned_to_paint_ms=round((painted - self.returned) * 1000, 3))
+            return False
+
+    original = AppearanceSettingsPage._choose
+
+    @functools.wraps(original)
+    def choose(page, mode):
+        if probe.stopped.is_set():
+            return original(page, mode)
+        capture = getattr(page, '_theme_paint_capture', None)
+        if capture is None:
+            capture = page._theme_paint_capture = FirstPaint(page)
+        button = page.buttons.get(mode)
+        if button is None or not button.isVisible():
+            capture.cancel()
+            return original(page, mode)
+        capture.arm(button, mode)
+        try:
+            result = original(page, mode)
+        except BaseException:
+            capture.cancel()
+            raise
+        capture.returned = time.perf_counter()
+        return result
+
+    AppearanceSettingsPage._choose = choose
 
 
 def install_theme_animation_capture(probe):

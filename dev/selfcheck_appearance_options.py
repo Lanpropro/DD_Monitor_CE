@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QImage, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
@@ -39,6 +39,123 @@ def dispose(widget):
 
 
 class AppearanceOptionsTests(unittest.TestCase):
+    def test_embedded_native_wheels_reach_appearance_and_update_pages_repeatedly(self):
+        if sys.platform != 'win32':
+            self.skipTest('Windows native messages')
+        import ctypes
+        from ctypes import wintypes
+        from ddm.settings_appearance import AppearanceSettingsPage
+        from ddm.app_update_ui import AppUpdatePage
+        from ddm.settings_wheel import EmbeddedSettingsWheel, deliver
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(config, 'REPO', temporary), patch.object(config, 'DATA_ROOT', temporary):
+            for page_type in (AppearanceSettingsPage, AppUpdatePage):
+                window = SettingsWindow()
+                window.resize(620, 280)
+                page = page_type(deepcopy(config.DEFAULT_SETTINGS))
+                window.body_layout.addWidget(page)
+                received = []
+                with patch.object(page, 'winId', side_effect=AssertionError('Extra native page window')):
+                    bridge = EmbeddedSettingsWheel(page, lambda values: received.append(values))
+                window.show()
+                settle()
+                get_bounds = None
+                try:
+                    scroll = page.scroll
+                    bar = scroll.verticalScrollBar()
+                    self.assertGreater(bar.maximum(), 0)
+                    # Native wheel landing on the foreign container never became a
+                    # QWheelEvent in the captured failure; deliver via each endpoint.
+                    local = scroll.viewport().mapTo(page, QPoint(8, 8))
+                    # Offscreen Qt has no HWND; supply native bounds at an offset
+                    # monitor origin and verify the same physical-to-local conversion.
+                    def bounds(hwnd, output):
+                        rect = ctypes.cast(output, ctypes.POINTER(wintypes.RECT)).contents
+                        rect.left, rect.top = -12000, -10000
+                        return True
+                    get_bounds = patch.object(ctypes.windll.user32, 'GetWindowRect', side_effect=bounds)
+                    get_bounds.start()
+                    offset = page.mapTo(bridge.native, QPoint())
+                    native = (QPointF(-12000, -10000)
+                              + QPointF(local + offset) * page.devicePixelRatioF()).toPoint()
+                    message = wintypes.MSG()
+                    message.message = 0x20A
+                    message.wParam = 0xff88 << 16
+                    message.lParam = ((native.y() & 0xffff) << 16) | (native.x() & 0xffff)
+                    for _ in range(6):
+                        bar.setValue(0)
+                        self.assertEqual(bridge.nativeEventFilter(b'windows_generic_MSG',
+                            ctypes.addressof(message)), (True, 0))
+                        self.assertEqual(len(received), 1)
+                        deliver(page, received.pop())  # Same payload delivered by host-wheel IPC.
+                        settle()
+                        self.assertGreater(bar.value(), 0, page_type.__name__)
+                    message.message = 0x200
+                    self.assertEqual(bridge.nativeEventFilter(b'windows_generic_MSG',
+                        ctypes.addressof(message)), (False, 0))
+                    window.hide()
+                    message.message = 0x20A
+                    self.assertEqual(bridge.nativeEventFilter(b'windows_generic_MSG',
+                        ctypes.addressof(message)), (False, 0))
+                    self.assertEqual(received, [])
+                finally:
+                    if get_bounds is not None:
+                        get_bounds.stop()
+                    bridge.stop()
+                    dispose(window)
+
+    def test_scroll_capture_is_bounded_and_does_not_consume_wheel_or_record_text(self):
+        import ctypes
+        from ctypes import wintypes
+        import json
+        from PySide6.QtWidgets import QScrollArea, QLineEdit
+        from ddm.settings_scroll_diagnostics import SettingsScrollCapture, install
+        with patch.dict(os.environ, DDM_SETTINGS_SCROLL_CAPTURE='0'):
+            install()
+            self.assertIsNone(getattr(APP, '_settings_scroll_capture', None))
+        with tempfile.TemporaryDirectory() as temporary:
+            # The worker changes config.REPO to a disposable directory; retain
+            # evidence in the host's log root or the explicit diagnostic session.
+            for directory in ('', str(Path(temporary) / 'session')):
+                with patch.dict(os.environ, DDM_SETTINGS_SCROLL_CAPTURE='1',
+                                DDM_DIAGNOSTIC_APP_ROOT=temporary,
+                                DDM_DIAGNOSTIC_LOG_DIR=directory), \
+                        patch('ddm.settings_scroll_diagnostics.SettingsScrollCapture') as factory:
+                    try:
+                        install()
+                        expected = Path(directory) if directory else Path(temporary) / 'logs'
+                        factory.assert_called_once_with(APP, expected / f'settings-scroll-{os.getpid()}.jsonl')
+                    finally:
+                        del APP._settings_scroll_capture
+            path = Path(temporary) / 'wheel.jsonl'
+            capture = SettingsScrollCapture(APP, path)
+            area = QScrollArea()
+            editor = QLineEdit('private draft')
+            area.setWidget(editor)
+            event = QWheelEvent(QPointF(), QPointF(), QPoint(), QPoint(0, -120),
+                                Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+            try:
+                self.assertFalse(capture.eventFilter(editor, event))
+                if sys.platform == 'win32':
+                    message = wintypes.MSG()
+                    message.message = 0x20A
+                    message.wParam = (0xff88 << 16)
+                    self.assertEqual(capture.nativeEventFilter(b'windows_generic_MSG',
+                                                              ctypes.addressof(message)), (False, 0))
+                for _ in range(1300):
+                    capture.eventFilter(editor, event)
+                records = [json.loads(line) for line in path.read_text().splitlines()]
+                self.assertEqual(len(records), 1200)
+                self.assertEqual(records[1]['areas'][0]['kind'], 'QScrollArea')
+                self.assertNotIn('private draft', path.read_text())
+                if sys.platform == 'win32':
+                    self.assertEqual(records[2]['delta'], -120)
+            finally:
+                APP.removeEventFilter(capture)
+                APP.removeNativeEventFilter(capture)
+                capture.deleteLater()
+                dispose(area)
+
     def tearDown(self):
         theme.configure_appearance({**config.DEFAULT_SETTINGS})
         theme.set_skin_active(False)
@@ -46,8 +163,11 @@ class AppearanceOptionsTests(unittest.TestCase):
 
     def test_preferences_validation_and_accent_survive_mode_changes(self):
         from ddm.appearance_preferences import DEFAULTS, normalize
+        from ddm.settings_focus import normalize_wheel_speed
         self.assertEqual(normalize({'appearance_accent': 'red; color: black',
                                     'appearance_font': 'font"; color:red'}), DEFAULTS)
+        for invalid in (0, 5, True, '3'):
+            self.assertEqual(normalize_wheel_speed(invalid), 1)
         theme.configure_appearance({'appearance_accent': '#fff000', 'appearance_font': 'Segoe UI'})
         for mode in ('dark', 'light', 'system', 'dark'):
             theme.apply(mode)
@@ -71,9 +191,16 @@ class AppearanceOptionsTests(unittest.TestCase):
             settle()
             page = dialog.appearance_page
             hwnd = int(dialog.winId())
-            page.theme_editor.set_accent('#8866ee')
-            blue = page.theme_editor.swatches['#00a1d6']
-            self.assertEqual(blue.grab().toImage().pixelColor(blue.rect().center()), QColor('#00a1d6'))
+            palette = page.theme_editor.swatch_palette
+            palette.buttons['#8866ee'].click()
+            self.assertTrue(palette.buttons['#8866ee'].isChecked())
+            blue = palette.buttons['']
+            default_blue = QColor('#007ba8' if theme.is_light() else '#00a1d6')
+            if blue.underMouse():
+                default_blue = default_blue.lighter(110)
+            image = blue.grab().toImage()
+            point = blue.rect().center() * image.devicePixelRatio()
+            self.assertEqual(image.pixelColor(point), default_blue)
             fonts = QFontDatabase.families()
             family = 'Segoe UI' if 'Segoe UI' in fonts else fonts[0]
             page.theme_editor.font.setCurrentIndex(page.theme_editor.font.findData(family))
@@ -83,7 +210,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             material.controls['settings_segment_motion'].setChecked(True)
             material.set_values({**material.values(), 'settings_glass_blur': 13})
             material.sliders['settings_glass_opacity'][0].setValue(52)
-            material.card_layout.setCurrentIndex(1)
+            material.card_layout.setCurrentIndex(material.card_layout.findData('vertical'))
             settle()
             self.assertEqual(int(dialog.winId()), hwnd)
             self.assertTrue(dialog.isVisible())
@@ -103,6 +230,7 @@ class AppearanceOptionsTests(unittest.TestCase):
         finally:
             dispose(dialog)
         reopened = SettingsDialog(settings, {}, preview=True)
+        reopened.set_host_layout(False, (0, 0, 1600, 1000))
         reopened.resize(1400, 850)
         reopened.show()
         try:
@@ -119,8 +247,10 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(switch._position, 1., 'Reloaded enabled values must also paint as enabled')
             self.assertEqual(page.material_editor.values()['settings_glass_blur'], 13)
             self.assertEqual(page.material_editor.sliders['settings_glass_opacity'][0].value(), 52)
-            page.material_editor.card_layout.setCurrentIndex(0)
+            card_layout = page.material_editor.card_layout
+            card_layout.setCurrentIndex(card_layout.findData('auto'))
             settle()
+            self.assertEqual(reopened.property('settings_card_layout'), 'auto')
             self.assertEqual(page.sections.columns, 2)
         finally:
             dispose(reopened)
@@ -167,30 +297,69 @@ class AppearanceOptionsTests(unittest.TestCase):
         root.show()
         settle()
         try:
+            selection = control._selection
             with patch('ddm.motion.enabled', return_value=True):
                 QTest.mouseClick(control.buttons['c'], Qt.LeftButton)
                 self.assertTrue(control.buttons['c']._pointer_focus)
                 self.assertEqual(control.value(), 'c')
-                self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Running)
+                self.assertTrue(selection._timer.isActive())
                 QTest.qWait(40)
-                interrupted = control._indicator
-                QTest.mouseClick(control.buttons['a'], Qt.LeftButton)
-                self.assertEqual(control._indicator_animation.startValue(), interrupted)
+                interrupted = selection.rect
+                QTest.mousePress(control.buttons['a'], Qt.LeftButton)
+                self.assertEqual(selection.rect, interrupted)
+                self.assertFalse(selection._timer.isActive())
+                QTest.mouseRelease(control.buttons['a'], Qt.LeftButton)
+                self.assertEqual(control.value(), 'a')
+                self.assertTrue(selection._timer.isActive())
                 control.buttons['b'].setFocus()
                 QTest.keyClick(control.buttons['b'], Qt.Key_Space)
                 self.assertEqual(control.value(), 'b')
                 self.assertFalse(control.buttons['b']._pointer_focus)
-                self.assertEqual(control._indicator, control._target_rect())
-                self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Stopped)
+                self.assertEqual(selection.rect, control._segment_rects()['b'])
+                self.assertFalse(selection._timer.isActive())
                 control.setValue('c')
-                self.assertEqual(control._indicator, control._target_rect())
+                self.assertEqual(selection.rect, control._segment_rects()['c'])
             with patch('ddm.motion.enabled', return_value=False):
                 QTest.mouseClick(control.buttons['a'], Qt.LeftButton)
-                self.assertEqual(control._indicator, control._target_rect())
+                self.assertEqual(selection.rect, control._segment_rects()['a'])
             root.hide()
-            self.assertEqual(control._indicator_animation.state(), QAbstractAnimation.Stopped)
+            self.assertFalse(selection._timer.isActive())
         finally:
             dispose(root)
+
+    def test_saved_segment_motion_reaches_layout_picker(self):
+        from ddm.app import MainWindow
+        from ddm.settings_autosave_apply import apply_changes
+
+        state = {'plugins_enabled': [], 'settings': {'settings_segment_motion': True, 'close_behavior': 'exit'}}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch('ddm.plugins.DEFAULT_PLUGINS_DIR', directory), \
+                patch('ddm.app.QTimer.singleShot'), patch.object(MainWindow, 'sync_danmaku'):
+            window = MainWindow([], layout_id='2x2', state=state)
+            self.addCleanup(dispose, window)
+            window.resize(1280, 800)
+            window.show()
+            settle()
+            window.sidebar.presentation_control.layout_picker.open_layout_picker()
+            picker = window.sidebar._picker
+            tabs = picker.tabs
+            selection = tabs._selection
+            self.assertIs(tabs.window(), picker)
+            self.assertIn('直播间组合', tabs.buttons)
+            with patch('ddm.motion.enabled', return_value=True):
+                QTest.mouseClick(tabs.buttons['弹幕布局'], Qt.LeftButton)
+                self.assertEqual(picker.group(), '弹幕布局')
+                self.assertTrue(selection._timer.isActive())
+                apply_changes(window, {'settings': {'settings_segment_motion': False}})
+                self.assertEqual(selection.rect, tabs._segment_rects()['弹幕布局'])
+                self.assertFalse(selection._timer.isActive())
+                QTest.mouseClick(tabs.buttons['竖屏布局'], Qt.LeftButton)
+                self.assertEqual(picker.group(), '竖屏布局')
+                self.assertEqual(selection.rect, tabs._segment_rects()['竖屏布局'])
+                apply_changes(window, {'settings': {'settings_segment_motion': True}})
+                QTest.mouseClick(tabs.buttons['普通布局'], Qt.LeftButton)
+                self.assertTrue(selection._timer.isActive())
+            picker.close()
 
     def test_local_gallery_selection_and_mask_keep_saved_strength(self):
         from types import SimpleNamespace
@@ -308,6 +477,11 @@ class AppearanceOptionsTests(unittest.TestCase):
             gallery.show()
             settle()
             try:
+                for _ in range(200):
+                    if gallery.item(1).data(Qt.UserRole + 2) is not None:
+                        break
+                    QTest.qWait(10)
+                self.assertIsNotNone(gallery.item(1).data(Qt.UserRole + 2))
                 self.assertEqual(gallery.count(), 4)
                 self.assertEqual(gallery.item(2).data(Qt.UserRole + 1), '视频')
                 self.assertEqual(gallery.visualItemRect(gallery.item(2)).size(), gallery.import_button.size())
@@ -375,9 +549,12 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(theme.FONT_CONTROL, size)
                 heading = page.sections.section('theme').layout().itemAt(0).widget()
                 self.assertEqual(heading.font().pixelSize(), size)
-                button = page.theme_editor.swatches['']
-                self.assertGreaterEqual(button.width(), button.fontMetrics().horizontalAdvance('默认') + 8)
-                self.assertGreaterEqual(button.height(), button.fontMetrics().height())
+                palette = page.theme_editor.swatch_palette
+                button = palette.buttons['']
+                self.assertEqual(button.accessibleName(), '默认蓝色')
+                self.assertTrue(button.isChecked())
+                self.assertTrue(all(palette.rect().contains(swatch.geometry())
+                                    for swatch in palette.buttons.values()))
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
                 self.assertEqual(dialog.width(), 760)
             editor = page.material_editor
@@ -390,7 +567,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertTrue(all(slider.isEnabled() for slider, _label in editor.sliders.values()))
             with patch('ddm.settings_backdrop.blur_available', return_value=True):
                 editor._sync_enabled()
-                self.assertIn('背后的实时内容', editor.background_status.text())
+                self.assertIn('由 Windows 控制', editor.background_status.text())
         finally:
             dispose(dialog)
 
@@ -423,6 +600,7 @@ class AppearanceOptionsTests(unittest.TestCase):
         from PySide6.QtWidgets import QComboBox, QLabel, QListWidget, QScrollArea, QSlider, QSpinBox
         window = SettingsWindow()
         window.resize(620, 450)
+        window.input_focus.set_wheel_speed(3)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         content = QWidget()
@@ -439,7 +617,12 @@ class AppearanceOptionsTests(unittest.TestCase):
         nested = QListWidget()
         nested.addItems([str(index) for index in range(30)])
         nested.setFixedHeight(90)
-        for widget in (combo, spin, horizontal, vertical, nested):
+        local_scroll = QScrollArea()
+        local_scroll.setFixedHeight(90)
+        local_content = QLabel('嵌套滚动区')
+        local_content.setFixedHeight(400)
+        local_scroll.setWidget(local_content)
+        for widget in (combo, spin, horizontal, vertical, nested, local_scroll):
             layout.addWidget(widget)
         blank = QLabel('页面末尾')
         blank.setMinimumHeight(900)
@@ -448,9 +631,9 @@ class AppearanceOptionsTests(unittest.TestCase):
         window.body_layout.addWidget(scroll)
         window.show()
         settle()
-        def wheel(widget, delta=-120):
+        def wheel(widget, delta=-120, pixels=0):
             point = widget.rect().center()
-            event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(),
+            event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(0, pixels),
                                 QPoint(0, delta), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
             APP.sendEvent(widget, event)
             settle()
@@ -458,7 +641,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             for widget in (combo, spin, spin.lineEdit(), vertical):
                 scroll.verticalScrollBar().setValue(0)
                 wheel(widget)
-                self.assertGreater(scroll.verticalScrollBar().value(), 0)
+                self.assertEqual(scroll.verticalScrollBar().value(), 3 * scroll.verticalScrollBar().singleStep())
                 self.assertEqual(combo.currentIndex(), 0)
                 self.assertEqual(spin.value(), 50)
                 self.assertEqual(vertical.value(), 50)
@@ -474,6 +657,11 @@ class AppearanceOptionsTests(unittest.TestCase):
             wheel(nested.viewport())
             self.assertGreater(nested.verticalScrollBar().value(), 0)
             self.assertEqual(scroll.verticalScrollBar().value(), 0)
+            wheel(local_scroll.viewport())
+            self.assertEqual(local_scroll.verticalScrollBar().value(), local_scroll.verticalScrollBar().singleStep())
+            self.assertEqual(scroll.verticalScrollBar().value(), 0)
+            wheel(scroll.viewport(), pixels=-10)
+            self.assertEqual(scroll.verticalScrollBar().value(), scroll.verticalScrollBar().singleStep())
         finally:
             dispose(window)
 
@@ -501,8 +689,43 @@ class AppearanceOptionsTests(unittest.TestCase):
                 values.append(scroll.verticalScrollBar().value())
             self.assertEqual(values, sorted(values))
             self.assertGreater(values[-1], values[0])
+            speed = dialog.shortcut_page.wheel_speed
+            speed.setCurrentIndex(speed.findData(4))
+            scroll.verticalScrollBar().setValue(0)
+            APP.sendEvent(scroll.viewport(), QWheelEvent(
+                QPointF(point), QPointF(scroll.viewport().mapToGlobal(point)), QPoint(), QPoint(0, -120),
+                Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
+            self.assertEqual(scroll.verticalScrollBar().value(), 4 * values[0])
+            dialog.shortcut_page.reset()
+            self.assertEqual(speed.currentData(), 1)
+            self.assertEqual(dialog.property('settings_wheel_speed'), 1)
         finally:
             dispose(dialog)
+
+    def test_settings_wheel_speed_auto_saves_and_reopens(self):
+        settings = deepcopy(config.DEFAULT_SETTINGS)
+        dialog = SettingsDialog(settings, {}, preview=True)
+        dialog.auto_save.start()
+        saved = []
+        dialog.auto_save.requested.connect(saved.append)
+        try:
+            control = dialog.shortcut_page.wheel_speed
+            self.assertEqual(control.currentData(), 1)
+            self.assertFalse(hasattr(dialog.general_page, 'wheel_speed'))
+            self.assertFalse(hasattr(dialog.appearance_page.material_editor, 'wheel_speed'))
+            control.setCurrentIndex(control.findData(3))
+            dialog.auto_save.flush()
+            self.assertEqual(saved, [{'settings': {'settings_wheel_speed': 3}}])
+            settings.update(saved[0]['settings'])
+            dialog.auto_save.acknowledge()
+        finally:
+            dispose(dialog)
+        reopened = SettingsDialog(settings, {}, preview=True)
+        try:
+            self.assertEqual(reopened.property('settings_wheel_speed'), 3)
+            self.assertEqual(reopened.shortcut_page.wheel_speed.currentData(), 3)
+        finally:
+            dispose(reopened)
 
 
 if __name__ == '__main__':

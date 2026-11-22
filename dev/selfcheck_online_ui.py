@@ -24,8 +24,12 @@ from ddm.plugins import PluginManager, read_manifest
 
 def check_store_scroll(app, root):
     from types import SimpleNamespace
+    plugins = {'bili_live': ('B站直播互动', '文字与表情'),
+               'domestic_live': ('国内直播平台', '国内平台'),
+               'global_live': ('海外直播平台', '海外平台'),
+               'match_sync': ('比赛二路同步', '比赛画面对齐')}
     entries = [dict(id=key, name=name, description=description, version='1.0', enabled=True,
-                    status='已加载', reason='') for key, (name, description) in online.KNOWN_PLUGINS.items()]
+                    status='已加载', reason='') for key, (name, description) in plugins.items()]
     manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
                               plugins_dir=str(root / 'scroll-plugins'), _removed=set())
     offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))
@@ -50,11 +54,11 @@ def check_store_scroll(app, root):
         app.processEvents()
         assert bar.maximum() > 500
         task = SimpleNamespace(key=offers[1]['id'], percent=0)
-        def start(operation, callback, key=None):
+        def start(offer):
             store.jobs.append(task)
             store.busyChanged.emit(True)
         try:
-            with patch.object(store, 'start', start), patch('ddm.online_ui.show_result'):
+            with patch.object(store.downloads, 'start', start), patch('ddm.online_ui.show_result'):
                 QTest.mousePress(button, Qt.LeftButton)
                 app.processEvents()
                 before = bar.value()
@@ -72,6 +76,7 @@ def check_store_scroll(app, root):
                 store._installed((offers[1]['id'], False))
                 app.processEvents()
                 assert bar.value() == before, 'Install completion moved scroll'
+                assert '重启以应用' in store.status.text()
             page = dialog.plugin_page
             plugin_id = entries[0]['id']
             card = page.cards.itemAt(0).widget()
@@ -97,6 +102,8 @@ def check_store_scroll(app, root):
 
 def check_store_browser(app, root):
     from types import SimpleNamespace
+    from ddm.plugin_store_ui import PluginStoreLogo
+    from selfcheck_plugin_cache import CATALOG_LOGO
     offers = [dict(id=f'browser_{index:03d}', name=f'插件 {63-index:02d}', version='1.1',
                    description='直播辅助 ' + ('录制工具' if index % 2 else '弹幕工具') + ' 长说明' * 30,
                    author='Alice' if index % 2 else 'Bob', available=True,
@@ -104,6 +111,8 @@ def check_store_browser(app, root):
     entries = [dict(offer, version='1.0', enabled=True, status='已加载', reason='') for offer in offers[:3]]
     offers[1]['version'] = '1.0'
     offers[2].update(available=False, reason='需要新版主程序')
+    offers[0]['icon_png'] = CATALOG_LOGO
+    offers[1]['icon_png'] = 'invalid data'
     offers[62].update(name='插件 99 ' + '很长的插件名称' * 30, author='Bob' * 60)
     manager = SimpleNamespace(catalog=lambda: entries, enabled=None,
                               plugins_dir=str(root / 'browser-plugins'), _removed=set())
@@ -116,8 +125,15 @@ def check_store_browser(app, root):
             page.show()
             app.processEvents()
             assert page.count.text() == '64 / 64 个插件'
+            logo = page._offer_cards['browser_000'].findChild(PluginStoreLogo, 'PluginStoreLogo')
+            generic = page._offer_cards['browser_001'].findChild(PluginStoreLogo, 'PluginStoreLogo')
+            assert logo.pixmap.width() == 40 and logo.pixmap.height() == 20
+            assert generic.pixmap.isNull() and logo.size() == generic.size()
+            image = logo.grab().toImage()
+            assert image.pixelColor(image.width() // 2, image.height() // 2).red() == 230
             assert page.scroll.horizontalScrollBar().maximum() == 0
-            assert all(card.height() < 112 for card in page._offer_cards.values())
+            assert all(card.height() >= card.minimumSizeHint().height() for card in page._offer_cards.values()), \
+                'Plugin cards must reserve the complete text and action-row height'
             page.resize(400, 560)
             app.processEvents()
             assert page.scroll.horizontalScrollBar().maximum() == 0, 'Long titles/authors must not widen the plugin list'
@@ -145,13 +161,13 @@ def check_store_browser(app, root):
             button = page.buttons['browser_000']
             details = page.show_details(offers[0])
             app.processEvents()
-            assert '完整更新说明 59' in details.document.toPlainText()
+            assert '完整更新说明 59' in details.document.text()
             with patch.object(page, 'install_offer') as install:
-                details.action.click()
+                page.buttons['browser_000'].click()
                 install.assert_called_once_with(offers[0])
             page.jobs.append(SimpleNamespace(key='browser_000', percent=35))
             page._busy(True)
-            assert not details.action.isEnabled() and '35%' in details.action.text()
+            assert not page.buttons['browser_000'].isEnabled() and page.buttons['browser_000'].text() == '下载中…'
             page.search.setText('没有这样的插件')
             assert page.empty.isVisible() and page.count.text() == '0 / 64 个插件'
             assert page.buttons['browser_000'] is button, 'Filtering must retain the active installation control'
@@ -159,8 +175,12 @@ def check_store_browser(app, root):
             page.jobs.clear()
             page._busy(False)
             page.show_offers([dict(offers[0], version='1.2')])
-            assert not details.action.isEnabled() and details.action.text() == '目录已更新'
-            details.reject()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            from shiboken6 import isValid
+            assert not isValid(details), 'Rebuilding a card must retire its owned details'
+            details = page._details['browser_000']
+            assert details.offer['version'] == '1.2' and not details.isWindow()
+            details.close()
             page.show_offers(offers[:1])
             app.processEvents()
             assert page.count.text() == '1 / 1 个插件'
@@ -204,11 +224,22 @@ def check_plugin_page_boundaries(app, root):
 
 
 def check_installed_browser(app, root):
+    from base64 import b64decode
     from types import SimpleNamespace
+    from ddm.plugin_store_ui import PluginStoreLogo
+    from selfcheck_plugin_cache import CATALOG_LOGO, package
+
+    archive = root / 'installed-logo.zip'
+    archive.write_bytes(package('installed_00', icon='icon.png',
+                                files={'icon.png': b64decode(CATALOG_LOGO)}))
+    installer = PluginManager(plugins_dir=str(root / 'installed-logo'))
+    assert installer.install_zip(str(archive)) == 'installed_00'
+    icon = installer.catalog()[0]['icon_png']
+    assert icon == CATALOG_LOGO
     entries = [dict(id=f'installed_{index:02d}', name=f'插件 {15-index:02d}', version='1.0',
                     description='完整说明 ' * 60, enabled=index % 2 == 0,
                     status='已加载' if index % 2 == 0 else '未启用', reason='') for index in range(16)]
-    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80)
+    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80, icon_png=icon)
     offers = [dict(entry, version='1.1', author='Alice' if index % 2 else 'Bob' * 60,
                    available=True, notes='完整更新记录末尾') for index, entry in enumerate(entries[:3])]
     manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
@@ -228,8 +259,15 @@ def check_installed_browser(app, root):
             dialog.show()
             QTest.qWait(180)
             assert browser.count.text() == '16 / 16 个插件'
+            logo = page._installed_cards['installed_00'].findChild(PluginStoreLogo)
+            generic = page._installed_cards['installed_01'].findChild(PluginStoreLogo)
+            assert (logo.pixmap.width(), logo.pixmap.height()) == (40, 20)
+            assert generic.pixmap.isNull()
+            image = logo.grab().toImage()
+            assert image.pixelColor(image.width() // 2, image.height() // 2).red() == 230
             assert page.installed_scroll.horizontalScrollBar().maximum() == 0
-            assert all(card.height() < 130 for card in page._installed_cards.values())
+            assert all(card.height() >= card.minimumSizeHint().height() for card in page._installed_cards.values()), \
+                'Installed cards must not squeeze text below its minimum height'
             browser.search.setText('ALICE 完整说明')
             assert browser.count.text() == '1 / 16 个插件'
             browser.search.clear()
@@ -252,20 +290,20 @@ def check_installed_browser(app, root):
             browser.sort.setCurrentIndex(2)
             assert page.cards.itemAt(0).widget() is page._installed_cards['installed_02']
             details = page._show_installed_details('installed_00')
-            assert entries[0]['reason'] in details.document.toPlainText()
-            assert '完整更新记录末尾' in details.document.toPlainText()
+            assert entries[0]['reason'] in details.document.text()
+            assert '完整更新记录末尾' in details.document.text()
             with patch.object(store, 'install_offer') as install:
-                details.action.click()
+                page.update_buttons['installed_00'].click()
                 install.assert_called_once_with(offers[0])
             store.jobs.append(SimpleNamespace(key='installed_00', percent=45))
             store._busy(True)
-            assert not details.action.isEnabled() and '45%' in details.action.text()
+            assert not page.update_buttons['installed_00'].isEnabled() and page.update_buttons['installed_00'].text() == '下载中…'
             store.jobs.clear()
             store._busy(False)
-            details.reject()
+            details.close()
             offline = page._show_installed_details('installed_15')
-            assert not offline.action.isEnabled() and offline.action.text() == '暂无更新'
-            offline.reject()
+            assert not page.update_buttons['installed_15'].isVisible(), 'No duplicate update control when this plugin has no update'
+            offline.close()
             browser.search.setText('没有匹配的插件')
             assert page.empty.isVisible() and browser.count.text() == '0 / 16 个插件'
             hidden_card = page._installed_cards['installed_00']
@@ -359,6 +397,7 @@ def check_download_reopen(app, root):
         if hosted:
             window._settings_process = SimpleNamespace(_send=messages.append, stop=lambda: None)
         plan = str(root / 'retained-update-plan.json')
+        Path(plan).write_text('{}', encoding='utf-8')
         offer = {'version': '9.0', 'notes': 'New release'}
 
         def open_dialog():
@@ -400,11 +439,11 @@ def check_download_reopen(app, root):
                 page.action.click()
                 assert started.wait(2)
                 app.processEvents()
-                assert '25%' in page.status.text()
+                assert page.download_progress.bar.value() == 25
                 close_dialog(first)
                 assert not page.stopping and len(page.jobs) == 1, 'Closing settings must keep the download'
                 second = open_dialog()
-                assert second.update_page is page and '25%' in page.status.text()
+                assert second.update_page is page and page.download_progress.bar.value() == 25
                 assert not second.confirm_button.isEnabled(), 'Reopened settings must reflect the busy task'
                 assert not page.action.isEnabled()
                 close_dialog(second)
@@ -428,6 +467,7 @@ def check_download_reopen(app, root):
             release.set()
             window._close_settings_host()
             window.close()
+            window.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             app.processEvents()
     print('PASS: same download/progress and prepared update after closing/reopening normal and hosted settings')
@@ -445,6 +485,8 @@ def check_download_reopen(app, root):
     window.close()
     settle(app, page)
     assert interrupted.wait(2) and page.stopping, 'Application exit must stop a hidden update task'
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def main():
@@ -452,7 +494,8 @@ def main():
     app.setStyleSheet(theme.qss())
     check_remove_prompt(app)
     ui_thread = threading.get_ident()
-    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
+    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary), \
+            patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'host-plugins')):
         root = Path(temporary)
         check_store_browser(app, root)
         check_plugin_page_boundaries(app, root)
@@ -492,6 +535,7 @@ def main():
             assert page.browser.isAncestorOf(page.refresh)
             assert not page.search.geometry().intersects(page.refresh.geometry())
             bar = dialog.plugin_page.tabs.tabBar()
+            assert bar.cursor().shape() == Qt.PointingHandCursor
             tab_rect = bar.tabRect(1)
             tab_image = bar.grab().toImage()
             assert tab_image.pixelColor(tab_rect.topLeft()) != tab_image.pixelColor(
@@ -523,12 +567,14 @@ def main():
             settle(app, page)
             assert page.buttons['global_live'].text() == '更新'
             details = dialog.plugin_page._show_installed_details('global_live')
-            assert details.action.text() == '更新' and details.action.isEnabled()
-            details.action.click()
+            assert dialog.plugin_page.update_buttons['global_live'].text() == '更新' and dialog.plugin_page.update_buttons['global_live'].isEnabled()
+            dialog.plugin_page.update_buttons['global_live'].click()
             settle(app, page)
             assert page.buttons['global_live'].text() == '待重启'
-            assert details.action.text() == '待重启' and not details.action.isEnabled()
-            details.reject()
+            details = dialog.plugin_page._details['global_live']
+            assert not details.isWindow() and dialog.plugin_page._detail_buttons['global_live'].isChecked()
+            assert dialog.plugin_page.update_buttons['global_live'].text() == '待重启' and not dialog.plugin_page.update_buttons['global_live'].isEnabled()
+            details.close()
             assert read_manifest(str(root / 'plugins' / 'global_live'), 'global_live')['version'] == '1.0'
             assert not dialog.plugin_page.checks['global_live'].isChecked()
             assert manager.enabled == set()
@@ -630,7 +676,7 @@ def main():
                     patch.object(online, 'download') as download:
                 automatic.check.click()
                 settle(app, automatic)
-                assert 'offline' in automatic.status.text() and automatic.auto.isEnabled()
+                assert '文件读写失败' in automatic.status.text() and automatic.auto.isEnabled()
                 assert automatic.action.text() == '请先检查更新' and automatic.check.isEnabled()
                 assert '当前版本说明' in automatic.notes.toPlainText(), 'network failure must preserve current notes'
                 download.assert_not_called()
@@ -643,7 +689,7 @@ def main():
                 with patch.object(online, 'download', side_effect=OSError('download failed')):
                     automatic.action.click()
                     settle(app, automatic)
-                    assert 'download failed' in automatic.status.text()
+                    assert '文件读写失败' in automatic.status.text()
                     assert automatic.action.isEnabled() and automatic.action.text() == '下载更新'
                     assert not automatic.plan_path
                 automatic.action.click()
@@ -678,6 +724,8 @@ def main():
                 assert window._closing and window._update_plan == str(plan_path)
                 assert not window._restart_requested and save.called
                 finish.assert_called_once()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         # 下载取消后等待工作线程退出，避免销毁仍运行的 QThread。
         standalone = OnlinePage()
         started = threading.Event()

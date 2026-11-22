@@ -4,7 +4,7 @@ import sys
 
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPointF, QRectF, QPropertyAnimation, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap, QPolygonF, QTransform
-from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabWidget
+from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabBar, QTabWidget
 from .corner_geometry import continuous_path
 
 THEME_WAVE_MS = 360
@@ -145,10 +145,56 @@ def lifted_drag(pixmap, hotspot):
                           round(hotspot.y() * scale) + padding)
 
 
+class _SegmentTabBar(QTabBar):
+    def __init__(self, parent):
+        super().__init__(parent)
+        from .ui.selection import SegmentMotion
+        self._selection = SegmentMotion(self, self._tab_rects, self.currentIndex, self._choose_segment)
+        self._selection.watch(self)
+        self.currentChanged.connect(self._selection.sync)
+        self.setAttribute(Qt.WA_StyledBackground)
+
+    def _tab_rects(self):
+        return {index: QRectF(self.tabRect(index)).adjusted(2, 2, -2, -2)
+                for index in range(self.count()) if self.isTabVisible(index)
+                and (self.isTabEnabled(index) or index == self.currentIndex())}
+
+    def _choose_segment(self, index):
+        self.tabBarClicked.emit(index)
+        self.setCurrentIndex(index)
+
+    def tabLayoutChange(self):
+        super().tabLayoutChange()
+        if hasattr(self, '_selection'):
+            self._selection.sync()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._selection.sync()
+
+    def paintEvent(self, event):
+        from PySide6.QtWidgets import QStyle, QStyleOption, QStyleOptionTab, QStylePainter
+        panel = QStyleOption()
+        panel.initFrom(self)
+        painter = QStylePainter(self)
+        painter.drawPrimitive(QStyle.PE_Widget, panel)
+        self._selection.paint(painter)
+        for index in range(self.count()):
+            if not self.isTabVisible(index):
+                continue
+            option = QStyleOptionTab()
+            self.initStyleOption(option, index)
+            if self._selection.dragging():
+                option.state &= ~QStyle.State_MouseOver
+            painter.drawControl(QStyle.CE_TabBarTab, option)
+        painter.end()
+
+
 class SlidingTabs(QTabWidget):
     """鼠标切换插件页时轻微滑入，不改变页面透明度。"""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setTabBar(_SegmentTabBar(self))
         self._slide = QPropertyAnimation(self)
         self._slide.setPropertyName(b"pos")
         self._slide.setDuration(160)
@@ -163,7 +209,8 @@ class SlidingTabs(QTabWidget):
 
     def _reveal_page(self, index):
         self.finish_transition()
-        if index < 0 or not self.isVisible() or not QApplication.mouseButtons() or not enabled():
+        pointer = QApplication.mouseButtons() or self.tabBar()._selection.committing()
+        if index < 0 or not self.isVisible() or not pointer or not enabled():
             return
         page = self.widget(index)
         target = page.pos()

@@ -1,14 +1,14 @@
 """Sidebar item implementation; shared sidebar state stays with its owner."""
-import os
 from PySide6.QtCore import QMimeData, QPoint, QRect, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QWidget
 from . import motion, theme
 from .corner_geometry import continuous_path
+from .room_artwork import fit_station_avatar, platform_icon, room_platform
 from .sidebar_drag import NAV_MIME, ROOM_MIME
 from .ui.labels import ElidedLabel
 from .widget_support import (
-    BRAND_ASSETS_DIR, NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT,
+    NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT,
     PORTRAIT_LIST_HEIGHT, _allow_shrink, _ignore_mouse, _repolish
 )
 from .live_alert import LiveAlert
@@ -101,30 +101,26 @@ class NavItem(QFrame):
         self.name_label = ElidedLabel(room.get("uname") or room.get("room_id", ""))
         self.name_label.setObjectName("NavName")
         self.name_label.setProperty("cardMode", True)
-        self.sub = ElidedLabel(room.get("title") or
-                               ("直播中" if room.get("live") else "未开播"))
+        self.sub = ElidedLabel(room.get("title") or self._live_text())
         self.sub.setObjectName("NavSub")
         self.sub.setProperty("cardMode", True)
         _ignore_mouse(self.name_label)
         _allow_shrink(self.name_label)
         _ignore_mouse(self.sub)
         _allow_shrink(self.sub)
-        self.badge = QLabel("直播中" if room.get("live") else "未开播")
+        self.badge = QLabel(self._live_text())
         if room.get("platform") in ("huya", "douyu", "douyin", "twitch", "youtube") and not room.get("live_known", True):
             self.badge.setText("待刷新")
         self.badge.setObjectName("BadgeLive" if room.get("live") else "BadgeOff")
         _ignore_mouse(self.badge)
-        platform = room.get("platform") or str(room.get("room_id", "")).partition(":")[0]
-        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}
+        platform = room_platform(room)
+        labels = {"huya": "虎牙", "douyu": "斗鱼", "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube", "chzzk": "CHZZK"}
         label = "B站" if str(room.get("room_id", "")).isdigit() else labels.get(platform, platform)
-        if str(room.get("room_id", "")).isdigit():
-            platform = "bilibili"
-        icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms",
-                                 "huya.png" if platform == "huya" else platform + ".ico")
-        if not os.path.isfile(icon_path):
-            icon_path = os.path.join(BRAND_ASSETS_DIR, "platforms", "generic.svg")
         self.platform_badge = QLabel()
-        self.platform_badge.icon = QIcon(icon_path)
+        self.platform_badge.icon = platform_icon(platform)
+        self._branded_avatar = None
+        self._badge_from_avatar = False
+        self.has_station_badge = False
         self.platform_badge.setObjectName("NavPlatformBadge")
         self.platform_badge.setAlignment(Qt.AlignCenter)
         self.platform_badge.setToolTip(label)
@@ -135,6 +131,38 @@ class NavItem(QFrame):
         self.thumb.set_overlay_widgets(self.name_label, self.sub, self.badge, self.platform_badge)
         self.setToolTip("")
 
+    def set_room_card_branding(self, branding):
+        self._badge_from_avatar = bool(branding.get('badge_from_avatar'))
+        avatar_path = branding.get('avatar_path')
+        if avatar_path:
+            avatar = QPixmap(avatar_path)
+            if not avatar.isNull():
+                self._branded_avatar = fit_station_avatar(avatar)
+                self.thumb.set_face(self._branded_avatar)
+        badge_path = branding.get('badge_path')
+        if badge_path:
+            self._set_station_badge(QIcon(badge_path))
+        label = branding.get('label')
+        if label:
+            self.platform_badge.setToolTip(label)
+            self.platform_badge.setAccessibleName(label)
+
+    def set_room_avatar(self, pixmap):
+        avatar = pixmap if self._badge_from_avatar else self._branded_avatar or pixmap
+        if self._badge_from_avatar and avatar is not None and not avatar.isNull():
+            self._set_station_badge(QIcon(avatar))
+            avatar = fit_station_avatar(avatar)
+        self.thumb.set_face(avatar)
+        return avatar
+
+    def _set_station_badge(self, icon):
+        if icon.isNull():
+            return
+        self.has_station_badge = True
+        self.platform_badge.icon = icon
+        size = 12 if self.thumb._compact_thumb() else 20
+        self.platform_badge.setPixmap(icon.pixmap(size, size))
+
     def set_on_wall(self, on_wall: bool) -> None:
         """标出这一路已经在画面墙中；蓝色与粉色开播状态互不混淆。"""
         on_wall = bool(on_wall)
@@ -142,6 +170,10 @@ class NavItem(QFrame):
             return
         self.setProperty("onWall", on_wall)
         _repolish(self)
+
+    def set_recording_state(self, state: str) -> None:
+        self.thumb.set_recording_state(state)
+        self._sync_live_dot()
 
     def set_portrait_strip(self, enabled: bool) -> None:
         enabled = bool(enabled)
@@ -245,9 +277,14 @@ class NavItem(QFrame):
         self.setProperty("sortSelected", selected)
         _repolish(self)
 
+    def _live_text(self) -> str:
+        if self.room.get("live_from_playback") and not self.room.get("live_known", False):
+            return "待检测"
+        return "直播中" if self.room.get("live") else "未开播"
+
     def set_live(self, live: bool) -> None:
         self.room["live"] = live
-        text = "直播中" if live else "未开播"
+        text = self._live_text()
         name = "BadgeLive" if live else "BadgeOff"
         changed = self.badge.text() != text or self.badge.objectName() != name
         self.badge.setText(text)
@@ -265,7 +302,7 @@ class NavItem(QFrame):
     def set_title(self, title: str) -> None:
         """更新卡片上的直播间名，并同步悬停时的完整提示。"""
         self.room["title"] = title or ""
-        text = title or "未开播"
+        text = title or self._live_text()
         if self.sub._full_text != text:
             self.sub.setText(text)
             self.thumb._layout_overlay()

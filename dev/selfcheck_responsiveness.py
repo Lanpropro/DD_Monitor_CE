@@ -237,7 +237,7 @@ class ProbeTests(unittest.TestCase):
 
     def test_theme_capture_preserves_calls_and_bounds_function_records(self):
         from PySide6.QtWidgets import QApplication
-        from ddm import theme_transition
+        from ddm import theme, theme_transition
         app = QApplication.instance() or QApplication([])
         token = object()
 
@@ -245,19 +245,28 @@ class ProbeTests(unittest.TestCase):
             def change(self, mode, origin=None):
                 if mode == 'error':
                     raise ValueError('private-theme-error')
+                theme.apply(mode)
                 return origin
 
         path = Path(self.directory.name) / 'themes.jsonl'
-        with patch.object(theme_transition, 'ThemeTransition', Transition):
+        with patch.object(theme_transition, 'ThemeTransition', Transition), \
+                patch.object(theme, 'apply', return_value=token):
             with patch.object(QApplication, 'instance', return_value=None):
                 probe = diag.install_theme_capture(path, profile_calls=True)
             try:
                 transition = Transition()
+                self.assertIs(theme.apply('dark'), token)
                 self.assertIs(transition.change('light', token), token)
                 with self.assertRaises(ValueError):
                     transition.change('error')
                 rows = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()]
                 switches = [row for row in rows if row['phase'] == 'theme-switch']
+                applies = [row for row in rows if row['phase'] == 'theme-apply']
+                self.assertEqual([(row['source'], row['mode']) for row in applies],
+                                 [('direct', 'dark'), ('transition', 'light')])
+                self.assertTrue(all(row['duration_ms'] >= 0 for row in applies))
+                self.assertTrue(0 < len(applies[0]['functions']) <= 30)
+                self.assertEqual(applies[1]['functions'], [])
                 self.assertEqual(len(switches), 2)
                 self.assertTrue(all(0 < len(row['functions']) <= 30 for row in switches))
                 self.assertNotIn('private-theme-error', json.dumps(rows))
@@ -278,6 +287,45 @@ class ProbeTests(unittest.TestCase):
                     timing.stop()
             finally:
                 probe.stop()
+
+    def test_settings_theme_capture_records_only_the_first_paint_for_latest_choice(self):
+        from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+        from ddm import settings_appearance
+        from ddm.theme_capture import _install_settings_paint_capture
+        app = QApplication.instance() or QApplication([])
+
+        class AppearancePage(QWidget):
+            def __init__(self):
+                super().__init__()
+                layout = QVBoxLayout(self)
+                self.buttons = {mode: QPushButton(mode, self) for mode in ('dark', 'light')}
+                for button in self.buttons.values():
+                    layout.addWidget(button)
+
+            def _choose(self, mode):
+                self.buttons[mode].repaint()
+                self.buttons[mode].update()
+                return mode
+
+        with patch.object(settings_appearance, 'AppearanceSettingsPage', AppearancePage):
+            _install_settings_paint_capture(self.probe)
+        page = AppearancePage()
+        self.addCleanup(page.deleteLater)
+        page.show()
+        app.processEvents()
+        self.assertEqual(page._choose('dark'), 'dark')
+        self.assertEqual(page._choose('light'), 'light')
+        self.assertFalse(self.records(), 'Paint before the request returns must be ignored')
+        app.processEvents()
+        page.buttons['light'].repaint()
+        rows = self.records()
+        self.assertEqual([(row['phase'], row['mode']) for row in rows], [('settings-theme-paint', 'light')])
+        self.assertGreaterEqual(rows[0]['request_to_paint_ms'], rows[0]['returned_to_paint_ms'])
+        page._choose('dark')
+        page.hide()
+        page.show()
+        app.processEvents()
+        self.assertEqual(self.records(), rows, 'Hiding the page cancels an unfinished sample')
 
     def test_log_rotation_is_bounded(self):
         self.probe.handler.maxBytes = 300

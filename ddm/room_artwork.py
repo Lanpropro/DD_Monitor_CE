@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsBlurEffect, QGraphicsPixmapItem, QGraphicsScene, QLabel, QWidget
 
 from .corner_geometry import continuous_path
@@ -17,6 +17,19 @@ def room_platform(room):
 
 def supports_banner(room):
     return room_platform(room) in ('bilibili', 'douyin')
+
+
+def fit_station_avatar(pixmap):
+    """Keep wide channel lettering inside the circular avatar crop."""
+    if pixmap.width() == pixmap.height():
+        return pixmap
+    side = max(pixmap.width(), pixmap.height())
+    canvas = QPixmap(side, side)
+    canvas.fill(Qt.transparent)
+    painter = QPainter(canvas)
+    painter.drawPixmap((side - pixmap.width()) // 2, (side - pixmap.height()) // 2, pixmap)
+    painter.end()
+    return canvas
 
 
 class RoomArtwork:
@@ -39,7 +52,6 @@ class RoomArtwork:
             return None
         key = (source.cacheKey(), radius)
         if self._frosted_key != key:
-            from PySide6.QtGui import QPixmap
             # Blur only the static artwork once; text and avatars stay sharp.
             small = source.scaled(960, 540, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             scene = QGraphicsScene()
@@ -72,15 +84,25 @@ class RoomArtwork:
         return True
 
 
-def notice_frost(widget, artwork):
+def _notice_settings(widget):
     from .config import DEFAULT_SETTINGS
     while widget is not None:
         settings = getattr(widget, 'settings', None)
         if isinstance(settings, dict):
-            return artwork.frosted(max(0, min(40, int(settings.get(
-                'notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))))
+            return settings
         widget = widget.parentWidget()
-    return artwork.frosted(DEFAULT_SETTINGS['notice_banner_blur'])
+    return DEFAULT_SETTINGS
+
+
+def notice_source(widget, artwork):
+    return artwork.source if _notice_settings(widget).get('notice_banner_enabled', True) else None
+
+
+def notice_frost(widget, artwork):
+    from .config import DEFAULT_SETTINGS
+    settings = _notice_settings(widget)
+    return artwork.frosted(max(0, min(40, int(settings.get(
+        'notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))))
 
 
 def paint_room_background(painter, rect, pixmap, radius, *, focus=True, frost=None):
@@ -108,28 +130,32 @@ def paint_room_background(painter, rect, pixmap, radius, *, focus=True, frost=No
 
 
 def style_room_notice(widget, artwork):
-    widget.setProperty('roomBackdrop', artwork.source is not None)
+    widget.setProperty('roomBackdrop', notice_source(widget, artwork) is not None)
     for child in [widget, *widget.findChildren(QWidget)]:
         child.style().unpolish(child)
         child.style().polish(child)
     widget.update()
 
 
-def add_platform_logos(layout, rooms, parent):
+def platform_icon(platform):
     from .widget_support import BRAND_ASSETS_DIR
+
+    assets = Path(BRAND_ASSETS_DIR) / 'platforms'
+    path = assets / ('huya.png' if platform == 'huya' else platform + '.ico')
+    return QIcon(str(path if path.is_file() else assets / 'generic.svg'))
+
+
+def add_platform_logos(layout, rooms, parent):
     seen = set()
     for room in rooms[:3]:
         platform = room_platform(room)
         if not platform or platform in seen:
             continue
         seen.add(platform)
-        path = Path(BRAND_ASSETS_DIR) / 'platforms' / ('huya.png' if platform == 'huya' else platform + '.ico')
-        if not path.is_file():
-            path = path.with_name('generic.svg')
         label = QLabel(parent)
         label.setObjectName('NoticePlatform')
         label.setFixedSize(18, 18)
-        label.setPixmap(QIcon(str(path)).pixmap(16, 16))
+        label.setPixmap(platform_icon(platform).pixmap(16, 16))
         label.setAlignment(Qt.AlignCenter)
         label.setToolTip(platform)
         label.setAccessibleName(platform)

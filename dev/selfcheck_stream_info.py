@@ -11,7 +11,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import theme
@@ -119,6 +119,10 @@ class StreamInfoTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         dialog.show()
         self.assertTrue(dialog.timer.isActive())
+        self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
+        self.assertEqual(dialog.window_header.breadcrumb.text(), '直播流信息')
+        self.assertEqual(dialog.values['state'].text(), '播放中')
+        self.assertTrue(dialog.values['host'].textInteractionFlags() & Qt.TextSelectableByMouse)
         self.assertEqual(dialog.values['host'].textFormat(), Qt.PlainText)
         self.assertEqual(dialog.values['host'].text(), '<b>plain.test</b>')
         source['host'] = 'changed.test'
@@ -126,6 +130,22 @@ class StreamInfoTests(unittest.TestCase):
         self.assertEqual(dialog.values['host'].text(), 'changed.test')
         dialog.hide()
         self.assertFalse(dialog.timer.isActive())
+
+    def test_dialog_aligns_to_tile_top_left_and_stays_in_work_area(self):
+        tile = QWidget()
+        self.addCleanup(tile.close)
+        area = tile.screen().availableGeometry()
+        tile.setGeometry(area.adjusted(20, 8, -8, -20))
+        dialog = StreamInfoDialog(lambda: {'state': 'playing'})
+        self.addCleanup(dialog.close)
+        dialog.position_for_tile(tile)
+        self.assertEqual(dialog.geometry().topLeft(),
+                         tile.mapToGlobal(tile.rect().topLeft()) + QPoint(10, 10))
+
+        tile.move(area.left() - 30, area.bottom() - 30)
+        dialog.position_for_tile(tile)
+        self.assertTrue(area.contains(dialog.geometry()))
+        self.assertEqual(dialog.geometry().bottomLeft(), area.bottomLeft())
 
     def test_main_window_menu_is_wired_to_its_own_player(self):
         with ExitStack() as stack:
@@ -136,8 +156,11 @@ class StreamInfoTests(unittest.TestCase):
             stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))
             stack.enter_context(patch('ddm.images.load_cached_avatar', return_value=None))
             rooms = [{'room_id': '314', 'uname': 'Wired fixture', 'live': False}]
-            window = MainWindow(rooms, rooms, layout_id='2x2', state={'plugins_enabled': []})
+            window = MainWindow(rooms, rooms, layout_id='2x2', state={
+                'plugins_enabled': [], 'settings': {'settings_glass_enabled': True, 'settings_glass_opacity': 45,
+                                                    'settings_playback_control_color': '#FFFFFF'}})
             try:
+                self.assertNotIn('settings_playback_control_color', window.settings)
                 tile = window.wall.tiles[0]
                 player = Mock()
                 player.stream_info.return_value = {'host': 'wired.test', 'state': 'playing'}
@@ -145,7 +168,14 @@ class StreamInfoTests(unittest.TestCase):
                 menu = tile.build_menu()
                 next(action for action in menu.actions() if action.text() == '直播流信息…').trigger()
                 APP.processEvents()
-                self.assertEqual(window._stream_info_dialogs[tile].values['host'].text(), 'wired.test')
+                dialog = window._stream_info_dialogs[tile]
+                self.assertEqual(dialog.values['host'].text(), 'wired.test')
+                self.assertTrue(dialog.property('settings_glass_enabled'))
+                self.assertEqual(dialog.property('settings_glass_opacity'), 45)
+                self.assertEqual(tile.controls.property('playbackGlassOpacity'), 45)
+                window._remote_settings_saved({'settings': {'settings_glass_opacity': 62}})
+                self.assertEqual(dialog.property('settings_glass_opacity'), 62)
+                self.assertEqual(tile.controls.property('playbackGlassOpacity'), 62)
             finally:
                 window.close()
             self.assertFalse(window._stream_info_dialogs)
@@ -157,6 +187,9 @@ class StreamInfoTests(unittest.TestCase):
         second = Tile({'room_id': '202', 'uname': 'Second'})
         self.addCleanup(first.close)
         self.addCleanup(second.close)
+        area = first.screen().availableGeometry()
+        first.setGeometry(area.adjusted(20, 1, -1, -20))
+        second.setGeometry(area.adjusted(30, 5, -7, -30))
         window._closing = False
         window.wall = SimpleNamespace(tiles=[first, second])
         window._stream_info_dialogs = {}
@@ -170,10 +203,22 @@ class StreamInfoTests(unittest.TestCase):
         MainWindow._open_tile_stream_info(window, second)
         dialog = window._stream_info_dialogs[first]
         self.addCleanup(dialog.close)
-        self.addCleanup(window._stream_info_dialogs[second].close)
+        other_dialog = window._stream_info_dialogs[second]
+        self.addCleanup(other_dialog.close)
+        for host_tile, info_dialog in ((first, dialog), (second, other_dialog)):
+            self.assertEqual(info_dialog.geometry().topLeft(),
+                             host_tile.mapToGlobal(host_tile.rect().topLeft()) + QPoint(10, 10))
+        dialog.move(QPoint(60, 55))
+        position = dialog.pos()
+        MainWindow._open_tile_stream_info(window, first)
+        self.assertEqual(dialog.pos(), position)
+        dialog.hide()
+        first.move(area.topLeft() + QPoint(15, 9))
         MainWindow._open_tile_stream_info(window, first)
         self.assertEqual(len(window._stream_info_dialogs), 2)
         self.assertIs(window._stream_info_dialogs[first], dialog)
+        self.assertEqual(dialog.geometry().topLeft(),
+                         first.mapToGlobal(first.rect().topLeft()) + QPoint(10, 10))
         first.room = {'room_id': '303', 'uname': 'Replacement'}
         replacement = Mock()
         replacement.stream_info.return_value = {'host': 'replacement.test'}
@@ -208,13 +253,19 @@ class StreamInfoTests(unittest.TestCase):
             APP.processEvents()
             try:
                 tile = window.wall.tiles[0]
+                area = QRect(-12000, -12000, 1200, 800)
+                # Keep the dialog on the same off-desktop test area as the fullscreen tile.
+                screen = SimpleNamespace(availableGeometry=lambda: area)
+                stack.enter_context(patch.object(QApplication, 'screenAt', return_value=screen))
                 for _ in range(3):
-                    window._fullscreen_presentation.enter(tile, QRect(-12000, -12000, 1200, 800))
+                    window._fullscreen_presentation.enter(tile, area)
                     window._open_tile_stream_info(tile)
                     dialog = window._stream_info_dialogs[tile]
                     APP.processEvents()
                     self.assertTrue(dialog.isVisible())
                     self.assertIs(dialog.windowHandle().transientParent(), tile.windowHandle())
+                    self.assertEqual(dialog.geometry().topLeft(),
+                                     tile.mapToGlobal(tile.rect().topLeft()) + QPoint(10, 10))
                     dialog.hide()
                     window._open_tile_stream_info(tile)
                     self.assertIs(window._stream_info_dialogs[tile], dialog)

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRect, Qt, QUrl
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
@@ -66,6 +66,58 @@ def main():
                 assert not editor.isVisible() and editor.result() == QDialog.Rejected
                 editor.deleteLater()
         theme.apply('dark')
+        folder = {'name': 'Custom RGB', 'type': 'normal'}
+        editor = FolderIconDialog(folder)
+        editor.setAttribute(Qt.WA_DontShowOnScreen)
+        editor.show()
+        app.processEvents()
+        windows = {widget for widget in app.topLevelWidgets() if widget.isVisible()}
+        height = editor.height()
+        assert not editor.color_board.isVisible()
+        editor.swatch_palette.buttons['custom'].click()
+        app.processEvents()
+        assert editor.color_board.isVisible() and editor.color_board.window() is editor
+        assert {widget for widget in app.topLevelWidgets() if widget.isVisible()} == windows
+        assert editor.height() > height and editor.save_button.isVisible()
+        for channel in editor.color_board.channels:
+            entry = channel.lineEdit()
+            assert entry.contentsRect().width() >= entry.fontMetrics().horizontalAdvance('255')
+        field = editor.color_board.hex_edit
+        editor.color_board.channels[0].setValue(65)
+        assert field.text().startswith('#41') and editor.selection['color'].startswith('#41')
+        field.setText('#12')
+        assert not editor.save_button.isEnabled()
+        editor.accept()
+        assert editor.isVisible() and editor.result_icon is None
+        field.setText('#D749B6')
+        assert editor.selection['color'] == '#d749b6'
+        assert editor.result_icon is None and 'icon' not in folder
+        editor.swatch_palette.buttons['custom'].click()
+        assert editor.color_scroll.isHidden() and editor.save_button.isEnabled()
+        editor.swatch_palette.buttons['custom'].click()
+        assert field.text() == '#D749B6'
+        editor.accept()
+        assert editor.result_icon == {'type': 'builtin', 'name': 'folder', 'color': '#d749b6'}
+        assert normalize_icon(dict(editor.result_icon, color='#D749B6')) == editor.result_icon
+        assert normalize_icon(dict(editor.result_icon, color='#rgb')) is None
+        assert not folder_icon({'type': 'normal', 'icon': editor.result_icon}, sidebar).isNull()
+        editor.deleteLater()
+        saved = dict(folder, icon={'type': 'builtin', 'name': 'folder', 'color': '#d749b6'})
+        editor = FolderIconDialog(saved)
+        editor.setAttribute(Qt.WA_DontShowOnScreen)
+        editor.show()
+        with patch.object(editor, 'screen') as small_screen:
+            small_screen.return_value.availableGeometry.return_value = QRect(0, 0, 840, 660)
+            editor.swatch_palette.buttons['custom'].click()
+        app.processEvents()
+        assert editor.height() <= 660 and editor.save_button.isVisible()
+        assert editor.color_scroll.verticalScrollBar().maximum() > 0
+        editor.color_board.hex_edit.setText('#123456')
+        editor.reject()
+        assert editor.result_icon['color'] == saved['icon']['color'] == '#d749b6'
+        editor.swatch_palette.buttons['blue'].click()
+        assert editor.color_scroll.isHidden() and editor.selection['color'] == 'blue'
+        editor.deleteLater()
         changes = []
         sidebar.foldersChanged.connect(lambda: changes.append(True))
         for fid in (normal, smart, '__unclassified__'):

@@ -23,20 +23,34 @@ def releases(repository, client, cache=None):
     from . import online as api
     if repository not in (api.APP_REPOSITORY, api.PLUGIN_REPOSITORY):
         raise ValueError('不支持的更新仓库')
-    with client.get(f'https://api.github.com/repos/{repository}/releases',
-                    params={'per_page': 30}, timeout=(5, 15),
-                    headers=api._conditional_headers(cache, 'releases')) as response:
-        if response.status_code == 304 and cache is not None and 'releases' in cache:
-            cache['unchanged'] = True
-            return cache['releases']['data']
-        if response.status_code in (403, 429) and getattr(response, 'headers', {}).get('X-RateLimit-Remaining') == '0':
-            raise requests.HTTPError('GitHub 查询额度暂时用尽，请稍后重试或打开发布页面')
-        response.raise_for_status()
-        data = response.json()
-    if not isinstance(data, list):
-        raise ValueError('仓库版本列表格式无效')
-    data = [release for release in data if not release.get('draft') and not release.get('prerelease')]
-    api._remember_response(cache, 'releases', response, data)
+    data, page, first_response = [], 1, None
+    conditional = api._conditional_headers(cache, 'releases')
+    if (cache or {}).get('releases', {}).get('paginated'):
+        conditional = {}
+    while True:
+        params = {'per_page': 30}
+        if page > 1:
+            params['page'] = page
+        with client.get(f'https://api.github.com/repos/{repository}/releases',
+                        params=params, timeout=(5, 15), headers=conditional if page == 1 else {}) as response:
+            if response.status_code == 304 and cache is not None and 'releases' in cache:
+                cache['unchanged'] = True
+                return cache['releases']['data']
+            if response.status_code in (403, 429) and getattr(response, 'headers', {}).get('X-RateLimit-Remaining') == '0':
+                raise requests.HTTPError('GitHub 查询额度暂时用尽，请稍后重试或打开发布页面')
+            response.raise_for_status()
+            batch = response.json()
+        if not isinstance(batch, list):
+            raise ValueError('仓库版本列表格式无效')
+        if first_response is None:
+            first_response = response
+        data.extend(release for release in batch if not release.get('draft') and not release.get('prerelease'))
+        if repository != api.PLUGIN_REPOSITORY or len(batch) < 30:
+            break
+        page += 1
+    api._remember_response(cache, 'releases', first_response, data)
+    if cache is not None:
+        cache['releases']['paginated'] = page > 1
     return data
 
 
@@ -95,9 +109,10 @@ def manifest_offer(entry, repository):
         raise ValueError('在线目录必须指向对应的 ZIP 安装包')
     info = api.asset_info({'browser_download_url': entry['url'], 'name': entry['asset_name'],
                        'digest': 'sha256:' + entry['sha256'], 'size': entry['size']}, repository)
+    display_name = entry.get('name', '')
     entry.update(info)
     if repository == api.PLUGIN_REPOSITORY:
-        entry['name'] = api.KNOWN_PLUGINS.get(entry.get('id'), (entry['name'], ''))[0]
+        entry['name'] = display_name
     else:
         tag = entry.get('release_tag', 'v' + entry['version'].removeprefix('v'))
         base, tag_revision = app_tag(tag)

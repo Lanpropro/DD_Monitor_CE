@@ -6,15 +6,34 @@ import tempfile
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
-from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget
 from . import config, online, update_install, version
-from .update_version import installed_revision, release_label
+from .update_version import release_label, running_revision
 from .online_tasks import OnlinePage
+from .settings_layout import SettingsSection
+from .ui import ActionButton, HintLabel, ToggleSwitch, page_header
+from .update_progress_ui import UpdateProgress
+
+
+class UpdateNotesBrowser(QTextBrowser):
+    def wheelEvent(self, event):
+        super().wheelEvent(event)
+        event.accept()
+
+
+class UpdateActionProgress(UpdateProgress):
+    """Size the action row for its visible control, not the hidden progress track."""
+    def sizeHint(self):
+        return self.stack.currentWidget().sizeHint()
+
+    def minimumSizeHint(self):
+        return self.stack.currentWidget().minimumSizeHint()
 
 
 class AppUpdatePage(OnlinePage):
     releaseChecked = Signal(object)
     saveRequested = Signal()
+    transferChanged = Signal(object)
 
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -22,8 +41,11 @@ class AppUpdatePage(OnlinePage):
         self._checked = False
         self.plan_path = ''
         self.install_requested = False
+        self.download_state = {}
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(14)
+        root.addLayout(page_header('软件更新', '检查正式版本，查看更新内容并管理本地数据。'))
         self.scroll = QScrollArea(self)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidgetResizable(True)
@@ -32,46 +54,59 @@ class AppUpdatePage(OnlinePage):
         self.scroll.setWidget(content)
         root.addWidget(self.scroll)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, 0, 0)
-        title = QLabel('软件更新')
-        title.setObjectName('SettingsTitle')
-        layout.addWidget(title)
-        layout.addWidget(QLabel('当前版本：' + version.VERSION))
-        self.check = QPushButton('检查更新')
-        self.check.setObjectName('IconButton')
+        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setSpacing(16)
+        self.version_section = SettingsSection('版本与更新')
+        layout.addWidget(self.version_section)
+        grid = self.version_section.grid
+        self.current_version = QLabel('当前版本：' + version.VERSION)
+        grid.addWidget(self.current_version, 0, 0, 1, 2)
+        self.check = ActionButton('检查更新')
         self.check.clicked.connect(self.check_update)
-        self.auto = QCheckBox('自动更新（启动时检查并提醒）')
+        self.auto = ToggleSwitch('启动时检查更新')
         self.auto.setChecked(bool((settings or {}).get('auto_update', False)))
         self.auto.setToolTip('开启后，启动软件时检查新版；点击悬浮提示进入此页，自行下载并安装。')
-        layout.addWidget(self.auto)
-        self.action = QPushButton('下载更新')
+        auto_row = QHBoxLayout()
+        auto_label = QLabel('启动时检查更新')
+        auto_label.setBuddy(self.auto)
+        auto_label.setWordWrap(True)
+        auto_row.addWidget(auto_label, 1)
+        auto_row.addWidget(self.auto)
+        grid.addLayout(auto_row, 1, 0, 1, 2)
+        grid.addWidget(HintLabel('发现新版时提醒，由你决定何时下载和安装。'), 2, 0, 1, 2)
+        self.action = ActionButton('下载更新')
         self.action.setObjectName('PrimaryButton')
         self.action.setProperty('updateAction', True)
         self.action.setEnabled(False)
         self.action.clicked.connect(self.download_update)
         actions = QHBoxLayout()
+        self.update_actions = actions
+        self.download_progress = UpdateActionProgress(self, button=self.action, alignment=Qt.AlignLeft)
+        actions.addWidget(self.download_progress)
         actions.addWidget(self.check)
-        actions.addWidget(self.action)
         actions.addStretch(1)
-        layout.addLayout(actions)
-        layout.addWidget(self.status)
-        self.notes_title = QLabel('当前版本 ' + version.VERSION + ' 更新说明')
-        layout.addWidget(self.notes_title)
-        self.notes = QTextBrowser()
-        self.notes.setMinimumHeight(160)
+        grid.addLayout(actions, 3, 0, 1, 2)
+        grid.addWidget(self.status, 4, 0, 1, 2)
+        self.notes_section = SettingsSection('当前版本 ' + version.VERSION + ' 更新说明')
+        layout.addWidget(self.notes_section)
+        self.notes_title = self.notes_section.layout().itemAt(0).widget()
+        self.notes_title.setWordWrap(True)
+        self.notes = UpdateNotesBrowser()
+        self.notes.setProperty('settingsWheelLocal', True)
+        self.notes.setFixedHeight(240)
+        self.notes.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.notes.setObjectName('UpdateNotes')
         self.notes.setOpenExternalLinks(True)
         self.show_current_notes()
-        layout.addWidget(self.notes, 1)
-        self.release_button = QPushButton('打开发布页面')
-        self.release_button.setObjectName('IconButton')
+        self.notes_section.grid.addWidget(self.notes, 0, 0, 1, 2)
+        self.release_button = ActionButton('打开发布页面')
         self.release_button.clicked.connect(lambda: QDesktopServices.openUrl(
             QUrl(f'https://github.com/{online.APP_REPOSITORY}/releases')))
-        layout.addWidget(self.release_button, 0, Qt.AlignLeft)
+        self.notes_section.grid.addWidget(self.release_button, 1, 0, 1, 2, Qt.AlignLeft)
         from .data_settings import DataSettingsPage
         self.data_page = DataSettingsPage()
-        layout.addSpacing(16)
         layout.addWidget(self.data_page)
+        layout.addStretch(1)
         self.status.setText('点击“检查更新”查询可下载的新版。' if getattr(sys, 'frozen', False) else
                             '源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
         message = update_install.result_message(config.REPO, config.data_root(), version.VERSION)
@@ -135,7 +170,7 @@ class AppUpdatePage(OnlinePage):
         self.status.setText('正在检查正式版本…')
         def check(cancelled, progress):
             with online.session() as client:
-                offer = online.app_release(client, version.VERSION, installed_revision(config.REPO, version.VERSION))
+                offer = online.app_release(client, version.VERSION, running_revision(config.REPO))
                 notes = ''
                 if offer is None:
                     try:
@@ -166,7 +201,7 @@ class AppUpdatePage(OnlinePage):
             self.status.setText('发现新版 ' + release_label(offer) + '；源码版请从仓库更新，EXE 版可自动安装。')
 
     def download_update(self):
-        if not getattr(sys, 'frozen', False):
+        if self.jobs or self.stopping or not getattr(sys, 'frozen', False):
             return
         if self.plan_path:
             self.install_requested = True
@@ -175,6 +210,8 @@ class AppUpdatePage(OnlinePage):
         if not self.offer:
             return
         offer = dict(self.offer)
+        self._transfer_progress(dict(received=0, total=offer.get('size', 0), speed=0,
+                                     percent=0, phase='downloading'))
         self.status.setText('正在下载新版软件…')
         def prepare(cancelled, progress):
             with tempfile.TemporaryDirectory(prefix='ddm-app-download-') as temporary, online.session() as client:
@@ -183,9 +220,28 @@ class AppUpdatePage(OnlinePage):
                                               data_root=config.data_root(), expected_revision=offer.get('revision', 0))
         self.start(prepare, self._prepared)
 
+    def _transfer_progress(self, state):
+        self.download_state = dict(state)
+        self.download_progress.set_state(state)
+        expanded = state.get('phase') in ('downloading', 'verifying', 'failed')
+        self.update_actions.setStretch(0, 1 if expanded else 0)
+        self.update_actions.setStretch(2, 0 if expanded else 1)
+        self.download_progress.updateGeometry()
+        self.transferChanged.emit(self.download_state)
+
+    def _progress(self, percent):
+        if not self.stopping:
+            self.status.setText('正在校验并准备更新…' if percent >= 100 else '正在下载更新包…')
+
+    def _failed(self, payload):
+        super()._failed(payload)
+        if self.download_state:
+            self._transfer_progress(dict(self.download_state, phase='failed', error=payload[1]))
+
     def _prepared(self, plan_path):
-        self.plan_path = plan_path
-        self.action.setText('重启并更新')
         plan = json.loads(Path(plan_path).read_text(encoding='utf-8'))
+        self.plan_path = plan_path
+        self._transfer_progress(dict(self.download_state, phase='ready', percent=100))
+        self.action.setText('重启并更新')
         permission = ' 更新程序文件时将请求管理员授权；取消授权会保留原版本。' if plan.get('elevate') else ''
         self.status.setText('下载和校验完成。点击重启并更新，将先保存设置并收尾录制。' + permission)

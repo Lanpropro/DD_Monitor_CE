@@ -42,15 +42,15 @@ def main() -> None:
         }]}],
     }]}}}}
     with mock.patch.object(bili.requests, "get", return_value=JsonResponse(app_payload)):
-        assert bili._app_play_urls("1001", 250) == (candidates, 250, "app")
+        assert list(bili._app_play_urls("1001", 250)) == [(candidates, 250, "app")]
 
     web_payload = {"code": 0, "data": {"current_qn": 250, "durl": [{
         "url": candidates[0], "backup_url": [candidates[1]],
     }]}}
     with mock.patch.object(bili.requests, "get", return_value=JsonResponse(web_payload)):
-        assert bili._web_play_urls("1001", 250) == (candidates, 250)
+        assert list(bili._web_play_urls("1001", 250)) == [(candidates, 250, "web")]
 
-    with mock.patch.object(bili, "_app_play_urls", return_value=(candidates, 250)), \
+    with mock.patch.object(bili, "_app_play_urls", return_value=[(candidates, 250, "app")]), \
          mock.patch.object(bili, "_web_play_urls", side_effect=AssertionError("不应退回 web")), \
          mock.patch.object(bili, "_fetchable", return_value=True) as fetch:
         first = bili.play_url("1001", 250, source_offset=0)
@@ -59,7 +59,7 @@ def main() -> None:
     assert second[0] == "https://cdn-b/live.flv", "重取流应试另一条 CDN"
     assert fetch.call_count == 2
 
-    with mock.patch.object(bili, "_app_play_urls", return_value=(candidates, 250)), \
+    with mock.patch.object(bili, "_app_play_urls", return_value=[(candidates, 250, "app")]), \
          mock.patch.object(bili, "_web_play_urls", side_effect=AssertionError("不应退回 web")), \
          mock.patch.object(bili, "_fetchable", side_effect=[False, True]) as fetch:
         fallback = bili.play_url("1001", 250)

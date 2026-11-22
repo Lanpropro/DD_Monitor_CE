@@ -17,6 +17,7 @@ class ScaleCurveGraph(QWidget):
         super().__init__(parent)
         self.points = scale_curve_points()
         self.selected = None
+        self.hovered = None
         self._dragging = False
         self.setMinimumSize(220, 220)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
@@ -43,12 +44,16 @@ class ScaleCurveGraph(QWidget):
             return
         self.points = values
         self.selected = None
+        self.hovered = None
         self._dragging = False
         self.update()
 
     def _hit(self, position):
         return next((i for i, point in enumerate(self.points)
                      if (self.point_position(point)-position).manhattanLength() <= 12), None)
+
+    def _readout_index(self):
+        return self.selected if self._dragging or self.hovered is None else self.hovered
 
     def _values_at(self, position):
         rect = self.plot_rect()
@@ -77,6 +82,7 @@ class ScaleCurveGraph(QWidget):
             if index is not None and index not in (0, len(self.points)-1) and self.points[index] != [1, 1]:
                 self.points.pop(index)
                 self.selected = None
+                self.hovered = None
                 self._changed()
             return
         if event.button() != Qt.LeftButton:
@@ -94,6 +100,7 @@ class ScaleCurveGraph(QWidget):
                 else:
                     index = None
         self.selected = index
+        self.hovered = None
         self._dragging = index is not None
         self.update()
 
@@ -101,7 +108,17 @@ class ScaleCurveGraph(QWidget):
         if self._dragging:
             self._move_selected(event.position())
         else:
-            self.setCursor(Qt.PointingHandCursor if self._hit(event.position()) is not None else Qt.CrossCursor)
+            index = self._hit(event.position())
+            self.setCursor(Qt.PointingHandCursor if index is not None else Qt.CrossCursor)
+            if self.hovered != index:
+                self.hovered = index
+                self.update()
+
+    def leaveEvent(self, event):
+        if self.hovered is not None:
+            self.hovered = None
+            self.update()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self._dragging:
@@ -115,6 +132,7 @@ class ScaleCurveGraph(QWidget):
                 if index not in (0, len(self.points)-1) and self.points[index] != [1, 1]:
                     self.points.pop(index)
                     self.selected = None
+                    self.hovered = None
                     self._changed()
                 return
             delta = {Qt.Key_Left: (-2, 0), Qt.Key_Right: (2, 0),
@@ -132,6 +150,18 @@ class ScaleCurveGraph(QWidget):
         if not self.isEnabled():
             painter.setOpacity(.45)
         painter.setClipPath(continuous_path(QRectF(self.rect()), theme.RADIUS_LG))
+        accent = theme.qcolor(theme.ACCENT)
+        guide = theme.qcolor(theme.ACCENT)
+        guide.setAlpha(90)
+        painter.setPen(QPen(guide, 1, Qt.DashLine))
+        painter.drawLine(QPointF(rect.left(), rect.center().y()), QPointF(rect.right(), rect.center().y()))
+        active = self._readout_index()
+        if active is not None:
+            position = self.point_position(self.points[active])
+            guide.setAlpha(135)
+            painter.setPen(QPen(guide, 1, Qt.DashLine))
+            painter.drawLine(QPointF(position.x(), rect.top()), QPointF(position.x(), rect.bottom()))
+            painter.drawLine(QPointF(rect.left(), position.y()), QPointF(rect.right(), position.y()))
         painter.setPen(theme.qcolor(theme.TEXT3))
         label_height = max(20, self.fontMetrics().height() + 2)
         for ratio in (0, 1, 2):
@@ -146,15 +176,17 @@ class ScaleCurveGraph(QWidget):
         path.moveTo(self.point_position(self.points[0]))
         for point in self.points[1:]:
             path.lineTo(self.point_position(point))
-        painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2.5))
+        painter.setPen(QPen(accent, 2.5))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
         for i, point in enumerate(self.points):
-            painter.setBrush(theme.qcolor(theme.ACCENT if i == self.selected else '#ffffff'))
-            painter.setPen(QPen(theme.qcolor(theme.TEXT2 if point == [1, 1] else theme.ACCENT), 2))
-            painter.drawEllipse(self.point_position(point), 5, 5)
-        if self.selected is not None:
-            x, y = self.points[self.selected]
+            fixed = point == [1, 1]
+            painter.setBrush(accent if i == active or fixed else theme.qcolor('#ffffff'))
+            painter.setPen(QPen(theme.qcolor(theme.TEXT1) if fixed else accent, 2))
+            radius = 6 if i == active else 4.5
+            painter.drawEllipse(self.point_position(point), radius, radius)
+        if active is not None:
+            x, y = self.points[active]
             painter.setPen(theme.qcolor(theme.TEXT1))
             painter.drawText(QRectF(rect.left(), 1, rect.width(), label_height), Qt.AlignRight, f'{x*720:.0f} px · {y:.0%}')
 
@@ -198,8 +230,8 @@ class ScaleCurveControl(QWidget):
         self.curveChanged.emit(self.curve())
 
     def _update_example(self):
-        self.example.setText('180 / 360 / 720 px：' + ' / '.join(
-            f'{viewport_scale(height, points=self.graph.points):.0%}' for height in (180, 360, 720)))
+        self.example.setText(' · '.join(
+            f'{height} px {viewport_scale(height, points=self.graph.points):.0%}' for height in (180, 360, 720)))
 
     def _changed(self, points):
         self._update_example()

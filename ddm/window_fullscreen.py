@@ -2,7 +2,6 @@
 import ctypes
 from ctypes import wintypes
 import sys
-import struct
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
@@ -54,57 +53,28 @@ def sync_titlebar(widget) -> None:
 
 def caption_snapshot(widget):
     """Capture only the real native caption, without a desktop screenshot."""
-    from PySide6.QtGui import QImage, QPixmap
+    from PySide6.QtGui import QPixmap
+    from .window_capture import print_window
 
     if (sys.platform != 'win32' or QApplication.platformName() != 'windows'
             or not widget.testAttribute(Qt.WA_WState_Created)):
         return QPixmap()
-    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    user32 = ctypes.windll.user32
     user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
     user32.ClientToScreen.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.POINT))
-    user32.PrintWindow.argtypes = (wintypes.HWND, wintypes.HDC, wintypes.UINT)
-    gdi32.CreateCompatibleDC.argtypes = (wintypes.HDC,)
-    gdi32.CreateCompatibleDC.restype = wintypes.HDC
-    gdi32.CreateDIBSection.argtypes = (wintypes.HDC, wintypes.LPVOID, wintypes.UINT,
-        ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD)
-    gdi32.CreateDIBSection.restype = wintypes.HBITMAP
-    gdi32.SelectObject.argtypes = (wintypes.HDC, wintypes.HANDLE)
-    gdi32.SelectObject.restype = wintypes.HANDLE
-    gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
-    gdi32.DeleteDC.argtypes = (wintypes.HDC,)
     hwnd = int(widget.winId())
     frame, client = wintypes.RECT(), wintypes.POINT()
     if not user32.GetWindowRect(hwnd, ctypes.byref(frame)) or not user32.ClientToScreen(hwnd, ctypes.byref(client)):
         return QPixmap()
     width, height = frame.right-frame.left, client.y-frame.top
-    if height <= 0 or width <= 0:
+    # The destination has caption height only; no video pixels are copied.
+    image = print_window(hwnd, width, height)
+    if image.isNull():
         return QPixmap()  # Borderless/fullscreen windows have no caption.
-    header = struct.pack('<IiiHHIIiiII', 40, width, -height, 1, 32, 0, width*height*4, 0, 0, 0, 0)
-    memory = gdi32.CreateCompatibleDC(None)
-    if not memory:
-        return QPixmap()
-    bits = ctypes.c_void_p()
-    bitmap = gdi32.CreateDIBSection(None, header, 0, ctypes.byref(bits), None, 0)
-    if not bitmap:
-        gdi32.DeleteDC(memory)
-        return QPixmap()
-    previous = gdi32.SelectObject(memory, bitmap)
-    try:
-        # PW_RENDERFULLCONTENT copies DWM's caption, unlike legacy WM_PRINT.
-        # The destination has caption height only; no video pixels are copied.
-        if not user32.PrintWindow(hwnd, memory, 2):
-            return QPixmap()
-        gdi32.GdiFlush()
-        scale = widget.devicePixelRatioF()
-        image = QImage(ctypes.string_at(bits, width*height*4), width, height,
-                       width*4, QImage.Format_RGB32).copy(client.x-frame.left, 0,
-                       round(widget.width()*scale), height)
-        image.setDevicePixelRatio(scale)
-        return QPixmap.fromImage(image)
-    finally:
-        gdi32.SelectObject(memory, previous)
-        gdi32.DeleteObject(bitmap)
-        gdi32.DeleteDC(memory)
+    scale = widget.devicePixelRatioF()
+    image = image.copy(client.x-frame.left, 0, round(widget.width()*scale), height)
+    image.setDevicePixelRatio(scale)
+    return QPixmap.fromImage(image)
 
 
 def enter(widget) -> tuple[int, int, tuple[int, int, int, int], tuple[int | None, int | None]]:

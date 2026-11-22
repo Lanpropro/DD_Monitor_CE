@@ -30,8 +30,9 @@ class SettingsMaterialEditor(SettingsSurface):
         self.background_status.setWordWrap(True)
         parameters.addWidget(self.background_status)
         entries = (
-            ('settings_glass_enabled', '启用毛玻璃效果', '实时模糊设置窗口背后的内容；底色不透明度仅在开启时生效。'),
-            ('settings_segment_motion', '滑动分段指示器', '鼠标切换时滑动选中底片，系统关闭动画时直接切换。'),
+            ('settings_glass_enabled', '启用毛玻璃效果', '设置窗口、公告详情和直播流信息使用系统模糊。'
+             '通知菜单和播放弹窗（含礼物与表情）也随底色不透明度调整。'),
+            ('settings_segment_motion', '滑动分段指示器', '用鼠标点选或拖动选中底片，系统关闭动画时直接切换。'),
             ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
         )
         for key, label, hint in entries:
@@ -72,8 +73,11 @@ class SettingsMaterialEditor(SettingsSurface):
         row.addWidget(QLabel('设置卡片布局'), 1)
         self.card_layout = SelectControl()
         self.card_layout.setFixedWidth(180)
-        self.card_layout.addItem('自适应双列', 'auto')
-        self.card_layout.addItem('纵向单列', 'vertical')
+        self.card_layout.setAccessibleName('设置卡片布局')
+        self.card_layout.addItem('自动', 'auto')
+        self.card_layout.addItem('单列', 'vertical')
+        self.card_layout.addItem('双列', 'horizontal')
+        self.card_layout.setToolTip('自动模式在竖向设置窗口优先单列；双列在空间不足时仍会切换为单列，避免内容裁切')
         self.card_layout.currentIndexChanged.connect(self._changed)
         row.addWidget(self.card_layout, 0, Qt.AlignRight)
         layout.addLayout(row)
@@ -109,8 +113,8 @@ class SettingsMaterialEditor(SettingsSurface):
             slider.setEnabled(self.controls['settings_glass_enabled'].isChecked())
             label.setEnabled(slider.isEnabled())
         from .settings_backdrop import blur_available
-        self.background_status.setText('显示窗口背后的实时内容；模糊程度由 Windows 控制，仅影响设置窗口。'
-            if blur_available() else '当前平台不支持系统毛玻璃，将使用纯色底板。')
+        self.background_status.setText('系统实时模糊的程度由 Windows 控制。' if blur_available()
+            else '当前平台不支持系统模糊。设置窗口、公告详情和直播流信息使用纯色底板。')
 
     def reset(self):
         self.set_values(DEFAULTS)

@@ -19,8 +19,10 @@ def content_runs(event: dict) -> list[tuple[str, str]]:
     return [(part, emotes.get(part, "")) for part in re.split(pattern, text) if part]
 
 
-def content_html(runs, images, height: int) -> str:
+def content_html(runs, images, height: int, *, fit_line: bool = False) -> str:
     parts = []
+    # Qt keeps the intrinsic aspect ratio when only the width is constrained.
+    sizing = 'style="vertical-align:middle;max-width:100%"' if fit_line else f'height="{height}"'
     for text, url in runs:
         image = images.get(url) if url else None
         if image is None or image.isNull():
@@ -28,5 +30,5 @@ def content_html(runs, images, height: int) -> str:
         else:
             width = max(1, round(image.width() * height / max(1, image.height())))
             parts.append(f'<img src="{html.escape(url, quote=True)}" '
-                         f'width="{width}" height="{height}">')
+                         f'width="{width}" {sizing}>')
     return "".join(parts)

@@ -56,10 +56,15 @@ class Task(QObject):
 
 class Notice(QObject):
     activated = Signal()
+    updateRequested = Signal(str)
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.title, self.show_offer, self.track_history = Mock(), Mock(), Mock()
+        self.show_offer, self.track_history = Mock(), Mock()
+        self._update_rows = {}
+
+    def set_updates(self, entries):
+        self._update_rows = {entry['key']: entry for entry in entries}
 
 
 class AppUpdatesTests(unittest.TestCase):
@@ -95,7 +100,7 @@ class AppUpdatesTests(unittest.TestCase):
         host._check_startup_update()
         self.assertIs(host._startup_update_task, task)
         with patch('ddm.online.session') as session, \
-                patch('ddm.app_updates.installed_revision', return_value=2), \
+                patch('ddm.app_updates.running_revision', return_value=2), \
                 patch('ddm.online.app_release', return_value={'version': '9.0'}) as release:
             client = session.return_value.__enter__.return_value
             self.assertEqual(task.operation(Mock(), Mock()), {'version': '9.0'})
@@ -188,7 +193,7 @@ class AppUpdatesTests(unittest.TestCase):
         self.assertIs(host._unread_app_update(), offer)
         host.settings['seen_update_versions'] = {'app': update_identity(offer)}
         self.assertIsNone(host._unread_app_update())
-        host._plugin_update_offers = [{'id': 'fixture', 'version': '2'}]
+        host._plugin_update_offers = [{'id': 'fixture', 'name': 'Fixture', 'version': '2'}]
         self.assertEqual(len(host._unread_plugin_updates()), 1)
         versions = {'app': update_identity(offer), 'fixture': '2'}
         with patch('ddm.app_updates.config_module.save') as save:
@@ -202,7 +207,7 @@ class AppUpdatesTests(unittest.TestCase):
     def test_notice_reuse_and_actions_resolve_current_unread_target(self):
         host = self.host
         host._available_update = {'version': '9.0', 'revision': 2}
-        host._plugin_update_offers = [{'id': 'fixture', 'version': '2'}]
+        host._plugin_update_offers = [{'id': 'fixture', 'name': 'Fixture', 'version': '2'}]
         with patch.object(online_ui, 'UpdateNotice', Notice):
             host._show_update_notice()
             notice = host._update_notice
@@ -210,16 +215,34 @@ class AppUpdatesTests(unittest.TestCase):
         self.assertIs(host._update_notice, notice)
         self.assertIs(notice.parent(), host)
         self.assertEqual(notice.show_offer.call_count, 2)
-        self.assertIn('1 个插件可更新', notice.title.setText.call_args.args[0])
+        self.assertEqual([entry['title'] for entry in notice._update_rows.values()],
+                         ['软件 v9.0 热修复', 'Fixture v2'])
         center = host.sidebar.notification_button.center
+        self.assertIn('1 个插件可更新', center.add.call_args.args[0])
         key = center.add.call_args.kwargs['key']
         self.assertEqual(key, ('update', update_identity(host._available_update), (('fixture', '2'),)))
         notice.activated.emit()
         host.open_settings.assert_called_with('updates')
         host.settings['seen_update_versions'] = {'app': update_identity(host._available_update)}
-        center.add.call_args.kwargs['callback']()
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+        self.assertIs(host._update_notice, notice)
+        self.assertEqual(list(notice._update_rows), ['fixture'])
+        center.add.call_args.kwargs['secondary_callback']()
         host.open_settings.assert_called_with('plugins')
         notice.track_history.assert_called_with((center, center.add.return_value))
+
+    def test_update_notice_is_persistent_by_default_and_can_be_timed(self):
+        from ddm.config import DEFAULT_SETTINGS
+        self.assertTrue(DEFAULT_SETTINGS['notice_persist_updates'])
+        host = self.host
+        host._available_update = {'version': '9.0'}
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=True)
+            host.settings['notice_persist_updates'] = False
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=False)
 
     def test_failure_is_silent_during_close(self):
         output = io.StringIO()

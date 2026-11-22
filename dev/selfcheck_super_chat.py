@@ -537,6 +537,68 @@ def check_settings_persistence():
             restored.close()
 
 
+def check_small_viewport_readability(app):
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+    from ddm.super_chat_layout import MIN_SC_SCALE, sc_body_padding, sc_message_document
+    overlay = VideoDanmaku()
+    event = super_chat.normalize(chat('readable', message='可读的长留言内容与最后一行 END。' * 40))
+    try:
+        overlay.resize(320, 180)
+        overlay.set_enabled(True)
+        overlay.set_active(True)
+        overlay.show()
+        with patch('ddm.super_chat.motion.enabled', return_value=False):
+            overlay.set_super_chats([event])
+            app.processEvents()
+        sc = overlay.super_chat_overlay
+        assert sc.presentation.is_collapsed(event), 'Small tiles start with a compact header'
+        compact = sc.card_rects()[0]
+        sc._activate(compact.center())
+        expanded = sc.card_rects()[0]
+        assert not sc.presentation.is_collapsed(event)
+        assert expanded.height() > compact.height(), 'Expansion grows downward instead of shrinking type'
+        assert expanded.top() == compact.top(), 'Expanding should preserve the card top'
+        assert sc._paint_scale >= MIN_SC_SCALE
+        assert sc_message_document(event, expanded.width(), sc._paint_scale).defaultFont().pixelSize() >= 12
+        assert overlay.rect().contains(expanded.toAlignedRect()), 'Expanded content remains inside the video'
+        baseline = sc.render_image()
+        position = expanded.center() - sc._content_origin
+        wheel = QWheelEvent(QPointF(position), QPointF(sc.mapToGlobal(position.toPoint())),
+                            QPoint(), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        QApplication.sendEvent(sc, wheel)
+        assert wheel.isAccepted() and sc._body_offsets['readable'] > 0
+        assert sc.render_image() != baseline, 'Scrolling must reveal a different part of the complete message'
+        with patch('ddm.super_chat.motion.enabled', return_value=False):
+            overlay.set_super_chats([event])
+        assert not sc.presentation.is_collapsed(event), 'Refreshing the same SC must preserve explicit expansion'
+        others = [super_chat.normalize(chat(str(number), price=2000, message=event['message']))
+                  for number in (2, 3)]
+        overlay.set_super_chats([event, *others])
+        target = sc.chats[0]
+        sc._activate(sc.card_rects()[0].center())
+        expanded_ids = [item['id'] for item in sc.chats if not sc.presentation.is_collapsed(item)]
+        assert expanded_ids == [target['id']], 'Small tiles keep the selected card readable by compacting the others'
+        rect = sc.card_rects()[0]
+        assert rect.height() - round(56 * sc._paint_scale) - 2 * sc_body_padding(sc._paint_scale) >= 12
+        overlay.resize(200, 120)
+        app.processEvents()
+        sc.presentation.expand(target['id'])
+        first = sc.card_rects()[0]
+        position = first.topLeft() + QPointF(20, 5) - sc._content_origin
+        wheel = QWheelEvent(position, QPointF(sc.mapToGlobal(position.toPoint())),
+                            QPoint(), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        QApplication.sendEvent(sc, wheel)
+        assert sc._stack_offset > 0, 'Overflowing compact titles remain reachable by scrolling their headers'
+        overlay.resize(960, 540)
+        app.processEvents()
+        assert not sc.presentation.is_collapsed(event)
+        overlay.set_super_chats([])
+        assert not sc._body_offsets, 'Room/message changes release scroll state'
+    finally:
+        overlay.close()
+
+
 def check_theme_stability(app):
     theme.apply('dark')
     card = SuperChatCard()
@@ -573,6 +635,13 @@ def main():
     if sys.argv[1:] == ['--theme-only']:
         check_theme_stability(app)
         return
+    if sys.argv[1:] == ['--readability-only']:
+        check_small_viewport_readability(app)
+        check_adaptive_content(app)
+        check_widgets(app)
+        print('PASS: readable small SC, downward expansion, constrained body scrolling and existing panel/video widgets')
+        return
+    check_small_viewport_readability(app)
     check_theme_stability(app)
     check_official_palette(app)
     check_adaptive_content(app)

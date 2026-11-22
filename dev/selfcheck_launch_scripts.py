@@ -88,6 +88,13 @@ def main():
         assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=drag'
         assert not (root / 'trace-enabled.txt').exists(), 'Explicit session must bypass the ordinary trace launcher'
         (root / 'started.txt').unlink()
+        result = invoke(root / 'run.cmd', env, ('--diagnose-session', 'dock-hover'))
+        assert result.returncode == 0, result.stderr
+        deadline = time.monotonic() + 10
+        while not (root / 'started.txt').exists() and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=dock-hover'
+        (root / 'started.txt').unlink()
         (root / 'quoted-session.cmd').write_bytes(b'@echo off\r\ncall run.cmd "--diagnose-session=drag"\r\n')
         result = invoke(root / 'quoted-session.cmd', env)
         assert result.returncode == 0

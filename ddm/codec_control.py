@@ -17,7 +17,8 @@ class CodecControl:
         if tile is None:
             return
         label = config_module.DECODE_LABELS.get(mode, mode)
-        tile.set_status(f"解码异常，正在尝试{label}…")
+        detail = host.playback_recovery.record_failure(tile, decoder_error=True)
+        tile.set_status(f"解码异常，正在尝试{label}…", detail=detail)
         print(f"[播放] {tile.room.get('uname')} 解码异常，切换至{label}",
               file=sys.stderr, flush=True)
 
@@ -153,15 +154,19 @@ class CodecControl:
         if existing is not None:
             existing.set_presentation_owner(tile.window())
             existing.refresh()
+            if not existing.isVisible():
+                existing.position_for_tile(tile)
             existing.show()
             existing.raise_()
             existing.activateWindow()
             return
         from .stream_info import StreamInfoDialog
-        dialog = StreamInfoDialog(lambda: host._stream_info_snapshot(tile), host)
+        dialog = StreamInfoDialog(lambda: host._stream_info_snapshot(tile), host,
+                                  settings=getattr(host, 'settings', {}))
         dialog.finished.connect(lambda _result: host._stream_info_dialogs.pop(tile, None))
         host._stream_info_dialogs[tile] = dialog
         dialog.set_presentation_owner(tile.window())
+        dialog.position_for_tile(tile)
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()

@@ -18,6 +18,14 @@ class DisclosureButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
         theme.signals().changed.connect(self.update)
 
+    def sizeHint(self):
+        hint = super().sizeHint()
+        hint.setWidth(max(hint.width(), self.fontMetrics().horizontalAdvance(self.text()) + 50))
+        return hint
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
     def enterEvent(self, event):
         self.update()
         super().enterEvent(event)

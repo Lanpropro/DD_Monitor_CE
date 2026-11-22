@@ -1,4 +1,4 @@
-"""自查：关注列表拖动排序（含置顶约束）、布局菜单的两个子菜单切换。不联网。"""
+"""自查：关注列表拖动排序（含置顶约束）、布局菜单的分组切换。不联网。"""
 import os
 import sys
 import time
@@ -192,15 +192,14 @@ def main() -> None:
     assert order(sidebar) == before, "拖到列表外面不应该改顺序"
     assert all(entry.isVisible() for entry in sidebar.items()), "卡片要放回去"
 
-    print("\n=== 9. 布局菜单：三栏都列出来（选另一个方向的会自动把窗口也改过去）===")
+    print("\n=== 9. 布局菜单：检查分组切换和竖屏预设 ===")
     picker = LayoutPicker("dm_main3")
     picker.move(-8000, -8000)
     picker.show()
     settle(app, 0.5)
     tabs = list(picker._tabs)
     print(f"  子菜单: {tabs} 当前={picker.group()}")
-    assert tabs == ["普通布局", "弹幕布局", "竖屏布局"], \
-        "三栏都要列：竖屏预设选中时本体会把窗口也改成竖屏（不会压扁）"
+    assert tabs == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局"], tabs
     assert picker.group() == "弹幕布局", "当前布局在弹幕组里，默认应该停在这一栏"
     compact_size = picker.size()
     visible = [card.text() for card in picker._cards["弹幕布局"] if card.isVisible()]
@@ -217,9 +216,9 @@ def main() -> None:
     assert not any(card.isVisible() for card in picker._cards["弹幕布局"])
     assert picker._tabs["普通布局"].isChecked()
     assert picker.size() == compact_size, "切换到普通布局时弹层不能突然向屏幕外增长"
-    # 用户报的：不同布局的卡片大小不一样、上下没对齐 —— 卡片尺寸必须统一
+    # 普通布局和弹幕布局沿用统一卡片尺寸，竖屏布局使用放大的竖向卡片。
     sizes = {(card.width(), card.height())
-             for group in picker._cards.values() for card in group}
+             for group in ("普通布局", "弹幕布局") for card in picker._cards[group]}
     row_tops = sorted({card.y() for card in picker._cards["普通布局"]})
     row_heights = {card.y(): card.height() for card in picker._cards["普通布局"]}
     print(f"  卡片尺寸: {sizes} 各行 y={row_tops} 行高={sorted(set(row_heights.values()))}")
@@ -235,7 +234,7 @@ def main() -> None:
     # 用户要求：主画面 + 2 小那里换行 + 小标题，把平分布局和大带小分开
     section_rows = [heading.text() for heading in picker._sections["普通布局"]]
     print(f"  普通布局里的小标题: {section_rows}")
-    assert section_rows == ["大带小"], f"应该有且只有「大带小」这一段：{section_rows}"
+    assert section_rows == ["均分", "大带小"], f"普通布局应分为「均分」和「大带小」：{section_rows}"
     big_small = [card.text() for card in picker._cards["普通布局"]
                  if card.property("layoutId") in ("main2", "left2_right1")]
     print(f"  镜像对: {big_small}")

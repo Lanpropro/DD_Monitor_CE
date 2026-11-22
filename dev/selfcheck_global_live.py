@@ -22,7 +22,7 @@ from streamlink.stream.hls import HLSStream  # noqa: E402
 from streamlink.stream.hls.m3u8 import parse_m3u8  # noqa: E402
 from ddm import bili, config, global_danmaku as dm, images, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
-from ddm.dialogs import AddRoomDialog  # noqa: E402
+from ddm.room_add_panel import RoomAddPanel  # noqa: E402
 from ddm.widgets import ROOM_MIME  # noqa: E402
 from ddm.auto_quality import AUTO_QUALITY  # noqa: E402
 from selfcheck_live_danmaku import FakeClient  # noqa: E402
@@ -64,6 +64,7 @@ def check_metadata(manager):
             ("https://www.youtube.com/@测试频道/streams", "@测试频道")):
         assert youtube.normalize(link) == "youtube:" + raw
     invalid = {
+        "chzzk": ["https://chzzk.naver.com/video/123", "chzzk:invalid"],
         "twitch": ["https://twitch.tv/videos/123", "https://player.twitch.tv/?channel=a&channel=b",
                    "https://twitch.tv/directory", "twitch:../test"],
         "youtube": ["https://youtube.com/watch?v=" + VIDEO + "&v=" + VIDEO,
@@ -79,7 +80,9 @@ def check_metadata(manager):
             else:
                 raise AssertionError(link)
         assert not platform.matches("123")
-        icon = QIcon(str(REPO / "assets/platforms" / (kind + ".ico")))
+        icon_path = REPO / "assets/platforms" / (kind + ".ico")
+        assert icon_path.is_file(), f"Missing bundled platform icon: {kind}"
+        icon = QIcon(str(icon_path))
         assert not icon.pixmap(20, 20).isNull()
     assert youtube.room_url(ROOMS[1]).endswith("/live")
     with patch.object(module.requests, "get", side_effect=[module.requests.ConnectionError(), response()]) as get:
@@ -132,14 +135,14 @@ def check_metadata(manager):
             else:
                 raise AssertionError("Invalid metadata/VOD must not become an offline live room")
     assert all(record["viewers"] == "" for record in records.values())
-    session = module.Streamlink()
-    parser = module.LiveYouTube(session, youtube.room_url(ROOMS[1]))
-    with patch.object(module.YouTube, "_get_res", return_value=response(text=youtube_page())):
+    session = sys.modules[twitch.play_url.__func__.__module__].Streamlink()
+    parser = youtube.parser(session, youtube.room_url(ROOMS[1]))
+    with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=youtube_page())):
         assert parser._get_res(parser.url).text
-    with patch.object(module.YouTube, "_get_res", return_value=response(text=fallback)):
+    with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=fallback)):
         assert parser._get_res(parser.url).text
     for page in (youtube_page(False), youtube_page(False, False), "captcha"):
-        with patch.object(module.YouTube, "_get_res", return_value=response(text=page)):
+        with patch.object(youtube.parser.__mro__[1], "_get_res", return_value=response(text=page)):
             try:
                 parser._get_res(parser.url)
             except ValueError:
@@ -154,7 +157,7 @@ def check_metadata(manager):
 
 
 def check_quality(manager):
-    module = sys.modules[type(manager.platforms["twitch"]).__module__]
+    module = sys.modules[manager.platforms["twitch"].play_url.__func__.__module__]
     session = module.Streamlink()
     playlist = """#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=4000000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1080x1920,FRAME-RATE=60
@@ -171,7 +174,8 @@ https://cdn.test/audio.m3u8
                for key in ("high", "low", "hevc", "audio")}
     streams.update(best=streams["high"], worst=streams["low"])
     for kind, platform in manager.platforms.items():
-        rid = ROOMS[0] if kind == "twitch" else ROOMS[1]
+        module = sys.modules[platform.play_url.__func__.__module__]
+        rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         with patch.object(module, "Streamlink", return_value=session), \
                 patch.object(platform, "room_info", return_value=plugins.RoomInfo(rid, live=True)), \
                 patch.object(platform.parser, "streams", return_value=streams):
@@ -190,7 +194,8 @@ https://cdn.test/audio.m3u8
 
     # 高延迟代理可连续两次断开 TLS；第三次成功不能变成整格取流失败。
     for kind, platform in manager.platforms.items():
-        rid = ROOMS[0] if kind == "twitch" else ROOMS[1]
+        module = sys.modules[platform.play_url.__func__.__module__]
+        rid = "chzzk:" + "a" * 32 if kind == "chzzk" else ROOMS[0] if kind == "twitch" else ROOMS[1]
         original_streamlink = module.Streamlink
         sessions = []
         def create(options):
@@ -333,11 +338,11 @@ def check_window(app, records):
                             patch.object(platform, "play_url_for_codec", return_value=(
                                 "https://cdn.test/live.m3u8", 10000, kind, {}, "avc")), \
                             patch.object(platform, "danmaku_client", return_value=client):
-                        def accept(dialog):
-                            dialog.edit.setText(platform.room_url(rid))
-                            dialog.accept()
-                            return dialog.result()
-                        with patch.object(AddRoomDialog, "exec", accept):
+                        def accept(dialog, open_editor=RoomAddPanel.open):
+                            open_editor(dialog)
+                            dialog.entry.setPlainText(platform.room_url(rid))
+                            dialog.submit_button.click()
+                        with patch.object(RoomAddPanel, "open", accept):
                             window.open_add_room()
                         settle(app, lambda: any(profile == kind for _, profile in played))
                         item = next(item for item in window.sidebar.items() if item.room["room_id"] == rid)
@@ -376,13 +381,14 @@ def check_window(app, records):
                 with patch("ddm.app.StatsPoller") as stats:
                     MainWindow.refresh_stats(window)
                     stats.assert_not_called()
+            active_plugins = list(window.plugins.enabled)
             window.plugins.enabled = set()
             window._sync_platform_rooms()
             hidden = window.current_state()
             assert not window.sidebar.rooms() and all(not tile.room.get("room_id") for tile in window.wall.tiles)
             assert window._danmaku is None and clients[-1].stopped
             assert set(hidden["suspended_platform_rooms"]) == {"twitch", "youtube"}
-            hidden["plugins_enabled"] = ["global_live"]
+            hidden["plugins_enabled"] = active_plugins
             rooms, wall = config.build_rooms(hidden)
             with patch("ddm.app.MainWindow.sync_danmaku"):
                 restored = MainWindow(rooms, wall, state=hidden, layout_id="dm_pair")
@@ -405,12 +411,31 @@ def check_window(app, records):
     print("PASS: real Qt add/drop, icon-only badges, portrait, chat/block words, no audience/browser, suspend/restore")
 
 
+def check_platform_icons():
+    from ddm.widgets import NavItem
+    for kind in ("twitch", "youtube", "chzzk"):
+        path = REPO / "assets/platforms" / (kind + ".ico")
+        assert path.is_file(), f"Missing bundled platform icon: {kind}"
+        expected = QIcon(str(path)).pixmap(20, 20)
+        assert not expected.isNull()
+        item = NavItem({"room_id": kind + ":fixture", "platform": kind, "uname": "fixture"}, 0)
+        try:
+            assert item.platform_badge.icon.pixmap(20, 20).toImage() == expected.toImage(), kind
+            assert item.platform_badge.toolTip() == {"twitch": "Twitch", "youtube": "YouTube", "chzzk": "CHZZK"}[kind]
+        finally:
+            item.close()
+            item.deleteLater()
+    print("PASS: bundled platform icons reach real sidebar cards without generic fallback")
+
+
 def main():
     app = QApplication([])
+    check_platform_icons()
     manager = plugins.PluginManager(enabled=["global_live"])
     manager.load()
-    assert set(manager.platforms) == {"twitch", "youtube"}
-    assert set(manager._platform_owner.values()) == {"global_live"} and len(manager.plugins) == 1
+    assert set(manager.platforms) == {"twitch", "youtube", "chzzk"}
+    assert set(manager._platform_owner.values()) in ({"global_live"}, {"twitch_live", "youtube_live", "chzzk_live"})
+    assert len(manager.plugins) == len(set(manager._platform_owner.values()))
     records = check_metadata(manager)
     check_quality(manager)
     pixmap = QPixmap(32, 32)
@@ -425,6 +450,9 @@ def main():
                 assert not images._load_one(record[key], directory).isNull()
                 assert get.call_args.kwargs["headers"]["Referer"] == manager.platforms[record["platform"]].origin
     for platform in manager.platforms.values():
+        if platform.kind == "chzzk":
+            assert platform.danmaku_client("chzzk:" + "a" * 32) is None
+            continue
         asyncio.run(check_protocol(platform))
         for mode in ("setup", "reconnect"):
             client = platform.danmaku_client(ROOMS[0] if platform.kind == "twitch" else ROOMS[1])

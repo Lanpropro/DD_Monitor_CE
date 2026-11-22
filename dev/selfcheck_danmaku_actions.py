@@ -11,8 +11,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QImage, QPalette
-from PySide6.QtWidgets import QApplication, QLineEdit
+from PySide6.QtGui import QColor, QImage, QPainter, QPalette, QPixmap, QRegion
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 from ddm import danmaku_actions, plugins, theme
 from ddm.widgets import WallGrid
 from dev.selfcheck_video_danmaku import wait_comment_raster
@@ -400,6 +400,76 @@ class ActionsTests(unittest.TestCase):
             video._set_hover(first)
             video.clear()
             self.assertIsNone(video._hovered)
+
+    def test_same_lane_comment_passes_under_hover_and_survives_raster_results(self):
+        from ddm.video_danmaku import _Comment
+
+        video = self.wall.tiles[0].video_danmaku
+        video.set_native_video(False)
+        video.set_enabled(True)
+        video.set_active(True)
+        red, green = QPixmap(80, 18), QPixmap(80, 18)
+        red.fill(QColor('red'))
+        green.fill(QColor('lime'))
+        held = _Comment(red, 400, 0, 100, 'held', QColor('red'), [])
+        passing = _Comment(green, 510, 0, 100, 'passing', QColor('lime'), [])
+        video.comments = [held, passing]
+        point = QPoint(410, 8)
+        with patch.object(video, '_poll_hover'):
+            video._set_hover(held)
+            video._last_tick = 100
+            with patch('ddm.video_danmaku.perf_counter', return_value=101.3):
+                video._tick()
+            self.assertAlmostEqual(passing.x, 380)
+            self.assertEqual(held.x, 400)
+
+            token = object()
+            color = QColor('red')
+            video._pending_comments[token] = ('incoming', color, [], False, {'text': 'incoming'})
+            key = video._comment_renderer().key('incoming', color, [], False)
+            video._apply_comment_rasters([(token, key, red.toImage())])
+            video._stop_timer()
+            self.assertEqual([comment.text for comment in video.comments], ['held', 'passing', 'incoming'])
+            self.assertIs(video.comment_at(point), held)
+            frame = QImage(video.size(), QImage.Format_ARGB32_Premultiplied)
+            frame.fill(Qt.transparent)
+            painter = QPainter(frame)
+            video.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+            painter.end()
+            self.assertGreater(frame.pixelColor(point).red(), frame.pixelColor(point).green())
+            self.assertGreater(frame.pixelColor(385, 8).green(), 150)
+
+            for passed in (True, False):
+                with self.subTest(passed=passed):
+                    video.comments = [held, passing]
+                    held.x, passing.x = 400, 380 if passed else 420
+                    video._set_hover(held)
+                    video._set_hover(None)
+                    front, rear = (passing, held) if passed else (held, passing)
+                    self.assertGreater(front.motion_speed, rear.motion_speed)
+                    self.assertEqual((held.x, passing.x), (400, 380 if passed else 420))
+                    video._last_tick = 200
+                    with patch('ddm.video_danmaku.perf_counter', return_value=202.5):
+                        video._tick()
+                    self.assertGreaterEqual(rear.x - front.right, video.GAP)
+                    self.assertEqual(front.motion_speed, front.speed)
+            video.clear()
+
+    def test_quick_hover_raises_the_same_item_and_restores_its_layer(self):
+        from types import SimpleNamespace
+        from PySide6.QtQuick import QQuickItem
+        from ddm.video_danmaku_quick import QuickDanmakuLayer
+
+        item = QQuickItem()
+        item.setY(11)
+        record = {'item': item}
+        layer = SimpleNamespace(items={1: record}, move=lambda *_: None)
+        QuickDanmakuLayer.pause_comment(layer, 1, True, 100)
+        self.assertGreater(item.z(), 0)
+        self.assertTrue(record['held'])
+        QuickDanmakuLayer.pause_comment(layer, 1, False, 100)
+        self.assertEqual(item.z(), 0)
+        self.assertFalse(record['held'])
 
     def test_cursor_hit_and_leave_release_comment(self):
         video = self.wall.tiles[0].video_danmaku

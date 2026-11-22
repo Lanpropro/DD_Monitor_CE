@@ -3,14 +3,16 @@ from pathlib import Path
 from uuid import uuid4
 
 from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QImage, QImageReader, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QImage, QImageReader, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QLineEdit,
-    QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QStyle, QStyleOption,
+    QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QStyle, QStyleOption,
     QToolButton, QVBoxLayout, QWidget)
 
 from . import config, theme
 from .follow_folders import ICON_COLORS, ICON_NAMES, normalize_icon
+from .ui import ActionButton
+from .ui.color_dialog import ColorBoard, ColorPalette
 
 NAMES = ('文件夹', '星标', '爱心', '游戏', '音乐', '视频')
 COLORS = dict(zip(ICON_COLORS, ('', '#4D8DFF', '#E95C93', '#2FA678', '#DE8534', '#A579D4')))
@@ -56,7 +58,7 @@ def folder_icon(folder, widget, size=18):
         except (OSError, ValueError):
             pass
     elif spec:
-        color = COLORS[spec['color']] or theme.qcolor(theme.TEXT2).name()
+        color = COLORS.get(spec['color'], spec['color']) or theme.qcolor(theme.TEXT2).name()
         svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
             f'fill="none" stroke="{color}" stroke-width="1.7" stroke-linecap="round" '
             'stroke-linejoin="round">' + PATHS[ICON_NAMES.index(spec['name'])] + '</svg>')
@@ -201,6 +203,7 @@ class FolderIconDialog(QDialog):
             button.setIconSize(QSize(24, 24))
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
             button.clicked.connect(lambda _checked=False, value=name: self.select_builtin(value))
             grid.addWidget(button, index//3, index%3)
             self.choices.append(button)
@@ -210,15 +213,23 @@ class FolderIconDialog(QDialog):
         colors.setContentsMargins(0, 0, 0, 0)
         colors.addWidget(QLabel('图标颜色'))
         colors.addStretch()
-        self.swatches = {}
-        for name, label in zip(ICON_COLORS, ('默认', '蓝色', '粉色', '绿色', '橙色', '紫色')):
-            button = QPushButton()
-            button.setFixedSize(24, 24)
-            button.setToolTip(label)
-            button.clicked.connect(lambda _checked=False, value=name: self.set_color(value))
-            colors.addWidget(button)
-            self.swatches[name] = button
+        entries = [(name, label, COLORS[name] or (lambda: theme.TEXT2))
+                   for name, label in zip(ICON_COLORS, ('默认', '蓝色', '粉色', '绿色', '橙色', '紫色'))]
+        self.swatch_palette = ColorPalette([*entries, ('custom', '自定义图标颜色', None)], self.color)
+        self.swatch_palette.selected.connect(self._choose_color)
+        colors.addWidget(self.swatch_palette)
         layout.addWidget(self.color)
+        self.color_scroll = QScrollArea(self)
+        self.color_scroll.setFrameShape(QFrame.NoFrame)
+        self.color_scroll.setWidgetResizable(True)
+        self.color_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.color_board = ColorBoard(QColor(theme.ACCENT), compact=True)
+        self.color_scroll.setWidget(self.color_board)
+        self.color_board.setAutoFillBackground(False)
+        self.color_scroll.viewport().setAutoFillBackground(False)
+        self.color_board.colorChanged.connect(self._preview_custom_color)
+        self.color_scroll.hide()
+        layout.addWidget(self.color_scroll)
         self.drop_area = IconDropArea(self)
         self.drop_area.clicked.connect(self._choose)
         self.drop_area.fileDropped.connect(self.import_image)
@@ -246,13 +257,16 @@ class FolderIconDialog(QDialog):
         reset.clicked.connect(self.reset)
         buttons.addWidget(reset)
         buttons.addStretch()
-        cancel = QPushButton('取消')
+        cancel = ActionButton('取消')
+        cancel.setObjectName('IconCancel')
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
-        save = QPushButton('创建' if create else '保存')
+        save = ActionButton('创建' if create else '保存')
         save.setObjectName('IconSave')
         save.setDefault(True)
         save.clicked.connect(self.accept)
+        self.save_button = save
+        self.color_board.validityChanged.connect(save.setEnabled)
         buttons.addWidget(save)
         layout.addLayout(buttons)
         self.refresh_theme()
@@ -297,8 +311,14 @@ class FolderIconDialog(QDialog):
             #IconFolderName:focus {{border-color: #00A1D6;}}
             #IconChoice {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 9px; padding: 8px;}}
             #IconChoice:checked {{background: {'#243A44' if dark else '#ECF7FC'}; border-color: #00A1D6;}}
-            #FolderIconDialog QPushButton {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 7px 12px;}}
-            #FolderIconDialog #IconSave {{background: #00A1D6; border-color: #00A1D6; color: white;}}
+            #FolderIconDialog > QPushButton {{background: {card}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 7px 12px;}}
+            #FolderIconDialog #IconCancel {{background: transparent; border-radius: 17px; min-height: 20px; padding: 6px 16px;}}
+            #FolderIconDialog #IconCancel:hover {{background: {card};}}
+            #FolderIconDialog #IconCancel:pressed {{background: {border};}}
+            #FolderIconDialog #IconSave {{background: {theme.ACCENT}; border: none; color: {'white' if not dark else '#04161f'};
+                font-weight: 700; border-radius: 17px; min-height: 20px; padding: 7px 16px;}}
+            #FolderIconDialog #IconSave:hover {{background: {theme.mix(theme.ACCENT, '#ffffff', .12)};}}
+            #FolderIconDialog #IconSave:pressed {{background: {theme.mix(theme.ACCENT, '#000000', .16)};}}
             #FolderIconDialog #IconReset, #FolderIconDialog #IconClose {{background: transparent; border: none; color: {secondary};}}
             #FolderIconDialog #IconClose {{padding: 0; font-size: 20px;}}
             #FolderIconDialog #IconDropArea {{border-style: dashed;}}
@@ -312,12 +332,50 @@ class FolderIconDialog(QDialog):
         self.image = None
         self.refresh()
 
+    def _choose_color(self, key, _pointer):
+        if key != 'custom':
+            self._close_color_board()
+            self.set_color(key)
+            return
+        if not self.color_scroll.isHidden():
+            self._close_color_board()
+            self._sync_color_swatch()
+            return
+        initial = COLORS.get(self._color, self._color) or theme.ACCENT
+        self.color_board.setCurrentColor(QColor(initial))
+        area = self.screen().availableGeometry()
+        collapsed_height = self.layout().totalSizeHint().height()
+        board_height = min(self.color_board.sizeHint().height(),
+                           max(60, area.height() - collapsed_height - self.layout().spacing() - 12))
+        self.color_scroll.setFixedHeight(board_height)
+        self.color_scroll.verticalScrollBar().setValue(0)
+        self.color_scroll.show()
+        self._sync_color_swatch()
+        self.resize(self.width(), self.layout().totalSizeHint().height())
+        if self.isVisible() and self.y() >= area.top() and self.geometry().bottom() > area.bottom():
+            self.move(self.x(), max(area.top(), area.bottom() - self.height() + 1))
+
+    def _preview_custom_color(self, color):
+        if not self.color_scroll.isHidden():
+            self.set_color(color.name())
+
+    def _close_color_board(self):
+        if not self.color_scroll.isHidden():
+            self.color_scroll.hide()
+            self.save_button.setEnabled(True)
+            self.resize(self.width(), self.layout().totalSizeHint().height())
+
+    def _sync_color_swatch(self):
+        key = self._color if self.color_scroll.isHidden() and self._color in COLORS else 'custom'
+        self.swatch_palette.set_current(key)
+
     def set_color(self, color):
         if not self.color.isEnabled():
             return
         self._color = color
-        if self.selection and self.selection['type'] == 'builtin':
-            self.selection['color'] = color
+        if self.selection is not None or color != 'default':
+            self.selection = {'type': 'builtin', 'name': self.selection['name'] if self.selection else 'folder',
+                              'color': color}
         self.refresh()
 
     def refresh(self):
@@ -330,11 +388,10 @@ class FolderIconDialog(QDialog):
             button.setText(NAMES[ICON_NAMES.index(name)] + (' ✓' if selected else ''))
             button.setIcon(folder_icon(dict(self.folder, icon={'type': 'builtin', 'name': name,
                 'color': self._color}), self, 24))
-        for name, button in self.swatches.items():
-            button.setText('✓' if name == self._color else '')
-            button.setStyleSheet(f'background: {COLORS[name] or theme.qcolor(theme.TEXT2).name()}; color: white; border: '
-                + ('2px solid #00A1D6' if name == self._color else 'none') + '; border-radius: 12px; padding: 0;')
         is_image = self.image is not None or bool(self.selection and self.selection['type'] == 'image')
+        if is_image:
+            self._close_color_board()
+        self._sync_color_swatch()
         self.color.setEnabled(not is_image)
         for label in self.image_previews:
             label.setVisible(is_image)
@@ -356,11 +413,15 @@ class FolderIconDialog(QDialog):
         self.refresh()
 
     def reset(self):
+        self._close_color_board()
         self.selection = None
         self.image = None
+        self._color = 'default'
         self.refresh()
 
     def accept(self):
+        if not self.save_button.isEnabled():
+            return
         name = self.name_edit.text().strip()
         if not name or name in self.existing_names:
             self.error.setText('文件夹名称不能为空' if not name else '已存在同名文件夹')

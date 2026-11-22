@@ -1,5 +1,5 @@
 """Bounded lifecycle evidence without retaining QObject wrappers or user data."""
-from functools import wraps
+from functools import partial, wraps
 import itertools
 import json
 import logging
@@ -27,14 +27,20 @@ def start(directory):
     _logger = logger
 
 
-def event(stage, identity, kind, parent=""):
+def event(stage, identity, kind, parent="", source=""):
     if _logger is not None:
-        _logger.info(json.dumps({'stage': stage, 'object': identity, 'kind': kind,
+        row = {'stage': stage, 'object': identity, 'kind': kind,
             'parent': parent, 'pid': os.getpid(), 'thread': threading.get_native_id(), 'at_ns': time.time_ns(),
-            'mono_ns': time.perf_counter_ns()}, separators=(',', ':')))
+            'mono_ns': time.perf_counter_ns()}
+        if source:
+            row['source'] = source
+        _logger.info(json.dumps(row, separators=(',', ':')))
 
 
-def construction(function):
+def construction(function=None, *, sources=()):
+    if function is None:
+        return partial(construction, sources=sources)
+
     @wraps(function)
     def wrapped(self, *args, **kwargs):
         if _logger is None:
@@ -43,17 +49,20 @@ def construction(function):
         kind = type(self).__name__
         parent = kwargs.get('parent', args[1] if len(args) > 1 else None)
         parent_id = getattr(parent, '_diagnostic_identity', '')
+        source = kwargs.get('diagnostic_source')
+        source = source if source in sources else ''
         self._diagnostic_identity = identity
         self._diagnostic_parent = parent_id
-        event('construct.request', identity, kind, parent_id)
+        self._diagnostic_source = source
+        event('construct.request', identity, kind, parent_id, source)
         try:
             result = function(self, *args, **kwargs)
         except BaseException:
-            event('construct.failed', identity, kind, parent_id)
+            event('construct.failed', identity, kind, parent_id, source)
             raise
         # Only immutable strings are closed over. Never touch self after destroyed.
-        self.destroyed.connect(lambda: event('destroyed', identity, kind, parent_id))
-        event('construct.ready', identity, kind, parent_id)
+        self.destroyed.connect(lambda: event('destroyed', identity, kind, parent_id, source))
+        event('construct.ready', identity, kind, parent_id, source)
         return result
     return wrapped
 
@@ -63,11 +72,13 @@ def running(function):
     def wrapped(self, *args, **kwargs):
         identity = getattr(self, '_diagnostic_identity', '')
         kind = type(self).__name__
-        event('run.begin', identity, kind, getattr(self, '_diagnostic_parent', ''))
+        context = (identity, kind, getattr(self, '_diagnostic_parent', ''),
+                   getattr(self, '_diagnostic_source', ''))
+        event('run.begin', *context)
         try:
             return function(self, *args, **kwargs)
         finally:
-            event('run.end', identity, kind, getattr(self, '_diagnostic_parent', ''))
+            event('run.end', *context)
     return wrapped
 
 

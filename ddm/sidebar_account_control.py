@@ -29,12 +29,7 @@ class SidebarAccountControl:
         host._sync_account_row_width()
 
     def account_menu(self, *, popup_type, row_type) -> QMenu:
-        """账号菜单：退出登录；放不进横栏的入口也在这里。
-
-        竖屏横栏只有一行：导入关注 / 添加直播间收进这个菜单；「布局预设 / 设置」
-        是并排摆在横栏上的按钮，只有收起时（按钮藏起来）才需要放进菜单。
-        单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
-        """
+        """Account actions and only the shortcuts absent from the current toolbar."""
         host = self.host
         AccountPopupMenu = popup_type
         AccountRow = row_type
@@ -49,7 +44,7 @@ class SidebarAccountControl:
         """)
         menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         menu.setAttribute(Qt.WA_TranslucentBackground)
-        popup_width = host.account_row.width() if not host.collapsed else 240
+        popup_width = host.account_row.width() if host.side == 'left' and not host.collapsed else 240
         menu.setFixedWidth(popup_width)
         account_actions = []
         if not host.account_row.uname:
@@ -109,22 +104,10 @@ class SidebarAccountControl:
                 action.setDefaultWidget(item)
                 menu.addAction(action)
                 account_actions.append(action)
-        if host.side == "top":
+        if host.side == "top" and host.collapsed:
             menu.addSeparator()
             menu.addAction("导入关注")
             menu.addAction("+ 添加直播间")
-            if host.collapsed:
-                menu.addSeparator()
-                menu.addAction("布局预设")
-                menu.addAction('画中画')
-                menu.addAction("设置")
-        elif host.collapsed:
-            # 横屏收起后「布局预设 / 设置」那行按钮跟着藏起来了，只剩这个头像；
-            # 点头像就把它们以菜单形式放出来，不用先展开侧栏。
-            menu.addSeparator()
-            menu.addAction("布局预设")
-            menu.addAction('画中画')
-            menu.addAction("设置")
         for action in account_actions:
             menu.removeAction(action)
             menu.addAction(action)
@@ -181,44 +164,19 @@ class SidebarAccountControl:
         return not host.select_mode
 
     def sync_account_row_shape(self) -> None:
-        """账号条的形状跟着「横屏/竖屏 + 收起/展开」走。
-
-        竖屏收起时横栏只有 36px 高，账号头像要按头排头像的尺寸（34）挤进去；
-        竖屏展开时它在右侧那一块里，高度就用横屏那套（34），多出来的高度留给
-        两条空白；其它情况沿用原来的样子。
-        """
+        """Use an avatar in the portrait header; retain the original left-column shape."""
         host = self.host
-        if host.side == "top" and not host.collapsed:
-            host.account_row.set_compact(False)
-            # 高度用横屏那套（34），宽度跟着这一块走（三个按钮左右一样长）
-            host.account_row.setFixedHeight(theme.CONTROL_HEIGHT)
-            host.account_row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        elif host.side == "top":
+        if host.side == "top":
             host.account_row.set_compact(True, avatar=RoomStrip.AVATAR, margin=1)
         else:
             host.account_row.set_compact(host.collapsed)
 
     def sync_account_row_width(self) -> None:
-        """横栏里的账号条宽度。
-
-        展开时放得下昵称（否则会被挤成「A…」）；收起时它就是一个和头排头像
-        一样大的小圆点 —— 不这么算的话它会一直沿用昵称的宽度，变成一条长胶囊。
-        横屏时它本来就撑满侧栏，不需要这个限制。
-        """
+        """Keep portrait account access compact and release its width in landscape."""
         host = self.host
         row = host.account_row
         if host.side != "top":
             row.setMinimumWidth(0)
             row.setMaximumWidth(16_777_215)
             return
-        row.setMaximumWidth(16_777_215)
-        if host.collapsed:
-            row.setMinimumWidth(row.avatar.width() + 2)
-            return
-        box = row._layout
-        margins = box.contentsMargins()
-        # +8：留一点余量，正好卡着算出来的宽度会让昵称尾字差几个像素被省略
-        need = (margins.left() + margins.right() + box.spacing() * 2
-                + row.avatar.width() + max(row.name.sizeHint().width(), row.account_id.sizeHint().width())
-                + row.arrow.sizeHint().width() + 8)
-        row.setMinimumWidth(min(host.ACCOUNT_PILL_MAX, need))
+        row.setFixedWidth(row.avatar.width() + 2)

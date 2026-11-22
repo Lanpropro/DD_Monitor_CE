@@ -17,10 +17,10 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QContextMenuEvent, QKeySequence, QPixmap, QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QPushButton, QWidget, QLineEdit
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMenu, QPushButton, QWidget, QLineEdit
 from ddm import motion, theme
 from ddm.app import MainWindow
 from ddm.dialogs import ShortcutSettingsPage
@@ -193,7 +193,7 @@ class MainNoticesTests(unittest.TestCase):
         def check_updates(enabled):
             if enabled:
                 self.assertFalse(sidebar._collapse_animating)
-                self.assertTrue(wall._sidebar_animating)
+                self.assertFalse(wall._sidebar_animating)
                 self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                 for item in sidebar.items():
                     self.assertEqual(item._compact, sidebar.collapsed)
@@ -223,7 +223,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(sidebar.width(), width)
         self.assertFalse(sidebar._collapse_animating)
 
-    def test_sidebar_final_paint_precedes_player_resize(self):
+    def test_sidebar_paint_waits_for_wall_geometry(self):
         window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
         sidebar, wall = window.sidebar, window.wall
         paints = []
@@ -231,28 +231,61 @@ class MainNoticesTests(unittest.TestCase):
         class PaintRecorder(QObject):
             def eventFilter(self, watched, event):
                 if event.type() == QEvent.Paint:
-                    paints.append((sidebar.collapsed, sidebar._column.width()))
+                    right = max(tile.geometry().right() + 1 for tile in wall.visible_tiles())
+                    settled = (not wall._sidebar_animating
+                               and right == wall.width() - wall.grid.contentsMargins().right())
+                    paints.append((sidebar.collapsed, sidebar._column.width(), settled))
                 return False
 
         recorder = PaintRecorder(sidebar)
         sidebar.installEventFilter(recorder)
         original = wall._relayout_preset
         observations = []
-        def resize_after_paint():
-            expected = (sidebar.collapsed,
-                        theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
-            observations.append((expected in paints, sidebar.updatesEnabled()))
+        def resize_while_held():
+            observations.append((bool(paints), sidebar.updatesEnabled()))
             return original()
 
-        with patch.object(wall, '_relayout_preset', side_effect=resize_after_paint) as resize:
+        with patch.object(wall, '_relayout_preset', side_effect=resize_while_held) as resize:
             for collapsed in (True, False) * 3:
                 paints.clear()
                 sidebar.set_collapsed(collapsed)
                 self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
                 self.assertFalse(wall._sidebar_animating)
+                self.app.processEvents()
+                width = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
+                self.assertTrue(paints)
+                self.assertEqual(set(paints), {(collapsed, width, True)})
             self.assertEqual(resize.call_count, 6)
-        self.assertEqual(observations, [(True, True)] * 6,
-                         'Final sidebar paint must precede native player resize')
+        self.assertEqual(observations, [(False, False)] * 6,
+                         'The wall must resize before the sidebar can paint again')
+
+    def test_sidebar_width_settles_all_video_areas_before_raising_overlays(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        sidebar, wall = window.sidebar, window.wall
+        tiles = wall.visible_tiles()
+        tile = tiles[-1]
+        prior_sizes = [item.video.size() for item in tiles]
+        layout = wall._relayout_preset
+
+        with patch.object(tile.bottom, 'raise_', wraps=tile.bottom.raise_) as restack, \
+                patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
+                patch.object(tile.bottom, 'update', wraps=tile.bottom.update) as update:
+            def resize_video_areas():
+                self.assertTrue(all(item._interactive_resize for item in tiles))
+                layout()
+                self.assertTrue(all(item.video.size() != size for item, size in zip(tiles, prior_sizes)))
+                restack.assert_not_called()
+                tile._move_repaint_timer.start(0)
+
+            with patch.object(wall, '_relayout_preset', side_effect=resize_video_areas) as resize:
+                sidebar.set_collapsed(True)
+            resize.assert_called_once()
+            self.assertTrue(all(not item._interactive_resize for item in tiles))
+            restack.assert_called_once()
+            self.assertFalse(tile._move_repaint_timer.isActive())
+            update.assert_called()
+            self.app.processEvents()
+            repaint.assert_not_called()
 
     def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
         window = self.window([dict(room_id='1001', uname='Fixture')])
@@ -535,12 +568,19 @@ class MainNoticesTests(unittest.TestCase):
         from ddm import cover_focus
         assets = ROOT / 'ddm/assets'
         records = json.loads((assets / 'licenses/cover-focus-SOURCE.json').read_text())
-        for record in records:
-            self.assertEqual(hashlib.sha256((assets / record['file']).read_bytes()).hexdigest(),
-                             record['sha256'])
-        cover = QPixmap(412, 232)
-        cover.fill(QColor('black'))
-        self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
+        with tempfile.TemporaryDirectory(prefix='ddm-封面-') as temporary:
+            module_dir = Path(temporary)
+            for record in records:
+                model = (assets / record['file']).read_bytes()
+                self.assertEqual(hashlib.sha256(model).hexdigest(), record['sha256'])
+                model_path = module_dir / 'assets' / record['file']
+                model_path.parent.mkdir(parents=True, exist_ok=True)
+                model_path.write_bytes(model)
+            cover = QPixmap(412, 232)
+            cover.fill(QColor('black'))
+            with patch.object(cover_focus, '__file__', str(module_dir / 'cover_focus.py')), \
+                    patch.object(cover_focus, '_DETECTORS', None):
+                self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
 
     def test_room_background_crops_the_center_and_clips_corners(self):
         from PySide6.QtCore import QRectF
@@ -833,13 +873,139 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual([entry.message for entry in center.entries], ['主播甲开播了', '录制已完成'])
         with patch.object(window, '_unread_app_update', return_value={'version': '0.5'}), \
                 patch.object(window, '_unread_plugin_updates', return_value=[]), \
-                patch.object(window, 'open_settings') as settings:
+                patch.object(window, 'open_settings') as settings, \
+                patch.object(window.app_updates, 'start_notice_update') as start, \
+                patch.object(sys, 'frozen', True, create=True):
             window._show_update_notice()
             window._show_update_notice()
             self.assertEqual(len(center.entries), 3)
             self.assertEqual(center.entries[-1].message, '软件有新版 v0.5')
+            notice = window._update_notice
+            self.assertEqual(center.entries[-1].action, '下载更新')
             center.entries[-1].callback()
+            self.assertIs(window._update_notice, notice)
+            self.assertTrue(notice.isVisible())
+            self.assertEqual(len(center.entries), 3)
+            settings.assert_not_called()
+            start.assert_called_once_with('app')
+            self.assertEqual(center.entries[-1].secondary_action, '查看设置详情')
+            center.entries[-1].secondary_callback()
             settings.assert_called_once_with('updates')
+
+    def test_closed_update_notice_can_resume_from_history_without_duplicate_or_lost_progress(self):
+        window = self.window([])
+        center = window.sidebar.notification_button.center
+        start = self.stack.enter_context(patch.object(window.app_updates, 'start_notice_update'))
+        restart = self.stack.enter_context(patch.object(window.app_updates, 'restart_updates'))
+        self.stack.enter_context(patch.object(sys, 'frozen', True, create=True))
+        page = window._get_update_page({})
+        offer = {'version': '9.0', 'size': 100}
+        window._available_update = offer
+        page.offer = offer
+        state = dict(received=25, total=100, speed=10, percent=25, phase='downloading')
+        page._transfer_progress(state)
+        notice = window._update_notice
+        entry = center.entries[-1]
+        self.assertEqual(entry.action, '下载更新')
+        self.assertTrue(entry.unread)
+        notice.findChild(QPushButton, 'NoticeClose').click()
+        self.app.processEvents()
+        self.assertFalse(notice.isVisible())
+        self.assertIn(entry, center.entries)
+        self.assertFalse(entry.unread)
+        center.show()
+        self.app.processEvents()
+        row = center.rows[entry]
+        self.assertEqual(row.action.text(), '下载更新')
+        self.assertEqual(row.secondary_action.text(), '查看设置详情')
+        with patch.object(window, 'open_settings') as settings:
+            row.action.click()
+        self.app.processEvents()
+        settings.assert_not_called()
+        self.assertFalse(center.isVisible())
+        self.assertIs(window._update_notice, notice)
+        self.assertTrue(notice.isVisible())
+        self.assertEqual(center.entries, [entry])
+        self.assertEqual(notice._update_rows['app'][1].bar.value(), 25)
+        self.assertEqual(page.download_state, state)
+        start.assert_not_called()
+        with patch.object(window, 'open_settings') as settings:
+            center.show()
+            self.app.processEvents()
+            center.rows[entry].secondary_action.click()
+        settings.assert_called_once_with('updates')
+        self.assertFalse(center.isVisible())
+        start.assert_not_called()
+        for phase, text in (('failed', '重试'), ('ready', '重启以应用')):
+            start.reset_mock()
+            current = dict(state, phase=phase, percent=100 if phase == 'ready' else 25,
+                           error='等待服务器传输数据超时，请稍后重试')
+            page._transfer_progress(current)
+            notice.findChild(QPushButton, 'NoticeClose').click()
+            self.assertIn(entry, center.entries)
+            center.show()
+            self.app.processEvents()
+            center.rows[entry].action.click()
+            self.app.processEvents()
+            self.assertIs(window._update_notice, notice)
+            self.assertTrue(notice.isVisible())
+            self.assertEqual(notice._update_rows['app'][2].text(), text)
+            self.assertEqual(notice._update_rows['app'][2].property('phase'), phase)
+            self.assertEqual(page.download_state, current)
+            self.assertEqual(center.entries, [entry])
+            if phase == 'failed':
+                start.assert_called_once_with('app')
+            else:
+                start.assert_not_called()
+            restart.assert_not_called()
+        center.show()
+        self.app.processEvents()
+        center.rows[entry].remove_button.click()
+        self.assertNotIn(entry, center.entries)
+
+    def test_plugin_history_download_and_settings_buttons_have_separate_actions(self):
+        window = self.window([])
+        center = window.sidebar.notification_button.center
+        offer = dict(id='fixture', name='测试插件', version='2.0', available=True)
+        with patch.object(window, '_unread_app_update', return_value=None), \
+                patch.object(window, '_unread_plugin_updates', return_value=[offer]), \
+                patch.object(window.app_updates, 'start_notice_update') as start, \
+                patch.object(window.app_updates, 'restart_updates') as restart, \
+                patch.object(window, 'open_settings') as settings:
+            window._show_update_notice()
+            entry = center.entries[-1]
+            window._update_notice.findChild(QPushButton, 'NoticeClose').click()
+            center.show()
+            self.app.processEvents()
+            row = center.rows[entry]
+            self.assertEqual(row.action.text(), '下载更新')
+            self.assertEqual(row.secondary_action.text(), '查看设置详情')
+            self.assertLessEqual(abs(row.action.geometry().center().y()
+                                     - row.secondary_action.geometry().center().y()), 1)
+            self.assertFalse(row.action.geometry().intersects(row.secondary_action.geometry()))
+            timestamp = row.findChild(QLabel, 'NoticeDescription')
+            for button in (row.action, row.secondary_action):
+                self.assertTrue(row.rect().contains(button.geometry()))
+                self.assertFalse(timestamp.geometry().intersects(button.geometry()))
+                self.assertGreaterEqual(button.width(), button.fontMetrics().horizontalAdvance(button.text()) + 16)
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                Path(directory).mkdir(parents=True, exist_ok=True)
+                center.grab().save(str(Path(directory) / 'history-two-actions.png'))
+            row.action.click()
+            start.assert_called_once_with('fixture')
+            settings.assert_not_called()
+            restart.assert_not_called()
+            self.assertFalse(center.isVisible())
+            self.assertTrue(window._update_notice.isVisible())
+            center.show()
+            self.app.processEvents()
+            center.rows[entry].secondary_action.click()
+            settings.assert_called_once_with('plugins')
+            self.assertEqual(start.call_count, 1)
+            restart.assert_not_called()
+            self.assertFalse(center.isVisible())
+            self.assertEqual(center.entries, [entry])
 
     def test_single_line_notice_keeps_heading_message_and_action_visible(self):
         owner = QWidget()
@@ -977,6 +1143,64 @@ class MainNoticesTests(unittest.TestCase):
         window._fullscreen_tile = None
         window._show_notice('窗口提示')
         self.assertTrue(window._result_notice.isVisible())
+
+    def test_fullscreen_notice_stays_above_video_when_bar_hides(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Requires Windows native window ownership and Z order')
+        import ctypes
+        from ctypes import wintypes
+
+        window = self.window([{'room_id': '1001'}], offscreen=True)
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        window.settings['notice_hide_fullscreen'] = False
+        window.settings['notice_persist_warning'] = False
+        tile = window.wall.tiles[0]
+        window._show_notice('进入全屏前的提示', kind='warning')
+        previous = window._result_notice
+        enter = window._fullscreen_presentation.enter
+        with patch.object(window, '_upgrade_fullscreen_quality'), \
+                patch.object(window._fullscreen_presentation, 'enter',
+                             side_effect=lambda target: enter(target, QRect(-9000, -9000, 900, 600))):
+            window._on_fullscreen(tile)
+        window._fullscreen_cursor.stop()
+        self.addCleanup(window._exit_fullscreen)
+
+        action = Mock()
+        window._show_notice('发送未成功，请稍后重试', kind='warning', on_click=action)
+        warning = window._result_notice
+        tile.set_fullscreen_controls_hidden(True)
+        tile.raise_()
+        self.app.processEvents()
+        self.assertTrue(tile.bottom.isHidden())
+        self.assertTrue(warning.isVisible())
+        self.assertTrue(warning.timer.isActive())
+        self.assertEqual(warning.timer.interval(), 6000)
+        self.assertTrue(previous.timer.isActive())
+        get_window = ctypes.windll.user32.GetWindow
+        get_window.argtypes = (wintypes.HWND, wintypes.UINT)
+        get_window.restype = wintypes.HWND
+        warning_handle = int(warning.winId())
+        handle = get_window(int(tile.winId()), 3)  # GW_HWNDPREV
+        while handle and handle != warning_handle:
+            handle = get_window(handle, 3)
+        self.assertEqual(handle, warning_handle, 'Fullscreen tile covered the still-active warning')
+        self.assertEqual(get_window(warning_handle, 4), int(tile.winId()))  # GW_OWNER
+        self.assertEqual(get_window(int(previous.winId()), 4), int(tile.winId()))
+        self.assertIs(warning.windowHandle().transientParent(), tile.windowHandle())
+        self.assertIs(previous.windowHandle().transientParent(), tile.windowHandle())
+        self.assertGreaterEqual(previous.y(), tile.mapToGlobal(tile.stream_badge.geometry().bottomLeft()).y())
+        self.assertGreater(warning.y(), previous.geometry().bottom())
+
+        QTest.mouseClick(warning.action, Qt.LeftButton)
+        action.assert_called_once_with()
+        window._exit_fullscreen()
+        self.assertIs(previous.windowHandle().transientParent(), window.windowHandle())
+        self.assertEqual(get_window(int(previous.winId()), 4), int(window.winId()))
+        self.assertTrue(previous.timer.isActive())
+        previous.timer.timeout.emit()
+        self.assertFalse(previous.isVisible())
+        center = window.sidebar.notification_button.center
+        self.assertIn('进入全屏前的提示', [entry.message for entry in center.entries])
 
     def test_export_updates_one_card_and_history_entry_per_file(self):
         room = {'room_id': '1001', 'uname': '主播甲'}
@@ -1220,6 +1444,57 @@ class MainNoticesTests(unittest.TestCase):
             stop.assert_called_once_with(target)
         self.assertFalse(window.room_placement.replacement.replacement_rooms)
         self.assertIsNone(QApplication.overrideCursor())
+
+    def test_live_notice_places_room_in_clicked_custom_grid_vacancy(self):
+        from ddm import layouts, snap_grid
+
+        for base, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+            with self.subTest(base=base):
+                window = self.window([{'room_id': '1', 'live': False}], offscreen=True)
+                window.layout_presets.select_builtin(base)
+                wall = window.wall
+                units = snap_grid.geometry(size, layouts.even_cells(size, size),
+                                           wall._corner_area(), wall.grid.spacing())
+                wall.snap_grid.add_danmaku(units[1].center())
+                panel = next(iter(wall.pane_danmaku.panels.values()))
+                target = units[size + 1].center()
+                window._show_notice('新主播开播了', rooms=[{'room_id': '999', 'live': True}], kind='live')
+                button = window.sidebar.notification_button
+                button.click()
+                center = button.center
+                entry = next(entry for entry in center.entries if entry.kind == 'live')
+                action = center.rows[entry].action
+                self.assertEqual(action.text(), '替换')
+                QTest.mouseClick(action, Qt.LeftButton)
+                self.assertFalse(center.isVisible())
+                selection = window.room_placement.replacement
+                self.assertTrue(selection.replacement_rooms)
+                QTest.mouseClick(panel, Qt.LeftButton, pos=panel.rect().center())
+                QTest.mousePress(wall, Qt.LeftButton, pos=units[2].center())
+                QTest.mouseRelease(wall, Qt.LeftButton, pos=target)
+                self.app.processEvents()
+                self.assertIsNone(window._tile_of('999'))
+                self.assertTrue(selection.replacement_rooms)
+
+                window.start_tile.reset_mock()
+                with patch.object(window, '_room_dict', side_effect=AssertionError('No network lookup')):
+                    QTest.mouseClick(wall, Qt.LeftButton, pos=target)
+                    self.app.processEvents()
+                added = window._tile_of('999')
+                self.assertIsNotNone(added)
+                self.assertTrue(added.isVisible())
+                self.assertEqual(added.geometry(), units[size + 1])
+                self.assertTrue(window._tile_of('1').isVisible())
+                self.assertEqual(added.state_control.pending_grid_aspect, base)
+                window.start_tile.assert_called_once_with(added)
+                self.assertFalse(selection.replacement_rooms)
+                self.assertIsNone(QApplication.overrideCursor())
+
+                window._place_live_notice_rooms([{'room_id': '998'}])
+                QTest.mouseClick(added.video, Qt.LeftButton, pos=added.video.rect().center())
+                self.app.processEvents()
+                self.assertIs(window._tile_of('998'), added)
+                self.assertEqual(added.geometry(), units[size + 1])
 
     @unittest.skipUnless(sys.platform == 'win32', 'Windows click diagnostics')
     def test_live_replacement_trace_preserves_window_dispatch(self):
@@ -1545,6 +1820,28 @@ class MainNoticesTests(unittest.TestCase):
                 patch.object(window, '_clear_tile_room') as clear:
             QTest.keyClick(window, Qt.Key_Delete)
             clear.assert_not_called()
+
+    def test_batch_delete_removes_selected_follows_without_new_windows(self):
+        rooms = [{'room_id': rid, 'uname': rid, 'live': False} for rid in ('1001', '1002', '1003')]
+        window = self.window(rooms)
+        remaining_tile = next(tile for tile in window.wall.tiles if tile.room.get('room_id') == '1003')
+        count = len(window.wall.tiles)
+        visible_windows = {widget for widget in QApplication.topLevelWidgets() if widget.isVisible()}
+        window.sidebar.set_select_mode(True)
+        for item in window.sidebar.items():
+            if item.room.get('room_id') in ('1001', '1002'):
+                item.check.click()
+        self.assertEqual(window.sidebar.batch_label.text(), '已选 2 个')
+        window.sidebar.delete_button.click()
+        self.app.processEvents()
+        self.assertEqual([room['room_id'] for room in window.sidebar.rooms()], ['1003'])
+        self.assertFalse(window.sidebar.select_mode)
+        self.assertEqual(len(window.wall.tiles), count)
+        self.assertIn(remaining_tile, window.wall.tiles)
+        self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles if tile.room.get('room_id')], ['1003'])
+        self.assertTrue({widget for widget in QApplication.topLevelWidgets() if widget.isVisible()} <= visible_windows)
+        saved = window.current_state()
+        self.assertEqual([room['room_id'] for room in saved['wall'] if room.get('room_id')], ['1003'])
 
     def test_clear_wall_removes_immediately_without_confirmation_and_empty_wall_is_a_noop(self):
         window = self.window([{'room_id': '1001', 'live': False}])
@@ -1979,6 +2276,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def test_background_avatar_loader_uses_disk_cache_without_network(self):
         import threading
+        import time
         from ddm import images
         with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
             url = 'https://example.invalid/avatar.png'
@@ -1996,9 +2294,16 @@ class MainNoticesTests(unittest.TestCase):
             loader.loaded.connect(lambda rid, pixmap: loaded.append((rid, pixmap)))
             with patch.object(images, 'load_pixmap', side_effect=read), \
                     patch.object(images.requests, 'get', side_effect=AssertionError('Cache hit must not use network')):
-                loader.start()
-                self.assertTrue(loader.wait(3000))
-                self.app.processEvents()
+                try:
+                    loader.start()
+                    deadline = time.monotonic() + 5
+                    while loader.isRunning() and time.monotonic() < deadline:
+                        self.app.processEvents()
+                        time.sleep(.01)  # Release the GIL for the Python image workers.
+                    self.assertTrue(loader.isFinished())
+                    self.app.processEvents()
+                finally:
+                    loader.wait(15000)  # Keep the cache fixture alive until all worker handles close.
             self.assertEqual([rid for rid, _ in loaded], ['1001'])
             self.assertFalse(loaded[0][1].isNull())
             self.assertTrue(threads and all(t != threading.get_ident() for t in threads))

@@ -9,12 +9,22 @@ from PySide6.QtCore import QTimer
 from . import bili
 from . import config as config_module
 from . import plugins as plugin_api
+from .danmaku_sources import is_live_danmaku_source
 from .super_chat_model import SuperChatStore
 
 
 class DanmakuLifecycle:
     def __init__(self, host):
         self.host = host
+        self.recording_rooms = set()
+
+    def capture_changed(self) -> None:
+        rooms = {session.room_id for session in self.host.recorder.sessions.values()
+                 if getattr(session, 'wants_danmaku', False) and session.recording and not session.stopping
+                 and is_live_danmaku_source(session.room)}
+        if rooms != self.recording_rooms:
+            self.recording_rooms = rooms
+            self.sync_danmaku()
 
     def sync_danmaku(self) -> None:
         """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
@@ -28,15 +38,16 @@ class DanmakuLifecycle:
             wall._sync_pane_borders(widgets, panes.dividers)
         wall.sync_sc_placement()
         targets = {}
-        if wall.has_danmaku:
-            for panel in wall.pane_danmaku.rendered():
-                tile = wall.pane_danmaku.target(panel)
+        for panel in panes.rendered():
+            if wall.has_danmaku or panel in panes.floating:
+                tile = panes.target(panel)
                 targets[panel] = tile.room if tile is not None else {}
         wanted = {str(tile.room['room_id']) for tile in wall.tiles
                   if tile.isVisible() and (tile.danmaku_button.isChecked() or
-                      wall.has_danmaku and host.settings.get('super_chat_enabled', True))
-                  and tile.room.get('room_id') and (tile.room.get('live') or tile._player_active)}
+                      (wall.has_danmaku or panes.floating) and host.settings.get('super_chat_enabled', True))
+                  and is_live_danmaku_source(tile.room) and (tile.room.get('live') or tile._player_active)}
         wanted.update(str(room['room_id']) for room in targets.values() if room.get('room_id'))
+        wanted.update(self.recording_rooms)
         primary = str(targets.get(wall.danmaku, {}).get('room_id') or '')
         if primary != host._danmaku_room:
             host._danmaku, host._danmaku_room = None, ''

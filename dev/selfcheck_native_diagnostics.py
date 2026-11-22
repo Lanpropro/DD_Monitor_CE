@@ -6,6 +6,7 @@ import subprocess
 import struct
 import shutil
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,10 +41,29 @@ class NativeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(code & 0xffffffff, 0xc0000005)
         report = json.loads(next(folder.glob('*.json')).read_text())
         self.assertEqual(report['exception_code'], '0xc0000005')
+        self.assertGreater(int(report['instruction_address'], 16), 0)
+        self.assertIsNone(report['access_type'])
+        self.assertIsNone(report['access_address'])
         self.assertTrue(report['frames'])
         self.assertTrue(any('fixture' in row.get('module', '').lower() for row in report['frames']), report)
         self.assertFalse(report['dump_requested'])
         self.assertEqual(list(folder.glob('*.dmp')), [])
+
+    def test_actual_access_addresses_are_preserved_without_dumps(self):
+        for operation in ('read', 'write', 'execute'):
+            with self.subTest(operation=operation):
+                before_ms = time.time_ns() // 1000000
+                code, folder = self.invoke(operation)
+                after_ms = time.time_ns() // 1000000
+                self.assertEqual(code & 0xffffffff, 0xc0000005)
+                report = json.loads(next(folder.glob('*.json')).read_text())
+                self.assertEqual(report['access_type'], operation)
+                self.assertLessEqual(before_ms, report['at_unix_ms'])
+                self.assertLessEqual(report['at_unix_ms'], after_ms)
+                self.assertEqual(int(report['access_address'], 16), 0x3bb)
+                self.assertGreater(int(report['instruction_address'], 16), 0)
+                self.assertFalse(report['dump_requested'])
+                self.assertEqual(list(folder.glob('*.dmp')), [])
 
     def test_opt_in_dump_is_valid_and_atomic(self):
         code, folder = self.invoke('1')

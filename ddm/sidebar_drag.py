@@ -3,14 +3,16 @@ import logging
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent
-from PySide6.QtWidgets import QApplication, QLabel, QWidget
+from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QLabel, QWidget
 from shiboken6 import isValid
 
 from .sidebar_hit_test import widget_at
 from .card_drop import remember_card
+from .widget_support import DANMAKU_CELL_MIME
 
 ROOM_MIME = 'application/x-ddm-room'
 TILE_MIME = 'application/x-ddm-tile'
+GRID_GRAB_MIME = 'application/x-ddm-grid-grab'
 NAV_MIME = 'application/x-ddm-nav'
 FOLDER_MIME = 'application/x-ddm-folder'
 
@@ -26,6 +28,10 @@ class SidebarDrag(QObject):
         self.ghost = None
         self.owner = None
         self.mime = None
+        self.plugin_owner = None
+        self.on_finished = None
+        self.area = None
+        self.snap_grid = None
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
@@ -37,23 +43,33 @@ class SidebarDrag(QObject):
     def active(self):
         return self.source is not None
 
-    def start(self, source, mime, pixmap, hotspot, global_pos):
+    def start(self, source, mime, pixmap, hotspot, global_pos, *, plugin_owner=None, on_finished=None):
         if self.active:
-            return
+            return False
         self.source, self.mime = source, mime
-        if mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME):
+        self.plugin_owner, self.on_finished = plugin_owner, on_finished
+        self.area = source if isinstance(source, QAbstractScrollArea) else self.sidebar.scroll
+        if not pixmap.isNull() and (mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
             remember_card(mime, pixmap, hotspot)
         self.position = QPoint(global_pos)
         self.hotspot = QPoint(hotspot)
         self._last_update = None
         self.owner = self.sidebar.window()
-        self.actions = Qt.MoveAction if (mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)) else Qt.CopyAction | Qt.MoveAction
-        self.ghost = QLabel(self.owner, Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowTransparentForInput)
-        self.ghost.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.ghost.setAttribute(Qt.WA_TranslucentBackground)
-        self.ghost.setPixmap(pixmap)
-        self.ghost.resize(pixmap.deviceIndependentSize().toSize())
+        wall = getattr(self.owner, 'wall', None)
+        grid = getattr(wall, 'snap_grid', None)
+        pane = mime.hasFormat(DANMAKU_CELL_MIME)
+        if grid is not None and grid.interactive() and (pane or mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
+            self.snap_grid = grid
+            grid.prepare_room_drag(mime)
+        self.actions = (Qt.MoveAction if pane or mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)
+                        else Qt.CopyAction | Qt.MoveAction)
+        if not pixmap.isNull():
+            self.ghost = QLabel(self.owner, Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowTransparentForInput)
+            self.ghost.setAttribute(Qt.WA_ShowWithoutActivating)
+            self.ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
+            self.ghost.setAttribute(Qt.WA_TranslucentBackground)
+            self.ghost.setPixmap(pixmap)
+            self.ghost.resize(pixmap.deviceIndependentSize().toSize())
         QApplication.instance().installEventFilter(self)
         source.destroyed.connect(self.cancel)
         try:
@@ -62,15 +78,22 @@ class SidebarDrag(QObject):
             elif mime.hasFormat(NAV_MIME):
                 rid = bytes(mime.data(NAV_MIME)).decode()
                 self.sidebar.show_drop_indicator(rid, source._index_in_host())
-            self.ghost.move(self.position - self.hotspot)
-            self.ghost.show()
-            handle = self.ghost.windowHandle()
-            self._set_frame_interval(handle.screen())
-            handle.screenChanged.connect(self._set_frame_interval)
+            if self.ghost is not None:
+                self.ghost.move(self.position - self.hotspot)
+                self.ghost.show()
+                if plugin_owner is not None:
+                    self.ghost.repaint()
+                handle = self.ghost.windowHandle()
+                self._set_frame_interval(handle.screen())
+                handle.screenChanged.connect(self._set_frame_interval)
             self.owner.grabMouse()
             self.owner.grabKeyboard()
             self.timer.start()
-            self.visual_timer.start()
+            if self.ghost is not None:
+                self.visual_timer.start()
+            if self.snap_grid is not None:
+                self._update_target()
+            return self.active
         except BaseException:
             self.cancel()
             raise
@@ -96,15 +119,16 @@ class SidebarDrag(QObject):
             return True
         if (kind == QEvent.ApplicationDeactivate or
                 watched is self.owner and kind in (QEvent.WindowDeactivate, QEvent.Hide, QEvent.Close, QEvent.UngrabMouse) or
-                watched is self.sidebar and kind == QEvent.Hide):
+                watched is self.sidebar and kind == QEvent.Hide or
+                self.plugin_owner is not None and watched is self.source and kind in (QEvent.Hide, QEvent.Close)):
             self.cancel()
         return False
 
     def _wheel(self, event):
-        area = self.sidebar.scroll
+        area = self.area
         if not area.viewport().rect().contains(area.viewport().mapFromGlobal(event.globalPosition().toPoint())):
             return
-        horizontal = self.sidebar.list_box.horizontal
+        horizontal = area is self.sidebar.scroll and self.sidebar.list_box.horizontal
         bar = area.horizontalScrollBar() if horizontal else area.verticalScrollBar()
         pixels = event.pixelDelta()
         delta = (pixels.x() or pixels.y()) if horizontal else pixels.y()
@@ -120,7 +144,7 @@ class SidebarDrag(QObject):
             self.cancel()
             return
         try:
-            area = self.sidebar.scroll
+            area = self.area
             key = (self.position.x(), self.position.y(), area.horizontalScrollBar().value(),
                    area.verticalScrollBar().value())
             if key != self._last_update:
@@ -135,7 +159,7 @@ class SidebarDrag(QObject):
         self.visual_timer.setInterval(max(1, int(1000 / rate)))
 
     def _move_ghost(self):
-        if self.active:
+        if self.active and self.ghost is not None:
             target = self.position - self.hotspot
             if self.ghost.pos() != target:
                 self.ghost.move(target)
@@ -152,8 +176,22 @@ class SidebarDrag(QObject):
         if target is not None and isValid(target):
             QApplication.sendEvent(target, QDragLeaveEvent())
 
+    def refresh_snap_target(self, grid):
+        if self.snap_grid is grid:
+            self._last_update = None
+
     def _update_target(self):
         widget = widget_at(self.position)
+        grid = self.snap_grid
+        if grid is not None:
+            wall = grid.wall
+            if widget is not None and (widget is wall or wall.isAncestorOf(widget)):
+                grid.show_drag_guide(self.mime, wall.mapFromGlobal(self.position))
+                if grid.interactive() and (self.mime.hasFormat(GRID_GRAB_MIME)
+                                           or self.mime.hasFormat(DANMAKU_CELL_MIME)):
+                    widget = wall
+            else:
+                grid.hide_drag_guide()
         candidate = None
         while widget is not None:
             if widget.acceptDrops() and widget.isEnabled():
@@ -182,7 +220,8 @@ class SidebarDrag(QObject):
         try:
             hovered = type(self.target).__name__ if self.target is not None else 'none'
             # Exclude our transparent top-level from Qt's mask-based widgetAt lookup.
-            self.ghost.hide()
+            if self.ghost is not None:
+                self.ghost.hide()
             self._update_target()  # Release position wins over the last throttled move.
             target = self.target
             drop = self._event(QDropEvent, target) if target is not None else None
@@ -210,7 +249,10 @@ class SidebarDrag(QObject):
             self.owner.releaseMouse()
         if QWidget.keyboardGrabber() is self.owner:
             self.owner.releaseKeyboard()
-        self.ghost.hide()
+        if self.ghost is not None:
+            self.ghost.hide()
+        if self.snap_grid is not None:
+            self.snap_grid.hide_drag_guide()
 
     def _cleanup(self):
         source, self.source = self.source, None
@@ -222,12 +264,22 @@ class SidebarDrag(QObject):
                 source._press_pos = None
                 if hasattr(source, 'setDown'):
                     source.setDown(False)
-            self.ghost.deleteLater()
-            self.ghost = None
+            if self.ghost is not None:
+                self.ghost.deleteLater()
+                self.ghost = None
+            self.snap_grid = None
             folder = self.mime.hasFormat(FOLDER_MIME)
-            tile = self.mime.hasFormat(TILE_MIME)
+            wall_pane = self.mime.hasFormat(TILE_MIME) or self.mime.hasFormat(DANMAKU_CELL_MIME)
+            plugin = self.plugin_owner is not None
+            callback, self.on_finished = self.on_finished, None
+            self.plugin_owner = None
+            self.area = None
             self.mime = self.owner = None
-            if folder:
-                self.sidebar.end_folder_drag()
-            elif not tile:
-                self.sidebar.end_drag()
+            try:
+                if folder:
+                    self.sidebar.end_folder_drag()
+                elif not wall_pane and not plugin:
+                    self.sidebar.end_drag()
+            finally:
+                if callback is not None and source is not None and isValid(source):
+                    callback()

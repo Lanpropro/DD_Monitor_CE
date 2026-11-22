@@ -206,7 +206,7 @@ class SidebarEvidence(QObject):
             if button is None:
                 missing += 1
             order.append((button, True))
-            folded = folder['collapsed'] and (not words or fid in sidebar._folders_folded_by_drag)
+            folded = sidebar.folder_control.is_folded(folder)
             if folded:
                 continue
             if copies:

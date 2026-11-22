@@ -7,7 +7,7 @@
 免费、开源的 Windows 多窗口直播观看与监控工具。
 
 ![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-0.8%20Hotfix%202-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
+[![版本](https://img.shields.io/badge/版本-0.9-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/v0.9)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
 [下载软件](#下载) · [移动端项目](https://github.com/Lanpropro/DD_Monitor_Mobile) · [快速开始](#快速开始) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
@@ -18,16 +18,16 @@
 
 将多个直播间集中放进同一面画面墙，自由安排布局，逐路控制画质、声音和弹幕。
 
-本体支持 B 站，可通过独立插件接入其他直播平台、导入 IPTV 频道，或扩展比赛二路和直播互动。软件免费使用，无付费解锁功能。
+本体支持 B 站播放、弹幕发送、表情和礼物，可通过独立插件接入其他直播平台、导入 IPTV 频道，或扩展比赛二路。软件免费使用，无付费解锁功能。
 
-![DD监控室CE 横屏画面墙](docs/overview4_Landscape_mode.png)
+![DD监控室CE 横屏画面墙](docs/assets/screenshots/overview4_Landscape_mode.png)
 
 <details>
 <summary>查看弹幕布局与竖屏布局</summary>
 
-![弹幕布局](docs/overview5_Landscape_mode.png)
+![弹幕布局](docs/assets/screenshots/overview5_Landscape_mode.png)
 
-![竖屏布局](docs/overview2_Portrait_Mode.png)
+![竖屏布局](docs/assets/screenshots/overview2_Portrait_Mode.png)
 
 </details>
 
@@ -42,6 +42,7 @@
 | 逐路控制 | 独立画质、音量与静音，左右声道路由，全局与单窗口编解码设置 |
 | 画中画 | 可与主画面墙同时播放，独立调整小窗布局和音量 |
 | 弹幕观看 | 独立弹幕格与滚动画面弹幕，可调字体、字号、颜色及缩放曲线，支持屏蔽词过滤 |
+| B 站直播互动 | 弹幕发送、表情选择与礼物互动 |
 | 录制回放 | 每路独立录制、保存最近数分钟的即时回放，原始流直存与显卡重编码 |
 | 外观主题 | 深浅主题、自定义图片或静音视频背景、皮肤与美化插件 |
 | 软件更新 | 本体与插件独立更新，软件内置更新入口 |
@@ -61,11 +62,9 @@
 | 海外直播平台 | 按需安装 Twitch、YouTube 和 CHZZK 扩展 |
 | IPTV Play | 导入本地 M3U 文件或在线频道列表，在画面墙观看频道 |
 | 比赛二路同步 | 多路比赛画面对齐、声音与弹幕合并 |
-| B 站直播互动 | 弹幕发送、表情选择与礼物互动 |
 | B 站稍后再看 | 在侧栏浏览和播放账号的稍后再看列表 |
-| 网络代理 | 导入订阅与节点，按需启动内置代理内核 |
 
-平台与互动插件不随本体内置，可从软件内的插件商店获取。具体能力及兼容要求以插件说明为准。
+可在软件内的插件商店获取上表所列扩展。具体能力及兼容要求以插件说明为准。
 
 抖音关注读取完成后会进入软件内的勾选菜单，可搜索并选择文件夹导入。未开播、暂时取不到房间号的账号也可直接勾选导入，无需寻找直播间链接；导入后随状态刷新自动查找直播间。补充识别支持进度显示与停止后继续，不会自动播放。
 
@@ -73,15 +72,13 @@
 
 ## 下载
 
-当前已发布版本 **0.8**（Hotfix 2，内部修订号 2），支持 **Windows 10 / 11 64 位**。
+当前已发布版本 **0.9**，支持 **Windows 10 / 11 64 位**。
 
-[查看本次更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/v0.8)。
+[查看本次更新说明](docs/releases/RELEASE-v0.9.md)。
 
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.8/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.8/DDMonitorCE-v0.8-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
+[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.9/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.9/DDMonitorCE-v0.9-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
 安装版与便携版均无需安装 Python。已安装 0.8 的用户可打开「设置 → 软件更新」检查更新，也可下载新安装包覆盖升级。
-
-从本分支源码自行打包时，本地候选版本 **0.7.3**。
 
 ## 快速开始
 
@@ -91,7 +88,9 @@
 
 ## 文档
 
-[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/skins.md) · [直播间组合](docs/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
+[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/features/skins.md) · [直播间组合](docs/features/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
+
+可离线试用界面交互样例，并查看 Qt 外观对照。 [界面控件图鉴与设计参考](docs/references/ui-control-library-draft.md)
 
 ## 贡献者
 

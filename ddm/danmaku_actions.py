@@ -1,9 +1,11 @@
 """Shared floating actions for one comment and its room-bound input control."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QPushButton, QToolTip
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QToolTip
 
 from . import theme
+from .danmaku_filter import event_blocked, user_identity
+from .ui import ActionButton
 
 
 def comment_hover_color():
@@ -23,16 +25,22 @@ class CommentToolbar(QDialog):
         self.block_user_action = QAction('屏蔽用户', self)
         self.command_actions = [self.copy_action, self.repeat_action, self.block_action, self.block_user_action]
         self.chosen = None
-        layout = QHBoxLayout(self)
+        shell = QHBoxLayout(self)
+        shell.setContentsMargins(0, 0, 0, 0)
+        surface = QFrame(self, objectName='CommentToolbarSurface')
+        shell.addWidget(surface)
+        layout = QHBoxLayout(surface)
         layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
-        self.copy_button = self._button(self.copy_action, self)
-        self.repeat_button = self._button(self.repeat_action, self)
+        layout.setSpacing(3)
+        self.copy_button = self._button(self.copy_action, surface)
+        self.repeat_button = self._button(self.repeat_action, surface)
         layout.addWidget(self.copy_button)
         layout.addWidget(self.repeat_button)
-        layout.addSpacing(6)
-        self.block_button = self._button(self.block_action, self)
-        self.block_user_button = self._button(self.block_user_action, self)
+        separator = QFrame(surface, objectName='CommentToolbarSeparator')
+        separator.setFixedSize(1, 18)
+        layout.addWidget(separator, 0, Qt.AlignVCenter)
+        self.block_button = self._button(self.block_action, surface)
+        self.block_user_button = self._button(self.block_user_action, surface)
         layout.addWidget(self.block_button)
         layout.addWidget(self.block_user_button)
         self.refresh_theme()
@@ -59,23 +67,21 @@ class CommentToolbar(QDialog):
 
     def refresh_theme(self):
         color = theme.qcolor(theme.ELEVATED)
-        background = f'rgba({color.red()}, {color.green()}, {color.blue()}, 230)'
+        background = f'rgba({color.red()}, {color.green()}, {color.blue()}, 250)'
         self.setStyleSheet(f'''
             #CommentToolbar {{background: transparent; border: none;}}
-            #CommentToolbar QWidget {{background: transparent;}}
-            #CommentToolbar QPushButton {{background: {background}; color: {theme.TEXT1};
-                border: 1px solid {theme.BORDER_STRONG}; border-radius: 8px; padding: 0 10px;}}
-            #CommentToolbar QPushButton:hover {{background: {theme.ACCENT_SOFT}; color: {theme.ACCENT};
-                border-color: {theme.ACCENT};}}
+            #CommentToolbarSurface {{background: {background}; border: 1px solid {theme.BORDER_STRONG};
+                border-radius: 12px;}}
+            #CommentToolbarSeparator {{background: {theme.BORDER_STRONG}; border: none;}}
+            #CommentToolbar QPushButton {{background: transparent; color: {theme.TEXT1};
+                border: none; border-radius: 8px; padding: 0 10px;}}
+            #CommentToolbar QPushButton:hover:!disabled {{background: {theme.CONTENT_HOVER};}}
+            #CommentToolbar QPushButton:pressed {{background: {theme.BORDER};}}
             #CommentToolbar QPushButton:disabled {{color: {theme.TEXT4};}}
         ''')
 
     def _place(self, position):
-        self.adjustSize()
-        screen = QApplication.screenAt(position) or self.screen()
-        area = screen.availableGeometry()
-        self.move(max(area.left(), min(position.x(), area.right() - self.width() + 1)),
-                  max(area.top(), min(position.y(), area.bottom() - self.height() + 1)))
+        _place_at(self, position)
 
     def popup(self, position):
         self._place(position)
@@ -87,7 +93,51 @@ class CommentToolbar(QDialog):
         return self.chosen
 
 
-def show_comment_menu(parent, message, controls, position, finished=None):
+def _place_at(widget, position):
+    widget.adjustSize()
+    screen = QApplication.screenAt(position) or widget.screen()
+    area = screen.availableGeometry()
+    widget.move(max(area.left(), min(position.x(), area.right() - widget.width() + 1)),
+                max(area.top(), min(position.y(), area.bottom() - widget.height() + 1)))
+
+
+class CommentUndoNotice(QFrame):
+    def __init__(self, parent, position, label, undo):
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self.setObjectName('CommentUndoNotice')
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        surface = QFrame(self, objectName='CommentToolbarSurface')
+        surface.setStyleSheet(f'#CommentToolbarSurface {{background: {theme.ELEVATED}; '
+                              f'border: 1px solid {theme.BORDER_STRONG}; border-radius: 12px;}}')
+        layout.addWidget(surface)
+        row = QHBoxLayout(surface)
+        row.setContentsMargins(12, 5, 5, 5)
+        self.message = QLabel('已' + label, surface)
+        row.addWidget(self.message)
+        self.undo = ActionButton('撤回', surface)
+        self.undo.setAccessibleName('撤回' + label)
+        self.undo.clicked.connect(self._undo)
+        row.addWidget(self.undo)
+        self._reverse = undo
+        self._label = label
+        self.timer = QTimer(self, singleShot=True)
+        self.timer.timeout.connect(self.close)
+        _place_at(self, position)
+        self.show()
+        self.timer.start(10000)
+
+    def _undo(self):
+        self.message.setText(('已撤回' if self._reverse() else '无法撤回') + self._label)
+        self.undo.hide()
+        self.adjustSize()
+        self.timer.start(2500)
+
+
+def show_comment_menu(parent, message, controls, position, finished=None, restore=None):
     event = dict(message) if isinstance(message, dict) else {'text': str(message)}
     text = str(event.get('text') or '')
     room_id = str(event.get('room_id') or (controls.room_id() if controls is not None else
@@ -100,7 +150,6 @@ def show_comment_menu(parent, message, controls, position, finished=None):
     menu.repeat_button.setToolTip(repeat.toolTip())
     repeat.setEnabled(bool(controls is not None and (text or event.get('dm_type') == 1)
                            and controls.can_repeat(event)))
-    from .danmaku_filter import user_identity
     identity = user_identity(event, room_id)
     block.setEnabled(blocker is not None and bool(text.strip()))
     block_user.setEnabled(blocker is not None and identity is not None)
@@ -114,8 +163,20 @@ def show_comment_menu(parent, message, controls, position, finished=None):
             if menu.chosen is repeat and not controls.repeat_message(event, room_id):
                 QToolTip.showText(position, '当前房间的发送入口不可用，请检查登录状态或发送控件。', parent)
             if menu.chosen is block or menu.chosen is block_user:
-                if blocker.block(event, room_id, user=menu.chosen is block_user):
-                    QToolTip.showText(position, '已屏蔽，可在设置 → 弹幕中管理', parent)
+                reverse = blocker.block(event, room_id, user=menu.chosen is block_user)
+                if reverse:
+                    hidden = event_blocked(event, room_id, blocker.host.settings)
+                    def undo():
+                        removed = reverse()
+                        if (removed and hidden and restore is not None
+                                and not event_blocked(event, room_id, blocker.host.settings)):
+                            restore()
+                        return removed
+                    owner = parent.window()
+                    for previous in owner.findChildren(CommentUndoNotice):
+                        if previous.isVisible():
+                            previous.close()
+                    CommentUndoNotice(parent, position, menu.chosen.text(), undo)
         finally:
             if finished is not None:
                 finished()

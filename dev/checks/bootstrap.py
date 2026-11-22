@@ -1,4 +1,6 @@
 """在独立进程运行专项脚本，保留相邻导入与 Windows Qt 清理顺序。"""
+from contextlib import nullcontext
+from importlib.util import find_spec
 import ipaddress
 import os
 from pathlib import Path
@@ -28,24 +30,26 @@ def require_local_network(event, arguments, denied):
 
 
 def install_native_stack():
-    """Opt-in CI helper; return the DLL to keep its exception handler loaded."""
-    path = os.environ.get('DDM_CHECK_NATIVE_STACK_DLL')
-    if sys.platform != 'win32' or not path:
-        return None
-    import ctypes
-    helper = ctypes.CDLL(path)
-    helper.install.argtypes = []
-    helper.install.restype = ctypes.c_int
-    if not helper.install():
-        raise RuntimeError('Could not install check-process native stack capture')
-    return helper
+    from ddm.check_diagnostics import install_native_stack as install
+    return install()
+
+
+def native_qt_dll_directory():
+    if sys.platform == 'win32' and os.environ.get('QT_QPA_PLATFORM') == 'windows':
+        binding = find_spec('PySide6')
+        if binding is not None and binding.origin:
+            # The QML plugin loader also needs the binding's sibling Qt DLLs.
+            return os.add_dll_directory(str(Path(binding.origin).parent))
+    return nullcontext()
 
 
 def main():
-    native_stack = install_native_stack()
     path = Path(sys.argv.pop(1)).resolve()
     sys.argv[0] = str(path)
     sys.path[:0] = [str(path.parent), str(Path(__file__).resolve().parents[2])]
+    from ddm.check_diagnostics import start
+    evidence = start(path.name)
+    native_stack = evidence.native_stack if evidence is not None else install_native_stack()
     denied = []
     if os.environ.get('DDM_CHECK_MODE') == 'offline':
         sys.addaudithook(lambda event, arguments: require_local_network(event, arguments, denied))
@@ -56,17 +60,32 @@ def main():
         cookie = ctypes.c_void_p()
         ctypes.windll.ole32.CoIncrementMTAUsage(ctypes.byref(cookie))
     try:
+        if evidence is not None:
+            evidence.record('script.begin')
         runpy.run_path(str(path), run_name='__main__')
+    except BaseException as error:
+        if evidence is not None:
+            evidence.error('script.exit', type(error), error.__traceback__)
+            if isinstance(error, SystemExit):
+                evidence.record('exit-code', code=error.code if isinstance(error.code, (int, type(None))) else 1)
+        raise
     finally:
+        if evidence is not None:
+            evidence.record('qt.shutdown.begin')
         widgets = sys.modules.get('PySide6.QtWidgets')
         app = widgets.QApplication.instance() if widgets is not None else None
         if app is not None:
             app.shutdown()
+        if evidence is not None:
+            evidence.record('qt.shutdown.end')
         if sys.platform == 'win32':
             ctypes.windll.ole32.CoDecrementMTAUsage(cookie)
+        if evidence is not None:
+            evidence.record('cleanup.end')
         if denied:
             raise RuntimeError(f'Offline check attempted external network access {len(denied)} time(s)')
 
 
 if __name__ == '__main__':
-    main()
+    with native_qt_dll_directory():
+        main()

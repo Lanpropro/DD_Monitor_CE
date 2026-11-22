@@ -9,7 +9,10 @@ import time
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QRect, QTimer, Signal
 
 PREFIX = 'DDM_SETTINGS:'
-HOST_PAGES = {1: 'appearance', 7: 'plugins', 8: 'updates'}
+from .settings_pages import PAGE_INDEX
+
+
+HOST_PAGES = {PAGE_INDEX[key]: key for key in ('appearance', 'recording', 'plugins', 'updates')}
 
 
 def _save_trace(stage, started=None):
@@ -28,18 +31,29 @@ def _allow_foreground(pid):
         return ctypes.windll.user32.AllowSetForegroundWindow(ctypes.c_ulong(pid))
 
 
+def host_layout_context(window):
+    """Send the host screen work area in Qt logical coordinates."""
+    from PySide6.QtWidgets import QWidget
+    context = {'portrait': getattr(window, 'orientation', '') == 'portrait'}
+    if isinstance(window, QWidget):
+        context['work_area'] = window.screen().availableGeometry().getRect()
+    return context
+
+
 def _activate_dialog(dialog):
     from PySide6.QtWidgets import QApplication
+    from .settings_performance import measure
     if dialog.isMinimized():
-        dialog.showNormal()
+        measure('window.show', dialog.showNormal)
     else:
-        dialog.show()
+        measure('window.show', dialog.show)
     target = QApplication.activeModalWidget() or dialog
-    target.raise_()
-    target.activateWindow()
+    measure('window.raise', target.raise_)
+    measure('window.activate', target.activateWindow)
     if sys.platform == 'win32':
         import ctypes
-        ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(int(target.winId())))
+        measure('window.foreground', ctypes.windll.user32.SetForegroundWindow,
+                ctypes.c_void_p(int(target.winId())))
 
 
 def worker_command():
@@ -60,6 +74,8 @@ class SettingsProcess(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        from .settings_performance import install
+        install('host')
         self.process = QProcess(self)
         self.process.readyReadStandardOutput.connect(self._read)
         self.process.readyReadStandardError.connect(self._stderr)
@@ -107,12 +123,13 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts, sc_preview_context=None):
+    def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None):
         if self.closing:
             return
+        context = host_layout_context(self.parent())
         if self.visible:
             _allow_foreground(self.worker_pid)
-            self._send({'kind': 'focus'})
+            self._send({'kind': 'focus', **context})
             return
         if self.pending is not None:
             return
@@ -121,6 +138,8 @@ class SettingsProcess(QObject):
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
             'shortcuts': dict(shortcuts)}
         self.pending['sc_preview_context'] = sc_preview_context or {}
+        self.pending.update(context)
+        self.pending['streamer_rooms'] = streamer_rooms or {}
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
             self.pending['owner_hwnd'] = int(self.parent().window().winId())
@@ -197,6 +216,8 @@ class SettingsProcess(QObject):
                 self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
             elif kind == 'auto-save' and not self.closing:
                 self.autoSaveRequested.emit(message)
+            elif kind == 'streamer-quality' and not self.closing:
+                self.hostRequest.emit(message)
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False
@@ -209,7 +230,7 @@ class SettingsProcess(QObject):
                         self.saved.emit(message['changes'])
                 self.closed.emit()
                 _save_trace('host.result.applied', started)
-            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden', 'host-retry', 'host-flush') and not self.closing:
+            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden', 'host-retry', 'host-flush', 'host-wheel') and not self.closing:
                 started = _save_trace('host.save.received') if kind == 'host-save' else None
                 self.hostRequest.emit(message)
                 if started is not None:
@@ -241,6 +262,18 @@ class SettingsProcess(QObject):
 
     def stop(self):
         self.closing = True
+        if sys.platform == 'win32' and self.window_hwnd and self.worker_pid:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(self.window_hwnd, ctypes.byref(pid))
+            if pid.value == self.worker_pid:
+                # Hide independently of the JSON pipe while the host is busy
+                # releasing players; never wait for the worker's GUI thread.
+                user32.ShowWindowAsync.argtypes = (wintypes.HWND, ctypes.c_int)
+                user32.ShowWindowAsync(self.window_hwnd, 0)
         self.window_hwnd = 0
         self._set_occlusion(QRect(), force=self.visible)
         self.start_timer.stop()

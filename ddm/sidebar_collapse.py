@@ -28,6 +28,9 @@ class SidebarCollapse:
         host = self.host
         if collapsed == host.collapsed:
             return
+        editor = getattr(host, 'room_add_panel', None)
+        if editor is not None:
+            editor.close_editor()
         if host.side == "top":
             host.collapsed = collapsed
             # 竖屏：宽度始终撑满，收起/展开只影响露出哪些控件。
@@ -44,28 +47,35 @@ class SidebarCollapse:
         items = host._items
         host.setUpdatesEnabled(False)
         host._collapse_animating = True
-        host.collapseAnimationChanged.emit(True)
-        prepared = False
         try:
+            try:
+                host.collapseAnimationChanged.emit(True)
+                for item in items:
+                    item.thumb.stop()
+                    item.thumb.set_cover_hold(True)
+                host.collapsed = collapsed
+                host._apply_collapsed_controls()
+                host._finish_collapse(
+                    (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
+            finally:
+                # 宽度确定后先重排画面墙，再准备可见封面并释放侧栏绘制。
+                host._collapse_animating = False
+                host.collapseAnimationChanged.emit(False)
+            host._outer_layout.activate()
+            host._layout.activate()
+            host.list_box.relayout(animate=False)
             for item in items:
-                item.thumb.stop()
-                item.thumb.set_cover_hold(True)
-            host.collapsed = collapsed
-            host._apply_collapsed_controls()
-            host._finish_collapse(
-                (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH) + RAIL_WIDTH)
-            prepared = True
+                item.layout().activate()
+                item.thumb.set_cover_hold(False)
+                if not item.thumb.visibleRegion().isEmpty():
+                    item.thumb.refresh_cover()
+                item.thumb.update()
+            for card in host._smart_cards.values():
+                card.update()
         finally:
-            host._collapse_animating = False
             for item in items:
                 item.thumb.set_cover_hold(False)
-            try:
-                host.setUpdatesEnabled(updates_enabled)
-                if prepared and updates_enabled and host.isVisible():
-                    # 左栏完整绘制后才调整原生视频窗口，避免缩放开销卡住左栏显示。
-                    host.repaint()
-            finally:
-                host.collapseAnimationChanged.emit(False)
+            host.setUpdatesEnabled(updates_enabled)
         host.collapsedChanged.emit(collapsed)
 
     def apply_collapsed_controls(self) -> None:
@@ -93,22 +103,10 @@ class SidebarCollapse:
         host.list_box.relayout(animate=False)
 
     def finish_collapse(self, target: int) -> None:
-        """恢复绘制前完成最终几何与可见封面，屏外封面滚入时再补。"""
+        """把最终宽度提交到关注栏和画面墙的共用布局。"""
         host = self.host
         host.setFixedWidth(target)
         if host.parentWidget() is not None:
             layout = host.parentWidget().layout()
             if layout is not None:
                 layout.activate()
-        host._outer_layout.activate()
-        host._layout.activate()
-        host._collapse_animating = False
-        host.list_box.relayout(animate=False)
-        for item in host._items:
-            item.layout().activate()
-            item.thumb.set_cover_hold(False)
-            if not item.thumb.visibleRegion().isEmpty():
-                item.thumb.refresh_cover()
-            item.thumb.update()
-        for card in host._smart_cards.values():
-            card.update()

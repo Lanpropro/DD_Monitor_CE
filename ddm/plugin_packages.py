@@ -1,10 +1,12 @@
 """Plugin package installation, removal and catalog; runtime manager owns loaded instances and settings."""
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
 import zipfile
 from .plugin_manifest import (PLUGIN_ID, PLUGIN_INVENTORY, RETIRED_BUNDLED_PLUGINS, RENAMED_PLUGINS, read_manifest)
+from .plugin_icons import package_icon
 
 
 class PluginPackages:
@@ -53,6 +55,8 @@ class PluginPackages:
                 with open(inventory, 'w', encoding='utf-8-sig') as output:
                     output.write('\n'.join(sorted('/'.join(parts[1:]) for parts in names)) + '\n')
                 replace_directory(os.path.join(staging, plugin_id), target)
+        from .plugin_replacements import inherit_settings
+        inherit_settings(host, plugin_id, read_manifest(target, plugin_id))
         if host.enabled is not None:
             host.enabled.add(plugin_id)
             host.save_plugin_settings()
@@ -96,6 +100,8 @@ class PluginPackages:
         skipped = dict(host.skipped)
         entries = []
         for folder in sorted(os.listdir(host.plugins_dir)):
+            if folder in getattr(host, '_replaced_plugins', ()):
+                continue
             if folder.startswith((".", "_")) or folder in RETIRED_BUNDLED_PLUGINS or not os.path.isfile(
                     os.path.join(host.plugins_dir, folder, "plugin.py")):
                 continue
@@ -115,6 +121,7 @@ class PluginPackages:
                 "name": manifest["name"] if manifest else (str(plugin.name or folder) if plugin else folder),
                 "description": manifest["description"] if manifest else (str(plugin.description or "") if plugin else ""),
                 "version": manifest["version"] if manifest else (str(plugin.version or "") if plugin else ""),
+                "icon_png": package_icon(Path(host.plugins_dir) / folder, manifest.get("icon")) if manifest else "",
                 "enabled": host.enabled is None or folder in host.enabled,
                 "status": "已加载" if plugin else (
                     "已禁用" if reason == "配置里没有启用" else

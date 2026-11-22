@@ -2,17 +2,18 @@
 from pathlib import Path
 import subprocess
 import sys
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices, QPainter
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QMenu, QWidget
 from . import motion, theme
 from .update_notice import UpdateNotice, _notifications_hidden
-from .update_notice import _notifications_hidden
 
 
 class ResultNotice(UpdateNotice):
     """顶部通知卡片：不抢焦点，按提示类型自动收起。"""
+    _slide_distance = 12
+
     def __init__(self, parent):
         super().__init__(parent)
         from .room_artwork import RoomArtwork
@@ -130,10 +131,11 @@ class ResultNotice(UpdateNotice):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if self.artwork.source is not None:
-            from .room_artwork import paint_room_background, notice_frost
+        from .room_artwork import paint_room_background, notice_frost, notice_source
+        source = notice_source(self, self.artwork)
+        if source is not None:
             painter = QPainter(self)
-            paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
+            paint_room_background(painter, self.rect(), source, theme.RADIUS_LG,
                                   focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
 
     def set_room_avatar(self, room_id, pixmap):
@@ -157,12 +159,12 @@ class ResultNotice(UpdateNotice):
         self.title.setWordWrap(not bool(self._file_path))
         self.title.setText(self._file_message)
         self.category.setText(('正在导出' if pending else '导出失败' if kind == 'warning' else '已完成') if self._file_path else
-                              {'live': '开播提醒', 'warning': '需要留意'}.get(kind, '操作提示'))
+                              {'live': '开播提醒', 'warning': '需要留意', 'announcement': '官方公告'}.get(kind, '操作提示'))
         self.action.setVisible(pending or self._on_click is not None)
         self.action.setEnabled(not pending)
         self.action.setText('正在导出…' if pending else '打开文件位置' if self._file_path else
                             (live_notice_action(self.parentWidget()) if kind == 'live' else
-                             ('前往登录' if '登录' in message else '查看详情')))
+                             ('前往登录' if kind != 'announcement' and '登录' in message else '查看详情')))
         self._set_rooms(rooms)
         symbol, colour = {'live': ('●', theme.PINK),
                           'warning': ('!', '#e8b86d')}.get(kind, ('i', theme.ACCENT))
@@ -193,11 +195,6 @@ class ResultNotice(UpdateNotice):
     def _motion_frame(self, value):
         self._progress = value
         self.reposition()
-
-    def reposition(self):
-        parent = self.parentWidget()
-        offset = round(-12 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
 
 
 def show_result(parent, message, rooms=(), *, kind='info', on_click=None, persistent=False,

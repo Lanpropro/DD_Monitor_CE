@@ -54,3 +54,32 @@
 实际验证：repository_map 的 4 项、repository_files 的 3 项，及 README、外观设计、发布元数据、二维码刷新、B站画质、文件夹图标、浅色细节共 7 个专项脚本均通过；git diff --check 通过。
 浅色细节在 Qt offscreen 首次运行时窗口位置断言失败，原生 Windows 屏外测试复核通过；未修改该测试断言。
 EXE 文档复制验证实际执行发布脚本中的复制片段，未构建完整安装包；没有运行依赖已有发布包的 check_release_package.py。
+
+## 2026-11-16：退役两份打印脚本
+
+本批在保全原件后移除 `dev/selfcheck_slots.py` 与 `dev/selfcheck_delete.py`。两者仅打印结果、末尾使用 `os._exit(0)`，不参与套件、启动、构建或其他脚本导入；已同步修正专项索引与文件清单。Git 父提交与本机备份保留完整原件。
+
+| 原脚本 | 保留的覆盖与入口 |
+| --- | --- |
+| `selfcheck_slots.py` | `selfcheck_layout_16` 断言九分、十六分、两分的格子与空位数量、房间对象和顺序、可见性及“拖入直播间”提示。旧脚本的自动布局切换属于已从菜单移除的历史入口；不重新引入该功能。 |
+| `selfcheck_delete.py` | `MainNoticesTests.test_batch_delete_removes_selected_follows_without_new_windows` 实际点击多选勾选框与删除按钮，断言只删所选关注、无新可见顶层窗口、未选房间与保存状态正确、格子数量保留。 |
+
+真实画质诊断 `selfcheck_quality.py` 继续保留且不在本轮运行；`check_preview_live.py`、`check_emoticon_live.py` 和 `check_medal_size.py` 虽没有直接使用 assert，仍有实际结果判定和失败退出码，不能按这个筛选条件删除。本机工作树、未合入成果、历史失败与人工验收记录也继续保留。
+
+
+## 2026-11-16：迁移过时的播放检测接口
+
+后续复核发现四份保留脚本仍调用 VLC API，与当前 `mpv.MPV` 核心不匹配。它们的独有场景继续保留，迁移播放接口并隔离配置、缓存、插件及后台任务，没有删除产品功能或减少断言。
+
+| 脚本 | 本批处理 |
+| --- | --- |
+| [check_preview_live](../../dev/check_preview_live.py) | 使用 libmpv 抓帧，保留像素检查并增加预览可见／静音断言；显式选择房间或本地视频，移除默认读取真实账号配置的行为及旧命令路径。 |
+| [selfcheck_native_control_hit](../../dev/selfcheck_native_control_hit.py) | 本地视频分支改用当前起播判定；固定屏外测试的悬停显示状态，保留四种布局的 Win32 命中与实际按钮消息断言。 |
+| [selfcheck_corner_resize_live](../../dev/selfcheck_corner_resize_live.py) | 使用当前播放时间、解码进度与视频输出属性，保留六路拖动／全屏／换位／组合／全部预设以及核心、媒体和 HWND 身份检查。 |
+| [repro_d3d_quality](../../dev/repro_d3d_quality.py) | 画质／暂停／音量／重载／关闭链路保留；快照时间仍输出毫秒，宽高使用当前媒体属性；退出前清理隔离临时数据。 |
+
+另外移除 `selfcheck_corner_resize`、`selfcheck_startup_wmi` 中无效的 VLC 库路径设置；`selfcheck_update_install` 将“设置不存在的 VLC 路径”改为在真实更新助手子进程中断言未导入 Qt、mpv、VLC 或 `ddm.player`，并检查成功标记与原失败退出码。历史 VLC 包清理与拒绝旧库的测试仍保留。
+
+最新 `develop` 基线 `d46b56a1` 上的本地媒体七项通过：预览、原生命中、六路拖动，以及软件解码 added／saved／expand_drag 和指定 D3D11VA 的 added 场景。根开发版预览、原生命中、软件解码 added 通过；根与隔离分支的纯几何、两项 WMI 导入和更新助手检查通过，根 `run.cmd --check-window-layout` 三项通过。
+
+根开发版六路检查曾在主窗口初始化阶段触发 `QWidgetItem.unpolish`，未到播放断言；保留该失败，不以其他基线通过覆盖，也不在本批修改产品或 Qt。四份工具仍为单项，执行条件见[本地视频专项](../development/testing.md#本地视频专项)。未运行真实账号、真实直播、可见屏幕采样或全量 smoke，不将合成媒体结果作为真实性能或人工验收结论。

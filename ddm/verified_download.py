@@ -1,5 +1,6 @@
 """Cancellable file download with size/hash verification and bounded transport retries."""
 import hashlib
+import logging
 import os
 from pathlib import Path
 import time
@@ -17,10 +18,13 @@ def download(offer, destination, client, cancelled=lambda: False, progress=lambd
                 raise InterruptedError('下载已取消')
             digest, received = hashlib.sha256(), 0
             progress(0, offer['size'])
+            started = time.monotonic()
             try:
                 # 每次从官方地址重新取得重定向，不复用 CDN 的临时签名地址。
                 with client.get(offer['url'], stream=True, timeout=(5, 15)) as response:
                     response.raise_for_status()
+                    logging.getLogger(__name__).info('Update download connected: attempt=%s connect_seconds=%.3f bytes=%s',
+                                                     attempt + 1, time.monotonic() - started, offer['size'])
                     with partial.open('wb') as output:
                         for chunk in response.iter_content(128 * 1024):
                             if cancelled():
@@ -38,9 +42,13 @@ def download(offer, destination, client, cancelled=lambda: False, progress=lambd
                 if received != offer['size'] or digest.hexdigest() != offer['sha256']:
                     raise ValueError('安装包完整性校验失败，请重新下载')
                 os.replace(partial, destination)
+                logging.getLogger(__name__).info('Update download verified: bytes=%s seconds=%.3f attempts=%s',
+                                                 received, time.monotonic() - started, attempt + 1)
                 return str(destination)
             except (requests.ConnectionError, requests.Timeout,
-                    requests.exceptions.ChunkedEncodingError):
+                    requests.exceptions.ChunkedEncodingError) as error:
+                logging.getLogger(__name__).warning('Update download interrupted: attempt=%s bytes=%s seconds=%.3f error=%s',
+                    attempt + 1, received, time.monotonic() - started, type(error).__name__)
                 partial.unlink(missing_ok=True)
                 if cancelled():
                     raise InterruptedError('下载已取消')

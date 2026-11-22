@@ -106,6 +106,7 @@ class CredentialTests(unittest.TestCase):
         from ddm import config
         from ddm.app import MainWindow
         with tempfile.TemporaryDirectory() as root, patch.object(config, 'CONFIG_PATH', str(Path(root) / 'state.json')), \
+                patch.object(api, 'DEFAULT_PLUGINS_DIR', str(Path(root) / 'plugins')), \
                 patch.object(bili, 'SESSION_DATA', ''), patch.object(bili, 'BILI_JCT', ''), patch.object(bili, 'BUVID3', ''), \
                 patch('ddm.app.QTimer.singleShot'), patch.dict(os.environ, {'DDM_NO_SAVE': ''}):
             window = MainWindow([], [], layout_id='1x1', state={
@@ -129,6 +130,8 @@ class InteractionTests(unittest.TestCase):
     def test_active_interaction_protects_shortcuts_on_another_tile(self):
         from ddm.app import MainWindow
         with ExitStack() as stack:
+            plugin_root = stack.enter_context(tempfile.TemporaryDirectory())
+            stack.enter_context(patch.object(api, 'DEFAULT_PLUGINS_DIR', plugin_root))
             for method in ('refresh_status', 'refresh_stats', 'refresh_account',
                            'sync_danmaku', 'stop_danmaku', 'load_room_avatars', '_check_startup_update'):
                 stack.enter_context(patch.object(MainWindow, method))

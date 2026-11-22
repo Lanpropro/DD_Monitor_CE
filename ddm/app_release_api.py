@@ -7,6 +7,31 @@ from .update_version import app_tag, update_key, version_key
 from .release_repository import APP_REPOSITORY, releases, asset_info, latest_manifest, manifest_offer
 
 
+def _repair_manifest_asset(client, offer):
+    """Resolve a renamed EXE asset while preserving manifest hash/size checks."""
+    tag = offer.get('release_tag')
+    if not tag:
+        return offer
+    try:
+        with client.get(f'https://api.github.com/repos/{APP_REPOSITORY}/releases/tags/{tag}',
+                        timeout=(5, 15)) as response:
+            response.raise_for_status()
+            release = response.json()
+    except (requests.RequestException, IndexError):
+        return offer
+    assets = release.get('assets', []) if isinstance(release, dict) else []
+    if any(asset.get('name') == offer.get('name') and
+           asset.get('browser_download_url') == offer.get('url') for asset in assets):
+        return offer
+    matches = [asset for asset in assets
+               if asset.get('name', '').lower().endswith('-exe.zip')
+               and asset.get('size') == offer.get('size')
+               and asset.get('digest') == 'sha256:' + offer.get('sha256', '')]
+    if len(matches) == 1:
+        offer.update(asset_info(matches[0], APP_REPOSITORY))
+    return offer
+
+
 def release_notes(client, release_version, release_tag=None):
     from . import online as api
     version_key(release_version)
@@ -32,6 +57,7 @@ def app_release(client, current_version, current_revision=0):
         manifest = None
     if manifest is not None:
         offer = api.manifest_offer(manifest, api.APP_REPOSITORY)
+        offer = _repair_manifest_asset(client, offer)
         if update_key(offer['version'], offer['revision']) <= current:
             return None
         offer.setdefault('notes', '暂无更新说明')

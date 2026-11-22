@@ -116,15 +116,20 @@ class RecordingReplay:
         ffmpeg_path = ffmpeg_binary
         _adopt_process = adopt_process
         _FFMPEG_FLAGS = creation_flags
-        if not parts:
-            host._say(f"{session.name} 没有可导出的录制分段", session.room)
-            return False
         try:
             if full:
                 saved = session.save_recording(parts)
+                additional, error = session.additional_recordings()
+                for path in additional:
+                    host._say('已保存切片素材：' + str(path), session.room)
+                if error:
+                    host._say('切片素材保存失败，原始分段保留：' + error, session.room)
                 if saved is not None:
                     host._say(session.recording_message("saved", saved), session.room)
                     return True
+            if not parts:
+                host._say(f"{session.name} 没有可导出的录制分段", session.room)
+                return False
             primary = session.folder  # 当前录制固定使用启动时选定的目录
             needed = sum(part.stat().st_size for part in parts)
             reserve = max(256, int(session.settings.get("recording_min_free_mb", 2048)))

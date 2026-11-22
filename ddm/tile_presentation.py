@@ -20,7 +20,7 @@ class TilePresentation:
                 or wall.picture_in_picture_tiles is not None):
             return host.width()
         spec = layouts.BY_ID.get(wall.layout_id, {}).get('spec')
-        if spec is None:
+        if spec is None or layouts.snap_grid_size(wall.layout_id):
             return host.width()
         rows, columns, cells = spec
         ratios = wall._layout_ratios.get(wall.layout_id, {})
@@ -127,6 +127,12 @@ class TilePresentation:
         —— 用户报过「竖屏 1+4 里最下面两个格子的 ✕ 点不动」，就是浮层被视频盖住。
         """
         host = self.host
+        if host._interactive_resize:
+            # Hover/control callbacks can request a restack as well as resize.
+            # Keep clipping live and perform one complete repair on settlement.
+            host._resize_raise_pending = True
+            host._update_quick_danmaku_mask()
+            return
         compact = bool(host.property('pictureInPicture'))
         host.video_danmaku.raise_()
         for corner in host.video_corners:
@@ -144,6 +150,8 @@ class TilePresentation:
         border = getattr(wall, '_pane_borders', {}).get(host)
         if border is not None and border.isVisible():
             border.raise_()
+        if host.video_caption is not None:
+            host.video_caption.raise_()
 
     def update_quick_danmaku_mask(self) -> None:
         host = self.host
@@ -156,7 +164,7 @@ class TilePresentation:
         host._cover_source = pixmap
         host._layout_cover()
 
-    def set_interactive_resize(self, active: bool) -> None:
+    def set_interactive_resize(self, active: bool, *, queue_moved_repaint=False) -> None:
         host = self.host
         active = bool(active)
         if active == host._interactive_resize:
@@ -167,7 +175,9 @@ class TilePresentation:
                 host._layout_cover()
                 if host._resize_raise_pending:
                     host.raise_overlays()
-                if host._move_repaint_pending:
+                if queue_moved_repaint and (host._move_repaint_pending or host._move_repaint_timer.isActive()):
+                    host._refresh_moved_overlays(queued=True)
+                elif host._move_repaint_pending:
                     host._move_repaint_timer.start(0)
             host._resize_raise_pending = False
             host._move_repaint_pending = False
@@ -177,10 +187,29 @@ class TilePresentation:
         host = self.host
         host.cover.setGeometry(host.video.rect())
         source = getattr(host, "_cover_source", None)
+        has_cover = bool(source and not source.isNull())
+        button = host.add_room_button
+        replacing = host.can_replace_room()
+        empty = not host.room.get('room_id') and not host._player_active
+        button.setVisible(empty and not host.property('pictureInPicture')
+                          and not host.property('roomDropOnly'))
+        if not button.isHidden():
+            button.adjustSize()
+            button.move(max(0, (host.video.width() - button.width()) // 2),
+                        max(0, (host.video.height() - button.height()) // 2))
+            button.raise_()
+        actions = host.offline_room_actions
+        actions.setVisible(replacing)
+        if replacing:
+            host.offline_room_status.setText(host._status_text or '未开播')
+            actions.adjustSize()
+            actions.move(max(0, (host.video.width() - actions.width()) // 2),
+                         max(0, (host.video.height() - actions.height()) // 2))
+            actions.raise_()
         if host.cover.isHidden():
             return
-        if source and not source.isNull():
-            radius = 0 if host.property('pictureInPicture') else 8
+        if has_cover:
+            radius = 0 if host.wall_seamless or host.property('pictureInPicture') else 8
             key = (source.cacheKey(), host.video.width(), host.video.height(),
                    host.devicePixelRatioF(), bool(host.property("fullscreen")), radius)
             if key == host._cover_key:
@@ -200,13 +229,13 @@ class TilePresentation:
             host._cover_cached = QPixmap()
             host.cover.setScaledContents(False)
             host.cover.setPixmap(QPixmap())
-            if host._player_active or getattr(host, "_connecting", False):
+            if host._player_active or host._connecting or host._status_detail or replacing:
                 host.cover.setText("")        # 播放中 / 连接中都不显示文字，避免和动画重叠
             else:
                 fallback = host.room.get("uname", "") if host.room.get("live") else "未开播"
-                host.cover.setText(host._status_text or fallback)
+                host.cover.setText((host._status_text or fallback) if host.room.get("room_id") else "")
 
-    def refresh_moved_overlays(self) -> None:
+    def refresh_moved_overlays(self, *, queued=False) -> None:
         # Native child windows can retain old backing-store text after only their parent moved.
         host = self.host
         host._move_repaint_timer.stop()
@@ -216,14 +245,32 @@ class TilePresentation:
         # child separately stalls the next size message. Force a final repaint
         # on release so the existing moved-text repair remains in effect.
         host._move_repaint_pending = host._interactive_resize
+        queued = queued or host._interactive_resize
         for widget in (host.video_danmaku, host.stream_badge, host.title_badge, host.time_badge,
                        host.controls, host.spinner, host.pause_overlay, host.bottom):
             if widget.isVisible():
-                widget.update() if host._interactive_resize else widget.repaint()
+                widget.update() if queued else widget.repaint()
+        if host.video_caption is not None and host.video_caption.isVisible():
+            host.video_caption.update()
         for widget in host.bottom.findChildren(QWidget):
             if widget.isVisible() and widget.testAttribute(Qt.WA_NativeWindow):
-                widget.update() if host._interactive_resize else widget.repaint()
+                widget.update() if queued else widget.repaint()
         host.update()
+
+    def windowed_bar_over_video(self) -> bool:
+        host = self.host
+        return bool(not host.property('pictureInPicture')
+                    and getattr(host.window(), 'settings', {}).get('windowed_transparent_controls', False))
+
+    def layout_video_area(self) -> tuple[int, int]:
+        host = self.host
+        fullscreen = bool(host.property('fullscreen'))
+        inset = 0 if fullscreen or (host.wall_seamless and not host.property('dropActive')) else 1
+        reserved = inset if fullscreen or self.windowed_bar_over_video() else TILE_BAR_HEIGHT
+        video_height = max(1, host.height() - reserved)
+        host.video.setGeometry(inset, inset, max(1, host.width() - inset * 2),
+                               max(1, video_height - inset))
+        return inset, video_height
 
     def layout_areas(self) -> None:
         """统一摆放：视频区、浮标、控制条、信息条。"""
@@ -232,6 +279,10 @@ class TilePresentation:
             return
         width, height = host.width(), host.height()
         scale = 1.0
+        if host._status_detail:
+            natural = host.spinner.natural_size()
+            scale = min(1.0, max(1, width - 20) / natural.width(),
+                        max(1, height - TILE_BAR_HEIGHT - 20) / natural.height())
         if host.property('pictureInPicture'):
             natural = host.spinner.natural_size()
             scale = min(.75, max(1, width - 12) / natural.width(), max(1, height - 12) / natural.height())
@@ -249,23 +300,23 @@ class TilePresentation:
             host.pause_overlay.move(max(0, (width - host.pause_overlay.width()) // 2),
                                     max(8, (height - host.pause_overlay.height()) // 2))
             host._layout_cover()
+            if host.video_caption is not None:
+                host.video_caption.sync_geometry()
             host.raise_overlays()
             return
         host._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(host.property("fullscreen"))
         compact = bool(host.property('pictureInPicture'))
-        host.bottom.set_fullscreen(fullscreen)
+        windowed_overlay = not fullscreen and self.windowed_bar_over_video()
+        if not fullscreen and windowed_overlay != host.bottom.windowed_overlay:
+            host.bottom.hide()
+        host.bottom.set_fullscreen(fullscreen, windowed_overlay=windowed_overlay)
         if not fullscreen:
             host._bar_clock.stop()
             host._bar_animation.stop()
             host._bar_progress = host._bar_target = 0.0
-            host.bottom.setVisible(not compact)
-        video_height = max(1, height if fullscreen or compact else height - TILE_BAR_HEIGHT)
-        # 普通格子留边框，全屏视频贴齐窗口边缘。
-        inset = 0 if fullscreen or compact else 1
-        host.video.setGeometry(inset, inset, max(1, width - inset * 2),
-                               max(1, video_height - inset))
+        inset, video_height = self.layout_video_area()
         host._round_video()
         video_right = host.video.geometry().right() + 1
         host.stream_badge.move(10, 8)
@@ -295,13 +346,21 @@ class TilePresentation:
         host.pause_overlay.move(
             max(0, (host.video.width() - host.pause_overlay.width()) // 2),
             max(8, (video_height - host.pause_overlay.height()) // 2))
-        bar_y = (height - TILE_BAR_HEIGHT + round(TILE_BAR_HEIGHT * host._bar_progress)
-                 if fullscreen else video_height)
-        bar_height = TILE_BAR_HEIGHT if fullscreen else max(1, height - video_height - inset)
+        if fullscreen or windowed_overlay:
+            bar_y = height - TILE_BAR_HEIGHT - inset + round(TILE_BAR_HEIGHT * host._bar_progress)
+            bar_height = TILE_BAR_HEIGHT
+        else:
+            bar_y, bar_height = video_height, max(1, height - video_height - inset)
         host.bottom.set_tile_geometry(inset, bar_y, max(1, width - inset * 2), bar_height)
         host._layout_time_badge()
         host.video_danmaku.setGeometry(host.video.geometry())
+        if host.video_caption is not None:
+            host.video_caption.sync_geometry()
         host._layout_bottom_controls()
+        if windowed_overlay:
+            host.bottom.sync_windowed_visibility()
+        elif not fullscreen:
+            host.bottom.show()
         host._layout_cover()
         if host._interactive_resize:
             # Resizing existing HWNDs preserves their stacking order. Keep the
@@ -352,15 +411,16 @@ class TilePresentation:
         `raise_overlays()` 把浮层重新抬到原生视频窗口之上。
         """
         host = self.host
-        square_corners = bool(host.property("fullscreen") or host.property('pictureInPicture'))
+        square_corners = bool(host.wall_seamless or host.property('fullscreen') or host.property('pictureInPicture'))
         host.video.square_corners = square_corners
         host.video_danmaku.set_quick_rounded(not square_corners)
         for index, corner in enumerate(host.video_corners):
             corner.move(host.video.x() if index == 0 else
                         host.video.geometry().right() - corner.width() + 1, host.video.y())
             corner.setVisible(not square_corners)
+        round_bottom = host.bottom.windowed_overlay
         key = (host.video.width(), host.video.height(), host.devicePixelRatioF(),
-               square_corners, int(host.video.internalWinId()))
+               square_corners, round_bottom, int(host.video.internalWinId()))
         if key == host._video_mask_key and not host.video.mask().isEmpty():
             host._update_quick_danmaku_mask()
             return
@@ -371,9 +431,10 @@ class TilePresentation:
             path.addRect(rect)
         else:
             path.addPath(continuous_path(rect, 9))
-            bottom = QPainterPath()
-            bottom.addRect(QRectF(0, max(0, host.video.height() - 9), host.video.width(), 9))
-            path = path.united(bottom)
+            if not round_bottom:
+                bottom = QPainterPath()
+                bottom.addRect(QRectF(0, max(0, host.video.height() - 9), host.video.width(), 9))
+                path = path.united(bottom)
             # Leave one physical pixel under the alpha-blended corner edge.
             stroke = QPainterPathStroker()
             stroke.setWidth(2 / host.devicePixelRatioF())

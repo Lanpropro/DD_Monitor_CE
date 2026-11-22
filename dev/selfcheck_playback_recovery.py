@@ -16,6 +16,45 @@ from ddm.playback_recovery import PlaybackRecovery
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_failure_descriptions_follow_evidence_and_hide_raw_errors(self):
+        from ddm.playback_feedback import failure_detail
+        for evidence, expected in (
+            ({'reason': 'ConnectionError: private URL/token'}, '网络'),
+            ({'reason': 'fixture failure private URL/token'}, '暂未确定'),
+            ({'source_failure': 'HTTP_403', 'decoder_error': True}, 'HTTP 403'),
+            ({'source_failure': 'LIVE_EOF', 'decoder_error': True}, '连接已结束'),
+            ({'transport_error': True, 'decoder_error': True}, '传输中断'),
+            ({'decoder_error': True}, '解码异常'),
+            ({}, '暂未确定'),
+        ):
+            with self.subTest(evidence=evidence):
+                text = failure_detail(**evidence)
+                self.assertIn(expected, text)
+                self.assertNotIn('private', text)
+                self.assertNotIn('token', text)
+
+    def test_repeated_failures_keep_current_reason_until_playback_recovers(self):
+        self.recovery.record_failure(self.tile, reason='ConnectionError')
+        self.recovery.schedule_retry(self.tile)
+        self.assertEqual(self.recovery.feedback_detail(self.tile), '')
+        self.recovery.retry_timers[self.tile].timeout.emit()
+        self.recovery.record_failure(self.tile, reason='ConnectionError')
+        self.recovery.schedule_retry(self.tile)
+        detail = self.recovery.feedback_detail(self.tile)
+        self.assertIn('网络', detail)
+        self.tile.set_status.assert_called_with('断流，10 秒后重连（第 2 次）', detail=detail)
+        self.recovery.cancel_retry(self.tile)
+        self.assertEqual(self.recovery.feedback_detail(self.tile), detail)
+        self.recovery.record_failure(self.tile, reason='unknown failure')
+        self.assertIn('暂未确定', self.recovery.feedback_detail(self.tile))
+        self.recovery.reset_retry_after_playing(self.tile)
+        self.assertNotIn(self.tile, self.recovery.failure_details)
+        self.assertEqual(self.recovery.feedback_detail(self.tile), '')
+        self.recovery.record_failure(self.tile, reason='ConnectionError')
+        self.recovery.clear_tile(self.tile)
+        self.assertNotIn(self.tile, self.recovery.failure_details)
+
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

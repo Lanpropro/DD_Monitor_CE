@@ -1,7 +1,38 @@
 """Qt image workers; image API owns canonical cache paths, generation tokens and loaders."""
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QPixmap
-from . import image_cache
+from PySide6.QtGui import QImage, QPixmap
+from . import image_cache, qt_lifecycle
+
+
+class FirstFrameCover(QThread):
+    loaded = Signal(str, QPixmap)
+
+    def __init__(self, room_id, frame, parent):
+        super().__init__(parent)
+        self.room_id = room_id
+        self.frame = frame
+        self._stamp = image_cache.ticket()
+
+    def run(self):
+        from . import images as api
+        from .cover_focus import prepare_cover
+
+        try:
+            frame = self.frame.result(timeout=2)
+            if not frame or frame.get('format') != 'bgr0':
+                return
+            width, height, stride = frame['w'], frame['h'], frame['stride']
+            data = frame['data']
+            if width <= 0 or height <= 0 or stride < 4 * width or len(data) < stride * height:
+                return
+            image = QImage(data, width, height, stride, QImage.Format_RGB32)
+            if image.isNull():
+                return
+            cover = prepare_cover(QPixmap.fromImage(image))
+            if api._store_image(cover, api.room_cover_path(self.room_id), 'covers', self._stamp, self.room_id):
+                self.loaded.emit(self.room_id, cover)
+        except (KeyError, OSError, RuntimeError, TimeoutError, TypeError, ValueError):
+            return
 
 
 class CachedCoverLoader(QThread):
@@ -54,12 +85,14 @@ class AvatarLoader(QThread):
 
     loaded = Signal(str, QPixmap)
 
-    def __init__(self, items: dict[str, str], parent=None, subdir: str = "avatars"):
+    @qt_lifecycle.construction(sources=('video-emoticon', 'panel-emoticon', 'sc-avatar', 'account-avatar'))
+    def __init__(self, items: dict[str, str], parent=None, subdir: str = "avatars", *, diagnostic_source=""):
         super().__init__(parent)
         self.items = dict(items)          # key -> url
         self.subdir = subdir
         self._stamp = image_cache.ticket()
 
+    @qt_lifecycle.running
     def run(self) -> None:
         from . import images as api
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -73,13 +106,13 @@ class AvatarLoader(QThread):
             futures = {}
             for key, url in self.items.items():
                 if self.subdir == 'banners':
-                    future = pool.submit(api.load_banner, url)
+                    future = pool.submit(api.load_banner, url, stamp=self._stamp)
                 elif self.subdir == 'covers':
                     future = pool.submit(api.load_cover, url, stamp=self._stamp, room=key)
                 elif self.subdir == 'avatars':
                     future = pool.submit(api.load_pixmap, url, self.subdir, stamp=self._stamp, room=key)
                 else:
-                    future = pool.submit(api.load_pixmap, url, self.subdir)
+                    future = pool.submit(api.load_pixmap, url, self.subdir, stamp=self._stamp)
                 futures[future] = key
             for future in as_completed(futures):
                 key = futures[future]

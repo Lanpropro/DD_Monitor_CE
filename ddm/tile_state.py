@@ -4,24 +4,37 @@ from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import QMenu
 from .auto_quality import AUTO_QUALITY, OVERSEAS_PLATFORMS
 from .config import VIDEO_DANMAKU_SETTING_KEYS, video_danmaku_overrides
+from .quality_labels import compact_quality_label, distinguish_quality_labels
+from .streamer_defaults import source_quality_option
 from .widget_support import QUALITY_CHOICES, QUALITY_NAMES, WATCHING_TEXT, _repolish
 
 
 class TileState:
     def __init__(self, host):
         self.host = host
+        self.source_resolution = ''
+        self.pending_grid_aspect = None
 
     def set_room(self, room: dict | None, cover: QPixmap | None = None) -> None:
         """换这一个格子播放的房间；音量和静音属于格子，不跟着房间移动。"""
         host = self.host
+        self.pending_grid_aspect = None
         host.room = dict(room or {})
+        volume = host.room.pop('_streamer_initial_volume', None)
+        if volume is not None:
+            host.volume = volume
         controls = getattr(host, '_plugin_controls', None)
         if controls is not None:
             controls.set_room(host.room)
         host.codec_probe_note = ""
         host.codec_reconnect_pending = False
+        host.reload_button.set_refreshing(False)
+        host.reload_button.setEnabled(True)
+        host.reload_button.setToolTip('重新连接这一路')
         host.video_danmaku.clear()
+        host.clear_translation_caption()
         host.quality_options = []          # 换平台/直播间后不能沿用上一个房间的档位
+        self.source_resolution = ''
         host.actual_quality = 0
         host.stream_url = ""
         host.stream_headers = {}
@@ -40,8 +53,7 @@ class TileState:
         if empty:
             # 平台画质编号属于房间，空格子不能把它作为分辨率显示或继续保存。
             host.quality = 250
-            host.quality_button.setText(host._quality_text())
-            host.quality_button.setToolTip("选择这一路的画质")
+            self.sync_quality_button()
             host._layout_controls()
             host._cover_source = None
             host.title_badge.set_text("", "")
@@ -62,12 +74,14 @@ class TileState:
         # 声道和音量 / 静音一样属于**格子**，不跟着房间走：换台不该把用户调好的
         # 「只播左 / 只播右」丢掉。房间自带的那份只在第一次上墙时用（_prepare_room）。
         host.room["audio_channel"] = host.audio_channel
-        host.quality_button.setText(host._quality_text())
+        self.sync_quality_button()
         host.volume_slider.blockSignals(True)
         host.volume_slider.setValue(host.volume)
         host.volume_slider.blockSignals(False)
         host.volume_label.setText(str(host.volume))
         host.volume_button.set_state(host.muted, host.volume, host.audio_channel)
+        if volume is not None:
+            host._sync_vertical_volume()
         host.set_status("" if host.room.get("live") else "未开播")
         host.stop_elapsed_timer()
         if host.room.get("live"):
@@ -104,8 +118,9 @@ class TileState:
             host._video_danmaku_global_settings = dict(settings)
         effective = {**host._video_danmaku_global_settings, **(host.video_danmaku_overrides or {})}
         host.video_danmaku.apply_settings(effective)
-        host.danmaku_settings_menu.apply_settings(
-            effective, independent=host.video_danmaku_overrides is not None)
+        menu = host._danmaku_settings_menu
+        if menu is not None:
+            menu.apply_settings(effective, independent=host.video_danmaku_overrides is not None)
 
     def set_video_danmaku_independent(self, enabled: bool) -> None:
         host = self.host
@@ -114,13 +129,16 @@ class TileState:
         host.apply_video_danmaku_settings()
         host.videoDanmakuSettingsChanged.emit({})
 
-    def set_recording_state(self, state: str) -> None:
+    def set_recording_state(self, state: str, *, managed: bool = False) -> None:
         host = self.host
         host._recording_state = state
+        host.recording_button.setProperty("managedRecording", managed)
+        host.recording_button.setEnabled(not managed)
         host._update_recording_button()
         host.recording_button.setProperty("recording", state == "record")
         _repolish(host.recording_button)
         host.recording_button.setToolTip(
+            "录制由「主播监控」管理" if managed else
             "停止录制这一路" if state == "record" else
             "即时回放缓存中；点击开始完整录制" if state == "cache" else
             "开始录制这一路（右键可保存即时回放）")
@@ -154,14 +172,17 @@ class TileState:
             return
         narrow = host.width() < 320
         state = getattr(host, "_recording_state", "")
+        managed = bool(host.recording_button.property('managedRecording'))
+        compact_rec = narrow and managed and state == 'record'
         host.recording_button.setProperty('replayOnly', state == 'cache')
         host.recording_button.setAccessibleName(
+            ('正在录制，由主播监控管理' if state == 'record' else '录制由主播监控管理') if managed else
             '即时回放缓存中；点击开始完整录制' if state == 'cache' else
             '停止录制这一路' if state == 'record' else '开始录制这一路')
         labels = ({"record": "●", "cache": "●", "": "●"} if narrow else
                   {"record": "● REC", "cache": "● REC", "": "● 录制"})
-        host.recording_button.setFixedWidth(26 if narrow else 64)
-        host.recording_button.setText(labels.get(state, "●"))
+        host.recording_button.setFixedWidth(42 if compact_rec else 26 if narrow else 64)
+        host.recording_button.setText('REC' if compact_rec else labels.get(state, "●"))
         host.recording_button.update()
         if layout:
             host._layout_bottom_controls()
@@ -171,8 +192,7 @@ class TileState:
         host._player_active = active
         host.video_danmaku.set_active(active)
         host.cover.setVisible(not active)
-        if not active:
-            host._layout_cover()
+        host._layout_cover()
         if active:
             host.spinner.stop()
             host._connecting = False
@@ -180,17 +200,24 @@ class TileState:
             host.pause_overlay.stop()
         host.raise_overlays()
 
-    def set_status(self, text: str) -> None:
+    def set_status(self, text: str, *, detail: str = '') -> None:
         host = self.host
         host._status_text = text
+        host._status_detail = detail
         host._connecting = text.startswith("连接中")
         host._sync_status_label()
-        if not host._player_active:
+        if detail:
+            host.spinner.start()
+            host._layout_areas()
+            host._layout_cover()
+        elif not host._player_active:
             if host._connecting:
                 host.spinner.start()
             else:
                 host.spinner.stop()
             host._layout_cover()              # 让封面文字随状态刷新（连接时不显示文字）
+        elif not host._buffering:
+            host.spinner.stop()
 
     def set_offline(self) -> None:
         """下播：画面清成黑的，格子继续留给这个直播间。"""
@@ -225,6 +252,8 @@ class TileState:
         """底栏保留空白布局区域；状态仍用于封面、加载图形及内部判断。"""
         host = self.host
         host.status_label.setText("")
+        host.spinner.set_text(f'{host._status_text}\n{host._status_detail}'
+                              if host._status_detail else '连接中…')
 
     def set_paused(self, paused: bool) -> None:
         host = self.host
@@ -291,10 +320,21 @@ class TileState:
 
     def quality_text(self) -> str:
         host = self.host
+        if not host.room.get("room_id"):
+            return "画质"
+        if source_quality_option(host.quality_options) is not None:
+            return self.source_resolution or host._quality_name(0, short=True)
         if host.quality == AUTO_QUALITY:
             return "自动" + (" · " + host._quality_name(host.actual_quality, short=True)
                            if host.actual_quality else "")
         return host._quality_name(host.actual_quality or host.quality, short=True)
+
+    def _quality_display(self, item):
+        host = self.host
+        bili = str(host.room.get('room_id', '')).isdigit()
+        active_qn = host.actual_quality or host.quality
+        actual = self.source_resolution if bili and int(item['qn']) == active_qn else ''
+        return compact_quality_label(item, bili=bili, actual_resolution=actual)
 
     def quality_name(self, qn: int, *, short: bool = False) -> str:
         host = self.host
@@ -302,36 +342,69 @@ class TileState:
             return "自动" if short else "自动（根据网络选择流畅的最高画质）"
         for item in host.quality_options:
             if int(item.get("qn") or 0) == int(qn):
-                return str((item.get("label") if short else None) or item.get("desc") or qn)
+                return self._quality_display(item) if short else str(item.get("desc") or item.get("label") or qn)
         if ":" in str(host.room.get("room_id") or ""):
             return "最高可用" if int(qn) == 10000 else "获取画质…"
-        return QUALITY_NAMES.get(int(qn), f"{qn}P")
+        name = QUALITY_NAMES.get(int(qn), f"{qn}P")
+        return self._quality_display({'qn': qn, 'desc': name}) if short else name
 
     def quality_choices(self) -> list[tuple[str, int]]:
         """优先用接口给的档位：直播间只提供哪些，菜单里就只留哪些。"""
         host = self.host
-        if host.quality_options:
-            return [(host._quality_name(int(item["qn"])), int(item["qn"]))
-                    for item in host.quality_options]
-        if ":" in str(host.room.get("room_id") or ""):
+        if not host.room.get("room_id") or source_quality_option(host.quality_options) is not None:
+            return []
+        options = host.quality_options
+        if not options and ":" in str(host.room.get("room_id") or ""):
             return []                     # 接口返回前不展示 B 站的固定画质菜单
-        return list(QUALITY_CHOICES)
+        options = options or [{'qn': qn, 'desc': label} for label, qn in QUALITY_CHOICES]
+        labels = distinguish_quality_labels([self._quality_display(item) for item in options], options)
+        return [(label, int(item['qn'])) for label, item in zip(labels, options)]
 
     def set_quality_options(self, options: list) -> None:
         host = self.host
         if not options:
             return
         host.quality_options = [dict(item) for item in options]
+        self.sync_quality_button()
+        host._layout_controls()
+
+    def sync_quality_button(self) -> None:
+        host = self.host
+        fixed = source_quality_option(host.quality_options) is not None
         host.quality_button.setText(host._quality_text())
+        host.quality_button.setEnabled(not fixed and not getattr(host, 'quality_locked', False))
+        host.quality_button.setToolTip(self.source_quality_tooltip() if fixed else "选择这一路的画质")
+
+    def source_quality_tooltip(self) -> str:
+        return (f"实际分辨率 {self.source_resolution} · " if self.source_resolution else "") + "画质由播放源决定"
+
+    def set_source_resolution(self, resolution: str) -> None:
+        host = self.host
+        if self.source_resolution == resolution:
+            return
+        fixed = source_quality_option(host.quality_options) is not None
+        if not fixed and not str(host.room.get('room_id', '')).isdigit():
+            return
+        self.source_resolution = resolution
+        if fixed:
+            self.sync_quality_button()
+        else:
+            host.quality_button.setText(host._quality_text())
         host._layout_controls()
 
     def set_actual_quality(self, quality: int) -> None:
         """接口实际给的画质（未登录时通常只有 720P）。"""
         host = self.host
-        host.actual_quality = int(quality or 0)
+        actual = int(quality or 0)
+        fixed = source_quality_option(host.quality_options) is not None
+        if not fixed and host.actual_quality != actual:
+            self.source_resolution = ''
+        host.actual_quality = actual
         host.quality_button.setText(host._quality_text())
         host._layout_controls()
-        if ":" in str(host.room.get("room_id") or ""):
+        if fixed:
+            host.quality_button.setToolTip(self.source_quality_tooltip())
+        elif ":" in str(host.room.get("room_id") or ""):
             host.quality_button.setToolTip(("自动画质，当前：" if host.quality == AUTO_QUALITY else "")
                                           + host._quality_name(host.actual_quality))
         elif host.actual_quality and host.actual_quality < host.quality:
@@ -345,26 +418,38 @@ class TileState:
     def open_quality_menu(self, *, menu_type) -> None:
         QMenu = menu_type
         host = self.host
+        choices = host._quality_choices()
+        if not choices:
+            return
         menu = QMenu(host)
-        for name, value in host._quality_choices():
+        from .playback_material import style_menu
+        style_menu(menu, host.controls.property('playbackGlassOpacity'))
+        menu.setToolTipsVisible(True)
+        for name, value in choices:
             action = QAction(name, menu)
+            action.setToolTip(host._quality_name(value))
             action.setCheckable(True)
             action.setChecked(value == host.quality)
             action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
             menu.addAction(action)
+        host.quality_button.set_popup_open(True)
         try:
             menu.exec(host.quality_button.mapToGlobal(host.quality_button.rect().bottomLeft()))
         finally:
+            host.quality_button.set_popup_open(False)
             menu.deleteLater()
 
     def set_quality(self, value: int) -> None:
         host = self.host
-        if getattr(host, "quality_locked", False) and value != 10000:
+        if getattr(host, "quality_locked", False) and value != host.quality:
             return
         host.quality = value
         host.actual_quality = 0
+        if source_quality_option(host.quality_options) is None:
+            self.source_resolution = ''
         host.quality_button.setText(host._quality_text())
-        host.quality_button.setToolTip("选择这一路的画质")
+        if source_quality_option(host.quality_options) is None:
+            host.quality_button.setToolTip("选择这一路的画质")
         host._layout_controls()
         host.qualityChanged.emit(host.room, value)
 

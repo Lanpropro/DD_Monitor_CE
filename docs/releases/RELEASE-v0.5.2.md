@@ -23,13 +23,16 @@
 
 - 修复开播时间与底部控制条重叠的问题，时间显示随控制条显隐调整位置。
 
+## 直播间组合预设说明
+
+- 0.5.1 已有的直播间组合预设可将当前主播、格子位置和大小保存为快照，之后选择该组合恢复。它不提供自由创建行列或跨格的新布局编辑器。
+
 ## 下载与升级
 
 - 新用户：[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorSetup.exe)。
 - 便携版：[EXE ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v0.5.2/DDMonitorCE-v0.5.2-exe.zip)。
 - 已有用户可在设置中检查更新，下载后点击「重启并更新」；覆盖升级保留个人配置和已安装插件。
 - 本版包含发布时根目录已提交的完整开发功能，开发与发布统一使用 PySide6 / Qt 6.11.2。
-- 保留 0.5.1 已有的自定义布局创建、编辑、命名、保存、删除、跨行跨列及横竖屏预览等功能。
 
 ## 验证范围
 

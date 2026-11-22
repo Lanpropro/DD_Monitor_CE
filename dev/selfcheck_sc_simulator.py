@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dev.sc_simulator import ScSimulator, config, theme
 from ddm import motion
 from ddm.super_chat import SC_PRICE_TIERS, sc_message_document, super_chat_palette
-from PySide6.QtGui import QColor, QImage, QPainter
-from PySide6.QtCore import QRectF
+from PySide6.QtGui import QColor, QImage, QPainter, QWheelEvent
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
@@ -145,7 +145,7 @@ class NativeSurfaceTests(unittest.TestCase):
 
 
 class SimulatorTests(unittest.TestCase):
-    def test_sc_auto_scale_preserves_proportions_and_manual_size(self):
+    def test_sc_auto_scale_preserves_manual_size_above_readability_floor(self):
         from ddm.video_danmaku import VideoDanmaku
         owner = VideoDanmaku()
         self.addCleanup(owner.close)
@@ -161,12 +161,13 @@ class SimulatorTests(unittest.TestCase):
                 owner.resize(width, height)
                 rect = owner.super_chat_overlay.card_rects()[0]
                 sizes.append((rect.width(), rect.height(), owner.super_chat_overlay._paint_scale))
-                self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, manual / 100 * height / 720)
+                self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, max(.9, manual / 100 * height / 720))
+                self.assertAlmostEqual(rect.width(), min(340 * max(.9, manual / 100 * height / 720), width - 20))
                 self.assertLessEqual(rect.right(), width)
                 self.assertLessEqual(rect.bottom(), height)
-            self.assertAlmostEqual(sizes[1][0], sizes[0][0] / 2)
-            self.assertAlmostEqual(sizes[2][0], sizes[0][0] / 4)
-            self.assertLessEqual(abs(sizes[1][1] - sizes[0][1] / 2), 2)
+            self.assertGreaterEqual(sizes[0][0], sizes[1][0])
+            self.assertGreaterEqual(sizes[1][0], sizes[2][0])
+            self.assertTrue(all(size[2] >= .9 for size in sizes))
         owner.apply_settings(dict(config.DEFAULT_SETTINGS, super_chat_scale_with_video=False))
         owner.resize(640, 360)
         owner.super_chat_overlay.card_rects()
@@ -182,7 +183,7 @@ class SimulatorTests(unittest.TestCase):
         for height, expected in ((720, 1), (360, .7845840978967508), (180, .6155722066724582)):
             owner.resize(1280, height)
             owner.super_chat_overlay.card_rects()
-            self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, expected)
+            self.assertAlmostEqual(owner.super_chat_overlay._paint_scale, max(.9, expected))
 
     def test_default_video_danmaku_curve_preserves_small_pane_readability(self):
         from ddm.video_danmaku import VideoDanmaku
@@ -217,7 +218,7 @@ class SimulatorTests(unittest.TestCase):
                                               'cards': [{'message': '', 'collapsed': False}]}})
         stage = preview.stage_rect()
         factor = stage.width() / 640
-        self.assertAlmostEqual(preview.card_rect().width() / factor, 272)
+        self.assertAlmostEqual(preview.card_rect().width() / factor, 306)
         preview.set_layout_mode(1)
         before = preview.card_rect()
         page.super_chat_scale_with_video.click()
@@ -248,7 +249,7 @@ class SimulatorTests(unittest.TestCase):
             self.assertTrue(rects)
             ratio = owner.height() / 720
             expected = .6 + .4 * ratio if ratio <= 1 else 1 + .3 * (ratio - 1)
-            self.assertAlmostEqual(sc._paint_scale, expected)
+            self.assertAlmostEqual(sc._paint_scale, max(.9, expected))
             self.assertTrue(sc.isVisible())
             self.assertEqual(owner.settings['super_chat_position'], [.4, .6])
         window.sc_scale.setValue(150)
@@ -308,6 +309,86 @@ class SimulatorTests(unittest.TestCase):
         self.assertNotIn('sc_preview_frame', page.values())
         page.reset()
         self.assertEqual(preview.opacity, config.DEFAULT_SETTINGS['super_chat_opacity'])
+
+    def test_short_panel_preview_shows_a_draggable_expanded_card(self):
+        from ddm.super_chat_preview import SuperChatPlacementPreview
+
+        preview = SuperChatPlacementPreview()
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview.close)
+        preview.resize(430, 300)
+        preview.set_layout_mode(1)
+        preview.set_scale(75)
+        preview.set_preview_context({'panel': {'size': [170, 26], 'outer_size': [180, 68],
+            'viewport_rect': [0, 32, 170, 26], 'cards': [{'message': '', 'collapsed': True}]}})
+        preview.show()
+
+        card = preview.card_rect()
+        stage = preview.stage_rect()
+        self.assertGreater(card.width(), 50)
+        self.assertGreater(card.width() / card.height(), 3.2)
+        self.assertLess(card.width() / card.height(), 3.6)
+        self.assertTrue(stage.contains(card))
+        rendered = preview.grab().toImage()
+        ratio = rendered.devicePixelRatio()
+        x = round(card.center().x() * ratio)
+        header = round((card.top() + card.height() * .25) * ratio)
+        body = round((card.top() + card.height() * .8) * ratio)
+        self.assertNotEqual(rendered.pixelColor(x, header), rendered.pixelColor(x, body))
+
+        start = card.center().toPoint()
+        moved = start + QPoint(-22, 55)
+        QTest.mousePress(preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(preview, moved)
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=moved)
+        self.assertGreater(preview.values()['super_chat_panel_position'][1], 0)
+        corner = preview.card_rect().bottomRight().toPoint() - QPoint(2, 2)
+        QTest.mousePress(preview, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(preview, corner + QPoint(20, 0))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=corner + QPoint(20, 0))
+        self.assertGreater(preview.scale, 75)
+
+    def test_panel_preview_clips_overflow_and_uses_visible_resize_corner(self):
+        from ddm.super_chat_preview import SuperChatPlacementPreview
+
+        preview = SuperChatPlacementPreview()
+        self.addCleanup(preview.deleteLater)
+        self.addCleanup(preview.close)
+        preview.resize(460, 300)
+        preview.set_layout_mode(1)
+        preview.set_scale(84)
+        preview.set_opacity(79)
+        preview.scale_with_video = True
+        preview.set_preview_context({'panel': {'size': [320, 180], 'outer_size': [330, 250],
+            'viewport_rect': [0, 32, 320, 180],
+            'cards': [{'message': '', 'collapsed': False} for _ in range(4)]}})
+        preview.show()
+
+        raw, *_ = preview.card_rects()
+        outside = QPoint(round(raw.center().x()), round(preview.stage_rect().bottom()) + 3)
+        inside = QPoint(round(raw.center().x()), round(raw.top()) + 3)
+        self.assertTrue(any(card.contains(QPointF(outside)) for card in preview.card_rects()))
+        rendered = preview.grab().toImage()
+        preview.opacity = 0
+        background = preview.grab().toImage()
+        preview.opacity = 79
+        ratio = rendered.devicePixelRatio()
+        self.assertEqual(rendered.pixelColor(outside * ratio), background.pixelColor(outside * ratio))
+        self.assertNotEqual(rendered.pixelColor(inside * ratio), background.pixelColor(inside * ratio))
+
+        visible = preview.card_rect()
+        self.assertTrue(preview.stage_rect().contains(visible))
+        QTest.mousePress(preview, Qt.LeftButton, pos=outside)
+        QTest.mouseMove(preview, outside + QPoint(20, 0))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=outside + QPoint(20, 0))
+        self.assertIsNone(preview.position)
+        self.assertEqual(preview.scale, 84)
+
+        corner = visible.bottomRight().toPoint() - QPoint(2, 2)
+        QTest.mousePress(preview, Qt.LeftButton, pos=corner)
+        QTest.mouseMove(preview, corner + QPoint(20, 0))
+        QTest.mouseRelease(preview, Qt.LeftButton, pos=corner + QPoint(20, 0))
+        self.assertGreater(preview.scale, 84)
 
     def test_preview_matches_live_renderers_at_all_scales(self):
         from types import SimpleNamespace
@@ -380,7 +461,8 @@ class SimulatorTests(unittest.TestCase):
         for scale in (.75, 1, 1.5, 2):
             height = sc_card_height(event, 340 * scale, scale)
             text_height = sc_message_document(event, 340 * scale, scale).size().height()
-            self.assertGreaterEqual(height, 56 * scale + 2 * SC_BODY_PADDING * scale + text_height)
+            from ddm.super_chat_layout import sc_body_padding
+            self.assertGreaterEqual(height, round(56 * scale) + 2 * sc_body_padding(scale) + text_height)
 
     def test_layout_previews_keep_independent_positions_and_layout_specific_scale_opacity(self):
         from ddm.dialogs import DanmakuSettingsPage
@@ -394,9 +476,13 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(preview.layout_mode, 'panel')
         stage = preview.stage_rect()
         main_area = preview._scene_rect(preview.VIDEO_AREA)
+        panel_area = preview._scene_rect(preview.PANEL_AREA)
+        self.assertEqual(panel_area.top(), main_area.top())
         self.assertGreater(stage.left(), main_area.right())
-        self.assertGreater(stage.top(), main_area.center().y())
-        self.assertGreater(main_area.width(), stage.width() * 2)
+        self.assertLess(stage.top(), main_area.center().y())
+        self.assertGreater(stage.bottom(), main_area.center().y())
+        self.assertGreater(stage.width(), main_area.width() / 2)
+        self.assertTrue(panel_area.contains(preview._panel_rect()))
         rect = preview.card_rect()
         self.assertTrue(stage.contains(rect))
         before = preview.values()
@@ -482,7 +568,13 @@ class SimulatorTests(unittest.TestCase):
         card = stack._cards[0]
         self.assertGreater(stack.height(), short)
         self.assertEqual(card.message.text(), message)
-        self.assertLessEqual(card.message.document().size().height(), card.message.viewport().height())
+        bar = card.message.verticalScrollBar()
+        self.assertGreaterEqual(card.message.viewport().height() + bar.maximum(),
+                                card.message.document().size().height())
+        bar.setValue(bar.maximum())
+        before = bar.value()
+        stack.set_events(stack._events)
+        self.assertEqual(bar.value(), before, 'Refreshing the same message preserves the reading position')
         window.number.setValue(2)
         window.price.setValue(50)
         window.message.setPlainText('short')
@@ -504,13 +596,16 @@ class SimulatorTests(unittest.TestCase):
         collapsed_height = sc.card_rects()[2].height()
         sc.presentation.expand('1')
         self.assertGreater(sc.card_rects()[2].height(), collapsed_height)
-        sc.presentation.expand()
         for size in ((200, 120), (420, 240), (1000, 700)):
             window.tile.video_danmaku.resize(*size)
+            sc.presentation.expand(sc.chats[0]['id'])
             rect = sc.card_rects()[0]
             self.assertTrue(window.tile.video_danmaku.rect().contains(rect.toAlignedRect()))
             document = sc_message_document(sc.chats[0], rect.width(), sc._paint_scale)
-            self.assertLessEqual(document.size().height() + 61 * sc._paint_scale, rect.height() + 1)
+            from ddm.super_chat_layout import sc_body_padding
+            body = rect.height() - round(56 * sc._paint_scale) - 2 * sc_body_padding(sc._paint_scale)
+            self.assertGreaterEqual(body, document.defaultFont().pixelSize(), 'Selected SC retains at least one readable line')
+            self.assertGreaterEqual(sc._paint_scale, .9)
 
     def test_visibility_opacity_and_isolated_data(self):
         window = self.window
@@ -658,6 +753,41 @@ class SimulatorTests(unittest.TestCase):
             bar.setValue(value)
             APP.processEvents()
             self.assertEqual(stack.mapToGlobal(QPoint()), origin)
+
+    def test_dense_sc_keeps_readable_cards_and_scrolls_on_both_surfaces(self):
+        window = self.window
+        self.click(window.add_batch_button)
+        panel = window.wall.danmaku
+        stack = panel.super_chats
+        stack.presentation.collapse()
+        self.assertEqual(len(stack._events), 21)
+        self.assertLess(stack.height(), panel.body.viewport().height() * .8)
+        self.assertGreater(stack._scroll_maximum, 0)
+        self.assertTrue(all(card.height() >= card.header.height() >= 32 for card in stack._cards))
+        title = stack._cards[0].name
+        self.assertGreater(title.width(), 16)
+        wheel_position = title.rect().center()
+        wheel = QWheelEvent(QPointF(wheel_position), QPointF(title.mapToGlobal(wheel_position)),
+                            QPoint(), QPoint(0, -12000), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        APP.sendEvent(title, wheel)
+        self.assertEqual(stack._scroll_offset, stack._scroll_maximum)
+        last = stack._cards[-1]
+        self.assertTrue(stack.rect().contains(last.mapTo(stack, last.rect().center())))
+
+        window.layout_choice.setCurrentIndex(1)
+        overlay = window.tile.video_danmaku.super_chat_overlay
+        overlay.presentation.collapse()
+        self.assertEqual(len(overlay.chats), 21)
+        self.assertLess(overlay.height(), window.tile.video_danmaku.height() * .8)
+        first = overlay.card_rects()[0]
+        pos = first.center() - overlay._content_origin
+        wheel = QWheelEvent(pos, QPointF(overlay.mapToGlobal(pos.toPoint())),
+                            QPoint(), QPoint(0, -12000), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        APP.sendEvent(overlay, wheel)
+        self.assertEqual(overlay._stack_offset, overlay._stack_maximum)
+        self.assertTrue(overlay._stack_viewport.contains(overlay.card_rects()[-1].center()))
+        self.assertTrue(overlay.close_buttons[-1].isVisible())
+        self.assertFalse(overlay.close_buttons[0].isVisible())
 
     def test_only_clicked_sc_expands_and_new_arrival_is_independent(self):
         window = self.window
@@ -992,6 +1122,7 @@ class SimulatorTests(unittest.TestCase):
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
 
     def test_main_sc_moves_to_panel_and_returns_for_fullscreen(self):
+        from ddm.wall_quick_settings import WallQuickSettings
         window = self.window
         window.layout_choice.setCurrentIndex(2)
         small = window.wall._make_tile({'room_id': '2', 'uname': 'Small', 'live': True})
@@ -1003,6 +1134,15 @@ class SimulatorTests(unittest.TestCase):
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isHidden())
         self.assertTrue(window.wall.danmaku.super_chats.isVisible())
         self.assertTrue(small.video_danmaku.super_chat_overlay.isVisible())
+        controls = WallQuickSettings(window)
+        with patch.object(window, '_on_video_danmaku_changed', create=True,
+                          side_effect=lambda _enabled: window.wall.sync_sc_placement()):
+            controls.set_danmaku(False)
+            self.assertTrue(window.wall.danmaku.super_chats.isVisible())
+            self.assertTrue(small.video_danmaku.super_chat_overlay.isHidden(),
+                            'A chat pane belonging to another tile must not keep unlinked SC visible')
+            controls.set_danmaku(True)
+            self.assertTrue(small.video_danmaku.super_chat_overlay.isVisible())
         window.wall.set_fullscreen_tile(window.tile)
         APP.processEvents()
         self.assertTrue(window.tile.video_danmaku.super_chat_overlay.isVisible())

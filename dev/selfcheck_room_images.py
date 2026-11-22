@@ -1,4 +1,5 @@
 """Room image orchestration: synthetic loaders and local-cache Qt thread delivery."""
+from concurrent.futures import Future
 from contextlib import ExitStack
 from pathlib import Path
 import sys
@@ -14,8 +15,9 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 from ddm import app as app_module, images
 from ddm.app import MainWindow
+from ddm.player import TilePlayer
 from ddm.room_images import RoomImages
-from ddm.room_images import RoomImages
+from ddm.sidebar_item import NavItem
 
 
 METHODS = ('load_cached_covers', 'load_cached_avatars', 'load_room_avatars',
@@ -55,18 +57,24 @@ class Loader:
 
 
 def item(room):
-    return SimpleNamespace(room=room, thumb=SimpleNamespace(
-        set_face=Mock(), set_cover=Mock(), set_banner=Mock()))
+    thumb = SimpleNamespace(set_face=Mock(), set_cover=Mock(), set_banner=Mock())
+
+    def set_room_avatar(picture):
+        thumb.set_face(picture)
+        return picture
+
+    return SimpleNamespace(room=room, thumb=thumb, set_room_avatar=set_room_avatar)
 
 
 class Host(QObject):
     def __init__(self, rooms):
         super().__init__()
         self.sidebar = SimpleNamespace(rooms=lambda: rooms, _items=[item(room) for room in rooms],
-            set_room_face=Mock(), notification_button=SimpleNamespace(center=SimpleNamespace(rows={})))
+            set_room_face=Mock(), notification_button=SimpleNamespace(center=SimpleNamespace(rows={})),
+            navigation=SimpleNamespace(monitor_menu=Mock()))
         self.wall = SimpleNamespace(pane_danmaku=Mock())
         self.room_images = RoomImages(self)
-        self.room_images = RoomImages(self)
+        self._closing = False
         self._avatar_loaders = []
         self._notices = []
 
@@ -167,6 +175,7 @@ class RoomImageTests(unittest.TestCase):
 
     def test_callbacks_update_notices_center_and_matching_sidebar_item(self):
         host = Host([{'room_id': '1001'}, {'room_id': '1002'}])
+        host._tray = SimpleNamespace(monitor_panel=Mock())
         notice, row = Mock(), Mock()
         host._notices = [notice, object()]
         host.sidebar.notification_button.center.rows = {'row': row}
@@ -182,6 +191,8 @@ class RoomImageTests(unittest.TestCase):
             getattr(host.sidebar._items[0].thumb, setter).assert_called_once_with(picture)
             getattr(host.sidebar._items[1].thumb, setter).assert_not_called()
         host._on_room_avatar('removed', picture)
+        host.sidebar.navigation.monitor_menu.panel.set_room_avatar.assert_called_with('removed', picture)
+        host._tray.monitor_panel.set_room_avatar.assert_called_with('removed', picture)
         self.assertEqual(host.sidebar.set_room_face.call_count, 1)
 
 
@@ -189,6 +200,58 @@ class ImageThreadTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_station_badge_reuses_downloaded_avatar_and_preserves_wide_logo(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / 'fallback.png')
+            fallback = QPixmap(24, 24)
+            fallback.fill(Qt.red)
+            self.assertTrue(fallback.save(path))
+            item = NavItem({'room_id': 'm3u:test', 'platform': 'm3u'}, 0)
+            item.set_room_card_branding({'avatar_path': path, 'badge_path': path,
+                                         'badge_from_avatar': True, 'label': '地方台'})
+            self.assertTrue(item.has_station_badge)
+            self.assertEqual(item.platform_badge.toolTip(), '地方台')
+            self.assertEqual(item.thumb.face_pixmap().toImage().pixelColor(10, 10), Qt.red)
+            picture = QPixmap(80, 40)
+            picture.fill(Qt.green)
+            avatar = item.set_room_avatar(picture)
+            self.assertEqual((avatar.width(), avatar.height()), (80, 80))
+            self.assertEqual(avatar.toImage().pixelColor(40, 40), Qt.green)
+            self.assertEqual(item.platform_badge.pixmap().toImage().pixelColor(10, 5), Qt.green)
+            item.close()
+
+    def test_first_frame_cover_uses_one_request_and_existing_room_cache(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(images, 'REPO', folder):
+            room = {'room_id': 'm3u:test'}
+            host = Host([room])
+            result = Future()
+            player = SimpleNamespace(request_video_frame=Mock(return_value=result))
+            host.room_images.capture_first_frame(room, player)
+            job = host.room_images._first_frame_jobs[room['room_id']]
+            host.room_images.capture_first_frame(room, player)
+            result.set_result({'format': 'bgr0', 'w': 32, 'h': 32, 'stride': 128,
+                               'data': b'\x00\xff\x00\x00' * (32 * 32)})
+            self.assertTrue(job.wait(2500))
+            self.app.processEvents()
+            self.assertFalse(host.room_images._first_frame_jobs)
+            cached = images.load_room_cover(room['room_id'])
+            self.assertIsNotNone(cached)
+            self.assertGreater(cached.toImage().pixelColor(5, 5).green(), 240)
+            host.sidebar._items[0].thumb.set_cover.assert_called_once()
+            host.room_images.capture_first_frame(room, player)
+            player.request_video_frame.assert_called_once_with()
+
+    def test_player_drops_capture_after_the_stream_changes(self):
+        core = SimpleNamespace(command_async=Mock())
+        player = SimpleNamespace(player=core, _released=False, silent=False, play_session='a')
+        TilePlayer.request_video_frame(player)
+        self.assertEqual(core.command_async.call_args.args, ('screenshot-raw', 'video'))
+        callback = core.command_async.call_args.kwargs['callback']
+        frame = object()
+        self.assertIs(callback(None, frame), frame)
+        player.play_session = 'b'
+        self.assertIsNone(callback(None, frame))
 
     def test_startup_url_cache_is_decoded_off_gui_and_delivered_without_network(self):
         with tempfile.TemporaryDirectory() as temp, ExitStack() as stack:

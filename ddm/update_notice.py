@@ -1,10 +1,16 @@
 """Update indicators and update notification presentation."""
+import ctypes
+from ctypes import wintypes
+import os
+import sys
+
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, Qt, QTimer, Signal, QVariantAnimation
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QStyledItemDelegate, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .update_version import release_label
+from .widget_support import BRAND_ASSETS_DIR, _repolish
 
 
 class UpdateDot(QLabel):
@@ -45,22 +51,26 @@ class UpdateNavDelegate(QStyledItemDelegate):
 class UpdateNotice(QFrame):
     """不抢焦点的悬浮更新提醒，十秒后自动收起。"""
     activated = Signal()
+    updateRequested = Signal(str)
+    _slide_distance = 24
 
     def __init__(self, parent):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self._fullscreen_owner = None
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('UpdateNotice')
         self._history_entries = set()
+        self._update_rows = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
         self.heading = QHBoxLayout()
         self.heading.setSpacing(10)
-        self.indicator = QLabel('↑', self)
+        self.indicator = QLabel(self)
         self.indicator.setFixedSize(28, 28)
-        self.indicator.setAlignment(Qt.AlignCenter)
-        self.indicator.setObjectName('NoticeIcon')
+        self.indicator.setPixmap(QPixmap(os.path.join(BRAND_ASSETS_DIR, 'logo.png')))
+        self.indicator.setScaledContents(True)
         self.heading.addWidget(self.indicator, 0, Qt.AlignTop)
         self.text_column = QWidget(self)
         self.text_column.setMinimumWidth(0)
@@ -88,10 +98,15 @@ class UpdateNotice(QFrame):
         close.clicked.connect(lambda: self.dismiss(handled=True))
         self.heading.addWidget(close, 0, Qt.AlignTop)
         layout.addLayout(self.heading)
+        self.updates_scroll = None
         self.action = QPushButton('查看更新')
         self.action.setObjectName('PrimaryButton')
         self.action.clicked.connect(self._open)
-        layout.addWidget(self.action, 0, Qt.AlignRight)
+        self.actions = QHBoxLayout()
+        self.actions.addStretch(1)
+        self.actions.addWidget(self.action)
+        layout.addLayout(self.actions)
+        self.settings_action = None
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(10_000)
@@ -118,7 +133,8 @@ class UpdateNotice(QFrame):
         self._close_timer.stop()
         self._motion.stop()
         self._leaving = False
-        self.title.setText('发现新版本 v' + release_label(offer))
+        if not self._update_rows:
+            self.title.setText('发现新版本 v' + release_label(offer))
         self._resize_to_content()
         self._progress = self._progress if was_visible else 0.0
         if not motion.enabled():
@@ -173,8 +189,19 @@ class UpdateNotice(QFrame):
 
     def _resize_to_content(self):
         self.ensurePolished()
-        width = min(420, max(80, self.parentWidget().width() - 32))
+        count = len(self._update_rows)
+        preferred = 380 if count == 1 else 420
+        if count > 1:
+            preferred = max(preferred, self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 180)
+        owner = self._fullscreen_owner or self.parentWidget()
+        width = min(preferred, max(80, owner.width() - 32))
         self.setFixedWidth(width)
+        if count > 1:
+            available = max(80, width - 48)
+            rows_height = self.updates.totalHeightForWidth(available)
+            if rows_height < 0:
+                rows_height = self.updates.totalSizeHint().height()
+            self.updates_scroll.setFixedHeight(min(rows_height, max(100, owner.height() // 2)))
         self.layout().invalidate()
         height = self.layout().totalHeightForWidth(width)
         if height < 0:
@@ -184,17 +211,42 @@ class UpdateNotice(QFrame):
         self.text_column.layout().activate()
         self._reflow()
 
-    def reposition(self):
+    def set_presentation_owner(self, owner):
         parent = self.parentWidget()
-        offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
+        fullscreen_owner = None if owner is parent else owner
+        if fullscreen_owner is self._fullscreen_owner:
+            return
+        if self._fullscreen_owner is not None:
+            self._fullscreen_owner.removeEventFilter(self)
+        self._fullscreen_owner = fullscreen_owner
+        if fullscreen_owner is not None:
+            fullscreen_owner.installEventFilter(self)
+        owner.winId()
+        handle = self.windowHandle()
+        handle.setTransientParent(owner.windowHandle())
+        if not self.isVisible():
+            return
+        if handle.isVisible():
+            if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+                # Qt applies the new transient owner on show. Update an already
+                # visible HWND in place so the card keeps its timer and history.
+                user32 = ctypes.windll.user32
+                set_window_long = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
+                set_window_long.argtypes = (wintypes.HWND, wintypes.INT, ctypes.c_ssize_t)
+                set_window_long.restype = ctypes.c_ssize_t
+                set_window_long(int(handle.winId()), -8, int(owner.winId()))  # GWLP_HWNDPARENT
+            self.raise_()
+        self._resize_to_content()
+        self.reposition()
 
-    def _left_x(self):
-        parent = self.parentWidget()
-        return max(0, min(16, parent.width() - self.width() - 16))
+    def reposition(self):
+        owner = self._fullscreen_owner or self.parentWidget()
+        offset = round(-self._slide_distance * (1 - self._progress)) if motion.enabled() else 0
+        left = max(0, min(16, owner.width() - self.width() - 16))
+        self.move(owner.mapToGlobal(QPoint(left + offset, self._stack_y())))
 
     def _stack_y(self):
-        y = 20
+        y = 20 if self._fullscreen_owner is None else theme.TILE_CONTROL_HEIGHT + 16
         for notice in getattr(self.parentWidget(), '_notices', []):
             if notice is self:
                 break
@@ -212,37 +264,49 @@ class UpdateNotice(QFrame):
             parent._notices = []
         if self not in parent._notices:
             parent._notices.append(self)
+        tile = getattr(parent, '_fullscreen_tile', None)
+        if tile is not None and tile.isWindow() and tile.isVisible():
+            self.set_presentation_owner(tile)
         super().showEvent(event)
         self._reflow()
 
     def hideEvent(self, event):
         self.timer.stop()
         self._close_timer.stop()
-        notices = getattr(self.parentWidget(), '_notices', [])
+        parent = self.parentWidget()
+        notices = getattr(parent, '_notices', [])
         if self in notices:
             notices.remove(self)
+        self.set_presentation_owner(self.parentWidget())
         super().hideEvent(event)
         self._reflow()
+        # Refresh the mask after the surviving notices have reached their new positions.
+        layer = getattr(getattr(parent, 'wall', None), '_quick_danmaku_layer', None)
+        if layer is not None and not getattr(parent, '_closing', False):
+            layer.show()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._open()
+            self._open_settings()
             event.accept()
         else:
             super().mouseReleaseEvent(event)
 
     def eventFilter(self, watched, event):
-        if watched is not self.parentWidget():
-            if self.isVisible() and event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide):
-                self.reposition()
+        if not self.isVisible():
             return False
-        if self.isVisible():
-            if event.type() == QEvent.Resize:
+        kind = event.type()
+        parent = self.parentWidget()
+        if watched is (self._fullscreen_owner or parent):
+            if kind == QEvent.Resize:
                 self._resize_to_content()
-            if event.type() in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
+            if kind in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
                 self.reposition()
-            elif event.type() == QEvent.Hide:
+        if watched in (parent, self._fullscreen_owner):
+            if kind == QEvent.Hide:
                 self.dismiss(animate=False)
+        elif kind in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide):
+            self.reposition()
         return False
 
     def track_history(self, record):
@@ -252,7 +316,8 @@ class UpdateNotice(QFrame):
     def dismiss(self, animate=True, *, handled=False):
         if handled:
             for center, entry in self._history_entries:
-                center._remove(entry)
+                entry.unread = False
+                center._sync()
             self._history_entries.clear()
         self.timer.stop()
         if (animate and self.isVisible() and self.parentWidget().isVisible()
@@ -266,8 +331,124 @@ class UpdateNotice(QFrame):
             self.hide()
 
     def _open(self):
+        if self._update_rows:
+            for key, (_, _, button) in self._update_rows.items():
+                if button.isEnabled() and button.property('phase') != 'ready':
+                    self.updateRequested.emit(key)
+            return
         self.dismiss(animate=False, handled=True)
         self.activated.emit()
+
+    def _open_settings(self):
+        self.dismiss(animate=False, handled=True)
+        self.activated.emit()
+
+    def set_updates(self, entries):
+        from .update_progress_ui import UpdateProgress
+        single = len(entries) == 1
+        if self.updates_scroll is None:
+            self.updates_container = QWidget(self)
+            self.updates = QVBoxLayout(self.updates_container)
+            self.updates.setContentsMargins(0, 0, 0, 0)
+            self.updates.setSpacing(10)
+            self.updates_scroll = QScrollArea(self)
+            self.updates_scroll.setFrameShape(QFrame.NoFrame)
+            self.updates_scroll.setWidgetResizable(True)
+            self.updates_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self.updates_scroll.setWidget(self.updates_container)
+            self.layout().insertWidget(1, self.updates_scroll)
+            self.settings_action = QPushButton('前往设置', self)
+            self.settings_action.setObjectName('IconButton')
+            self.settings_action.clicked.connect(self._open_settings)
+            self.actions.addWidget(self.settings_action)
+            self.actions.setSpacing(8)
+            self.layout().setSpacing(10)
+        keys = {entry['key'] for entry in entries}
+        for key in set(self._update_rows) - keys:
+            widget, _, _ = self._update_rows.pop(key)
+            self.updates.removeWidget(widget)
+            self.actions.removeWidget(widget)
+            self.layout().removeWidget(widget)
+            widget.hide()
+            widget.deleteLater()
+        for entry in entries:
+            key = entry['key']
+            if key not in self._update_rows:
+                widget = QWidget(self)
+                body = QVBoxLayout(widget)
+                body.setContentsMargins(0, 0, 0, 0)
+                title = QLabel(entry['title'], widget)
+                title.setObjectName('UpdateItemTitle')
+                title.setTextFormat(Qt.PlainText)
+                title.setWordWrap(True)
+                body.addWidget(title)
+                button = QPushButton('下载更新', widget)
+                button.setObjectName('IconButton')
+                button.setProperty('updateReady', False)
+                button.clicked.connect(lambda checked=False, k=key: self.updateRequested.emit(k))
+                progress = UpdateProgress(widget, button=button)
+                body.addWidget(progress)
+                self._update_rows[key] = widget, progress, button
+            widget, _, button = self._update_rows[key]
+            title = widget.findChild(QLabel, 'UpdateItemTitle')
+            title.setText(entry['title'])
+            title.setVisible(not single)
+            if button.property('noticePrimary') != single:
+                button.setProperty('noticePrimary', single)
+                _repolish(button)
+            button.setEnabled(entry.get('enabled', True))
+            button.setToolTip(entry.get('hint', ''))
+        self._layout_update_rows([entry['key'] for entry in entries])
+        self.action.setText('全部下载')
+        self.action.setVisible(len(entries) > 1)
+        self.settings_action.show()
+        self.category.setVisible(not entries)
+        if self.title.property('updateHeadline') != bool(entries):
+            self.title.setProperty('updateHeadline', bool(entries))
+            _repolish(self.title)
+        if entries:
+            self.title.setText(entries[0]['title'] + ' 可更新' if single else f'有 {len(entries)} 项更新')
+        self.description.setText('下载完成后可选择重启。')
+        self._resize_to_content()
+        self.reposition()
+
+    def _layout_update_rows(self, keys):
+        single = len(keys) == 1
+        inline = (single and self._update_rows[keys[0]][2].property('phase')
+                  not in ('downloading', 'verifying', 'failed'))
+        self.actions.setStretch(0, 0 if inline else 1)
+        for index, key in enumerate(keys):
+            widget = self._update_rows[key][0]
+            target = self.actions if inline else self.layout() if single else self.updates
+            position = 1 if single else index
+            if target.indexOf(widget) != position:
+                target.insertWidget(position, widget, int(inline))
+                widget.show()
+        self.updates_scroll.setVisible(len(keys) > 1)
+
+    def set_transfer(self, key, state):
+        if key not in self._update_rows:
+            return
+        _, progress, button = self._update_rows[key]
+        progress.set_state(state)
+        phase = state['phase']
+        previous_phase = button.property('phase')
+        button.setProperty('phase', phase)
+        button.setText({'downloading': '下载中…', 'verifying': '校验中…',
+                        'ready': '重启以应用', 'failed': '重试'}.get(phase, '下载更新'))
+        button.setEnabled(phase in ('ready', 'failed'))
+        downloading = any(row[2].property('phase') in ('downloading', 'verifying')
+                          for row in self._update_rows.values())
+        for _, _, action in self._update_rows.values():
+            if action.property('phase') == 'ready':
+                action.setEnabled(not downloading)
+                action.setToolTip('其他更新完成后可重启' if downloading else '')
+        if phase in ('downloading', 'verifying'):
+            self.timer.stop()
+        if len(self._update_rows) == 1 and phase != previous_phase:
+            self._layout_update_rows((key,))
+        self._resize_to_content()
+        self.reposition()
 
 
 def _notifications_hidden(parent):

@@ -38,11 +38,14 @@ DEFAULT_VOLUME = 40
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
 from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+from .shortcut_actions import DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOLUME_STEP
 
 DEFAULT_SETTINGS = {
     **MATERIAL_DEFAULTS,
     **APPEARANCE_DEFAULTS,
+    "settings_wheel_speed": 1,
     "tile_context_menu": None,
+    "tray_context_menu": None,
     "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,
@@ -69,18 +72,30 @@ DEFAULT_SETTINGS = {
     "default_muted": True,    # 只用于新建格子；已有格子换主播沿用自己的静音状态
     "fullscreen_solo_audio": True,  # 全屏独占声音，退出恢复原静音状态
     "fullscreen_auto_hide_controls": True,  # 鼠标静止后向下收起全屏底栏
+    "windowed_transparent_controls": False,
+    "windowed_auto_hide_controls": False,
+    "wall_seamless": False,
     "default_volume": DEFAULT_VOLUME,
+    "streamer_defaults": {},
+    "streamer_defaults_merge_identical": False,
+    "audio_follows_room": False,
+    "hover_wheel_volume": False,
+    "hover_wheel_volume_step": DEFAULT_HOVER_WHEEL_VOLUME_STEP,
+    "wheel_volume_step": DEFAULT_WHEEL_VOLUME_STEP,
     "volume_normalization": False,  # 播放时减小不同直播间与片段的音量差异。
     "volume_normalization_curve": None,  # 缺省使用平缓时间响应；编辑后保存独立参数。
     "sidebar_card_mode": True,  # 关注列表用大封面卡片；关闭后恢复头像 + 文字列表
     "sidebar_auto_compact": True,  # 关注较多时自动切换为头像 + 文字列表
     "sidebar_compact_threshold": 18,  # 自动切换紧凑列表的关注数量
     "sidebar_compact_background": True,  # 紧凑关注卡片显示主播背景图
+    "folder_collapse_mode": "all",  # 全部展开后再次点击时，收起全部或仅还原此前收起的文件夹。
     "preview_on_hover": True,   # 鼠标停在关注列表的直播上 0.5 秒，缩略图里播静音预览
     "sidebar_platform_logos": True,
     "live_alert": True,         # 启动状态读取完成后的开播：顶部提示与关注栏动效
     "notifications_enabled": True,  # 浮动通知总开关；关闭后仍保留通知中心历史
     "notice_hide_fullscreen": False,
+    "notice_windows_recording": False,
+    "notice_banner_enabled": True,
     "notice_banner_blur": 16,
     "notice_persist_updates": True,
     "notice_persist_pinned_live": True,
@@ -128,6 +143,10 @@ DEFAULT_SETTINGS = {
     "recording_lock_quality": True,  # 录制期间锁定原画，结束后恢复画质
     "danmaku_font": "",       # 弹幕字体（空 = 内置思源黑体）
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）
+    "danmaku_float_reuse_cell": False,
+    "danmaku_float_keep_video_slots": False,
+    "danmaku_drag_unlinked_swap": False,
+    "danmaku_drag_linked_swap": False,
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
     "danmaku_retention_version": 1,  # 旧版默认 300 条的一次性升级标记
     "danmaku_block_words": [],  # 屏蔽词：弹幕里包含这些词就不显示

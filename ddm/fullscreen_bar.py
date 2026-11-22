@@ -6,15 +6,24 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QTimer, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
+
+from .corner_geometry import continuous_path
+from .theme import VIDEO_CONTROL_BACKING, VIDEO_CONTROL_RADIUS
 
 
 class FullscreenBar(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
+        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            # The bar overlaps native video in fullscreen; its Qt children
+            # share this window instead of each requiring a separate HWND.
+            self.setAttribute(Qt.WA_NativeWindow, True)
         self.setProperty('fullscreen', False)
+        self.setProperty('overVideo', False)
+        self.contrast_groups = ()
         self._masked_labels = set()
         self._label_mask_pending = False
         self._tile_rect = QRect()
@@ -45,16 +54,21 @@ class FullscreenBar(QWidget):
 
     @property
     def qt_composited(self):
-        return (self.property('fullscreen') and sys.platform == 'win32'
+        return (self.property('overVideo') and sys.platform == 'win32'
                 and QApplication.platformName() == 'windows')
 
-    def set_fullscreen(self, enabled):
-        if enabled == self.property('fullscreen'):
+    @property
+    def windowed_overlay(self):
+        return self.property('overVideo') and not self.property('fullscreen')
+
+    def set_fullscreen(self, enabled, *, windowed_overlay=False):
+        over_video = enabled or windowed_overlay
+        if enabled == self.property('fullscreen') and over_video == self.property('overVideo'):
             return
-        if self.qt_composited:
+        was_composited = self.qt_composited
+        if was_composited:
             self.setWindowOpacity(1.0)
-        # The tile is temporarily hidden while promoted to a fullscreen window.
-        # Preserve the bar's own visibility intent, not its ancestor's state.
+        # The presentation may keep the bar hidden until its new geometry is ready.
         visible = not self.isHidden()
         local = QRect(self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())), self.size())
         focus = QApplication.focusWidget()
@@ -62,45 +76,71 @@ class FullscreenBar(QWidget):
         owner = self.parentWidget().window()
         self._owner_window.removeEventFilter(self)
         self._owner_window = owner
-        if enabled:
+        if over_video:
             owner.installEventFilter(self)
-        if not enabled:
+        if not over_video:
             self._mask_label_windows(False)
         self.setProperty('fullscreen', enabled)
+        self.setProperty('overVideo', over_video)
+        # The gradient owns the video overlay. A normal theme or
+        # skin fill under it would turn the alpha layer into a solid rectangle.
+        self.setProperty('customControlSurface', over_video)
+        self.setAttribute(Qt.WA_StyledBackground, not over_video)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+            if was_composited or not over_video:
+                self._release_owned_windows()
+                self._masked_labels.clear()
             # Recreate this backing store (and its native input children) when
             # changing alpha modes; Qt can retain layered HWNDs after reparenting.
             self.destroy()
             # A child HWND shares the main window's opaque backing store. Give
             # the complete interactive bar its own Qt-managed alpha backing store.
-            self.setAttribute(Qt.WA_TranslucentBackground, enabled)
-            self.setAttribute(Qt.WA_NoSystemBackground, enabled)
-            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint if enabled else Qt.Widget)
+            self.setAttribute(Qt.WA_TranslucentBackground, over_video)
+            self.setAttribute(Qt.WA_NoSystemBackground, over_video)
+            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint if over_video else Qt.Widget)
             self.set_tile_geometry(local.x(), local.y(), local.width(), local.height())
-            if enabled and getattr(self.parentWidget(), '_presentation_changing', False):
-                self.setWindowOpacity(0.0)
         for widget in (self, *self.findChildren(QWidget)):
             widget.setProperty('fullscreen', enabled)
+            widget.setProperty('overVideo', over_video)
             widget.style().unpolish(widget)
             widget.style().polish(widget)
             widget.update()
-        self.setVisible(visible)
+        self.setVisible(visible and (not windowed_overlay or self.parentWidget().isVisible()))
         if restore_focus:
             focus.setFocus(Qt.OtherFocusReason)
         self.refresh_theme()
 
+    def _release_owned_windows(self):
+        # Qt keeps these widgets when the bar changes flags, but Windows drops
+        # their native owner when the old bar HWND is destroyed.
+        owner = self.windowHandle()
+        owned = []
+        for widget in self.findChildren(QWidget):
+            if not widget.isWindow() or not widget.internalWinId():
+                continue
+            parent = widget.windowHandle().transientParent()
+            while parent is not None and parent is not owner:
+                parent = parent.transientParent()
+            if parent is not None:
+                owned.append(widget)
+        for widget in reversed(owned):
+            widget.hide()
+            widget.destroy()
+
     def set_tile_geometry(self, x, y, width, height):
         self._tile_rect = QRect(x, y, width, height)
-        # The hidden fullscreen owner's native frame margins can still be stale.
-        # Its window geometry already contains the intended global client origin.
-        position = (self.parentWidget().geometry().topLeft() + QPoint(x, y)
-                    if self.qt_composited else QPoint(x, y))
-        self.setGeometry(QRect(position, self._tile_rect.size()))
+        tile = self.parentWidget()
+        position = QPoint(x, y)
         if self.qt_composited:
-            visible = self._tile_rect.intersected(self.parentWidget().rect())
-            self.setMask(QRegion(visible.translated(-self._tile_rect.topLeft())))
-        else:
-            self.clearMask()
+            # An independent tile already has global geometry before Qt exposes it.
+            position += tile.geometry().topLeft() if tile.isWindow() else tile.mapToGlobal(QPoint())
+        self.setGeometry(QRect(position, self._tile_rect.size()))
+        if not self.windowed_overlay:
+            if self.qt_composited:
+                visible = self._tile_rect.intersected(tile.rect())
+                self.setMask(QRegion(visible.translated(-self._tile_rect.topLeft())))
+            else:
+                self.clearMask()
 
     def prepare_fullscreen_frame(self):
         if not self.qt_composited:
@@ -116,9 +156,46 @@ class FullscreenBar(QWidget):
     def tile_y(self):
         return self.parentWidget().mapFromGlobal(self.mapToGlobal(QPoint())).y()
 
-    def _follow_owner(self):
+    def sync_owner_position(self):
         if self.qt_composited:
             self.set_tile_geometry(*self._tile_rect.getRect())
+        self.sync_windowed_visibility()
+
+    def sync_windowed_visibility(self):
+        if not self.windowed_overlay:
+            return
+        tile = self.parentWidget()
+        owner = tile.window()
+        auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
+        visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
+        composited = self.qt_composited
+        settings = getattr(owner, '_settings_process', None) if composited else None
+        mask_changed = False
+        if visible:
+            if composited and self.isHidden():
+                self.set_tile_geometry(*self._tile_rect.getRect())
+            if tile.wall_seamless:
+                region = QRegion(tile.rect())
+            else:
+                outline = continuous_path(tile.rect().adjusted(1, 1, -1, -1), 9)
+                region = QRegion(outline.toFillPolygon().toPolygon())
+            region &= self._tile_rect
+            region.translate(-self._tile_rect.topLeft())
+            if settings is not None and settings.visible and not settings.closing:
+                if settings.window_hwnd:
+                    region -= QRegion(settings.occlusion.translated(-self.geometry().topLeft()))
+                else:
+                    region = QRegion()
+            # Qt treats an empty window mask as unmasked, so hide a fully covered bar.
+            visible = not region.isEmpty()
+            mask_changed = visible and region != self.mask()
+            if mask_changed:
+                self.setMask(region)
+        visibility_changed = self.isHidden() == visible
+        if visibility_changed:
+            self.setVisible(visible)
+        if mask_changed or visibility_changed:
+            tile._update_quick_danmaku_mask()
 
     def refresh_theme(self):
         self.update()
@@ -126,8 +203,24 @@ class FullscreenBar(QWidget):
     def _render_badge(self, painter):
         shade = QLinearGradient(0, 0, 0, self.height())
         shade.setColorAt(0, QColor(0, 0, 0, 0))
-        shade.setColorAt(1, QColor(0, 0, 0, 150))
+        shade.setColorAt(.32, QColor(0, 0, 0, 12))
+        shade.setColorAt(.72, QColor(0, 0, 0, 68))
+        shade.setColorAt(1, QColor(0, 0, 0, 146))
         painter.fillRect(self.rect(), shade)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(*VIDEO_CONTROL_BACKING))
+        for group in self.contrast_groups:
+            bounds = QRect()
+            for widget in group:
+                if not widget.isHidden():
+                    bounds = bounds.united(widget.geometry())
+            if not bounds.isEmpty():
+                inset = self.rect().adjusted(3, 3, -3, -3)
+                surface = bounds.adjusted(-5, 0, 5, 0).intersected(inset)
+                painter.drawRoundedRect(QRectF(surface), VIDEO_CONTROL_RADIUS, VIDEO_CONTROL_RADIUS)
+        painter.restore()
 
     def _mask_label_windows(self, hide):
         if sys.platform != 'win32' or QApplication.platformName() != 'windows':
@@ -171,7 +264,7 @@ class FullscreenBar(QWidget):
 
     def paintEvent(self, event):
         self._trace_input('bar-paint', self, event)
-        if not self.property('fullscreen'):
+        if not self.property('overVideo'):
             QWidget.paintEvent(self, event)
             return
         painter = QPainter(self)
@@ -189,12 +282,14 @@ class FullscreenBar(QWidget):
         if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
             event.child().installEventFilter(self)
         if self.qt_composited and watched is self._owner_window:
-            if event.type() == QEvent.Hide:
+            if event.type() == QEvent.Move:
+                QTimer.singleShot(0, self, self.sync_owner_position)
+            elif self.windowed_overlay and event.type() == QEvent.WindowStateChange:
+                QTimer.singleShot(0, self, self.sync_windowed_visibility)
+            elif not self.windowed_overlay and event.type() == QEvent.Hide:
                 self._owner_hidden_visible = self.isVisible()
                 self.hide()
-            elif event.type() == QEvent.Show and self._owner_hidden_visible:
+            elif not self.windowed_overlay and event.type() == QEvent.Show and self._owner_hidden_visible:
                 self.show()
                 self._owner_hidden_visible = False
-            elif event.type() == QEvent.Move:
-                QTimer.singleShot(0, self, self._follow_owner)
         return super().eventFilter(watched, event)

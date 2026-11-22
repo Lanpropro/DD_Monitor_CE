@@ -28,7 +28,8 @@ class ComponentTests(unittest.TestCase):
 import sys
 from ddm.ui import (ActionButton, Avatar, AnimatedDialog, TileButton, VolumeButton,
                     RecordingButton, SidebarToggleButton, PauseButton, RefreshButton,
-                    DanmakuToggleButton, ElidedLabel, BarIconButton, ToggleSwitch, SegmentedControl, SelectControl, SettingsSurface, DisclosureButton)
+                    DanmakuToggleButton, ElidedLabel, BarIconButton, NavigationButton, ToggleSwitch,
+                    SegmentedControl, SelectControl, SettingsSurface, DisclosureButton, SettingsProgressBar)
 assert not any(name in sys.modules for name in (
     'ddm.widgets', 'ddm.player', 'ddm.app', 'ddm.dialogs',
     'PySide6.QtWebEngineWidgets', 'mpv'))
@@ -271,13 +272,14 @@ assert not any(name in sys.modules for name in (
             theme.apply('dark')
 
     def test_exports_reuse_original_classes_and_keep_old_imports(self):
-        from ddm import avatar_widgets, motion, widgets
+        from ddm import avatar_widgets, motion, sidebar_navigation, widgets
         from ddm.ui import labels, toolbar
         self.assertIs(widgets.ElidedLabel, labels.ElidedLabel)
         self.assertIs(widgets.BarIconButton, toolbar.BarIconButton)
         for module, names in (
                 (avatar_widgets, ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap')),
                 (motion, ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack')),
+                (sidebar_navigation, ('NavigationButton',)),
                 (widgets, ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
                            'PauseButton', 'RefreshButton', 'DanmakuToggleButton', 'ElidedLabel', 'BarIconButton'))):
             for name in names:
@@ -562,6 +564,139 @@ for before, component, after in (
         self.assertNotEqual(snapshots[0], snapshots[1])
         self.assertEqual(snapshots[0], snapshots[2])
 
+    def test_segment_indicator_follows_drag_and_commits_only_on_release(self):
+        from ddm import motion
+        from ddm.settings_material import set_segment_motion
+        owner = QWidget()
+        self.addCleanup(owner.close)
+        control = ui.SegmentedControl((('a', 'First'), ('b', 'Second'), ('c', 'Third')), parent=owner)
+        control.setFixedWidth(300)
+        owner.resize(360, 80)
+        owner.show()
+        control.show()
+        set_segment_motion(owner, True)
+        events = []
+        control.valueChanged.connect(events.append)
+        first, last = control.buttons['a'], control.buttons['c']
+        finish = first.mapFromGlobal(last.mapToGlobal(last.rect().center()))
+        selection = control._selection
+        with patch.object(motion, 'enabled', return_value=True):
+            start = selection.rect
+            QTest.mousePress(first, Qt.LeftButton)
+            QTest.mouseMove(first, finish)
+            self.assertGreater(selection.rect.left(), start.left())
+            self.assertEqual(control.value(), 'a')
+            self.assertFalse(events)
+            QTest.mouseRelease(first, Qt.LeftButton, pos=finish)
+            self.assertEqual(events, ['c'])
+            self.assertEqual(control.value(), 'c')
+            self.assertTrue(selection._timer.isActive())
+            QTest.qWait(900)
+            self.assertEqual(selection.rect, control._segment_rects()['c'])
+            self.assertFalse(selection._timer.isActive())
+        with patch.object(motion, 'enabled', return_value=False):
+            QTest.mouseClick(first, Qt.LeftButton)
+            self.assertEqual(selection.rect, control._segment_rects()['a'])
+            self.assertFalse(selection._timer.isActive())
+
+    def test_layout_picker_hover_stays_behind_moving_selection(self):
+        from PySide6.QtGui import QColor
+        from ddm.layout_picker import LayoutPicker
+        from ddm.settings_material import set_segment_motion
+
+        self.addCleanup(theme.apply, theme.mode())
+        for mode in ('dark', 'light'):
+            with self.subTest(mode=mode):
+                theme.apply(mode)
+                picker = LayoutPicker('2x2')
+                picker.setAttribute(Qt.WA_DontShowOnScreen)
+                self.addCleanup(picker.close)
+                picker.show()
+                set_segment_motion(picker, True)
+                self.app.processEvents()
+                tabs = picker.tabs
+                previous = tabs.buttons['普通布局']
+                next_tab = tabs.buttons['弹幕布局']
+                selection = tabs._selection
+                start = selection.rect
+                with patch('ddm.motion.enabled', return_value=True):
+                    QTest.mouseClick(next_tab, Qt.LeftButton)
+                    self.assertEqual(picker.group(), '弹幕布局')
+                    self.assertTrue(selection._timer.isActive())
+                    selection._timer.stop()
+                destination = tabs._segment_rects()['弹幕布局']
+                selection._draw(start.translated((destination.left() - start.left()) / 2, 0))
+
+                def samples(hovered):
+                    previous.setAttribute(Qt.WA_UnderMouse, hovered)
+                    image = tabs.grab().toImage()
+                    ratio = image.devicePixelRatio()
+                    return tuple(image.pixelColor(round(x * ratio), round((start.top() + 6) * ratio))
+                                 for x in (start.left() + start.width() / 4, start.right() - start.width() / 4))
+
+                normal, selected = samples(False)
+                hover, overlap = samples(True)
+                self.assertNotEqual(normal, hover)
+                self.assertNotEqual(normal, selected)
+                self.assertEqual(hover, QColor(theme.CONTENT_HOVER))
+                self.assertEqual(selected, overlap)
+                picker.close()
+
+    def test_settings_preview_switch_does_not_draw_mouse_focus_ring(self):
+        from PySide6.QtGui import QColor
+        from ddm.settings_general import GeneralSettingsPage
+        self.addCleanup(theme.apply, theme.mode())
+        theme.apply('dark')
+        page = GeneralSettingsPage({})
+        self.addCleanup(page.close)
+        page.show()
+        page.activateWindow()
+        self.app.processEvents()
+        switch = page._checks['preview_on_hover']
+        def edge_has_accent():
+            image = switch.grab().toImage()
+            return any(image.pixelColor(x, y) == QColor(theme.ACCENT)
+                       for x in range(image.width()) for y in range(round(2 * image.devicePixelRatio())))
+        QTest.mousePress(switch, Qt.LeftButton)
+        self.assertTrue(switch.isDown())
+        self.assertFalse(edge_has_accent())
+        QTest.mouseRelease(switch, Qt.LeftButton)
+        switch.clearFocus()
+        switch.setFocus(Qt.TabFocusReason)
+        self.assertTrue(edge_has_accent())
+
+    def test_plugin_tab_indicator_drags_without_switching_page_mid_gesture(self):
+        from ddm import motion
+        from ddm.online_ui import PluginStorePage
+        from ddm.settings_material import set_segment_motion
+        from ddm.settings_plugins import PluginSettingsPage
+        owner = QWidget()
+        self.addCleanup(owner.close)
+        layout = QVBoxLayout(owner)
+        owner.resize(750, 580)
+        with patch.object(PluginStorePage, 'open_catalog'), patch.object(motion, 'enabled', return_value=True):
+            layout.addWidget(page := PluginSettingsPage(parent=owner))
+            owner.show()
+            self.app.processEvents()
+            set_segment_motion(owner, True)
+            tabs = page.tabs
+            bar = tabs.tabBar()
+            selection = bar._selection
+            start = selection.rect
+            QTest.mousePress(bar, Qt.LeftButton, pos=bar.tabRect(0).center())
+            QTest.mouseMove(bar, bar.tabRect(1).center())
+            self.assertEqual(tabs.currentIndex(), 0)
+            self.assertGreater(selection.rect.left(), start.left())
+            QTest.mouseRelease(bar, Qt.LeftButton, pos=bar.tabRect(1).center())
+            self.assertEqual(tabs.currentIndex(), 1)
+            self.assertTrue(selection._timer.isActive())
+            QTest.qWait(900)
+            self.assertEqual(selection.rect, bar._tab_rects()[1])
+            self.assertFalse(selection._timer.isActive())
+            QTest.keyClick(bar, Qt.Key_Left)
+            self.assertEqual(tabs.currentIndex(), 0)
+            self.assertEqual(selection.rect, bar._tab_rects()[0])
+
     def test_selected_segment_has_a_raised_surface_in_both_themes(self):
         control = ui.SegmentedControl((('a', 'First'), ('b', 'Second')), 'b')
         control.resize(320, theme.CONTROL_HEIGHT)
@@ -620,6 +755,119 @@ for before, component, after in (
             finally:
                 control.deleteLater()
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_slider_thumb_stays_neutral_on_hover_and_grows_on_press(self):
+        from PySide6.QtCore import QPointF, QRect
+        from PySide6.QtGui import QColor, QEnterEvent
+        from PySide6.QtWidgets import QStyle, QStyleOptionSlider
+        self.addCleanup(theme.apply, theme.mode())
+        for mode in ('light', 'dark'):
+            with self.subTest(mode=mode):
+                theme.apply(mode)
+                slider = ui.SettingsSlider()
+                slider.setAttribute(Qt.WA_DontShowOnScreen)
+                slider.setValue(40)
+                slider.show()
+                self.app.processEvents()
+                option = QStyleOptionSlider()
+                slider.initStyleOption(option)
+                handle = slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider)
+                point = handle.center()
+                def paint_sample():
+                    image = slider.grab().toImage()
+                    scale = image.devicePixelRatio()
+                    crop = QRect(round((point.x() - 10) * scale), 0, round(21 * scale), round(6 * scale))
+                    return image.copy(crop), image.pixelColor(round(20 * scale), round((point.y() + .5) * scale))
+                def white_pixels():
+                    image = slider.grab().toImage()
+                    return sum(image.pixelColor(x, y) == QColor('white') for y in range(image.height())
+                               for x in range(image.width()))
+                thumb, track = paint_sample()
+                initial = white_pixels()
+                self.assertGreater(initial, 0)
+                slider.setAttribute(Qt.WA_UnderMouse)
+                position = QPointF(point)
+                self.app.sendEvent(slider, QEnterEvent(position, position, QPointF(slider.mapToGlobal(point))))
+                hovered, hovered_track = paint_sample()
+                self.assertEqual(hovered, thumb, 'Hover may recolor the track only')
+                self.assertNotEqual(hovered_track, track)
+                self.assertEqual(white_pixels(), initial)
+                QTest.mousePress(slider, Qt.LeftButton, pos=point)
+                self.assertTrue(slider.isSliderDown())
+                slider.initStyleOption(option)
+                self.assertEqual(slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider),
+                                 handle, 'Visual enlargement must not move the drag hit box')
+                self.assertGreater(white_pixels(), initial)
+                QTest.mouseRelease(slider, Qt.LeftButton, pos=point)
+                self.assertEqual(white_pixels(), initial)
+                self.assertEqual(slider.value(), 40)
+                slider.close()
+
+    def test_standard_confirmation_buttons_and_combo_cursor_use_common_roles(self):
+        from PySide6.QtWidgets import QComboBox, QDialogButtonBox
+        theme.apply(theme.mode())
+        box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.addCleanup(box.close)
+        box.ensurePolished()
+        for option, role in ((QDialogButtonBox.Ok, 'PrimaryButton'), (QDialogButtonBox.Cancel, 'IconButton')):
+            button = box.button(option)
+            button.ensurePolished()
+            self.assertEqual(button.objectName(), role)
+            self.assertEqual(button.cursor().shape(), Qt.PointingHandCursor)
+        combo = QComboBox()
+        combo.ensurePolished()
+        self.assertEqual(combo.cursor().shape(), Qt.PointingHandCursor)
+
+    def test_stepper_hold_accelerates_and_release_stops(self):
+        from PySide6.QtWidgets import QSpinBox
+        spin = QSpinBox()
+        spin.setRange(0, 99)
+        control = ui.StepperControl(spin)
+        self.addCleanup(control.close)
+        control.show()
+        QTest.mousePress(control.plus, Qt.LeftButton)
+        QTest.qWait(870)
+        self.assertEqual(control.plus.autoRepeatInterval(), 80)
+        self.assertGreaterEqual(spin.value(), 4)
+        QTest.qWait(390)
+        self.assertEqual(control.plus.autoRepeatInterval(), 45)
+        QTest.mouseRelease(control.plus, Qt.LeftButton)
+        released = spin.value()
+        QTest.qWait(180)
+        self.assertEqual(spin.value(), released)
+        QTest.mouseClick(control.minus, Qt.LeftButton)
+        self.assertEqual(spin.value(), released - 1)
+
+    def test_theme_ring_moves_only_with_segment_motion_and_can_reverse(self):
+        from ddm.settings_material import set_segment_motion
+        from ddm.settings_theme_editor import SettingsThemeEditor
+        editor = SettingsThemeEditor({})
+        owner = QWidget()
+        editor.setParent(owner)
+        self.addCleanup(owner.close)
+        owner.show()
+        editor.show()
+        self.app.processEvents()
+        palette = editor.swatch_palette
+        with patch('ddm.motion.enabled', return_value=True):
+            QTest.mouseClick(palette.buttons['#20b976'], Qt.LeftButton)
+            self.assertEqual(palette.ring.offset, palette._center('#20b976'))
+            set_segment_motion(owner, True)
+            QTest.mouseClick(palette.buttons['#f58b32'], Qt.LeftButton)
+            self.assertNotEqual(palette.ring.offset, palette._center('#f58b32'))
+            QTest.qWait(30)
+            current = palette.ring.offset
+            QTest.mouseClick(palette.buttons[''], Qt.LeftButton)
+            self.assertAlmostEqual(palette.ring.offset, current)
+            QTest.qWait(180)
+            self.assertEqual(palette.ring.offset, palette._center(''))
+            QTest.mouseClick(palette.buttons['#f58b32'], Qt.LeftButton)
+            set_segment_motion(owner, False)
+            self.assertEqual(palette.ring.offset, palette._center('#f58b32'))
+        set_segment_motion(owner, True)
+        with patch('ddm.motion.enabled', return_value=False):
+            QTest.mouseClick(palette.buttons[''], Qt.LeftButton)
+            self.assertEqual(palette.ring.offset, palette._center(''))
 
     def test_stepper_selection_is_limited_to_active_edit_and_shadow_is_optional(self):
         from PySide6.QtWidgets import QDoubleSpinBox, QLabel
@@ -718,6 +966,246 @@ for before, component, after in (
             self.assertGreater(spy.count(), 0)
         finally:
             control.deleteLater()
+
+    def test_font_search_filters_without_committing_and_reopens_at_current_family(self):
+        from PySide6.QtGui import QFont
+        from PySide6.QtTest import QSignalSpy
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=['Arial', 'Mono Alpha', 'Mono Beta', '宋体']):
+            control = ui.FontSelectControl(parent)
+        box.addWidget(control)
+        parent.resize(360, 100)
+        parent.show()
+        self.app.processEvents()
+        changed = QSignalSpy(control.currentFontChanged)
+        indices = QSignalSpy(control.currentIndexChanged)
+        try:
+            control.showPopup()
+            self.app.processEvents()
+            self.assertTrue(control.search.isVisible())
+            self.assertTrue(control.search.hasFocus())
+            self.assertEqual(control.search.accessibleName(), '搜索字体名称')
+            self.assertLessEqual(control.search.parentWidget().height(), control.search.height() + 16)
+            self.assertLess(control.search.mapTo(control.view().window(), control.search.rect().bottomLeft()).y(),
+                            control.view().mapTo(control.view().window(), control.view().rect().topLeft()).y())
+            QTest.keyClicks(control.search, 'mOnO bE')
+            self.assertEqual([control.itemText(row) for row in range(control.count())
+                              if not control.view().isRowHidden(row)], ['Mono Beta'])
+            self.assertEqual(control.currentFont().family(), 'Arial')
+            self.assertEqual(changed.count(), 0)
+            self.assertEqual(indices.count(), 0)
+            control.search.setText('没有这种字体')
+            self.assertTrue(control.empty.isVisible())
+            QTest.keyClick(control.search, Qt.Key_Return)
+            self.assertTrue(control.view().isVisible())
+            self.assertEqual(changed.count(), 0)
+            QTest.keyClick(control.search, Qt.Key_Escape)
+            self.assertFalse(control.view().isVisible())
+            self.assertEqual(control.currentFont().family(), 'Arial')
+            control.setCurrentFont(QFont('Consolas'))
+            self.assertEqual(control.currentFont().family(), 'Consolas')
+            control.showPopup()
+            self.app.processEvents()
+            self.assertEqual(control.search.text(), '')
+            self.assertFalse(control.empty.isVisible())
+            self.assertTrue(all(not control.view().isRowHidden(row) for row in range(control.count())))
+            self.assertEqual(control.view().currentIndex().row(), control.currentIndex())
+        finally:
+            control.hidePopup()
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_font_search_supports_chinese_pinyin_initials_and_multiple_terms(self):
+        from PySide6.QtTest import QSignalSpy
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=['思源黑体 SC', '微软雅黑', 'Example 42']):
+            control = ui.FontSelectControl(parent)
+        box.addWidget(control)
+        parent.show()
+        self.app.processEvents()
+        changed = QSignalSpy(control.currentFontChanged)
+        try:
+            control.showPopup()
+            cases = [('思源', ['思源黑体 SC']), ('siyuanheiti', ['思源黑体 SC']),
+                     ('SYHT', ['思源黑体 SC']), ('SC syht', ['思源黑体 SC']),
+                     ('微软雅黑', ['微软雅黑']), ('weiruanyahei', ['微软雅黑']), ('WRYH', ['微软雅黑']),
+                     ('42', ['Example 42']), ('EXAMPLE', ['Example 42']), ('syht 42', [])]
+            for query, expected in cases:
+                control.search.setText(query)
+                self.app.processEvents()
+                self.assertEqual([control.itemText(row) for row in range(control.count())
+                                  if not control.view().isRowHidden(row)], expected, query)
+            self.assertEqual(control.count(), 3)
+            self.assertEqual(changed.count(), 0)
+            self.assertEqual(control.currentFont().family(), '思源黑体 SC')
+        finally:
+            control.hidePopup()
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_font_search_keeps_native_keyboard_and_mouse_selection(self):
+        from PySide6.QtTest import QSignalSpy
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=['Arial', 'Mono Alpha', 'Mono Beta', 'Serif']):
+            control = ui.FontSelectControl(parent)
+        box.addWidget(control)
+        parent.resize(360, 100)
+        parent.show()
+        self.app.processEvents()
+        changes = QSignalSpy(control.currentFontChanged)
+        try:
+            control.showPopup()
+            control.search.setText('mono')
+            self.app.processEvents()
+            QTest.keyClick(control.search, Qt.Key_Down)
+            QTest.keyClick(control.view(), Qt.Key_Down)
+            QTest.keyClick(control.view(), Qt.Key_Return)
+            self.app.processEvents()
+            self.assertEqual(control.currentFont().family(), 'Mono Beta')
+            self.assertEqual(changes.count(), 1)
+            self.assertFalse(control.view().isVisible())
+            control.showPopup()
+            control.search.setText('arial')
+            self.app.processEvents()
+            index = control.model().index(0, 0)
+            QTest.mouseClick(control.view().viewport(), Qt.LeftButton,
+                             pos=control.view().visualRect(index).center())
+            self.app.processEvents()
+            self.assertEqual(control.currentFont().family(), 'Arial')
+            self.assertEqual(changes.count(), 2)
+            self.assertFalse(control.view().isVisible())
+            control.showPopup()
+            control.search.setText('mono')
+            QTest.keyClick(control.search, Qt.Key_Return)
+            self.app.processEvents()
+            self.assertEqual(control.currentFont().family(), 'Mono Alpha')
+            self.assertEqual(changes.count(), 3)
+            self.assertFalse(control.view().isVisible())
+        finally:
+            control.hidePopup()
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_font_search_only_saves_the_confirmed_family(self):
+        from PySide6.QtGui import QFont
+        from ddm.dialogs import SettingsDialog
+        with tempfile.TemporaryDirectory(prefix='ddm-font-search-') as directory, \
+                patch.object(config, 'REPO', directory), \
+                patch('ddm.ui.select.QFontDatabase.families', return_value=['Arial', 'Consolas']):
+            dialog = SettingsDialog({'danmaku_font': 'Arial'}, {}, preview=True)
+            try:
+                dialog.nav.setCurrentRow(dialog.PAGE_INDEX['danmaku'])
+                control = dialog.danmaku_page.font_box
+                control.setCurrentFont(QFont('Arial'))
+                dialog.show()
+                self.app.processEvents()
+                requests = []
+                dialog.auto_save.requested.connect(requests.append)
+                dialog.auto_save.start()
+                control.showPopup()
+                QTest.keyClicks(control.search, 'consolas')
+                self.app.processEvents()
+                dialog.auto_save.flush()
+                self.assertEqual(requests, [])
+                self.assertEqual(dialog.settings()['danmaku_font'], 'Arial')
+                control.search.setText('not-an-installed-font')
+                QTest.keyClick(control.search, Qt.Key_Return)
+                self.assertTrue(dialog.isVisible())
+                self.assertTrue(control.view().isVisible())
+                self.assertEqual(dialog.settings()['danmaku_font'], 'Arial')
+                control.search.setText('consolas')
+                QTest.keyClick(control.search, Qt.Key_Return)
+                self.app.processEvents()
+                dialog.auto_save.flush()
+                self.assertTrue(dialog.isVisible())
+                self.assertEqual(requests[-1]['settings']['danmaku_font'], 'Consolas')
+                self.assertEqual(dialog.settings()['danmaku_font'], 'Consolas')
+            finally:
+                dialog.auto_save.stop()
+                dialog.close()
+                dialog.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_font_popup_includes_a_clickable_single_family_below_search(self):
+        from PySide6.QtTest import QSignalSpy
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=['Source Han Sans SC']):
+            control = ui.FontSelectControl(parent)
+        control.setFixedWidth(180)
+        control.setCurrentIndex(-1)
+        box.addWidget(control)
+        parent.resize(260, 100)
+        parent.show()
+        self.app.processEvents()
+        selected = QSignalSpy(control.activated)
+        try:
+            control.showPopup()
+            self.app.processEvents()
+            view = control.view()
+            index = control.model().index(0, 0)
+            row = view.visualRect(index)
+            self.assertGreaterEqual(view.viewport().height(), view.sizeHintForRow(0))
+            self.assertTrue(view.viewport().rect().contains(row), (view.viewport().rect(), row))
+            initial_height = view.window().height()
+            control.search.setText('no such font')
+            self.app.processEvents()
+            self.assertTrue(control.empty.isVisible())
+            control.search.setText('Source')
+            self.app.processEvents()
+            self.assertFalse(control.empty.isVisible())
+            self.assertEqual(view.window().height(), initial_height)
+            row = view.visualRect(index)
+            self.assertTrue(view.viewport().rect().contains(row))
+            QTest.mouseClick(view.viewport(), Qt.LeftButton, pos=row.center())
+            self.app.processEvents()
+            self.assertEqual(selected.count(), 1)
+            self.assertEqual(control.currentFont().family(), 'Source Han Sans SC')
+            self.assertFalse(view.isVisible())
+        finally:
+            control.hidePopup()
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_font_popup_caps_list_at_eight_rows_and_stays_on_screen(self):
+        parent = QWidget()
+        box = QVBoxLayout(parent)
+        with patch('ddm.ui.select.QFontDatabase.families', return_value=[f'Font {n:02d}' for n in range(20)]):
+            control = ui.FontSelectControl(parent)
+        control.setFixedWidth(180)
+        box.addWidget(control)
+        parent.resize(260, 100)
+        bounds = parent.screen().availableGeometry()
+        parent.move(bounds.right() - 280, bounds.bottom() - 120)
+        parent.show()
+        self.app.processEvents()
+        try:
+            control.showPopup()
+            self.app.processEvents()
+            view = control.view()
+            row_height = view.sizeHintForRow(0)
+            self.assertGreaterEqual(view.viewport().height(), row_height)
+            self.assertLessEqual(view.viewport().height(), row_height * 8)
+            self.assertTrue(view.viewport().rect().contains(view.visualRect(control.model().index(0, 0))))
+            self.assertFalse(view.viewport().rect().intersects(view.visualRect(control.model().index(8, 0))))
+            self.assertTrue(bounds.contains(view.window().frameGeometry()), (bounds, view.window().frameGeometry()))
+            initial_height = view.window().height()
+            control.search.setText('Font 19')
+            self.app.processEvents()
+            self.assertGreaterEqual(view.viewport().height(), row_height)
+            self.assertLess(view.window().height(), initial_height)
+            self.assertTrue(view.viewport().rect().contains(view.visualRect(control.model().index(19, 0))))
+            control.search.clear()
+            self.app.processEvents()
+            self.assertEqual(view.window().height(), initial_height)
+            self.assertTrue(bounds.contains(view.window().frameGeometry()))
+        finally:
+            control.hidePopup()
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_select_popup_keeps_layout_and_native_keyboard_commit_cancel(self):
         parent = QWidget()

@@ -37,7 +37,8 @@ if (-not (Test-Path $py)) { throw "没找到 Python 解释器（.venv 或 DD_Mon
 if (-not $OutDir) { $OutDir = Join-Path $repo "results" }
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
-$version = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.VERSION_TAG)").Trim()
+$sourceIdentity = (& $py -c "import json,sys; sys.path.insert(0,sys.argv[1]); from ddm import version; print(json.dumps(dict(tag=version.VERSION_TAG, revision=version.UPDATE_REVISION)))" $repo) | ConvertFrom-Json
+$version = $sourceIdentity.tag
 if (-not $version) { throw "读不到版本号（ddm/version.py）" }
 if (-not $ReleaseTag) { $ReleaseTag = $version }
 $releaseIdentity = (& $py -c "import json,sys; sys.path.insert(0,sys.argv[1]); from ddm.update_version import app_tag; print(json.dumps(app_tag(sys.argv[2])))" $repo $ReleaseTag) | ConvertFrom-Json
@@ -47,6 +48,8 @@ if ($releaseIdentity[1] -gt 0) {
         throw "Hotfix 标签与内部修订号不一致"
     }
     $UpdateRevision = $releaseIdentity[1]
+} elseif (-not $PSBoundParameters.ContainsKey('UpdateRevision')) {
+    $UpdateRevision = $sourceIdentity.revision
 }
 $display = (& $py -c "import sys; sys.path.insert(0, r'$repo'); from ddm import version; print(version.DISPLAY_NAME)").Trim()
 if (-not $display) { $display = "DD监控室CE" }
@@ -159,7 +162,7 @@ plugins_user\               插件目录（新插件含 plugin.json 和 plugin.p
 utils\                      配置目录（首次运行会生成 config.json）
 docs\                       文档与截图
 LICENSE / docs\NOTICE.md    许可与第三方声明
-docs\releases\RELEASE-$version.md 这一版改了什么
+docs\releases\RELEASE-$ReleaseTag.md 这一版改了什么
 
 说明
 ----
@@ -221,6 +224,8 @@ if (-not $SourceOnly) {
         --collect-all av `
         --collect-submodules ddm.ui `
         --hidden-import numpy `
+        --hidden-import tarfile `
+        --hidden-import bz2 `
         --hidden-import mpv `
         --copy-metadata python-mpv `
         --hidden-import ddm.live_danmaku `
@@ -262,9 +267,13 @@ if (-not $SourceOnly) {
     # 用户插件目录：和源码便携包一样，独立发布的直播平台扩展不内置。
     # 用户自己的数据（plugins_user\_danmaku_log）照旧不带。
     New-Item -ItemType Directory -Force -Path (Join-Path $exeDir "plugins_user") | Out-Null
-    foreach ($file in @("LICENSE", "docs/NOTICE.md", "docs/releases/RELEASE-v$($version.TrimStart('v')).md")) {
+    foreach ($file in @("LICENSE", "docs/NOTICE.md")) {
         $src = Join-Path $repo $file
         if (Test-Path $src) { Copy-Item $src $exeDir -Force }
+    }
+    $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$ReleaseTag.md"
+    if (Test-Path -LiteralPath $releaseNotes) {
+        Copy-Item -LiteralPath $releaseNotes -Destination (Join-Path $exeDir "RELEASE-$version.md") -Force
     }
     $exeReadme = @"
 DD 监控室 $version（exe 便携版）
@@ -293,15 +302,29 @@ DDMonitorDiagnostics.exe 是独立诊断工具，软件无法启动时也可双�
        plugins_enabled = @(); settings = @{ auto_update = $false } } |
         ConvertTo-Json -Depth 4
     [System.IO.File]::WriteAllText($testConfig, $probeJson, (New-Object System.Text.UTF8Encoding($false)))
-    $proc = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
-    Start-Sleep -Seconds 20
-    $alive = -not $proc.HasExited
-    if ($alive) { Stop-Process -Id $proc.Id -Force }
+    $probeProfile = Join-Path $OutDir ('.probe-profile-' + [guid]::NewGuid().ToString('N'))
+    if ((Split-Path $probeProfile -Parent) -ne $OutDir) { throw "自检用户目录路径越界" }
+    New-Item -ItemType Directory -Path $probeProfile | Out-Null
+    $previousProbeLocalAppData = $env:LOCALAPPDATA
+    $previousProbeNoSave = $env:DDM_NO_SAVE
+    try {
+        # Isolate the singleton and data-location registry from the real desktop session.
+        $env:LOCALAPPDATA = $probeProfile
+        $env:DDM_NO_SAVE = '1'
+        $proc = Start-Process -FilePath (Join-Path $exeDir "$display.exe") -WorkingDirectory $exeDir -WindowStyle Hidden -PassThru
+        Start-Sleep -Seconds 20
+        $alive = -not $proc.HasExited
+        if ($alive) { Stop-Process -Id $proc.Id -Force }
+    } finally {
+        $env:LOCALAPPDATA = $previousProbeLocalAppData
+        $env:DDM_NO_SAVE = $previousProbeNoSave
+    }
     # 等进程真的收工再往下走：句柄还开着的时候 Remove-Item 会静默失败，
     # 上一次就把验证用的 logs 留在了交付目录里（zip 里倒是干净的）。
     try { $null = $proc.WaitForExit(5000) } catch { }
     Start-Sleep -Milliseconds 300
     Remove-Item -LiteralPath $testConfig -Force
+    Remove-Item -LiteralPath $probeProfile -Recurse -Force
     $log = Get-ChildItem $logDir -Filter "ddm-*.log" -ErrorAction SilentlyContinue | Select-Object -First 1
     $started = $false
     if ($log) {
@@ -324,7 +347,6 @@ DDMonitorDiagnostics.exe 是独立诊断工具，软件无法启动时也可双�
         Remove-Item $exeZip -Force -ErrorAction SilentlyContinue
         Write-Output "=== 压缩 exe 包 $exeZip ==="
         Compress-Archive -Path $exeDir -DestinationPath $exeZip -CompressionLevel Optimal
-        $releaseNotes = Join-Path $repo "docs/releases/RELEASE-$version.md"
         $updateNotes = if (Test-Path -LiteralPath $releaseNotes) { Get-Content -LiteralPath $releaseNotes -Raw -Encoding UTF8 } else { "" }
         $remoteExeName = "DDMonitorCE-$version-exe.zip"
         @{ version = $version.TrimStart('v'); revision = $UpdateRevision; release_tag = $ReleaseTag; asset_name = $remoteExeName;

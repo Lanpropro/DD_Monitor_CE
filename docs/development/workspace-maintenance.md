@@ -1,55 +1,59 @@
 # 本机工作区维护
 
+> 类型：指南 ｜ 状态：维护中 ｜ 适用版本：全部版本 ｜ 更新：2026-11-21 ｜ 读者：维护者
+
 ## 已核对的目录归属
 
 | 位置 | 归属与处理 |
 | --- | --- |
 | `ddm/`、`blivedm/`、`assets/` | 已跟踪的软件代码与资源 |
 | `dev/`、`docs/` | 开发维护工具、检查与文档，按各自索引使用 |
-| `docs/archive/website-screenshots/` | 已清理的网站原型截图及裁切图片，保留供历史参考 |
 | `libmpv-2.dll` | 当前播放运行库，保留在应用查找位置；由 `dev/fetch_mpv.py` 校验获取 |
-| `plugins_user/` | 模板、开发源码与本机安装副本混合存放；安装副本的改动应在独立插件仓库追踪 |
+| `plugins_user/` | 本仓库只跟踪 `_template_platform/` 开发模板；本机安装副本、旧目录及更新暂存不作为现行源码，插件改动在独立插件仓库追踪 |
 | `utils/`、`cache/`、`logs/`、`recordings/` | 本机配置、账号、缓存、日志和录像；保持现有读取路径与 Git 忽略规则 |
 | `work/` | 临时工作树、构建依赖、回归日志和恢复备份；按子项目处理 |
-| `results/` | 发布成品、最终视频/封面及随附的来源和校验文件；不存放测试日志、素材、备份或验收入口 |
+| `work/README.md`、`work/records/` | 本机工作资料入口，以及从顶层收拢的 PR 草稿、交接、调查、提交说明与原始检查记录；按迁移清单查找原路径 |
+| `results/` | 只存放下文列出的最终交付物；本机候选、测试资料、备份与交接文件归入 `work/` 或 `docs/local/` |
 | `work/test-artifacts/` | 按二路插件、设置进程、本体验证和导出校验分类的本机测试资料；迁移清单记录原路径与目标路径 |
 | `videos/`、`Video_reference/`、`raw/` | 独立宣传工程、参考与原始素材，按素材项目管理 |
-| `_perf_tmp/`、`ddm_plugins_dd3l0oxq/` | 2026-10-19 检查时无文件；来源或工具复用条件尚未确认，保留 |
+| `_perf_tmp/`、`ddm_plugins_dd3l0oxq/` | 来源与当前内容未核实；不按名称推断为空或清理 |
+
+现行功能说明集中在 `docs/features/`，README 截图在 `docs/assets/screenshots/`。本机资料从 `docs/local/README.md` 进入：`pending/`、`diagnostics/`、`acceptance/`、`handoffs/` 分别保存待办、取证、验收及接续材料，旧架构、发布、审阅、参考与宣传记录归入 `docs/local/archive/`。分类不改变文档中记载的验收或故障状态。
 
 分类时只检查配置、媒体和素材目录的入口及必要文件元数据，不读取真实账号或媒体内容。
 
-测试输出默认写入 `work/checks/` 或 `work/test-artifacts/<任务>/`，最终安装包和成片才复制到 `results/`。
-`results/` 保留最新正式版本的发布目录；旧版发布目录归档为同名 ZIP，核对文件清单及内容一致后再删除原目录。需要旧版文件时解压到 `work/` 使用，不长期恢复为成品目录中的文件夹。此规则不处理宣传片、插件等其他成品，也不改变已发布的 GitHub Release。
-本机历史资料迁移记录在 `work/test-artifacts/relocation-20261025.json`；二路合成视频位于
-`work/test-artifacts/match-sync/match-input-fixtures/`。旧独立修复版已经集成回根目录，日常测试统一使用 `run.cmd`。旧报告中的 `results/` 路径按清单查找，不再维护长期验收入口。
+测试输出默认写入 `work/checks/` 或 `work/test-artifacts/<任务>/`。`results/` 只允许以下最终交付物：
 
-## 本机旧 VLC 归档
+- 本体旧版本的 ZIP 统一放在 `results/archive/`；每次新本体正式发布并核对产物后，将上一版本移入该目录。同一版本号只保留最终修订，历史版本不保留展开目录。
+- 最新正式本体的公开发布附件（ZIP、安装器、更新清单与校验文件），以及一个可直接运行的解压入口。
+- 每个插件 ID 最新正式版本的 ZIP，版本和 SHA-256 以插件仓库对应 GitHub Release 附件为准；本地同名构建包不能替代。
+- 宣传片最终成片及其正式封面和校验文件。
 
-2026-10-19，确认当前主程序、依赖清单和跟踪中的二路插件不再导入 VLC，且本机没有进程加载 `libvlc.dll` 或 `libvlccore.dll` 后，将以下三个入口移动到本机忽略目录：
+除此之外，不在 `results/` 放候选包、源码展开目录、测试日志或指标、诊断资料、素材、备份和交接文件。需要核对旧版文件时解压到 `work/`；清理旧版展开目录前先核对 ZIP 内容，将 ZIP 外的运行配置和日志保存在本机归档中。此规则不改变已发布的 GitHub Release。
 
-```text
-work/archive/legacy-vlc-20261019/
-├── libvlc.dll
-├── libvlccore.dll
-├── plugins/       # 原 VLC 模块，210 个文件
-└── manifest.json # 原位置、类型与大小
-```
+当前工作区摘要保留在根目录 `PROJECT_STATE.md`；原累计交接按阶段归入被 Git 忽略的 `docs/local/archive/handoffs/project-state-20261116/`，完整原稿、分档范围和迁移校验保存在本机整理记录中。其他历史交接仍从 `docs/local/archive/handoffs/` 索引进入。交接文件不能当成当前实现或发布状态，也不进入 `results/` 和发布包。
 
-归档共约 82.5 MB，文件完整保留。当前 libmpv 运行库仍在根目录。本机归档不进入 Git，也不随源码或发布包上传。开发重启脚本已使用与 `run.cmd` 相同的 Quick 开关，不再设置旧 VLC 路径。
+2026-11-16 的本机整理将本体、插件、网站及 Focus 工作树 `work` 顶层的文字记录分别收拢到各自 `work/records/`；失败、待验收和未合入状态原样保留。各仓库 `work/README.md` 连接分类及原路径／目标路径清单，搬迁原件另有备份；关联本机辅助脚本只调整记录路径，未执行旧 PR 或发布动作。工作树、源码、构建依赖、JSON 控制与汇总、素材、凭据、服务输出及安装产物校验文件保持原位。
 
-若需要运行历史 VLC 版本，可从仓库根目录恢复完整三项；先退出对应播放器，并确认目标位置没有同名新文件：
+## 2026-11-17 存储清理
 
-```powershell
-$taskArchive = Join-Path (Get-Location).Path 'work/archive/legacy-vlc-20261019'
-foreach ($taskName in @('libvlc.dll', 'libvlccore.dll', 'plugins')) {
-    if (Test-Path -LiteralPath $taskName) { throw "目标已存在：$taskName" }
-}
-foreach ($taskName in @('libvlc.dll', 'libvlccore.dll', 'plugins')) {
-    Move-Item -LiteralPath (Join-Path $taskArchive $taskName) -Destination (Get-Location).Path
-}
-```
+本次清理了 38 处旧构建／安装测试中的程序或源码展开副本，以及 18 份内容相同的压缩包，按删除文件长度合计释放约 32.7 GiB。展开副本先与保留 ZIP 逐文件核对尺寸及 CRC32，并验证 ZIP 可完整解压；重复压缩包按 SHA-256 核对，保留正式产物或历史归档中的对应文件。
 
-归档用于本机恢复；其他开发者需要历史运行库时，应使用对应版本的依赖来源，不能依赖这台电脑的归档路径。
+包含额外配置、日志或缓存的测试目录只删除已核验的包内文件，额外文件留在原位置。工作树、未提交／未合入源码、真实配置、录制、原始素材、独有诊断采集、历史备份及当前开发依赖保留；受访问权限限制的内容未调整 ACL 或强行清理。
+
+本机 `work/storage-cleanup-20261117/` 保存清理前后空间统计、逐批删除清单、压缩包散列和 `restoration.json` 恢复对应表。恢复旧展开副本时，按表中的保留压缩包和目标目录，在临时目录解压核对后还原包内文件，保留目标目录现有的额外数据；ZIP 顶层目录名可能与旧安装测试目录不同，不直接假定解压到父目录即可恢复。
+
+## 2026-11-21 存储清理
+
+按文件长度合计清理 13.55 GiB，其中 `work/` 为 5.30 GiB，`results/` 为 8.24 GiB。两批共删除 7 份重复 ZIP 和 15 处旧发布或测试展开目录中的已核验文件。F 盘可用空间从 1.53 GiB 增至 15.13 GiB，216 个 `work/` 内注册工作树及另外 2 个注册工作树均保留。
+
+展开文件按保留 ZIP 的尺寸和 CRC32 校验，重复 ZIP 按 SHA-256 校验。最新 v0.8 修订 2、恢复 ZIP、展开目录中的额外文件和未核验的旧测试包保留原位。两批恢复记录分别保存在本机 `work/storage-cleanup-20261121-202617/` 和 `work/storage-cleanup-20261121-202731/`，各含 `restoration.json` 及实际删除文件清单。
+
+第二轮另清理 21.86 GiB，其中 `work/` 为 20.53 GiB，`results/` 为 1.33 GiB。清单包含 11 份内容相同的 ZIP 或安装器，以及 18 处旧测试包中可从保留 ZIP 恢复的文件。F 盘可用空间从 15.13 GiB 增至 37.04 GiB，218 个注册工作树均保留。核验与恢复记录在本机 `work/storage-cleanup-20261121-205235/`。
+
+第三轮清理 `work/` 中 8.84 GiB，包括 6 个二路压测合成视频、Android 构建缓存、拖动诊断的转换文件、npm 下载缓存、2 份重复安装器以及 1 份重复调试 APK。F 盘可用空间增至 45.89 GiB。保留原始 ETL、测试与构建报告、Android 源码和调试 APK，以及 218 个注册工作树。逐项清单和重建步骤在本机 `work/storage-cleanup-20261121-213036/`。
+
+第四轮清理 `work/` 中 3.50 GiB，包括 13 份旧工作树的重复播放库、HyperFrames 和 Remotion 试用依赖、独立的 Qt 6.9.3 依赖、已取消的 Win10 下载和旧工作树的 Python 字节码。F 盘可用空间增至 49.43 GiB。主仓库播放库、日常 Qt 依赖、Git 恢复仓库和 218 个注册工作树均已核验保留。逐项清单和重建步骤在本机 `work/storage-cleanup-20261121-220434/`。
 
 ## 自动检查纳入标准
 
@@ -58,13 +62,6 @@ foreach ($taskName in @('libvlc.dll', 'libvlccore.dll', 'plugins')) {
 - `os._exit(0)` 会跳过正常清理，不允许出现在已注册的自动套件脚本中。强退脚本继续单独审查，不能将其退出码当成生命周期验证通过。
 - 依赖真实媒体、发布包、登录或显示器条件的诊断单独记录，未确认条件前不批量执行。
 
-本轮审查中，`selfcheck_live_alert.py`、`selfcheck_live_alert_sort.py`、`selfcheck_layout_none.py`、`selfcheck_settings_status.py` 含强退调用，继续保留为单项诊断；`selfcheck_bili_2k_live.py` 明确依赖本机登录状态，也不纳入无账号的真实直播套件。
-
 执行方法见[验证指南](testing.md)，完整脚本索引见[专项检查分类](../../dev/checks/README.md)。
 
-## 本轮验证范围（2026-10-19）
-
-- 仓库套件 8 项、离屏套件 30 项、Windows 原生套件 7 项通过。
-- 公开直播间 `5279` 的真实弹幕运动、三次最大化还原和加载提示层检查通过；未使用账号或发送弹幕。
-- 房间 `6` 曾在 40 秒内没有收到可渲染弹幕；房间 `21144080` 曾触发还原后黑屏断言，加入起播基线后该房间三轮还原复测通过。此前单次黑屏的原因尚未确定；失败日志与成功日志均保留在本机 `work/checks/`，不能将某个直播间通过解释为所有房间稳定性均已验证。
-- 实播还原脚本现在先确认真实弹幕和还原前的视频画面，再检查还原结果，以区分前置条件与还原阶段失败。
+旧 VLC 本机迁移、当时的测试分类与 2026-10-19 验证结果见[历史工作区整理记录](../archive/workspace-maintenance-202610.md)。

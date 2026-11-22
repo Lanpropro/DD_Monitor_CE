@@ -64,8 +64,12 @@ class LiveElapsedTests(unittest.TestCase):
         self.status(window, start=int(time.time()) - 600)
         self.status(window, live=False)
         self.assertFalse(tile._elapsed_timer.isActive())
+        self.assertEqual(tile.offline_room_status.text(), '已下播')
+        self.assertFalse(tile.offline_room_actions.isHidden())
         self.assertFalse(tile.room.get('live_start_ts'))
         self.assertFalse(window.sidebar._items[0].room.get('live_start_ts'))
+        self.assertNotIn('last_live_end_ts', tile.room)
+        self.assertNotIn('last_live_ends', window.current_state())
         self.assertTrue(tile.time_badge.isHidden())
         self.status(window)
         self.assertFalse(tile._elapsed_timer.isActive())
@@ -78,6 +82,19 @@ class LiveElapsedTests(unittest.TestCase):
         self.status(window)
         self.assertFalse(tile._elapsed_timer.isActive())
         self.assertTrue(tile.time_badge.isHidden())
+
+    def test_existing_end_time_metadata_is_ignored_on_startup(self):
+        from ddm import config
+        rooms, wall = config.build_rooms({'rooms': ['7001'], 'wall': [{'room_id': '7001'}],
+                                          'last_live_ends': {'7001': 1_700_000_000}})
+        self.assertNotIn('last_live_end_ts', rooms[0])
+        self.assertNotIn('last_live_end_ts', wall[0])
+        window = self.window(wall, offscreen=True)
+        self.status(window, live=False)
+        tile = window.wall.tiles[0]
+        self.assertEqual(tile.offline_room_status.text(), '未开播')
+        self.assertFalse(tile.offline_room_actions.isHidden())
+        self.assertNotIn('last_live_ends', window.current_state())
 
 
 if __name__ == '__main__':

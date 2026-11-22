@@ -1,5 +1,5 @@
 """头像绘制与关注头像条；不依赖主窗口、播放器或聚合 widgets 模块。"""
-from PySide6.QtCore import QMimeData, QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QElapsedTimer, QMimeData, QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QWidget
 
@@ -38,8 +38,11 @@ class Avatar(QLabel):
         self.setFixedSize(size, size)
         self.setAlignment(Qt.AlignCenter)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.setStyleSheet(f"background: {self._color}; border-radius: {size // 2}px;")
+        self._update_placeholder_style()
         self.setText((name or "?")[0])
+
+    def _update_placeholder_style(self) -> None:
+        self.setStyleSheet(f"background: {self._color}; border-radius: {self._size // 2}px;")
 
     def set_size(self, size: int) -> None:
         """换尺寸：侧栏收起时账号头像要跟列表里的头像一样大，得重新裁一次。"""
@@ -50,7 +53,7 @@ class Avatar(QLabel):
         if self._source is not None:
             self.set_pixmap_image(self._source, ring=self._ring)
         else:
-            self.setStyleSheet(f"background: {self._color}; border-radius: {size // 2}px;")
+            self._update_placeholder_style()
 
     def set_color(self, color: str | None = None) -> None:
         """换底色；传 None 回到按序号取的那个彩色。
@@ -60,8 +63,7 @@ class Avatar(QLabel):
         """
         self._color = color or AVATAR_COLORS[self._index % len(AVATAR_COLORS)]
         if self._source is None:
-            self.setStyleSheet(f"background: {self._color}; "
-                               f"border-radius: {self._size // 2}px;")
+            self._update_placeholder_style()
 
     def set_pixmap_image(self, pixmap: QPixmap, *, size: int | None = None, ring: bool = False) -> None:
         """换成真实头像（圆形裁切）。"""
@@ -94,6 +96,100 @@ class Avatar(QLabel):
         super().setPixmap(rounded)
 
 
+class FollowAvatar(Avatar):
+    """Paint the recording ring outside the visible portrait."""
+
+    RIPPLE_MS = 1600
+    RING_MARGIN = 10
+    RING_GAP = 3
+
+    def __init__(self, *args, ring_margin=RING_MARGIN, recording_color=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ring_margin = ring_margin
+        self.recording_color = recording_color
+        self.recording_state = ''
+        self._ripple_timer = None
+        self._ripple_clock = QElapsedTimer()
+
+    def set_recording_state(self, state: str) -> None:
+        if state == self.recording_state:
+            return
+        self.recording_state = state
+        if self._source is None:
+            self._update_placeholder_style()
+        self.setAccessibleDescription({'ready': '已启用自动录制', 'recording': '正在录制'}.get(state, ''))
+        self._sync_ripple()
+        self.update()
+
+    def _update_placeholder_style(self) -> None:
+        if getattr(self, 'recording_state', ''):
+            if self.styleSheet() != 'background: transparent;':
+                self.setStyleSheet('background: transparent;')
+        else:
+            super()._update_placeholder_style()
+
+    def _sync_ripple(self):
+        if self.recording_state == 'recording' and self.isVisible() and motion.enabled():
+            if self._ripple_timer is None:
+                self._ripple_timer = QTimer(self)
+                self._ripple_timer.setInterval(32)
+                self._ripple_timer.timeout.connect(self._update_ripple)
+            if not self._ripple_timer.isActive():
+                self._ripple_clock.start()
+                self._ripple_timer.start()
+        elif self._ripple_timer is not None:
+            self._ripple_timer.stop()
+
+    def _update_ripple(self):
+        if not self.visibleRegion().isEmpty():
+            self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_ripple()
+
+    def hideEvent(self, event):
+        if self._ripple_timer is not None:
+            self._ripple_timer.stop()
+        super().hideEvent(event)
+
+    def paintEvent(self, event):
+        if not self.recording_state:
+            super().paintEvent(event)
+            return
+        bounds = QRectF(self.rect())
+        center = bounds.center()
+        margin = self.ring_margin
+        face = bounds.adjusted(margin, margin, -margin, -margin)
+        radius = min(face.width(), face.height()) / 2 + self.RING_GAP
+        color = theme.qcolor((self.recording_color or theme.ERROR)
+                             if self.recording_state == 'recording' else theme.ACCENT)
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            if self._source is not None:
+                pixmap = self.pixmap()
+                painter.drawPixmap(face, pixmap, QRectF(pixmap.rect()))
+            else:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(self._color))
+                painter.drawEllipse(face)
+                painter.setPen(self.palette().windowText().color())
+                painter.drawText(face, Qt.AlignCenter, self.text())
+            painter.setBrush(Qt.NoBrush)
+            if self._ripple_timer is not None and self._ripple_timer.isActive():
+                cycle = (self._ripple_clock.elapsed() % self.RIPPLE_MS) / self.RIPPLE_MS
+                for offset in (0.0, 0.5):
+                    progress = (cycle + offset) % 1.0
+                    ripple_color = color.lighter(130)
+                    ripple_color.setAlphaF(.9 * min(1.0, progress * 10) * (1.0 - progress))
+                    painter.setPen(QPen(ripple_color, 1.6))
+                    wave = radius + 1 + (margin - self.RING_GAP - 2) * progress
+                    painter.drawEllipse(center, wave, wave)
+            painter.setPen(QPen(color, 1.7))
+            painter.drawEllipse(center, radius, radius)
+
+
 class RoomStrip(QFrame):
     """竖屏顶部横栏里的一排头像：只放关注的主播（账号头像在横栏右侧那一块）。
 
@@ -118,7 +214,8 @@ class RoomStrip(QFrame):
         self._rooms: list[dict] = []
         self._faces: dict = {}                   # room_id -> 头像图
         self._on_wall_ids: set[str] = set()
-        self._avatars: dict[str, QWidget] = {}   # room_id -> 头像控件（换头像图要用）
+        self._avatars: dict[str, FollowAvatar] = {}
+        self._recording_states: dict[str, str] = {}
         self._avatar_signatures = {}
         self._press_pos = None
         self._press_room = None
@@ -132,6 +229,11 @@ class RoomStrip(QFrame):
         self.setCursor(Qt.PointingHandCursor)
 
     # ---- 数据 ----
+    def set_recording_states(self, states: dict[str, str]) -> None:
+        self._recording_states = states
+        for room_id, avatar in self._avatars.items():
+            avatar.set_recording_state(states.get(room_id, ''))
+
     def set_rooms(self, rooms: list, faces: dict | None = None,
                   on_wall_ids: set[str] | None = None) -> None:
         """rooms：关注列表；faces：room_id -> 已经下载好的头像图（可省）。"""
@@ -270,9 +372,10 @@ class RoomStrip(QFrame):
     def _add_avatar(self, text: str, live: bool, tooltip: str = "",
                     face=None, room_id: str = "", pinned: bool = False,
                     on_wall: bool = False) -> QWidget:
-        avatar = Avatar(text, 2, self.AVATAR)
+        avatar = FollowAvatar(text, 2, self.AVATAR, ring_margin=7)
         avatar.setFixedSize(self.AVATAR, self.AVATAR)
         avatar.setProperty("roomId", room_id)
+        avatar.set_recording_state(self._recording_states.get(room_id, ''))
         if face is not None:
             try:
                 avatar.set_pixmap_image(face)

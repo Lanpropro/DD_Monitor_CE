@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -9,11 +10,14 @@ os.environ['DDM_NO_SAVE'] = '1'
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt
-from PySide6.QtGui import QAction, QFocusEvent, QMouseEvent, QWheelEvent
-from PySide6.QtTest import QTest
+from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QPoint, QPointF, Qt
+from PySide6.QtGui import (QAction, QEnterEvent, QFocusEvent, QIcon, QInputDevice, QMouseEvent, QPainter,
+                          QPixmap, QPointingDevice, QTransform, QWheelEvent)
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
+from ddm.auto_recording import AutoRecording
+from ddm.capture_control import CaptureControl, MonitorEntry
 from ddm.dock_feedback import REST, active, icon_color
 from ddm.plugins import PluginContext, PluginManager
 from ddm.sidebar_navigation import RAIL_WIDTH
@@ -28,6 +32,110 @@ def settle():
 
 
 class WorkspaceControlTests(unittest.TestCase):
+    def test_plugin_card_drag_shows_ghost_and_releases_owner_on_cancel(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QListView
+        source=QListView(self.host)
+        source.show()
+        mime=QMimeData()
+        mime.setData('application/x-test-card',b'fixture')
+        pixmap=QPixmap(100,60)
+        pixmap.fill(Qt.red)
+        done=Mock()
+        session=self.sidebar.drag_session
+        try:
+            self.assertTrue(self.context.start_sidebar_drag(source,mime,pixmap,QPoint(20,30),
+                source.mapToGlobal(QPoint(20,30)),on_finished=done))
+            self.assertTrue(session.ghost.isVisible())
+            self.assertIs(session.area,source)
+            self.assertEqual(session.plugin_owner,'workspace-test')
+            self.assertFalse(self.context.start_sidebar_drag(source,mime,pixmap,QPoint(),QPoint(),on_finished=Mock()))
+            self.context._clear_workspace_controls()
+            done.assert_called_once()
+            self.assertFalse(session.active)
+            self.assertIsNone(session.ghost)
+            self.assertIsNone(QWidget.mouseGrabber())
+            self.assertIsNone(QWidget.keyboardGrabber())
+        finally:
+            session.cancel()
+            source.deleteLater()
+
+    def test_plugin_card_drag_source_hide_cancels_once(self):
+        from unittest.mock import Mock
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QPixmap
+        source=QWidget(self.host)
+        source.show()
+        done=Mock()
+        self.context.start_sidebar_drag(source,QMimeData(),QPixmap(20,20),QPoint(),QPoint(),on_finished=done)
+        source.hide()
+        self.context.cancel_sidebar_drag()
+        done.assert_called_once()
+        self.assertFalse(self.sidebar.drag_session.active)
+        source.deleteLater()
+
+    def test_sidebar_extension_search_keeps_follow_query_and_header(self):
+        from unittest.mock import Mock
+        self.sidebar.search.setText('示例主播1')
+        widget, query = QWidget(), Mock()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order',widget,title='观看顺序',icon=icon,on_filter=query)
+        pages = self.sidebar.plugin_pages
+        pages.select(('workspace-test','order'))
+        self.sidebar.search.setText('视频')
+        query.assert_called_with('视频')
+        self.assertEqual(self.sidebar.filter_text,'示例主播1')
+        self.assertFalse(self.sidebar.navigation.add_button.isHidden())
+        self.assertEqual(self.sidebar.navigation.title.text(),'关注')
+        pages.select()
+        self.assertEqual(self.sidebar.search.text(),'示例主播1')
+        self.context.unregister_sidebar_page('order')
+        widget.deleteLater()
+
+    def test_sidebar_extension_switches_follow_and_cleans_only_its_owner(self):
+        first, second = QWidget(), QWidget()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order', first, title='观看顺序', icon=icon)
+        pages = self.sidebar.plugin_pages
+        pages.add('other', 'other', second, '其他页面', icon)
+        pages.select(('workspace-test','order'))
+        settle()
+        self.assertTrue(first.isVisible())
+        self.assertTrue(self.sidebar.scroll.isHidden())
+        self.assertFalse(self.sidebar.search.isHidden())
+        self.assertEqual(self.sidebar.navigation.title.text(),'关注')
+        self.sidebar.navigation.all_button.click()
+        self.assertTrue(first.isHidden())
+        self.assertFalse(self.sidebar.scroll.isHidden())
+        self.context._clear_workspace_controls()
+        self.assertNotIn(('workspace-test','order'),pages.entries)
+        self.assertIn(('other','other'),pages.entries)
+        self.assertIsNone(first.parentWidget())
+        pages.remove_owner('other')
+        first.deleteLater()
+        second.deleteLater()
+
+    def test_sidebar_extension_collapsed_and_portrait_restore_follow(self):
+        widget = QWidget()
+        icon = self.host.style().standardIcon(QStyle.SP_MediaPlay)
+        self.context.register_sidebar_page('order',widget,title='观看顺序',icon=icon)
+        pages = self.sidebar.plugin_pages
+        pages.select(('workspace-test','order'))
+        self.sidebar.set_collapsed(True,animate=False)
+        self.assertIsNone(pages.current)
+        self.assertTrue(widget.isHidden())
+        self.sidebar.set_collapsed(False,animate=False)
+        pages.select(('workspace-test','order'))
+        self.sidebar.set_side('top')
+        settle()
+        self.assertIsNone(pages.current)
+        self.assertTrue(widget.isHidden())
+        self.sidebar.set_side('left')
+        self.context.unregister_sidebar_page('order')
+        widget.deleteLater()
+
     def setUp(self):
         self.host = QWidget()
         self.host.setAttribute(Qt.WA_DontShowOnScreen)
@@ -49,11 +157,13 @@ class WorkspaceControlTests(unittest.TestCase):
         self.host.deleteLater()
         settle()
 
-    def add(self, key, text, priority=0):
+    def add(self, key, text, priority=0, *, dock_motion=None):
         action = QAction(text, self.host)
         action.setCheckable(True)
         action.setIcon(self.host.style().standardIcon(QStyle.SP_DialogSaveButton))
         widget = QToolButton(self.host)
+        if dock_motion is not None:
+            widget.setProperty('dockMotion', dock_motion)
         widget.setDefaultAction(action)
         self.assertTrue(self.context.register_workspace_control(key, widget, priority=priority))
         settle()
@@ -105,7 +215,8 @@ class WorkspaceControlTests(unittest.TestCase):
         clicks = []
         nav.orderChanged.connect(lambda: changes.append(nav.order_state()))
         source.clicked.connect(lambda: clicks.append('layout'))
-        fixed_buttons = [self.sidebar.notification_button, self.sidebar.appearance_button, self.sidebar.settings_button]
+        fixed_buttons = [nav.monitor_button, self.sidebar.notification_button,
+                         self.sidebar.appearance_button, self.sidebar.settings_button]
         fixed = [button.y() for button in fixed_buttons]
         self.drag_icon(source, target)
         expected = [button for button in nav.movable_tools()]
@@ -113,7 +224,8 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual(clicks, [])
         self.assertEqual(len(changes), 1)
         self.assertEqual([button.y() for button in fixed_buttons], fixed)
-        for group in (expected, fixed_buttons):
+        physical_tools = [nav.bottom.itemAt(i).widget() for i in range(nav.bottom.indexOf(nav.fixed_divider))]
+        for group in (physical_tools, fixed_buttons):
             positions = [button.mapTo(nav.rail, QPoint()).y() for button in group]
             self.assertEqual([b-a for a,b in zip(positions, positions[1:])], [40]*(len(group)-1))
         saved = nav.order_state()
@@ -142,7 +254,8 @@ class WorkspaceControlTests(unittest.TestCase):
         second, _ = self.add('second', '第二项')
         nav = self.sidebar.navigation
         panel = self.sidebar.workspace_controls
-        for button in (nav.follow_button, panel.launcher, self.sidebar.notification_button, self.sidebar.appearance_button,
+        for button in (nav.follow_button, panel.launcher, nav.monitor_button,
+                       self.sidebar.notification_button, self.sidebar.appearance_button,
                        self.sidebar.settings_button):
             QTest.mousePress(button, Qt.LeftButton, pos=button.rect().center())
             self.assertIsNone(nav.icon_drag.source)
@@ -261,6 +374,41 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertFalse(active(self.sidebar.navigation.follow_button))
         page.allow_close = True
 
+    def test_current_rail_icon_closes_page_without_retriggering_action(self):
+        page, button, action, wall = self.open_page()
+        calls = []
+        action.triggered.connect(calls.append)
+        QTest.mouseClick(button, Qt.LeftButton)
+        settle()
+        self.assertTrue(page.isHidden())
+        self.assertTrue(wall.isVisible())
+        self.assertFalse(action.isChecked())
+        self.assertEqual(calls, [])
+        self.assertIs(self.sidebar.navigation.active_button, self.sidebar.navigation.follow_button)
+
+    def test_current_rail_icon_and_function_center_respect_close_refusal(self):
+        page, button, action, wall = self.open_page()
+        page.allow_close = False
+        calls = []
+        action.triggered.connect(calls.append)
+        QTest.keyClick(button, Qt.Key_Space)
+        settle()
+        self.assertTrue(page.isVisible())
+        self.assertTrue(active(button))
+        self.assertTrue(action.isChecked())
+        panel = self.sidebar.workspace_controls
+        panel._rows[('workspace-test', 'page')][1].click()
+        settle()
+        self.assertTrue(page.isVisible())
+        self.assertTrue(wall.isHidden())
+        self.assertEqual(calls, [])
+        page.allow_close = True
+        panel._rows[('workspace-test', 'page')][1].click()
+        settle()
+        self.assertTrue(page.isHidden())
+        self.assertTrue(wall.isVisible())
+        self.assertEqual(calls, [])
+
     def test_page_close_and_replacement_keep_navigation_in_sync(self):
         page, button, action, wall = self.open_page()
         page.close()
@@ -311,13 +459,15 @@ class WorkspaceControlTests(unittest.TestCase):
     def test_rail_button_sizes_and_spacing_match_prototype(self):
         self.add('first', '第一项')
         self.add('second', '第二项')
-        rail = self.sidebar.navigation.rail
-        top = [self.sidebar.navigation.follow_button,
+        navigation = self.sidebar.navigation
+        rail = navigation.rail
+        top = [navigation.follow_button,
                self.sidebar.workspace_controls.launcher]
         plugins = [self.sidebar.workspace_controls.entries[i][1]
                    for i in self.sidebar.workspace_controls.pinned()]
-        bottom = self.sidebar.navigation.movable_tools()
-        fixed = [self.sidebar.notification_button, self.sidebar.appearance_button,
+        bottom = [navigation.bottom.itemAt(i).widget()
+                  for i in range(navigation.bottom.indexOf(navigation.fixed_divider))]
+        fixed = [navigation.monitor_button, self.sidebar.notification_button, self.sidebar.appearance_button,
                   self.sidebar.settings_button]
         for group in (top, plugins, bottom, fixed):
             for button in group:
@@ -330,6 +480,154 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertGreater(divider.y(), top[-1].mapTo(rail, QPoint()).y()+34)
         self.assertLess(divider.geometry().bottom(), plugins[0].mapTo(rail, QPoint()).y())
         self.assertEqual(divider.geometry().center().x(), rail.rect().center().x())
+
+    def test_monitor_rows_follow_recording_and_automatic_monitoring(self):
+        host = SimpleNamespace(sidebar=self.sidebar, _pending_capture={},
+                               recorder=SimpleNamespace(sessions={}), settings={'streamer_defaults': {
+                                   '1': {'name': '旧名称', 'auto_record': True, 'recording': 720},
+                                   '2': {'auto_record': True, 'recording': 1080},
+                                   'off-wall': {'name': '后台主播', 'auto_record': True,
+                                                'recording': {'qn': 200, 'label': ' 720p '}},
+                                   '3': {'auto_record': False},
+                               }})
+        host.auto_recording = AutoRecording(host)
+        self.sidebar.rooms()[1]['uid'] = 1024
+        host.auto_recording.room_details['off-wall'] = {'anchor_uid': '117', 'platform': 'douyin'}
+        capture = CaptureControl(host)
+        active = SimpleNamespace(room_id='1', name='示例主播1', recording=True, stopping=False,
+                                 started_at=11, recording_started_at=1, retry_at=0, refreshing=False, room={})
+        reconnecting = SimpleNamespace(room_id='manual', name='手动录制主播', recording=True,
+                                       stopping=False, started_at=1, retry_at=1, refreshing=False, room={})
+        duplicate = SimpleNamespace(room_id='1', name='同一主播旧会话', recording=True,
+                                    stopping=True, started_at=1, retry_at=0, refreshing=False, room={})
+        cache = SimpleNamespace(room_id='3', recording=False)
+        host.recorder.sessions = dict(active=active, reconnecting=reconnecting, duplicate=duplicate, cache=cache)
+        pending = QWidget(self.host)
+        pending.room = {'room_id': 'pending', 'uname': '待录制主播'}
+        host._pending_capture[pending] = True
+
+        rows = capture.monitor_rows()
+        self.assertEqual([(row.name, row.state) for row in rows], [('示例主播1', 'recording'),
+                         ('手动录制主播', 'reconnecting'), ('待录制主播', 'preparing'),
+                         ('后台主播', 'monitoring'), ('示例主播2', 'monitoring')])
+        self.assertEqual((rows[0].account_id, rows[0].platform, rows[0].started_at), ('1024', 'bilibili', 1))
+        self.assertEqual((rows[3].account_id, rows[3].platform), ('117', 'douyin'))
+        self.assertEqual(rows[4].display_room_id, '2')
+        self.assertEqual(rows[0].profile_group, rows[3].profile_group)
+        self.assertNotEqual(rows[0].profile_group, rows[4].profile_group)
+        self.assertIsNone(rows[1].profile_group)
+        host.auto_recording.failed_to_start.add('2')
+        self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '2'), 'failed')
+        active.stopping = True
+        self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '1'), 'stopping')
+        host.recorder.sessions.clear()
+        host._pending_capture.clear()
+        self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '1'), 'monitoring')
+        host.settings['recording_enabled'] = False
+        self.assertEqual(capture.monitor_rows(), ())
+
+    def test_sidebar_monitor_popup_shows_updates_and_closes(self):
+        navigation = self.sidebar.navigation
+        button, menu = navigation.monitor_button, navigation.monitor_menu
+        panel = menu.panel
+        rows = [MonitorEntry('fixture:1', '一位主播', 'monitoring', 'bilibili', '1024'),
+                MonitorEntry('fixture:2', '另一位主播', 'recording', 'douyin', display_room_id='77')]
+        menu.read_rows = lambda: tuple(rows)
+        available = button.screen().availableGeometry()
+        self.assertNotIn(button, navigation.movable_tools())
+
+        cached_avatar = QPixmap(28, 28)
+        cached_avatar.fill(Qt.blue)
+        with patch.object(motion, 'enabled', return_value=False), patch(
+                'ddm.streamer_monitor_panel.images.load_room_avatar', return_value=cached_avatar):
+            QTest.mouseClick(button, Qt.LeftButton)
+            settle()
+        self.assertTrue(menu.isVisible())
+        self.assertTrue(button.isChecked())
+        self.assertTrue(available.contains(menu.geometry()))
+        self.assertEqual(menu.settings_button.width(), menu.layout().contentsRect().width())
+        picture = menu.grab().toImage()
+        self.assertTrue(menu.testAttribute(Qt.WA_TranslucentBackground))
+        for corner in (picture.rect().topLeft(), picture.rect().topRight(),
+                       picture.rect().bottomLeft(), picture.rect().bottomRight()):
+            self.assertEqual(picture.pixelColor(corner).alpha(), 0)
+        self.assertEqual(picture.pixelColor(picture.rect().center()).alpha(), 255)
+        first_row = panel.rows.itemAt(0).widget()
+        self.assertEqual(first_row.name.accessibleName(), '一位主播')
+        self.assertEqual(first_row.identifier.text(), 'ID 1024')
+        self.assertEqual(first_row.status.text(), '监控中')
+        badge = first_row.status.grab().toImage()
+        blue = badge.pixelColor(6, badge.height() // 2)
+        self.assertGreater(blue.blue() - blue.red(), 45)
+        self.assertTrue(first_row.elapsed.isHidden())
+        self.assertFalse(first_row.avatar.pixmap().isNull())
+        self.assertEqual(first_row.platform_badge.parentWidget(), first_row.avatar.parentWidget())
+        self.assertEqual(first_row.platform_badge.accessibleName(), '哔哩哔哩')
+        self.assertFalse(first_row.platform_badge.pixmap().isNull())
+        self.assertEqual(first_row.avatar.recording_state, '')
+        second_row = panel.rows.itemAt(1).widget()
+        self.assertEqual(second_row.identifier.text(), '房间号 77')
+        self.assertEqual(second_row.avatar.recording_state, 'recording')
+        self.assertIsNone(second_row.avatar._ripple_timer)
+
+        self.assertTrue(panel._timer.isActive())
+        rows[0] = MonitorEntry('fixture:1', '一位主播', 'recording', 'bilibili', '1024', started_at=100)
+        with patch.object(motion, 'enabled', return_value=True), patch(
+                'ddm.streamer_monitor_panel.time.monotonic', return_value=3761):
+            panel._timer.timeout.emit()
+            settle()
+        first_row = panel.rows.itemAt(0).widget()
+        self.assertEqual(first_row.status.text(), '正在录制')
+        self.assertTrue(first_row.elapsed.isVisible())
+        self.assertEqual(first_row.elapsed.text(), '01:01:01')
+        self.assertEqual(first_row.avatar.recording_state, 'recording')
+        self.assertEqual(first_row.avatar.recording_color, theme.PINK)
+        ripple_timer = first_row.avatar._ripple_timer
+        self.assertTrue(ripple_timer.isActive())
+        with patch.object(first_row.avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 100)):
+            early_ripple = first_row.avatar.grab().toImage()
+        with patch.object(first_row.avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 800)):
+            self.assertNotEqual(first_row.avatar.grab().toImage(), early_ripple)
+        with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=3762):
+            panel._timer.timeout.emit()
+        self.assertIs(panel.rows.itemAt(0).widget(), first_row)
+        self.assertEqual(first_row.elapsed.text(), '01:01:02')
+        QTest.keyClick(panel.scroll, Qt.Key_Escape)
+        settle()
+        self.assertFalse(menu.isVisible())
+        self.assertFalse(button.isChecked())
+        self.assertFalse(panel._timer.isActive())
+        self.assertFalse(ripple_timer.isActive())
+
+        rows[:] = [MonitorEntry(f'fixture:{index}', f'监控主播 {index}', 'monitoring') for index in range(18)]
+        button.click()
+        settle()
+        self.assertEqual(panel.rows.count(), 18)
+        self.assertGreater(panel.scroll.verticalScrollBar().maximum(), 0)
+        anchor = menu.mapFromGlobal(button.mapToGlobal(button.rect().center()))
+        QTest.mouseClick(menu, Qt.LeftButton, pos=anchor)
+        settle()
+        self.assertFalse(menu.isVisible())
+        self.assertFalse(button.isChecked())
+
+        rows.clear()
+        self.sidebar.set_collapsed(True, animate=False)
+        settle()
+        self.assertTrue(button.isVisible())
+        QTest.keyClick(button, Qt.Key_Space)
+        settle()
+        self.assertTrue(menu.isVisible())
+        self.assertEqual(panel.rows.itemAt(0).widget().text(), '暂无监控或录制中的主播')
+        self.assertEqual(menu.settings_button.width(), menu.layout().contentsRect().width())
+        settings = QSignalSpy(menu.settingsRequested)
+        QTest.mouseClick(menu.settings_button, Qt.LeftButton)
+        self.assertEqual(settings.count(), 1)
+        self.assertFalse(menu.isVisible())
+        button.click()
+        self.sidebar.set_side('top')
+        settle()
+        self.assertFalse(menu.isVisible())
+        self.assertFalse(button.isVisible())
 
     def test_dock_selection_tracks_follow_interaction_without_closing_plugin(self):
         nav = self.sidebar.navigation
@@ -494,6 +792,77 @@ class WorkspaceControlTests(unittest.TestCase):
             self.assertEqual(feedback.scale, 1)
         self.assertEqual(button.geometry(), geometry)
 
+    def test_rail_speed_lines_move_right_behind_stationary_icon(self):
+        button, action = self.add('slide', 'F1 Play', dock_motion='slide-in-left')
+        glyph = QPixmap(button.iconSize())
+        glyph.fill(Qt.transparent)
+        painter = QPainter(glyph)
+        painter.fillRect(7, 7, 4, 4, Qt.white)
+        painter.end()
+        action.setIcon(QIcon(glyph))
+        geometry = button.geometry()
+        feedback = button._dock_feedback
+        pos = QPointF(button.rect().center())
+        global_pos = QPointF(button.mapToGlobal(pos.toPoint()))
+
+        def enter(device):
+            APP.sendEvent(button, QEnterEvent(pos, pos, global_pos, device))
+
+        def red_pixels():
+            frame = button.grab().toImage()
+            scale = frame.devicePixelRatio()
+            return [(x / scale, y / scale) for y in range(frame.height()) for x in range(frame.width())
+                    if (color := frame.pixelColor(x, y)).red() > color.green() + 40
+                    and color.red() > color.blue() + 30]
+
+        mouse = QPointingDevice.primaryPointingDevice()
+        touchscreen = QPointingDevice('Touch', 1, QInputDevice.DeviceType.TouchScreen,
+                                      QPointingDevice.PointerType.Finger, QInputDevice.Capability.Position, 1, 0)
+        with patch.object(motion, 'enabled', return_value=True):
+            duration = feedback.hover_animation.duration()
+            self.assertEqual(duration, 260)
+            enter(touchscreen)
+            self.assertEqual(feedback.streak_progress, 1)
+            enter(mouse)
+            self.assertEqual(feedback.streak_progress, 0)
+            self.assertEqual(red_pixels(), [])
+            feedback.hover_animation.setCurrentTime(65)
+            first = red_pixels()
+            self.assertTrue(first)
+            transform = QTransform()
+            feedback.transform(transform)
+            self.assertTrue(transform.isIdentity())
+            feedback.hover_animation.setCurrentTime(duration // 2)
+            middle = red_pixels()
+            center = button.height() / 2
+            for offset in (-10, -6, 0, 6, 10):
+                self.assertTrue(any(abs(y - center - offset) <= 1 for _, y in middle))
+            feedback.hover_animation.setCurrentTime(155)
+            later = red_pixels()
+            self.assertTrue(later)
+            self.assertGreater(sum(x for x, _ in later) / len(later), sum(x for x, _ in first) / len(first))
+            self.assertTrue(all(3 <= x < button.width() - 3 for x, _ in first + later + middle))
+            current = feedback.streak_progress
+            APP.sendEvent(button, QEvent(QEvent.Leave))
+            self.assertAlmostEqual(feedback.streak_progress, current)
+            enter(mouse)
+            self.assertAlmostEqual(feedback.streak_progress, current)
+            feedback.hover_animation.setCurrentTime(duration)
+            self.assertEqual(red_pixels(), [])
+            enter(mouse)
+            feedback.hover_animation.setCurrentTime(65)
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusIn, Qt.TabFocusReason))
+            self.assertEqual(red_pixels(), [])
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
+            QTest.keyClick(button, Qt.Key_Space)
+            self.assertTrue(action.isChecked())
+            APP.sendEvent(button, QFocusEvent(QEvent.FocusOut))
+        with patch.object(motion, 'enabled', return_value=False):
+            enter(mouse)
+            self.assertEqual(red_pixels(), [])
+            self.assertEqual(feedback.hover_animation.state(), QAbstractAnimation.Stopped)
+        self.assertEqual(button.geometry(), geometry)
+
     def test_dock_selected_surface_and_icon_follow_both_themes(self):
         self.addCleanup(theme.apply, theme.mode())
         plugin, _action = self.add('first', '第一个')
@@ -510,6 +879,43 @@ class WorkspaceControlTests(unittest.TestCase):
                 scale = image.devicePixelRatio()
                 self.assertEqual(image.pixelColor(round(button.width()/2*scale), round(3*scale)).name(),
                                  theme.qcolor(getattr(theme, background)).name())
+
+    def test_dock_hover_recovers_without_qt_enter_and_clears_on_miss(self):
+        first, action = self.add('first', '插件入口')
+        second, _ = self.add('second', '另一入口')
+        clicked = QSignalSpy(first.clicked)
+        nav = self.sidebar.navigation
+        with patch('PySide6.QtGui.QCursor.pos') as cursor, \
+                patch.object(QApplication, 'widgetAt') as hit:
+            for button in (first, second, self.sidebar.layout_button):
+                button.setAttribute(Qt.WA_UnderMouse, False)
+                cursor.return_value = button.mapToGlobal(button.rect().center())
+                hit.return_value = button
+                self.sidebar._hover_sync_timer.timeout.emit()
+                self.assertFalse(button.underMouse())
+                self.assertEqual(icon_color(button), theme.qcolor(theme.ACCENT))
+                self.assertEqual(corners._filter.values(button)['background'], theme.CONTENT_HOVER)
+                image = button.grab().toImage()
+                scale = image.devicePixelRatio()
+                self.assertEqual(image.pixelColor(round(button.width() / 2 * scale), round(3 * scale)).name(),
+                                 theme.qcolor(theme.CONTENT_HOVER).name())
+                if button is not first:
+                    self.assertEqual(icon_color(first), theme.qcolor(theme.TEXT2))
+            layout_button = self.sidebar.layout_button
+            layout_button.setAttribute(Qt.WA_UnderMouse, True)
+            hit.return_value = None
+            self.sidebar._hover_sync_timer.timeout.emit()
+            self.assertEqual(icon_color(layout_button), theme.qcolor(theme.TEXT2))
+            self.assertNotEqual(corners._filter.values(layout_button)['background'], theme.CONTENT_HOVER)
+            layout_button.setAttribute(Qt.WA_UnderMouse, False)
+            cursor.return_value = first.mapToGlobal(first.rect().center())
+            hit.return_value = first
+            self.sidebar._hover_sync_timer.timeout.emit()
+            self.assertEqual(clicked.count(), 0)
+            self.assertIs(nav.active_button, nav.follow_button)
+            QTest.mouseClick(first, Qt.LeftButton)
+            self.assertEqual(clicked.count(), 1)
+            self.assertTrue(action.isChecked())
 
     def test_running_badge_survives_final_dock_tint_and_selected_surface(self):
         self.addCleanup(theme.apply, theme.mode())
@@ -553,6 +959,28 @@ class WorkspaceControlTests(unittest.TestCase):
         settle()
         self.assertFalse(panel.popup.isVisible())
         self.assertFalse(panel.launcher.isChecked())
+
+    def test_function_search_supports_pinyin_and_keeps_action_order(self):
+        first, first_action = self.add('subtitle', '字幕工具 42')
+        first.setToolTip('实时翻译 · 小明 Example')
+        self.add('recording', '录制助手')
+        panel = self.sidebar.workspace_controls
+        panel.launcher.click()
+        settle()
+        order = list(panel._rows)
+        cases = [('字幕', {'subtitle'}), ('zimu', {'subtitle'}), ('ZM', {'subtitle'}),
+                 ('ssfy', {'subtitle'}), ('XM', {'subtitle'}), ('EXAMPLE', {'subtitle'}),
+                 ('42', {'subtitle'}), ('zimu 42 example', {'subtitle'}), ('lz', {'recording'}),
+                 ('zm missing', set()), ('subtitle', set())]
+        for query, expected in cases:
+            panel.search.setText(query)
+            self.assertEqual({key[1] for key, (row, _launch, _pin) in panel._rows.items()
+                              if not row.isHidden()}, expected, query)
+            self.assertEqual(list(panel._rows), order)
+        panel.search.clear()
+        self.assertTrue(all(not row.isHidden() for row, _launch, _pin in panel._rows.values()))
+        self.assertFalse(first_action.isChecked(), 'Searching must not activate a function')
+        self.assertIs(panel.entries[('workspace-test', 'subtitle')][1], first)
 
     def test_popup_uses_original_click_and_action_state(self):
         panel = self.sidebar.workspace_controls
@@ -645,9 +1073,14 @@ class WorkspaceControlTests(unittest.TestCase):
             settle()
             self.assertTrue(self.sidebar.navigation.rail.isHidden())
             self.assertIs(panel.launcher.parentWidget(), self.sidebar._bar_row)
-            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
+            for button in (self.sidebar.layout_button, self.sidebar.picture_in_picture_button):
+                self.assertIs(button.parentWidget(), self.sidebar._bar_row)
+                self.assertTrue(button.isVisible())
+                self.assertEqual(button.size(), self.sidebar.settings_button.size())
+                self.assertTrue(self.sidebar.rect().contains(button.mapTo(
+                    self.sidebar, button.rect().bottomRight())))
             self.assertTrue(self.sidebar.clear_wall_button.isVisible())
-            self.assertEqual(self.sidebar.clear_wall_button.size().width(), 30)
+            self.assertIs(self.sidebar.clear_wall_button.parentWidget(), self.sidebar._bar_row)
             for collapsed in (True, False):
                 self.sidebar.set_collapsed(collapsed, animate=False)
                 settle()
@@ -672,9 +1105,26 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.search.clear()
         nav.all_button.click()
         self.assertEqual(len(self.sidebar.visible_items()), 8)
-        nav.density_button.click()
+        calls = []
+        self.sidebar.refreshRequested.connect(lambda: calls.append('refresh'))
+        self.assertTrue(self.sidebar.batch_button.isVisible() and self.sidebar.refresh_button.isVisible())
+        self.sidebar.refresh_button.click()
+        self.assertEqual(calls, ['refresh'])
+        self.sidebar.batch_button.click()
+        self.assertTrue(self.sidebar.select_mode)
+        self.sidebar.batch_button.click()
+        self.assertFalse(self.sidebar.select_mode)
+
+        def choose_density(label):
+            nav.open_manage_menu()
+            actions = {action.text(): action for action in nav.menu.actions()}
+            self.assertTrue({'多选管理', '刷新关注状态'}.isdisjoint(actions))
+            actions[label].trigger()
+            nav.menu.close()
+
+        choose_density('切换为列表')
         self.assertFalse(self.sidebar.card_mode)
-        nav.density_button.click()
+        choose_density('切换为封面卡片')
         self.assertTrue(self.sidebar.card_mode)
         self.assertEqual([room['room_id'] for room in self.sidebar.rooms()], before)
         self.assertEqual(self.sidebar.scroll.width(), theme.SIDEBAR_WIDTH-24)
@@ -703,9 +1153,7 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.pluginSettingsRequested.connect(lambda: calls.append('store'))
         nav = self.sidebar.navigation
         nav.open_add_menu()
-        nav.menu.actions()[0].trigger()
-        nav.menu.actions()[1].trigger()
-        nav.menu.hide()
+        self.sidebar.import_button.click()
         self.sidebar.workspace_controls.store_button.click()
         self.assertEqual(calls, ['add', 'import', 'store'])
 

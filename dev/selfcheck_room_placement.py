@@ -27,6 +27,7 @@ class Tile:
 
     def set_room(self, room):
         self.room = dict(room or {})
+        self.volume = self.room.pop('_streamer_initial_volume', self.volume)
         self.room.update(volume=self.volume, muted=self.muted, audio_channel=self.audio_channel)
 
 
@@ -34,6 +35,7 @@ class Host:
     def __init__(self, *tiles):
         self.wall = SimpleNamespace(tiles=list(tiles), relayout=Mock(), pane_danmaku=Mock())
         self.players = {}
+        self.settings = {}
         self.rooms = {tile.room['room_id']: dict(tile.room) for tile in tiles if tile.room['room_id']}
         self.sidebar = SimpleNamespace(watch_history=Mock())
         self.recorder = SimpleNamespace(stop=Mock())
@@ -84,6 +86,42 @@ class RoomPlacementTests(unittest.TestCase):
         host.sidebar.watch_history.select.assert_called_once_with('new')
         host._refresh_meta.assert_called_once_with()
 
+    def test_streamer_overrides_apply_on_entry_without_changing_catalog_or_swap(self):
+        target, other = Tile('old'), Tile('other')
+        host = Host(target, other)
+        chosen = dict(room_id='new', uname='New', live=True)
+        host.rooms['new'] = chosen
+        values = {'volume': 71, 'playback': 1440, 'recording': 1080}
+        host.settings['streamer_defaults'] = {'new': dict(values)}
+        host.placement.drop_room(target, 'new')
+        self.assertEqual((target.volume, target.room['_streamer_pending_height'],
+                          target.room['_streamer_recording_height']), (71, 1440, 1080))
+        self.assertEqual(chosen, dict(room_id='new', uname='New', live=True))
+        target.volume = 23
+        target.room.pop('_streamer_pending_height')
+        host.placement.drop_room(target, 'new')
+        self.assertEqual(target.volume, 23)
+        host.placement.drop_room(other, 'new')
+        self.assertNotIn('_streamer_pending_height', other.room)
+        self.assertEqual(host.settings['streamer_defaults']['new'], values)
+        host.placement.drop_room(other, 'old')
+        host.placement.drop_room(other, 'new')
+        self.assertEqual(other.volume, 71)
+
+    def test_streamer_native_tiers_keep_platform_ids_with_no_resolution_mapping(self):
+        target = Tile('old')
+        host = Host(target)
+        room_id = 'fixture:42'
+        host.rooms[room_id] = dict(room_id=room_id, uname='Platform', live=True)
+        host.settings['streamer_defaults'] = {room_id: {
+            'playback': {'qn': 2000, 'label': '蓝光'},
+            'recording': {'qn': 1, 'label': '原画'}, 'volume': 0}}
+        host.placement.drop_room(target, room_id)
+        self.assertEqual(target.room['quality'], 2000)
+        self.assertNotIn('_streamer_pending_height', target.room)
+        self.assertEqual(target.room['_streamer_recording_choice'], {'qn': 1, 'label': '原画'})
+        self.assertEqual(target.volume, 0)
+
     def test_missing_room_and_same_room_do_not_restart(self):
         target = Tile('same')
         host = Host(target)
@@ -117,6 +155,7 @@ class RoomPlacementTests(unittest.TestCase):
         source = Tile('first', volume=20, muted=True, audio_channel=1)
         target = Tile('second', volume=70, audio_channel=4)
         host = Host(source, target)
+        del host.settings
         first_player, second_player = Mock(), Mock()
         host.players.update({source: first_player, target: second_player})
         host.placement.drop_room(target, 'first')
@@ -177,6 +216,40 @@ class RoomPlacementTests(unittest.TestCase):
                          [(10, True, 2), (80, False, 3)])
         self.assertIs(host.players[source], player)
         host.start_tile.assert_not_called()
+
+    def test_room_audio_follows_hot_swap_without_reconfiguring_players(self):
+        source = Tile('first', volume=10, muted=True, audio_channel=3)
+        target = Tile('second', volume=80, muted=False, audio_channel=4)
+        host = Host(source, target)
+        host.settings['audio_follows_room'] = True
+        host.players = {source: Mock(), target: Mock()}
+        host.placement.swap_tiles('first', target)
+        self.assertEqual([target, source], host.wall.tiles)
+        self.assertEqual([(80, False, 4), (10, True, 3)],
+                         [(t.volume, t.muted, t.audio_channel) for t in host.wall.tiles])
+        for player in host.players.values():
+            self.assertEqual(player.mock_calls, [])
+        host.start_tile.assert_not_called()
+
+    def test_room_audio_follows_both_fallback_swap_paths(self):
+        for action in ('drop', 'swap'):
+            for target_id in ('second', ''):
+                with self.subTest(action=action, target_id=target_id):
+                    source = Tile('first', volume=10, muted=True, audio_channel=3)
+                    target = Tile(target_id, volume=80, muted=False, audio_channel=4)
+                    host = Host(source, target)
+                    host.settings['audio_follows_room'] = True
+                    if action == 'drop':
+                        host.placement.drop_room(target, 'first')
+                    else:
+                        host.placement.swap_tiles('first', target)
+                    self.assertEqual([target_id, 'first'], [t.room.get('room_id', '') for t in host.wall.tiles])
+                    self.assertEqual([(80, False, 4), (10, True, 3)],
+                                     [(t.volume, t.muted, t.audio_channel) for t in host.wall.tiles])
+                    self.assertEqual((10, True, 3),
+                                     tuple(target.room[key] for key in ('volume', 'muted', 'audio_channel')))
+                    for tile in host.wall.tiles:
+                        tile.sync_audio_ui.assert_called_once_with()
 
     def test_hot_swap_rejects_unready_offline_or_removed_tiles(self):
         for reason in ('unready', 'offline', 'removed'):

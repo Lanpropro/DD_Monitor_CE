@@ -37,6 +37,8 @@ class DropTile(QFrame):
     dragLeaveEvent = Tile.dragLeaveEvent
     dropEvent = Tile.dropEvent
     mouseMoveEvent = Tile.mouseMoveEvent
+    wall_seamless = Tile.wall_seamless
+    _set_drop_active = Tile._set_drop_active
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -105,26 +107,30 @@ class CardDropTests(unittest.TestCase):
         self.assertIsNone(button.face_key)
 
     def test_sidebar_release_dispatches_playback_before_animating_without_mouse_capture(self):
-        self.tile.room = {}
+        self.tile.hide()
+        tile = Tile({}, self.window)
+        tile.setGeometry(self.tile.geometry())
+        tile.show()
+        APP.processEvents()
         calls = []
         def play(room_id):
             calls.append((room_id, QWidget.mouseGrabber(),
-                          getattr(self.tile, '_card_drop_overlay', None)))
-            self.tile.room = {'room_id': room_id}
-        self.tile.roomDropped.connect(play)
+                          getattr(tile, '_card_drop_overlay', None)))
+            tile.room = {'room_id': room_id}
+        tile.roomDropped.connect(play)
         source = self.sidebar.items()[0]
-        handle = int(self.tile.video.winId())
-        geometry = self.tile.geometry()
+        handle = int(tile.video.winId())
+        geometry = tile.geometry()
         session = self.sidebar.drag_session
         session.start(source, self.mime, self.snapshot, self.hotspot, self.position)
-        with patch('ddm.sidebar_drag.widget_at', return_value=self.tile):
+        with patch('ddm.sidebar_drag.widget_at', return_value=tile):
             self.assertTrue(session.finish())
         self.assertEqual(calls, [('1001', None, None)])
-        overlay = self.tile._card_drop_overlay
+        overlay = tile._card_drop_overlay
         self.assertTrue(overlay.timer.isActive())
         self.assertIsNone(session.ghost)
-        self.assertEqual(int(self.tile.video.winId()), handle)
-        self.assertEqual(self.tile.geometry(), geometry)
+        self.assertEqual(int(tile.video.winId()), handle)
+        self.assertEqual(tile.geometry(), geometry)
         self.assertTrue(overlay.testAttribute(Qt.WA_TransparentForMouseEvents))
         self.assertTrue(overlay.windowFlags() & Qt.WindowDoesNotAcceptFocus)
         self.assertEqual(overlay.snapshot.devicePixelRatio(), 2)

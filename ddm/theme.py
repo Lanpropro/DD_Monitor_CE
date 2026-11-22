@@ -16,7 +16,8 @@ from weakref import WeakKeyDictionary
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPalette
-from PySide6.QtWidgets import QApplication, QLineEdit, QPushButton, QToolButton, QWidget
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QDialogButtonBox,
+                               QLineEdit, QPushButton, QSlider, QToolButton, QWidget)
 
 
 def qcolor(value, fallback: str = "#000000") -> QColor:
@@ -79,30 +80,104 @@ TILE_FULLSCREEN_STYLE = '''
     border-radius: 0px;
 }
 '''
+WALL_TILE_SEAMLESS_STYLE = '''
+#WallGrid[seamless="true"] > #Tile { border-radius: 0; }
+#WallGrid[seamless="true"] > #Tile[dropActive="false"] { border: none; }
+'''
+WALL_BAR_SEAMLESS_STYLE = '''
+#WallGrid[seamless="true"] #TileBottom {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+'''
+WALL_PANE_SEAMLESS_STYLE = '''
+#WallGrid[seamless="true"] #TileVideo,
+#WallGrid[seamless="true"] > #DanmakuPanel {
+    border-radius: 0;
+}
+#WallGrid[seamless="true"] > #DanmakuPanel #DanmakuHeader {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+#WallGrid[seamless="true"] > #DanmakuPanel #DanmakuBody {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+'''
+
+VIDEO_CONTROL_BACKING = (13, 17, 23, 118)
+VIDEO_CONTROL_RADIUS = 9
 
 FULLSCREEN_BAR_STYLE = '''
-#TileBottom[fullscreen="true"] {
+#TileBottom[overVideo="true"] {
     background: transparent;
     border: none;
     border-radius: 0px;
 }
-#TileBottom[fullscreen="true"] QLabel,
-#TileBottom[fullscreen="true"] #TileCtrl,
-#TileBottom[fullscreen="true"] #TileToggle {
+#TileBottom[overVideo="true"] QLabel,
+#TileBottom[overVideo="true"] #TileCtrl,
+#TileBottom[overVideo="true"] #TileToggle {
     color: #ffffff;
     background: transparent;
     border: none;
 }
-#TileBottom[fullscreen="true"] #TileCtrl:hover,
-#TileBottom[fullscreen="true"] #TileCtrl[hovered="true"],
-#TileBottom[fullscreen="true"] #TileToggle:hover {
-    background: rgba(255, 255, 255, 0.18);
-    color: #ffffff;
+#TileBottom[overVideo="true"] #TileCtrl:!disabled:hover,
+#TileBottom[overVideo="true"] #TileCtrl[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #TileToggle:!disabled:hover,
+#TileBottom[overVideo="true"] #TileToggle[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:hover,
+#TileBottom[overVideo="true"] #BiliVolumeButton[hovered="true"]:!disabled {
+    background: palette(highlight);
+    color: #04161f;
 }
-#TileBottom[fullscreen="true"] #TileCtrl[recording="true"] {
+#TileBottom[overVideo="true"] #TileCtrl:!disabled:pressed,
+#TileBottom[overVideo="true"] #TileToggle:!disabled:pressed,
+#TileBottom[overVideo="true"] #BiliVolumeButton:!disabled:pressed {
+    background: palette(link-visited);
+    color: #04161f;
+}
+#TileBottom[overVideo="true"] #TileCtrl[recording="true"] {
     color: #fb7299;
 }
-'''
+#TileBottom[overVideo="true"] #DanmakuComposer {
+    background: rgba%s;
+    border: none;
+    border-radius: %dpx;
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QLineEdit {
+    background: transparent;
+    color: #ffffff;
+    placeholder-text-color: #e7ebf0;
+    border-color: transparent;
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QLineEdit:focus {
+    background: transparent;
+    border-color: rgba(231, 235, 240, 0.42);
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl,
+#TileBottom[overVideo="true"] #DanmakuSendButton {
+    background: transparent;
+    border-radius: 12px;
+    color: #ffffff;
+    font-weight: 600;
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl:disabled,
+#TileBottom[overVideo="true"] #DanmakuSendButton:disabled {
+    color: #cbd2da;
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl:!disabled:hover,
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl[hovered="true"]:!disabled,
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:hover,
+#TileBottom[overVideo="true"] #DanmakuSendButton[hovered="true"]:!disabled {
+    background: rgba(231, 235, 240, 0.78);
+    color: #202630;
+}
+#TileBottom[overVideo="true"] #DanmakuComposer QPushButton#TileCtrl:!disabled:pressed,
+#TileBottom[overVideo="true"] #DanmakuSendButton:!disabled:pressed {
+    background: rgba(231, 235, 240, 0.66);
+    color: #202630;
+}
+''' % ((*VIDEO_CONTROL_BACKING[:3], 150), VIDEO_CONTROL_RADIUS)
 
 BG = mix(BASE, "#000000", 0.20)
 SIDEBAR = mix(BASE, "#000000", 0.30)
@@ -222,6 +297,11 @@ _mode = "dark"
 _light = False
 _styles = WeakKeyDictionary()
 _pending_palette = WeakKeyDictionary()
+_THUMB_TEXT_SELECTORS = ('NavThumbCover', 'NavThumbHint')
+_THEME_SELECTORS = frozenset((*_THUMB_TEXT_SELECTORS, 'NavigationButton', 'BadgeOff', 'Search',
+    'DanmakuInput', 'PrimaryButton', 'Sidebar', 'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom',
+    'TilePlaceholder', 'TileVolumePopup', 'PauseOverlay', 'DanmakuHeader', 'DanmakuCount',
+    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid', 'HistoryNoticeGlyph'))
 _signals = None
 _preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
 _applied_typography = None
@@ -322,17 +402,25 @@ def _refresh_widget_palette(widget, *, invalidate=False, defer=False):
     widget.style().polish(widget)
 
 
-def refresh_theme_properties(widget, *, defer=False):
-    # The light exceptions are installed once. Change the selector property,
-    # not hundreds of local stylesheets, and invalidate only affected widgets.
+def _set_theme_properties(widget, *, defer_thumb_text=False):
+    """Set the light selector, or return None when the first paint should set it."""
     name = widget.objectName()
-    if name not in ('NavigationButton', 'BadgeOff', 'NavThumbCover', 'NavThumbHint', 'Search', 'DanmakuInput', 'PrimaryButton', 'Sidebar',
-                    'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom', 'TilePlaceholder', 'TileVolumePopup',
-                    'PauseOverlay', 'DanmakuHeader', 'DanmakuCount', 'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid') and not (
-                        widget.property('settingsGlassWindow') or widget.property('settingsGlassContent')):
-        return
+    if name not in _THEME_SELECTORS and not (widget.property('settingsGlassWindow')
+                                             or widget.property('settingsGlassContent')):
+        return False
     if widget.property('appearanceLight') != _light:
+        if (defer_thumb_text and name in _THUMB_TEXT_SELECTORS
+                and widget.visibleRegion().isEmpty()):
+            # Only their text colour changes. Qt can pick it up at first paint.
+            _pending_palette.setdefault(widget, False)
+            return None
         widget.setProperty('appearanceLight', _light)
+        return True
+    return False
+
+
+def refresh_theme_properties(widget, *, defer=False):
+    if _set_theme_properties(widget):
         _refresh_widget_palette(widget, invalidate=True, defer=defer)
         return True
     return False
@@ -351,19 +439,52 @@ def _conditional_light_style(style):
 
 def _light_style(widget):
     name = widget.objectName()
+    if widget.property('tileButton'):
+        selector = f'#{name}[tileButton="true"]'
+        parent = widget.parentWidget()
+        overlay = parent is not None and parent.objectName() == 'TileControls'
+        light = _light and not overlay
+        ink = '#202630' if light else '#e7ebf0'
+        rgb = '32, 38, 48' if light else '231, 235, 240'
+        idle = '#15171c' if overlay else 'transparent'
+        hover = '#282c33' if overlay else f'rgba({rgb}, 0.15)'
+        pressed = '#1d2026' if overlay else f'rgba({rgb}, 0.27)'
+        return f'''
+            {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
+            {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
+            {selector}[playbackPopupOpen="true"]:!disabled {{
+                background: {hover}; color: {ink};
+            }}
+            {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
+            {selector}[overVideo="true"] {{color: #ffffff;}}
+            {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
+            {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
+                background: rgba(231, 235, 240, 0.15); color: #ffffff;
+            }}
+            {selector}[overVideo="true"]:!disabled:pressed {{
+                background: rgba(231, 235, 240, 0.27); color: #ffffff;
+            }}
+            {selector}[recording="true"]:!disabled {{color: #e5484d;}}
+            {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
+            {selector}:disabled {{background: {idle}; color: palette(placeholder-text);}}
+            {selector}[refreshing="true"]:disabled {{background: {idle if overlay else hover};}}
+        '''
     if name == 'TileToggle':
-        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
+        return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
+    if name == 'DanmakuComposer':
+        # The plugin gives the composer and its editor local styles of their own.
+        return FULLSCREEN_BAR_STYLE
     if name == 'TileCtrl':
         parent = widget.parentWidget()
         while parent is not None and parent.objectName() != 'TileBottom':
             parent = parent.parentWidget()
         if parent is not None:
-            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}') + FULLSCREEN_BAR_STYLE
-        return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
+            return _conditional_light_style('#TileCtrl {background: transparent; color: #4A5565; border: none;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:checked {background: #DDF3FB; color: #007BA8;} #TileCtrl:!disabled:pressed {background: #CFE4F2; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}') + FULLSCREEN_BAR_STYLE
+        return _conditional_light_style('#TileCtrl {background: #F7F9FC; color: #202630; border: 1px solid #D7DDE7;} #TileCtrl:hover, #TileCtrl[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileCtrl:!disabled:pressed {background: #CFE4F2; color: #007BA8;} #TileCtrl[recording="true"] {color: #E5484D;}')
     return _conditional_light_style({
         'Search': '#Search {color: #202630; placeholder-text-color: #5E6A7D;}',
         'DanmakuInput': '#DanmakuInput {color: #202630; placeholder-text-color: #5E6A7D;}',
-        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
+        'PrimaryButton': '#PrimaryButton {color: #FFFFFF;} #PrimaryButton[updateReady="true"] {color: palette(window-text);} #PrimaryButton[addRoom="true"] {background: #FB7299; color: #202630;} #PrimaryButton[addRoom="true"]:hover {background: #FC87A8;} #PrimaryButton[addRoom="true"]:pressed {background: #EC6089;}',
         'WallGrid': '#WallGrid {background: #E6EBF2;}',
         'Tile': '#Tile, #Tile[empty="true"] {background: #FFFFFF; border: 1px solid #BCC8D8; border-radius: 10px;} #Tile:hover {border-color: #95A7BE;}' + TILE_FULLSCREEN_STYLE,
         'TileVideo': '#TileVideo {background: #FFFFFF;}',
@@ -374,7 +495,10 @@ def _light_style(widget):
         'DanmakuHeader': '#DanmakuHeader {background: #EBEEF3; border-bottom: 1px solid #D7DDE7;}',
         'DanmakuBar': '#DanmakuBar {background: #EBEEF3; border-top: 1px solid #D7DDE7;}',
         'DanmakuBody': '#DanmakuBody QScrollBar::handle:vertical {background: #BCC6D5;}',
-    }.get(name, '')) + (FULLSCREEN_BAR_STYLE if name == 'TileBottom' else '')
+    }.get(name, '')) + {
+        'Tile': WALL_TILE_SEAMLESS_STYLE,
+        'TileBottom': FULLSCREEN_BAR_STYLE + WALL_BAR_SEAMLESS_STYLE,
+    }.get(name, '')
 
 
 class ThemeSignals(QObject):
@@ -406,26 +530,38 @@ class ThemeSignals(QObject):
             self._repairing_palette = False
 
     def eventFilter(self, widget, event):
-        if event.type() in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
-            hovered = event.type() in (QEvent.Enter, QEvent.HoverEnter)
+        kind = event.type()
+        if kind in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
+            hovered = kind in (QEvent.Enter, QEvent.HoverEnter)
             if widget.property('hovered') != hovered:
                 widget.setProperty('hovered', hovered)
                 widget.style().unpolish(widget)
                 widget.style().polish(widget)
                 widget.update()
-        if event.type() == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
+        if kind == QEvent.Polish and isinstance(widget, (QPushButton, QToolButton)):
             widget.setMouseTracking(True)
             widget.setAttribute(Qt.WA_Hover, True)
-        if event.type() == QEvent.Paint and isinstance(widget, QWidget):
+            box = widget.parentWidget()
+            if isinstance(box, QDialogButtonBox) and not widget.objectName():
+                role = box.buttonRole(widget)
+                if role in (QDialogButtonBox.AcceptRole, QDialogButtonBox.YesRole, QDialogButtonBox.ApplyRole):
+                    widget.setObjectName('PrimaryButton')
+                elif role in (QDialogButtonBox.RejectRole, QDialogButtonBox.NoRole):
+                    widget.setObjectName('IconButton')
+        if (kind == QEvent.Polish and isinstance(widget, (QAbstractButton, QComboBox, QSlider))
+                and not widget.testAttribute(Qt.WA_SetCursor)):
+            widget.setCursor(Qt.PointingHandCursor)
+        if kind == QEvent.Paint and isinstance(widget, QWidget):
             if widget in _pending_palette:
+                _set_theme_properties(widget)
                 _refresh_widget_palette(widget)
             from .skin_parts import paint_button
             if paint_button(widget):
                 return True
         # Newly opened settings/popups need the same exceptions as existing UI.
-        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+        if kind == QEvent.Polish and isinstance(widget, QWidget):
             refresh_theme_properties(widget)
-        if event.type() == QEvent.Polish and isinstance(widget, QWidget):
+        if kind == QEvent.Polish and isinstance(widget, QWidget):
             from .skin_parts import style_for
             extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
             if extra and widget not in _styles:
@@ -500,6 +636,7 @@ def apply(value):
     typography = (FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING)
     typography_changed = typography != _applied_typography
     from .continuous_corners import source_stylesheet, stylesheet
+    from .skin_parts import style_for
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
     for widget in widgets:
@@ -512,28 +649,36 @@ def apply(value):
     stable_style = qss(palette_roles=True)
     if app.styleSheet() != stable_style:
         app.setStyleSheet(stable_style)
-    patterns = {}
+
+    # Cards with identical source styles can share one translation per theme change.
+    @lru_cache(maxsize=None)
+    def palette_pattern(colors):
+        replacements = {old: palette[name] for name, old in colors}
+        pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
+        return pattern, replacements
+
+    @lru_cache(maxsize=None)
+    def local_style(source, colors, extra):
+        if source:
+            pattern, replacements = palette_pattern(colors)
+            source = pattern.sub(lambda match: replacements[match.group()], source)
+        return stylesheet(source + '\n' + extra if extra else source)
+
     for widget in widgets:
         source, colors, _last = _styles[widget]
-        key = tuple(colors.items())
-        if key not in patterns:
-            replacements = {old: palette[name] for name, old in colors.items()}
-            pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
-            patterns[key] = pattern, replacements
-        pattern, replacements = patterns[key]
-        styled = pattern.sub(lambda match: replacements[match.group()], source) if source else ''
-        from .skin_parts import style_for
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
-        if extra:
-            styled += '\n' + extra
-        styled = stylesheet(styled)
-        properties_changed = refresh_theme_properties(widget, defer=True)
-        if styled != widget.styleSheet():
+        styled = local_style(source, tuple(colors.items()) if source else (), extra)
+        style_changed = styled != widget.styleSheet()
+        properties_changed = _set_theme_properties(widget, defer_thumb_text=not (style_changed or typography_changed))
+        if style_changed:
+            # Replacing local QSS already polishes the widget with its new properties.
             widget.setStyleSheet(styled)
-        elif isinstance(widget, QLineEdit) and not properties_changed:
-            _refresh_widget_palette(widget, invalidate=True, defer=True)
-        elif styled and not properties_changed:
-            _refresh_widget_palette(widget, defer=True)
+            _pending_palette.pop(widget, None)
+        elif properties_changed is not None and not typography_changed:
+            editor = isinstance(widget, QLineEdit)
+            if properties_changed or styled or editor:
+                # Qt's stylesheet polish invalidates the render rules and rebuilds the palette.
+                _refresh_widget_palette(widget, invalidate=editor, defer=True)
         _styles[widget] = (source, colors, styled)
         if typography_changed:
             _refresh_widget_palette(widget, invalidate=True)
@@ -560,6 +705,7 @@ def qss(palette_roles=False) -> str:
     hint_text = '#F1F2F5' if _light and not palette_roles else TEXT2
     volume_dark = qcolor(_DARK['BG'])
     volume_light = qcolor(_LIGHT['BG'])
+    success_red, success_green, success_blue = _rgb(SUCCESS)
     style = f"""
 QPushButton#AppearanceChoice {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER}; border-radius: 16px;
@@ -701,12 +847,27 @@ QSlider::sub-page:horizontal {{
     border-radius: 2px;
 }}
 QSlider::handle:horizontal {{
-    width: 12px;
+    width: 14px;
     margin: -5px 0;
-    border-radius: 6px;
+    border-radius: 7px;
+    background: #ffffff;
+    border: 1px solid rgba(105, 116, 130, 0.50);
+}}
+QSlider::handle:horizontal:pressed {{
+    width: 17px;
+    margin: -7px 0;
+    border-radius: 8px;
     background: #ffffff;
 }}
-QSlider::handle:horizontal:hover {{
+QSlider[settingsSlider="true"]::handle:horizontal,
+QSlider[settingsSlider="true"]::handle:horizontal:pressed {{
+    width: 16px;
+    margin: -5px 0;
+}}
+QSlider::groove:horizontal:hover {{
+    background: {BORDER_STRONG};
+}}
+QSlider::sub-page:horizontal:hover {{
     background: {style_mix("ACCENT", "#ffffff", 0.35)};
 }}
 
@@ -779,7 +940,6 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     font-size: {FONT_CONTROL}px;
     font-weight: 600;
 }}
-#TileMenuOptions QCheckBox[menuSelected="true"] {{color: {ACCENT};}}
 #NotificationSettingsGroup {{
     background: transparent;
     border: none;
@@ -814,18 +974,41 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border: none;
     background: transparent;
 }}
-#PluginTabs QTabBar::tab {{
+#PluginTabs QTabBar, #LoginPlatformSegments {{
     background: {CONTENT};
+    border-radius: 17px;
+}}
+#PluginTabs QTabBar::tab {{
+    background: transparent;
     color: {TEXT2};
-    padding: 8px 18px;
-    margin-right: 6px;
+    padding: 6px 18px;
+    margin: 2px;
     border-radius: 16px;
     border: 1px solid transparent;
 }}
-#PluginTabs QTabBar::tab:selected {{
-    background: {ELEVATED};
+#PluginTabs QTabBar::tab:!selected:hover, #LoginPlatformSegment:!checked:!disabled:hover {{
+    background: {CONTENT_HOVER};
     color: {TEXT1};
-    border: 1px solid {BORDER_STRONG};
+}}
+#PluginTabs QTabBar::tab:selected, #LoginPlatformSegment:checked {{
+    background: transparent;
+    color: {ACCENT};
+}}
+#LoginPlatformSegment {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    color: {TEXT2};
+    padding: 0 4px;
+}}
+#LoginPlatformSegment[loggedIn="true"]:!checked {{
+    border-bottom-color: {PINK};
+}}
+#LoginPlatformSegment:!disabled:pressed {{
+    background: {BORDER};
+}}
+#LoginPlatformSegment:disabled {{
+    color: {TEXT4};
 }}
 #PluginName {{
     font-weight: 600;
@@ -856,17 +1039,36 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     background: transparent;
     border: none;
 }}
+#NotificationHeader {{
+    background: transparent; border-bottom: 1px solid {BORDER};
+}}
+#NotificationTitle {{color: {TEXT1}; font-size: {FONT_HEADING}px; font-weight: 600;}}
+#NotificationSummary {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
+#NotificationEmpty {{
+    color: {TEXT2}; padding: 8px 12px;
+}}
 #HistoryNotice {{
-    background: {ELEVATED};
-    border: 1px solid rgba(131, 131, 145, 0.31);
-    border-radius: {RADIUS_LG}px;
+    background: transparent;
+    border: none;
 }}
 #HistoryNotice #NoticeHeading {{color: {TEXT1}; font-weight: 600;}}
 #HistoryNotice #NoticeText {{color: {TEXT2}; font-weight: 400;}}
 #HistoryNotice #NoticeDescription {{color: {TEXT3}; font-size: {FONT_CAPTION}px;}}
-#HistoryNotice #NoticeIcon {{
+#HistoryNoticeGlyph {{
     color: {ACCENT}; background: {ACCENT_SOFT}; border-radius: {RADIUS_MD}px; font-weight: 600;
 }}
+#HistoryNoticeGlyph[noticeKind="live"] {{
+    color: {PINK}; background: rgba(251, 114, 153, 0.14);
+}}
+#HistoryNoticeGlyph[noticeKind="warning"] {{
+    color: #F2B15F; background: rgba(242, 177, 95, 0.16);
+}}
+#HistoryNoticeGlyph[noticeKind="error"] {{
+    color: #FF9297; background: rgba(238, 99, 108, 0.15);
+}}
+#HistoryNoticeGlyph[noticeKind="live"][appearanceLight="true"] {{color: #A62955;}}
+#HistoryNoticeGlyph[noticeKind="warning"][appearanceLight="true"] {{color: #8A5100;}}
+#HistoryNoticeGlyph[noticeKind="error"][appearanceLight="true"] {{color: #A32332;}}
 #HistoryNotice #PrimaryButton {{
     padding: 5px 14px; min-height: 22px; border-radius: {RADIUS_MD}px;
 }}
@@ -876,6 +1078,11 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #NoticeHeading {{
     color: {TEXT1};
+    font-weight: 600;
+}}
+#NoticeText[updateHeadline="true"] {{
+    color: {TEXT1};
+    font-size: {FONT_BODY}px;
     font-weight: 600;
 }}
 #NoticeDescription {{
@@ -910,6 +1117,11 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     color: {TEXT1};
     background: {CONTENT_HOVER};
     border-radius: {RADIUS_SM}px;
+}}
+#HistoryNotice #NoticeClose:pressed {{
+    color: #ffffff;
+    background: rgba(12, 19, 30, 0.72);
+    border-radius: 6px;
 }}
 
 /* ---------- 侧栏 ---------- */
@@ -950,7 +1162,7 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 #SidebarFilter:hover {{background: {CONTENT_HOVER};}}
 #SidebarFilter:checked {{background: {ACCENT_SOFT}; color: {ACCENT};}}
 #SidebarFilter:focus {{border: 1px solid {ACCENT};}}
-#FunctionCenter {{
+#FunctionCenter, #StreamerMonitorMenu {{
     background: {SIDEBAR};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_LG}px;
@@ -1106,9 +1318,9 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     color: {TEXT1};
 }}
 #LoginWindow #IconButton:pressed {{
-    background: {ACCENT_SOFT};
-    border: 1px solid {ACCENT};
-    color: {ACCENT};
+    background: {style_mix("CONTENT", "#000000", 0.12)};
+    border: 1px solid {BORDER};
+    color: {TEXT1};
 }}
 #IconButton:checked {{
     background: {ACCENT_SOFT};
@@ -1117,8 +1329,35 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 QPushButton#IconButton:pressed {{
     background: {style_mix("CONTENT", "#000000", 0.12)};
-    border: 1px solid {ACCENT};
+    border: 1px solid {BORDER};
     color: {TEXT1};
+}}
+QPushButton#IconButton[text="取消"], QDialogButtonBox QPushButton#IconButton {{
+    background: transparent;
+    border: 1px solid {BORDER_STRONG};
+    color: {TEXT1};
+}}
+QPushButton#IconButton[text="取消"]:hover:!disabled, QDialogButtonBox QPushButton#IconButton:hover:!disabled {{
+    background: {CONTENT_HOVER};
+}}
+QPushButton#IconButton[text="取消"]:focus, QDialogButtonBox QPushButton#IconButton:focus {{
+    border-color: {ACCENT};
+}}
+QPushButton#IconButton[text="取消"]:pressed, QDialogButtonBox QPushButton#IconButton:pressed {{
+    background: {style_mix("CONTENT", "#000000", 0.12)};
+    border: 1px solid {BORDER_STRONG};
+}}
+QPushButton#IconButton[cacheRefreshing="true"]:disabled {{
+    background: {CONTENT}; border: 1px solid {BORDER}; color: {TEXT2}; padding-right: 32px;
+}}
+#IconButton[noticePrimary="true"][updateReady="false"]:!disabled {{
+    background: {ACCENT_SOFT};
+    border: 1px solid {ACCENT};
+    color: {ACCENT};
+    font-weight: 600;
+}}
+#IconButton[noticePrimary="true"][updateReady="false"]:!disabled:hover {{
+    background: {CONTENT_HOVER};
 }}
 #PrimaryButton {{
     background: {ACCENT};
@@ -1137,6 +1376,15 @@ QPushButton#IconButton:pressed {{
 }}
 QPushButton#PrimaryButton:pressed {{
     background: {style_mix("ACCENT", "#000000", 0.16)};
+}}
+#IconButton[updateReady="true"], #PrimaryButton[updateReady="true"],
+#IconButton[updateReady="true"]:disabled, #PrimaryButton[updateReady="true"]:disabled {{
+    background: rgba({success_red}, {success_green}, {success_blue}, 0.18);
+    border: 1px solid {SUCCESS};
+    color: {TEXT1};
+}}
+#IconButton[updateReady="true"]:enabled:hover, #PrimaryButton[updateReady="true"]:enabled:hover {{
+    background: rgba({success_red}, {success_green}, {success_blue}, 0.28);
 }}
 #GhostButton {{
     background: transparent;
@@ -1382,11 +1630,23 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     border: 1px solid {ACCENT};
     color: {TEXT1};
 }}
+#LayoutPresetScroll, #LayoutPresetScroll > QWidget, #LayoutPresetBoard {{
+    background: transparent; border: none;
+}}
+#LayoutPresetBoard #LayoutCard {{
+    border-color: {BORDER};
+    border-radius: {RADIUS_LG}px;
+}}
+#LayoutPresetBoard #LayoutCard:checked {{
+    background: {CONTENT_HOVER};
+    border-color: {ACCENT};
+}}
+#LayoutPresetBoard #LayoutCard:focus {{border-color: {ACCENT};}}
 #PipRoomChoice {{
     background: {CONTENT}; color: {TEXT1}; border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_MD}px; padding: 0;
 }}
-#PipRoomChoice:hover {{background: {CONTENT_HOVER};}}
+#PipRoomChoice:hover, #PipRoomChoice:checked {{background: {CONTENT_HOVER};}}
 #PipRoomChoice:checked, #PipRoomChoice:focus {{border: 1px solid {ACCENT}; outline: none;}}
 #PipChoiceBadge {{background: {ACCENT}; color: white; border: none; border-radius: 8px;}}
 #PluginCard[pipDropTarget="true"] {{border: 1px solid {ACCENT};}}
@@ -1415,20 +1675,22 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #LayoutPicker #SectionLabel {{
     color: {TEXT1}; background: {CONTENT}; border-radius: 6px; padding: 4px 8px;
 }}
-#LayoutResetButton, #PresetManageButton {{
+#PresetManageButton {{
     background: {CONTENT}; color: {TEXT2}; border: 1px solid {BORDER_STRONG};
     border-radius: 8px; min-height: 28px; padding: 2px 10px;
 }}
-#LayoutResetButton:hover, #PresetManageButton:hover {{
+#PresetManageButton:hover {{
     background: {CONTENT_HOVER}; color: {TEXT1}; border-color: {ACCENT};
 }}
-#LayoutResetButton:focus, #PresetManageButton:focus {{border-color: {ACCENT}; outline: none;}}
+#PresetManageButton:focus {{border-color: {ACCENT}; outline: none;}}
 #RoomPresetEntry {{
     background: {CONTENT}; border: 1px solid {BORDER_STRONG}; border-radius: 10px;
 }}
 #RoomPresetEntry[current="true"] {{border-color: {ACCENT}; background: {CONTENT_HOVER};}}
 #RoomPresetName {{color: {TEXT1}; font-weight: 600;}}
-#RoomPresetEntry QPushButton[deleteConfirm="true"] {{border-color: {ERROR};}}
+#RoomPresetEntry #PrimaryButton[deleteConfirm="true"] {{background: #b52b32; color: #ffffff;}}
+#RoomPresetEntry #PrimaryButton[deleteConfirm="true"]:hover {{background: #c3333c;}}
+#RoomPresetEntry #PrimaryButton[deleteConfirm="true"]:pressed {{background: #99232b;}}
 #RoomPresetEntry #LayoutCard {{
     background: transparent; border: none; padding: 0; color: {TEXT2};
 }}
@@ -1523,6 +1785,10 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #TileCtrl:focus, #TileToggle:focus, #BiliVolumeButton:focus {{
     outline: none;
 }}
+#TileCtrl:!disabled:pressed, #TileToggle:!disabled:pressed {{
+    background: {style_mix("ACCENT", "#000000", 0.16)};
+    color: #04161f;
+}}
 #BiliVolumeButton {{
     background: transparent;
     border: none;
@@ -1572,6 +1838,9 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
 #TileVolumePopup QSlider::handle:vertical {{
     height: 12px; margin: 0 -4px; border-radius: 6px;
     background: {TEXT1}; border: 1px solid {BORDER};
+}}
+#TileVolumePopup QSlider[settingsSlider="true"]::handle:vertical {{
+    height: 16px;
 }}
 
 /* 弹幕格：占画面墙里的一整格，和别的格子同一套规格 */
@@ -1836,4 +2105,6 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
         """
     from .continuous_corners import stylesheet
     from .settings_material import control_stylesheet
-    return stylesheet(style + control_stylesheet() + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE, application=True)
+    return stylesheet(style + control_stylesheet() + TILE_FULLSCREEN_STYLE + FULLSCREEN_BAR_STYLE
+                      + WALL_TILE_SEAMLESS_STYLE + WALL_BAR_SEAMLESS_STYLE + WALL_PANE_SEAMLESS_STYLE,
+                      application=True)

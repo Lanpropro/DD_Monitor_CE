@@ -27,8 +27,7 @@ assert not danmaku.IMPORT_ERROR, danmaku.IMPORT_ERROR
 class StartupWmiTests(unittest.TestCase):
     def run_child(self, code, *, native=False, windowed=False):
         env = dict(os.environ, DDM_NO_SAVE="1", PYTHONIOENCODING="utf-8",
-                   QT_QPA_PLATFORM="windows" if native else "offscreen",
-                   PYTHON_VLC_LIB_PATH=str(ROOT / "libvlc.dll"))
+                   QT_QPA_PLATFORM="windows" if native else "offscreen")
         executable = str(Path(sys.executable).with_name("pythonw.exe")) if windowed else sys.executable
         result = subprocess.run([executable, "-X", "utf8", "-c", code],
                                 cwd=ROOT, env=env, capture_output=True,

@@ -1,6 +1,6 @@
 """Room link validation and add-to-folder dialog."""
 import re
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QLineEdit, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout
 from . import theme
 from .follow_folders import default_folder
 from .motion import AnimatedDialog
@@ -15,6 +15,7 @@ class AddRoomDialog(AnimatedDialog):
         self.setWindowTitle("添加直播间")
         self.resize(400, 170)
         self.room_id = ""
+        self.room_ids = []
         self.folder_id = ""
         self.room_id_resolver = room_id_resolver
         self.folder_names = {folder['name'] for folder in folders or []}
@@ -28,6 +29,17 @@ class AddRoomDialog(AnimatedDialog):
         self.edit.setPlaceholderText("输入房间号或链接")
         self.edit.returnPressed.connect(self.accept)
         layout.addWidget(self.edit)
+        self.batch_button = QPushButton("批量添加")
+        self.batch_button.setObjectName("IconButton")
+        self.batch_button.setCheckable(True)
+        self.batch_button.setAutoDefault(False)
+        layout.addWidget(self.batch_button)
+        self.batch_edit = QPlainTextEdit()
+        self.batch_edit.setPlaceholderText("每行一个房间号或直播间链接；可混合不同平台")
+        self.batch_edit.setFixedHeight(150)
+        self.batch_edit.hide()
+        self.batch_button.toggled.connect(self._set_batch_mode)
+        layout.addWidget(self.batch_edit)
 
         folder_row = QHBoxLayout()
         folder_row.addWidget(QLabel("添加到文件夹"))
@@ -49,7 +61,7 @@ class AddRoomDialog(AnimatedDialog):
         folder_row.addWidget(self.new_folder_button)
         layout.addLayout(folder_row)
 
-        self.hint = QLabel("支持 B 站房间号")
+        self.hint = QLabel("支持 B 站房间号、直播间链接及个人主页链接")
         self.hint.setObjectName("AppSubtitle")
         self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
@@ -73,34 +85,38 @@ class AddRoomDialog(AnimatedDialog):
         for option in self.folder_button.menu().actions():
             option.setChecked(option is action)
 
+    def _set_batch_mode(self, enabled):
+        self.edit.setVisible(not enabled)
+        self.batch_edit.setVisible(enabled)
+        self.batch_button.setText("单条添加" if enabled else "批量添加")
+        (self.batch_edit if enabled else self.edit).setFocus()
+        self.adjustSize()
+
+    def _normalize(self, text):
+        from .room_input import bili_profile_uid, bili_room_id, extract_room_input, is_bili_short_url
+        text = extract_room_input(text)
+        if self.room_id_resolver is not None:
+            room_id = self.room_id_resolver(text)
+            if room_id:
+                return room_id
+        # Short links are expanded later by the existing background info query.
+        room_id = text if is_bili_short_url(text) or bili_profile_uid(text) else bili_room_id(text)
+        if not room_id and '://' not in text and '/' not in text:
+            digits = re.findall(r"\d+", text)
+            room_id = digits[0] if len(digits) == 1 else ""
+        if not room_id:
+            raise ValueError("没识别到房间号，请检查输入")
+        return room_id
+
     def accept(self) -> None:
-        text = self.edit.text().strip()
-        from .room_input import bili_room_id, extract_room_input, is_bili_short_url
+        from .room_add_input import normalize_room_lines
+        text = self.batch_edit.toPlainText() if self.batch_button.isChecked() else self.edit.text()
         try:
-            text = extract_room_input(text)
+            rooms = normalize_room_lines(text, self._normalize)
         except ValueError as error:
             self.hint.setText(str(error))
             self.hint.setStyleSheet(f"color: {theme.ERROR}")
             return
-        if self.room_id_resolver is not None:
-            try:
-                room_id = self.room_id_resolver(text)
-            except ValueError as error:
-                self.hint.setText(str(error))
-                self.hint.setStyleSheet(f"color: {theme.ERROR}")
-                return
-            if room_id:
-                self.room_id = room_id
-                super().accept()
-                return
-        # Short links are expanded later by the existing background info query.
-        room_id = text if is_bili_short_url(text) else bili_room_id(text)
-        if not room_id and '://' not in text:
-            digits = re.findall(r"\d+", text)
-            room_id = digits[0] if len(digits) == 1 else ""
-        if not room_id:
-            self.hint.setText("没识别到房间号，请检查输入")
-            self.hint.setStyleSheet(f"color: {theme.ERROR}")
-            return
-        self.room_id = room_id
+        self.room_ids = rooms
+        self.room_id = rooms[0]
         super().accept()

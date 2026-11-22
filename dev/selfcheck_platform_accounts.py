@@ -169,21 +169,20 @@ def check_dialogs():
             dialog = AccountPlatformDialog(owner, pending_providers, platform_kind="youtube")
             assert dialog.platform_buttons["youtube"].text() == "YouTube"
             assert dialog.platform_buttons["bilibili"].property("loggedIn")
-            assert theme.PINK in dialog.platform_buttons["bilibili"].styleSheet()
-            assert theme.SUCCESS not in dialog.platform_buttons["bilibili"].styleSheet()
-            assert theme.mix(theme.CONTENT, theme.PINK, 0.2) not in dialog.platform_buttons["bilibili"].styleSheet()
-            assert f"background: {theme.CONTENT};" in dialog.platform_buttons["bilibili"].styleSheet()
+            assert "已登录" in dialog.account_bar.platform.actions["bilibili"].text()
             dialog.show()
             app.processEvents()
             check_center(dialog)
-            assert dialog.platform_buttons["twitch"].isVisible()
-            for button in dialog.platform_buttons.values():
-                assert dialog.rect().contains(button.geometry())
-                assert button.width() == dialog.platform_buttons["bilibili"].width()
-                assert button.height() == dialog.platform_buttons["bilibili"].height()
-            for kind in ("huya", "douyu", "douyin"):
-                assert dialog.platform_buttons[kind].y() == dialog.platform_buttons["bilibili"].y()
-            assert dialog.platform_buttons["twitch"].y() == dialog.platform_buttons["youtube"].y()
+            picker = dialog.account_bar.platform
+            visible_rows = set()
+            for kind, button in dialog.platform_buttons.items():
+                if button.isVisible():
+                    visible_rows.add(button.y())
+                    assert dialog.rect().contains(button.mapTo(dialog, button.rect().bottomRight()))
+                else:
+                    assert picker.actions[kind].isVisible()
+            assert len(visible_rows) == 1
+            assert picker.buttons["youtube"].isVisible()
             assert isinstance(dialog.page, BrowserAccountDialog) and not hasattr(dialog.page, "browser")
             assert "youtube" not in owner._accounts
             dialog.select_platform("bilibili")
@@ -225,7 +224,8 @@ def check_dialogs():
                 dialog.show()
                 app.processEvents()
                 for button in dialog.platform_buttons.values():
-                    assert dialog.rect().contains(button.geometry())
+                    if button.isVisible():
+                        assert dialog.rect().contains(button.mapTo(dialog, button.rect().bottomRight()))
                 dispose(app, dialog)
             with patch("ddm.platform_login.clear_platform_login") as clear:
                 owner.logout(provider.kind)
@@ -249,8 +249,7 @@ def check_dialogs():
                     if kind == "douyin":
                         assert dialog.page is page and not page.isHidden()
                     wait_for(app, lambda: page._worker is None)
-                    assert dialog.platform_buttons[kind].property("loggedIn")
-                    assert dialog.platform_buttons[kind].text() == provider.label
+                    assert dialog.import_bar.account.uname == owner._accounts[kind]["uname"]
                     assert not dialog.page.property("loading")
                     read.assert_called_once()
                     dispose(app, dialog)

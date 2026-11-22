@@ -1,5 +1,7 @@
 """Public plugin contracts, platform values and per-plugin context."""
 import sys
+import weakref
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from .plugin_credentials import CredentialSnapshot
 
@@ -43,6 +45,7 @@ class RoomInfo:
     cover_url: str = ""
     face: str = ""
     platform: str = "bilibili"
+    # 流媒体频道可在 extra 中声明 live_from_playback=True，由原生出画确认直播状态。
     extra: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
@@ -61,6 +64,16 @@ class RoomInfo:
         return payload
 
 
+@dataclass
+class RoomList:
+    """Result of resolving a playlist in the room-entry worker."""
+
+    rooms: list[RoomInfo]
+    choose: bool = True
+    warning: str = ''
+    store: Callable[[list[str]], None] | None = None
+
+
 class Platform:
     """一个站的接入实现。流模式需要 ``matches`` / ``room_info`` / ``play_url``。
 
@@ -74,6 +87,11 @@ class Platform:
     kind = ""
     label = ""
     room_input_hint = ""  # 可选：添加直播间窗口显示的输入支持说明，由插件提供。
+    room_input_file_filter = ""  # 可选：添加直播间文件选择的 Qt 文件过滤器。
+    room_input_presets = None  # 可选：room_input_presets() -> list[RoomInfo]，只返回本地预设。
+    room_list = None  # 可选：room_list(room_id, cancelled) -> RoomList，在后台解析。
+    room_card_branding = None  # 可选：返回关注卡片的 avatar_path、badge_path 或 badge_from_avatar，以及 label。
+    capture_first_playback_cover = False  # 可选：复用首次上墙的有效画面作为关注卡片封面。
     playback_mode = "stream"
     follow_login_url = ""
     follow_cookie_domain = ""
@@ -113,7 +131,7 @@ class Platform:
         raise NotImplementedError
 
     def play_url_for_codec(self, room_id: str, quality: int = 250,
-                           *, codec: str = "avc") -> tuple:
+                           *, codec: str = "avc", cancelled=None) -> tuple:
         """Strict selection: (url, quality, channel, headers, actual_codec).
 
         Implementations must identify the requested codec from source metadata;
@@ -122,7 +140,10 @@ class Platform:
         """
         if codec != "avc":
             raise StreamCodecUnavailable("旧版平台插件不支持选择 HEVC 直播源")
-        result = self.play_url(room_id, quality)
+        import inspect
+        options = ({'cancelled': cancelled} if cancelled is not None and
+                   'cancelled' in inspect.signature(self.play_url).parameters else {})
+        result = self.play_url(room_id, quality, **options)
         return (*result[:3], dict(result[3]) if len(result) > 3 else {}, "")
 
     def room_quality_options(self, room_id: str) -> list[dict]:
@@ -162,17 +183,111 @@ class PluginContext:
         self.name = name
         self._active = not manager._unloaded
         self._recording = None
+        self._caption_edits = weakref.WeakKeyDictionary()
         manager._contexts.add(self)
 
     # ---- 注册 ----
     def register_platform(self, platform: Platform) -> None:
         self._manager.register_platform(self.name, platform)
 
+    def ffmpeg_executable(self) -> str:
+        """The same bundled executable used by recording; no user configuration access."""
+        from .recording_output import ffmpeg_path
+        return ffmpeg_path()
+
+    def retain_media_source(self, factory, prepared) -> str:
+        """Transfer a ready private reader to playback; factory creates recording readers."""
+        from .media_sources import retain
+        return retain(factory, prepared, self)
+
+    def _clear_media_sources(self):
+        from .media_sources import revoke
+        revoke(self)
+
     def register_danmaku_sender(self, sender: DanmakuSender) -> None:
         self._manager.register_danmaku_sender(self.name, sender)
 
     def register_tile_control(self, control_id, factory, *, priority=0) -> None:
         self._manager.register_tile_control(self.name, control_id, factory, priority=priority)
+
+    def set_tile_caption(self, tile, original, translated="", *, style=None, visible=True,
+                         on_style_changed=None) -> bool:
+        """Show a caption owned by this context on a supported tile."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        setter = getattr(tile, 'set_translation_caption', None)
+        if not callable(setter):
+            return False
+        setter(original, translated, style=style, visible=visible)
+        previous = self._manager._caption_owners.get(tile)
+        if previous is not None and previous is not self:
+            previous._disconnect_caption_handler(tile)
+        self._manager._caption_owners[tile] = self
+        caption = getattr(tile, 'video_caption', None)
+        current = self._caption_edits.get(tile)
+        if current is not None and current[0] != on_style_changed:
+            self._disconnect_caption_handler(tile)
+        if caption is not None and callable(on_style_changed) and tile not in self._caption_edits:
+            reference = weakref.ref(tile)
+            def changed(value):
+                target = reference()
+                if self._active and target is not None and self._manager._caption_owners.get(target) is self:
+                    on_style_changed(target, dict(value))
+            caption.styleChanged.connect(changed)
+            self._caption_edits[tile] = (on_style_changed, changed)
+        return True
+
+    def _disconnect_caption_handler(self, tile):
+        value = self._caption_edits.pop(tile, None)
+        caption = getattr(tile, 'video_caption', None)
+        if value is not None and caption is not None:
+            try:
+                caption.styleChanged.disconnect(value[1])
+            except (RuntimeError, TypeError):
+                pass
+
+    def clear_tile_caption(self, tile) -> bool:
+        """Allow an inactive owner to finish cleanup without clearing another owner."""
+        self._disconnect_caption_handler(tile)
+        if self._manager._caption_owners.get(tile) is not self:
+            return False
+        self._manager._caption_owners.pop(tile, None)
+        clearer = getattr(tile, 'clear_translation_caption', None)
+        if not callable(clearer):
+            return False
+        clearer()
+        return True
+
+    def _clear_tile_captions(self):
+        for tile in tuple(self._caption_edits):
+            self._disconnect_caption_handler(tile)
+        for tile, owner in tuple(self._manager._caption_owners.items()):
+            if owner is self:
+                try:
+                    self.clear_tile_caption(tile)
+                except RuntimeError:
+                    pass  # A destroyed Qt tile no longer has a caption to clear.
+
+    def create_caption_preview(self, parent=None):
+        """Return the host caption placement editor without opening a video window."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        from .caption_preview import CaptionPlacementPreview
+        return CaptionPlacementPreview(parent)
+
+    def room_presentation(self, tile):
+        """Snapshot the same cached room avatar used by the PiP picker; no I/O."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        room = dict(getattr(tile, 'room', None) or {})
+        result = {'room_id': str(room.get('room_id') or ''),
+                  'name': str(room.get('uname') or room.get('room_id') or ''), 'pixmap': None}
+        sidebar = getattr(self.window, 'sidebar', None)
+        for item in sidebar.items() if sidebar is not None else ():
+            if str(item.room.get('room_id')) == result['room_id']:
+                result['pixmap'] = item.thumb.face_pixmap()
+                break
+        return result
 
     def register_workspace_control(self, control_id, widget, *, priority=0) -> bool:
         """Place a QToolButton in the host workspace group; False for headless hosts."""
@@ -190,13 +305,56 @@ class PluginContext:
             controls.remove(self.name, control_id)
 
     def _clear_workspace_controls(self):
+        self.cancel_sidebar_drag()
+        pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
+        if pages is not None:
+            pages.remove_owner(self.name)
         if self._manager._workspace_pages is not None:
             self._manager._workspace_pages.close_owner(self.name)
         controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
         if controls is not None:
             controls.remove_owner(self.name)
 
-    def show_workspace(self, widget, *, manages_content=False) -> bool:
+    def register_sidebar_page(self, page_id, widget, *, title, icon, on_filter=None) -> bool:
+        """Add an owner-scoped tab to the expanded follow sidebar; False headlessly.
+
+        Caller owns page shutdown/deletion; the host detaches it on unregister.
+        Portrait/collapsed modes return to the host follow list.
+        """
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
+        if pages is None:
+            return False
+        pages.add(self.name, page_id, widget, title, icon, on_filter)
+        return True
+
+    def unregister_sidebar_page(self, page_id):
+        self.cancel_sidebar_drag()
+        pages = getattr(getattr(self.window, 'sidebar', None), 'plugin_pages', None)
+        if pages is not None:
+            pages.remove(self.name, page_id)
+
+    def start_sidebar_drag(self, source, mime, pixmap, hotspot, global_pos, *, on_finished):
+        """Use the follow-card drag visual for an in-app plugin card; False if busy/headless.
+
+        on_finished runs once after drop/cancel and input release, while source is valid.
+        The source retains MIME ownership until completion. No Windows OLE loop is entered.
+        """
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        session = getattr(getattr(self.window, 'sidebar', None), 'drag_session', None)
+        if session is None:
+            return False
+        return session.start(source, mime, pixmap, hotspot, global_pos,
+                             plugin_owner=self.name, on_finished=on_finished)
+
+    def cancel_sidebar_drag(self):
+        session = getattr(getattr(self.window, 'sidebar', None), 'drag_session', None)
+        if session is not None and session.plugin_owner == self.name:
+            session.cancel()
+
+    def show_workspace(self, widget, *, manages_content=False, pause_wall_playback=False) -> bool:
         """Replace the central content with one embedded page; close the previous page."""
         if not self._active:
             raise RuntimeError('Plugin context is inactive')
@@ -205,11 +363,40 @@ class PluginContext:
             return False
         if self._manager._workspace_pages is None:
             from .workspace_pages import WorkspacePages
-            self._manager._workspace_pages = WorkspacePages(container)
+            self._manager._workspace_pages = WorkspacePages(
+                container, getattr(self.window, 'set_match_sync_playback', None))
             controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
             if controls is not None:
                 controls.bind_pages(self._manager._workspace_pages)
-        return self._manager._workspace_pages.show_page(self.name, widget, manages_content=manages_content)
+        return self._manager._workspace_pages.show_page(
+            self.name, widget, manages_content=manages_content, pause_wall_playback=pause_wall_playback)
+
+    def workspace_background_mask(self) -> int:
+        """Return the effective host background-mask strength as a percentage."""
+        controller = getattr(self.window, 'skin_controller', None)
+        return controller.layer.mask if controller is not None else 0
+
+    @property
+    def workspace_background_changed(self):
+        """Host signal for changes to the effective background, if available."""
+        controller = getattr(self.window, 'skin_controller', None)
+        return controller.changed if controller is not None else None
+
+    def create_workspace_player(self, video_widget, *, live_rewind=False):
+        """Create a native player for a plugin workspace video surface on the GUI thread."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        from .player import TilePlayer
+        return TilePlayer(video_widget, parent=video_widget, live_rewind=live_rewind)
+
+    def create_plugin_widget(self, plugin_id, capability, parent, **options):
+        """Create an embedded widget provided by an enabled plugin on the GUI thread."""
+        if not self._active:
+            raise RuntimeError('Plugin context is inactive')
+        for plugin in self._manager.plugins:
+            if plugin.context.name == plugin_id:
+                return plugin.create_embedded_widget(capability, parent, self, **options)
+        return None
 
     def credentials(self, platform) -> CredentialSnapshot | None:
         return self._manager.credentials(platform)
@@ -259,6 +446,10 @@ class PluginContext:
     def platform(self, kind: str) -> Platform | None:
         return self._manager.platforms.get(str(kind))
 
+    def platform_replaced(self, kind: str) -> bool:
+        """Installed replacement owns this kind, including when explicitly disabled."""
+        return str(kind) in getattr(self._manager, '_platform_replacements', {}).get(self.name, ())
+
     def log(self, message: str) -> None:
         print(f"[插件 {self.name}] {message}", file=sys.stderr, flush=True)
 
@@ -271,7 +462,7 @@ class Plugin:
     #: 一句话说明，插件列表里展示
     description = ""
     version = ""
-    skin = None  # Optional declarative skin v1/v2; see docs/skins.md.
+    skin = None  # Optional declarative skin v1/v2; see docs/features/skins.md.
 
     def __init__(self) -> None:
         self.context: PluginContext | None = None
@@ -287,6 +478,19 @@ class Plugin:
         """本体播报事件。只读，别在这里改 ``payload`` 里的对象。"""
 
     # ---- 界面 ----
+    def create_embedded_widget(self, capability, parent, caller, **options):
+        """Optionally supply a child widget to another plugin."""
+        return None
+
+    def recording_settings(self, parent):
+        """Optional recording-page widget, parent-owned; persist through plugin APIs.
+
+        Called lazily in the host process, also for the isolated settings shell.
+        Return None when no recording settings are available. Widgets must stop
+        using plugin services on unload; the host owns their Qt lifetime.
+        """
+        return None
+
     def tile_actions(self, tile) -> list:
         """往这个格子的右键菜单加项。
 

@@ -94,6 +94,13 @@ class RoomStatusTests(unittest.TestCase):
         self.assertEqual(host._poller.kwargs, {})
         self.assertIs(host._poller.parent, host)
 
+    def test_monitored_rooms_are_polled_even_without_follow_or_wall_tiles(self):
+        host = Host()
+        host.auto_recording = SimpleNamespace(monitored_rooms=lambda: {'1001': {}, 'fixture:2': {}})
+        host.refresh_status()
+        self.assertEqual(host._poller.room_ids, ['1001', 'fixture:2'])
+        self.assertEqual(host._poller.kwargs['platforms'], host.plugins.platforms)
+
     def test_repeated_refresh_queues_one_round_and_old_ready_cannot_stop_it(self):
         host = Host([{'room_id': '1001'}])
         host.refresh_status()

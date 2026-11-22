@@ -7,15 +7,14 @@ from . import motion
 from .badge_surface import BadgeSurface
 from .super_chat_avatar import SuperChatAvatar
 from .super_chat_animation import SuperChatPresentation
-from .super_chat_layout import sc_placement_rects
+from .super_chat_layout import sc_body_padding, sc_compact_viewport, sc_stack_layout
 from .super_chat_model import SC_USER_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats
-import math
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from . import theme
 from .super_chat_avatar import paint_sc_avatar
 from .super_chat_layout import paint_sc_background, sc_message_document
-from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, remaining_seconds, SC_BODY_PADDING
+from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, remaining_seconds
 
 
 class SuperChatOverlay(BadgeSurface):
@@ -41,7 +40,7 @@ class SuperChatOverlay(BadgeSurface):
         self._follow_timer.timeout.connect(self._refresh)
         self.setMouseTracking(True)
         self.setCursor(Qt.OpenHandCursor)
-        self.setToolTip('拖动标题移动，拖动边角缩放；折叠后点击展开')
+        self.setToolTip('拖动标题移动，拖动边角缩放；点击紧凑标题展开，滚动正文阅读全文；多条超出格子时滚动标题切换')
         self.chats = []
         self.opacity = 0.8
         self._video_danmaku = None
@@ -49,6 +48,10 @@ class SuperChatOverlay(BadgeSurface):
         self._gesture = None
         self._moved = False
         self._paint_scale = 1.0
+        self._body_offsets = {}
+        self._stack_offset = 0
+        self._stack_maximum = 0
+        self._stack_viewport = QRectF()
         self._paper = None
         self._pending_chats = None
         self._closing_index = None
@@ -124,13 +127,12 @@ class SuperChatOverlay(BadgeSurface):
     def sync(self, owner):
         if self._video_danmaku is not owner:
             return
+        self.presentation.set_compact(sc_compact_viewport(owner.width(), owner.height()))
         rects = self.card_rects()
         if not rects:
             return
-        bounds = rects[0].toAlignedRect()
-        for rect in rects[1:]:
-            bounds |= rect.toAlignedRect()
-        bounds = bounds.adjusted(-1, -1, 1, 1).intersected(owner.rect())
+        viewport = self._stack_viewport.toAlignedRect()
+        bounds = viewport.adjusted(-1, -1, 1, 1).intersected(owner.rect())
         self._content_origin = bounds.topLeft()
         if self.qt_composited:
             self._follow_owner(owner)
@@ -140,8 +142,11 @@ class SuperChatOverlay(BadgeSurface):
         self.setGeometry(QRect(position, bounds.size()))
         region = QRegion()
         for rect in rects:
-            region |= QRegion(rect.toAlignedRect().adjusted(-1, -1, 1, 1))
+            if rect.intersects(self._stack_viewport):
+                region |= QRegion(rect.toAlignedRect().adjusted(-1, -1, 1, 1))
         region &= QRegion(bounds)
+        if self._stack_maximum:
+            region &= QRegion(viewport)
         video = owner._quick_video_mask if getattr(owner, '_quick_requested', False) else owner.mask()
         if not video.isEmpty():
             region &= video
@@ -153,8 +158,6 @@ class SuperChatOverlay(BadgeSurface):
             self.setMask(region)
         scale = self._paint_scale
         for index, button in enumerate(self.close_buttons):
-            button.setVisible(index < len(rects)
-                              and self.presentation.progress == 1.0)
             button.setFixedSize(max(12, round(22 * scale)), max(12, round(22 * scale)))
             if index < len(rects):
                 action = '关闭' if self.presentation.is_collapsed(self.chats[index]) else '收起'
@@ -162,6 +165,9 @@ class SuperChatOverlay(BadgeSurface):
                 button.setAccessibleName(f'{action}醒目留言')
                 button.move(rects[index].topRight().toPoint() - self._content_origin
                             + QPoint(round(-26 * scale), round(7 * scale)))
+            button.setVisible(index < len(rects) and self.presentation.progress == 1.0
+                              and (not self._stack_maximum
+                                   or viewport.contains(button.geometry().translated(self._content_origin))))
 
     def set_chats(self, chats, opacity):
         if self._paper is not None:
@@ -189,6 +195,8 @@ class SuperChatOverlay(BadgeSurface):
         if owner is not None:
             self.presentation.configure(owner.settings)
         self.presentation.set_events(self.chats)
+        self._body_offsets = {key: value for key, value in self._body_offsets.items()
+                              if key in self.presentation.ids}
         self._refresh()
 
     def _refresh(self):
@@ -223,12 +231,9 @@ class SuperChatOverlay(BadgeSurface):
             self._refresh()
 
     def _corner(self, point):
-        rects = self.card_rects()
-        if not rects:
+        if not self.card_rects():
             return None
-        bounds = rects[0]
-        for rect in rects[1:]:
-            bounds = bounds.united(rect)
+        bounds = self._stack_viewport
         for x, y, corner in ((bounds.left(), bounds.top(), (-1, -1)),
                              (bounds.right(), bounds.top(), (1, -1)),
                              (bounds.left(), bounds.bottom(), (-1, 1)),
@@ -245,8 +250,7 @@ class SuperChatOverlay(BadgeSurface):
         self._corner_sign = self._corner(self._press_point)
         self._gesture = 'resize' if self._corner_sign else 'drag'
         self._moved = False
-        rects = self.card_rects()
-        self._start_origin = QPointF(min(rect.left() for rect in rects), min(rect.top() for rect in rects))
+        self._start_origin = self._stack_viewport.topLeft()
         self._start_scale = int(self._video_danmaku.settings.get('super_chat_video_scale',
                                                                     self._video_danmaku.settings.get('super_chat_scale', 100)))
         self._start_extent = self.size()
@@ -281,9 +285,8 @@ class SuperChatOverlay(BadgeSurface):
 
     def _place_at(self, point):
         owner = self._video_danmaku
-        rects = self.card_rects()
-        width = max(rect.right() for rect in rects) - min(rect.left() for rect in rects)
-        height = max(rect.bottom() for rect in rects) - min(rect.top() for rect in rects)
+        self.card_rects()
+        width, height = self._stack_viewport.width(), self._stack_viewport.height()
         spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
         values = []
         for value, span in zip((point.x() - 10, point.y() - 10), spans):
@@ -313,10 +316,16 @@ class SuperChatOverlay(BadgeSurface):
 
     def _activate(self, point):
         rects = self.card_rects()
+        if not self._stack_viewport.contains(point):
+            return
         for index, rect in enumerate(rects):
             if rect.contains(point):
                 if self.presentation.is_collapsed(self.chats[index]):
                     self.presentation.expand(self.chats[index]['id'])
+                    expanded = self.card_rects()[index]
+                    if expanded.bottom() > self._stack_viewport.bottom():
+                        self._stack_offset += expanded.bottom() - self._stack_viewport.bottom()
+                        self._refresh()
                 return
 
     def animate_dismiss(self, chat_id):
@@ -332,7 +341,8 @@ class SuperChatOverlay(BadgeSurface):
         painter = QPainter(image)
         self._video_danmaku._paint_super_chat(painter, QRectF(0, 0, rect.width(), rect.height()),
                                             self.chats[index], self._paint_scale, avatar=self._avatars[index].pixmap,
-                                            collapsed=self.presentation.is_collapsed(self.chats[index]))
+                                            collapsed=self.presentation.is_collapsed(self.chats[index]),
+                                            body_offset=self._body_offsets.get(str(self.chats[index]['id']), 0))
         painter.end()
         self._paper = QPixmap.fromImage(image)
         self._closing_index = index
@@ -357,8 +367,10 @@ class SuperChatOverlay(BadgeSurface):
     def card_rects(self):
         owner = self._video_danmaku
         if not self.chats or owner is None:
+            self._stack_offset = self._stack_maximum = 0
+            self._stack_viewport = QRectF()
             return []
-        rects, self._paint_scale = sc_placement_rects(
+        rects, self._paint_scale, self._stack_viewport = sc_stack_layout(
             self.chats, owner.width(), owner.height(),
             max(.75, min(2.0, int(owner.settings.get('super_chat_video_scale',
                                                      owner.settings.get('super_chat_scale', 100))) / 100)),
@@ -366,7 +378,31 @@ class SuperChatOverlay(BadgeSurface):
             scale_with_video=owner.settings.get('super_chat_scale_with_video', False),
             scale_strength=owner.settings.get('super_chat_scale_strength', 35),
             scale_curve=owner.settings.get('super_chat_scale_curve'))
-        return rects
+        self._stack_maximum = max(0, rects[-1].bottom() - self._stack_viewport.bottom())
+        self._stack_offset = max(0, min(self._stack_offset, self._stack_maximum))
+        return [rect.translated(0, -self._stack_offset) for rect in rects]
+
+    def wheelEvent(self, event):
+        point = event.position() + self._content_origin
+        for chat, rect in zip(self.chats, self.card_rects()):
+            if not rect.contains(point):
+                continue
+            delta = event.pixelDelta().y() or event.angleDelta().y() / 120 * 42
+            if self._stack_maximum and (self.presentation.is_collapsed(chat) or point.y() < rect.top() + 56 * self._paint_scale):
+                self._stack_offset = max(0, min(self._stack_maximum, self._stack_offset - delta))
+                self._refresh()
+            elif not self.presentation.is_collapsed(chat):
+                scale = self._paint_scale
+                body_height = max(0, rect.height() - round(56 * scale) - 2 * sc_body_padding(scale))
+                maximum = max(0, sc_message_document(chat, rect.width(), scale).size().height() - body_height)
+                key = str(chat['id'])
+                current = min(maximum, self._body_offsets.get(key, 0))
+                self._body_offsets[key] = max(0, min(maximum, current - delta))
+                self.presentation.expand(key)  # Reading refreshes the existing collapse deadline.
+                self.update()
+                event.accept()
+                return
+        event.accept()
 
     def _refresh_quick_mask(self):
         owner = self._video_danmaku
@@ -388,13 +424,18 @@ class SuperChatOverlay(BadgeSurface):
         content = QPainter(layer)
         content.translate(-self._content_origin)
         rects = self.card_rects()
+        if self._stack_maximum:
+            content.setClipRect(self._stack_viewport)
         for index in reversed(range(len(rects))):
+            if not rects[index].intersects(self._stack_viewport):
+                continue
             if self._paper is not None and index == self._closing_index:
                 motion.paint_paper_discard(content, rects[index], self._paper, self._progress)
             else:
                 owner._paint_super_chat(content, rects[index], self.chats[index], self._paint_scale,
                                         avatar=self._avatars[index].pixmap,
-                                        collapsed=self.presentation.is_collapsed(self.chats[index]))
+                                        collapsed=self.presentation.is_collapsed(self.chats[index]),
+                                        body_offset=self._body_offsets.get(str(self.chats[index]['id']), 0))
         if rects:
             content.setPen(QPen(QColor(SC_USER_COLOR if self.presentation.collapsed else SC_CONTENT_COLOR), 1))
             corner = rects[0].bottomLeft() + QPointF(4, -4)
@@ -414,12 +455,12 @@ class SuperChatOverlay(BadgeSurface):
     def _layered_render_key(self):
         fields = ('id', 'uname', 'face', 'message', 'price', 'background_color', 'background_bottom_color', 'background_price_color')
         return (self.opacity, self.presentation.progress, tuple(sorted(self.presentation.collapsed_ids)),
-                self._progress, self._closing_index, self._paint_scale,
+                self._progress, self._closing_index, self._paint_scale, self._stack_offset, tuple(sorted(self._body_offsets.items())),
                 self._content_origin.x(), self._content_origin.y(), len(self.chats),
                 tuple(avatar.pixmap.cacheKey() if avatar.pixmap is not None else None for avatar in self._avatars),
                 tuple(tuple(str(chat.get(key, '')) for key in fields)
                       + (remaining_seconds(chat.get('end_time')),)
-                      for chat in self.chats[:3]), tuple(button.isDown() for button in self.close_buttons))
+                      for chat in self.chats), tuple(button.isDown() for button in self.close_buttons))
 
     def render_image(self):
         scale = self.devicePixelRatioF()
@@ -449,7 +490,8 @@ class SuperChatOverlay(BadgeSurface):
 
 
 def _paint_super_chat(painter, rect, chat: dict, scale: float,
-                      paint_opacity: float | None = None, avatar=None, collapsed=False) -> None:
+                      paint_opacity: float | None = None, avatar=None, collapsed=False, body_offset=0) -> None:
+    rect = QRectF(rect)
     palette = super_chat_palette(chat.get('price'))
     header = QColor(palette['background_color'])
     background = QColor(palette['background_bottom_color'])
@@ -464,19 +506,35 @@ def _paint_super_chat(painter, rect, chat: dict, scale: float,
     paint_sc_avatar(painter, avatar_rect, avatar, str(chat.get('uname') or '?'))
     left = avatar_rect.right() + 6 * scale
     font = QFont(theme.FONT_DEFAULT)
-    font.setPixelSize(max(1, round(13 * scale)))
+    font.setPixelSize(max(12, round(13 * scale)))
     painter.setFont(font)
     painter.setPen(QColor(SC_USER_COLOR))
     metrics = QFontMetrics(font)
     price = format_price(chat.get('price'))
     price_width = metrics.horizontalAdvance(price) + 4 * scale
     right = rect.right() - 34 * scale
-    if collapsed:
-        right -= price_width + 4 * scale
     small = QFont(theme.FONT_DEFAULT)
-    small.setPixelSize(max(1, round(11 * scale)))
+    small.setPixelSize(max(11, round(11 * scale)))
     remaining = '剩 ' + format_remaining(remaining_seconds(chat.get('end_time')))
     time_width = QFontMetrics(small).horizontalAdvance(remaining)
+    if collapsed:
+        name_width = max(0, right - left)
+        name = metrics.elidedText(str(chat.get('uname') or '匿名用户'), Qt.ElideRight, round(name_width))
+        painter.drawText(QRectF(left, top - 2 * scale, name_width, 13 * scale),
+                         int(Qt.AlignLeft | Qt.AlignVCenter), name)
+        painter.setPen(QColor(SC_PRICE_COLOR))
+        painter.drawText(QRectF(left, top + 12 * scale, name_width, 13 * scale),
+                         int(Qt.AlignLeft | Qt.AlignVCenter), price)
+        if name_width >= price_width + time_width + 6 * scale:
+            painter.setFont(small)
+            painter.setPen(QColor(SC_USER_COLOR))
+            painter.drawText(QRectF(right - time_width, top + 12 * scale, time_width, 13 * scale),
+                             int(Qt.AlignRight | Qt.AlignVCenter), remaining)
+        painter.restore()
+        return
+    if right - left < 60 * scale + time_width:
+        time_width = 0
+        remaining = ''
     name_width = max(0, right - left - time_width - 6 * scale)
     name = metrics.elidedText(str(chat.get('uname') or '匿名用户'), Qt.ElideRight, round(name_width))
     painter.drawText(QRectF(left, top, name_width, (24 if collapsed else 18) * scale),
@@ -486,19 +544,24 @@ def _paint_super_chat(painter, rect, chat: dict, scale: float,
                            top, time_width, (24 if collapsed else 18) * scale),
                      int(Qt.AlignLeft | Qt.AlignVCenter), remaining)
     painter.setPen(QColor(SC_PRICE_COLOR))
-    font.setPixelSize(max(1, round((13 if collapsed else 15) * scale)))
+    font.setPixelSize(max(12, round((13 if collapsed else 15) * scale)))
     painter.setFont(font)
-    if collapsed:
-        painter.drawText(QRectF(right + 4 * scale, top, price_width, 24 * scale),
-                         int(Qt.AlignRight | Qt.AlignVCenter), price)
-        painter.restore()
-        return
     painter.drawText(QRectF(left, top + 19 * scale, max(0, right - left), 22 * scale),
                      int(Qt.AlignLeft | Qt.AlignVCenter), price)
-    padding = math.ceil(SC_BODY_PADDING * scale)
+    padding = sc_body_padding(scale)
     body_rect = rect.adjusted(11 * scale, round(56 * scale) + padding, -11 * scale, -padding)
     document = sc_message_document(chat, rect.width(), scale)
+    maximum = max(0, document.size().height() - body_rect.height())
+    offset = max(0, min(maximum, body_offset))
+    painter.save()
     painter.setClipRect(body_rect, Qt.IntersectClip)
-    painter.translate(body_rect.topLeft())
-    document.drawContents(painter, QRectF(0, 0, body_rect.width(), body_rect.height()))
+    painter.translate(body_rect.topLeft() - QPointF(0, offset))
+    document.drawContents(painter, QRectF(0, offset, body_rect.width(), body_rect.height()))
+    painter.restore()
+    if maximum > 0:
+        thumb_height = max(12, body_rect.height() ** 2 / document.size().height())
+        top = body_rect.top() + (body_rect.height() - thumb_height) * offset / maximum
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(SC_CONTENT_COLOR))
+        painter.drawRoundedRect(QRectF(rect.right() - 6, top, 3, thumb_height), 1.5, 1.5)
     painter.restore()

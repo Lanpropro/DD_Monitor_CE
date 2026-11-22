@@ -7,15 +7,16 @@ import time
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QRect, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault('DDM_NO_SAVE', '1')
 
-from ddm import theme
+from ddm import theme, window_fullscreen
 from ddm.app import MainWindow
+from ddm.result_notice import show_result
 
 
 class HandoffEvents(QObject):
@@ -30,8 +31,6 @@ class HandoffEvents(QObject):
         self.leave = []
         self.native_cover = []
         self.bar_paints = {tile.bottom: 0 for tile in (target, *peers)}
-        self.bar_paint_rects = {}
-        self.enter_bar_ready = []
         self.leave_bars_ready = []
         target.installEventFilter(self)
         for peer in peers:
@@ -46,16 +45,11 @@ class HandoffEvents(QObject):
     def eventFilter(self, watched, event):
         if watched in self.bar_paints and event.type() == QEvent.Paint:
             self.bar_paints[watched] += 1
-            self.bar_paint_rects[watched] = QRect(watched.geometry())
         if watched in self.peers and event.type() == QEvent.Hide:
             self.native_cover.append(self.target.isWindow() and self.native_visible(self.target))
         if watched is self.target and watched.isWindow():
             if event.type() == QEvent.Show:
                 self.enter.append(all(peer.isVisible() for peer in self.peers))
-                bar = self.target.bottom
-                painted = self.bar_paint_rects.get(bar)
-                self.enter_bar_ready.append(painted == bar.geometry()
-                    and painted.topLeft() == self.target.geometry().topLeft() + bar._tile_rect.topLeft())
             elif event.type() == QEvent.Hide:
                 self.leave.append(all(peer.isVisible() and self.native_visible(peer) for peer in self.peers))
                 self.leave_bars_ready.append(all(self.bar_paints[peer.bottom] > 0
@@ -70,6 +64,104 @@ class HandoffEvents(QObject):
             widget.removeEventFilter(self)
         for bar in self.bar_paints:
             bar.removeEventFilter(self)
+
+
+def check_window_capture(window):
+    window.setWindowFlag(Qt.WindowStaysOnBottomHint)
+    window.showNormal()
+    screen = window.screen()
+    window.move(screen.availableGeometry().center() - window.rect().center())
+    QTest.qWait(250)
+    wall = window.wall
+    tile = wall.tiles[0]
+    player = Mock()
+    user32 = ctypes.windll.user32
+    user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
+    user32.GetAncestor.restype = ctypes.c_void_p
+    main_hwnd, video_hwnd = int(window.winId()), int(tile.video.winId())
+    window.players[tile] = player
+    try:
+        with patch.dict(os.environ):
+            os.environ.pop('DDM_FULLSCREEN_WINDOW_CAPTURE', None)
+            for state in (Qt.WindowNoState, Qt.WindowMaximized):
+                window.setWindowState(state)
+                QTest.qWait(250)
+                original_state = window.windowState()
+                original_geometry = QRect(window.geometry())
+                normal_geometry = QRect(window.normalGeometry())
+                original_saved_geometry = window.current_state()['geometry']
+                original_wall = QRect(wall.geometry())
+                original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
+                visible = wall.visible_tiles()
+                panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
+                show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
+                notice = window._result_notice
+
+                enter_native = window_fullscreen.enter
+
+                def enter_with_prepared_video(widget):
+                    assert tile.video.geometry() == QRect(QPoint(), widget.screen().size()), (
+                        'The selected video must be ready before changing the native frame', tile.video.geometry())
+                    return enter_native(widget)
+
+                with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native:
+                    window._on_fullscreen(tile)
+                    assert native.called == (state == Qt.WindowMaximized)
+                QTest.qWait(90)
+                assert window.isFullScreen(), 'The capture target must fill the screen itself'
+                assert window.geometry() == window.screen().geometry()
+                assert window.current_state()['geometry'] == original_saved_geometry
+                assert not tile.isWindow() and tile.parentWidget() is wall
+                assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
+                assert notice.isVisible() and notice.windowHandle().transientParent() is window.windowHandle()
+                assert user32.GetAncestor(video_hwnd, 2) == main_hwnd  # GA_ROOT
+                assert tile.video.geometry() == tile.rect() == window.rect(), (
+                    tile.video.geometry(), tile.rect(), wall.geometry(), window.rect())
+                assert tile.video.mapToGlobal(QPoint()) == window.mapToGlobal(QPoint())
+                assert tile.bottom.geometry() == tile.bottom._tile_rect.translated(tile.mapToGlobal(QPoint()))
+                assert not window.sidebar.isVisible() and wall.visible_tiles() == [tile]
+                assert all(not panel.isVisible() for panel in panels)
+                assert window.players[tile] is player
+
+                restored_sizes = []
+
+                class RestoreEvents(QObject):
+                    def eventFilter(self, watched, event):
+                        if event.type() == QEvent.Resize:
+                            restored_sizes.append(event.size())
+                        return False
+
+                events = RestoreEvents()
+                window.installEventFilter(events)
+                try:
+                    with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta:
+                        next(shortcut for shortcut in window._window_shortcuts
+                             if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
+                        refresh_meta.assert_not_called()
+                        QTest.qWait(90)
+                        refresh_meta.assert_called()
+                finally:
+                    window.removeEventFilter(events)
+                assert not window.isFullScreen() and window.windowState() == original_state
+                assert window.geometry() == original_geometry and wall.geometry() == original_wall
+                assert window.normalGeometry() == normal_geometry
+                if state == Qt.WindowMaximized:
+                    normal_size = normal_geometry.size()
+                    assert normal_size != original_geometry.size(), 'Fixture needs distinct normal and maximized sizes'
+                    assert normal_size not in restored_sizes, f'Exit exposed the normal window size: {restored_sizes}'
+                assert window.sidebar.isVisible() and wall.visible_tiles() == visible
+                assert all(panel.isVisible() for panel in panels)
+                assert [pane.geometry() for pane in wall.tiles] == original_panes
+                assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
+                assert user32.GetAncestor(video_hwnd, 2) == main_hwnd
+                assert window.players[tile] is player and tile.bottom.isVisible()
+                assert not player.play.called and not player.release.called
+                assert notice.isVisible() and notice.windowHandle().transientParent() is window.windowHandle()
+                notice.dismiss(animate=False)
+    finally:
+        window._exit_fullscreen()
+        window.players.pop(tile, None)
+    print('PASS: capture fullscreen keeps the video under one HWND and restores normal/maximized geometry')
 
 
 def main():
@@ -124,16 +216,32 @@ def main():
             window.players = dict(players)
             for target in (tiles[4], tiles[0], tiles[1], tiles[8]):
                 handoff = HandoffEvents(target, [tile for tile in tiles if tile is not target], layer)
-                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
+                bar = target.bottom
+                set_fullscreen = bar.set_fullscreen
+                original_video_rect = QRect(target.video.geometry())
+                rebuilt = []
+
+                def rebuild_after_video(enabled, **kwargs):
+                    if enabled != bar.property('fullscreen'):
+                        video = target.video
+                        assert video.isVisible() and handoff.native_visible(video), 'Video must be visible before rebuilding the bar'
+                        assert video.geometry() == (target.rect() if enabled else original_video_rect)
+                        assert bar.isHidden(), 'Previous bottom bar must stay hidden during its rebuild'
+                        rebuilt.append(enabled)
+                    return set_fullscreen(enabled, **kwargs)
+
+                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout, \
+                        patch.object(bar, 'set_fullscreen', side_effect=rebuild_after_video):
                     window._on_fullscreen(target)
                     assert relayout.call_count == 0, 'Independent fullscreen must not relayout the playback wall'
                 assert handoff.enter and all(handoff.enter), 'Peers disappeared before the presentation was shown'
-                assert handoff.enter_bar_ready and all(handoff.enter_bar_ready), 'Presentation shown before the rebuilt bar painted'
                 assert handoff.native_cover and all(handoff.native_cover), 'Peers hidden before fullscreen HWND became visible'
                 assert window.wall.visible_tiles() == [target]
                 assert window._fullscreen_tile is target and window.sidebar.isVisible()
                 assert target.isWindow() and target.geometry() == area
-                assert target.bottom.windowOpacity() == 1.0, 'Prepared bar must be revealed with the video'
+                assert rebuilt == [True]
+                assert bar.isVisible() and bar.windowOpacity() == 1.0
+                assert bar.geometry() == bar._tile_rect.translated(area.topLeft())
                 user32 = ctypes.windll.user32
                 user32.GetWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
                 user32.GetWindow.restype = ctypes.c_void_p
@@ -152,9 +260,11 @@ def main():
                 assert not [w for w in set(QApplication.topLevelWidgets())-before_windows if isinstance(w, QLabel)]
                 handoff.bar_paints = dict.fromkeys(handoff.bar_paints, 0)
                 target.bottom.setUpdatesEnabled(False)
-                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout:
+                with patch.object(window.wall, 'relayout', wraps=window.wall.relayout) as relayout, \
+                        patch.object(bar, 'set_fullscreen', side_effect=rebuild_after_video):
                     window._exit_fullscreen()
                     assert relayout.call_count == 0, 'Restoring the original rectangle must not relayout the wall'
+                assert rebuilt == [True, False] and bar.isVisible()
                 assert handoff.leave and all(handoff.leave), 'Presentation disappeared before peers were restored'
                 assert handoff.leave_bars_ready and all(handoff.leave_bars_ready), 'Presentation disappeared before restored bars painted'
                 assert handoff.bar_paints[target.bottom] > 0, 'Restored target bar was left for a later event loop'
@@ -192,6 +302,52 @@ def main():
             for player in players.values():
                 assert not player.play.called and not player.release.called
             window.players.clear()
+            window._exit_fullscreen()
+            wall = window.wall
+            wall.pane_danmaku.apply({7: tiles[1], 8: tiles[0]})
+            panels = tuple(wall.pane_danmaku.panels.values())
+            assert len(panels) == 2
+            for panel in panels:
+                assert panel.isVisible()
+                panel.add_event({'kind': 'danmaku', 'uname': 'Offline', 'text': 'Chat handoff fixture'})
+            app.processEvents()
+            viewports = [panel.body.viewport() for panel in panels]
+            panel_text = [panel.body.toPlainText() for panel in panels]
+            assert all('Chat handoff fixture' in content for content in panel_text)
+            window._on_fullscreen(tiles[0])
+            assert not any(panel.isVisible() for panel in panels), 'Uncovered chat follows the existing handoff'
+            window._exit_fullscreen()
+
+            # Simulate fullscreen covering its owner while both windows stay off-screen.
+            area.moveTopLeft(main_geometry.topLeft())
+
+            class PanelHandoff(QObject):
+                def __init__(self):
+                    super().__init__()
+                    self.hidden = []
+
+                def eventFilter(self, watched, event):
+                    if event.type() == QEvent.Hide:
+                        self.hidden.append(watched)
+                    return False
+
+            chat_handoff = PanelHandoff()
+            for widget in (*panels, *viewports):
+                widget.installEventFilter(chat_handoff)
+            try:
+                for _ in range(2):
+                    window._on_fullscreen(tiles[0])
+                    assert all(viewport.isVisible() for viewport in viewports), 'Covered chat must stay visible'
+                    window._exit_fullscreen()
+                    assert all(viewport.isVisible() for viewport in viewports)
+                    assert [panel.body.toPlainText() for panel in panels] == panel_text
+                assert not chat_handoff.hidden, 'Covered chat must not be hidden during the handoff'
+            finally:
+                for widget in (*panels, *viewports):
+                    widget.removeEventFilter(chat_handoff)
+            with patch.object(presentation, 'enter', enter):
+                check_window_capture(window)
+            window._on_fullscreen(tiles[0])
         finally:
             # Release stored focus while fixture buttons are still alive;
             # native Qt can otherwise deliver FocusOut during deferred deletion.

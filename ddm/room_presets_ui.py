@@ -1,11 +1,13 @@
 """Room combinations live inside the existing layout picker."""
-from PySide6.QtCore import QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-                               QMenu, QMessageBox, QPushButton, QScrollArea, QToolButton,
+                               QMessageBox, QPushButton, QScrollArea, QStyle, QToolButton,
                                QVBoxLayout, QWidget)
 
 from . import layouts, room_presets, theme
+from .corner_geometry import continuous_path
+from .sidebar_navigation import NavigationButton
 
 
 def thumbnail(snapshot):
@@ -21,9 +23,8 @@ def thumbnail(snapshot):
     for cell, rect in room_presets.thumbnail_geometry(snapshot, QRect(5, 5, 214, 128)).items():
         slot = slots.get(cell)
         occupied = bool(slot and slot['room_id'])
-        painter.setPen(QPen(theme.qcolor(theme.TEXT3), 1))
-        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if occupied else theme.CONTENT))
-        painter.drawRoundedRect(rect, 3, 3)
+        fill = theme.mix(theme.qcolor(theme.CONTENT).name(), theme.ACCENT, .22) if occupied else theme.CONTENT
+        painter.fillPath(continuous_path(QRectF(rect).adjusted(1, 1, -1, -1), 4), theme.qcolor(fill))
         painter.setPen(theme.qcolor(theme.TEXT1 if occupied else theme.TEXT2))
         name = (slot["label"] or slot["room_id"]) if slot and slot["room_id"] else ("空位" if slot else "弹幕")
         if cell in panels:
@@ -40,12 +41,13 @@ class RoomPresetsPage(QWidget):
     def __init__(self, host, picker):
         super().__init__(picker)
         self.host, self.picker = host, picker
-        self.setMinimumSize(460, 260)
+        self._columns = 0
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         bar = QHBoxLayout()
         self.summary = QLabel("保存布局、主播位置和每格声音")
         self.summary.setObjectName("SectionLabel")
+        self.summary.setWordWrap(True)
         bar.addWidget(self.summary, 1)
         self.save_button = QPushButton("保存当前组合…")
         self.save_button.setObjectName("PrimaryButton")
@@ -83,6 +85,7 @@ class RoomPresetsPage(QWidget):
         self.scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.holder = QWidget()
         self.grid = QGridLayout(self.holder)
         self.grid.setContentsMargins(0, 4, 0, 0)
@@ -91,6 +94,23 @@ class RoomPresetsPage(QWidget):
         scroll.setWidget(self.holder)
         outer.addWidget(scroll, 1)
         self.refresh()
+
+    def _column_count(self):
+        scrollbar = self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        return max(1, (self.width() - scrollbar + self.grid.spacing()) // (244 + self.grid.spacing()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        columns = self._column_count()
+        if columns == self._columns:
+            return
+        self._columns = columns
+        if not self.cards:
+            if self.grid.count():
+                self.grid.addWidget(self.grid.itemAt(0).widget(), 0, 0, 1, columns)
+            return
+        for index, card in enumerate(self.cards.values()):
+            self.grid.addWidget(card.parentWidget(), index // columns, index % columns, Qt.AlignTop | Qt.AlignHCenter)
 
     def refresh(self):
         while self.grid.count():
@@ -102,7 +122,7 @@ class RoomPresetsPage(QWidget):
         self.delete_panels = {}
         self.save_button.setEnabled(self.host.room_presets["version"] == 1)
         records = self.host.room_presets["items"]
-        columns = max(1, (max(self.picker.width(), 460) - 32) // 256)
+        self._columns = columns = self._column_count()
         if not records:
             label = QLabel("尚未保存直播间组合\n点击右上方“保存当前组合…”开始")
             label.setObjectName("SectionLabel")
@@ -125,13 +145,17 @@ class RoomPresetsPage(QWidget):
             label.setMaximumWidth(170)
             label.setWordWrap(True)
             actions.addWidget(label, 1)
-            menu = QToolButton()
-            menu.setText("管理")
-            menu.setObjectName("PresetManageButton")
-            menu.setFixedSize(48, 28)
-            menu.setToolTip("管理此组合")
-            menu.clicked.connect(lambda _checked=False, item=record, button=menu: self.manage(item, button))
-            actions.addWidget(menu)
+            rename = NavigationButton("重命名", "rename")
+            rename.setObjectName("PresetManageButton")
+            rename.setFixedSize(28, 28)
+            rename.setAccessibleName("重命名 " + name)
+            rename.clicked.connect(lambda _checked=False, item=record: self._rename(item))
+            actions.addWidget(rename)
+            delete = NavigationButton("删除组合", "close")
+            delete.setFixedSize(28, 28)
+            delete.setAccessibleName("删除组合 " + name)
+            delete.clicked.connect(lambda _checked=False, key=record.get('id', str(index)): self._ask_delete(key))
+            actions.addWidget(delete)
             box.addLayout(actions)
             card = QToolButton()
             card.setObjectName("LayoutCard")
@@ -177,7 +201,7 @@ class RoomPresetsPage(QWidget):
             confirmation_box.addWidget(prompt, 1)
             buttons = QHBoxLayout()
             confirm = QPushButton("确认删除")
-            confirm.setObjectName("IconButton")
+            confirm.setObjectName("PrimaryButton")
             confirm.setProperty("deleteConfirm", True)
             confirm.clicked.connect(lambda _checked=False, key=record.get('id'): self._delete_confirmed(key))
             buttons.addWidget(confirm)
@@ -198,13 +222,6 @@ class RoomPresetsPage(QWidget):
             self.picker.show()
         return name.strip(), accepted
 
-    def _confirm(self, title, message):
-        result = QMessageBox.question(self.picker, title, message,
-                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if not self.host._closing:
-            self.picker.show()
-        return result == QMessageBox.Yes
-
     def _error(self, error):
         QMessageBox.warning(self.picker, "直播间组合", str(error))
         if not self.host._closing:
@@ -215,7 +232,9 @@ class RoomPresetsPage(QWidget):
         self._name_changed()
         self.name_form.show()
         self.save_button.hide()
-        self.name_edit.setFocus()
+        # A popup can give the editor Qt focus without owning Windows IME focus.
+        self.picker.activateWindow()
+        self.name_edit.setFocus(Qt.OtherFocusReason)
 
     def _name_changed(self):
         self._overwrite_id = None
@@ -270,24 +289,12 @@ class RoomPresetsPage(QWidget):
         self.host.delete_room_preset(preset_id)
         self.refresh()
 
-    def manage(self, record, button):
-        menu = QMenu(self)
-        rename = menu.addAction("重命名")
-        overwrite = menu.addAction("用当前画面更新此组合")
-        delete = menu.addAction("删除组合")
-        action = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
-        menu.deleteLater()
+    def _rename(self, record):
+        name, accepted = self._ask_name("重命名组合", str(record.get("name") or ""))
+        if not accepted:
+            return
         try:
-            if action is rename:
-                name, accepted = self._ask_name("重命名组合", str(record.get("name") or ""))
-                if accepted:
-                    self.host.rename_room_preset(record.get("id"), name)
-            elif action is overwrite:
-                if self._confirm("更新组合", f"是否用当前画面更新“{record.get('name', '')}”？"):
-                    self.host.save_room_preset(record.get("name", ""), record.get("id"))
-            elif action is delete:
-                self._ask_delete(record.get("id"))
-                return
+            self.host.rename_room_preset(record.get("id"), name)
             self.refresh()
         except ValueError as error:
             self._error(error)

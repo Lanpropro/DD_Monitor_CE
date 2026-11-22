@@ -43,9 +43,11 @@ git worktree list
 - 维护者的小型文档或注释修改可以直接在 `develop` 完成、验证、提交，不强制创建 PR 或 Draft PR。
 - 一项独立功能或修复使用 `function/<名称>`，如 `function/emoticon-tabs`。
 - 功能、修复和外部贡献通过 PR 提交到 `develop`。未完成时可使用 Draft；准备好审查后使用普通 PR。
+- 维护者确认人工验收通过后，将对应改动纳入日常开发版并更新未发布记录，随下一次版本更新统一发布。
 - 同一功能的相关修复、样式调整和验收反馈优先追加到尚未合入的原 PR；不要为每次微调新建 PR，独立需求再拆分。
 - 开发候选以 commit 和原 PR 的验收记录区分，不为每次改动递增版本号；版本号在准备正式发布或明确划分发布批次时统一确定，同版本验收包用 commit SHA 标识。
 - 准备发布时，验证完整的 `develop`，再通过 PR 合入 `main`；已有面向 `main` 的 PR 先检查依赖与差异，再决定是否调整目标。
+- 拟纳入本体版本的修改及时写入 `docs/releases/UNRELEASED.md`。发布前依[发布约定](docs/releases/README.md#发布约定)展示上一正式版到候选提交的实际差异与本体 `RELEASE-v<版本>.md` 草稿；维护者人工验收改动并审阅、修改或确认正文后，才可创建版本标签和 GitHub Release。
 - PR 模板区分日常贡献与发布；创建时核对 GitHub 的 base，日常贡献选择 `develop`，发布选择 `main`。
 - 特殊项目使用独立 worktree 和分支时，不覆盖日常配置；完成后集成回根目录并清理临时入口。
 - 合并后的功能分支可在确认不再被 worktree 使用后删除；备份和未合并成果先保留。
@@ -54,7 +56,7 @@ git worktree list
 
 1. 先检查未提交内容。工作区未归类清楚时，不切换分支或拉取合并。
 2. 同步 `develop`，在干净的工作区开始小修改，或从它创建 `function/<名称>`。
-3. 修改一项内容，补充相关测试，并执行与改动对应的验证。
+3. 修改一项内容，补充相关测试，并执行与改动对应的验证。所有本体与插件的搜索框遵守[搜索框统一约定](docs/development/ui-components.md#搜索框统一约定)，支持中文、全拼及首字母，复用共用匹配接口。
 4. 检查差异，按文件或交互式暂存，创建一个能独立说明的提交。
 5. 结束开发前再次检查状态，说明剩余文件属于源码、未完成内容还是本机资料。
 
@@ -90,6 +92,20 @@ git commit -m "fix(sidebar): correct selection marker position"
 - 独立功能通常使用 squash merge；需要保留多个提交或处理分支历史时逐项决定，不强制改写已共享历史。
 - 不强推 `main` 或 `develop`，不以整树覆盖的方式忽略远端改动，也不自动关闭仍未完成核对的 PR。
 
+## 文档
+
+开发文档统一从[文档中心](docs/README.md)进入；分层、元信息、命名、生命周期和跨仓库约定见
+[开发文档规范](docs/standards/documentation.md)。代码、行为或发布范围变化时同步更新对应文档，
+不把说明只留在 PR 描述或提交信息里。
+
+- 新增文档放在 `docs/` 的对应子目录，并在[文档中心](docs/README.md)或所属子目录索引登记。
+- 长期维护文档写元信息：类型、状态、适用版本、更新日期、读者；发布说明和历史归档除外。
+- 跨仓库引用使用完整 GitHub URL；不写本机路径、真实账号、Cookie 或令牌。
+- 发布说明保持历史原文，新的结论追加到新的记录；已发布的事实不随新版本改写。
+- 提交前运行 `python dev/selfcheck_documents.py`，它检查元信息、索引可达、相对链接与锚点、发布索引完整性。
+
+插件和网站的文档分别从各自仓库的文档入口进入；共享规则以本规范为准。
+
 ## 验证范围
 
 基础仓库检查仅依赖 Python 和 Git，不联网、不读取个人配置：
@@ -100,7 +116,7 @@ python -m compileall -q ddm blivedm main.py
 git diff --check
 ```
 
-GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 180` 的离屏核心功能检查。smoke 使用开发依赖和 libmpv；CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。这些检查不能替代原生播放和真实直播验收。
+GitHub Actions 执行以上基础检查，以及 `python dev/run_checks.py --suite smoke --timeout 300` 的离屏核心功能检查。smoke 使用开发依赖和 libmpv，CI 按 `ddm/assets/licenses/libmpv-SOURCE.json` 下载运行库并校验压缩包及 DLL 的 SHA256。后续原生画中画检查使用校验过 SHA-256 的 FFmpeg 7.1.1 生成本地测试视频。真实直播由维护者另行验收。
 
 使用 `python dev/run_checks.py --list` 查看已审查的测试套件。完整命令、依赖与全部专项脚本的分类入口见[验证指南](docs/development/testing.md)。新增测试同步更新分类索引；确认隔离条件后再纳入批量套件。
 
@@ -137,7 +153,7 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 ## 本机资料与发布
 
 - `utils/`、缓存、账号、皮肤、安装中的插件和插件更新备份只保留在本机，不进入源码提交。
-- 插件归属见[源码、模板与安装副本边界](docs/plugins.md#源码模板与安装副本的边界)：`plugins_user/_match_sync` 和 `_template_platform` 在本仓库跟踪；国内／海外平台插件在独立插件仓库维护。`plugins_user/match_sync` 等本机安装副本被忽略不代表其改动已经备份或提交。修改应落实到所属源码、验证并提交，再重新打包安装。
+- 插件归属见[源码、模板与安装副本边界](docs/plugins.md#源码模板与安装副本的边界)：本仓库只跟踪 `plugins_user/_template_platform` 开发模板；比赛二路及各平台插件的现行源码在独立插件仓库维护。`plugins_user/match_sync` 等本机安装副本被忽略不代表其改动已经备份或提交。修改应落实到独立插件仓库的所属源码、验证并提交，再重新打包安装。
 - `work/` 保存临时 worktree、构建文件和本机备份；这些内容不进入发布包。
 - 打包前检查 `git status`、提交与版本号，按确定的 commit 构建；正式发布给该 commit 打版本标签。
 - 发布说明记录源码 SHA、依赖或插件版本及验收范围。不要将开发目录里遗留的 EXE 当作最新构建。

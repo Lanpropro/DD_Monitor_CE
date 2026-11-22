@@ -46,18 +46,19 @@ def main():
 
     with tempfile.TemporaryDirectory(dir=directory) as temporary, ExitStack() as stack:
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')))
+        stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'plugins')))
         stack.enter_context(patch.dict(os.environ, {'DDM_NO_SAVE': ''}))
         stack.enter_context(patch.object(bili, 'SESSION_DATA', ''))
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars'):
+                       'load_cached_covers', 'load_cached_avatars', '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, method))
         first = window(initial_state)
         try:
             before_slots = first.current_state()['wall']
             # 所有可拖预设各写一次，各自的比例互不覆盖。
             for identifier in layouts.BY_ID:
-                if identifier in ('corner', '1x1'):
+                if identifier in ('corner', '1x1') or layouts.snap_grid_size(identifier):
                     continue
                 first.wall.set_layout(identifier)
                 app.processEvents()
@@ -122,7 +123,7 @@ def main():
             move_to(handle, origin + QPoint(0, 80))
             second.sidebar.open_layout_picker()
             picker = second.sidebar._picker
-            assert picker.reset_button.isVisible()
+            assert picker.edit_button.isVisible()
             card = next(card for cards in picker._cards.values() for card in cards
                         if card.property('layoutId') == '3x3')
             assert '再次点击恢复默认比例' in card.toolTip()

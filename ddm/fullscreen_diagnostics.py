@@ -208,9 +208,11 @@ class FullscreenCapture(QObject):
 def install(path, *, profile_calls=False):
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
+    from .fullscreen_bar import FullscreenBar
+    from .fullscreen_presentation import FullscreenPresentation
+    from .tile_widgets import Tile
     from .wall_widgets import WallGrid
     from .video_danmaku import VideoDanmaku
-    from .fullscreen_presentation import FullscreenPresentation
     from . import window_fullscreen
 
     probe = Probe(path)
@@ -286,8 +288,10 @@ def install(path, *, profile_calls=False):
         return wrapped
 
     for owner, names in ((MainWindow, ('sync_danmaku', 'refresh_theme', '_refresh_meta', '_upgrade_fullscreen_quality')),
-            (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered')),
+            (WallGrid, ('set_fullscreen_tile', 'relayout', 'reveal_tiles_staggered', '_sync_danmaku_controls')),
             (FullscreenPresentation, ('enter', 'leave')),
+            (FullscreenBar, ('set_fullscreen', 'prepare_fullscreen_frame')),
+            (Tile, ('_layout_areas',)),
             (VideoDanmaku, ('_resize_comments', '_queue_comment_raster', '_apply_comment_rasters'))):
         for name in names:
             setattr(owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))

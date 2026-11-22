@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from . import follow_folders, layouts, motion, theme, version as version_module
 from .account_widgets import AccountPopupMenu, AccountRow
 from .avatar_widgets import RoomStrip
-from .dock_feedback import icon_color
+from .dock_feedback import attach, icon_color
 from .folder_icons import create_folder_dialog
 from .playback_controls import RefreshButton, SidebarToggleButton
 from .sidebar_item import NavItem
@@ -22,7 +22,6 @@ from .sidebar_list import CarouselScroll, RoomListBox
 from .sidebar_folders import FollowFolderButton, SmartFolderCard, SmartFolderDialog
 from .sidebar_drag import SidebarDrag
 from .sidebar_navigation import NavigationButton, RAIL_WIDTH, SidebarNavigation
-from .ui.toolbar import BarIconButton
 from .watch_history import WatchHistory
 from .widget_support import (
     BRAND_ASSETS_DIR, NAV_ITEM_GAP, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, _repolish
@@ -98,9 +97,9 @@ class Sidebar(QFrame):
     previewHovered = Signal(dict)       # 鼠标停在某个直播间上
     previewUnhovered = Signal(dict)
     layoutChosen = Signal(str)
+    wallSettingsRequested = Signal()
     pictureInPictureRequested = Signal()
     clearWallRequested = Signal()
-    layoutResetRequested = Signal()
     settingsRequested = Signal()
     pluginSettingsRequested = Signal()
     cardModeChanged = Signal(bool)
@@ -157,6 +156,9 @@ class Sidebar(QFrame):
         self._card_entry_timer = QTimer(self)
         self._card_entry_timer.setSingleShot(True)
         self._card_entry_timer.timeout.connect(self._reveal_added_rooms)
+        self.folder_collapse_mode = 'all'
+        self._bulk_fold_previous: set[str] | None = None
+        self._search_expands_folders = True
         self._folders_folded_by_drag: set[str] = set()
         self._folder_drag_previous: dict[str, bool] = {}
         self._folder_buttons: dict[str, FollowFolderButton] = {}
@@ -211,16 +213,10 @@ class Sidebar(QFrame):
         self.title_box.addWidget(title)
         self.title_box.addWidget(subtitle)
         self._set_brand_header(compact=False)
-        self.batch_button = BarIconButton("多选", "check")
-        self.batch_button.setObjectName("ChipButton")
-        self.batch_button.setCursor(Qt.PointingHandCursor)
+        self.batch_button = NavigationButton("多选直播间", "multiselect")
         self.batch_button.setToolTip("多选卡片后可一起拖动、移到最前或最后，也可批量删除")
         self.batch_button.setCheckable(True)
-        self.batch_button.setAccessibleName("多选直播间")
-        self.batch_button.setObjectName("BarIcon")
-        self.batch_button.setProperty("sidebarCompact", True)
-        self.batch_button.set_icon_mode(True)
-        self.batch_button.setFixedSize(22, 22)
+        self.batch_button.setFixedSize(26, 26)
         self.batch_button.clicked.connect(lambda: self.set_select_mode(not self.select_mode))
         self.toggle_button = SidebarToggleButton(self)
         self.toggle_button.setToolTip("收起 / 展开房间列表")
@@ -232,7 +228,7 @@ class Sidebar(QFrame):
 
         self.search = QLineEdit()
         self.search.setObjectName("Search")
-        self.search.setPlaceholderText("搜索主播 / 房间号")
+        self.search.setPlaceholderText("搜索主播 / 房间号 / 标题")
         self.search.setToolTip("支持中文、全拼和拼音首字母；多个词用空格分隔")
         self.search.setClearButtonEnabled(True)
         #: 当前搜索词（已去空白、转小写）；空串 = 不过滤
@@ -259,7 +255,11 @@ class Sidebar(QFrame):
         self.count_label.setToolTip("右键文件夹标题可设置该文件夹的排序")
         from .notification_center import NotificationButton
         self.notification_button = NotificationButton(self)
-        self.refresh_button = RefreshButton(size=22, object_name="ChipButton")
+        self.refresh_button = RefreshButton(object_name="NavigationButton")
+        self.refresh_button.setFixedSize(26, 26)
+        self.refresh_button.setAccessibleName("刷新关注状态")
+        self.refresh_button.setFocusPolicy(Qt.TabFocus)
+        attach(self.refresh_button)
         self.appearance_button = AppearanceButton(self)
         self.appearance_button.clicked.connect(lambda: self.appearanceChanged.emit(
             "dark" if theme.is_light() else "light"))
@@ -339,6 +339,9 @@ class Sidebar(QFrame):
         self.layout_button.clicked.connect(self.open_layout_picker)
         self.clear_wall_button = NavigationButton('清空画面墙', 'clear')
         self.clear_wall_button.clicked.connect(self.clearWallRequested.emit)
+        self.wall_settings_button = NavigationButton('画面墙全局设置', 'wall_settings')
+        self.wall_settings_button.setToolTip('调整画面墙的音量、画质和弹幕')
+        self.wall_settings_button.clicked.connect(self.wallSettingsRequested.emit)
         self.picture_in_picture_button = NavigationButton('画中画', 'pip')
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
@@ -350,6 +353,7 @@ class Sidebar(QFrame):
         self.settings_button.setToolTip("打开设置")
         self.settings_button.clicked.connect(self.settingsRequested.emit)
         tool_box.addWidget(self.layout_button, 1)
+        tool_box.addWidget(self.wall_settings_button)
         tool_box.addWidget(self.picture_in_picture_button)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
@@ -384,6 +388,7 @@ class Sidebar(QFrame):
         # 竖屏会把这两个按钮改成撑满 + 竖排，回横屏时要还原原来的策略
         self._tool_button_policies = {
             self.layout_button: self.layout_button.sizePolicy(),
+            self.wall_settings_button: self.wall_settings_button.sizePolicy(),
             self.picture_in_picture_button: self.picture_in_picture_button.sizePolicy(),
             self.settings_button: self.settings_button.sizePolicy(),
         }
@@ -392,6 +397,9 @@ class Sidebar(QFrame):
         self._bar_row_box: QHBoxLayout | None = None
         self._bar_in_use = False
         self.navigation = SidebarNavigation(self, self._outer_layout)
+        self._hover_sync_timer.timeout.connect(self.navigation.sync_pointer_hover)
+        from .sidebar_pages import SidebarPages
+        self.plugin_pages = SidebarPages(self)
         self.refresh_filter()
         self._sync_count()
         self._sync_appearance_row()
@@ -423,12 +431,7 @@ class Sidebar(QFrame):
         return self.items_control.set_room_face(room_id, pixmap)
 
     def account_menu(self) -> QMenu:
-        """账号菜单：退出登录；放不进横栏的入口也在这里。
-
-        竖屏横栏只有一行：导入关注 / 添加直播间收进这个菜单；「布局预设 / 设置」
-        是并排摆在横栏上的按钮，只有收起时（按钮藏起来）才需要放进菜单。
-        单独一个方法是为了能测——exec 一弹就是模态，自检里没法取菜单内容。
-        """
+        """账号操作菜单；导入和添加入口按当前方向保留。"""
         return self.account_control.account_menu(popup_type=AccountPopupMenu, row_type=AccountRow)
 
     def _open_account_menu(self) -> None:
@@ -442,6 +445,8 @@ class Sidebar(QFrame):
     # ---- 搜索过滤 ----
     def apply_filter(self, text: str) -> None:
         """搜索框一有动静就过滤；批量删除的勾选状态不受影响。"""
+        if hasattr(self, "plugin_pages") and self.plugin_pages.filter(text):
+            return
         return self.filter_control.apply_filter(text)
 
     def refresh_filter(self) -> None:
@@ -509,6 +514,15 @@ class Sidebar(QFrame):
 
     def toggle_folder(self, folder_id: str, *, animate=False) -> None:
         return self.folder_control.toggle_folder(folder_id, animate=animate)
+
+    def set_folder_collapse_mode(self, mode: str) -> None:
+        self.folder_control.set_folder_collapse_mode(mode)
+
+    def set_all_folders_collapsed(self, collapsed: bool) -> None:
+        self.folder_control.set_all_folders_collapsed(collapsed)
+
+    def toggle_all_folders(self) -> None:
+        self.folder_control.toggle_all_folders()
 
     def move_to_folder(self, room_ids: list[str], folder_id: str) -> None:
         return self.folder_control.move_to_folder(room_ids, folder_id)

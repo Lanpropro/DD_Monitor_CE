@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ddm import bili, config, plugins  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.quality_labels import compact_quality_label  # noqa: E402
 from selfcheck_platform_preview import response  # noqa: E402
 
 
@@ -104,7 +105,7 @@ def main():
             options = manager.platforms[kind].room_quality_options(kind + ":123")
             tile.set_quality_options(options)
             tile.set_actual_quality(options[-1]["qn"])
-            assert tile._quality_text() == options[-1].get("label", options[-1]["desc"])
+            assert tile._quality_text() == compact_quality_label(options[-1])
             tile.quality = options[-1]["qn"]
             tile.room["quality"] = tile.quality
             tile.quality_button.setToolTip("choice")
@@ -115,21 +116,22 @@ def main():
             assert wall[0]["quality"] == tile.quality
         window.show()
         window.resize(520, 1000)
+        window._apply_orientation('portrait')
         app.processEvents()
         assert window.sidebar.side == "top"
         for preview_tile in window.wall.tiles:
             preview_tile.set_room({"room_id": "douyin:123", "live": True, "quality": 10000})
             preview_tile.set_quality_options([{"qn": 10000, "desc": "蓝光 · 1080x1920 · 60fps", "label": "蓝光"}])
             preview_tile.set_actual_quality(10000)
-            assert preview_tile._quality_text() == "蓝光"
+            assert preview_tile._quality_text() == "1080P · 60FPS"
             assert "1080x1920" in preview_tile.quality_button.toolTip()
-            assert preview_tile._quality_choices() == [("蓝光 · 1080x1920 · 60fps", 10000)]
+            assert preview_tile._quality_choices() == [("1080P · 60FPS", 10000)]
             if preview_tile.isVisible():
                 assert preview_tile.quality_button.geometry().left() >= 0
             preview_tile.set_room(None)
             assert not preview_tile.quality_options and preview_tile.actual_quality == 0
         tile.set_room({"room_id": "123", "live": True, "quality": 250})
-        assert not tile.quality_options and tile._quality_text() == "超清 720P"
+        assert not tile.quality_options and tile._quality_text() == "720P"
         assert tile._quality_choices()
         assert window.apply_quality_policy(restart=False) and tile.quality == 10000
         tile.set_room({"room_id": "douyu:123", "live": True, "quality": 10000})
