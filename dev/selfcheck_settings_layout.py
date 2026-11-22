@@ -887,7 +887,7 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_shortcut_wheel_and_pip_groups_are_separate_and_match_edit_style(self):
         page = self.page(5)
         self.assertEqual([key for key, _widget, _wide in page.sections.entries],
-                         ['home', 'general', 'fullscreen', 'wheel', 'pip'])
+                         ['home', 'general', 'fullscreen', 'wheel', 'pip', 'custom_layout'])
         for key in ('volume_up', 'volume_down'):
             edit = page._edits[key]
             self.assertIsInstance(edit, QLineEdit)

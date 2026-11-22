@@ -191,9 +191,16 @@ class AppearanceOptionsTests(unittest.TestCase):
             settle()
             page = dialog.appearance_page
             hwnd = int(dialog.winId())
-            page.theme_editor.set_accent('#8866ee')
-            blue = page.theme_editor.swatches['#00a1d6']
-            self.assertEqual(blue.grab().toImage().pixelColor(blue.rect().center()), QColor('#00a1d6'))
+            palette = page.theme_editor.swatch_palette
+            palette.buttons['#8866ee'].click()
+            self.assertTrue(palette.buttons['#8866ee'].isChecked())
+            blue = palette.buttons['']
+            default_blue = QColor('#007ba8' if theme.is_light() else '#00a1d6')
+            if blue.underMouse():
+                default_blue = default_blue.lighter(110)
+            image = blue.grab().toImage()
+            point = blue.rect().center() * image.devicePixelRatio()
+            self.assertEqual(image.pixelColor(point), default_blue)
             fonts = QFontDatabase.families()
             family = 'Segoe UI' if 'Segoe UI' in fonts else fonts[0]
             page.theme_editor.font.setCurrentIndex(page.theme_editor.font.findData(family))
@@ -203,7 +210,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             material.controls['settings_segment_motion'].setChecked(True)
             material.set_values({**material.values(), 'settings_glass_blur': 13})
             material.sliders['settings_glass_opacity'][0].setValue(52)
-            material.card_layout.setCurrentIndex(1)
+            material.card_layout.setCurrentIndex(material.card_layout.findData('vertical'))
             settle()
             self.assertEqual(int(dialog.winId()), hwnd)
             self.assertTrue(dialog.isVisible())
@@ -223,6 +230,7 @@ class AppearanceOptionsTests(unittest.TestCase):
         finally:
             dispose(dialog)
         reopened = SettingsDialog(settings, {}, preview=True)
+        reopened.set_host_layout(False, (0, 0, 1600, 1000))
         reopened.resize(1400, 850)
         reopened.show()
         try:
@@ -239,8 +247,10 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(switch._position, 1., 'Reloaded enabled values must also paint as enabled')
             self.assertEqual(page.material_editor.values()['settings_glass_blur'], 13)
             self.assertEqual(page.material_editor.sliders['settings_glass_opacity'][0].value(), 52)
-            page.material_editor.card_layout.setCurrentIndex(0)
+            card_layout = page.material_editor.card_layout
+            card_layout.setCurrentIndex(card_layout.findData('auto'))
             settle()
+            self.assertEqual(reopened.property('settings_card_layout'), 'auto')
             self.assertEqual(page.sections.columns, 2)
         finally:
             dispose(reopened)
@@ -539,9 +549,12 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(theme.FONT_CONTROL, size)
                 heading = page.sections.section('theme').layout().itemAt(0).widget()
                 self.assertEqual(heading.font().pixelSize(), size)
-                button = page.theme_editor.swatches['']
-                self.assertGreaterEqual(button.width(), button.fontMetrics().horizontalAdvance('默认') + 8)
-                self.assertGreaterEqual(button.height(), button.fontMetrics().height())
+                palette = page.theme_editor.swatch_palette
+                button = palette.buttons['']
+                self.assertEqual(button.accessibleName(), '默认蓝色')
+                self.assertTrue(button.isChecked())
+                self.assertTrue(all(palette.rect().contains(swatch.geometry())
+                                    for swatch in palette.buttons.values()))
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
                 self.assertEqual(dialog.width(), 760)
             editor = page.material_editor
@@ -554,7 +567,7 @@ class AppearanceOptionsTests(unittest.TestCase):
             self.assertTrue(all(slider.isEnabled() for slider, _label in editor.sliders.values()))
             with patch('ddm.settings_backdrop.blur_available', return_value=True):
                 editor._sync_enabled()
-                self.assertIn('背后的实时内容', editor.background_status.text())
+                self.assertIn('由 Windows 控制', editor.background_status.text())
         finally:
             dispose(dialog)
 

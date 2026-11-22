@@ -64,7 +64,8 @@ class LiveElapsedTests(unittest.TestCase):
         self.status(window, start=int(time.time()) - 600)
         self.status(window, live=False)
         self.assertFalse(tile._elapsed_timer.isActive())
-        self.assertEqual(tile.cover.text(), '已下播')
+        self.assertEqual(tile.offline_room_status.text(), '已下播')
+        self.assertFalse(tile.offline_room_actions.isHidden())
         self.assertFalse(tile.room.get('live_start_ts'))
         self.assertFalse(window.sidebar._items[0].room.get('live_start_ts'))
         self.assertNotIn('last_live_end_ts', tile.room)
@@ -90,7 +91,9 @@ class LiveElapsedTests(unittest.TestCase):
         self.assertNotIn('last_live_end_ts', wall[0])
         window = self.window(wall, offscreen=True)
         self.status(window, live=False)
-        self.assertEqual(window.wall.tiles[0].cover.text(), '未开播')
+        tile = window.wall.tiles[0]
+        self.assertEqual(tile.offline_room_status.text(), '未开播')
+        self.assertFalse(tile.offline_room_actions.isHidden())
         self.assertNotIn('last_live_ends', window.current_state())
 
 

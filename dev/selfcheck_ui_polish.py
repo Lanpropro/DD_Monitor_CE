@@ -68,7 +68,8 @@ class UiPolishTests(unittest.TestCase):
                 button._paint_button(painter, option)
                 painter.end()
                 self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
-                self.assertGreater(image.pixelColor(image.width()//2, image.height()//2).alpha(), 200)
+                center = image.pixelColor(image.width()//2, image.height()//2)
+                self.assertAlmostEqual(center.alphaF(), .15, delta=.01)
                 for x in range(image.width()//2):
                     for y in range(image.height()):
                         self.assertLessEqual(abs(image.pixelColor(x, y).alpha() -
@@ -276,8 +277,10 @@ class UiPolishTests(unittest.TestCase):
             handle = slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider)
             image = slider.grab().toImage()
             ratio = image.devicePixelRatio()
-            self.assertEqual(image.pixelColor(round(handle.center().x()*ratio), round(handle.center().y()*ratio)),
-                             QColor(theme.TEXT1))
+            y = round(handle.center().y() * ratio)
+            self.assertEqual(image.pixelColor(round(handle.center().x() * ratio), y), QColor('#ffffff'))
+            accent = theme.mix(theme.ACCENT, '#ffffff', .35) if slider.underMouse() else theme.ACCENT
+            self.assertEqual(image.pixelColor(round(handle.center().x() * ratio / 2), y), QColor(accent))
 
     def test_menu_editor_and_runtime_keep_order_callbacks_and_visibility(self):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)

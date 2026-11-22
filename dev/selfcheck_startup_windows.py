@@ -332,7 +332,9 @@ class StartupWindowsTests(unittest.TestCase):
             self.assertTrue(tile.cover.isVisible())
             self.app.processEvents()
             self.assertTrue(paints.seen, 'Queued clearing must still be painted on the next event-loop turn')
-            self.assertEqual(tile.cover.text(), '已下播')
+            self.assertEqual(tile.offline_room_status.text(), '已下播')
+            self.assertTrue(tile.offline_room_actions.isVisible())
+            self.assertTrue(tile.replace_room_button.isEnabled())
         finally:
             self.app.removeEventFilter(paints)
             window.close()

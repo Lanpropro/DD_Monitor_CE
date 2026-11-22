@@ -51,9 +51,12 @@ class FunctionalModulesTests(unittest.TestCase):
         from ddm.sidebar_widgets import AppearanceButton, Sidebar
         sidebar, appearance = Sidebar([], auto_compact=False), AppearanceButton()
         self.widgets += [sidebar, appearance]
-        for name in ('items_control', 'interaction_control'):
-            self.assertEqual(vars(getattr(sidebar, name)), {'host': sidebar})
-            self.assertFalse(hasattr(appearance, name))
+        self.assertEqual(vars(sidebar.items_control), {
+            'host': sidebar, '_auto_record_rooms': set(), '_recording_rooms': set(), '_recording_states': {},
+        })
+        self.assertEqual(vars(sidebar.interaction_control), {'host': sidebar})
+        self.assertFalse(hasattr(appearance, 'items_control'))
+        self.assertFalse(hasattr(appearance, 'interaction_control'))
 
     def test_sidebar_card_factory_add_remove_and_shared_room_data(self):
         from ddm import sidebar_widgets as module
@@ -80,7 +83,9 @@ class FunctionalModulesTests(unittest.TestCase):
         self.widgets.append(tile)
         for name in ('controls_control', 'presentation_control', 'menu_control'):
             self.assertEqual(vars(getattr(tile, name)), {'host': tile})
-        self.assertEqual(vars(tile.state_control), {'host': tile, 'source_resolution': ''})
+        self.assertEqual(vars(tile.state_control), {
+            'host': tile, 'source_resolution': '', 'pending_grid_aspect': None,
+        })
         changes = []
         tile.volumeChanged.connect(lambda room, value: changes.append(value))
         tile.set_volume(27)
@@ -112,7 +117,12 @@ class FunctionalModulesTests(unittest.TestCase):
                 "assert not {'ddm.app','ddm.widgets'}.intersection(sys.modules)")
             controller = getattr(importlib.import_module('ddm.'+module), name)(host)
             self.assertIs(controller.host, host)
-            self.assertTrue(set(vars(controller)) <= {'host', 'destroyed', 'objectNameChanged'})
+            state = {key: value for key, value in vars(controller).items()
+                     if key not in ('destroyed', 'objectNameChanged')}
+            expected = {'host': host}
+            if module == 'app_notices':
+                expected['official_announcement'] = None
+            self.assertEqual(state, expected)
 
     def test_super_chat_model_is_independent_and_legacy_exports_keep_identity(self):
         self.child("import sys; import ddm.super_chat_model; "
@@ -324,8 +334,10 @@ class FunctionalModulesTests(unittest.TestCase):
         placement = RoomPlacement(host)
         self.assertIsInstance(placement.catalog, RoomCatalog)
         self.assertIsInstance(placement.navigation, RoomNavigation)
-        self.assertEqual(vars(placement.catalog), {'host': host, '_add_panel': None, '_add_target': None,
-                                                 'followed_live_only': False})
+        self.assertEqual(vars(placement.catalog), {
+            'host': host, '_add_panel': None, '_add_target': None, '_replacement_room': None,
+            'followed_live_only': False,
+        })
         self.assertEqual(vars(placement.navigation), {'host': host})
         self.assertEqual(placement.room_browser_url({'room_id': '123'}), 'https://live.bilibili.com/123')
         for module in ('room_catalog', 'room_navigation', 'watch_history_sampling'):

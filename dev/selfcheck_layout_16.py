@@ -66,11 +66,12 @@ def main():
     emitted = []
     compact.sizeChanged.connect(emitted.append)
     original = compact.geometry()
-    initial_columns = compact._columns
+    cards = compact._cards[compact.group()]
+    initial_columns = len({card.x() for card in cards})
     resize_picker(compact, QPoint(4, 4), QPoint(100, 60))
     app.processEvents()
     assert compact.geometry().bottomRight() == original.bottomRight()
-    assert compact._columns < initial_columns and emitted == [compact.size()]
+    assert len({card.x() for card in cards}) < initial_columns and emitted == [compact.size()]
     assert compact.scroll.horizontalScrollBar().maximum() == 0
     resize_picker(compact, compact.rect().bottomRight() - QPoint(4, 4), QPoint(1000, 1000))
     assert compact.geometry().bottomRight() == screen.availableGeometry().adjusted(6, 6, -6, -6).bottomRight()
