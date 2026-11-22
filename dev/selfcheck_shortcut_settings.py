@@ -69,7 +69,7 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.assertEqual(page.values(), before)
         page.search.clear()
         self.assertTrue(all(row.isVisible() for row in page._rows.values()))
-        self.assertEqual(len(page.sections.entries), 5)
+        self.assertEqual(len(page.sections.entries), 6)
         self.assertEqual(page.values(), before)
 
     def test_keyboard_mouse_binding_disabled_values_and_reset_keep_original_contract(self):
@@ -105,6 +105,10 @@ class ShortcutSettingsTests(unittest.TestCase):
     def test_custom_layout_gestures_are_searchable_help_and_do_not_add_bindings(self):
         page = self.page(width=500)
         before = page.values()
+        card = page.sections.section('custom_layout')
+        self.assertIsNot(card, page.sections.section('wheel'))
+        self.assertEqual(card.findChild(QLabel, 'SettingsSectionTitle').text(), '自定义布局 · 窗口快捷键')
+        self.assertTrue(all(label.parentWidget() is card for label, _terms in page._layout_shortcut_hints))
         for query, expected in (('Ctrl+滚轮', 'Ctrl＋滚轮'), ('Ctrl+WheelDown', 'Ctrl＋滚轮'),
                                 ('Alt+滚轮', 'Alt＋滚轮'), ('Alt+WheelUp', 'Alt＋滚轮'),
                                 ('1×3', 'Alt＋滚轮'), ('竖屏占位', 'Alt＋滚轮')):
@@ -114,7 +118,12 @@ class ShortcutSettingsTests(unittest.TestCase):
             self.assertEqual(len(visible), 1)
             self.assertIn(expected, visible[0])
             self.assertFalse(page.empty.isVisible())
-            self.assertEqual([key for key, _card, _wide in page.sections.entries], ['wheel'])
+            self.assertEqual([key for key, _card, _wide in page.sections.entries], ['custom_layout'])
+        page.search.setText('自定义布局 窗口快捷键')
+        self.assertTrue(all(label.isVisible() for label, _terms in page._layout_shortcut_hints))
+        page.search.setText('设置页滚轮灵敏度')
+        self.assertFalse(card.isVisible())
+        self.assertEqual([key for key, _card, _wide in page.sections.entries], ['wheel'])
         self.assertEqual(page.values(), before)
 
     def test_compact_rows_fit_narrow_width_large_font_and_descriptions_are_not_repeated(self):

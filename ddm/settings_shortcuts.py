@@ -78,6 +78,20 @@ class ShortcutSettingsPage(QWidget):
             self._group_keys[key] = keys
             self.sections.add_section(key, self._build_group(
                 key, title, [actions_by_key[name] for name in keys], shortcuts, settings or {}))
+        layout_title = '自定义布局 · 窗口快捷键'
+        layout_shortcuts = SettingsSection(layout_title)
+        layout_shortcuts.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self._layout_shortcut_hints = []
+        for row, (text, aliases) in enumerate((
+            ('等比缩放 · 悬停直播格，Ctrl＋滚轮', 'Ctrl+滚轮 Ctrl+WheelUp Ctrl+WheelDown 画面格 调整大小'),
+            ('竖屏占位 · Alt＋滚轮，上滚 1×3、下滚 1×2', 'Alt+滚轮 Alt+WheelUp Alt+WheelDown'),
+        )):
+            hint = QLabel(text, layout_shortcuts)
+            hint.setWordWrap(True)
+            hint.setObjectName('SettingsHint')
+            layout_shortcuts.grid.addWidget(hint, row, 0, 1, 2)
+            self._layout_shortcut_hints.append((hint, ' '.join((layout_title, text, aliases))))
+        self.sections.add_section('custom_layout', layout_shortcuts)
         layout.addWidget(self.sections)
         layout.addStretch(1)
         self._all_sections = list(self.sections.entries)
@@ -154,16 +168,6 @@ class ShortcutSettingsPage(QWidget):
             speed_row.addWidget(label)
             speed_row.addWidget(self.wheel_speed)
             card.grid.addWidget(self._wheel_speed_row, row + 1, 0, 1, 2, Qt.AlignLeft)
-            self._layout_shortcut_hints = []
-            for offset, (text, aliases) in enumerate((
-                ('自定义布局等比缩放 · 悬停直播格，Ctrl＋滚轮', 'Ctrl+滚轮 Ctrl+WheelUp Ctrl+WheelDown 画面格 调整大小'),
-                ('竖屏占位 · Alt＋滚轮，上滚 1×3、下滚 1×2', '自定义布局 Alt+滚轮 Alt+WheelUp Alt+WheelDown'),
-            ), start=2):
-                hint = QLabel(text, card)
-                hint.setWordWrap(True)
-                hint.setObjectName('SettingsHint')
-                card.grid.addWidget(hint, row + offset, 0, 1, 2)
-                self._layout_shortcut_hints.append((hint, text + ' ' + aliases))
         return card
 
     def _build_wheel_options(self, settings, card):
@@ -223,16 +227,17 @@ class ShortcutSettingsPage(QWidget):
             match = matches_query(text, query)
             hint.setVisible(match)
             layout_match |= match
-        wheel_matches = wheel_match or speed_match or layout_match
+        wheel_matches = wheel_match or speed_match
         for entry in self._all_sections:
             key, card, _wide = entry
             match = (key == 'wheel' and wheel_matches
-                     or any(name in visible for name in self._group_keys[key]))
+                     or key == 'custom_layout' and layout_match
+                     or any(name in visible for name in self._group_keys.get(key, ())))
             card.setVisible(match)
             if match:
                 self.sections.entries.append(entry)
         self.sections._arrange()
-        self.empty.setVisible(not visible and not wheel_matches)
+        self.empty.setVisible(not visible and not wheel_matches and not layout_match)
 
     def _reset_one(self, key):
         self._row_toggles[key].setChecked(True)
