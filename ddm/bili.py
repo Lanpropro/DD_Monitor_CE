@@ -1,8 +1,9 @@
 """B 站直播接口：房间信息与播放地址。
 
-取流优先走 app-room，失败时退回 web 端 playUrl，并尝试同通道备用 CDN。
+取流优先走 app-room，尝试同通道备用 CDN，并在所有 App 通道失败后退回 web。
 保留接口提供的 HTTP/HTTPS 地址，探测与播放使用相同请求头。
 """
+from collections.abc import Iterator
 import hashlib
 import inspect
 import json
@@ -407,7 +408,7 @@ def _app_codec_entry(stream: dict, codec: str) -> dict | None:
     return next((entry for entry in entries if not entry.get("codec_name")), None)
 
 
-def _web_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list[str], int]:
+def _web_play_urls(room_id: str, quality: int, codec: str = "avc") -> Iterator[tuple[list[str], int, str]]:
     """web 端接口：未登录固定 720P，登录后按 qn 给。
 
     ``codec`` 只为和 app-room 那边的签名对齐：这个老接口**只有 H.264**，
@@ -424,7 +425,7 @@ def _web_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list
     stream = payload["durl"][0]
     urls = [stream["url"], *(stream.get("backup_url") or [])]
     current = int(payload.get("current_qn") or 0)
-    return list(dict.fromkeys(urls)), current
+    yield list(dict.fromkeys(urls)), current, "web"
 
 
 def _app_play_info(room_id: str, quality: int, codec: str = "avc") -> dict:
@@ -461,13 +462,13 @@ class CodecUnavailable(RuntimeError):
     pass
 
 
-def _app_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list[str], int, str]:
+def _app_play_urls(room_id: str, quality: int, codec: str = "avc") -> Iterator[tuple[list[str], int, str]]:
     """app-room 接口：尊重 qn（登录后能拿到原画）。
 
-    H.264 优先 FLV，也支持仅提供 HLS 的房间；通道名来自实际协议元数据。
-    所有格式均由 libmpv 直接读取。
+    H.264 按 FLV、HLS 的顺序逐组返回 CDN 地址、实际画质和通道名。
+    所有地址来自同一次接口响应，由 libmpv 直接读取。
     """
-    protocol = _app_protocol(codec)
+    found = False
     for stream in _app_streams(_app_play_info(room_id, quality, codec), codec):
         entry = _app_codec_entry(stream, codec)
         if entry is None:
@@ -475,11 +476,13 @@ def _app_play_urls(room_id: str, quality: int, codec: str = "avc") -> tuple[list
         urls = [info["host"] + entry["base_url"] + info["extra"]
                 for info in entry.get("url_info") or []]
         if urls:
+            found = True
             profile = (f"app-hls-{codec}" if stream.get("protocol_name") == "http_hls"
                        else _app_profile(codec))
-            return list(dict.fromkeys(urls)), int(entry.get("current_qn") or 0), profile
-    error = CodecUnavailable if codec in HLS_ONLY_CODECS else RuntimeError
-    raise error(f"app-room 接口没有返回 {protocol} 地址（{codec}）")
+            yield list(dict.fromkeys(urls)), int(entry.get("current_qn") or 0), profile
+    if not found:
+        error = CodecUnavailable if codec in HLS_ONLY_CODECS else RuntimeError
+        raise error(f"app-room 接口没有返回 {_app_protocol(codec)} 地址（{codec}）")
 
 
 class Cancelled(Exception):
@@ -494,8 +497,9 @@ def play_url(room_id: str, quality: int = 250,
              codec: str = "avc", allow_codec_fallback: bool = True) -> tuple[str, int, str, dict]:
     """取可播放的 http 流地址，附带接口实际给到的画质。
 
-    优先用尊重画质的 app-room 接口（App UA、不带 Referer 拉流）；
-    失败时退回 web 端接口（Chrome UA + Referer）。保留 CDN 的 URL 协议。
+    优先用尊重画质的 app-room 接口（App UA、不带 Referer 拉流）。
+    H.264 先尝试 FLV 的 CDN，再尝试同一响应中的 HLS，最后才退回 web 端接口。
+    保留 CDN 的 URL 协议。
 
     返回 ``(地址, 实际画质, 通道名, 请求头)``。请求头必须一起带走：插件要
     拿这个地址去录像，头不对 CDN 直接 403。
@@ -512,18 +516,27 @@ def play_url(room_id: str, quality: int = 250,
     def _cancelled() -> bool:
         return bool(cancelled is not None and cancelled())
 
-    sources = [(_app_play_urls, _app_profile(codec), STREAM_APP)]
+    sources = [(_app_play_urls, STREAM_APP)]
     if codec not in HLS_ONLY_CODECS:
-        sources.append((_web_play_urls, "web", STREAM_WEB))
+        sources.append((_web_play_urls, STREAM_WEB))
     errors = []
-    for source, profile, headers in sources:
+    for source, headers in sources:
         if _cancelled():
             raise Cancelled()
         try:
-            result = source(room_id, quality, codec)
-            urls, current = result[:2]
-            if len(result) > 2:
-                profile = result[2]
+            for urls, current, profile in source(room_id, quality, codec):
+                offset = source_offset % len(urls) if urls else 0
+                for url in urls[offset:] + urls[:offset]:
+                    if _cancelled():
+                        raise Cancelled()
+                    if _fetchable(url, headers):
+                        if _cancelled():
+                            raise Cancelled()
+                        print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
+                              file=sys.stderr, flush=True)
+                        return url, current, profile, dict(headers)
+        except Cancelled:
+            raise
         except CodecUnavailable:
             if _cancelled():
                 raise Cancelled()
@@ -535,22 +548,8 @@ def play_url(room_id: str, quality: int = 250,
                             source_offset=source_offset, codec="avc")
         except Exception as error:  # noqa: BLE001
             errors.append(f"{source.__name__}: {error}")
-            continue
-        if urls:
-            offset = source_offset % len(urls)
         else:
-            offset = 0
-        for url in urls[offset:] + urls[:offset]:
-            if _cancelled():
-                raise Cancelled()
-            playback_url = url
-            if _fetchable(playback_url, headers):
-                if _cancelled():           # 探测期间被作废：别把这个地址交出去
-                    raise Cancelled()
-                print(f"[取流] {room_id} 通道={profile} 请求画质={quality} 实际给到={current}",
-                      file=sys.stderr, flush=True)
-                return playback_url, current, profile, dict(headers)
-        errors.append(f"{source.__name__}: 地址不可用（CDN 拒绝）")
+            errors.append(f"{source.__name__}: 地址不可用（CDN 拒绝）")
     detail = "；".join(errors) or "取流失败"
     if codec in HLS_ONLY_CODECS:
         detail = f"{codec.upper()} 流取不到（{detail}）"
@@ -773,19 +772,20 @@ def room_stats(room_id: str) -> dict | None:
     }
 
 
-def room_quality_options(room_id: str, codec: str = "avc") -> list[dict]:
+def room_quality_options(room_id: str, codec: str = "avc", *, profile: str = "") -> list[dict]:
     """优先使用实际流的档位，旧 web 接口会漏掉2K等新画质。
 
     必须跟取流用同一个 ``codec``：同一直播间各编码的可用档位不一样（实测 AV1
     只有 ``[10000, 400]``，按 H.264 的档位列出来就会出现点了 720P 取不到流）。
-    所以挑的是与 ``_app_play_urls`` 同一条通道同一个编码的 ``accept_qn``；
-    HEVC / AV1 取不到就返回空表 —— web 端那个老接口只有 H.264，把它的档位
-    当成 HEVC / AV1 的，用户同样会点到一个取不到的档。
+    已选中 HLS 时只用对应 HLS 通道的 ``accept_qn``。
+    HEVC / AV1 取不到就返回空表，旧 web 接口只提供 H.264 的档位。
     """
+    hls = is_hls_profile(profile)
     try:
         play = _app_play_info(room_id, 10000, codec)
         for stream in _app_streams(play, codec):
-            # 与 _app_play_urls 选取同一条流，避免列出其他编码/协议的档位。
+            if hls and stream.get("protocol_name") != "http_hls":
+                continue
             entry = _app_codec_entry(stream, codec)
             if entry is None:
                 continue
@@ -810,8 +810,8 @@ def room_quality_options(room_id: str, codec: str = "avc") -> list[dict]:
             break
     except Exception:  # noqa: BLE001
         pass
-    if codec in HLS_ONLY_CODECS:
-        return []               # 老 web 接口只有 H.264，不能拿来当这两档的档位
+    if hls or codec in HLS_ONLY_CODECS:
+        return []
     try:
         response = requests.get(
             "https://api.live.bilibili.com/room/v1/Room/playUrl",

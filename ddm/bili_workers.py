@@ -149,8 +149,8 @@ class StreamResolver(QThread):
                 return
             options = ([] if self.preview else
                        self.platform.room_quality_options(self.room_id) if self.platform
-                       else api.room_quality_options(self.room_id,
-                                                 api.codec_from_profile(profile) or self.codec))
+                       else api.room_quality_options(
+                           self.room_id, api.codec_from_profile(profile) or self.codec, profile=profile))
             if (self.platform is None and not self.preview
                     and (self.strict_codec or api.codec_from_profile(profile) in api.HLS_ONLY_CODECS)
                     and not any(int(option["qn"]) >= 10000 for option in options)):
@@ -166,13 +166,17 @@ class StreamResolver(QThread):
                     source_offset=self.source_offset, codec="avc")
                 if self._cancelled:
                     return
-                options = api.room_quality_options(self.room_id, "avc")
+                options = api.room_quality_options(self.room_id, "avc", profile=profile)
             options = options or []
             if not isinstance(options, list):
                 raise TypeError("平台画质档位必须为列表")
             if self.streamer_height is not None:
+                previous_profile = profile
                 url, current, profile, headers = self._prefer_streamer_resolution(
                     (url, current, profile, headers), options)
+                if self.platform is None and not self.preview and profile != previous_profile:
+                    options = api.room_quality_options(
+                        self.room_id, api.codec_from_profile(profile) or self.codec, profile=profile)
             if options:
                 print(f"[画质档位] {self.room_id}: "
                       + " / ".join(f"{item['desc']}({item['qn']})" for item in options),

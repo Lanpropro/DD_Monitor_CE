@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -93,9 +93,9 @@ def check_app_urls() -> None:
     """取地址：avc 挑 FLV，hevc / av1 挑 HLS，绝不串味。"""
     payload = response(app_payload())
     with patch.object(bili.requests, "get", return_value=payload):
-        assert bili._app_play_urls("1001", 10000, "avc") == (["https://cdn-avc/avc.flv"], 10000, "app")
-        assert bili._app_play_urls("1001", 10000, "hevc") == (["https://cdn-hevc/hevc.m3u8"], 10000, "app-hls-hevc")
-        assert bili._app_play_urls("1001", 10000, "av1") == (["https://cdn-av1/av1.m3u8"], 10000, "app-hls-av1")
+        assert list(bili._app_play_urls("1001", 10000, "avc")) == [(["https://cdn-avc/avc.flv"], 10000, "app")]
+        assert list(bili._app_play_urls("1001", 10000, "hevc")) == [(["https://cdn-hevc/hevc.m3u8"], 10000, "app-hls-hevc")]
+        assert list(bili._app_play_urls("1001", 10000, "av1")) == [(["https://cdn-av1/av1.m3u8"], 10000, "app-hls-av1")]
     mismatched = _stream("http_stream", "hevc", HEVC_ACCEPT, "/hevc.flv", "https://cdn-hevc")
     assert bili._app_codec_entry(mismatched, "avc") is None
     legacy = _stream("http_stream", "avc", AVC_ACCEPT, "/avc.flv", "https://cdn-avc")
@@ -105,7 +105,7 @@ def check_app_urls() -> None:
     # 底层严格选编码，由 play_url 负责回退并标记实际通道。
     with patch.object(bili.requests, "get", return_value=response(app_payload(hevc=[], av1=[]))):
         try:
-            bili._app_play_urls("1001", 10000, "hevc")
+            list(bili._app_play_urls("1001", 10000, "hevc"))
         except bili.CodecUnavailable as error:
             assert "hevc" in str(error)
         else:
@@ -162,6 +162,82 @@ def check_avc_hls_only_room() -> None:
         play['stream'].append(_stream('http_stream', 'avc', [250], '/preferred.flv', 'https://cdn-flv'))
         assert bili.play_url('22833739', 250, codec='avc')[2] == 'app', 'FLV remains preferred regardless of API order'
         assert [option['qn'] for option in bili.room_quality_options('22833739', 'avc')] == [250]
+
+
+def check_avc_hls_fallback() -> None:
+    flv_a = 'https://flv-a/live.flv'
+    flv_b = 'https://flv-b/live.flv'
+    hls_url = 'https://hls-avc/playlist'
+    web_url = 'https://web/live.flv'
+    flv = _stream('http_stream', 'avc', [250], '/live.flv', 'https://flv-a')
+    flv_entry = flv['format'][0]['codec'][0]
+    flv_entry['current_qn'] = 250
+    flv_entry['url_info'].append({'host': 'https://flv-b', 'extra': ''})
+    hls = _stream('http_hls', 'avc', [400], '/playlist', 'https://hls-avc')
+    hls['format'][0]['codec'][0]['current_qn'] = 400
+    hevc = _stream('http_hls', 'hevc', [10000], '/playlist', 'https://hls-hevc')
+    play = {'g_qn_desc': [{'qn': 400, 'desc': '蓝光'}, {'qn': 250, 'desc': '超清'}],
+            'stream': [hevc, hls, flv]}
+    app_attempts = [call(url, bili.STREAM_APP) for url in (flv_b, flv_a, hls_url)]
+    with patch.object(bili, '_app_play_info', return_value=play) as app, \
+            patch.object(bili, '_web_play_urls', autospec=True,
+                         side_effect=AssertionError('不应退回 web')) as web, \
+            patch.object(bili, '_fetchable', side_effect=[False, False, True]) as fetch:
+        result = bili.play_url('1001', 250, source_offset=1)
+    assert result == (hls_url, 400, 'app-hls-avc', bili.STREAM_APP)
+    assert fetch.call_args_list == app_attempts
+    app.assert_called_once_with('1001', 250, 'avc')
+    web.assert_not_called()
+
+    with patch.object(bili, '_app_play_info', return_value=play), \
+            patch.object(bili, '_web_play_urls', return_value=[([web_url], 250, 'web')]) as web, \
+            patch.object(bili, '_fetchable', side_effect=[False, False, False, True]) as fetch:
+        assert bili.play_url('1001', 250, source_offset=1) == (web_url, 250, 'web', bili.STREAM_WEB)
+    assert fetch.call_args_list == app_attempts + [call(web_url, bili.STREAM_WEB)]
+    web.assert_called_once_with('1001', 250, 'avc')
+
+    cancelled = False
+
+    def cancel_on_last_flv(url, _headers):
+        nonlocal cancelled
+        cancelled = url == flv_a
+        return False
+
+    with patch.object(bili, '_app_play_info', return_value=play), \
+            patch.object(bili, '_web_play_urls') as web, \
+            patch.object(bili, '_fetchable', side_effect=cancel_on_last_flv) as fetch:
+        try:
+            bili.play_url('1001', 250, cancelled=lambda: cancelled, source_offset=1)
+        except bili.Cancelled:
+            pass
+        else:
+            raise AssertionError('FLV 探测期间取消后不应尝试 HLS')
+    assert fetch.call_args_list == app_attempts[:2]
+    web.assert_not_called()
+
+    resolver = bili.StreamResolver('1001', 250)
+    resolved, failed = [], []
+    resolver.resolved.connect(lambda *args: resolved.append(args))
+    resolver.failed.connect(lambda *args: failed.append(args))
+    with patch.object(bili, '_app_play_info', return_value=play), \
+            patch.object(bili, '_fetchable', side_effect=lambda url, _headers: url == hls_url):
+        resolver.run()
+    assert not failed and len(resolved) == 1
+    assert resolved[0][1:4] == (hls_url, 400, 'app-hls-avc')
+    assert [option['qn'] for option in resolved[0][4]] == [400]
+
+    # 主播偏好档位重新取流后也可能切到 HLS，菜单应跟随最终通道。
+    flv_entry['accept_qn'] = [400, 250]
+    resolved.clear()
+    resolver.streamer_height = 0
+    with patch.object(bili, '_app_play_info', return_value=play), \
+            patch.object(bili, '_fetchable', side_effect=[True, False, False, True]):
+        resolver.run()
+    assert not failed and len(resolved) == 1 and resolver.applied_streamer_quality
+    assert resolved[0][1:4] == (hls_url, 400, 'app-hls-avc')
+    assert [option['qn'] for option in resolved[0][4]] == [400]
+
+
 def check_codec_fallback() -> None:
     for codec in ("hevc", "av1"):
         with patch.object(bili.requests, "get",
@@ -186,8 +262,8 @@ def check_codec_fallback() -> None:
 
     # H.264 的 app 接口也不可用时，仍可走原有 web 备用通道与对应请求头。
     with patch.object(bili, "_app_play_info", return_value={}), \
-            patch.object(bili, "_web_play_urls", return_value=(
-                ["https://web-a/live.flv", "https://web-b/live.flv"], 250)) as web, \
+            patch.object(bili, "_web_play_urls", return_value=[
+                (["https://web-a/live.flv", "https://web-b/live.flv"], 250, "web")]) as web, \
             patch.object(bili, "_fetchable", return_value=True) as fetch:
         result = bili.play_url("1001", 400, codec="av1", source_offset=1)
     assert result == ("https://web-b/live.flv", 250, "web", bili.STREAM_WEB)
@@ -518,7 +594,7 @@ def check_original_quality_gate() -> None:
     resolver.resolved.connect(lambda *args, results=resolved: results.append(args))
     resolver.failed.connect(lambda *args, errors=failed: errors.append(args))
 
-    def cancelled_options(*args):
+    def cancelled_options(*args, profile=""):
         resolver.cancel()
         return [{"qn": 400, "desc": "蓝光"}]
 
@@ -920,6 +996,7 @@ def main() -> None:
                         ("app-room 地址", check_app_urls),
                         ("play_url", check_play_url),
                         ("H.264仅HLS房间与FLV优先", check_avc_hls_only_room),
+                        ("H.264 FLV失败后的App HLS与Web回退", check_avc_hls_fallback),
                         ("缺失编码回退及房间隔离", check_codec_fallback),
                         ("画质档位", check_quality_options),
                         ("4K能力、取流与降档显示", check_4k_quality),
