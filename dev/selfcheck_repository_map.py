@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RepositoryMapTests(unittest.TestCase):
+    def test_flutter_sources_live_in_the_standalone_repository(self):
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "-z", "--", "mobile", ":(glob)**/*.dart"], cwd=ROOT)
+        self.assertEqual(tracked, b"")
+
     def test_all_tracked_auxiliary_files_are_documented(self):
         tracked = subprocess.check_output(
             ["git", "ls-files", "-z"], cwd=ROOT).decode("utf-8").split("\0")
