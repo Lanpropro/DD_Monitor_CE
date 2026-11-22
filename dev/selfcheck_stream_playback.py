@@ -118,6 +118,20 @@ for name in ('_start_startup_tiles', 'start_all', 'apply_quality_policy', 'start
 
 
 class StreamPlaybackTests(unittest.TestCase):
+    def test_native_workspace_seek_stays_in_the_current_cache(self):
+        from ddm.player import TilePlayer
+
+        player = SimpleNamespace(player=object(), _media='fixture',
+            _prop=lambda *_args: {'seekable-ranges': [
+                {'start': 20., 'end': 26.}, {'start': 1., 'end': 10.},
+                {'start': 11., 'end': float('inf')}]}, seek_to=Mock(return_value=True))
+        player.cached_seek_ranges = lambda: TilePlayer.cached_seek_ranges(player)
+        self.assertEqual(player.cached_seek_ranges(), ((1., 10.), (20., 26.)))
+        self.assertFalse(TilePlayer.seek_cached(player, 15.))
+        player.seek_to.assert_not_called()
+        self.assertTrue(TilePlayer.seek_cached(player, 22.))
+        player.seek_to.assert_called_once_with(22.)
+
     def test_source_resolution_is_reported_only_to_the_active_tile(self):
         self.tile.room['room_id'] = 'm3u:preset:fixture'
         self.tile.quality_options = [{'qn': 0, 'desc': '源自适应'}]

@@ -1,5 +1,6 @@
 """每个画面独立的 libmpv 播放、音频与故障恢复。"""
 import os
+import math
 import re
 import sys
 import time
@@ -66,10 +67,11 @@ class TilePlayer(QObject):
                 core.terminate()
         return cls._version
 
-    def __init__(self, video_widget, parent=None, silent: bool = False):
+    def __init__(self, video_widget, parent=None, silent: bool = False, *, live_rewind=False):
         super().__init__(parent)
         self.video_widget = video_widget
         self.silent = bool(silent)
+        self._live_rewind = bool(live_rewind) and not self.silent
         self.muted = self.silent
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
@@ -206,7 +208,9 @@ class TilePlayer(QObject):
                 input_builtin_dragging=False, idle=True, keep_open=True,
                 # Close WASAPI on mpv's core thread, not during GUI-thread termination.
                 gapless_audio=False,
-                cache=True, demuxer_max_bytes="16MiB", demuxer_max_back_bytes=0,
+                cache=True, demuxer_max_bytes="16MiB",
+                demuxer_max_back_bytes="32MiB" if self._live_rewind else 0,
+                **({"force_seekable": True, "demuxer_seekable_cache": True} if self._live_rewind else {}),
                 network_timeout=8, log_handler=self._log, loglevel="error",
             )
         self._bound_hwnd = hwnd
@@ -418,6 +422,23 @@ class TilePlayer(QObject):
             return False
         self.player.command('seek', seconds, 'absolute+exact')
         return True
+
+    def cached_seek_ranges(self):
+        """Return the currently seekable intervals, including any gaps between them."""
+        if self.player is None or self._media is None:
+            return ()
+        cache = self._prop('demuxer-cache-state', {}) or {}
+        intervals = []
+        for interval in cache.get('seekable-ranges', ()):
+            start, end = interval.get('start'), interval.get('end')
+            if all(isinstance(value, (float, int)) and math.isfinite(value)
+                   for value in (start, end)) and start < end:
+                intervals.append((start, end))
+        return tuple(sorted(intervals))
+
+    def seek_cached(self, seconds):
+        """Seek only to media currently retained by libmpv."""
+        return any(start <= seconds <= end for start, end in self.cached_seek_ranges()) and self.seek_to(seconds)
 
     @property
     def actual_decoder(self) -> str:

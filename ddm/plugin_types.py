@@ -382,12 +382,12 @@ class PluginContext:
         controller = getattr(self.window, 'skin_controller', None)
         return controller.changed if controller is not None else None
 
-    def create_workspace_player(self, video_widget):
+    def create_workspace_player(self, video_widget, *, live_rewind=False):
         """Create a native player for a plugin workspace video surface on the GUI thread."""
         if not self._active:
             raise RuntimeError('Plugin context is inactive')
         from .player import TilePlayer
-        return TilePlayer(video_widget, parent=video_widget)
+        return TilePlayer(video_widget, parent=video_widget, live_rewind=live_rewind)
 
     def create_plugin_widget(self, plugin_id, capability, parent, **options):
         """Create an embedded widget provided by an enabled plugin on the GUI thread."""

@@ -521,6 +521,8 @@ B 站互动由本体提供，其他平台的互动能力通过插件扩展。
 
 `context.create_workspace_player(video_widget)` 在 GUI 线程为功能页的 QWidget 创建本体原生播放器。插件在视频承载控件显示后使用 `play(url, profile, headers=None)` 开始播放，通过 `stateChanged` 接收 `connecting`、`buffering`、`playing`、`frozen` 和 `error` 等状态。`set_muted(bool)` 控制声音。页面关闭或插件卸载时调用 `release()` 释放播放资源，重新播放时可创建新的播放器。旧宿主需先检查此方法是否存在。
 
+需要在直播缓存内微调偏移的功能页可传 `live_rewind=True` 保留最近的已播放数据。`cached_seek_ranges()` 返回可跳转区间，`seek_cached(seconds)` 仅接受当前缓存内的目标位置。`playback_timing()` 返回主画面当前媒体位置及可用时长，`play(..., options=decode_media_options(mode))` 可沿用本体的解码模式。
+
 播放器的 `playback_timing()` 返回当前播放秒数和可定位的媒体时长。未知值返回 `None`。可定位时 `seek_to(seconds)` 请求跳到指定播放位置。
 
 `context.create_plugin_widget(plugin_id, capability, parent, **options)` 在 GUI 线程调用已启用插件的 `create_embedded_widget(capability, parent, caller, **options)`。各提供方定义能力名称和选项。提供方缺失或不支持该能力时返回 `None`。提供的控件以调用方传入的容器为父对象，调用方在关闭页面时负责关闭并释放控件。
