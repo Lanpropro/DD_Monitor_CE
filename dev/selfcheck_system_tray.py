@@ -837,5 +837,10 @@ def native_contract():
 if __name__ == '__main__':
     if '--native-contract' in sys.argv:
         native_contract()
+    elif len(sys.argv) == 1:
+        from checks.widget_cases import run_widget_cases
+        results = [run_widget_cases(case, __file__)
+                   for case in (SystemTrayTests, TrayMenuChoicesTests, TrayLayoutPreviewTests)]
+        raise SystemExit(int(any(results)))
     else:
         unittest.main()
