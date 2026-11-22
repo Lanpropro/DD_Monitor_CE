@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 
 from .shortcut_actions import (
     DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOLUME_STEP, FULLSCREEN_VOLUME_SHORTCUTS,
-    SHORTCUT_ACTIONS, WHEEL_SHORTCUTS, wheel_volume_step
+    LAYOUT_WHEEL_SHORTCUTS, SHORTCUT_ACTIONS, VOLUME_WHEEL_SHORTCUTS, WHEEL_SHORTCUTS, wheel_volume_step
 )
 from .settings_layout import SettingsColumns, SettingsSection
 from .settings_focus import WHEEL_SPEEDS, normalize_wheel_speed
@@ -26,6 +26,8 @@ _SHORTCUT_TITLES = {
     'fullscreen_volume_up': '全屏增大音量', 'fullscreen_volume_down': '全屏减小音量',
     'pip_volume_up': '画中画增大音量', 'pip_volume_down': '画中画减小音量',
     'pip_mute': '画中画静音', 'pip_solo': '画中画单路声音', 'pip_exit': '退出画中画',
+    'layout_grow': '等比放大直播格', 'layout_shrink': '等比缩小直播格',
+    'layout_portrait_tall': '竖屏占位 1×3', 'layout_portrait_short': '竖屏占位 1×2',
 }
 
 
@@ -70,28 +72,15 @@ class ShortcutSettingsPage(QWidget):
             ('home', '主窗口 · 画面与关注', ('focus', 'restore', 'close_tile', 'danmaku_input', 'toggle_folders')),
             ('general', '主窗口 · 播放控制', ('mute', 'audio_cycle', 'record', 'video_danmaku', 'solo')),
             ('fullscreen', '主窗口 · 全屏音量', FULLSCREEN_VOLUME_SHORTCUTS),
-            ('wheel', '滚轮设置', WHEEL_SHORTCUTS),
+            ('wheel', '滚轮设置', VOLUME_WHEEL_SHORTCUTS),
             ('pip', '画中画快捷键', ('pip_volume_up', 'pip_volume_down', 'pip_mute', 'pip_solo', 'pip_exit')),
+            ('custom_layout', '自定义布局 · 窗口快捷键', LAYOUT_WHEEL_SHORTCUTS),
         )
         actions_by_key = {key: item for item in SHORTCUT_ACTIONS for key in (item[0],)}
         for key, title, keys in groups:
             self._group_keys[key] = keys
             self.sections.add_section(key, self._build_group(
                 key, title, [actions_by_key[name] for name in keys], shortcuts, settings or {}))
-        layout_title = '自定义布局 · 窗口快捷键'
-        layout_shortcuts = SettingsSection(layout_title)
-        layout_shortcuts.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
-        self._layout_shortcut_hints = []
-        for row, (text, aliases) in enumerate((
-            ('等比缩放 · 悬停直播格，Ctrl＋滚轮', 'Ctrl+滚轮 Ctrl+WheelUp Ctrl+WheelDown 画面格 调整大小'),
-            ('竖屏占位 · Alt＋滚轮，上滚 1×3、下滚 1×2', 'Alt+滚轮 Alt+WheelUp Alt+WheelDown'),
-        )):
-            hint = QLabel(text, layout_shortcuts)
-            hint.setWordWrap(True)
-            hint.setObjectName('SettingsHint')
-            layout_shortcuts.grid.addWidget(hint, row, 0, 1, 2)
-            self._layout_shortcut_hints.append((hint, ' '.join((layout_title, text, aliases))))
-        self.sections.add_section('custom_layout', layout_shortcuts)
         layout.addWidget(self.sections)
         layout.addStretch(1)
         self._all_sections = list(self.sections.entries)
@@ -213,6 +202,8 @@ class ShortcutSettingsPage(QWidget):
             binding = edit.text() if isinstance(edit, QLineEdit) else ' '.join(
                 edit.keySequence().toString(format) for format in
                 (QKeySequence.PortableText, QKeySequence.NativeText))
+            if key in LAYOUT_WHEEL_SHORTCUTS:
+                binding += ' ' + binding.replace('WheelUp', '滚轮').replace('WheelDown', '滚轮')
             match = matches_query(self._search_text[key] + ' ' + binding, query)
             widget.setVisible(match)
             if match:
@@ -222,22 +213,16 @@ class ShortcutSettingsPage(QWidget):
         speed_match = matches_query('滚轮设置 设置页滚轮灵敏度 页面滚动速度', query)
         self._wheel_options.setVisible(wheel_match)
         self._wheel_speed_row.setVisible(speed_match)
-        layout_match = False
-        for hint, text in self._layout_shortcut_hints:
-            match = matches_query(text, query)
-            hint.setVisible(match)
-            layout_match |= match
         wheel_matches = wheel_match or speed_match
         for entry in self._all_sections:
             key, card, _wide = entry
             match = (key == 'wheel' and wheel_matches
-                     or key == 'custom_layout' and layout_match
-                     or any(name in visible for name in self._group_keys.get(key, ())))
+                     or any(name in visible for name in self._group_keys[key]))
             card.setVisible(match)
             if match:
                 self.sections.entries.append(entry)
         self.sections._arrange()
-        self.empty.setVisible(not visible and not wheel_matches and not layout_match)
+        self.empty.setVisible(not visible and not wheel_matches)
 
     def _reset_one(self, key):
         self._row_toggles[key].setChecked(True)

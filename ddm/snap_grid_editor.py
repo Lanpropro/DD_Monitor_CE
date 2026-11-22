@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from . import layouts, snap_grid, theme
 from .corner_geometry import continuous_path
 from .layout_preset_editor import LayoutDraftPreview
+from .shortcut_actions import LAYOUT_PORTRAIT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, wheel_action_step
 
 
 class SnapGridPreview(LayoutDraftPreview):
@@ -18,7 +19,7 @@ class SnapGridPreview(LayoutDraftPreview):
         self.chat_cells = set(bindings)
         draft = snap_grid.with_occupied(ratios.get('grid', defaults), self.occupied)
         super().__init__(wall, base, draft, defaults, parent)
-        self.setAccessibleName('拖动格子移动，按住 Ctrl 滚动鼠标滚轮调整直播格大小')
+        self.setAccessibleName('拖动格子移动，使用自定义布局快捷键调整直播格大小')
         self.setToolTip(self.accessibleName())
 
     def ratios(self):
@@ -77,11 +78,19 @@ class SnapGridPreview(LayoutDraftPreview):
     def wheelEvent(self, event):
         index = self._hit(event.position().toPoint())
         delta = event.angleDelta().y() or event.pixelDelta().y()
-        if (self.drag is not None or event.modifiers() != Qt.ControlModifier or not delta
-                or index is None or index in self.chat_cells):
+        if self.drag is not None or not delta or index is None or index in self.chat_cells:
             return super().wheelEvent(event)
         previous = self.draft
-        target = snap_grid.resize(self.count, previous[index], 1 if delta > 0 else -1)
+        cell = previous[index]
+        shortcuts = getattr(self.wall.window(), 'shortcuts', {})
+        modifiers = event.modifiers()
+        portrait_step = wheel_action_step(shortcuts, LAYOUT_PORTRAIT_SHORTCUTS, modifiers, delta)
+        if portrait_step and cell[2:] in ((2, 1), (3, 1)):
+            target = snap_grid.portrait_cell(self.count, cell, 3 if portrait_step > 0 else 2)
+        elif step := wheel_action_step(shortcuts, LAYOUT_RESIZE_SHORTCUTS, modifiers, delta):
+            target = snap_grid.resize(self.count, cell, step)
+        else:
+            return super().wheelEvent(event)
         self.draft = snap_grid.place(self.count, previous, index, target, self.occupied)
         self._remember(previous)
         self.update()

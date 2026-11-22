@@ -252,6 +252,12 @@ def check_snap_grid_and_other_presets(app):
         window.sidebar.open_layout_picker()
         picker = window.sidebar._picker
         picker.set_group(group)
+        if group == '自定义布局（伪）':
+            assert picker.card_ids() == ['custom_grid9', 'custom_grid16']
+            assert not any(layouts.snap_grid_size(card.property('layoutId')) for card in picker._cards['普通布局'])
+            heading, = picker._sections[group]
+            assert heading.text() == group and heading.isVisible()
+            assert picker._tabs[group].isChecked()
         assert picker.edit_button.isVisible() and picker.edit_button.text() == '修改布局'
         picker.edit_button.click()
         assert picker.isVisible() and picker.edit_button.text() == '选择要修改的布局'
@@ -338,10 +344,13 @@ def check_snap_grid_and_other_presets(app):
                 stop.assert_not_called()
                 start.assert_not_called()
 
-            editor = open_from('普通布局', base)
+            editor = open_from('自定义布局（伪）', base)
             view = editor.preview
             before = view.draft
-            assert wheel(view, units[0].center(), 120)
+            with patch.dict(window.shortcuts, {'layout_grow': 'Ctrl+Alt+WheelDown'}):
+                wheel(view, units[0].center(), 120)
+                assert view.draft == before
+                assert wheel(view, units[0].center(), -120, Qt.ControlModifier | Qt.AltModifier)
             assert view.draft[0] == (0, 0, 2, 2)
             assert first.geometry() == units[0]
             view.undo()
@@ -704,6 +713,19 @@ def check_portrait_live_defaults(app):
                     assert wall.layout_control.cell_of(tile) == (0, 0, 4, 2)
                     resize_with_wheel(tile, -120)
                     assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
+                    custom = Qt.AltModifier | Qt.ControlModifier
+                    with patch.dict(window.shortcuts, {
+                        'layout_grow': 'Ctrl+Alt+WheelDown', 'layout_shrink': 'Ctrl+Alt+WheelUp',
+                        'layout_portrait_tall': 'Ctrl+Shift+WheelDown', 'layout_portrait_short': 'Ctrl+Shift+WheelUp',
+                    }):
+                        resize_with_wheel(tile, -120, custom)
+                        assert wall.layout_control.cell_of(tile) == (0, 0, 4, 2)
+                        resize_with_wheel(tile, 120, custom)
+                        assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
+                        resize_with_wheel(tile, -120, Qt.ControlModifier | Qt.ShiftModifier)
+                        assert wall.layout_control.cell_of(tile) == (0, 0, 3, 1)
+                        resize_with_wheel(tile, 120, Qt.ControlModifier | Qt.ShiftModifier)
+                        assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
 
                 resize_with_wheel(tile, 120, Qt.AltModifier)
                 resize_with_wheel(tile, 120)

@@ -47,6 +47,11 @@ def with_occupied(cells, occupied):
     return result
 
 
+def portrait_cell(size, cell, rows):
+    row, column = cell[:2]
+    return min(row, size - rows), column, rows, 1
+
+
 def resize(size, cell, step):
     row, col, height, width = cell
     if height in (2 * width, 3 * width):

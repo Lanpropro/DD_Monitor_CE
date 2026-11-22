@@ -1,4 +1,4 @@
-"""自查：关注列表拖动排序（含置顶约束）、布局菜单的两个子菜单切换。不联网。"""
+"""自查：关注列表拖动排序（含置顶约束）、布局菜单的分组切换。不联网。"""
 import os
 import sys
 import time
@@ -192,15 +192,14 @@ def main() -> None:
     assert order(sidebar) == before, "拖到列表外面不应该改顺序"
     assert all(entry.isVisible() for entry in sidebar.items()), "卡片要放回去"
 
-    print("\n=== 9. 布局菜单：三栏都列出来（选另一个方向的会自动把窗口也改过去）===")
+    print("\n=== 9. 布局菜单：检查分组切换和竖屏预设 ===")
     picker = LayoutPicker("dm_main3")
     picker.move(-8000, -8000)
     picker.show()
     settle(app, 0.5)
     tabs = list(picker._tabs)
     print(f"  子菜单: {tabs} 当前={picker.group()}")
-    assert tabs == ["普通布局", "弹幕布局", "竖屏布局"], \
-        "三栏都要列：竖屏预设选中时本体会把窗口也改成竖屏（不会压扁）"
+    assert tabs == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局（伪）"], tabs
     assert picker.group() == "弹幕布局", "当前布局在弹幕组里，默认应该停在这一栏"
     compact_size = picker.size()
     visible = [card.text() for card in picker._cards["弹幕布局"] if card.isVisible()]

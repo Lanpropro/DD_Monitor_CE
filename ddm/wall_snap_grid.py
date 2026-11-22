@@ -91,13 +91,9 @@ class WallSnapGrid:
         if plan is not None and plan.changed:
             self._commit(plan.cells)
 
-    def _portrait_cell(self, cell, rows):
-        row, column = cell[:2]
-        return min(row, self.size - rows), column, rows, 1
-
     def _portrait_placement(self, cells, occupied, index, anchor, room_id=None):
         for rows in ((3, 2) if self.size == 4 else (2,)):
-            target = self._portrait_cell(anchor, rows)
+            target = snap_grid.portrait_cell(self.size, anchor, rows)
             result = snap_grid.place(self.size, cells, index, target, occupied)
             if result != cells or target == cells[index]:
                 return _Placement(index, target, result, result != cells, room_id)
@@ -111,7 +107,7 @@ class WallSnapGrid:
         cell = cells[index]
         if cell is None or cell[2:] not in ((2, 1), (3, 1)):
             return False
-        target = self._portrait_cell(cell, 3 if step > 0 else 2)
+        target = snap_grid.portrait_cell(self.size, cell, 3 if step > 0 else 2)
         result = snap_grid.place(self.size, cells, index, target, self.occupied())
         if result != cells:
             self._commit(result)

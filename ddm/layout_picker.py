@@ -65,9 +65,14 @@ class LayoutPicker(QFrame):
             keys.append(self.custom_layouts_key)
         if presets_host is not None:
             keys.append(self._presets_key)
-        self.tabs = SegmentedControl([(name, name) for name in keys], active, self)
+        tab_labels = {layouts.CUSTOM_GRID_GROUP: '伪布局', self.custom_layouts_key: '已保存'}
+        self.tabs = SegmentedControl([(name, tab_labels.get(name, name)) for name in keys], active, self)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._tabs = self.tabs.buttons
+        for name in keys:
+            if name in tab_labels:
+                self._tabs[name].setToolTip(name)
+                self._tabs[name].setAccessibleName(name)
         self.tabs.valueChanged.connect(self.set_group)
         outer.addWidget(self.tabs)
 

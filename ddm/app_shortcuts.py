@@ -6,7 +6,8 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from .playback_controls import VolumeButton
 from .shortcut_actions import (
     DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
-    WHEEL_SHORTCUTS, wheel_volume_step
+    LAYOUT_PORTRAIT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, WHEEL_SHORTCUTS,
+    matches_wheel, wheel_action_step, wheel_volume_step
 )
 from .video_surface import VideoSurface
 
@@ -73,15 +74,17 @@ class AppShortcuts(QObject):
             return False
         modifiers = event.modifiers()
         snap_grid = getattr(host.wall, 'snap_grid', None)
-        if (not in_pip and modifiers in (Qt.ControlModifier, Qt.AltModifier)
-                and snap_grid is not None and snap_grid.interactive()
+        if (not in_pip and modifiers and snap_grid is not None and snap_grid.interactive()
                 and QApplication.activePopupWidget() is None):
-            point = host.wall.mapFromGlobal(event.globalPosition().toPoint())
-            tile = next((tile for tile in host.wall.visible_tiles() if tile.geometry().contains(point)), None)
-            adjust = snap_grid.resize_tile if modifiers == Qt.ControlModifier else snap_grid.switch_portrait_rows
-            if tile is not None and adjust(tile, 1 if delta > 0 else -1):
-                event.accept()
-                return True
+            portrait_step = wheel_action_step(host.shortcuts, LAYOUT_PORTRAIT_SHORTCUTS, modifiers, delta)
+            resize_step = wheel_action_step(host.shortcuts, LAYOUT_RESIZE_SHORTCUTS, modifiers, delta)
+            if portrait_step or resize_step:
+                point = host.wall.mapFromGlobal(event.globalPosition().toPoint())
+                tile = next((tile for tile in host.wall.visible_tiles() if tile.geometry().contains(point)), None)
+                if tile is not None and (portrait_step and snap_grid.switch_portrait_rows(tile, portrait_step)
+                                         or resize_step and snap_grid.resize_tile(tile, resize_step)):
+                    event.accept()
+                    return True
         if not in_pip and modifiers == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):
             if (not isinstance(watched, VideoSurface)
                     or not watched.rect().contains(event.position().toPoint())
@@ -106,22 +109,8 @@ class AppShortcuts(QObject):
         return True
 
     def _matches_volume_wheel(self, pressed, delta):
-        if not pressed:
-            return False
         key = 'volume_up' if delta > 0 else 'volume_down'
-        shortcut = self.host.shortcuts.get(key, 'Shift+WheelUp' if delta > 0 else 'Shift+WheelDown')
-        parts = [part for part in shortcut.split('+') if part]
-        wheel = 'WheelUp' if delta > 0 else 'WheelDown'
-        if not parts or parts[-1] != wheel:
-            return False
-        modifiers = Qt.NoModifier
-        keys = {'Shift': Qt.ShiftModifier, 'Ctrl': Qt.ControlModifier,
-                'Alt': Qt.AltModifier, 'Meta': Qt.MetaModifier}
-        for part in parts[:-1]:
-            if part not in keys:
-                return False
-            modifiers |= keys[part]
-        return pressed == modifiers
+        return matches_wheel(self.host.shortcuts.get(key, DEFAULT_SHORTCUTS[key]), pressed, delta)
 
     def sync_input_shortcuts(self, *_args) -> None:
         host = self.host

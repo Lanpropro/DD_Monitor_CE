@@ -59,8 +59,13 @@ LAYOUTS: list[dict] = [
      "spec": (3, 3, [(0, 0, 2, 2), (0, 2, 1, 1), (1, 2, 1, 1), (2, 0, 1, 1), (2, 1, 1, 1), (2, 2, 1, 1)])},
     {"id": "two_rows", "name": "双主画面 + 4 小",
      "spec": (4, 3, [(0, 0, 2, 2), (2, 0, 2, 2)] + [(row, 2, 1, 1) for row in range(4)])},
+]
+
+
+CUSTOM_GRID_GROUP = "自定义布局（伪）"
+CUSTOM_GRID_LAYOUTS: list[dict] = [
     {"id": "custom_grid9", "name": "自定义九格", "spec": (3, 3, even_cells(3, 3)),
-     "snap_grid": 3, "section": "自定义"},
+     "snap_grid": 3, "section": CUSTOM_GRID_GROUP},
     {"id": "custom_grid16", "name": "自定义十六格", "spec": (4, 4, even_cells(4, 4)),
      "snap_grid": 4},
 ]
@@ -159,10 +164,10 @@ GROUPS: list[tuple[str, list[dict]]] = [
     ("普通布局", LAYOUTS),
     ("弹幕布局", DANMAKU_LAYOUTS),
     ("竖屏布局", PORTRAIT_LAYOUTS + PORTRAIT_DANMAKU_LAYOUTS),
+    (CUSTOM_GRID_GROUP, CUSTOM_GRID_LAYOUTS),
 ]
 
-BY_ID = {layout["id"]: layout
-         for layout in LAYOUTS + DANMAKU_LAYOUTS + PORTRAIT_LAYOUTS + PORTRAIT_DANMAKU_LAYOUTS}
+BY_ID = {layout["id"]: layout for _group, entries in GROUPS for layout in entries}
 
 
 def snap_grid_size(layout_id):

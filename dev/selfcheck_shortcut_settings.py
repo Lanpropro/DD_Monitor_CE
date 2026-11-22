@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from ddm import theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_shortcuts import ShortcutSettingsPage
-from ddm.shortcut_actions import SHORTCUT_ACTIONS, configured_shortcuts
+from ddm.shortcut_actions import DEFAULT_SHORTCUTS, LAYOUT_WHEEL_SHORTCUTS, SHORTCUT_ACTIONS, configured_shortcuts
 
 APP = QApplication.instance() or QApplication([])
 QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
@@ -102,29 +102,46 @@ class ShortcutSettingsTests(unittest.TestCase):
         page.reset()
         self.assertEqual(page.values(), {key: default for key, _label, default in SHORTCUT_ACTIONS})
 
-    def test_custom_layout_gestures_are_searchable_help_and_do_not_add_bindings(self):
+    def test_custom_layout_gestures_are_searchable_editable_and_reset_as_a_group(self):
         page = self.page(width=500)
         before = page.values()
         card = page.sections.section('custom_layout')
         self.assertIsNot(card, page.sections.section('wheel'))
         self.assertEqual(card.findChild(QLabel, 'SettingsSectionTitle').text(), '自定义布局 · 窗口快捷键')
-        self.assertTrue(all(label.parentWidget() is card for label, _terms in page._layout_shortcut_hints))
-        for query, expected in (('Ctrl+滚轮', 'Ctrl＋滚轮'), ('Ctrl+WheelDown', 'Ctrl＋滚轮'),
-                                ('Alt+滚轮', 'Alt＋滚轮'), ('Alt+WheelUp', 'Alt＋滚轮'),
-                                ('1×3', 'Alt＋滚轮'), ('竖屏占位', 'Alt＋滚轮')):
+        self.assertEqual(page._group_keys['custom_layout'], LAYOUT_WHEEL_SHORTCUTS)
+        for query, expected in (
+            ('Ctrl+滚轮', ('layout_grow', 'layout_shrink')), ('Ctrl+WheelDown', ('layout_shrink',)),
+            ('Alt+滚轮', ('layout_portrait_tall', 'layout_portrait_short')),
+            ('Alt+WheelUp', ('layout_portrait_tall',)), ('1×3', ('layout_portrait_tall',)),
+        ):
             page.search.setText(query)
             settle()
-            visible = [label.text() for label, _terms in page._layout_shortcut_hints if label.isVisible()]
-            self.assertEqual(len(visible), 1)
-            self.assertIn(expected, visible[0])
+            self.assertEqual(tuple(key for key in LAYOUT_WHEEL_SHORTCUTS if page._rows[key].isVisible()), expected)
             self.assertFalse(page.empty.isVisible())
             self.assertEqual([key for key, _card, _wide in page.sections.entries], ['custom_layout'])
         page.search.setText('自定义布局 窗口快捷键')
-        self.assertTrue(all(label.isVisible() for label, _terms in page._layout_shortcut_hints))
+        self.assertTrue(all(page._edits[key].isVisible() and page._edits[key].property('mouseShortcut')
+                            for key in LAYOUT_WHEEL_SHORTCUTS))
+        editor = page._edits['layout_portrait_tall']
+        editor.setFocus()
+        editor.selectAll()
+        QTest.keyClicks(editor, 'Ctrl+Alt+WheelDown')
+        page._row_toggles['layout_grow'].click()
+        saved = page.values()
+        self.assertEqual(saved['layout_portrait_tall'], 'Ctrl+Alt+WheelDown')
+        self.assertEqual(saved['layout_grow'], '')
+        self.assertEqual(self.page(saved).values(), saved)
+        page._edits['volume_up'].setText('Meta+WheelUp')
+        reset = next(button for button in card.findChildren(QPushButton)
+                     if button.accessibleName() == '恢复本组')
+        reset.click()
+        self.assertEqual({key: page.values()[key] for key in LAYOUT_WHEEL_SHORTCUTS},
+                         {key: DEFAULT_SHORTCUTS[key] for key in LAYOUT_WHEEL_SHORTCUTS})
+        self.assertEqual(page.values()['volume_up'], 'Meta+WheelUp')
         page.search.setText('设置页滚轮灵敏度')
         self.assertFalse(card.isVisible())
         self.assertEqual([key for key, _card, _wide in page.sections.entries], ['wheel'])
-        self.assertEqual(page.values(), before)
+        self.assertEqual(page.values(), dict(before, volume_up='Meta+WheelUp'))
 
     def test_compact_rows_fit_narrow_width_large_font_and_descriptions_are_not_repeated(self):
         previous = dict(theme._preferences)
@@ -177,6 +194,11 @@ class ShortcutSettingsTests(unittest.TestCase):
         page._row_toggles['focus'].click()
         dialog.auto_save.flush()
         self.assertEqual(requested[-1]['shortcuts']['focus'], '')
+        dialog.auto_save.acknowledge()
+        page.search.setText('自定义布局')
+        page._edits['layout_portrait_tall'].setText('Ctrl+Alt+WheelUp')
+        dialog.auto_save.flush()
+        self.assertEqual(requested[-1], {'shortcuts': {'layout_portrait_tall': 'Ctrl+Alt+WheelUp'}})
 
     def test_wheel_options_save_in_shortcuts_page_and_restore_defaults(self):
         dialog = SettingsDialog({'wheel_volume_step': 7, 'hover_wheel_volume': False,
