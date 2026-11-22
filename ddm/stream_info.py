@@ -147,11 +147,11 @@ class StreamInfoDialog(SettingsWindow):
         self.windowHandle().setTransientParent(owner.windowHandle())
 
     def position_for_tile(self, tile):
-        anchor = tile.mapToGlobal(tile.rect().topRight())
+        anchor = tile.mapToGlobal(tile.rect().topLeft())
         screen = QApplication.screenAt(anchor) or tile.screen()
         area = screen.availableGeometry()
         self.resize(min(self.width(), area.width()), min(self.height(), area.height()))
-        x = anchor.x() - 10 - self.width() + 1
+        x = anchor.x() + 10
         y = anchor.y() + 10
         self.move(max(area.left(), min(x, area.right() - self.width() + 1)),
                   max(area.top(), min(y, area.bottom() - self.height() + 1)))

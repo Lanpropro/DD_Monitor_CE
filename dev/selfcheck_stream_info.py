@@ -131,7 +131,7 @@ class StreamInfoTests(unittest.TestCase):
         dialog.hide()
         self.assertFalse(dialog.timer.isActive())
 
-    def test_dialog_aligns_to_tile_top_right_and_stays_in_work_area(self):
+    def test_dialog_aligns_to_tile_top_left_and_stays_in_work_area(self):
         tile = QWidget()
         self.addCleanup(tile.close)
         area = tile.screen().availableGeometry()
@@ -139,10 +139,10 @@ class StreamInfoTests(unittest.TestCase):
         dialog = StreamInfoDialog(lambda: {'state': 'playing'})
         self.addCleanup(dialog.close)
         dialog.position_for_tile(tile)
-        self.assertEqual(dialog.geometry().topRight(),
-                         tile.mapToGlobal(tile.rect().topRight()) + QPoint(-10, 10))
+        self.assertEqual(dialog.geometry().topLeft(),
+                         tile.mapToGlobal(tile.rect().topLeft()) + QPoint(10, 10))
 
-        tile.move(area.left() - tile.width() + 30, area.bottom() - 30)
+        tile.move(area.left() - 30, area.bottom() - 30)
         dialog.position_for_tile(tile)
         self.assertTrue(area.contains(dialog.geometry()))
         self.assertEqual(dialog.geometry().bottomLeft(), area.bottomLeft())
@@ -206,8 +206,8 @@ class StreamInfoTests(unittest.TestCase):
         other_dialog = window._stream_info_dialogs[second]
         self.addCleanup(other_dialog.close)
         for host_tile, info_dialog in ((first, dialog), (second, other_dialog)):
-            self.assertEqual(info_dialog.geometry().topRight(),
-                             host_tile.mapToGlobal(host_tile.rect().topRight()) + QPoint(-10, 10))
+            self.assertEqual(info_dialog.geometry().topLeft(),
+                             host_tile.mapToGlobal(host_tile.rect().topLeft()) + QPoint(10, 10))
         dialog.move(QPoint(60, 55))
         position = dialog.pos()
         MainWindow._open_tile_stream_info(window, first)
@@ -217,8 +217,8 @@ class StreamInfoTests(unittest.TestCase):
         MainWindow._open_tile_stream_info(window, first)
         self.assertEqual(len(window._stream_info_dialogs), 2)
         self.assertIs(window._stream_info_dialogs[first], dialog)
-        self.assertEqual(dialog.geometry().topRight(),
-                         first.mapToGlobal(first.rect().topRight()) + QPoint(-10, 10))
+        self.assertEqual(dialog.geometry().topLeft(),
+                         first.mapToGlobal(first.rect().topLeft()) + QPoint(10, 10))
         first.room = {'room_id': '303', 'uname': 'Replacement'}
         replacement = Mock()
         replacement.stream_info.return_value = {'host': 'replacement.test'}
@@ -264,8 +264,8 @@ class StreamInfoTests(unittest.TestCase):
                     APP.processEvents()
                     self.assertTrue(dialog.isVisible())
                     self.assertIs(dialog.windowHandle().transientParent(), tile.windowHandle())
-                    self.assertEqual(dialog.geometry().topRight(),
-                                     tile.mapToGlobal(tile.rect().topRight()) + QPoint(-10, 10))
+                    self.assertEqual(dialog.geometry().topLeft(),
+                                     tile.mapToGlobal(tile.rect().topLeft()) + QPoint(10, 10))
                     dialog.hide()
                     window._open_tile_stream_info(tile)
                     self.assertIs(window._stream_info_dialogs[tile], dialog)
