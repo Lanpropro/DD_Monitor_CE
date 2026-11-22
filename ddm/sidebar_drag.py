@@ -60,6 +60,7 @@ class SidebarDrag(QObject):
         pane = mime.hasFormat(DANMAKU_CELL_MIME)
         if grid is not None and grid.interactive() and (pane or mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
             self.snap_grid = grid
+            grid.prepare_room_drag(mime)
         self.actions = (Qt.MoveAction if pane or mime.hasFormat(FOLDER_MIME) or mime.hasFormat(TILE_MIME)
                         else Qt.CopyAction | Qt.MoveAction)
         if not pixmap.isNull():
@@ -174,6 +175,10 @@ class SidebarDrag(QObject):
         target, self.target = self.target, None
         if target is not None and isValid(target):
             QApplication.sendEvent(target, QDragLeaveEvent())
+
+    def refresh_snap_target(self, grid):
+        if self.snap_grid is grid:
+            self._last_update = None
 
     def _update_target(self):
         widget = widget_at(self.position)

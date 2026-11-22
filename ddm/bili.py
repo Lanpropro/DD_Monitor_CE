@@ -218,16 +218,28 @@ def _resolve_room_id(room_id: str) -> str:
     if not room_id.isdigit():
         return room_id
     try:
-        response = requests.get(
-            "https://api.live.bilibili.com/room/v1/Room/room_init",
-            params={"id": room_id}, headers=HEADERS, cookies=_cookies(), timeout=10)
-        data = response.json()
-        real_id = (data.get("data") or {}).get("room_id")
+        real_id = _room_init(room_id).get("room_id")
         if real_id:
             return str(real_id)
     except Exception:  # noqa: BLE001
         pass
     return room_id
+
+
+def _room_init(room_id: str, *, timeout=10) -> dict:
+    response = requests.get(
+        "https://api.live.bilibili.com/room/v1/Room/room_init",
+        params={"id": room_id}, headers=HEADERS, cookies=_cookies(), timeout=timeout)
+    return response.json().get("data") or {}
+
+
+def room_is_portrait(room_id: str) -> bool | None:
+    try:
+        info = _room_init(room_id, timeout=2)
+        portrait = info.get("is_portrait")
+    except (requests.RequestException, AttributeError, ValueError):
+        return None
+    return portrait if info.get("live_status") == 1 and isinstance(portrait, bool) else None
 
 
 def _wbi_key() -> str:

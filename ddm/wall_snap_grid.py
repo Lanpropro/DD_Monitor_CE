@@ -1,5 +1,6 @@
 """Placement and gestures for the wall's two free-placement layouts."""
 from dataclasses import dataclass
+from time import monotonic
 
 from PySide6.QtWidgets import QMenu
 
@@ -21,6 +22,9 @@ class WallSnapGrid:
     def __init__(self, wall):
         self.wall = wall
         self.guide = None
+        self._orientation_checks = {}
+        self._orientations = {}
+        self._pending_drops = {}
 
     @property
     def size(self):
@@ -57,13 +61,15 @@ class WallSnapGrid:
     def watch_new_room_aspect(self, tile):
         if self.interactive():
             cell = self.wall.layout_control.cell_of(tile)
-            if cell is not None and cell[2:] == (1, 1):
+            if cell is not None and cell[2] == cell[3]:
                 tile.state_control.pending_grid_aspect = self.wall.layout_id
 
     def wants_video_aspect(self, tile):
         return tile.state_control.pending_grid_aspect is not None
 
     def cancel_aspect_requests(self, base):
+        if base == self.wall.layout_id:
+            self.cancel_pending_drops()
         for tile in self.wall.tiles:
             if tile.state_control.pending_grid_aspect == base:
                 tile.state_control.pending_grid_aspect = None
@@ -79,12 +85,57 @@ class WallSnapGrid:
             return
         cells = self.cells()
         cell = cells[index]
-        if cell is None or cell[2:] != (1, 1) or cell[0] + 2 > self.size:
+        if cell is None or cell[2] != cell[3]:
             return
-        row, column, _, _ = cell
-        result = snap_grid.place(self.size, cells, index, (row, column, 2, 1), self.occupied())
+        target = self._portrait_cell(cell)
+        result = snap_grid.place(self.size, cells, index, target, self.occupied())
         if result != cells:
             self._commit(result)
+
+    def _portrait_cell(self, cell):
+        row, column = cell[:2]
+        return min(row, self.size - 2), column, 2, 1
+
+    def prepare_room_drag(self, mime):
+        if not mime.hasFormat(ROOM_MIME):
+            return
+        room_id = bytes(mime.data(ROOM_MIME)).decode('utf-8', 'ignore')
+        host = self.wall.window()
+        if not room_id.isdigit() or not hasattr(host, 'sidebar') or host._tile_of(room_id) is not None:
+            return
+        room = next((item for item in host.sidebar.rooms() if str(item.get('room_id')) == room_id), None)
+        if room is None or not room.get('live'):
+            return
+        started = room.get('live_start_ts')
+        cached = self._orientations.get(room_id)
+        if room_id in self._orientation_checks or (cached and cached[0] == started and cached[1] > monotonic()):
+            return
+        self._orientations.pop(room_id, None)
+        from .bili_workers import RoomOrientation
+        worker = RoomOrientation(room_id, host)
+        self._orientation_checks[room_id] = worker
+        host._platform_info_running.add(worker)
+        worker.finished.connect(lambda: self._orientation_ready(worker, started))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _orientation_ready(self, worker, started):
+        host = self.wall.window()
+        host._platform_info_running.discard(worker)
+        room_id = worker.room_id
+        self._orientation_checks.pop(room_id, None)
+        unit = self._pending_drops.pop(room_id, None)
+        if host._closing:
+            return
+        if worker.portrait is not None:
+            self._orientations[room_id] = (started, monotonic() + 60, worker.portrait)
+        host.sidebar.drag_session.refresh_snap_target(self)
+        if unit is not None and self.interactive() and host._tile_of(room_id) is None:
+            if plan := self._new_room_placement(room_id, unit, self.cells(), self.occupied()):
+                self._place_room(plan, self.wall.roomDropped.emit)
+
+    def cancel_pending_drops(self):
+        self._pending_drops.clear()
 
     def _commit(self, cells):
         wall = self.wall
@@ -173,7 +224,8 @@ class WallSnapGrid:
         area, gap = wall._corner_area(), wall.grid.spacing()
         units = tuple(snap_grid.geometry(self.size, wall._cells(), area, gap).values())
         plan = self._placement(mime, point)
-        target = snap_grid.geometry(self.size, [plan.target], area, gap)[0] if plan else None
+        target = (snap_grid.geometry(self.size, [plan.target], area, gap)[0]
+                  if plan and plan.new_room not in self._orientation_checks else None)
         self.guide.present(units, target)
 
     def hide_drag_guide(self):
@@ -190,7 +242,6 @@ class WallSnapGrid:
         wall = self.wall
         cells = self.cells()
         occupied = self.occupied()
-        new_room = None
         dy, dx = 0, 0
         if mime.hasFormat(DANMAKU_MIME):
             value = bytes(mime.data(DANMAKU_CELL_MIME))
@@ -217,10 +268,7 @@ class WallSnapGrid:
             return None
         row, column, height, width = unit
         if index is None:
-            index = next((i for i in range(len(cells)) if i not in occupied), None)
-            if index is None:
-                return None
-            new_room = room_id
+            return self._new_room_placement(room_id, unit, cells, occupied)
         elif cells[index] is not None:
             height, width = cells[index][2:]
             row, column = row - dy, column - dx
@@ -232,7 +280,21 @@ class WallSnapGrid:
         result = snap_grid.place(self.size, cells, index, target, occupied)
         changed = result != cells
         if changed or target == cells[index]:
-            return _Placement(index, target, result, changed, new_room)
+            return _Placement(index, target, result, changed, None)
+        return None
+
+    def _new_room_placement(self, room_id, unit, cells, occupied):
+        index = next((i for i in range(len(cells)) if i not in occupied), None)
+        if index is None:
+            return None
+        if (orientation := self._orientations.get(room_id)) and orientation[1] > monotonic() and orientation[2]:
+            target = self._portrait_cell(unit)
+            result = snap_grid.place(self.size, cells, index, target, occupied)
+            if result != cells or target == cells[index]:
+                return _Placement(index, target, result, result != cells, room_id)
+        result = snap_grid.place(self.size, cells, index, unit, occupied)
+        if result != cells or unit == cells[index]:
+            return _Placement(index, unit, result, result != cells, room_id)
         return None
 
     def drop(self, mime, point):
@@ -240,6 +302,9 @@ class WallSnapGrid:
         if plan is None:
             return False
         if plan.new_room is not None:
+            if plan.new_room in self._orientation_checks:
+                self._pending_drops[plan.new_room] = self._unit_at(point)
+                return True
             return self._place_room(plan, self.wall.roomDropped.emit)
         if plan.changed:
             self._commit(plan.cells)

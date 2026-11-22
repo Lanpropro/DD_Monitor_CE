@@ -518,8 +518,9 @@ def check_snap_grid_and_other_presets(app):
 
 
 def check_portrait_live_defaults(app):
+    from threading import Event
     from PySide6.QtCore import QMimeData, QPointF
-    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
     from ddm import snap_grid
     from ddm.sidebar_drag import ROOM_MIME
     from selfcheck_stream_playback import Player
@@ -586,7 +587,7 @@ def check_portrait_live_defaults(app):
 
             edge = drop_room('803', units[size * (size - 1)].center())
             first_frame(edge, portrait)
-            assert wall.layout_control.cell_of(edge) == (size - 1, 0, 1, 1)
+            assert wall.layout_control.cell_of(edge) == ((size - 1, 0, 1, 1) if size == 3 else (2, 0, 2, 1))
 
             wide = drop_room('804', units[2].center())
             first_frame(wide, landscape)
@@ -597,10 +598,79 @@ def check_portrait_live_defaults(app):
             first_frame(manual, portrait, pending=False)
             assert wall.layout_control.cell_of(manual) == (1, 2, 1, 1)
 
+            if size == 4:
+                index = next(i for i in range(size * size) if i not in grid.occupied())
+                enlarged = snap_grid.place(size, grid.cells(), index, (2, 2, 2, 2), grid.occupied())
+                grid._commit(enlarged)
+                window.add_to_wall(dict(room_id='807', uname='竖屏直播', live=False))
+                tile = window._tile_of('807')
+                assert wall.layout_control.cell_of(tile) == (2, 2, 2, 2)
+                first_frame(tile, portrait)
+                assert wall.layout_control.cell_of(tile) == (2, 2, 2, 1)
+
             window.layout_presets.select_builtin('4x4')
             window.add_to_wall(dict(room_id='806', uname='普通布局直播', live=False))
             first_frame(window._tile_of('806'), portrait, pending=False)
         finally:
+            window.close()
+            app.processEvents()
+
+        room = dict(room_id='811', uname='竖屏直播', live=True, live_start_ts=123)
+        window = MainWindow([room], [], layout_id=layout_id, state={
+            'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False}})
+        window.resize(1500, 850)
+        window.show()
+        app.processEvents()
+        wall = window.wall
+        grid = wall.snap_grid
+        session = window.sidebar.drag_session
+        units = snap_grid.geometry(size, layouts.even_cells(size, size),
+                                   wall._corner_area(), wall.grid.spacing())
+        point = units[len(units) - 1].center()
+        expected = units[len(units) - 1].united(units[len(units) - size - 1])
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, b'811')
+        release = Event()
+
+        def room_init(room_id, *, timeout):
+            assert room_id == '811' and timeout == 2 and release.wait(3)
+            return {'is_portrait': True, 'live_status': 1}
+
+        try:
+            with patch('ddm.sidebar_drag.widget_at', return_value=wall), patch('ddm.bili._room_init', side_effect=room_init):
+                def begin_drag():
+                    assert session.start(window.sidebar.items()[0], mime, QPixmap(), QPoint(), wall.mapToGlobal(point))
+
+                begin_drag()
+                assert grid.guide.isVisible() and grid.guide.target is None
+                if size == 4:
+                    # Releasing before the lookup returns must not briefly create a 1×1 tile.
+                    assert session.finish() and window._tile_of('811') is None
+                release.set()
+                worker = grid._orientation_checks['811']
+                assert worker.wait(3000)
+                app.processEvents()
+                if size == 3:
+                    session._tick()
+                    assert grid.guide.target == expected
+                    assert session.finish()
+                tile = window._tile_of('811')
+                assert tile is not None and tile.geometry() == expected
+                assert wall.layout_control.cell_of(tile) == (size - 2, size - 1, 2, 1)
+                assert not grid.wants_video_aspect(tile)
+
+                assert grid.resize_tile(tile, 1)
+                assert tile.geometry() == expected, 'A portrait tile at the grid edge must not widen into a square'
+                if size == 4:
+                    tile.set_room(None)
+                    grid.sync_visibility()
+                    begin_drag()
+                    assert grid.guide.target == expected
+                    assert session.finish() and window._tile_of('811').geometry() == expected
+                    assert snap_grid.resize(size, (0, 0, 2, 1), 1) == (0, 0, 4, 2)
+        finally:
+            release.set()
+            session.cancel()
             window.close()
             app.processEvents()
 

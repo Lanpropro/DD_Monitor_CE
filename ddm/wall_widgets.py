@@ -173,6 +173,7 @@ class WallGrid(QWidget):
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
+        self.snap_grid.cancel_pending_drops()
         self.pane_danmaku.return_all_floating()
         self.set_interactive_resize(False)
         self._resize_on_show = False

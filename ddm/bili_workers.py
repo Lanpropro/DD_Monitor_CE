@@ -245,6 +245,17 @@ class StreamResolver(QThread):
         return fallback
 
 
+class RoomOrientation(QThread):
+    def __init__(self, room_id, parent):
+        super().__init__(parent)
+        self.room_id = room_id
+        self.portrait = None
+
+    def run(self):
+        from .bili import room_is_portrait
+        self.portrait = room_is_portrait(self.room_id)
+
+
 class InfoResolver(QThread):
     """在后台线程查房间信息（添加直播间时用）。"""
 

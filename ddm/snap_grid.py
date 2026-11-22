@@ -49,8 +49,12 @@ def with_occupied(cells, occupied):
 
 def resize(size, cell, step):
     row, col, height, width = cell
-    # Old saved previews can contain rectangles such as 1×2. New sizes
-    # are square, stepping from the nearest smaller or larger square.
+    if height == 2 * width and (step > 0 or width > 1):
+        rows, columns = height + 2 * step, width + step
+        if row + rows <= size and col + columns <= size:
+            return row, col, rows, columns
+        return cell
+    # Other saved rectangles step to the nearest smaller or larger square.
     if height != width:
         span = max(height, width) if step > 0 else min(height, width)
     else:
