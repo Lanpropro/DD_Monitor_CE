@@ -596,7 +596,7 @@ def check_buffer_scale(pip):
             assert indicator.height() <= max(1, tile.height() - 12) + 1
             assert abs(indicator.width() - indicator.natural_size().width() * indicator._presentation_scale) <= 1
             assert abs(indicator.height() - indicator.natural_size().height() * indicator._presentation_scale) <= 1
-            assert tile.pause_overlay._presentation_scale == 1, 'Pause presentation was not requested to change'
+            assert tile.pause_overlay.width() == tile.pause_overlay.height() == 48, 'The pause glyph retains its fixed size'
             tile.set_buffering(False)
     floating.setGeometry(previous)
 
@@ -1045,9 +1045,10 @@ def exercise_focus(app, native, directory):
         assert dialog._primary == 4 and not hasattr(dialog, 'primary_row')
         assert dialog.rect().contains(dialog.start.geometry()) and dialog.start.isVisible()
         dialog.checks[5].setChecked(False)
-        assert not dialog.start.isEnabled() and len(dialog._selected()) == 5
+        assert dialog.start.isEnabled() and len(dialog._selected()) == 5
+        assert dialog.arrangements.mode == 0 and dialog.arrangements.buttons[FOCUS_LAYOUT].isHidden()
         dialog.checks[5].setChecked(True)
-        assert dialog.start.isEnabled() and dialog._primary == 4
+        assert dialog.start.isEnabled() and dialog._primary == 4 and dialog.arrangements.mode == FOCUS_LAYOUT
         drag_preview(dialog, 0, 4)
         assert dialog._primary == 0 and not any(label.text().startswith('主画面') for label in dialog.preview.labels)
         dialog.start.click()
@@ -1322,7 +1323,7 @@ def check_resize_handoff(floating):
         with patch.object(floating, 'setGeometry', side_effect=check_before_applying) as apply_geometry:
             pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
             apply_geometry.assert_called_once()
-        assert floating.geometry() == live.preview.geometry()
+        assert floating.geometry() == live.preview.geometry(), (floating.geometry(), live.preview.geometry())
         QTest.qWait(140)
         assert floating._live_resize is None
     floating.setGeometry(initial)

@@ -1,4 +1,6 @@
 """在独立进程运行专项脚本，保留相邻导入与 Windows Qt 清理顺序。"""
+from contextlib import nullcontext
+from importlib.util import find_spec
 import ipaddress
 import os
 from pathlib import Path
@@ -30,6 +32,15 @@ def require_local_network(event, arguments, denied):
 def install_native_stack():
     from ddm.check_diagnostics import install_native_stack as install
     return install()
+
+
+def native_qt_dll_directory():
+    if sys.platform == 'win32' and os.environ.get('QT_QPA_PLATFORM') == 'windows':
+        binding = find_spec('PySide6')
+        if binding is not None and binding.origin:
+            # The QML plugin loader also needs the binding's sibling Qt DLLs.
+            return os.add_dll_directory(str(Path(binding.origin).parent))
+    return nullcontext()
 
 
 def main():
@@ -76,4 +87,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    with native_qt_dll_directory():
+        main()

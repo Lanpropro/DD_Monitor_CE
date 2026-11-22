@@ -35,6 +35,18 @@ class CheckRunnerTests(unittest.TestCase):
         self.assertIn('Add-Content -LiteralPath $env:GITHUB_PATH -Value $directory', install_step)
         self.assertIn('--script selfcheck_picture_in_picture', pip_step)
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows Qt DLL search')
+    def test_bootstrap_registers_the_pyside_dll_directory_for_native_qt(self):
+        binding = Path('C:/dependencies/PySide6/__init__.py')
+        with patch.object(bootstrap.os, 'environ', {'QT_QPA_PLATFORM': 'windows'}), \
+                patch.object(bootstrap, 'find_spec') as find_binding, \
+                patch.object(os, 'add_dll_directory') as register:
+            find_binding.return_value.origin = str(binding)
+            with bootstrap.native_qt_dll_directory():
+                register.assert_called_once_with(str(binding.parent))
+                register.return_value.__exit__.assert_not_called()
+            register.return_value.__exit__.assert_called_once()
+
     @unittest.skipUnless(sys.platform == 'win32', 'Windows CMD exit status')
     def test_memory_entry_preserves_negative_native_exit_status(self):
         entry = (runner.ROOT / 'run.cmd').read_text(encoding='utf-8-sig').split(':nativeMemoryCheck\n', 1)[1].split(':diagnosticsCheck', 1)[0]

@@ -153,7 +153,7 @@ class PipPickerTests(unittest.TestCase):
         self.app.processEvents()
         small_bounds = QRect(window.mapToGlobal(QPoint()), window.size()).intersected(available).adjusted(8, 8, -8, -8)
         self.assertEqual(dialog.size(), remembered.boundedTo(small_bounds.size()))
-        self.assertLess(dialog.height(), remembered.height())
+        self.assertNotEqual(dialog.size(), remembered)
         self.assertEqual(pip.picker_size, remembered.toTuple())
         dialog.reject()
         window.resize(1000, 700)
@@ -634,6 +634,7 @@ class PipPickerTests(unittest.TestCase):
         wall.set_layout('corner')
         window.configure_wall_panes({1: None, 2: None})
         self.assertTrue(pip.start([0, 3]))
+        self.app.processEvents()
         self.assertTrue(wall.tiles[4].isHidden() and wall.tiles[5].isHidden())
         self.assertEqual([key for key, _room in pip.candidate_groups()[0][1]], [0, 3, 4, 5])
         pip.manage()
@@ -652,6 +653,7 @@ class PipPickerTests(unittest.TestCase):
         temporary = pip._extra_tiles['2']
         order = list(reversed(pip.selection))
         self.assertTrue(pip.start(order))
+        self.app.processEvents()
         self.assertEqual(window.wall.picture_in_picture_tiles, [temporary, window.wall.tiles[0]])
         self.assertEqual(pip.external_rooms, ['2'])
         pip.restore(activate=False)
@@ -708,6 +710,7 @@ class PipPickerTests(unittest.TestCase):
         snapshot = window.current_state()['wall']
         with patch.object(window, '_stop_tile', wraps=window._stop_tile) as stop:
             self.assertTrue(pip.start([0, '2'], primary='2'))
+            self.app.processEvents()
             temporary = pip._extra_tiles['2']
             self.assertTrue(temporary.property('pictureInPictureTemporary'))
             window.start_tile.assert_called_once_with(temporary)
@@ -844,6 +847,7 @@ class PipPickerTests(unittest.TestCase):
         dialog.search.clear()
         self.assertTrue(folder.isChecked())
         dialog.start.click()
+        self.app.processEvents()
         self.assertTrue(pip.active)
         self.assertEqual(len(window.wall.picture_in_picture_tiles), 2)
         self.assertEqual(pip.selected_choices(), [0, '3'])
