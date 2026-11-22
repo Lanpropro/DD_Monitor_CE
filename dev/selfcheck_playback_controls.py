@@ -274,11 +274,12 @@ assert not any(name in sys.modules for name in (
                     pressed = surfaces.values(button, overrides={'hover': True, 'pressed': True})
                     if button.parentWidget() is tile.controls:
                         disabled = surfaces.values(button, overrides={'disabled': True})
+                        self.assertEqual(idle['background'], '#15171c')
+                        self.assertEqual(hover['background'], '#282c33')
+                        self.assertEqual(pressed['background'], '#1d2026')
+                        self.assertEqual(disabled['background'], idle['background'])
                         for style in (idle, hover, pressed, disabled):
-                            self.assertEqual(style['background'], '#15171c')
-                        self.assertEqual(idle['border'], 'none')
-                        self.assertIn('1px solid', hover['border'])
-                        self.assertNotEqual(hover['border'], pressed['border'])
+                            self.assertEqual(style['border'], 'none')
                     else:
                         self.assertTrue(hover['background'].endswith(', 0.15)'))
                         self.assertTrue(pressed['background'].endswith(', 0.27)'))
@@ -344,8 +345,14 @@ assert not any(name in sys.modules for name in (
         sizes = [button.geometry() for button in buttons]
         idle = [button.grab().toImage() for button in buttons]
         for button, before in zip(buttons, idle):
+            scale = before.devicePixelRatio()
+            x, y = before.width() // 2, round(3 * scale)
+            self.assertEqual(before.pixelColor(x, y).name(), '#15171c')
             button.setProperty('hovered', True)
-            self.assertNotEqual(button.grab().toImage(), before)
+            self.assertEqual(button.grab().toImage().pixelColor(x, y).name(), '#282c33')
+            button.setDown(True)
+            self.assertEqual(button.grab().toImage().pixelColor(x, y).name(), '#1d2026')
+            button.setDown(False)
             button.setProperty('hovered', False)
         sync_controls(tile, {'settings_glass_enabled': True, 'settings_glass_opacity': 0})
         for button, before in zip(buttons, idle):
