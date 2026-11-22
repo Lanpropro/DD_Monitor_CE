@@ -1,7 +1,11 @@
 """Update indicators and update notification presentation."""
+import ctypes
+from ctypes import wintypes
+import sys
+
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .update_version import release_label
@@ -46,9 +50,11 @@ class UpdateNotice(QFrame):
     """不抢焦点的悬浮更新提醒，十秒后自动收起。"""
     activated = Signal()
     updateRequested = Signal(str)
+    _slide_distance = 24
 
     def __init__(self, parent):
         super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self._fullscreen_owner = None
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName('UpdateNotice')
@@ -181,14 +187,15 @@ class UpdateNotice(QFrame):
     def _resize_to_content(self):
         self.ensurePolished()
         preferred = max(420, self.fontMetrics().horizontalAdvance('128.00 MB / 128.00 MB · 12.34 MB/s') + 180) if self._update_rows else 420
-        width = min(preferred, max(80, self.parentWidget().width() - 32))
+        owner = self._fullscreen_owner or self.parentWidget()
+        width = min(preferred, max(80, owner.width() - 32))
         self.setFixedWidth(width)
         if self._update_rows:
             available = max(80, width - 48)
             rows_height = self.updates.totalHeightForWidth(available)
             if rows_height < 0:
                 rows_height = self.updates.totalSizeHint().height()
-            self.updates_scroll.setFixedHeight(min(rows_height, max(100, self.parentWidget().height() // 2)))
+            self.updates_scroll.setFixedHeight(min(rows_height, max(100, owner.height() // 2)))
         self.layout().invalidate()
         height = self.layout().totalHeightForWidth(width)
         if height < 0:
@@ -198,17 +205,42 @@ class UpdateNotice(QFrame):
         self.text_column.layout().activate()
         self._reflow()
 
-    def reposition(self):
+    def set_presentation_owner(self, owner):
         parent = self.parentWidget()
-        offset = round(-24 * (1 - self._progress)) if motion.enabled() else 0
-        self.move(parent.mapToGlobal(QPoint(self._left_x() + offset, self._stack_y())))
+        fullscreen_owner = None if owner is parent else owner
+        if fullscreen_owner is self._fullscreen_owner:
+            return
+        if self._fullscreen_owner is not None:
+            self._fullscreen_owner.removeEventFilter(self)
+        self._fullscreen_owner = fullscreen_owner
+        if fullscreen_owner is not None:
+            fullscreen_owner.installEventFilter(self)
+        owner.winId()
+        handle = self.windowHandle()
+        handle.setTransientParent(owner.windowHandle())
+        if not self.isVisible():
+            return
+        if handle.isVisible():
+            if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+                # Qt applies the new transient owner on show. Update an already
+                # visible HWND in place so the card keeps its timer and history.
+                user32 = ctypes.windll.user32
+                set_window_long = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
+                set_window_long.argtypes = (wintypes.HWND, wintypes.INT, ctypes.c_ssize_t)
+                set_window_long.restype = ctypes.c_ssize_t
+                set_window_long(int(handle.winId()), -8, int(owner.winId()))  # GWLP_HWNDPARENT
+            self.raise_()
+        self._resize_to_content()
+        self.reposition()
 
-    def _left_x(self):
-        parent = self.parentWidget()
-        return max(0, min(16, parent.width() - self.width() - 16))
+    def reposition(self):
+        owner = self._fullscreen_owner or self.parentWidget()
+        offset = round(-self._slide_distance * (1 - self._progress)) if motion.enabled() else 0
+        left = max(0, min(16, owner.width() - self.width() - 16))
+        self.move(owner.mapToGlobal(QPoint(left + offset, self._stack_y())))
 
     def _stack_y(self):
-        y = 20
+        y = 20 if self._fullscreen_owner is None else theme.TILE_CONTROL_HEIGHT + 16
         for notice in getattr(self.parentWidget(), '_notices', []):
             if notice is self:
                 break
@@ -226,6 +258,9 @@ class UpdateNotice(QFrame):
             parent._notices = []
         if self not in parent._notices:
             parent._notices.append(self)
+        tile = getattr(parent, '_fullscreen_tile', None)
+        if tile is not None and tile.isWindow() and tile.isVisible():
+            self.set_presentation_owner(tile)
         super().showEvent(event)
         self._reflow()
 
@@ -235,6 +270,7 @@ class UpdateNotice(QFrame):
         notices = getattr(self.parentWidget(), '_notices', [])
         if self in notices:
             notices.remove(self)
+        self.set_presentation_owner(self.parentWidget())
         super().hideEvent(event)
         self._reflow()
 
@@ -246,17 +282,20 @@ class UpdateNotice(QFrame):
             super().mouseReleaseEvent(event)
 
     def eventFilter(self, watched, event):
-        if watched is not self.parentWidget():
-            if self.isVisible() and event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide):
-                self.reposition()
+        if not self.isVisible():
             return False
-        if self.isVisible():
-            if event.type() == QEvent.Resize:
+        kind = event.type()
+        parent = self.parentWidget()
+        if watched is (self._fullscreen_owner or parent):
+            if kind == QEvent.Resize:
                 self._resize_to_content()
-            if event.type() in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
+            if kind in (QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
                 self.reposition()
-            elif event.type() == QEvent.Hide:
+        if watched in (parent, self._fullscreen_owner):
+            if kind == QEvent.Hide:
                 self.dismiss(animate=False)
+        elif kind in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide):
+            self.reposition()
         return False
 
     def track_history(self, record):
@@ -266,8 +305,11 @@ class UpdateNotice(QFrame):
     def dismiss(self, animate=True, *, handled=False):
         if handled:
             for center, entry in self._history_entries:
-                entry.unread = False
-                center._sync()
+                if entry.kind == 'update':
+                    entry.unread = False
+                    center._sync()
+                else:
+                    center._remove(entry)
             self._history_entries.clear()
         self.timer.stop()
         if (animate and self.isVisible() and self.parentWidget().isVisible()
