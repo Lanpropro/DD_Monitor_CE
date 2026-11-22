@@ -19,9 +19,9 @@ from .emoticon_order import EmoticonOrder, emoticon_order
 from .popup import AnchoredPopup, RefreshSpinner, picker_style
 from .workers import start_worker as _start
 
-_EMOTICON_COLUMNS = 4
-_EMOTICON_CELL_SIZE = 70
-_EMOTICON_ICON_SIZE = 48
+_MAX_EMOTICON_COLUMNS = 4
+_EMOTICON_CELL_SIZE = 84
+_EMOTICON_ICON_SIZE = 64
 
 def _style_button(button, *, diameter=None):
     button.setObjectName("TileCtrl")
@@ -227,12 +227,13 @@ class EmoticonTabs(QTabBar):
 class EmoticonPopup(AnchoredPopup):
     selected = Signal(int, dict)
     retryRequested = Signal()
-    _holder_size = QSize(340, 330)
+    _holder_size = QSize(388, 368)
 
     def __init__(self, parent=None, *, order=None):
         super().__init__(parent)
         self.order = order if order is not None else emoticon_order
         self._syncing_tabs = False
+        self._columns = _MAX_EMOTICON_COLUMNS
         self.setObjectName("EmoticonPopup")
         self.setStyleSheet(picker_style() + f"""
             #EmoticonButton {{border: 1px solid transparent; border-radius: {theme.RADIUS_SM}px;
@@ -445,16 +446,19 @@ class EmoticonPopup(AnchoredPopup):
             self._category = key
             self._emotes = self.order.arrange(key,
                 [e for e in package.get("emoticons") or [] if isinstance(e, dict)])
-            rows = (len(self._emotes) + _EMOTICON_COLUMNS - 1) // _EMOTICON_COLUMNS
-            height = rows * _EMOTICON_CELL_SIZE + max(0, rows - 1) * self.grid.spacing()
-            self.scroll.widget().setMinimumHeight(height)
+            self._set_grid_height()
         self.status.setText("表情" if self._emotes else "暂无可用表情")
         self.status.show()
         self._resume_loading()
 
+    def _set_grid_height(self):
+        rows = (len(self._emotes) + self._columns - 1) // self._columns
+        height = rows * _EMOTICON_CELL_SIZE + max(0, rows - 1) * self.grid.spacing()
+        self.scroll.widget().setMinimumHeight(height)
+
     def _build_batch(self):
         # 每批两行，长包不会一次占用 GUI 线程；未选中的包不创建按钮。
-        end = min(self._next_emote + 2 * _EMOTICON_COLUMNS, len(self._emotes))
+        end = min(self._next_emote + 2 * self._columns, len(self._emotes))
         for index in range(self._next_emote, end):
             emote = self._emotes[index]
             text = str(emote.get("emoji") or "表情")
@@ -473,9 +477,7 @@ class EmoticonPopup(AnchoredPopup):
             button.setToolTip(text if available else
                               f"{text}：{emote.get('unlock_show_text') or '当前账号尚未解锁'}")
             button.clicked.connect(lambda _checked=False, k=self._kind, e=dict(emote): self._choose(k, e))
-            row, column = divmod(index, _EMOTICON_COLUMNS)
-            self.grid.addWidget(button, row, column)
-            self.grid.setRowMinimumHeight(row, _EMOTICON_CELL_SIZE)
+            self.grid.addWidget(button, *divmod(index, self._columns))
             self._buttons.append(button)
             url = emote.get("url")
             if isinstance(url, str) and url.startswith(("https://", "http://")):
@@ -495,7 +497,7 @@ class EmoticonPopup(AnchoredPopup):
         for button in self._buttons:
             self.grid.removeWidget(button)
         for index, button in enumerate(self._buttons):
-            self.grid.addWidget(button, *divmod(index, _EMOTICON_COLUMNS))
+            self.grid.addWidget(button, *divmod(index, self._columns))
         self.grid.activate()
         if self._drag_button is not None:
             self._drag_button.move(positions[self._drag_button])
@@ -523,7 +525,7 @@ class EmoticonPopup(AnchoredPopup):
             bar = self.scroll.verticalScrollBar()
             if y < 24 or y > viewport.height() - 24:
                 bar.setValue(bar.value() + (-18 if y < 24 else 18))
-            targets = [(self.grid.cellRect(*divmod(i, _EMOTICON_COLUMNS)).center() - local).manhattanLength()
+            targets = [(self.grid.cellRect(*divmod(i, self._columns)).center() - local).manhattanLength()
                        for i in range(len(self._buttons))]
             target = min(range(len(targets)), key=targets.__getitem__)
             source = self._buttons.index(button)
@@ -609,5 +611,14 @@ class EmoticonPopup(AnchoredPopup):
     def open_at(self, button):
         screen = button.screen().availableGeometry()
         self._holder.setFixedSize(self._holder_size.boundedTo(screen.size() - QSize(16, 16)))
+        margins = self._holder.layout().contentsMargins()
+        scrollbar = self.scroll.verticalScrollBar().sizeHint().width()
+        width = self._holder.width() - margins.left() - margins.right() - scrollbar
+        spacing = self.grid.spacing()
+        columns = max(1, min(_MAX_EMOTICON_COLUMNS, (width + spacing) // (_EMOTICON_CELL_SIZE + spacing)))
+        if columns != self._columns:
+            self._columns = columns
+            self._set_grid_height()
+            self._arrange_buttons()
         self.adjustSize()
         super().open_at(button)

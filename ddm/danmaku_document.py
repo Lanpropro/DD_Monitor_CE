@@ -112,8 +112,8 @@ class DanmakuDocument:
 
     def body_html(self, entry: dict) -> str:
         host = self.host
-        height = max(host.MIN_EMOTICON_HEIGHT, round(host._font_size() * 2.5))
-        return content_html(content_runs(entry), host._images, height, align_middle=True)
+        height = host.EMOTICON_HEIGHT + 2 * (host._font_size() - host.BASE_FONT_SIZE)
+        return content_html(content_runs(entry), host._images, height, fit_line=True)
 
     def medal_html(self, medal: dict) -> str:
         """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""

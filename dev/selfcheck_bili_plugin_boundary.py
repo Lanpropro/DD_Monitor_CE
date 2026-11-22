@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QImage, QMouseEvent, QPixmap, QTextCharFormat
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
@@ -151,9 +151,9 @@ class BiliPluginBoundaryTests(unittest.TestCase):
         buttons = popup._buttons
         self.assertEqual(len(buttons), len(emotes))
         first = buttons[0]
-        self.assertEqual(first.size().toTuple(), (70, 70))
-        self.assertEqual(first.iconSize().toTuple(), (48, 48))
-        self.assertEqual(first.icon().actualSize(first.iconSize()).toTuple(), (48, 24))
+        self.assertEqual(first.size().toTuple(), (84, 84))
+        self.assertEqual(first.iconSize().toTuple(), (64, 64))
+        self.assertEqual(first.icon().actualSize(first.iconSize()).toTuple(), (64, 32))
         self.assertEqual(popup.grid.getItemPosition(popup.grid.indexOf(buttons[4]))[:2], (1, 0))
         self.assertEqual(popup.scroll.horizontalScrollBar().maximum(), 0)
         self.assertFalse(buttons[1].isEnabled())
@@ -167,10 +167,16 @@ class BiliPluginBoundaryTests(unittest.TestCase):
         self.assertIs(popup._buttons[4], first)
         self.assertEqual(selected, [])
 
+        popup.hide()
+        popup._holder_size = QSize(310, popup._holder_size.height())
+        popup.open_at(composer.emote_button)
+        QTest.qWait(20)
+        self.assertEqual(popup.grid.getItemPosition(popup.grid.indexOf(first))[:2], (1, 1))
+        self.assertEqual(popup.scroll.horizontalScrollBar().maximum(), 0)
         popup.scroll.ensureWidgetVisible(buttons[-1])
         self.assertTrue(popup.scroll.viewport().rect().contains(
             buttons[-1].mapTo(popup.scroll.viewport(), buttons[-1].rect().center())))
-        QTest.mouseClick(buttons[-1], Qt.LeftButton, pos=buttons[-1].rect().center() + QPoint(28, 0))
+        QTest.mouseClick(buttons[-1], Qt.LeftButton, pos=buttons[-1].rect().center() + QPoint(36, 0))
         self.assertEqual(selected, [(3, emotes[-1])])
 
     def test_danmaku_panel_enlarges_inline_and_standalone_emoticons(self):
@@ -187,10 +193,10 @@ class BiliPluginBoundaryTests(unittest.TestCase):
             panel.add_event({'uname': '测试', 'text': '普通弹幕'})
             self.assertIn('[表情]', panel.body.toPlainText())
             panel._on_emoticon_loaded(url, pixmap)
-        for font_size, height in ((13, 32), (8, 26), (20, 50)):
+        for font_size, height in ((13, 64), (8, 54), (20, 78)):
             panel.apply_style('', font_size)
             rendered = panel.body.toHtml()
-            self.assertEqual(rendered.count(f'width="{2 * height}" height="{height}"'), 2)
+            self.assertEqual(rendered.count(f'width="{2 * height}"'), 2)
             self.assertIn('前缀', panel.body.toPlainText())
             self.assertIn('后缀', panel.body.toPlainText())
             self.assertEqual(panel.body.horizontalScrollBar().maximum(), 0)
@@ -201,7 +207,14 @@ class BiliPluginBoundaryTests(unittest.TestCase):
         while not fragment.atEnd() and not fragment.fragment().charFormat().isImageFormat():
             fragment += 1
         self.assertFalse(fragment.atEnd())
-        self.assertEqual(fragment.fragment().charFormat().verticalAlignment(), QTextCharFormat.AlignMiddle)
+        image_format = fragment.fragment().charFormat().toImageFormat()
+        self.assertEqual(image_format.verticalAlignment(), QTextCharFormat.AlignMiddle)
+        self.assertEqual(image_format.maximumWidth().rawValue(), 100)
+        panel.resize(160, 380)
+        panel.apply_style('', 32)
+        APP.processEvents()
+        self.assertLess(panel.body.viewport().width(), 204)
+        self.assertEqual(panel.body.horizontalScrollBar().maximum(), 0)
 
     def test_cookie_restoration_room_and_fullscreen_without_plugin(self):
         self.assertEqual(bili._cookies(), {'SESSDATA': 'fake-session',
