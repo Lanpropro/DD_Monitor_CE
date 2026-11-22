@@ -568,12 +568,19 @@ class MainNoticesTests(unittest.TestCase):
         from ddm import cover_focus
         assets = ROOT / 'ddm/assets'
         records = json.loads((assets / 'licenses/cover-focus-SOURCE.json').read_text())
-        for record in records:
-            self.assertEqual(hashlib.sha256((assets / record['file']).read_bytes()).hexdigest(),
-                             record['sha256'])
-        cover = QPixmap(412, 232)
-        cover.fill(QColor('black'))
-        self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
+        with tempfile.TemporaryDirectory(prefix='ddm-封面-') as temporary:
+            module_dir = Path(temporary)
+            for record in records:
+                model = (assets / record['file']).read_bytes()
+                self.assertEqual(hashlib.sha256(model).hexdigest(), record['sha256'])
+                model_path = module_dir / 'assets' / record['file']
+                model_path.parent.mkdir(parents=True, exist_ok=True)
+                model_path.write_bytes(model)
+            cover = QPixmap(412, 232)
+            cover.fill(QColor('black'))
+            with patch.object(cover_focus, '__file__', str(module_dir / 'cover_focus.py')), \
+                    patch.object(cover_focus, '_DETECTORS', None):
+                self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
 
     def test_room_background_crops_the_center_and_clips_corners(self):
         from PySide6.QtCore import QRectF
