@@ -203,6 +203,32 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(report['status'], 'not_recorded')
         self.assertEqual(report['files'], [])
 
+    def test_settings_traces_include_close_evidence_without_desktop_titles_or_typed_keys(self):
+        self.put('logs/settings-scroll-123.jsonl', '{"stage":"qt-wheel","pid":123,"angle":120}\n')
+        self.put('logs/settings-performance-456.jsonl.1', '{"phase":"first-paint","pid":456}\n')
+        self.put('logs/settings-performance-other.jsonl', 'PRIVATE_UNRELATED')
+        events = [
+            {'kind': 'settings_gone', 't': '19:42:13.669', 'settingsHwnd': '0x42', 'isWindow': False,
+             'leftDownAtGone': False, 'escWithin2s': False, 'lastInputAgeMs': 585, 'fgTitle': 'PRIVATE_TITLE'},
+            {'kind': 'mouseup', 'settingsOpen': True, 'x': 1977, 'y': 225, 'targetTitle': 'PRIVATE_WINDOW'},
+            {'kind': 'keydown', 'settingsOpen': True, 'vk': '0x1B', 'key': 'PRIVATE_ESC_LABEL'},
+            {'kind': 'keydown', 'settingsOpen': True, 'vk': 65, 'key': 'PRIVATE_TYPED_KEY'},
+            {'kind': 'mousedown', 'settingsOpen': False, 'x': 9999},
+        ]
+        self.put('logs/settings-capture.jsonl', '\n'.join(json.dumps(row) for row in events))
+        entries = self.collect()
+        files = {row['log']: row for row in json.loads(entries['specialized-diagnostics.json'])['files']}
+        self.assertEqual(json.loads(entries['problem.json'])['tool_version'], '1.4')
+        self.assertEqual(files['logs/settings-scroll-123.jsonl']['stages'], {'qt-wheel': 1})
+        self.assertEqual(files['logs/settings-performance-456.jsonl.1']['stages'], {'first-paint': 1})
+        self.assertEqual(files['logs/settings-capture.jsonl']['stages'], {'settings_gone': 1, 'mouseup': 1, 'keydown': 1})
+        gone, mouse, key = map(json.loads, entries['logs/settings-capture.jsonl'].splitlines())
+        self.assertEqual((gone['lastInputAgeMs'], gone['settingsHwnd'], gone['isWindow']), (585, '0x42', False))
+        self.assertEqual(gone['t'], '19:42:13.669')
+        self.assertEqual((mouse['x'], mouse['y'], key['vk']), (1977, 225, 27))
+        self.assertNotIn('PRIVATE_', str(entries))
+        self.assertNotIn('9999', entries['logs/settings-capture.jsonl'])
+
     def test_folder_model_evidence_is_summarized_as_observation_not_a_root_cause(self):
         rows = [{'phase': 'folder-motion', 'schema': 2,
                  'evidence_after': {'in_transition': moving, 'mismatches': 2}}
@@ -639,6 +665,8 @@ class DiagnosticTests(unittest.TestCase):
             guide = archive.read('诊断工具说明.md').decode('utf-8')
             self.assertIn('按进程编号整理故障证据', guide)
             self.assertIn('`ddm-crash-<PID>.log`', guide)
+            self.assertIn('记录功能栏高亮', guide)
+            self.assertIn('`logs/settings-scroll-<PID>.jsonl`', guide)
         self.assertEqual(set(p.name for p in bundle.iterdir()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
         metadata = runpy.run_path(str(ROOT / 'dev/build_setup.py'))
         version = metadata['VERSION']
