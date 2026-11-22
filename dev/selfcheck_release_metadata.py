@@ -14,9 +14,9 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.8'
-    assert version.VERSION_TAG == 'v0.8'
-    assert version.UPDATE_REVISION == 2
+    assert version.VERSION == '0.9'
+    assert version.VERSION_TAG == 'v0.9'
+    assert version.UPDATE_REVISION == 0
     root = Path(__file__).resolve().parents[1]
     context_tree = ast.parse((root / 'ddm/plugin_types.py').read_text(encoding='utf-8'))
     context = next(node for node in context_tree.body if isinstance(node, ast.ClassDef) and node.name == 'PluginContext')
@@ -29,6 +29,10 @@ def main():
     notes = (Path(__file__).resolve().parents[1] / f'docs/releases/RELEASE-{version.VERSION_TAG}.md').read_text(encoding='utf-8')
     title, _, body = notes.partition('\n')
     assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
+    assert body.strip(), 'Current release notes must have a body'
+    notes = (root / 'docs/releases/RELEASE-v0.8.md').read_text(encoding='utf-8')
+    title, _, body = notes.partition('\n')
+    assert title == '# DD监控室CE v0.8 更新说明'
     sections = ('## 0.8 hotfix.2\n', '## 0.8 hotfix.1\n', '## 0.8 首发正文\n')
     assert all(body.count(section) == 1 for section in sections)
     assert [body.index(section) for section in sections] == sorted(body.index(section) for section in sections)

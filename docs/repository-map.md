@@ -533,6 +533,7 @@
 - `docs/releases/RELEASE-v0.7.3.md`
 - `docs/releases/RELEASE-v0.8.md`
 - `docs/releases/RELEASE-v0.8-hotfix.1.md`
+- `docs/releases/RELEASE-v0.9.md`
 - `docs/releases/announcement.json`
 - `docs/releases/UNRELEASED.md`
 

@@ -9,6 +9,7 @@
 | 文档 | 说明 |
 | --- | --- |
 | [RELEASE-v0.8](RELEASE-v0.8.md) | 当前已发布版本，含 Hotfix 1 和 Hotfix 2 |
+| [RELEASE-v0.9](RELEASE-v0.9.md) | 主播监控、自定义布局与 B 站直播互动 |
 | [RELEASE-v0.8-hotfix.1](RELEASE-v0.8-hotfix.1.md) | 早期独立稿，修订 1 正文已并入 0.8 |
 | [UNRELEASED](UNRELEASED.md) | 下一版本累积记录；按条目追加，发布前汇总 |
 

@@ -6,6 +6,7 @@ const labSourceGlyphs = [
   ["侧栏与功能栏", "rail-clear", "移除画面", "ddm/sidebar_navigation.py", "<path d=\"M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7\"/>"],
   ["侧栏与功能栏", "rail-wall_settings", "画面墙设置", "ddm/sidebar_navigation.py", "<rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><path d=\"M6 10h12M6 15h12M9 8v4M15 13v4\"/>"],
   ["侧栏与功能栏", "rail-pip", "画中画", "ddm/sidebar_navigation.py", "<rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/><rect x=\"11\" y=\"11\" width=\"8\" height=\"6\" rx=\"1\"/>"],
+  ["侧栏与功能栏", "rail-monitor", "主播监控", "ddm/sidebar_navigation.py", "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M5 12h4l2-4 3 8 2-4h3\"/>"],
   ["侧栏与功能栏", "rail-settings", "设置", "ddm/sidebar_navigation.py", "<path d=\"M4 6h16M4 12h16M4 18h16\"/><circle cx=\"8\" cy=\"6\" r=\"2\"/><circle cx=\"16\" cy=\"12\" r=\"2\"/><circle cx=\"10\" cy=\"18\" r=\"2\"/>"],
   ["侧栏与功能栏", "rail-import", "导入", "ddm/sidebar_navigation.py", "<path d=\"M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5\"/>"],
   ["侧栏与功能栏", "rail-import_follows", "导入关注", "ddm/sidebar_navigation.py", "<circle cx=\"8\" cy=\"7\" r=\"3\"/><path d=\"M2 20v-2a6 6 0 0 1 12 0v2m8-8h-7m3-3-3 3 3 3\"/>"],
