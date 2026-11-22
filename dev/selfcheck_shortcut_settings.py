@@ -112,7 +112,7 @@ class ShortcutSettingsTests(unittest.TestCase):
         for query, expected in (
             ('Ctrl+滚轮', ('layout_grow', 'layout_shrink')), ('Ctrl+WheelDown', ('layout_shrink',)),
             ('Alt+滚轮', ('layout_portrait_tall', 'layout_portrait_short')),
-            ('Alt+WheelUp', ('layout_portrait_tall',)), ('1×3', ('layout_portrait_tall',)),
+            ('Alt+WheelUp', ('layout_portrait_tall',)), ('增加直播格高度', ('layout_portrait_tall',)),
         ):
             page.search.setText(query)
             settle()

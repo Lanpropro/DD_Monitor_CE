@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from .playback_controls import VolumeButton
 from .shortcut_actions import (
     DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
-    LAYOUT_PORTRAIT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, WHEEL_SHORTCUTS,
+    LAYOUT_HEIGHT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, WHEEL_SHORTCUTS,
     matches_wheel, wheel_action_step, wheel_volume_step
 )
 from .video_surface import VideoSurface
@@ -76,13 +76,12 @@ class AppShortcuts(QObject):
         snap_grid = getattr(host.wall, 'snap_grid', None)
         if (not in_pip and modifiers and snap_grid is not None and snap_grid.interactive()
                 and QApplication.activePopupWidget() is None):
-            portrait_step = wheel_action_step(host.shortcuts, LAYOUT_PORTRAIT_SHORTCUTS, modifiers, delta)
-            resize_step = wheel_action_step(host.shortcuts, LAYOUT_RESIZE_SHORTCUTS, modifiers, delta)
-            if portrait_step or resize_step:
+            height_step = wheel_action_step(host.shortcuts, LAYOUT_HEIGHT_SHORTCUTS, modifiers, delta)
+            step = height_step or wheel_action_step(host.shortcuts, LAYOUT_RESIZE_SHORTCUTS, modifiers, delta)
+            if step:
                 point = host.wall.mapFromGlobal(event.globalPosition().toPoint())
                 tile = next((tile for tile in host.wall.visible_tiles() if tile.geometry().contains(point)), None)
-                if tile is not None and (portrait_step and snap_grid.switch_portrait_rows(tile, portrait_step)
-                                         or resize_step and snap_grid.resize_tile(tile, resize_step)):
+                if tile is not None and snap_grid.resize_tile(tile, step, height_only=bool(height_step)):
                     event.accept()
                     return True
         if not in_pip and modifiers == Qt.NoModifier and host.settings.get('hover_wheel_volume', False):

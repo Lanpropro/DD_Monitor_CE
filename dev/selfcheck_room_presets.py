@@ -252,11 +252,14 @@ def check_snap_grid_and_other_presets(app):
         window.sidebar.open_layout_picker()
         picker = window.sidebar._picker
         picker.set_group(group)
-        if group == '自定义布局（伪）':
+        if group == '自定义布局':
             assert picker.card_ids() == ['custom_grid9', 'custom_grid16']
             assert not any(layouts.snap_grid_size(card.property('layoutId')) for card in picker._cards['普通布局'])
             heading, = picker._sections[group]
             assert heading.text() == group and heading.isVisible()
+            tab = picker._tabs[group]
+            assert tab.text() == group and tab.width() >= tab.sizeHint().width()
+            assert heading.width() == heading.sizeHint().width() < picker.scroll.viewport().width()
             assert picker._tabs[group].isChecked()
         assert picker.edit_button.isVisible() and picker.edit_button.text() == '修改布局'
         picker.edit_button.click()
@@ -344,13 +347,17 @@ def check_snap_grid_and_other_presets(app):
                 stop.assert_not_called()
                 start.assert_not_called()
 
-            editor = open_from('自定义布局（伪）', base)
+            editor = open_from('自定义布局', base)
             view = editor.preview
             before = view.draft
             with patch.dict(window.shortcuts, {'layout_grow': 'Ctrl+Alt+WheelDown'}):
                 wheel(view, units[0].center(), 120)
                 assert view.draft == before
                 assert wheel(view, units[0].center(), -120, Qt.ControlModifier | Qt.AltModifier)
+            assert view.draft[0] == (0, 0, 2, 2)
+            assert wheel(view, units[0].center(), 120, Qt.AltModifier)
+            assert view.draft[0] == (0, 0, 3, 2)
+            view.undo()
             assert view.draft[0] == (0, 0, 2, 2)
             assert first.geometry() == units[0]
             view.undo()
@@ -613,7 +620,9 @@ def check_portrait_live_defaults(app):
                     patch.object(window, '_tile_under_cursor', return_value=wide):
                 volume = wide.volume
                 resize_with_wheel(wide, 120, Qt.AltModifier)
-                assert wide.volume > volume and wall.layout_control.cell_of(wide) == (0, 2, 1, 1)
+                assert wide.volume == volume and wall.layout_control.cell_of(wide) == (0, 2, 2, 1)
+                resize_with_wheel(wide, -120, Qt.AltModifier)
+                assert wall.layout_control.cell_of(wide) == (0, 2, 1, 1)
 
             manual = drop_room('805', units[size + 2].center())
             assert grid.resize_tile(manual, -1)
@@ -634,6 +643,11 @@ def check_portrait_live_defaults(app):
             window.add_to_wall(dict(room_id='806', uname='普通布局直播', live=False))
             fixed = window._tile_of('806')
             first_frame(fixed, portrait, pending=False)
+            with patch.dict(window.shortcuts, {'volume_up': 'Alt+WheelUp'}), \
+                    patch.object(window, '_tile_under_cursor', return_value=fixed):
+                volume = fixed.volume
+                resize_with_wheel(fixed, 120, Qt.AltModifier)
+                assert fixed.volume > volume
             menu = fixed.build_menu()
             assert all(action.data() != 'portrait_footprint' for action in menu.actions())
             menu.deleteLater()
@@ -699,7 +713,8 @@ def check_portrait_live_defaults(app):
                 resize_with_wheel(tile, 120 if other == 3 else -120, Qt.AltModifier)
                 index = wall.pane_danmaku.cell_for_tile(tile)
                 assert wall.layout_ratios()[layout_id]['grid'][index][2:] == (other, 1)
-                resize_with_wheel(tile, -120, Qt.AltModifier)
+                if other == 3:
+                    resize_with_wheel(tile, -120, Qt.AltModifier)
                 assert wall.layout_control.cell_of(tile)[2:] == (2, 1)
 
                 move = QMimeData()
@@ -711,6 +726,11 @@ def check_portrait_live_defaults(app):
                 if size == 4:
                     resize_with_wheel(tile, 120)
                     assert wall.layout_control.cell_of(tile) == (0, 0, 4, 2)
+                    resize_with_wheel(tile, -120, Qt.AltModifier)
+                    assert wall.layout_control.cell_of(tile) == (0, 0, 3, 2)
+                    resize_with_wheel(tile, -120)
+                    assert wall.layout_control.cell_of(tile) == (0, 0, 3, 2)
+                    resize_with_wheel(tile, 120, Qt.AltModifier)
                     resize_with_wheel(tile, -120)
                     assert wall.layout_control.cell_of(tile) == (0, 0, 2, 1)
                     custom = Qt.AltModifier | Qt.ControlModifier
@@ -731,6 +751,10 @@ def check_portrait_live_defaults(app):
                 resize_with_wheel(tile, 120)
                 resize_with_wheel(tile, -120)
                 assert wall.layout_control.cell_of(tile) == (0, 0, 3, 1)
+                resize_with_wheel(tile, 120, Qt.AltModifier)
+                assert wall.layout_control.cell_of(tile) == (0, 0, size, 1)
+                if size == 4:
+                    resize_with_wheel(tile, -120, Qt.AltModifier)
                 resize_with_wheel(tile, -120, Qt.AltModifier)
 
                 grid.add_danmaku(units[2 * size].center())

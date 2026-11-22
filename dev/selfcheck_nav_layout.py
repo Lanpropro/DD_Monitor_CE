@@ -199,7 +199,7 @@ def main() -> None:
     settle(app, 0.5)
     tabs = list(picker._tabs)
     print(f"  子菜单: {tabs} 当前={picker.group()}")
-    assert tabs == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局（伪）"], tabs
+    assert tabs == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局"], tabs
     assert picker.group() == "弹幕布局", "当前布局在弹幕组里，默认应该停在这一栏"
     compact_size = picker.size()
     visible = [card.text() for card in picker._cards["弹幕布局"] if card.isVisible()]

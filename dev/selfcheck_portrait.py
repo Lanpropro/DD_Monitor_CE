@@ -135,7 +135,7 @@ def part_layouts() -> None:
     print("\n=== 2. 布局菜单多出「竖屏布局」一组 ===")
     names = [name for name, _group in layouts.GROUPS]
     print(f"  分组: {names}")
-    assert names == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局（伪）"], names
+    assert names == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局"], names
     group = dict(layouts.GROUPS)["竖屏布局"]
     assert len(group) == 6, f"竖屏组应该 6 个预设，实际 {len(group)}"
 
@@ -316,7 +316,7 @@ def part_layout_mapping(app) -> None:
     ids = [card.property("layoutId") for card in picker._cards[picker.group()]
            if card.isVisible()]
     print(f"  竖屏菜单：栏={list(picker._cards)} 当前={picker.group()} 可见={ids}")
-    assert list(picker._cards) == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局（伪）"], list(picker._cards)
+    assert list(picker._cards) == ["普通布局", "弹幕布局", "竖屏布局", "自定义布局"], list(picker._cards)
     assert picker.group() == "竖屏布局", "当前是竖屏布局，默认就该停在竖屏那一栏"
     assert ids and all(layouts.is_portrait_layout(item) for item in ids), \
         f"竖屏那一栏里混进了横屏预设：{ids}"

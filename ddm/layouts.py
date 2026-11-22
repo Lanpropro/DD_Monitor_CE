@@ -62,7 +62,7 @@ LAYOUTS: list[dict] = [
 ]
 
 
-CUSTOM_GRID_GROUP = "自定义布局（伪）"
+CUSTOM_GRID_GROUP = "自定义布局"
 CUSTOM_GRID_LAYOUTS: list[dict] = [
     {"id": "custom_grid9", "name": "自定义九格", "spec": (3, 3, even_cells(3, 3)),
      "snap_grid": 3, "section": CUSTOM_GRID_GROUP},

@@ -27,7 +27,7 @@ class LayoutPicker(QFrame):
     DEFAULT_SIZE = QSize(456, 360)
     _icon_size = QSize(76, 42)
     _presets_key = '直播间组合'
-    custom_layouts_key = '自定义布局'
+    custom_layouts_key = '已保存布局'
 
     def __init__(self, current: str, parent=None, portrait: bool = False, *,
                  presets_host=None, preferred_size=None, available=None):
@@ -65,10 +65,11 @@ class LayoutPicker(QFrame):
             keys.append(self.custom_layouts_key)
         if presets_host is not None:
             keys.append(self._presets_key)
-        tab_labels = {layouts.CUSTOM_GRID_GROUP: '伪布局', self.custom_layouts_key: '已保存'}
+        tab_labels = {self.custom_layouts_key: '已保存'}
         self.tabs = SegmentedControl([(name, tab_labels.get(name, name)) for name in keys], active, self)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._tabs = self.tabs.buttons
+        self._tabs[layouts.CUSTOM_GRID_GROUP].setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         for name in keys:
             if name in tab_labels:
                 self._tabs[name].setToolTip(name)
@@ -178,7 +179,7 @@ class LayoutPicker(QFrame):
                 if self._section(name, index, layouts.BY_ID[card.property('layoutId')]):
                     if column:
                         row, column = row + 1, 0
-                    self._grid.addWidget(next(headings), row, 0, 1, columns)
+                    self._grid.addWidget(next(headings), row, 0, 1, columns, Qt.AlignLeft)
                     row += 1
                 self._grid.addWidget(card, row, column)
                 column += 1

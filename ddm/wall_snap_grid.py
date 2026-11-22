@@ -99,20 +99,6 @@ class WallSnapGrid:
                 return _Placement(index, target, result, result != cells, room_id)
         return None
 
-    def switch_portrait_rows(self, tile, step):
-        index = self._room_cell(tile)
-        if index is None:
-            return False
-        cells = self.cells()
-        cell = cells[index]
-        if cell is None or cell[2:] not in ((2, 1), (3, 1)):
-            return False
-        target = snap_grid.portrait_cell(self.size, cell, 3 if step > 0 else 2)
-        result = snap_grid.place(self.size, cells, index, target, self.occupied())
-        if result != cells:
-            self._commit(result)
-        return True
-
     def prepare_room_drag(self, mime):
         if not mime.hasFormat(ROOM_MIME):
             return
@@ -168,7 +154,7 @@ class WallSnapGrid:
             return self.wall.pane_danmaku.cell_for_tile(tile)
         return None
 
-    def resize_tile(self, tile, step):
+    def resize_tile(self, tile, step, *, height_only=False):
         index = self._room_cell(tile)
         if index is None:
             return False
@@ -176,7 +162,8 @@ class WallSnapGrid:
         cell = cells[index]
         if cell is not None:
             tile.state_control.pending_grid_aspect = None
-            resized = snap_grid.resize(self.size, cell, step)
+            resize = snap_grid.resize_height if height_only else snap_grid.resize
+            resized = resize(self.size, cell, step)
             result = snap_grid.place(self.size, cells, index, resized, self.occupied())
             if result != cells:
                 self._commit(result)

@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from . import layouts, snap_grid, theme
 from .corner_geometry import continuous_path
 from .layout_preset_editor import LayoutDraftPreview
-from .shortcut_actions import LAYOUT_PORTRAIT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, wheel_action_step
+from .shortcut_actions import LAYOUT_HEIGHT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, wheel_action_step
 
 
 class SnapGridPreview(LayoutDraftPreview):
@@ -84,9 +84,9 @@ class SnapGridPreview(LayoutDraftPreview):
         cell = previous[index]
         shortcuts = getattr(self.wall.window(), 'shortcuts', {})
         modifiers = event.modifiers()
-        portrait_step = wheel_action_step(shortcuts, LAYOUT_PORTRAIT_SHORTCUTS, modifiers, delta)
-        if portrait_step and cell[2:] in ((2, 1), (3, 1)):
-            target = snap_grid.portrait_cell(self.count, cell, 3 if portrait_step > 0 else 2)
+        height_step = wheel_action_step(shortcuts, LAYOUT_HEIGHT_SHORTCUTS, modifiers, delta)
+        if height_step:
+            target = snap_grid.resize_height(self.count, cell, height_step)
         elif step := wheel_action_step(shortcuts, LAYOUT_RESIZE_SHORTCUTS, modifiers, delta):
             target = snap_grid.resize(self.count, cell, step)
         else:

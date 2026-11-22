@@ -21,15 +21,16 @@ SHORTCUT_ACTIONS = [
     ("pip_exit", "退出画中画并返回监控室", "Esc"),
     ("layout_grow", "等比放大鼠标所在的自定义布局直播格", "Ctrl+WheelUp"),
     ("layout_shrink", "等比缩小鼠标所在的自定义布局直播格", "Ctrl+WheelDown"),
-    ("layout_portrait_tall", "将鼠标所在的竖屏直播格切到 1×3", "Alt+WheelUp"),
-    ("layout_portrait_short", "将鼠标所在的竖屏直播格切到 1×2", "Alt+WheelDown"),
+    # Keep the saved action IDs from the original portrait-only shortcuts.
+    ("layout_portrait_tall", "增加鼠标所在直播格的高度，保持宽度", "Alt+WheelUp"),
+    ("layout_portrait_short", "减少鼠标所在直播格的高度，保持宽度", "Alt+WheelDown"),
 ]
 
 DEFAULT_SHORTCUTS = {key: default for key, _description, default in SHORTCUT_ACTIONS}
 VOLUME_WHEEL_SHORTCUTS = ('volume_up', 'volume_down')
 LAYOUT_RESIZE_SHORTCUTS = ('layout_grow', 'layout_shrink')
-LAYOUT_PORTRAIT_SHORTCUTS = ('layout_portrait_tall', 'layout_portrait_short')
-LAYOUT_WHEEL_SHORTCUTS = LAYOUT_RESIZE_SHORTCUTS + LAYOUT_PORTRAIT_SHORTCUTS
+LAYOUT_HEIGHT_SHORTCUTS = ('layout_portrait_tall', 'layout_portrait_short')
+LAYOUT_WHEEL_SHORTCUTS = LAYOUT_RESIZE_SHORTCUTS + LAYOUT_HEIGHT_SHORTCUTS
 WHEEL_SHORTCUTS = VOLUME_WHEEL_SHORTCUTS + LAYOUT_WHEEL_SHORTCUTS
 FULLSCREEN_VOLUME_SHORTCUTS = ('fullscreen_volume_up', 'fullscreen_volume_down')
 DEFAULT_WHEEL_VOLUME_STEP = 10

@@ -1,4 +1,6 @@
 """Fixed grid coordinates for editable nine- and sixteen-cell layouts."""
+from math import gcd
+
 from PySide6.QtCore import QRect
 
 from .layouts import even_cells
@@ -52,21 +54,19 @@ def portrait_cell(size, cell, rows):
     return min(row, size - rows), column, rows, 1
 
 
+def resize_height(size, cell, step):
+    row, col, height, width = cell
+    rows = max(1, min(size, height + step))
+    return min(row, size - rows), col, rows, width
+
+
 def resize(size, cell, step):
     row, col, height, width = cell
-    if height in (2 * width, 3 * width):
-        columns = width + step
-        rows = columns * (height // width)
-        if 1 <= columns <= size - col and rows <= size - row:
-            return row, col, rows, columns
-        return cell
-    # Other saved rectangles step to the nearest smaller or larger square.
-    if height != width:
-        span = max(height, width) if step > 0 else min(height, width)
-    else:
-        span = height + step
-    if 1 <= span <= size - max(row, col):
-        return row, col, span, span
+    units = gcd(height, width)
+    span = units + step
+    rows, columns = height // units * span, width // units * span
+    if span > 0 and row + rows <= size and col + columns <= size:
+        return row, col, rows, columns
     return cell
 
 

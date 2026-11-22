@@ -27,7 +27,7 @@ _SHORTCUT_TITLES = {
     'pip_volume_up': '画中画增大音量', 'pip_volume_down': '画中画减小音量',
     'pip_mute': '画中画静音', 'pip_solo': '画中画单路声音', 'pip_exit': '退出画中画',
     'layout_grow': '等比放大直播格', 'layout_shrink': '等比缩小直播格',
-    'layout_portrait_tall': '竖屏占位 1×3', 'layout_portrait_short': '竖屏占位 1×2',
+    'layout_portrait_tall': '增加直播格高度', 'layout_portrait_short': '减少直播格高度',
 }
 
 
