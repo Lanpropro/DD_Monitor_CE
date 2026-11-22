@@ -529,9 +529,11 @@ class TrayMenuChoicesTests(unittest.TestCase):
                 config.save({'version': 1, 'settings': {'tray_context_menu': choices}}, raise_errors=True)
                 self.assertEqual(config.load()['settings']['tray_context_menu'], choices)
 
-    def test_streamer_monitor_submenu_updates_while_hidden_and_routes_to_settings(self):
+    def test_streamer_monitor_opens_inline_with_read_only_groups(self):
         from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QColor, QPixmap
         from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QLabel, QWidget
         from ddm.capture_control import MonitorEntry
 
         window, tray = self.tray()
@@ -545,44 +547,62 @@ class TrayMenuChoicesTests(unittest.TestCase):
         window.settings.update(page.values())
         self.assertIn('streamer_monitor', [key for key, _ in page.tray_menu.preview.rows()])
 
-        tray.menu.popup(QPoint(30, 30))
-        self.app.processEvents()
-        self.assertEqual(self.visible_ids(tray), ['layout_preview', 'streamer_monitor', 'toggle', 'pip', 'exit'])
         provider.assert_not_called()
-        self.assertFalse(window.isVisible())
-
         provider.return_value = (MonitorEntry('1001', '录制示例', 'recording', 'bilibili', '9090', started_at=100),
-                                 *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring')
-                                   for index in range(12)))
-        monitor_action = tray.menu_actions['streamer_monitor']
+                                 MonitorEntry('failed', '启动失败示例', 'failed'),
+                                 *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring', 'douyin')
+                                   for index in range(8)))
         with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=161):
-            tray.menu.setActiveAction(monitor_action)
-            QTest.keyClick(tray.menu, Qt.Key_Right)
+            tray.menu.popup(QPoint(30, 30))
             self.app.processEvents()
+        self.assertEqual(self.visible_ids(tray), ['layout_preview', 'streamer_monitor', 'toggle', 'pip', 'exit'])
+        monitor_action = tray.menu_actions['streamer_monitor']
         panel = tray.monitor_panel
-        self.assertTrue(tray.monitor_menu.isVisible())
+        self.assertIs(monitor_action.defaultWidget(), panel)
+        self.assertFalse(monitor_action.isEnabled())
+        self.assertTrue(panel.isVisible())
+        self.assertTrue(panel.scroll.isEnabled())
         self.assertTrue(panel._timer.isActive())
-        self.assertGreater(panel.scroll.verticalScrollBar().maximum(), 0)
         self.assertFalse(window.isVisible())
-        row = panel.rows.itemAt(0).widget()
+        headers = [panel.rows.itemAt(index).widget() for index in (0, 2)]
+        self.assertEqual([header.findChild(QLabel, 'AppTitle').text() for header in headers], ['录制', '监控'])
+        self.assertEqual([header.findChild(QLabel, 'AppSubtitle').text() for header in headers], ['1 位', '9 位'])
+        row = panel.rows.itemAt(1).widget()
         self.assertEqual(row.identifier.text(), 'ID 9090')
         self.assertEqual(row.platform_badge.accessibleName(), '哔哩哔哩')
         self.assertEqual(row.status.text(), '正在录制')
         self.assertEqual(row.elapsed.text(), '00:01:01')
+        self.assertEqual(panel.rows.itemAt(4).widget().status.text(), '录制启动失败')
+        stack = panel.findChild(QWidget, 'TrayMonitorAvatars')
+        rims = stack.findChildren(QWidget, 'TrayMonitorAvatarRim')
+        self.assertEqual(len(rims), 5)
+        self.assertTrue(rims[0].geometry().intersects(rims[1].geometry()))
+        self.assertEqual(stack.findChild(QLabel, 'BadgeOff').text(), '+3')
+        picture = QPixmap(28, 28)
+        picture.fill(QColor('red'))
+        panel.set_room_avatar('fixture:0', picture)
+        self.assertFalse(panel._stack_avatars['fixture:0'].pixmap().isNull())
         with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=162):
             panel._timer.timeout.emit()
         self.assertEqual(row.elapsed.text(), '00:01:02')
-
-        with patch.object(tray, 'restore', side_effect=window.show) as restore:
-            QTest.keyClick(tray.monitor_menu, Qt.Key_Down)
-            self.assertIs(tray.monitor_menu.activeAction(), tray.monitor_settings_action)
-            QTest.keyClick(tray.monitor_menu, Qt.Key_Return)
-            restore.assert_called_once_with()
-            self.assertTrue(window.isVisible())
-        window.open_settings.assert_called_once_with('streamer_defaults')
+        QTest.mouseClick(row, Qt.LeftButton)
+        self.assertTrue(tray.menu.isVisible())
+        self.assertFalse(window.isVisible())
+        window.open_settings.assert_not_called()
+        tray.menu.hide()
         self.assertFalse(tray.menu.isVisible())
-        self.assertFalse(tray.monitor_menu.isVisible())
         self.assertFalse(panel._timer.isActive())
+
+        provider.return_value = (MonitorEntry('watch', '单个监控示例', 'monitoring'),
+                                 *(MonitorEntry(f'record:{index}', f'录制示例 {index}', 'recording', started_at=100)
+                                   for index in range(12)))
+        tray.menu.popup(QPoint(30, 30))
+        self.app.processEvents()
+        self.assertEqual(panel._room_rows['watch'].name.accessibleName(), '单个监控示例')
+        self.assertFalse(panel._stack_avatars)
+        self.assertTrue(panel.scroll.verticalScrollBar().isEnabled())
+        self.assertGreater(panel.scroll.verticalScrollBar().maximum(), 0)
+        tray.menu.hide()
 
     def test_settings_preview_references_choices_selects_and_renders_all_off(self):
         from PySide6.QtCore import QPoint

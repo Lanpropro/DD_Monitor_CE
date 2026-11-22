@@ -22,6 +22,16 @@ STATUS_LABELS = {
 }
 
 
+def monitor_platform_badge(parent, platform, size=16):
+    badge = QLabel(parent)
+    badge.setFixedSize(size, size)
+    badge.setAlignment(Qt.AlignCenter)
+    badge.setStyleSheet(f'background: palette(window); border-radius: {size // 2}px;')
+    badge.setPixmap(platform_icon(platform).pixmap(size - 3, size - 3))
+    badge.setAccessibleName(PLATFORM_NAMES.get(platform, platform))
+    return badge
+
+
 class _MonitorRow(QWidget):
     def __init__(self, entry):
         super().__init__()
@@ -43,13 +53,7 @@ class _MonitorRow(QWidget):
             self.avatar.move(ring_margin, ring_margin)
         self.avatar.set_pixmap_image(images.load_room_avatar(entry.room_id))
         if entry.platform:
-            platform_name = PLATFORM_NAMES.get(entry.platform, entry.platform)
-            self.platform_badge = QLabel(portrait_box)
-            self.platform_badge.setFixedSize(16, 16)
-            self.platform_badge.setAlignment(Qt.AlignCenter)
-            self.platform_badge.setStyleSheet('background: palette(window); border-radius: 8px;')
-            self.platform_badge.setPixmap(platform_icon(entry.platform).pixmap(13, 13))
-            self.platform_badge.setAccessibleName(platform_name)
+            self.platform_badge = monitor_platform_badge(portrait_box, entry.platform)
             self.platform_badge.move(ring_margin + size - 16, ring_margin + size - 16)
         box.addWidget(portrait_box)
 
@@ -121,11 +125,13 @@ class StreamerMonitorPanel(QWidget):
 
     def refresh(self):
         rows = self.read_rows()
+        if rows != self._snapshot:
+            self._replace_rows(rows)
         now = time.monotonic()
-        if rows == self._snapshot:
-            for row in self._room_rows.values():
-                row.update_elapsed(now)
-            return
+        for row in self._room_rows.values():
+            row.update_elapsed(now)
+
+    def _replace_rows(self, rows):
         self._snapshot = rows
         scrollbar = self.scroll.verticalScrollBar()
         position = scrollbar.value()
@@ -134,19 +140,24 @@ class StreamerMonitorPanel(QWidget):
             widget = self.rows.takeAt(0).widget()
             widget.hide()
             widget.deleteLater()
+        self._populate(rows)
+        self.rows.activate()
+        self.updateGeometry()
+        scrollbar.setValue(position)
+
+    def _populate(self, rows):
         if not rows:
             empty = QLabel('暂无监控或录制中的主播')
             empty.setObjectName('SettingsHint')
             empty.setWordWrap(True)
             self.rows.addWidget(empty)
         for entry in rows:
-            row = _MonitorRow(entry)
-            row.update_elapsed(now)
-            self._room_rows[entry.room_id] = row
-            self.rows.addWidget(row)
-        self.rows.activate()
-        self.updateGeometry()
-        scrollbar.setValue(position)
+            self._add_row(entry)
+
+    def _add_row(self, entry):
+        row = _MonitorRow(entry)
+        self._room_rows[entry.room_id] = row
+        self.rows.addWidget(row)
 
     def set_room_avatar(self, room_id, pixmap):
         row = self._room_rows.get(str(room_id))

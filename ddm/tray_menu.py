@@ -45,8 +45,13 @@ class TrayMenuPreview(QWidget):
         for entry in self.choices:
             if not entry['enabled']:
                 continue
-            height = 112 if entry['id'] == 'layout_preview' else max(30, self.fontMetrics().height() + 10)
-            rows.append((entry['id'], QRectF(8, y, self.width() - 16, height)))
+            key = entry['id']
+            height = max(30, self.fontMetrics().height() + 10)
+            if key == 'layout_preview':
+                height = 112
+            elif key == 'streamer_monitor':
+                height *= 2
+            rows.append((key, QRectF(8, y, self.width() - 16, height)))
             y += height + 4
         return rows
 
@@ -98,11 +103,20 @@ class TrayMenuPreview(QWidget):
                     painter.setPen(theme.qcolor(theme.TEXT1))
                     text = painter.fontMetrics().elidedText(label, Qt.ElideRight, int(pane.width()) - 6)
                     painter.drawText(pane, Qt.AlignCenter, text)
+            elif key == 'streamer_monitor':
+                height = rect.height() / 2
+                for i, (label, count, color) in enumerate((('录制', '1 位', theme.PINK),
+                                                           ('监控', '5 位', theme.ACCENT))):
+                    line = QRectF(rect.left() + 10, rect.top() + i * height, rect.width() - 20, height)
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(theme.qcolor(color))
+                    painter.drawEllipse(QRectF(line.left(), line.center().y() - 3, 6, 6))
+                    painter.setPen(theme.qcolor(theme.TEXT1))
+                    painter.drawText(line.adjusted(14, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, label)
+                    painter.setPen(theme.qcolor(theme.TEXT3))
+                    painter.drawText(line, Qt.AlignRight | Qt.AlignVCenter, count)
             else:
                 painter.setPen(theme.qcolor(theme.TEXT1))
                 label_rect = rect.adjusted(10, 0, -10, 0)
-                if key == 'streamer_monitor':
-                    painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, '›')
-                    label_rect.adjust(0, 0, -14, 0)
                 text = painter.fontMetrics().elidedText(labels[key], Qt.ElideRight, int(label_rect.width()))
                 painter.drawText(label_rect, Qt.AlignLeft | Qt.AlignVCenter, text)
