@@ -636,6 +636,9 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(set(archive.namelist()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
             for name in archive.namelist():
                 self.assertEqual(archive.read(name), (standalone / name).read_bytes())
+            guide = archive.read('诊断工具说明.md').decode('utf-8')
+            self.assertIn('按进程编号整理故障证据', guide)
+            self.assertIn('`ddm-crash-<PID>.log`', guide)
         self.assertEqual(set(p.name for p in bundle.iterdir()), {'DDMonitorDiagnostics.exe', '诊断工具说明.md'})
         metadata = runpy.run_path(str(ROOT / 'dev/build_setup.py'))
         version = metadata['VERSION']
