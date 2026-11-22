@@ -84,9 +84,14 @@ def child(action):
                         return
                     for room_id, volume in (('1001', 57), ('fixture:7', 62)):
                         card = page.cards[(room_id,)]
-                        assert card.playback.count() == 3
-                        card.playback.setCurrentIndex(1)
-                        card.recording.setCurrentIndex(2)
+                        wanted = (15000, 400) if room_id == '1001' else (2, 1)
+                        for combo, quality in zip((card.playback, card.recording), wanted):
+                            items = [combo.itemData(index) for index in range(combo.count())]
+                            match, = [index for index, item in enumerate(items)
+                                      if isinstance(item, dict)
+                                      and isinstance(item.get(room_id), dict)
+                                      and item[room_id]['qn'] == quality]
+                            combo.setCurrentIndex(match)
                         card.volume.setValue(volume)
                     self.reject()
 
