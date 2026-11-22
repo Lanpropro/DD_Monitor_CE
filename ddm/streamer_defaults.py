@@ -33,6 +33,17 @@ def room_defaults(settings, room_id):
     return values
 
 
+def streamer_profile_group(row):
+    """Match the settings cards by their displayed quality and recording preferences."""
+    qualities = []
+    for key in ('playback', 'recording'):
+        value = row.get(key)
+        label = value['label'] if isinstance(value, dict) else QUALITY_LABELS.get(value, '继承')
+        qualities.append(label.strip().casefold() if key in row else None)
+    return (*qualities, row.get('volume'), bool(row.get('auto_record')),
+            bool(row.get('windows_recording_notice')), row.get('auto_record_mode'))
+
+
 def source_quality_option(options):
     """A sole zero entry describes source-controlled quality without a manual tier."""
     if options and len(options) == 1 and options[0].get('qn') == 0:

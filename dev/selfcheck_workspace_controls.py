@@ -484,9 +484,10 @@ class WorkspaceControlTests(unittest.TestCase):
     def test_monitor_rows_follow_recording_and_automatic_monitoring(self):
         host = SimpleNamespace(sidebar=self.sidebar, _pending_capture={},
                                recorder=SimpleNamespace(sessions={}), settings={'streamer_defaults': {
-                                   '1': {'name': '旧名称', 'auto_record': True},
-                                   '2': {'auto_record': True},
-                                   'off-wall': {'name': '后台主播', 'auto_record': True},
+                                   '1': {'name': '旧名称', 'auto_record': True, 'recording': 720},
+                                   '2': {'auto_record': True, 'recording': 1080},
+                                   'off-wall': {'name': '后台主播', 'auto_record': True,
+                                                'recording': {'qn': 200, 'label': ' 720p '}},
                                    '3': {'auto_record': False},
                                }})
         host.auto_recording = AutoRecording(host)
@@ -512,6 +513,9 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual((rows[0].account_id, rows[0].platform, rows[0].started_at), ('1024', 'bilibili', 1))
         self.assertEqual((rows[3].account_id, rows[3].platform), ('117', 'douyin'))
         self.assertEqual(rows[4].display_room_id, '2')
+        self.assertEqual(rows[0].profile_group, rows[3].profile_group)
+        self.assertNotEqual(rows[0].profile_group, rows[4].profile_group)
+        self.assertIsNone(rows[1].profile_group)
         host.auto_recording.failed_to_start.add('2')
         self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '2'), 'failed')
         active.stopping = True

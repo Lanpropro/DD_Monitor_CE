@@ -531,10 +531,11 @@ class TrayMenuChoicesTests(unittest.TestCase):
 
     def test_streamer_monitor_opens_inline_with_read_only_groups(self):
         from PySide6.QtCore import QPoint
-        from PySide6.QtGui import QColor, QPixmap
+        from PySide6.QtGui import QColor, QHelpEvent, QPixmap
         from PySide6.QtTest import QTest
-        from PySide6.QtWidgets import QLabel, QWidget
+        from PySide6.QtWidgets import QLabel, QToolTip, QWidget
         from ddm.capture_control import MonitorEntry
+        from ddm.streamer_defaults import streamer_profile_group
 
         window, tray = self.tray()
         provider = window.capture_control.monitor_rows
@@ -548,10 +549,16 @@ class TrayMenuChoicesTests(unittest.TestCase):
         self.assertIn('streamer_monitor', [key for key, _ in page.tray_menu.preview.rows()])
 
         provider.assert_not_called()
+        group = streamer_profile_group({'auto_record': True, 'recording': 720})
+        another_group = streamer_profile_group({'auto_record': True, 'recording': 1080})
         provider.return_value = (MonitorEntry('1001', '录制示例', 'recording', 'bilibili', '9090', started_at=100),
-                                 MonitorEntry('failed', '启动失败示例', 'failed'),
-                                 *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring', 'douyin')
-                                   for index in range(8)))
+                                 MonitorEntry('1002', '同组录制甲', 'recording', account_id='9091', started_at=95,
+                                              profile_group=group),
+                                 MonitorEntry('1003', '同组录制乙', 'recording', started_at=150, profile_group=group),
+                                 MonitorEntry('failed', '启动失败示例', 'failed', profile_group=group),
+                                 *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring', 'douyin',
+                                                profile_group=group) for index in range(8)),
+                                 MonitorEntry('other', '其他分类', 'monitoring', profile_group=another_group))
         with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=161):
             tray.menu.popup(QPoint(30, 30))
             self.app.processEvents()
@@ -564,20 +571,33 @@ class TrayMenuChoicesTests(unittest.TestCase):
         self.assertTrue(panel.scroll.isEnabled())
         self.assertTrue(panel._timer.isActive())
         self.assertFalse(window.isVisible())
-        headers = [panel.rows.itemAt(index).widget() for index in (0, 2)]
+        headers = [panel.rows.itemAt(index).widget() for index in (0, 3)]
         self.assertEqual([header.findChild(QLabel, 'AppTitle').text() for header in headers], ['录制', '监控'])
-        self.assertEqual([header.findChild(QLabel, 'AppSubtitle').text() for header in headers], ['1 位', '9 位'])
+        self.assertEqual([header.findChild(QLabel, 'AppSubtitle').text() for header in headers], ['3 位', '10 位'])
         row = panel.rows.itemAt(1).widget()
         self.assertEqual(row.identifier.text(), 'ID 9090')
         self.assertEqual(row.platform_badge.accessibleName(), '哔哩哔哩')
         self.assertEqual(row.status.text(), '正在录制')
         self.assertEqual(row.elapsed.text(), '00:01:01')
+        recording_group = panel.rows.itemAt(2).widget()
+        self.assertEqual(list(recording_group.avatars), ['1002', '1003'])
+        self.assertEqual(recording_group.avatars['1002'].recording_state, 'recording')
+        self.assertEqual(recording_group.elapsed.text(), '最长 00:01:06')
+        self.assertIn('同组录制甲 · ID 9091 · 00:01:06', recording_group.toolTip())
+        self.assertIn('同组录制乙 · 房间号 1003 · 00:00:11', recording_group.toolTip())
+        avatar = recording_group.avatars['1002']
+        point = avatar.rect().center()
+        self.app.sendEvent(avatar, QHelpEvent(QEvent.ToolTip, point, avatar.mapToGlobal(point)))
+        self.assertIn('同组录制乙 · 房间号 1003 · 00:00:11', QToolTip.text())
+        QToolTip.hideText()
         self.assertEqual(panel.rows.itemAt(4).widget().status.text(), '录制启动失败')
-        stack = panel.findChild(QWidget, 'TrayMonitorAvatars')
+        stack = panel.rows.itemAt(5).widget().findChild(QWidget, 'TrayMonitorAvatars')
         rims = stack.findChildren(QWidget, 'TrayMonitorAvatarRim')
         self.assertEqual(len(rims), 5)
         self.assertTrue(rims[0].geometry().intersects(rims[1].geometry()))
         self.assertEqual(stack.findChild(QLabel, 'BadgeOff').text(), '+3')
+        self.assertEqual(panel.rows.itemAt(6).widget().name.accessibleName(), '其他分类')
+        self.assertEqual(panel.rows.itemAt(6).widget().avatar.width(), 24)
         picture = QPixmap(28, 28)
         picture.fill(QColor('red'))
         panel.set_room_avatar('fixture:0', picture)
@@ -585,6 +605,7 @@ class TrayMenuChoicesTests(unittest.TestCase):
         with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=162):
             panel._timer.timeout.emit()
         self.assertEqual(row.elapsed.text(), '00:01:02')
+        self.assertEqual(recording_group.elapsed.text(), '最长 00:01:07')
         QTest.mouseClick(row, Qt.LeftButton)
         self.assertTrue(tray.menu.isVisible())
         self.assertFalse(window.isVisible())

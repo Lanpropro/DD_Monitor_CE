@@ -6,9 +6,9 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLay
 
 from .settings_layout import SettingsSection
 from .settings_streamer_picker import StreamerPicker
-from .settings_streamer_profiles import StreamerProfileCard, quality_label
+from .settings_streamer_profiles import StreamerProfileCard
 from .settings_streamer_undo import StreamerRemovalNotice
-from .streamer_defaults import native_quality_options, room_defaults
+from .streamer_defaults import native_quality_options, room_defaults, streamer_profile_group
 from .ui import ToggleSwitch, page_header
 
 
@@ -92,10 +92,7 @@ class StreamerDefaultsPage(QWidget):
             return [(room_id,) for room_id in self.entries]
         groups = {}
         for room_id, row in self.entries.items():
-            names = tuple(quality_label(row[key]).strip().casefold() if key in row else None
-                          for key in ('playback', 'recording'))
-            groups.setdefault((*names, row.get('volume'), bool(row.get('auto_record')),
-                               bool(row.get('windows_recording_notice')), row.get('auto_record_mode')), []).append(room_id)
+            groups.setdefault(streamer_profile_group(row), []).append(room_id)
         return [tuple(group) for group in groups.values()]
 
     def _render_profiles(self):

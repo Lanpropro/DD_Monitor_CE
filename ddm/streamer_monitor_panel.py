@@ -32,15 +32,37 @@ def monitor_platform_badge(parent, platform, size=16):
     return badge
 
 
+def monitor_status_badge(state):
+    badge = QLabel(STATUS_LABELS[state], objectName='BadgeLive' if state == 'recording' else 'BadgeOff')
+    if state == 'monitoring':
+        badge.setStyleSheet(f'background: #006fa3; color: white; border: none; '
+                            f'border-radius: {theme.RADIUS_MD}px;')
+    return badge
+
+
+def monitor_elapsed(started_at, now):
+    hours, remaining = divmod(max(0, int(now - started_at)), 3600)
+    minutes, seconds = divmod(remaining, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+
+
+def monitor_identifier(entry):
+    if entry.account_id:
+        return f'ID {entry.account_id}'
+    return f'房间号 {entry.display_room_id or entry.room_id}'
+
+
 class _MonitorRow(QWidget):
-    def __init__(self, entry):
+    def __init__(self, entry, *, compact=False):
         super().__init__()
         self.entry = entry
         box = QHBoxLayout(self)
-        box.setContentsMargins(4, 4, 6, 4)
+        padding = 2 if compact else 4
+        box.setContentsMargins(4, padding, 6, padding)
         box.setSpacing(8)
-        size = RoomStrip.AVATAR
+        size = 24 if compact else RoomStrip.AVATAR
         ring_margin = 7
+        logo_size = 13 if compact else 16
         portrait_box = QWidget(self)
         portrait_size = size + 2 * ring_margin
         portrait_box.setFixedSize(portrait_size, portrait_size)
@@ -53,8 +75,8 @@ class _MonitorRow(QWidget):
             self.avatar.move(ring_margin, ring_margin)
         self.avatar.set_pixmap_image(images.load_room_avatar(entry.room_id))
         if entry.platform:
-            self.platform_badge = monitor_platform_badge(portrait_box, entry.platform)
-            self.platform_badge.move(ring_margin + size - 16, ring_margin + size - 16)
+            self.platform_badge = monitor_platform_badge(portrait_box, entry.platform, logo_size)
+            self.platform_badge.move(ring_margin + size - logo_size, ring_margin + size - logo_size)
         box.addWidget(portrait_box)
 
         identity = QVBoxLayout()
@@ -65,7 +87,7 @@ class _MonitorRow(QWidget):
         self.name.setToolTip(entry.name)
         self.name.setAccessibleName(entry.name)
         identity.addWidget(self.name)
-        identifier = f'ID {entry.account_id}' if entry.account_id else f'房间号 {entry.display_room_id or entry.room_id}'
+        identifier = monitor_identifier(entry)
         self.identifier = ElidedLabel(identifier)
         self.identifier.setTextFormat(Qt.PlainText)
         self.identifier.setToolTip(identifier)
@@ -76,11 +98,7 @@ class _MonitorRow(QWidget):
         status_box = QVBoxLayout()
         status_box.setAlignment(Qt.AlignVCenter)
         status_box.setSpacing(2)
-        self.status = QLabel(STATUS_LABELS[entry.state])
-        self.status.setObjectName('BadgeLive' if entry.state == 'recording' else 'BadgeOff')
-        if entry.state == 'monitoring':
-            self.status.setStyleSheet(f'background: #006fa3; color: white; border: none; '
-                                      f'border-radius: {theme.RADIUS_MD}px;')
+        self.status = monitor_status_badge(entry.state)
         status_box.addWidget(self.status, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.elapsed = QLabel(self, objectName='AppSubtitle')
         self.elapsed.setAccessibleName('录制时长')
@@ -90,10 +108,7 @@ class _MonitorRow(QWidget):
 
     def update_elapsed(self, now):
         if self.entry.started_at:
-            seconds = max(0, int(now - self.entry.started_at))
-            hours, minutes = divmod(seconds, 3600)
-            minutes, seconds = divmod(minutes, 60)
-            self.elapsed.setText(f'{hours:02d}:{minutes:02d}:{seconds:02d}')
+            self.elapsed.setText(monitor_elapsed(self.entry.started_at, now))
 
 
 class StreamerMonitorPanel(QWidget):
@@ -127,7 +142,9 @@ class StreamerMonitorPanel(QWidget):
         rows = self.read_rows()
         if rows != self._snapshot:
             self._replace_rows(rows)
-        now = time.monotonic()
+        self._update_elapsed(time.monotonic())
+
+    def _update_elapsed(self, now):
         for row in self._room_rows.values():
             row.update_elapsed(now)
 
@@ -154,8 +171,8 @@ class StreamerMonitorPanel(QWidget):
         for entry in rows:
             self._add_row(entry)
 
-    def _add_row(self, entry):
-        row = _MonitorRow(entry)
+    def _add_row(self, entry, *, compact=False):
+        row = _MonitorRow(entry, compact=compact)
         self._room_rows[entry.room_id] = row
         self.rows.addWidget(row)
 

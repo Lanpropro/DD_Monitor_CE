@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from . import bili
 from .recording_session import BackgroundRecordingSource
 from .room_artwork import room_platform
-from .streamer_defaults import QUALITY_LABELS, quality_tiers, source_quality_option
+from .streamer_defaults import (QUALITY_LABELS, quality_tiers, room_defaults, source_quality_option,
+                                streamer_profile_group)
 
 
 MONITOR_STATES = ('recording', 'reconnecting', 'preparing', 'stopping', 'failed', 'monitoring')
@@ -19,6 +20,7 @@ class MonitorEntry:
     account_id: str = ''
     display_room_id: str = ''
     started_at: float = 0.0
+    profile_group: tuple | None = None
 
 
 class CaptureControl:
@@ -282,15 +284,19 @@ class CaptureControl:
         host = self.host
         monitored = host.auto_recording.monitored_rooms()
         followed = {str(room.get('room_id')): room for room in host.sidebar.rooms()}
+        saved = host.settings.get('streamer_defaults')
+        profiles = saved if isinstance(saved, dict) else {}
         entries = {}
 
         def entry(room_id, name, state, room, started_at=0.0):
             details = {**room, **host.auto_recording.room_details.get(room_id, {})}
             details.update({key: value for key, value in followed.get(room_id, {}).items() if value})
             details['room_id'] = room_id
+            group = (streamer_profile_group(room_defaults(host.settings, room_id))
+                     if isinstance(profiles.get(room_id), dict) else None)
             return MonitorEntry(room_id, str(details.get('uname') or name or room_id), state,
                                 room_platform(details), str(details.get('anchor_uid') or details.get('uid') or ''),
-                                str(details.get('display_room_id') or room_id.split(':', 1)[-1]), started_at)
+                                str(details.get('display_room_id') or room_id.split(':', 1)[-1]), started_at, group)
 
         for session in host.recorder.sessions.values():
             if not session.recording or not session.room_id:
