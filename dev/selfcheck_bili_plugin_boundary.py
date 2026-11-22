@@ -193,7 +193,7 @@ class BiliPluginBoundaryTests(unittest.TestCase):
             panel.add_event({'uname': '测试', 'text': '普通弹幕'})
             self.assertIn('[表情]', panel.body.toPlainText())
             panel._on_emoticon_loaded(url, pixmap)
-        for font_size, height in ((13, 64), (8, 54), (20, 78)):
+        for font_size, height in ((13, 48), (8, 38), (20, 62)):
             panel.apply_style('', font_size)
             rendered = panel.body.toHtml()
             self.assertEqual(rendered.count(f'width="{2 * height}"'), 2)
@@ -213,7 +213,7 @@ class BiliPluginBoundaryTests(unittest.TestCase):
         panel.resize(160, 380)
         panel.apply_style('', 32)
         APP.processEvents()
-        self.assertLess(panel.body.viewport().width(), 204)
+        self.assertLess(panel.body.viewport().width(), 172)
         self.assertEqual(panel.body.horizontalScrollBar().maximum(), 0)
 
     def test_cookie_restoration_room_and_fullscreen_without_plugin(self):

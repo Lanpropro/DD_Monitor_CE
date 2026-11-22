@@ -198,7 +198,7 @@ class DanmakuPanel(QFrame):
 
     MAX_BLOCKS = 3000         # 默认最多留多少条（设置里可改）
     MIN_BLOCKS = 20
-    EMOTICON_HEIGHT = 64      # 默认字号下的表情高度
+    EMOTICON_HEIGHT = 48      # 默认字号下的表情高度
     BASE_FONT_SIZE = 13       # 默认弹幕字号
     MIN_FONT_SIZE = 8
     MAX_FONT_SIZE = 32
