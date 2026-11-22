@@ -109,7 +109,8 @@ def install(mode, directory):
             links[mode] = metadata.run
         elif mode == 'dock-hover':
             from .dock_hover_diagnostics import DockHoverTrace
-            window._dock_hover_trace = DockHoverTrace(window, metadata)
+            window._dock_hover_trace = DockHoverTrace(window, metadata.emit)
+            window._dock_hover_trace.start()
             metadata.probes.append(window._dock_hover_trace)
             links[mode] = metadata.run
         metadata.emit('window-ready', mode=mode, linked_sessions=links)

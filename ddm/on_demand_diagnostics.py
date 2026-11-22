@@ -172,7 +172,7 @@ class DiagnosticEndpoint(QObject):
         try:
             request = json.loads(bytes(socket.readLine()))
             if (not isinstance(request, dict) or request.get('protocol') != 1
-                    or request.get('mode') not in ('folders', 'drag', 'playback')
+                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover')
                     or set(request) != {'protocol', 'mode'}):
                 raise ValueError('invalid-request')
         except (ValueError, TypeError):
@@ -195,7 +195,8 @@ class DiagnosticEndpoint(QObject):
             if self.active is None or self.active['identity'] != identity:
                 return
             record = dict(time=time.time(), session=identity, stage=stage, pid=os.getpid(), **values)
-            if len(records) < 100:
+            if len(records) < 100 or (request['mode'] == 'dock-hover'
+                                     and stage in ('dock-hover-mismatch', 'capture-ended')):
                 records.append(record)
             logger.warning(json.dumps(record, ensure_ascii=False))
         def done(reason):
@@ -216,6 +217,9 @@ class DiagnosticEndpoint(QObject):
                 if request['mode'] == 'playback':
                     from .playback_capture import PlaybackCapture
                     observer = PlaybackCapture(self.window, emit, done)
+                elif request['mode'] == 'dock-hover':
+                    from .dock_hover_diagnostics import DockHoverTrace
+                    observer = DockHoverTrace(self.window, emit, done)
                 else:
                     observer = OneDrag(self.window, emit, done)
                 self.active['observer'] = observer

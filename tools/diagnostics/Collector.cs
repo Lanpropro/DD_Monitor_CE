@@ -194,7 +194,7 @@ namespace DDMonitorDiagnostics
 
     internal sealed class Collector
     {
-        internal const string ToolVersion = "1.4";
+        internal const string ToolVersion = "1.5";
         static readonly string[] TraceNames = { "diagnostic-session", "on-demand", "folder-motion", "responsiveness", "notice-close", "danmaku-motion", "drag-windows", "douyu-playback", "douyu-responsiveness", "theme-switch", "fullscreen" };
         internal const int TextLimit = 2 * 1024 * 1024;
         internal const int ConfigLimit = 8 * 1024 * 1024;
@@ -648,9 +648,67 @@ namespace DDMonitorDiagnostics
             try
             {
                 var text = Read(relative, TextLimit, true);
-                if (text != null) entries[relative] = redact.Text(text);
+                if (text != null)
+                    entries[relative] = relative.StartsWith("logs/settings-capture.jsonl", StringComparison.Ordinal)
+                        ? SettingsCloseEvidence(text) : redact.Text(text);
             }
             catch (Exception error) { warnings.Add(relative + "：读取失败（" + error.GetType().Name + "）。"); }
+        }
+
+        string SettingsCloseEvidence(string text)
+        {
+            // The external trace may contain desktop window titles and arbitrary key events.
+            var filtered = new StringBuilder();
+            foreach (string line in text.Split('\n'))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.Length > 262144) continue;
+                IDictionary<string, object> row;
+                try { row = json.DeserializeObject(line) as IDictionary<string, object>; }
+                catch (ArgumentException) { continue; }
+                catch (InvalidOperationException) { continue; }
+                object kindValue, open, key;
+                string kind = row != null && row.TryGetValue("kind", out kindValue) ? kindValue as string : null;
+                if (kind == null) continue;
+                var record = new Dictionary<string, object> { { "kind", kind } };
+                if (!Regex.IsMatch(kind, @"\Asettings_[a-z_]{1,24}\z"))
+                {
+                    if (!row.TryGetValue("settingsOpen", out open) || !Equals(open, true)) continue;
+                    if (kind == "keydown" || kind == "keyup")
+                    {
+                        if (!row.TryGetValue("vk", out key)) continue;
+                        string code = Convert.ToString(key);
+                        if (code == "27" || code.Equals("0x1b", StringComparison.OrdinalIgnoreCase))
+                            record["vk"] = 27;
+                        else continue;
+                    }
+                    else if (kind != "mousedown" && kind != "mouseup" && kind != "wheel") continue;
+                }
+                object value;
+                foreach (string field in new[] { "pid", "x", "y", "delta", "lastInputAgeMs" })
+                    if (row.TryGetValue(field, out value) && IsTraceNumber(value)) record[field] = value;
+                foreach (string field in new[] { "settingsOpen", "visible", "isWindow", "leftDown", "leftDownAtGone", "escWithin2s" })
+                    if (row.TryGetValue(field, out value) && value is bool) record[field] = value;
+                if (row.TryGetValue("t", out value) && (IsTraceNumber(value) ||
+                    value is string && Regex.IsMatch((string)value, @"\A(?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(?:[.,]\d{1,7})?(?:Z|[+-]\d{2}:\d{2})?\z")))
+                    record["t"] = value;
+                if (row.TryGetValue("settingsHwnd", out value) && (IsTraceNumber(value) ||
+                    value is string && Regex.IsMatch((string)value, @"\A(?:0x)?[0-9a-fA-F]{1,16}\z")))
+                    record["settingsHwnd"] = value;
+                if (row.TryGetValue("rect", out value) && value is IList)
+                {
+                    var rect = (IList)value;
+                    if (rect.Count == 4 && rect.Cast<object>().All(IsTraceNumber)) record["rect"] = rect;
+                }
+                if (row.TryGetValue("button", out value) && (Equals(value, "left") || Equals(value, "right") || Equals(value, "middle")))
+                    record["button"] = value;
+                filtered.AppendLine(json.Serialize(record));
+            }
+            return filtered.ToString();
+        }
+
+        static bool IsTraceNumber(object value)
+        {
+            return value is int || value is long || value is decimal || value is double;
         }
 
         object SpecializedDiagnostics(Dictionary<string, string> entries, string logs)
@@ -658,7 +716,8 @@ namespace DDMonitorDiagnostics
             var files = new List<object>();
             if (logs != null && Directory.Exists(logs) && SafeWithin(dataRoot, logs))
             {
-                var pattern = "^(?:" + string.Join("|", TraceNames.Select(Regex.Escape)) + @")\.jsonl(?:\.[1-5])?$";
+                var pattern = "^(?:" + string.Join("|", TraceNames.Select(Regex.Escape))
+                    + @"|settings-(?:scroll|performance)-[0-9]+|settings-capture)\.jsonl(?:\.[1-5])?$";
                 var paths = Directory.GetFiles(logs).Where(p => Regex.IsMatch(Path.GetFileName(p), pattern))
                     .OrderByDescending(File.GetLastWriteTimeUtc).Take(24);
                 foreach (var path in paths)
@@ -680,7 +739,8 @@ namespace DDMonitorDiagnostics
                             if (row == null) { incomplete++; continue; }
                             records++;
                             object stage, session;
-                            if (!row.TryGetValue("stage", out stage)) row.TryGetValue("phase", out stage);
+                            if (!row.TryGetValue("stage", out stage) && !row.TryGetValue("phase", out stage))
+                                row.TryGetValue("kind", out stage);
                             string name = Convert.ToString(stage);
                             if (name.Length <= 128 && stages.Count < 128)
                                 stages[name] = stages.ContainsKey(name) ? stages[name] + 1 : 1;

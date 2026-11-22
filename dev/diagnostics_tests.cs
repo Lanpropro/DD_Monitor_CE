@@ -128,7 +128,7 @@ internal static class DiagnosticsTests
                     var exitOption = (CheckBox)typeof(DiagnosticForm).GetField("exitAfterSuccess", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                     if (exitOption.PreferredSize.Height > exitOption.Height || exitOption.PreferredSize.Width > exitOption.Width)
                         throw new Exception("Auto-exit option clipped at minimum window size");
-                      foreach (string name in new[] { "liveFolders", "liveDrag", "cancelLive" })
+                      foreach (string name in new[] { "liveFolders", "liveDrag", "liveDockHover", "cancelLive" })
                       {
                           var button = (Button)typeof(DiagnosticForm).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
                           if (button.Right > button.Parent.ClientSize.Width || button.Bottom > button.Parent.ClientSize.Height)

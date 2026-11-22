@@ -64,7 +64,7 @@ class DiagnosticLayoutTests(unittest.TestCase):
                     live = page.sections.section('live')
                     page.scroll.ensureWidgetVisible(live)
                     self.app.processEvents()
-                    for button in (page.folders, page.drag, page.cancel):
+                    for button in (page.folders, page.drag, page.dock_hover, page.cancel):
                         self.assertLessEqual(button.mapTo(live, button.rect().bottomRight()).x(), live.width())
                     if os.environ.get('DDM_DIAGNOSTIC_LAYOUT_IMAGES') and size == 13:
                         out = Path(os.environ['DDM_DIAGNOSTIC_LAYOUT_IMAGES'])
@@ -95,6 +95,13 @@ class DiagnosticLayoutTests(unittest.TestCase):
         self.assertEqual(page.progress_text.text(), '37%')
         page.reset()
         self.assertEqual(page.values(), {'native_crash_dump': False})
+
+    def test_function_rail_button_requests_capture_from_main_process(self):
+        _host, page = self.page(720, 600)
+        with patch.dict(os.environ, DDM_DIAGNOSTIC_HOST_PID='12345'), patch.object(page.export, 'start') as start:
+            page.dock_hover.click()
+            start.assert_called_once_with({'pid': 12345, 'mode': 'dock-hover'}, capture=True)
+        self.assertIn('60 秒', page.status.text())
 
     def test_description_scroll_stays_local(self):
         _host, page = self.page(720, 600)

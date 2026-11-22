@@ -29,30 +29,34 @@ class DockHoverTrace(QObject):
     EVENTS = (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave,
               QEvent.Show, QEvent.Hide, QEvent.ActionChanged, QEvent.Paint)
 
-    def __init__(self, window, capture):
+    def __init__(self, window, emit, done=None):
         super().__init__(window)
         self.window = window
         self.rail = window.sidebar.navigation.rail
-        self.capture = capture
+        self.record = emit
+        self.done = done
         self.count = 0
         self.closed = False
         self.button = None
         self.saw_hover = False
         self.misses = 0
         self.last_sample = None
-        self.last_tick = time.monotonic()
         self.timer = QTimer(self)
         self.timer.setInterval(25)
         self.timer.timeout.connect(self.sample_pointer)
+
+    def start(self):
+        self.started = self.last_tick = time.monotonic()
+        self.emit('dock-hover-armed')
         QApplication.instance().installEventFilter(self)
         self.timer.start()
 
     def emit(self, stage, **data):
         self.count += 1
-        self.capture.emit(stage, **data)
+        self.record(stage, **data)
         if self.count >= self.MAX_RECORDS:
-            self.capture.emit('dock-hover-limit', limit=self.MAX_RECORDS)
-            self.stop()
+            self.record('dock-hover-limit', limit=self.MAX_RECORDS)
+            self.finish('limit')
 
     def button_at(self, widget):
         if widget is None or not self.rail.isAncestorOf(widget):
@@ -75,6 +79,9 @@ class DockHoverTrace(QObject):
         if self.closed:
             return
         now, previous = time.monotonic(), self.last_tick
+        if self.done is not None and now - self.started >= 60:
+            self.finish('timeout')
+            return
         self.last_tick = now
         app = QApplication.instance()
         point = QCursor.pos()
@@ -115,6 +122,8 @@ class DockHoverTrace(QObject):
         if not self.closed and self.misses == 2:
             reason = 'lost-while-inside' if self.saw_hover else 'missing-on-entry'
             self.emit('dock-hover-mismatch', reason=reason, **sample)
+            if self.done is not None:
+                self.finish('mismatch-found')
 
     def eventFilter(self, watched, event):
         kind = event.type()
@@ -125,9 +134,19 @@ class DockHoverTrace(QObject):
         return False
 
     def stop(self):
+        if self.closed:
+            return
         self.closed = True
         if isValid(self.timer):
             self.timer.stop()
         app = QApplication.instance()
         if app is not None and isValid(app) and isValid(self):
             app.removeEventFilter(self)
+        self.deleteLater()
+
+    def finish(self, reason):
+        if self.closed:
+            return
+        self.stop()
+        if self.done is not None:
+            self.done(reason)

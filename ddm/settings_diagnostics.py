@@ -99,15 +99,18 @@ class DiagnosticsPage(QWidget):
         live = SettingsSection('补充现场（可选）')
         self.folders = ActionButton('文件夹现场')
         self.drag = ActionButton('拖放记录')
+        self.dock_hover = ActionButton('功能栏高亮')
         self.cancel = ActionButton('取消采集')
         self.cancel.setEnabled(False)
+        self.live_buttons = (self.folders, self.drag, self.dock_hover, self.cancel)
         self.live_actions = QBoxLayout(QBoxLayout.LeftToRight)
-        for button in (self.folders, self.drag, self.cancel):
+        for button in self.live_buttons:
             self.live_actions.addWidget(button)
         live.grid.addLayout(self.live_actions, 0, 0, 1, 2)
-        self._hint(live.grid, 1, '问题仍在时再采集。拖放最多等待60秒，返回主窗口操作后再导出。')
+        self._hint(live.grid, 1, '问题仍在时再采集。记录拖放或功能栏高亮时，返回主窗口操作，最长采集 60 秒。')
         self.folders.clicked.connect(lambda: self._capture('folders'))
         self.drag.clicked.connect(lambda: self._capture('drag'))
+        self.dock_hover.clicked.connect(lambda: self._capture('dock-hover'))
         self.cancel.clicked.connect(self.export.stop)
         self.sections.add_section('live', live)
         live.installEventFilter(self)
@@ -189,7 +192,7 @@ class DiagnosticsPage(QWidget):
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Resize and watched is self.sections.section('live'):
-            self._arrange_actions(self.live_actions, (self.folders, self.drag, self.cancel), watched.width() - 36)
+            self._arrange_actions(self.live_actions, self.live_buttons, watched.width() - 36)
         return super().eventFilter(watched, event)
 
     @staticmethod
@@ -222,13 +225,19 @@ class DiagnosticsPage(QWidget):
 
     def _capture(self, mode):
         pid = int(os.environ.get('DDM_DIAGNOSTIC_HOST_PID', os.getpid()))
-        self.status.setText('正在采集；请返回主窗口操作。' if mode == 'drag' else '正在读取文件夹现场…')
+        self.status.setText({
+            'folders': '正在读取文件夹现场…',
+            'drag': '正在采集，请返回主窗口尝试拖放一次。',
+            'dock-hover': '请返回主窗口，将鼠标划过左侧功能栏。最长采集 60 秒。',
+        }[mode])
         self.export.start({'pid': pid, 'mode': mode}, capture=True)
         self.cancel.setEnabled(self.export.busy)
 
     def _captured(self, evidence):
         self.evidence = evidence
-        self.status.setText('现场记录已保存到本次会话，可继续填写并导出。')
+        self.status.setText('仅取得 Windows 窗口快照，可继续填写并导出。'
+                            if evidence.get('status') == 'external-only'
+                            else '现场记录已保存到本次会话，可继续填写并导出。')
 
     def _generate(self):
         if not Path(self.destination.text()).is_dir():
@@ -240,7 +249,7 @@ class DiagnosticsPage(QWidget):
             'evidence': self.evidence, 'include_native_dumps': self.include_dumps.isChecked()})
 
     def _busy(self, busy):
-        for control in (self.generate, self.folders, self.drag, self.destination, self.browse,
+        for control in (self.generate, self.folders, self.drag, self.dock_hover, self.destination, self.browse,
                         self.add_images, self.remove_image, self.include_dumps):
             control.setEnabled(not busy)
         self.cancel.setEnabled(False)
