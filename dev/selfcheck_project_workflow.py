@@ -109,11 +109,35 @@ class ProjectWorkflowTests(unittest.TestCase):
             self.assertIn(text, source)
         self.assertFalse((ROOT / 'dev/restart-client.ps1').exists())
 
-    def test_old_release_folders_are_archived_after_verification(self):
+    def test_results_keep_only_final_deliverables(self):
         source = (ROOT / 'docs/development/workspace-maintenance.md').read_text(encoding='utf-8')
-        for text in ('最新正式版本', '旧版发布目录归档为同名 ZIP',
-                     '核对文件清单及内容一致后再删除原目录', '解压到 `work/`'):
+        for text in ('同一版本号只保留最终修订', '一个可直接运行的解压入口',
+                     '每个插件 ID 最新正式版本的 ZIP', '宣传片最终成片',
+                     '除此之外', 'ZIP 外的运行配置和日志', 'results/archive/'):
             self.assertIn(text, source)
+
+    def test_release_requires_human_review_of_changes_and_notes(self):
+        release = (ROOT / 'docs/releases/README.md').read_text(encoding='utf-8')
+        contributing = (ROOT / 'CONTRIBUTING.md').read_text(encoding='utf-8')
+        for text in ('上一正式标签至候选提交', 'docs/local/release-drafts/v<版本>.md',
+                     '维护者人工验收改动', '确认发布说明', '发布成功', '删除本机临时审核单'):
+            self.assertIn(text, release)
+        self.assertIn('人工验收前不得发布', release)
+        self.assertIn('才可创建版本标签和 GitHub Release', contributing)
+
+    def test_cleanup_rules_require_usage_and_replacement_review(self):
+        source = (ROOT / 'docs/standards/documentation.md').read_text(encoding='utf-8')
+        for text in ('dev/checks/suites.json', 'dev/checks/README.md',
+                     '无断言或未进入套件只表示需要复核', '替代检查须覆盖原脚本的具体行为和验证层次',
+                     '按一批候选单独提交删除及引用修正'):
+            self.assertIn(text, source)
+
+    def test_validation_guide_uses_existing_check_entry(self):
+        guide = (ROOT / 'docs/development/testing.md').read_text(encoding='utf-8')
+        readme = (ROOT / 'dev/README.md').read_text(encoding='utf-8')
+        self.assertIn('dev\\run-checks.cmd --suite repository', guide)
+        self.assertIn('dev\\run-checks.cmd --script selfcheck_documents', readme)
+        self.assertTrue((ROOT / 'dev/selfcheck_documents.py').is_file())
 
     def test_pr_template_documents_target_validation_and_dependencies(self):
         source = (ROOT / '.github/PULL_REQUEST_TEMPLATE.md').read_text(encoding='utf-8')

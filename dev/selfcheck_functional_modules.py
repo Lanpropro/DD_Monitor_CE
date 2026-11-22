@@ -51,9 +51,12 @@ class FunctionalModulesTests(unittest.TestCase):
         from ddm.sidebar_widgets import AppearanceButton, Sidebar
         sidebar, appearance = Sidebar([], auto_compact=False), AppearanceButton()
         self.widgets += [sidebar, appearance]
-        for name in ('items_control', 'interaction_control'):
-            self.assertEqual(vars(getattr(sidebar, name)), {'host': sidebar})
-            self.assertFalse(hasattr(appearance, name))
+        self.assertEqual(vars(sidebar.items_control), {
+            'host': sidebar, '_auto_record_rooms': set(), '_recording_rooms': set(), '_recording_states': {},
+        })
+        self.assertEqual(vars(sidebar.interaction_control), {'host': sidebar})
+        self.assertFalse(hasattr(appearance, 'items_control'))
+        self.assertFalse(hasattr(appearance, 'interaction_control'))
 
     def test_sidebar_card_factory_add_remove_and_shared_room_data(self):
         from ddm import sidebar_widgets as module
@@ -78,8 +81,11 @@ class FunctionalModulesTests(unittest.TestCase):
         from ddm.tile_widgets import Tile
         tile = Tile({'room_id': 'fixture:1', 'uname': 'Fixture'})
         self.widgets.append(tile)
-        for name in ('state_control', 'controls_control', 'presentation_control', 'menu_control'):
+        for name in ('controls_control', 'presentation_control', 'menu_control'):
             self.assertEqual(vars(getattr(tile, name)), {'host': tile})
+        self.assertEqual(vars(tile.state_control), {
+            'host': tile, 'source_resolution': '', 'pending_grid_aspect': None,
+        })
         changes = []
         tile.volumeChanged.connect(lambda room, value: changes.append(value))
         tile.set_volume(27)
@@ -87,7 +93,11 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertEqual(changes, [27])
         self.assertIs(tile.video.parentWidget(), tile)
         self.assertIs(tile._control_hover_timer.parent(), tile)
+        tile.set_quality_options([{'qn': 0, 'desc': '源自适应'}])
+        tile.state_control.set_source_resolution('1920×1080')
+        self.assertEqual(tile.state_control.source_resolution, '1920×1080')
         tile.set_room({'room_id': 'fixture:2', 'uname': 'Other'})
+        self.assertEqual(tile.state_control.source_resolution, '')
         self.assertEqual(tile.volume, 27)
         menu = tile.build_menu()
         self.assertIs(menu.parentWidget(), tile)
@@ -107,7 +117,12 @@ class FunctionalModulesTests(unittest.TestCase):
                 "assert not {'ddm.app','ddm.widgets'}.intersection(sys.modules)")
             controller = getattr(importlib.import_module('ddm.'+module), name)(host)
             self.assertIs(controller.host, host)
-            self.assertTrue(set(vars(controller)) <= {'host', 'destroyed', 'objectNameChanged'})
+            state = {key: value for key, value in vars(controller).items()
+                     if key not in ('destroyed', 'objectNameChanged')}
+            expected = {'host': host}
+            if module == 'app_notices':
+                expected['official_announcement'] = None
+            self.assertEqual(state, expected)
 
     def test_super_chat_model_is_independent_and_legacy_exports_keep_identity(self):
         self.child("import sys; import ddm.super_chat_model; "
@@ -159,7 +174,8 @@ class FunctionalModulesTests(unittest.TestCase):
         wall = WallGrid([])
         self.widgets.append(wall)
         for name in ('layout_control', 'presentation_control'):
-            self.assertEqual(vars(getattr(wall, name)), {'host': wall})
+            expected = {'host': wall, '_pip_placement': ()} if name == 'presentation_control' else {'host': wall}
+            self.assertEqual(vars(getattr(wall, name)), expected)
         self.assertIs(wall._resize_timer.parent(), wall)
         self.assertIs(wall._border_drag_timer.parent(), wall._border_interaction)
 
@@ -318,7 +334,10 @@ class FunctionalModulesTests(unittest.TestCase):
         placement = RoomPlacement(host)
         self.assertIsInstance(placement.catalog, RoomCatalog)
         self.assertIsInstance(placement.navigation, RoomNavigation)
-        self.assertEqual(vars(placement.catalog), {'host': host, '_add_panel': None, '_add_target': None})
+        self.assertEqual(vars(placement.catalog), {
+            'host': host, '_add_panel': None, '_add_target': None, '_replacement_room': None,
+            'followed_live_only': False,
+        })
         self.assertEqual(vars(placement.navigation), {'host': host})
         self.assertEqual(placement.room_browser_url({'room_id': '123'}), 'https://live.bilibili.com/123')
         for module in ('room_catalog', 'room_navigation', 'watch_history_sampling'):
@@ -373,7 +392,19 @@ class FunctionalModulesTests(unittest.TestCase):
         self.widgets.append(sidebar)
         presenter = sidebar.presentation_control
         for name in ('orientation', 'collapse', 'layout_picker'):
-            self.assertEqual(vars(getattr(presenter, name)), {'host': sidebar})
+            control = getattr(presenter, name)
+            if name == 'orientation':
+                from ddm.sidebar_portrait import PortraitSidebar
+                self.assertIsInstance(control.portrait, PortraitSidebar)
+                self.assertIs(control.portrait.host, sidebar)
+                self.assertEqual(vars(control), {'host': sidebar, 'portrait': control.portrait})
+            elif name == 'layout_picker':
+                from ddm.sidebar_layout_picker import SidebarLayoutPicker
+                self.assertIsInstance(control, SidebarLayoutPicker)
+                self.assertIs(control.host, sidebar)
+                self.assertIs(control.parent(), sidebar)
+            else:
+                self.assertEqual(vars(control), {'host': sidebar})
         original = sidebar.account_row
         sidebar.set_side('top')
         self.assertIs(sidebar.account_row, original)
@@ -400,7 +431,6 @@ class FunctionalModulesTests(unittest.TestCase):
                 (app_release_api, ('app_release', 'release_notes')), (verified_download, ('download',))):
             for name in names:
                 self.assertIs(getattr(online, name), getattr(module, name))
-        self.assertIs(online.KNOWN_PLUGINS, plugin_catalog_api.KNOWN_PLUGINS)
         for module in ('release_repository', 'plugin_catalog_api', 'app_release_api', 'verified_download'):
             self.child('import sys; import ddm.'+module+'; '
                 "assert not {'PySide6','ddm.online','ddm.app'}.intersection(sys.modules)")

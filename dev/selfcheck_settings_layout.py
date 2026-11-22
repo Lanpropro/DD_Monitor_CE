@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtCore import QCoreApplication, QEvent, Qt
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QScrollArea
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCheckBox, QDialog, QLabel, QLineEdit, QPushButton, QScrollArea, QWidget
 from PySide6.QtTest import QTest
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
@@ -97,8 +97,14 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertLess(checks[0].geometry().bottom(), checks[1].y())
         page.volume_slider.setValue(19)
         page.poll_spin.setValue(8)
+        seamless = page._checks['wall_seamless']
+        self.assertTrue(page.sections.section('playback').isAncestorOf(seamless))
+        self.assertTrue(seamless.isVisible())
+        seamless.click()
+        self.assertTrue(self.dialog.settings()['wall_seamless'])
         self.assertEqual(self.dialog.settings()['default_volume'], 19)
         self.dialog._reset_current()
+        self.assertFalse(seamless.isChecked())
         self.assertEqual(page.volume_slider.value(), config.DEFAULT_SETTINGS['default_volume'])
         self.assertEqual(page.poll_spin.value(), config.DEFAULT_SETTINGS['poll_minutes'])
         self.assertIsNotNone(grid.itemAt(grid.indexOf(anchor)))
@@ -220,10 +226,9 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_general_codecs_have_a_compact_card_and_keep_edits_across_widths(self):
         page = self.page(0)
         card = page.sections.section('codecs')
-        playback = page.sections.section('playback')
         self.assertTrue(card.isAncestorOf(page.codec_editor))
         self.assertTrue(page.codec_editor.isVisible())
-        self.assertLess(playback.height(), page.sections.section('following').height())
+        self.assertLess(card.height(), page.sections.section('playback').height())
         with patch('ddm.dialogs.CodecSettingsDialog') as factory:
             page.codec_editor.source_buttons['hevc'].click()
             page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
@@ -329,6 +334,29 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(self.dialog.result(), QDialog.Rejected)
         self.assertEqual(config.DEFAULT_SETTINGS['default_volume'], self.dialog._initial_settings['default_volume'])
 
+    def test_danmaku_scrollbar_and_close_button_have_separate_click_areas(self):
+        page = self.page(self.dialog.PAGE_INDEX['danmaku'])
+        # Dialog-relative logical position of the reported click at 125% scaling.
+        position = QPoint(1158, 28)
+        receiver = self.dialog.childAt(position)
+        QTest.mouseClick(receiver, Qt.LeftButton, pos=receiver.mapFrom(self.dialog, position))
+        self.assertTrue(self.dialog.isVisible())
+
+        button = self.dialog.window_header.close_button
+        scrollbar = page.scroll.verticalScrollBar()
+        for width in (1200, 760):
+            with self.subTest(width=width):
+                self.dialog.resize(width, 800)
+                settle()
+                self.assertTrue(scrollbar.isVisible())
+                button_right = button.mapTo(self.dialog, button.rect().topRight()).x()
+                scrollbar_left = scrollbar.mapTo(self.dialog, QPoint()).x()
+                self.assertLess(button_right, scrollbar_left)
+
+        QTest.keyClick(self.dialog, Qt.Key_Escape)
+        self.assertFalse(self.dialog.isVisible())
+        self.assertEqual(self.dialog.result(), QDialog.Rejected)
+
     def test_material_controls_preview_reset_and_shadow_rendering(self):
         from ddm.settings_material import DEFAULTS, normalize
         self.assertTrue(normalize({'settings_glass_enabled': True})['settings_glass_enabled'])
@@ -408,6 +436,27 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(self.dialog._blur_state, (hwnd, enabled))
             self.assertTrue(self.dialog.isVisible())
             self.assertEqual(int(self.dialog.winId()), hwnd)
+
+    @patch('ddm.settings_window.apply_blur', return_value=True)
+    def test_zero_glass_opacity_preserves_navigation_hit_area(self, _blur):
+        self.page(self.dialog.PAGE_INDEX['appearance'])
+        nav = self.dialog.nav
+        index = self.dialog.PAGE_INDEX['recording']
+        row = nav.visualItemRect(nav.item(index))
+        point = nav.viewport().mapTo(self.dialog, QPoint(row.right() - 16, row.center().y()))
+
+        for opacity, expected in ((50, 128), (1, 3), (0, 1)):
+            self.dialog.set_material({'settings_glass_enabled': True, 'settings_glass_opacity': opacity})
+            settle()
+            image = self.dialog.grab().toImage()
+            scale = image.devicePixelRatio()
+            self.assertEqual(self.dialog.property('settings_glass_opacity'), opacity)
+            self.assertEqual(image.pixelColor(int(point.x() * scale), int(point.y() * scale)).alpha(), expected)
+            if not self.dialog._native_corners:
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
+
+        QTest.mouseClick(self.dialog.windowHandle(), Qt.LeftButton, pos=point)
+        self.assertEqual(nav.currentRow(), index)
 
     def test_native_frame_has_no_second_inner_corner_and_is_opaque(self):
         from PySide6.QtGui import QColor, QImage, QPainter
@@ -568,7 +617,8 @@ class SettingsLayoutTests(unittest.TestCase):
     def test_danmaku_sc_options_share_one_card_with_the_preview(self):
         page = self.page(2)
         self.assertEqual([key for key, _card, _wide in page.sections.entries],
-                         ['font_filter', 'danmaku_curve', 'blocking', 'sc_placement'])
+                         ['font_filter', 'danmaku_float', 'danmaku_curve', 'danmaku_drag',
+                          'blocking', 'sc_placement'])
         card = page.sections.section('sc_placement')
         for control in (page.super_chat_enabled, page.super_chat_opacity,
                         page.super_chat_collapse_stepper, page.super_chat_scale,
@@ -591,6 +641,32 @@ class SettingsLayoutTests(unittest.TestCase):
         reopened = DanmakuSettingsPage(saved)
         self.assertEqual(reopened.values(), saved)
         reopened.deleteLater()
+
+    def test_danmaku_float_close_choice_is_a_subordinate_autosaved_switch(self):
+        page = self.page(2)
+        card = page.sections.section('danmaku_float')
+        mode, keep = page.float_cell_mode, page.float_keep_video_slots
+        mode_label = card.grid.itemAtPosition(0, 0).widget()
+        keep_label = card.grid.itemAtPosition(1, 0).widget()
+        self.assertEqual(keep_label.indent(), mode_label.indent())
+        self.assertTrue(card.isAncestorOf(mode) and card.isAncestorOf(keep))
+        self.assertFalse(keep.isEnabled())
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        mode.buttons['reuse'].click()
+        self.assertTrue(keep.isEnabled())
+        keep.click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {
+            'danmaku_float_reuse_cell': True, 'danmaku_float_keep_video_slots': True})
+        self.dialog.auto_save.acknowledge()
+        for width in (1200, 760):
+            self.dialog.resize(width, 800)
+            settle()
+            self.assertLess(mode.geometry().bottom(), keep.y())
+            self.assertTrue(card.rect().contains(keep.geometry()))
+            self.assertEqual(keep_label.x(), mode_label.x())
 
     def test_danmaku_large_font_and_single_column_keep_controls_in_bounds(self):
         page = self.page(2)
@@ -616,6 +692,25 @@ class SettingsLayoutTests(unittest.TestCase):
         finally:
             theme.configure_appearance({'appearance_font_size': 13})
             theme.apply('dark')
+
+    def test_danmaku_drag_choices_autosave_independently_and_reset_to_source(self):
+        page = self.page(2)
+        keys = ('danmaku_drag_unlinked_swap', 'danmaku_drag_linked_swap')
+        unlinked, linked = page.drag_unlinked, page.drag_linked
+        self.assertEqual([page.values()[key] for key in keys], [False, False])
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        linked.buttons['swap'].click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {keys[1]: True})
+        self.dialog.auto_save.acknowledge()
+        unlinked.buttons['swap'].click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {keys[0]: True})
+        self.dialog.auto_save.acknowledge()
+        page.reset()
+        self.assertEqual([page.values()[key] for key in keys], [False, False])
 
     def test_scale_curve_hint_stays_below_graph(self):
         page = self.page(2)
@@ -647,19 +742,179 @@ class SettingsLayoutTests(unittest.TestCase):
         self.dialog._reset_current()
         self.assertEqual(self.dialog.shortcuts()['mute'], 'M')
 
+    def test_recording_page_reuses_controls_and_preserves_codec_and_switch_contracts(self):
+        from ddm.ui import SelectControl, StepperControl, ToggleSwitch
+        page = self.page(3)
+        self.assertEqual(page.values(), {key: config.DEFAULT_SETTINGS[key] for key in page.values()})
+        for control in (page.recording_enabled, page.lock_quality, page.replay_enabled):
+            self.assertIsInstance(control, ToggleSwitch)
+        self.assertEqual(page.lock_quality.accessibleName(), '录制时锁定可用最高分辨率')
+        self.assertIn('录制时锁定可用最高分辨率', {label.text() for label in page.findChildren(QLabel)})
+        self.assertIn('录制时锁定可用最高分辨率', page.lock_quality.toolTip())
+        self.assertIn('账号权限', page.lock_quality.toolTip())
+        self.assertIn('恢复录制前的画质', page.lock_quality.toolTip())
+        for control in (page.format, page.codec, page.encoder, page.fps, page.replay_scope):
+            self.assertIsInstance(control, SelectControl)
+        for editor, stepper in ((page.bitrate, page.bitrate_stepper),
+                                (page.segment_minutes, page.segment_stepper),
+                                (page.replay_minutes, page.replay_minutes_stepper),
+                                (page.replay_max, page.replay_max_stepper),
+                                (page.min_free, page.min_free_stepper)):
+            self.assertIsInstance(stepper, StepperControl)
+            self.assertIs(stepper.spin, editor)
+            self.assertEqual(editor.suffix(), '')
+        self.assertEqual(page.codec.currentData(), 'copy')
+        self.assertFalse(page.encoder.isEnabled())
+        page.bitrate_stepper.plus.click()
+        self.assertEqual(page.codec.currentData(), 'h264')
+        self.assertTrue(page.encoder.isEnabled())
+        page.codec.setCurrentIndex(page.codec.findData('copy'))
+        page.fps.setCurrentIndex(page.fps.findData(60))
+        self.assertEqual(page.codec.currentData(), 'h264')
+        page.encoder.setCurrentIndex(page.encoder.findData('cpu'))
+        self.assertEqual(page.encoder.currentText(), 'CPU')
+        self.assertIn('libx264', page.encoder.toolTip())
+        self.assertIn('FFmpeg', page.encoder.toolTip())
+        page.recording_enabled.setChecked(False)
+        for control in (page.directory, page.browse, page.format, page.codec, page.encoder,
+                        page.bitrate, page.bitrate_stepper.plus, page.fps, page.segment_minutes,
+                        page.min_free, page.lock_quality):
+            self.assertFalse(control.isEnabled(), type(control).__name__)
+        self.assertTrue(page.replay_scope.isEnabled())
+        self.assertTrue(page.replay_minutes.isEnabled())
+        page.recording_enabled.setChecked(True)
+        page.replay_enabled.setChecked(False)
+        for control in (page.replay_scope, page.replay_minutes, page.replay_max,
+                        page.replay_minutes_stepper.plus, page.replay_max_stepper.plus):
+            self.assertFalse(control.isEnabled(), type(control).__name__)
+        self.assertTrue(page.format.isEnabled())
+        self.assertTrue(page.bitrate.isEnabled())
+        page.replay_enabled.setChecked(True)
+        page.replay_scope.setCurrentIndex(page.replay_scope.findData('all'))
+        self.assertTrue(page.replay_max.isEnabled())
+        page.replay_scope.setCurrentIndex(page.replay_scope.findData('recorded'))
+        self.assertFalse(page.replay_max.isEnabled())
+        page.reset()
+        self.assertEqual(page.values(), {key: config.DEFAULT_SETTINGS[key] for key in page.values()})
+        self.assertEqual(page.codec.currentData(), 'copy', 'Reset must not trigger transcode')
+
+    def test_recording_page_retains_plugin_insertion_anchor_and_owned_values(self):
+        page = self.page(3)
+        supplement = QWidget()
+        plugin_edit = QLineEdit('plugin-owned', supplement)
+        from PySide6.QtWidgets import QVBoxLayout
+        QVBoxLayout(supplement).addWidget(plugin_edit)
+        page.add_recording_mode(supplement)
+        settle()
+        self.assertIs(page.recording_mode_layout.itemAt(0).widget(), supplement)
+        self.assertTrue(page.scroll.widget().isAncestorOf(supplement))
+        self.assertFalse(page.sections.isAncestorOf(supplement))
+        for enabled in (False, True):
+            page.recording_enabled.setChecked(enabled)
+            self.assertTrue(supplement.isEnabled())
+            self.assertTrue(plugin_edit.isEnabled())
+            self.assertEqual(plugin_edit.text(), 'plugin-owned')
+        page.reset()
+        self.assertEqual(plugin_edit.text(), 'plugin-owned')
+        self.assertIs(page.recording_mode_layout.itemAt(0).widget(), supplement)
+
+    def test_recording_controls_save_native_deltas_and_reopen_without_touching_plugin_fields(self):
+        from ddm.settings_recording import RecordingSettingsPage
+        page = self.page(3)
+        plugin_edit = QLineEdit('plugin-owned')
+        page.add_recording_mode(plugin_edit)
+        requests = []
+        self.dialog.auto_save.requested.connect(requests.append)
+        self.dialog.auto_save.start()
+        try:
+            page.bitrate_stepper.plus.click()
+            self.dialog.auto_save.flush()
+            self.assertEqual(requests[-1]['settings'], {'recording_codec': 'h264', 'recording_bitrate': 6001})
+            self.dialog.auto_save.acknowledge()
+            page.recording_enabled.setChecked(False)
+            self.dialog.auto_save.flush()
+            self.assertEqual(requests[-1]['settings'], {'recording_enabled': False})
+            self.assertEqual(plugin_edit.text(), 'plugin-owned')
+            self.assertTrue(plugin_edit.isEnabled())
+            restored = RecordingSettingsPage(page.values())
+            try:
+                self.assertEqual(restored.values(), page.values())
+                self.assertFalse(restored.recording_enabled.isChecked())
+                self.assertEqual(restored.codec.currentData(), 'h264')
+                self.assertEqual(restored.bitrate.value(), 6001)
+            finally:
+                restored.deleteLater()
+        finally:
+            self.dialog.auto_save.stop()
+
+    def test_recording_page_keeps_directory_inline_and_units_outside_at_wide_and_narrow_sizes(self):
+        page = self.page(3)
+        controls = (page.directory, page.browse, page.codec, page.bitrate_stepper, page.replay_scope)
+        try:
+            for font_size in (13, 20):
+                theme.configure_appearance({'appearance_font_size': font_size})
+                theme.apply('dark')
+                for width in (1200, 760):
+                    self.dialog.resize(width, 850)
+                    settle()
+                    self.assertEqual((page.directory, page.browse, page.codec, page.bitrate_stepper, page.replay_scope), controls)
+                    self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                    directory = page.directory.mapTo(page.scroll.widget(), page.directory.rect().center())
+                    browse = page.browse.mapTo(page.scroll.widget(), page.browse.rect().center())
+                    self.assertLessEqual(abs(directory.y() - browse.y()), 1)
+                    self.assertLess(page.directory.mapTo(page.scroll.widget(), page.directory.rect().topRight()).x(),
+                                    page.browse.mapTo(page.scroll.widget(), QPoint()).x())
+                    for _key, card, _wide in page.sections.entries:
+                        self.assertGreaterEqual(card.x(), 0)
+                        self.assertLessEqual(card.geometry().right(), page.sections.width())
+                    recording = page.sections.section('recording')
+                    lefts = [control.mapTo(recording, QPoint()).x() for control in
+                             (page.format, page.codec, page.encoder, page.bitrate_stepper, page.fps, page.segment_stepper)]
+                    self.assertEqual(len(set(lefts)), 1, 'Keep the input column aligned beside external units')
+                    labels = {label.text() for label in page.findChildren(QLabel)}
+                    self.assertTrue({'kbps', 'fps', '分钟', 'MB'}.issubset(labels))
+                    for label in page.findChildren(QLabel):
+                        if label.text() in ('kbps', 'fps', '分钟', 'MB'):
+                            self.assertGreaterEqual(label.width(), label.fontMetrics().horizontalAdvance(label.text()))
+                    output = os.environ.get('DDM_RECORDING_PREVIEW')
+                    if output:
+                        Path(output).mkdir(parents=True, exist_ok=True)
+                        self.dialog.grab().save(str(Path(output) / f'recording-{font_size}-{width}.png'))
+        finally:
+            theme.configure_appearance({'appearance_font_size': 13})
+            theme.apply('dark')
+
     def test_shortcut_wheel_and_pip_groups_are_separate_and_match_edit_style(self):
         page = self.page(5)
         self.assertEqual([key for key, _widget, _wide in page.sections.entries],
-                         ['home', 'general', 'wheel', 'pip'])
+                         ['home', 'general', 'fullscreen', 'wheel', 'pip', 'custom_layout'])
         for key in ('volume_up', 'volume_down'):
             edit = page._edits[key]
             self.assertIsInstance(edit, QLineEdit)
             self.assertEqual(edit.property('mouseShortcut'), True)
+        wheel = page.sections.section('wheel')
+        for _key, card, _wide in page.sections.entries:
+            header = card.layout().itemAt(0).layout()
+            title = header.itemAt(0).widget()
+            button = header.itemAt(1).widget()
+            self.assertEqual(title.objectName(), 'SettingsSectionTitle')
+            self.assertEqual(button.accessibleName(), '恢复本组')
+            self.assertEqual(button.text(), '')
+            self.assertIn(title.text(), button.toolTip())
+        reset = wheel.layout().itemAt(0).layout().itemAt(1).widget()
+        page.search.setText('灵敏度')
+        self.assertEqual([key for key, *_ in page.sections.entries], ['wheel'])
+        self.assertTrue(page.wheel_speed.isVisibleTo(wheel))
+        self.assertTrue(page._wheel_options.isHidden())
+        page.wheel_speed.setCurrentIndex(page.wheel_speed.findData(4))
+        self.assertEqual(self.dialog.property('settings_wheel_speed'), 4)
+        reset.click()
+        self.assertEqual(page.settings_values()['settings_wheel_speed'], 1)
         self.assertIn('pip_volume_up', page.values())
         self.assertIn('pip_volume_down', page.values())
 
-    def test_tray_retains_menu_preview_order_and_visibility(self):
-        page = self.page(6)
+    def test_tray_retains_menu_order_and_visibility(self):
+        page = self.page(self.dialog.PAGE_INDEX['tray'])
         editor = page.tile_menu
         editor.move_before('reload', 'mute')
         editor.checks['reload'].setChecked(False)
@@ -668,8 +923,167 @@ class SettingsLayoutTests(unittest.TestCase):
             self.dialog.resize(width, 800)
             settle()
             self.assertEqual(editor.values(), before)
+            self.assertTrue(editor.items.isVisible())
             self.assertTrue(editor.preview.isVisible())
+            self.assertNotIn('reload', dict(editor.preview.rows()))
+            self.assertIn('reload', dict(editor.items.rows()))
+            self.assertIs(editor.preview.choices, editor._choices)
             self.assertTrue(editor.checks['reload'].isVisible())
+
+    def test_tray_cards_and_menu_controls_fit_narrow_wide_and_large_fonts(self):
+        from ddm.dialogs import TraySettingsPage
+        from ddm.ui import SelectControl, ToggleSwitch
+        previous = dict(theme._preferences)
+        self.addCleanup(theme.configure_appearance, previous)
+        for font_size in (13, 20):
+            theme.configure_appearance({'appearance_font_size': font_size})
+            page = TraySettingsPage({'close_behavior': 'tray', 'tray_pause_playback': False})
+            page.setStyleSheet(theme.qss())
+            try:
+                self.assertIsInstance(page.close_behavior_combo, SelectControl)
+                self.assertIsInstance(page.pause_playback, ToggleSwitch)
+                self.assertTrue(all(isinstance(check, ToggleSwitch) for check in page.tile_menu.checks.values()))
+                changed = []
+                page.tile_menu.changed.connect(lambda: changed.append(True))
+                before = page.values()
+                for width in (500, 1600, 500):
+                    page.resize(width, 800)
+                    page.show()
+                    settle()
+                    self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                    expected = 2 if width == 1600 else 1
+                    self.assertEqual(page.sections.columns, expected)
+                    for widget in (page.close_behavior_combo, page.pause_playback,
+                                   page.tile_menu.items, page.tile_menu.preview, *page.tile_menu.checks.values()):
+                        self.assertTrue(page.scroll.widget().rect().contains(
+                            widget.mapTo(page.scroll.widget(), widget.rect().topLeft())))
+                        self.assertTrue(page.scroll.widget().rect().contains(
+                            widget.mapTo(page.scroll.widget(), widget.rect().bottomRight())))
+                    self.assertEqual(page.values(), before)
+                    self.assertEqual(changed, [])
+                    self.assertEqual(page.findChildren(QScrollArea), [page.scroll])
+                    preview = page.tile_menu.preview
+                    self.assertGreaterEqual(preview.width(), 260)
+                    self.assertLessEqual(preview.width(), 300)
+                    menu_card = page.sections.section('menu')
+                    for widget in (preview, page.tile_menu.items):
+                        bottom = widget.mapTo(menu_card, widget.rect().bottomRight())
+                        self.assertTrue(menu_card.rect().contains(bottom),
+                                        (font_size, width, type(widget).__name__, menu_card.rect(), bottom))
+                    if width == 500:
+                        self.assertLess(preview.geometry().bottom(), page.tile_menu.items.y())
+                    else:
+                        self.assertLess(preview.geometry().right(), page.tile_menu.items.x())
+                page.reset()
+                self.assertEqual(page.values()['close_behavior'], config.DEFAULT_SETTINGS['close_behavior'])
+                self.assertEqual(page.values()['tray_pause_playback'], config.DEFAULT_SETTINGS['tray_pause_playback'])
+            finally:
+                page.close()
+                page.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                settle()
+
+    def test_tray_changes_drag_and_default_restore_use_existing_autosave(self):
+        from ddm.tile_menu import MENU_ITEMS, menu_choices
+        page = self.page(self.dialog.PAGE_INDEX['tray'])
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        page.close_behavior_combo.setCurrentIndex(page.close_behavior_combo.findData('tray'))
+        page.pause_playback.setChecked(False)
+        editor = page.tile_menu
+        rows = dict(editor.items.rows())
+        start = rows['reload'].center().toPoint()
+        end = rows['quality'].topLeft().toPoint() + QPoint(25, 1)
+        QTest.mousePress(editor.items, Qt.LeftButton, pos=start)
+        QTest.mouseMove(editor.items, end)
+        QTest.mouseRelease(editor.items, Qt.LeftButton, pos=end)
+        ids = [entry['id'] for entry in editor.values()]
+        self.assertLess(ids.index('reload'), ids.index('quality'))
+        editor.checks['plugins'].click()
+        editor.select_item('plugins')
+        editor.move_item(-1)
+        self.assertEqual(editor.items.selected, 'plugins')
+        self.assertEqual(editor.preview.selected, 'plugins')
+        self.assertNotIn('plugins', dict(editor.preview.rows()))
+        self.assertFalse(next(entry for entry in editor.values() if entry['id'] == 'plugins')['enabled'])
+        self.assertTrue(self.dialog.auto_save.timer.isActive())
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {
+            key: value for key, value in page.values().items() if key != 'tray_context_menu'})
+        saved = page.values()
+        self.dialog.auto_save.acknowledge()
+
+        # Reopen from the saved delta without depending on any real configuration.
+        from ddm.dialogs import TraySettingsPage
+        reopened = TraySettingsPage(saved)
+        self.assertEqual(reopened.values(), saved)
+        reopened.deleteLater()
+        requested.clear()
+        editor.set_choices(None)
+        self.assertTrue(self.dialog.auto_save.timer.isActive())
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'tile_context_menu': menu_choices(None)})
+        self.assertEqual([entry['id'] for entry in editor.values()], [key for key, _label in MENU_ITEMS])
+        self.dialog.auto_save.acknowledge()
+
+    def test_separate_menu_sections_preserve_drafts_and_save_only_tray_edits(self):
+        from ddm.tray_menu import tray_menu_choices
+        from ddm.dialogs import TraySettingsPage
+        page = self.page(self.dialog.PAGE_INDEX['tray'])
+        self.dialog.auto_save.start()
+        requested = []
+        self.dialog.auto_save.requested.connect(requested.append)
+        before = page.values()
+        settle()
+        self.assertTrue(page.tray_menu.isVisible())
+        self.assertTrue(page.tile_menu.isVisible())
+        self.dialog.auto_save.flush()
+        self.assertFalse(requested, 'Opening both menu sections must not save a preference')
+        page.tray_menu.checks['layout_preview'].click()
+        page.tray_menu.move_before('exit', 'pip')
+        expected = page.tray_menu.values()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requested[-1]['settings'], {'tray_context_menu': expected})
+        self.dialog.auto_save.acknowledge()
+        self.assertEqual(page.tile_menu.values(), before['tile_context_menu'])
+        self.assertEqual(page.tray_menu.values(), expected)
+        reopened = TraySettingsPage(page.values())
+        self.assertEqual(reopened.tray_menu.values(), expected)
+        reopened.deleteLater()
+        page.reset()
+        self.assertEqual(page.tray_menu.values(), tray_menu_choices(None))
+        self.assertEqual(page.tile_menu.values(), before['tile_context_menu'])
+
+    def test_both_menu_sections_fit_large_fonts_and_narrow_wide_sizes(self):
+        from ddm.dialogs import TraySettingsPage
+        previous = dict(theme._preferences)
+        self.addCleanup(theme.configure_appearance, previous)
+        for font_size in (13, 20):
+            theme.configure_appearance({'appearance_font_size': font_size})
+            page = TraySettingsPage({})
+            page.setStyleSheet(theme.qss())
+            try:
+                before = page.values()
+                for width in (500, 1600, 500):
+                    page.resize(width, 850)
+                    page.show()
+                    settle()
+                    self.assertLess(page.sections.section('menu').geometry().bottom(),
+                                    page.sections.section('tray_menu').y())
+                    for kind, editor in (('tray_menu', page.tray_menu), ('menu', page.tile_menu)):
+                        self.assertTrue(editor.isVisible())
+                        self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+                        card = page.sections.section(kind)
+                        for child in (editor.preview, editor.items):
+                            self.assertTrue(card.rect().contains(child.mapTo(card, child.rect().bottomRight())),
+                                            (font_size, width, kind, child.geometry(), card.rect()))
+                        self.assertEqual(page.values(), before)
+            finally:
+                page.close()
+                page.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+                settle()
 
 
 class AppearanceEditorTests(unittest.TestCase):

@@ -18,7 +18,7 @@
    本体只在需要时调用。各家平台差异太大，塞进本体不划算。
 
 5. **皮肤美化**（``Plugin.skin`` / 清单 ``skin``）—— 背景、分区样式及按钮图标；
-   v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/skins.md。
+   v2 支持个人覆盖，v1 保留背景接管行为，详见 docs/features/skins.md。
 
 运行时插件放 ``plugins_user/<插件ID>/plugin.py``，里面必须有一个名为 ``plugin`` 的
 ``Plugin`` 实例；开发模板见 ``plugins_user/_template_platform/plugin.py``，源码与安装副本边界见
@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import config as config_module
+from .danmaku_sources import ROOM_SUPPORTS_LIVE_DANMAKU
 from .plugin_worker import worker_command
 from .file_ops import replace_directory
 from .plugin_controls import TileControl, TileControlContext, TileControls
@@ -79,7 +80,7 @@ ALL_EVENTS = (
 )
 
 
-from .plugin_types import (LoginRequiredError, StreamCodecUnavailable, StreamSource, RoomInfo, Platform, DanmakuSender, PluginContext, Plugin)
+from .plugin_types import (LoginRequiredError, StreamCodecUnavailable, StreamSource, RoomInfo, RoomList, Platform, DanmakuSender, PluginContext, Plugin)
 from .plugin_packages import PluginPackages
 
 
@@ -93,6 +94,7 @@ class PluginManager:
         self.plugins_dir = plugins_dir or DEFAULT_PLUGINS_DIR
         self.enabled = None if enabled is None else {str(name) for name in enabled}
         self.plugins: list = []
+        self._bili_interaction = None
         self.skipped: list = []                  # [(目录名, 原因)]
         self.platforms: dict = {}                # kind -> Platform
         self._platform_owner: dict = {}          # kind -> 插件名
@@ -107,6 +109,7 @@ class PluginManager:
         self._provider_order = 0
         self._credentials = CredentialStore(self.emit)
         self._contexts = weakref.WeakSet()
+        self._caption_owners = weakref.WeakKeyDictionary()
         self._workspace_pages = None
         self._unloaded = False
         self._notices = None
@@ -129,6 +132,16 @@ class PluginManager:
         return self._credentials.update(platform, changes, expected_generation=expected_generation)
 
     # ---- 装载 ----
+    def load_bili_interaction(self):
+        from .bili_interaction import BiliInteraction
+        if self._bili_interaction is None:
+            self._bili_interaction = BiliInteraction(self)
+
+    def _runtime_components(self):
+        if self._bili_interaction is not None:
+            yield self._bili_interaction
+        yield from self.plugins
+
     def load(self) -> None:
         if not os.path.isdir(self.plugins_dir):
             return
@@ -143,7 +156,10 @@ class PluginManager:
             if old in self.plugin_settings:
                 previous = self.plugin_settings.pop(old)
                 self.plugin_settings[new] = {**previous, **self.plugin_settings.get(new, {})}
-        for entry in sorted(os.listdir(self.plugins_dir)):
+        from .plugin_replacements import prepare
+        for entry in prepare(self, read_manifest):
+            if entry in self._replaced_plugins:
+                continue
             if entry.startswith((".", "_")) or entry in RETIRED_BUNDLED_PLUGINS:
                 continue
             if entry in RENAMED_PLUGINS and os.path.isfile(os.path.join(
@@ -155,6 +171,9 @@ class PluginManager:
                 continue
             if self.enabled is not None and entry not in self.enabled:
                 self.skipped.append((entry, "配置里没有启用"))
+                continue
+            if entry in self._blocked_replacements:
+                self.skipped.append((entry, "请先更新旧组合插件，或安装该组合的全部独立平台插件"))
                 continue
             try:
                 manifest = read_manifest(folder, entry)
@@ -181,6 +200,11 @@ class PluginManager:
                     plugin_skin(plugin, folder)
             except Exception as error:           # noqa: BLE001
                 context._active = False
+                for kind in [kind for kind, owner in self._platform_owner.items() if owner == entry]:
+                    self.platforms.pop(kind, None)
+                    self._platform_owner.pop(kind, None)
+                context._clear_tile_captions()
+                context._clear_media_sources()
                 self._remove_tile_owner(entry)
                 context._clear_workspace_controls()
                 try:
@@ -217,16 +241,18 @@ class PluginManager:
         self._unloaded = True
         for context in tuple(self._contexts):
             context._active = False
+            context._clear_media_sources()
         for tile in tuple(self._tiles):
             self.detach_tile(tile)
         self._tile_providers.clear()
-        for plugin in self.plugins:
+        for plugin in self._runtime_components():
             try:
                 plugin.on_unload()
             except Exception:                    # noqa: BLE001
                 traceback.print_exc()
         for context in tuple(self._contexts):
             context._clear_workspace_controls()
+            context._clear_tile_captions()
             if context._recording is not None:
                 context._recording.close()
 
@@ -297,7 +323,7 @@ class PluginManager:
 
     # ---- 事件 ----
     def emit(self, event: str, **payload) -> None:
-        for plugin in self.plugins:
+        for plugin in self._runtime_components():
             try:
                 plugin.on_event(event, payload)
             except Exception as error:           # noqa: BLE001

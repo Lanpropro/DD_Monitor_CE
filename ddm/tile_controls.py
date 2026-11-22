@@ -1,11 +1,48 @@
 """Tile controls; mutable state and Qt ownership stay with Tile."""
 import time
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QPushButton
 from . import motion
 from .fullscreen_cursor import set_native_cursor
 from .widget_support import TILE_BAR_HEIGHT, _repolish
+
+
+class WallControlHover(QObject):
+    """Start the existing per-tile hover handling when native Enter arrives late."""
+
+    def __init__(self, wall):
+        super().__init__(wall)
+        self.wall = wall
+        self.timer = QTimer(self)
+        # Native video can miss Enter during a quick pass across a tile.
+        self.timer.setTimerType(Qt.PreciseTimer)
+        self.timer.setInterval(8)
+        self.timer.timeout.connect(self.sync)
+        wall.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Show:
+            self.timer.start()
+        elif event.type() == QEvent.Hide:
+            self.timer.stop()
+        return False
+
+    def sync(self):
+        wall = self.wall
+        if not wall.window().isActiveWindow() and not any(
+                tile.bottom.windowed_overlay and tile.bottom.isActiveWindow() for tile in wall.tiles):
+            return
+        point = QCursor.pos()
+        if not wall.rect().contains(wall.mapFromGlobal(point)):
+            return
+        for tile in wall.tiles:
+            if not tile.isVisible() or not tile.rect().contains(tile.mapFromGlobal(point)):
+                continue
+            if (not tile._control_hover_timer.isActive() and not tile.property('fullscreen')
+                    and not tile.property('pictureInPicture')):
+                tile._poll_control_hover()
+            return
 
 
 class TileControls:
@@ -95,6 +132,8 @@ class TileControls:
             host.bottom.setWindowOpacity(1.0 - host._bar_progress)
         host.bottom.setVisible(host._bar_progress < 1.0 or host._bar_target == 0.0)
         host._layout_time_badge()
+        if host.video_caption is not None:
+            host.video_caption.sync_geometry()
         host.bottom.raise_()
 
     def set_controls_visible(self, visible: bool) -> None:
@@ -105,6 +144,8 @@ class TileControls:
         host.controls.setVisible(visible)
         # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
         host._overlay_visible = visible
+        if not visible:
+            host.bottom.sync_windowed_visibility()
         host._sync_stream_badge()
         # 右下角的直播时长和它们一样：鼠标在格子上才露出来
         host.time_badge.setVisible(host._elapsed_visible())
@@ -172,7 +213,8 @@ class TileControls:
         position, now = QCursor.pos(), time.monotonic()
         protected = (host.plugin_interaction_active() or QApplication.activePopupWidget() is not None
                      or QApplication.activeModalWidget() is not None or bool(QApplication.mouseButtons())
-                     or QApplication.overrideCursor() is not None)
+                     or QApplication.overrideCursor() is not None
+                     or (host.bottom.windowed_overlay and host.volume_menu.isVisible()))
         if protected:
             host._restore_normal_cursor()
             host._control_last_move = now
@@ -222,7 +264,8 @@ class TileControls:
     def hide_controls_if_outside(self) -> None:
         host = self.host
         if (host.plugin_interaction_active() or QApplication.activePopupWidget() is not None
-                or QApplication.activeModalWidget() is not None or QApplication.mouseButtons()):
+                or QApplication.activeModalWidget() is not None or QApplication.mouseButtons()
+                or (host.bottom.windowed_overlay and host.volume_menu.isVisible())):
             return
         local = host.mapFromGlobal(QCursor.pos())
         if host.rect().contains(local):
@@ -232,11 +275,17 @@ class TileControls:
     def show_danmaku_actions(self, text, position):
         host = self.host
         from .danmaku_actions import show_comment_menu
+        room_id = str(host.room.get('room_id') or '')
         host.video_danmaku._menu_open = True
         def finished():
             host.video_danmaku._menu_open = False
             host.video_danmaku._poll_hover()
-        show_comment_menu(host, text, getattr(host, '_plugin_controls', None), position, finished)
+
+        def restore():
+            if isinstance(text, dict) and str(host.room.get('room_id') or '') == room_id:
+                host.video_danmaku.add_event(text)
+
+        show_comment_menu(host, text, getattr(host, '_plugin_controls', None), position, finished, restore)
 
     def open_clicked_danmaku(self, event):
         host = self.host
@@ -252,7 +301,10 @@ class TileControls:
         host = self.host
         controls = getattr(host, '_plugin_controls', None)
         if controls is not None:
-            # The fullscreen bar is a separate tool window. setFocus alone
+            if host.bottom.windowed_overlay and host.bottom.isHidden():
+                host._control_last_move = time.monotonic()
+                host.set_controls_visible(True)
+            # The overlaid bar is a separate tool window. setFocus alone
             # only records a pending focus child while the video stays active.
             if host.bottom.isWindow() and controls.widget.isVisible():
                 host.bottom.activateWindow()

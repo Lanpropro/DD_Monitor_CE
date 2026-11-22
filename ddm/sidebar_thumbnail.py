@@ -2,7 +2,7 @@
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QWidget
-from .avatar_widgets import Avatar
+from .avatar_widgets import FollowAvatar
 from .corner_geometry import continuous_path
 from .video_surface import VideoSurface
 from .player import TilePlayer
@@ -58,8 +58,8 @@ class NavThumb(QFrame):
         _ignore_mouse(self.hint)
 
         # 头像挂在整行上，收起时仍能和底部账号头像保持同一条中线。
-        self.face = Avatar("", 0, self.AVATAR_SIZE,
-                           parent=parent if parent is not None else self)
+        self.face = FollowAvatar("", 0, self.AVATAR_SIZE,
+                                 parent=parent if parent is not None else self)
         self.face.setObjectName("NavThumbFace")
         self._place_face()
         self.face.setVisible(False)
@@ -137,6 +137,13 @@ class NavThumb(QFrame):
         for widget in self._overlay_widgets:
             widget.raise_()
 
+    def set_recording_state(self, state: str) -> None:
+        resize_face = bool(self.face.recording_state) != bool(state)
+        self.face.set_recording_state(state)
+        if resize_face:
+            self._render_face()
+            self._layout_overlay()
+
     def set_cover(self, pixmap) -> None:
         if pixmap is None or pixmap.isNull():
             return
@@ -164,8 +171,9 @@ class NavThumb(QFrame):
         return self._face_source
 
     def _avatar_size(self) -> int:
-        return (self.COMPACT_SIZE if self._compact_thumb() else
+        size = (self.COMPACT_SIZE if self._compact_thumb() else
                 self.PORTRAIT_AVATAR_SIZE if self._portrait_strip else self.AVATAR_SIZE)
+        return size + (2 * self.face.ring_margin if self.face.recording_state else 0)
 
     def _face_letter(self) -> str:
         """还没拿到头像时顶上去的那个字：主播名首字，取不到就是问号。"""
@@ -189,7 +197,7 @@ class NavThumb(QFrame):
         pixmap = self._face_source
         if pixmap is not None and not pixmap.isNull():
             # 尺寸和图片一次更新，圆形裁切与圆环只绘制一遍。
-            self.face.set_pixmap_image(pixmap, size=size, ring=True)
+            self.face.set_pixmap_image(pixmap, size=size, ring=not self.face.recording_state)
         else:
             # 还没下到头像：用名字首字顶着，别让条目空着
             self.face.set_size(size)
@@ -199,22 +207,21 @@ class NavThumb(QFrame):
         # 紧凑条目只有头像可认，所以一定要露；卡片模式封面才是主体，头像还没下到
         # 就先别占那一块。视频预览占着整块时两者都让位。
         self.face.setVisible(not self.video.isVisible() and
-                             (self._compact_thumb() or pixmap is not None))
+                             (self._compact_thumb() or pixmap is not None or bool(self.face.recording_state)))
 
     def _face_local_rect(self) -> QRect:
         """展开时头像叠在封面左侧；收起时在 32px 方框中居中。"""
         width, height = self._size
-        avatar_size = (self.COMPACT_SIZE if self._compact_thumb() else
-                       self.PORTRAIT_AVATAR_SIZE if self._portrait_strip else self.AVATAR_SIZE)
+        avatar_size = self._avatar_size()
         if self._compact_thumb():
             return QRect((width - avatar_size) // 2,
                          (height - avatar_size) // 2,
                          avatar_size, avatar_size)
         if self._portrait_strip:
-            return QRect((width - avatar_size) // 2, 8, avatar_size, avatar_size)
-        return QRect(10 if self._card_mode else 4,
-                     10,
-                     avatar_size, avatar_size)
+            top = 8 - (avatar_size - self.PORTRAIT_AVATAR_SIZE) // 2
+            return QRect((width - avatar_size) // 2, top, avatar_size, avatar_size)
+        inset = (avatar_size - self.AVATAR_SIZE) // 2
+        return QRect((10 if self._card_mode else 4) - inset, 10 - inset, avatar_size, avatar_size)
 
     def _place_face(self) -> None:
         """把头像摆到它该在的位置（挂在自己身上就按相对坐标，挂在行上就加上偏移）。"""

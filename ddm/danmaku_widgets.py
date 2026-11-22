@@ -20,8 +20,8 @@ from .sidebar_drag import ROOM_MIME
 from .super_chat_model import SC_BODY_PADDING, SC_CONTENT_COLOR, SC_PRICE_COLOR, SC_USER_COLOR, format_price, format_remaining, order_super_chats, remaining_seconds, super_chat_palette
 from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 from .super_chat_animation import SuperChatPresentation
-from .super_chat_layout import paint_sc_background, sc_card_height, sc_placement_rects, sc_stack_rects
-from .widget_support import DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
+from .super_chat_layout import paint_sc_background, sc_card_height, sc_stack_layout, sc_stack_rects
+from .widget_support import DANMAKU_CELL_MIME, DANMAKU_MIME, TILE_BAR_HEIGHT, TILE_MIME, _repolish
 
 
 from .danmaku_format import (_brightness, _medal_chip, _escape)
@@ -198,7 +198,7 @@ class DanmakuPanel(QFrame):
 
     MAX_BLOCKS = 3000         # 默认最多留多少条（设置里可改）
     MIN_BLOCKS = 20
-    EMOTICON_HEIGHT = 22      # 表情在弹幕里的显示高度
+    EMOTICON_HEIGHT = 48      # 默认字号下的表情高度
     BASE_FONT_SIZE = 13       # 默认弹幕字号
     MIN_FONT_SIZE = 8
     MAX_FONT_SIZE = 32
@@ -210,6 +210,7 @@ class DanmakuPanel(QFrame):
     }
 
     roomDropped = Signal(str)          # 有直播间被拖到弹幕格上
+    tileDropped = Signal(str, QPoint)  # 画面墙直播与屏幕落点
     fontSizeChanged = Signal(int)      # 面板上的字号滑块被拖动
 
     def __init__(self, parent=None):
@@ -223,6 +224,7 @@ class DanmakuPanel(QFrame):
         self._status = "未接入"
         self._received = 0
         self._blocks: list[dict] = []            # 每条消息的原始信息，表情下好之后整体重排
+        self._message_epoch = 0
         self._images: dict = {}                  # 表情图 / 粉丝牌底图：url -> 图片
         self._loading_emoticons: set[str] = set()
         self._emoticon_loaders: list = []
@@ -353,17 +355,29 @@ class DanmakuPanel(QFrame):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        if self.window().property('floatingDanmaku'):
+            return super().mouseMoveEvent(event)
         if not (event.buttons() & Qt.LeftButton):
             return
         start = getattr(self, "_press_pos", None)
         if start is None or (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
-        drag = QDrag(self)
+        self._press_pos = None
         mime = QMimeData()
         mime.setData(DANMAKU_MIME, b"1")
-        if self.property("paneCell") is not None:
-            mime.setData("application/x-ddm-danmaku-cell", str(self.property("paneCell")).encode())
+        cell = self.property("paneCell")
+        if cell is not None:
+            mime.setData(DANMAKU_CELL_MIME, str(cell).encode())
         mime.setText("弹幕")
+        window = self.window()
+        wall = getattr(window, 'wall', None)
+        grid = getattr(wall, 'snap_grid', None)
+        session = getattr(getattr(window, 'sidebar', None), 'drag_session', None)
+        if (cell is not None and grid is not None and grid.interactive()
+                and wall.isAncestorOf(self) and session is not None):
+            session.start(self, mime, QPixmap(), QPoint(), event.globalPosition().toPoint())
+            return
+        drag = QDrag(self)
         drag.setMimeData(mime)
         drag.exec(Qt.MoveAction)
 
@@ -375,14 +389,16 @@ class DanmakuPanel(QFrame):
     def dropEvent(self, event) -> None:
         if event.mimeData().hasFormat(DANMAKU_MIME):
             return
-        source = ""
         if event.mimeData().hasFormat(ROOM_MIME):
             source = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
+            if source:
+                event.acceptProposedAction()
+                self.roomDropped.emit(source)
         elif event.mimeData().hasFormat(TILE_MIME):
             source = bytes(event.mimeData().data(TILE_MIME)).decode("utf-8", "ignore")
-        if source:
-            event.acceptProposedAction()
-            self.roomDropped.emit(source)
+            if source:
+                event.acceptProposedAction()
+                self.tileDropped.emit(source, self.mapToGlobal(event.position().toPoint()))
 
     # ---- 内容 ----
     def filter_events(self, allowed):
@@ -401,17 +417,32 @@ class DanmakuPanel(QFrame):
         from .danmaku_actions import show_comment_menu
         self.body._action_block = self.body.document().findBlockByNumber(index)
         self.body.viewport().update()
+        message = self._blocks[index]
+        following = self._blocks[index + 1:index + 2]
+        epoch = self._message_epoch
+
         def finished():
             self.body._action_block = None
             self.body._hover_at(QPointF(self.body.viewport().mapFromGlobal(QCursor.pos())))
-        show_comment_menu(self, self._blocks[index],
-                          getattr(self, "_linked_controls", None) or self._tile_controls, position, finished)
+
+        def restore():
+            if self._message_epoch != epoch or any(entry is message for entry in self._blocks):
+                return
+            before = next((i for i, entry in enumerate(self._blocks) if following and entry is following[0]),
+                          min(index, len(self._blocks)))
+            self._blocks.insert(before, message)
+            self._blocks = self._blocks[-self.max_blocks:]
+            self._render_all()
+
+        show_comment_menu(self, message,
+                          getattr(self, "_linked_controls", None) or self._tile_controls, position, finished, restore)
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._blocks = []
+        self._message_epoch += 1
         self._has_content = False
         self._received = 0
         self._status = "未接入"
@@ -476,15 +507,12 @@ class DanmakuPanel(QFrame):
         if any(card._paper is not None for card in self.super_chats._cards):
             return
         viewport = self.body.viewport()
-        rects, scale = sc_placement_rects(
+        rects, scale, bounds = sc_stack_layout(
             self.super_chats._events, viewport.width(), viewport.height(),
             self.super_chats._scale, self.super_chats._position, panel=True,
             collapsed=self.super_chats.presentation.is_collapsed)
         if not rects:
             return
-        bounds = QRectF(rects[0])
-        for rect in rects[1:]:
-            bounds = bounds.united(rect)
         bounds = bounds.toAlignedRect()
         self.super_chats._effective_scale = scale
         self.super_chats.resize(bounds.size())

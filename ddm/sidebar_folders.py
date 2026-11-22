@@ -71,6 +71,8 @@ class SmartFolderDialog(QDialog):
         self.display_combo.addItem("匹配时移入显示，不匹配时回到原处", "move")
         self.display_combo.addItem("保留原处，同时在智能文件夹显示", "copy")
         self.display_combo.setCurrentIndex(max(0, self.display_combo.findData(rule.get("display", "move"))))
+        for combo in (self.status_combo, self.sort_combo, self.display_combo):
+            combo.view().viewport().setCursor(Qt.PointingHandCursor)
         form.addRow("来源文件夹（可多选）", self.source_button)
         form.addRow("显示方式", self.display_combo)
         form.addRow("开播状态", self.status_combo)

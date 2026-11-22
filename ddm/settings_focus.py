@@ -4,18 +4,30 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox,
                                QScrollArea, QSlider, QWidget)
 
+WHEEL_SPEEDS = (1, 2, 3, 4)
+
+
+def normalize_wheel_speed(speed):
+    return speed if type(speed) is int and speed in WHEEL_SPEEDS else 1
+
 
 class SettingsInputFocus(QObject):
     def __init__(self, root):
         super().__init__(root)
         QApplication.instance().installEventFilter(self)
+        from .settings_scroll_diagnostics import install
+        install()
+
+    def set_wheel_speed(self, speed):
+        self.parent().setProperty('settings_wheel_speed', normalize_wheel_speed(speed))
 
     def eventFilter(self, watched, event):
         root = self.parent()
-        if (event.type() == QEvent.Wheel and isinstance(watched, QWidget) and root.isVisible()
+        kind = event.type()
+        if (kind == QEvent.Wheel and isinstance(watched, QWidget) and root.isVisible()
                 and (watched is root or root.isAncestorOf(watched))):
             return self._wheel(watched, event)
-        if event.type() == QEvent.MouseButtonPress and isinstance(watched, QWidget):
+        if kind == QEvent.MouseButtonPress and isinstance(watched, QWidget):
             if root.isVisible() and (watched is root or root.isAncestorOf(watched)):
                 focus = QApplication.focusWidget()
                 if (focus is not None and root.isAncestorOf(focus) and focus is not watched
@@ -28,8 +40,12 @@ class SettingsInputFocus(QObject):
         if popup is not None and (watched is popup or popup.isAncestorOf(watched)):
             return False
         owner, blocked = watched, False
-        delta = event.pixelDelta().y() or event.angleDelta().y()
-        while owner is not None and owner is not self.parent():
+        root = self.parent()
+        pixels = event.pixelDelta().y()
+        delta = pixels or event.angleDelta().y()
+        while owner is not None and owner is not root:
+            if owner.property('settingsWheelLocal'):
+                return False
             if isinstance(owner, QSlider):
                 if owner.orientation() == Qt.Horizontal and owner.isEnabled():
                     return False
@@ -50,8 +66,14 @@ class SettingsInputFocus(QObject):
                     blocked = True
                     owner = owner.parentWidget()
                     continue
-                amount = abs(delta)
-                step = bar.singleStep() * max(1, round(amount / 120)) if amount else bar.singleStep()
+                step = bar.singleStep() * max(1, round(abs(delta) / 120))
+                speed = root.property('settings_wheel_speed') or 1
+                if speed > 1 and not pixels:
+                    ancestor = owner.parentWidget()
+                    while ancestor is not None and ancestor is not root and not isinstance(ancestor, QScrollArea):
+                        ancestor = ancestor.parentWidget()
+                    if ancestor is root:
+                        step *= speed
                 bar.setValue(bar.value() - step if delta > 0 else bar.value() + step)
                 event.accept()
                 return True

@@ -5,7 +5,7 @@ import os
 os.environ.setdefault('QSG_USE_SIMPLE_ANIMATION_DRIVER', '1')
 
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QPixmap, QSurfaceFormat
+from PySide6.QtGui import QImage, QPixmap, QSurfaceFormat
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickImageProvider, QQuickWindow
 
@@ -79,7 +79,7 @@ class QuickWaveOverlay(WaveOverlay):
         super().__init__(window, snapshot, origin)
         self._native_clip = False
         self.engine = QQmlEngine(self)
-        self.images = _SnapshotImage(snapshot.toImage())
+        self.images = _SnapshotImage(QImage())
         self.engine.addImageProvider('theme', self.images)
         self.component = QQmlComponent(self.engine)
         self.component.setData(_QML, QUrl('ThemeWave.qml'))

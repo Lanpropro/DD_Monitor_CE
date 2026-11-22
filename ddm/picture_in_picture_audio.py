@@ -1,9 +1,9 @@
 """Compact audio controls for the selected PiP panes."""
 from PySide6.QtCore import QPoint, QTimer, Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QSlider, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from . import theme
-from .ui import Avatar, VolumeButton
+from .ui import Avatar, SettingsSlider, VolumeButton
 from .playback_controls import VolumePopup
 
 
@@ -22,7 +22,7 @@ class AudioRow(QWidget):
         self.mute.setAccessibleName(name + '静音')
         self.mute.clicked.connect(lambda: change_mute(not self.mute.muted))
         self.mute.volumeChanged.connect(change_volume)
-        self.slider = QSlider(Qt.Horizontal, self)
+        self.slider = SettingsSlider(self, fixed_width=False)
         self.slider.setRange(0, 100)
         self.slider.setMinimumWidth(60)
         self.slider.setAccessibleName(name + '音量')
@@ -82,8 +82,7 @@ class PictureInPictureAudio(VolumePopup):
         layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(8)
         self.rows = {}
-        for index in self.controller.selection:
-            tile = self.controller.host.wall.tiles[index]
+        for index, tile in enumerate(self.controller.audio_tiles()):
             name = str(tile.room.get('uname') or tile.room.get('room_id'))
             row = AudioRow(name, index, lambda value, tile=tile: self._tile_volume(tile, value),
                            lambda muted, tile=tile: self._tile_mute(tile, muted), content)

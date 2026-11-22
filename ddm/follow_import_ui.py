@@ -12,6 +12,17 @@ from .playback_controls import RefreshButton
 from .corner_geometry import continuous_path
 from .widget_support import BRAND_ASSETS_DIR
 from .settings_window import SettingsTitleBar
+from .ui.selection import SegmentMotion
+
+
+class _LoginSegments(QWidget):
+    indicator = None
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.indicator is not None:
+            with QPainter(self) as painter:
+                self.indicator.paint(painter)
 
 
 class ImportPlatformTabs(QWidget):
@@ -19,7 +30,7 @@ class ImportPlatformTabs(QWidget):
 
     selectionRequested = Signal(str)
 
-    def __init__(self, platforms, parent=None):
+    def __init__(self, platforms, parent=None, *, segmented=False):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setMinimumHeight(theme.CONTROL_HEIGHT)
@@ -27,14 +38,22 @@ class ImportPlatformTabs(QWidget):
         self.buttons = {}
         self.group = QButtonGroup(self)
         self.actions = {}
-        self._row = QHBoxLayout(self)
-        self._row.setContentsMargins(0, 0, 0, 0)
-        self._row.setSpacing(4)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        surface = (_LoginSegments(self, objectName='LoginPlatformSegments') if segmented
+                   else QWidget(self, objectName='ImportPlatformButtons'))
+        surface.setAttribute(Qt.WA_StyledBackground, segmented)
+        outer.addWidget(surface)
+        outer.addStretch(1)
+        self._row = QHBoxLayout(surface)
+        inset = 3 if segmented else 0
+        self._row.setContentsMargins(inset, inset, inset, inset)
+        self._row.setSpacing(2 if segmented else 4)
         self._row.setSizeConstraint(QLayout.SetNoConstraint)
         self.menu = QMenu(self)
         for kind, label in platforms:
             button = QPushButton(label)
-            button.setObjectName('IconButton')
+            button.setObjectName('LoginPlatformSegment' if segmented else 'IconButton')
             button.setCheckable(True)
             button.setAutoDefault(False)
             button.setCursor(Qt.PointingHandCursor)
@@ -44,8 +63,9 @@ class ImportPlatformTabs(QWidget):
                 path = os.path.join(BRAND_ASSETS_DIR, 'platforms', 'generic.svg')
             button.setIcon(QIcon(path))
             button.setIconSize(QSize(18, 18))
-            button.setFixedSize(min(148, max(64, button.fontMetrics().horizontalAdvance(label) + 44)),
-                                theme.CONTROL_HEIGHT)
+            button.setFixedSize(min(148, max(54 if segmented else 64,
+                                             button.fontMetrics().horizontalAdvance(label) + (34 if segmented else 44))),
+                                theme.CONTROL_HEIGHT - 2 * inset)
             button.clicked.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
             self._row.addWidget(button, 0, Qt.AlignTop)
             self.group.addButton(button)
@@ -55,16 +75,29 @@ class ImportPlatformTabs(QWidget):
             action.triggered.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
             self.actions[kind] = action
         self.more = QPushButton('…')
-        self.more.setObjectName('IconButton')
+        self.more.setObjectName('LoginPlatformSegment' if segmented else 'IconButton')
         self.more.setAutoDefault(False)
-        self.more.setFixedSize(34, theme.CONTROL_HEIGHT)
+        self.more.setFixedSize(34, theme.CONTROL_HEIGHT - 2 * inset)
+        self.more.setCursor(Qt.PointingHandCursor)
         self.more.setToolTip('其他平台')
         self.more.setAccessibleName('其他导入平台')
         self.more.setMenu(self.menu)
-        self.more.setStyleSheet('QPushButton#IconButton {padding:0;} '
-                               'QPushButton#IconButton::menu-indicator {image:none; width:0;}')
+        self.more.setStyleSheet('QPushButton {padding:0;} '
+                               'QPushButton::menu-indicator {image:none; width:0;}')
         self._row.addWidget(self.more, 0, Qt.AlignTop)
-        self._row.addStretch(1)
+        self._selection = None
+        if segmented:
+            self._selection = surface.indicator = SegmentMotion(
+                surface, self._segment_rects, lambda: self._current, self._choose_segment)
+            for button in self.buttons.values():
+                self._selection.watch(button)
+
+    def _segment_rects(self):
+        return {key: QRectF(button.geometry()).adjusted(0, 0, 0, -1) for key, button in self.buttons.items()
+                if not button.isHidden() and (button.isEnabled() or key == self._current)}
+
+    def _choose_segment(self, key):
+        self.buttons[key].click()
 
     def set_current(self, kind):
         self._current = kind
@@ -79,7 +112,8 @@ class ImportPlatformTabs(QWidget):
 
     def _reflow(self):
         gap = self._row.spacing()
-        available = self.width()
+        margins = self._row.contentsMargins()
+        available = self.width() - margins.left() - margins.right()
         total = sum(button.width() for button in self.buttons.values()) + gap * max(0, len(self.buttons) - 1)
         visible = set(self.buttons)
         if total > available:
@@ -97,35 +131,42 @@ class ImportPlatformTabs(QWidget):
             button.setVisible(key in visible)
             self.actions[key].setVisible(key not in visible)
         self.more.setVisible(len(visible) < len(self.buttons))
+        if self._selection is not None:
+            self._row.activate()
+            self._selection.sync()
 
 
 class AccountImportBar(QWidget):
-    """Compact import header; AccountPlatformDialog owns account and platform state."""
+    """Compact platform header; AccountPlatformDialog owns account and platform state."""
 
-    def __init__(self, platforms, parent=None):
+    def __init__(self, platforms, parent=None, *, login_only=False):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(8)
+        title = '登录' if login_only else '导入关注'
         self.titlebar = SettingsTitleBar(parent)
         self.titlebar.setMinimumHeight(38)
         self.titlebar.row.setContentsMargins(0, 0, 0, 0)
         self.titlebar.row.setSpacing(8)
-        self.titlebar.breadcrumb.setText('导入关注')
-        self.titlebar.close_button.setAccessibleName('关闭导入关注')
-        self.titlebar.close_button.setToolTip('关闭导入关注')
-        self.account = AccountRow(self)
-        self.account.setObjectName('ImportAccount')
-        self.account.setStyleSheet('QFrame#ImportAccount {background:transparent; border:none;}')
-        self.account.setMinimumWidth(0)
-        self.account.setCursor(Qt.ArrowCursor)
-        self.refresh = RefreshButton(self, size=30, object_name='IconButton')
-        self.refresh.setAccessibleName('刷新关注列表')
-        self.refresh.setToolTip('重新读取当前平台关注')
-        self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.account)
-        self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.refresh)
+        self.titlebar.breadcrumb.setText(title)
+        self.titlebar.close_button.setAccessibleName('关闭' + title)
+        self.titlebar.close_button.setToolTip('关闭' + title)
+        if not login_only:
+            self.account = AccountRow(self)
+            self.account.setObjectName('ImportAccount')
+            self.account.setStyleSheet('QFrame#ImportAccount {background:transparent; border:none;}')
+            self.account.setMinimumWidth(0)
+            self.account.setCursor(Qt.ArrowCursor)
+            self.refresh = RefreshButton(self, size=30, object_name='IconButton')
+            self.refresh.setAccessibleName('刷新关注列表')
+            self.refresh.setToolTip('重新读取当前平台关注')
+            self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.account)
+            self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.refresh)
         layout.addWidget(self.titlebar)
-        self.platform = ImportPlatformTabs(platforms, self)
+        self.platform = ImportPlatformTabs(platforms, self, segmented=login_only)
+        if login_only:
+            self.platform.more.setAccessibleName('其他登录平台')
         layout.addWidget(self.platform)
 
     def set_account(self, account, kind):
@@ -156,9 +197,10 @@ class FollowImportDelegate(QStyledItemDelegate):
 
     checkChanged = Signal()
 
-    def __init__(self, existing, parent):
+    def __init__(self, existing, parent, *, channels=False):
         super().__init__(parent)
         self.existing = existing
+        self.channels = channels
 
     def sizeHint(self, option, index):
         listing = self.parent()
@@ -207,20 +249,23 @@ class FollowImportDelegate(QStyledItemDelegate):
         font.setBold(False)
         painter.setFont(font)
         metrics = QFontMetrics(font)
-        status = ('待识别' if not room.get('room_id') else '状态待刷新' if room.get('live_known') is False
-                  else '直播中' if room['live'] else '未开播')
-        if room.get('follow_resolve_error'):
-            status += ' · 识别失败'
-        elif room.get('title'):
-            status += ' · ' + room['title']
+        if self.channels:
+            status = ' · '.join(filter(None, (room.get('import_group'), room.get('import_source'))))
+        else:
+            status = ('待识别' if not room.get('room_id') else '状态待刷新' if room.get('live_known') is False
+                      else '直播中' if room['live'] else '未开播')
+            if room.get('follow_resolve_error'):
+                status += ' · 识别失败'
+            elif room.get('title'):
+                status += ' · ' + room['title']
         if str(room['room_id']) in self.existing:
-            badge = '已关注'
+            badge = '已添加' if self.channels else '已关注'
             width = metrics.horizontalAdvance(badge)
             painter.setPen(theme.qcolor(theme.TEXT2))
             painter.drawText(QRect(right - width, name_rect.bottom() + 3, width, metrics.height()),
                              Qt.AlignVCenter, badge)
             right -= width + 12
-        painter.setPen(theme.qcolor(theme.PINK if room.get('live') else theme.TEXT2))
+        painter.setPen(theme.qcolor(theme.PINK if room.get('live') and not self.channels else theme.TEXT2))
         status_rect = QRect(left, name_rect.bottom() + 3, max(0, right - left), metrics.height())
         painter.drawText(status_rect, Qt.AlignVCenter,
                          metrics.elidedText(status, Qt.ElideRight, status_rect.width()))

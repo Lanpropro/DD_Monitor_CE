@@ -1,6 +1,8 @@
 """Tile context menu; mutable state and Qt ownership stay with Tile."""
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QLabel, QMenu, QSlider, QVBoxLayout, QWidget, QWidgetAction
+from PySide6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget, QWidgetAction
+from .streamer_defaults import source_quality_option
+from .ui.slider import SettingsSlider
 
 
 class TileContextMenu:
@@ -11,6 +13,7 @@ class TileContextMenu:
         QMenu = menu_type
         """右键菜单：音量滑条 + 画质 + 声道 + 常规操作。"""
         host = self.host
+        independent = host.property('pictureInPictureIndependent')
         menu = QMenu(host)
 
         # 音量（菜单里嵌滑条）
@@ -21,7 +24,7 @@ class TileContextMenu:
         volume_label = QLabel(f"音量 {host.volume}")
         volume_label.setObjectName("AppSubtitle")
         holder_layout.addWidget(volume_label)
-        slider = QSlider(Qt.Horizontal, holder)
+        slider = SettingsSlider(holder, fixed_width=False)
         slider.setRange(0, 100)
         slider.setValue(host.volume)
         slider.setFixedWidth(170)
@@ -34,13 +37,20 @@ class TileContextMenu:
         menu.addAction(wrapper)
         menu.addSeparator()
 
-        quality_menu = menu.addMenu("画质")
-        quality_menu.menuAction().setData('quality')
-        for name, value in host._quality_choices():
-            action = quality_menu.addAction(name)
-            action.setCheckable(True)
-            action.setChecked(value == host.quality)
-            action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
+        if source_quality_option(host.quality_options) is not None:
+            quality = menu.addAction(f"画质 · {host._quality_text()}")
+            quality.setData('quality')
+            quality.setEnabled(False)
+        elif host.room.get('room_id'):
+            quality_menu = menu.addMenu("画质")
+            quality_menu.setToolTipsVisible(True)
+            quality_menu.menuAction().setData('quality')
+            for name, value in host._quality_choices():
+                action = quality_menu.addAction(name)
+                action.setToolTip(host._quality_name(value))
+                action.setCheckable(True)
+                action.setChecked(value == host.quality)
+                action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
 
         menu.addAction("当前窗口编解码设置…", host.codecSettingsRequested.emit).setData('codec')
         info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, host, host.streamInfoRequested.emit))
@@ -59,20 +69,27 @@ class TileContextMenu:
             action.triggered.connect(lambda _checked=False, v=value: host.set_audio_channel(v))
         menu.addSeparator()
         menu.addAction("取消静音" if host.muted else "静音", host._toggle_mute).setData('mute')
-        menu.addAction("弹幕观看设置…", lambda: QTimer.singleShot(0, host,
-            lambda: host.danmaku_settings_menu.open_at(
-                host.danmaku_button, host.video_danmaku.settings))).setData('danmaku_settings')
+        if not independent:
+            menu.addAction("弹幕观看设置…", lambda: QTimer.singleShot(0, host,
+                lambda: host.danmaku_settings_menu.open_at(
+                    host.danmaku_button, host.video_danmaku.settings))).setData('danmaku_settings')
+            if (host.open_danmaku_float is not None and not host.property('pictureInPicture')
+                    and not host.property('fullscreen') and host.room.get('room_id')
+                    and host.room.get('supports_live_danmaku') is not False):
+                menu.addAction("打开弹幕浮窗", host.open_danmaku_float).setData('danmaku_float')
         menu.addAction("刷新重连", lambda: host.reloadRequested.emit(host.room)).setData('reload')
-        menu.addAction("全屏查看", lambda: host.fullscreenRequested.emit(host)).setData('fullscreen')
+        if not independent:
+            menu.addAction("全屏查看", lambda: host.fullscreenRequested.emit(host)).setData('fullscreen')
         if host.plugin_actions:
             # 插件加的一项占一行；组与组之间用分隔线断开，免得和本体的项混在一起
             menu.addSeparator()
             for label, callback in host.plugin_actions:
                 menu.addAction(label, callback).setData('plugins')
-        menu.addSeparator()
-        if not (host.property("pictureInPicture") or host.property("fullscreen")):
-            menu.addAction("切换为弹幕", host.paneEditRequested.emit).setData('switch_danmaku')
-        menu.addAction("关闭这一路", lambda: host.closeRequested.emit(host.room)).setData('close')
+        if not independent:
+            menu.addSeparator()
+            if not (host.property("pictureInPicture") or host.property("fullscreen")):
+                menu.addAction("切换为弹幕", host.paneEditRequested.emit).setData('switch_danmaku')
+            menu.addAction("关闭这一路", lambda: host.closeRequested.emit(host.room)).setData('close')
         from .tile_menu import arrange_menu
         arrange_menu(menu, host._video_danmaku_global_settings.get('tile_context_menu'))
         return menu

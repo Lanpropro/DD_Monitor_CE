@@ -9,9 +9,9 @@ from unittest.mock import patch
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QStyleOptionButton, QWidget
+from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionButton, QStyleOptionSlider, QWidget
 from ddm import config, theme
 from ddm.dialogs import DanmakuSettingsPage, TraySettingsPage
 from ddm.playback_badges import StreamBadge, TitleBadge
@@ -68,7 +68,8 @@ class UiPolishTests(unittest.TestCase):
                 button._paint_button(painter, option)
                 painter.end()
                 self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
-                self.assertGreater(image.pixelColor(image.width()//2, image.height()//2).alpha(), 200)
+                center = image.pixelColor(image.width()//2, image.height()//2)
+                self.assertAlmostEqual(center.alphaF(), .15, delta=.01)
                 for x in range(image.width()//2):
                     for y in range(image.height()):
                         self.assertLessEqual(abs(image.pixelColor(x, y).alpha() -
@@ -142,12 +143,11 @@ class UiPolishTests(unittest.TestCase):
         overlay.apply_settings({**settings, 'video_danmaku_scale': False})
         self.assertEqual(overlay.font_pixels(), 40)
         event = {'id': 'test', 'message': 'readable', 'price': 30, 'uname': 'fixture'}
-        # A collapsed card fits at all strengths, isolating video scaling from crowding.
+        # SC retains the readable 90% minimum even when the viewport curve is smaller.
         sizes = [sc_placement_rects([event], 1280, 360, scale_with_video=True,
                                    scale_strength=value, collapsed=True)[1] for value in (0, 35, 100)]
         self.assertEqual(sizes[0], 1)
-        self.assertGreater(sizes[1], sizes[2])
-        self.assertEqual(sizes[2], .5)
+        self.assertEqual(sizes[1:], [.9, .9])
         self.assertIn('video_danmaku_scale_strength', config.VIDEO_DANMAKU_SETTING_KEYS)
         page = DanmakuSettingsPage(config.DEFAULT_SETTINGS)
         self.addCleanup(page.deleteLater)
@@ -175,9 +175,18 @@ class UiPolishTests(unittest.TestCase):
         self.assertEqual(viewport_scale(360, points=points), .8)
         self.assertAlmostEqual(viewport_scale(540, points=points), .9)
         self.assertEqual(viewport_scale(2000, points=points), 1.4)
+        before_hover = graph.grab().toImage()
+        QTest.mouseMove(graph, graph.point_position(points[1]).toPoint())
+        self.assertEqual(graph._readout_index(), 1)
+        self.assertIsNone(graph.selected)
+        self.assertEqual(control.curve(), points)
+        self.assertFalse(changes)
+        self.assertNotEqual(graph.grab().toImage(), before_hover)
         start = graph.point_position([.75, .9]).toPoint()
         QTest.mousePress(graph, Qt.LeftButton, pos=start)
         QTest.mouseMove(graph, start-QPoint(0, 15))
+        self.assertEqual(graph._readout_index(), 2)
+        self.assertIn('720 px 100%', control.example.text())
         QTest.mouseRelease(graph, Qt.LeftButton, pos=start-QPoint(0, 15))
         self.assertEqual(len(control.curve()), 5)
         added = control.curve()[2]
@@ -206,7 +215,7 @@ class UiPolishTests(unittest.TestCase):
         self.assertEqual(overlay.font_pixels(), 32)
         event = {'id': 'curve', 'message': 'readable', 'price': 30, 'uname': 'fixture'}
         self.assertEqual(sc_placement_rects([event], 1280, 360, scale_with_video=True,
-                                          collapsed=True, scale_curve=points)[1], .8)
+                                          collapsed=True, scale_curve=points)[1], .9)
         self.assertIn('video_danmaku_scale_curve', config.VIDEO_DANMAKU_SETTING_KEYS)
         tile = Tile({'room_id': 'curve-fixture'})
         self.addCleanup(tile.deleteLater)
@@ -217,24 +226,61 @@ class UiPolishTests(unittest.TestCase):
         self.assertIsNone(tile._video_danmaku_global_settings['video_danmaku_scale_curve'])
         tile._set_video_danmaku_independent(False)
         self.assertIsNone(tile.video_danmaku.settings['video_danmaku_scale_curve'])
-        from ddm.video_danmaku_settings import VideoDanmakuSettings
-        menu = VideoDanmakuSettings()
-        self.addCleanup(menu.deleteLater)
-        received = []
-        menu.settingsChanged.connect(received.append)
-        menu.apply_settings({**config.DEFAULT_SETTINGS, 'video_danmaku_scale_curve': points})
-        self.assertEqual(menu.scale_curve.curve(), points)
-        self.assertFalse(received, 'Applying stored points must not emit edits')
-        menu.scale_curve.reset()
-        self.assertEqual(received[-1]['video_danmaku_scale_curve'], scale_curve_points())
-        menu.scale.setChecked(False)
-        self.assertFalse(menu.scale_curve.isEnabled())
         control.reset()
         self.assertEqual(control.curve(), scale_curve_points())
         image = graph.grab().toImage()
         grid_point = graph.point_position([.4, .4]).toPoint()
         self.assertNotEqual(image.pixelColor(grid_point), theme.qcolor(theme.CONTENT),
                             'An open curve must not fill over the grid below it')
+
+    def test_tile_danmaku_menu_keeps_scale_toggle_without_curve_editor(self):
+        from ddm.video_danmaku_settings import VideoDanmakuSettings
+        menu = VideoDanmakuSettings()
+        self.addCleanup(menu.deleteLater)
+        received = []
+        menu.settingsChanged.connect(received.append)
+        menu.apply_settings(config.DEFAULT_SETTINGS)
+        self.assertIsNone(menu.findChild(ScaleCurveControl))
+        self.assertFalse(received)
+        menu.scale.setChecked(False)
+        self.assertEqual(received, [{'video_danmaku_scale': False}])
+
+    def test_tile_danmaku_menu_waits_for_use_and_tracks_theme(self):
+        from ddm.video_danmaku_settings import VideoDanmakuSettings
+        theme.apply('dark')
+        self.addCleanup(theme.apply, 'dark')
+        tile = Tile({'room_id': '1'})
+        self.addCleanup(tile.deleteLater)
+        self.assertIsNone(tile.findChild(VideoDanmakuSettings))
+        tile.apply_video_danmaku_settings(dict(config.DEFAULT_SETTINGS, video_danmaku_speed=77, video_danmaku_size=36))
+        tile._set_video_danmaku_independent(True)
+        theme.apply('light')
+        self.assertIsNone(tile.findChild(VideoDanmakuSettings))
+
+        tile.danmaku_settings_button.click()
+        menu = tile.danmaku_settings_menu
+        self.addCleanup(menu.hide)
+        self.assertIs(menu.parentWidget(), tile)
+        self.assertTrue(menu.independent.isChecked())
+        self.assertEqual(menu.controls['video_danmaku_speed'].value(), 77)
+        slider = menu.controls['video_danmaku_size']
+        self.assertEqual(slider.value(), 36)
+        slider.setValue(40)
+        self.assertEqual(tile.video_danmaku.settings['video_danmaku_size'], 40)
+        stylesheet = menu.styleSheet()
+        for mode in ('light', 'dark', 'light'):
+            theme.apply(mode)
+            self.assertIs(tile.danmaku_settings_menu, menu)
+            self.assertEqual(menu.styleSheet(), stylesheet)
+            option = QStyleOptionSlider()
+            slider.initStyleOption(option)
+            handle = slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle, slider)
+            image = slider.grab().toImage()
+            ratio = image.devicePixelRatio()
+            y = round(handle.center().y() * ratio)
+            self.assertEqual(image.pixelColor(round(handle.center().x() * ratio), y), QColor('#ffffff'))
+            accent = theme.mix(theme.ACCENT, '#ffffff', .35) if slider.underMouse() else theme.ACCENT
+            self.assertEqual(image.pixelColor(round(handle.center().x() * ratio / 2), y), QColor(accent))
 
     def test_menu_editor_and_runtime_keep_order_callbacks_and_visibility(self):
         page = TraySettingsPage(config.DEFAULT_SETTINGS)
@@ -243,20 +289,26 @@ class UiPolishTests(unittest.TestCase):
         page.resize(600, 700)
         page.show()
         APP.processEvents()
-        self.assertLess(editor.preview.x(), editor.checks['volume'].mapTo(editor, QPoint()).x())
+        self.assertLess(editor.items.x(), editor.checks['volume'].mapTo(editor, QPoint()).x())
+        self.assertTrue(editor.preview.isVisible())
+        self.assertLessEqual(editor.preview.width(), 300)
         for mode in ('dark', 'light'):
             theme.apply(mode)
             APP.processEvents()
-            image = editor.preview.grab().toImage()
-            self.assertGreater(image.pixelColor(editor.preview.width()//2, 5).alpha(), 0)
-        rows = dict(editor.preview.rows())
+            image = editor.items.grab().toImage()
+            self.assertGreater(image.pixelColor(editor.items.width()//2, 5).alpha(), 0)
+            preview = editor.preview.grab().toImage()
+            self.assertGreater(preview.pixelColor(editor.preview.width()//2, 5).alpha(), 0)
+        rows = dict(editor.items.rows())
         start = rows['volume'].center().toPoint()
         end = QPoint(start.x(), int(rows['quality'].bottom()-1))
-        QTest.mousePress(editor.preview, Qt.LeftButton, pos=start)
-        QTest.mouseMove(editor.preview, end)
-        QTest.mouseRelease(editor.preview, Qt.LeftButton, pos=end)
+        QTest.mousePress(editor.items, Qt.LeftButton, pos=start)
+        QTest.mouseMove(editor.items, end)
+        QTest.mouseRelease(editor.items, Qt.LeftButton, pos=end)
         self.assertEqual(editor.values()[0]['id'], 'quality')
         editor.checks['quality'].setChecked(False)
+        self.assertIn('quality', dict(editor.items.rows()))
+        self.assertFalse(editor.checks['quality'].isChecked())
         self.assertNotIn('quality', dict(editor.preview.rows()))
         choices = page.values()['tile_context_menu']
         self.assertEqual(choices[0], {'id': 'quality', 'enabled': False})
@@ -287,6 +339,48 @@ class UiPolishTests(unittest.TestCase):
         empty_menu = tile.build_menu()
         self.addCleanup(empty_menu.deleteLater)
         self.assertTrue(empty_menu.isEmpty())
+
+    def test_narrow_menu_preview_drag_selection_hidden_rows_and_single_owner(self):
+        from ddm.tile_menu import MENU_GROUPS, TileMenuEditor
+        editor = TileMenuEditor()
+        self.addCleanup(editor.deleteLater)
+        editor.setStyleSheet(theme.qss())
+        editor.resize(800, 650)
+        editor.show()
+        APP.processEvents()
+        changed = []
+        editor.changed.connect(lambda: changed.append(editor.values()))
+        self.assertIs(editor.preview.choices, editor._choices)
+        self.assertIs(editor.items.choices, editor._choices)
+        rows = dict(editor.preview.rows())
+        self.assertGreater(rows['volume'].height(), rows['quality'].height())
+        for (left, before), (right, after) in zip(editor.preview.rows(), editor.preview.rows()[1:]):
+            if MENU_GROUPS[left] != MENU_GROUPS[right]:
+                self.assertGreater(after.top(), before.bottom())
+        start = rows['reload'].center().toPoint()
+        end = rows['quality'].topLeft().toPoint() + QPoint(20, 1)
+        QTest.mousePress(editor.preview, Qt.LeftButton, pos=start)
+        QTest.mouseMove(editor.preview, end)
+        QTest.mouseRelease(editor.preview, Qt.LeftButton, pos=end)
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(editor.items.selected, 'reload')
+        self.assertEqual(editor.preview.selected, 'reload')
+        ids = [entry['id'] for entry in editor.values()]
+        self.assertLess(ids.index('reload'), ids.index('quality'))
+        editor.checks['reload'].click()
+        self.assertEqual(len(changed), 2)
+        self.assertNotIn('reload', dict(editor.preview.rows()))
+        self.assertIn('reload', dict(editor.items.rows()))
+        editor.move_item(1)
+        self.assertEqual(len(changed), 3)
+        self.assertFalse(next(entry for entry in editor.values() if entry['id'] == 'reload')['enabled'])
+        editor.set_choices(None)
+        self.assertEqual(len(changed), 4)
+        self.assertEqual(editor.values(), menu_choices(None))
+        editor.set_choices([{'id': key, 'enabled': False} for key, _label in MENU_ITEMS])
+        self.assertEqual(editor.preview.rows(), [])
+        self.assertFalse(editor.preview.grab().isNull())
+        self.assertEqual(len(editor.items.rows()), len(MENU_ITEMS))
 
     def test_menu_and_curves_round_trip_without_touching_real_settings(self):
         settings = {**config.DEFAULT_SETTINGS,

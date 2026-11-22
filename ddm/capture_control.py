@@ -1,11 +1,32 @@
 """Recording/replay policy and tile state; the host owns sessions and shutdown."""
 import time
+from dataclasses import dataclass
 from . import bili
+from .recording_session import BackgroundRecordingSource
+from .room_artwork import room_platform
+from .streamer_defaults import (QUALITY_LABELS, quality_tiers, room_defaults, source_quality_option,
+                                streamer_profile_group)
+
+
+MONITOR_STATES = ('recording', 'reconnecting', 'preparing', 'stopping', 'failed', 'monitoring')
+
+
+@dataclass(frozen=True)
+class MonitorEntry:
+    room_id: str
+    name: str
+    state: str
+    platform: str = ''
+    account_id: str = ''
+    display_room_id: str = ''
+    started_at: float = 0.0
+    profile_group: tuple | None = None
 
 
 class CaptureControl:
     def __init__(self, host):
         self.host = host
+        self.waiting_for_cache = set()
 
     def replay_scope(self) -> str:
         """即时回放的适用范围：``recorded``（只跟录制走）或 ``all``（所有格子）。"""
@@ -26,12 +47,20 @@ class CaptureControl:
         """
         host = self.host
         enabled = host._recording_enabled()
+        auto_recording = getattr(host, 'auto_recording', None)
+        if auto_recording is not None:
+            auto_recording.settings_changed()
+            host.sidebar.items_control.set_auto_record_rooms(auto_recording.configured_rooms())
         if not enabled:
-            host._pending_capture.clear()       # 还在等原画的那几格也别等了
+            pending = list(host._pending_capture)
+            host._pending_capture.clear()
+            for tile in pending:
+                host._restore_capture_quality(tile)
         for tile in host.wall.tiles:
             setter = getattr(tile, "set_recording_available", None)
             if setter is not None:
                 setter(enabled)
+                self.sync_tile_recording(tile)
             if enabled:
                 continue
             session = host.recorder.sessions.get(tile)
@@ -88,7 +117,7 @@ class CaptureControl:
         cached = sum(1 for session in host.recorder.sessions.values()
                      if not session.recording)
         for tile in host.wall.tiles:
-            if tile in host.recorder.sessions:
+            if tile in host.recorder.sessions or tile in host._pending_capture:
                 continue                            # 已经有会话（录制或缓存）
             if host._replay_suppressed.get(tile) == str(tile.room.get("room_id") or ""):
                 continue
@@ -105,7 +134,7 @@ class CaptureControl:
         host = self.host
         if not host._replay_enabled():
             return
-        if not str(host.settings.get("recording_dir") or "").strip():
+        if not host.recorder.directory_setting:
             if not host.open_settings("recording") or host._closing or not host._replay_enabled():
                 return
         host._replay_suppressed.pop(tile, None)
@@ -119,8 +148,14 @@ class CaptureControl:
             host._replay_suppressed[tile] = str(tile.room.get("room_id") or "")
             host.recorder.stop(tile, save_cache=True)
 
+    def monitors_recording(self, tile) -> bool:
+        auto = getattr(self.host, 'auto_recording', None)
+        return bool(auto and auto.controls_room(tile.room.get('room_id')))
+
     def toggle_recording(self, tile) -> None:
         host = self.host
+        if self.monitors_recording(tile):
+            return
         if tile in host._pending_capture:
             host._pending_capture.pop(tile)
             host._restore_capture_quality(tile)
@@ -133,6 +168,8 @@ class CaptureControl:
 
     def start_capture(self, tile, *, recording: bool) -> None:
         host = self.host
+        if recording and self.monitors_recording(tile):
+            return
         if recording and not host._recording_enabled():
             host._record_notice("录制功能已在「设置 → 录制」里关闭", tile.room)
             return
@@ -141,50 +178,88 @@ class CaptureControl:
         if not str(host.settings.get("recording_dir") or "").strip():
             if not host.open_settings("recording"):
                 return
-            if not str(host.settings.get("recording_dir") or "").strip():
+            if not host.recorder.directory_setting:
                 host._record_notice("请先选择录制保存目录", tile.room)
                 return
-        if not host.settings.get("recording_lock_quality", True):
+        height = tile.room.get('_streamer_recording_height') if recording else None
+        choice = tile.room.get('_streamer_recording_choice') if recording else None
+        custom_quality = height is not None or choice is not None
+        if not custom_quality and not host.settings.get("recording_lock_quality", True):
             host.recorder.start(tile, recording=recording)
             return
-        if tile in host.recorder.sessions:
+        session = host.recorder.sessions.get(tile)
+        if session is not None and (not custom_quality or session.recording or session.stopping):
             host.recorder.start(tile, recording=recording)
             return
         if not tile.room.get("live") or not tile.isVisible():
             host.recorder.start(tile, recording=recording)
             return
-        host._capture_quality[tile] = (str(tile.room.get("room_id") or ""), int(tile.quality))
+        room_id = str(tile.room.get("room_id") or "")
+        target = 10000
+        if choice is not None:
+            target = choice['qn']
+            if target == 10000 and choice['label'] in ('最高', '最高可用'):
+                tiers = quality_tiers(room_id, tile.quality_options, 0, allow_lower=False)
+                target = tiers[0] if tiers else target
+        elif height is not None:
+            tiers = quality_tiers(room_id, tile.quality_options, height, allow_lower=False)
+            if tiers:
+                target = tiers[0]
+            elif height:
+                host._record_notice(f"直播源未提供 {QUALITY_LABELS[height]}，录制未开始", tile.room)
+                return
+            elif source_quality_option(tile.quality_options) is not None:
+                host.recorder.start(tile, recording=recording)
+                return
+        host._capture_quality[tile] = (room_id, int(tile.quality))
         host._pending_capture[tile] = recording
         tile.quality_button.setEnabled(False)
-        tile.quality_locked = True
-        if tile.quality == 10000 and tile.actual_quality == 10000 and tile.stream_url:
-            host._finish_pending_capture(tile)
-            return
-        if tile.quality != 10000:
+        already_resolved = tile.actual_quality == target and bool(tile.stream_url)
+        if tile.quality != target:
             blocked = tile.blockSignals(True)
             try:
-                tile.set_quality(10000)
+                tile.set_quality(target)
+                if already_resolved:
+                    tile.set_actual_quality(target)
             finally:
                 tile.blockSignals(blocked)
-            tile.room["quality"] = 10000
-        host.start_tile(tile)
+            tile.room["quality"] = target
+        tile.quality_locked = True
+        if session is not None and not (already_resolved and session.url == tile.stream_url):
+            # A replay cache may still be writing the previous source.
+            self.waiting_for_cache.add(tile)
+            host.recorder.stop(tile)
+        elif already_resolved:
+            host._finish_pending_capture(tile)
+        else:
+            host.start_tile(tile)
 
     def finish_pending_capture(self, tile) -> None:
         host = self.host
+        if tile in self.waiting_for_cache:
+            return
         recording = host._pending_capture.pop(tile)
-        if tile.actual_quality != 10000:
-            host._record_notice("直播源未提供原画，录制未开始", tile.room)
+        if recording and self.monitors_recording(tile):
+            host._restore_capture_quality(tile)
+            return
+        if tile.actual_quality != tile.quality:
+            height = tile.room.get('_streamer_recording_height') if recording else None
+            choice = tile.room.get('_streamer_recording_choice') if recording else None
+            label = f" {choice['label']}" if choice else (
+                f" {QUALITY_LABELS[height]}" if height is not None else "原画")
+            host._record_notice(f"直播源未提供{label}，录制未开始", tile.room)
             host._restore_capture_quality(tile)
         elif not host.recorder.start(tile, recording=recording):
             host._restore_capture_quality(tile)
 
     def restore_capture_quality(self, tile) -> None:
         host = self.host
+        self.waiting_for_cache.discard(tile)
         previous = host._capture_quality.pop(tile, None)
         if previous is None:
             return
         tile.quality_locked = False
-        tile.quality_button.setEnabled(True)
+        tile.quality_button.setEnabled(source_quality_option(tile.quality_options) is None)
         room_id, before = previous
         if str(tile.room.get("room_id") or "") != room_id:
             return
@@ -198,20 +273,98 @@ class CaptureControl:
             if tile.room.get("live") and tile.isVisible() and not host._closing:
                 host.start_tile(tile)
 
+    def sync_follow_recording_states(self) -> None:
+        host = self.host
+        host.sidebar.items_control.set_recording_rooms(
+            session.room_id for session in host.recorder.sessions.values()
+            if session.recording and not session.stopping and session.started_at)
+
+    def monitor_rows(self):
+        """Read the current manual recordings and opt-in background monitoring by room."""
+        host = self.host
+        monitored = host.auto_recording.monitored_rooms()
+        followed = {str(room.get('room_id')): room for room in host.sidebar.rooms()}
+        saved = host.settings.get('streamer_defaults')
+        profiles = saved if isinstance(saved, dict) else {}
+        entries = {}
+
+        def entry(room_id, name, state, room, started_at=0.0):
+            details = {**room, **host.auto_recording.room_details.get(room_id, {})}
+            details.update({key: value for key, value in followed.get(room_id, {}).items() if value})
+            details['room_id'] = room_id
+            group = (streamer_profile_group(room_defaults(host.settings, room_id))
+                     if isinstance(profiles.get(room_id), dict) else None)
+            return MonitorEntry(room_id, str(details.get('uname') or name or room_id), state,
+                                room_platform(details), str(details.get('anchor_uid') or details.get('uid') or ''),
+                                str(details.get('display_room_id') or room_id.split(':', 1)[-1]), started_at, group)
+
+        for session in host.recorder.sessions.values():
+            if not session.recording or not session.room_id:
+                continue
+            if session.stopping:
+                state = 'stopping'
+            elif session.retry_at or (session.started_at and session.refreshing):
+                state = 'reconnecting'
+            else:
+                state = 'recording' if session.started_at else 'preparing'
+            previous = entries.get(session.room_id)
+            if previous is None or MONITOR_STATES.index(state) < MONITOR_STATES.index(previous.state):
+                started = (session.recording_started_at or session.started_at) if state == 'recording' else 0.0
+                entries[session.room_id] = entry(session.room_id, session.name, state, session.room, started)
+
+        for tile, recording in host._pending_capture.items():
+            room_id = str(tile.room.get('room_id') or '')
+            if recording and room_id and room_id not in entries:
+                entries[room_id] = entry(room_id, '', 'preparing', tile.room)
+
+        for room_id, profile in monitored.items():
+            if room_id not in entries:
+                state = 'failed' if room_id in host.auto_recording.failed_to_start else 'monitoring'
+                entries[room_id] = entry(room_id, profile.get('name'), state, {})
+        return tuple(sorted(entries.values(), key=lambda row: (MONITOR_STATES.index(row.state), row.name.casefold())))
+
     def record_state_changed(self, tile) -> None:
         host = self.host
+        if isinstance(tile, BackgroundRecordingSource):
+            for wall_tile in host.wall.tiles:
+                if str(wall_tile.room.get('room_id')) == str(tile.room.get('room_id')):
+                    self.sync_tile_recording(wall_tile)
+            return
         session = host.recorder.sessions.get(tile)
         if tile in host._preset_retired_tiles and session is None:
             host._preset_retired_tiles.remove(tile)
             host._capture_quality.pop(tile, None)
+            self.waiting_for_cache.discard(tile)
             host.wall._drop_tile(tile)
             return
+        if session is None and tile in self.waiting_for_cache:
+            self.waiting_for_cache.remove(tile)
+            saved = host._capture_quality.get(tile)
+            if (not host._closing and tile in host._pending_capture and saved
+                    and str(tile.room.get('room_id') or '') == saved[0]):
+                if tile.actual_quality == tile.quality and tile.stream_url:
+                    host._finish_pending_capture(tile)
+                else:
+                    host.start_tile(tile)
+                return
         if session is None and tile not in host._pending_capture:
             host._restore_capture_quality(tile)
+        self.sync_tile_recording(tile)
+        host._tick_record_clock()
+
+    def sync_tile_recording(self, tile) -> None:
+        host = self.host
+        session = host.recorder.sessions.get(tile)
+        managed = self.monitors_recording(tile)
+        if managed:
+            source = host.auto_recording.source_for(str(tile.room.get('room_id')))
+            background = host.recorder.sessions.get(source)
+            if background and background.started_at and not background.stopping:
+                session = background
         recording = bool(session and session.recording and not session.stopping)
         state = "record" if recording else (
             "cache" if session and not session.stopping else "")
-        tile.set_recording_state(state)
+        tile.set_recording_state(state, managed=managed)
         if recording:
             # 记下开录时刻，交给 _tick_record_clock() 每秒刷「● REC 00:12:34」
             host._recording_since[tile] = float(
@@ -219,7 +372,6 @@ class CaptureControl:
         else:
             host._recording_since.pop(tile, None)
             tile.set_recording_elapsed("")
-        host._tick_record_clock()
 
     def tick_record_clock(self) -> None:
         """刷新每格的录制时长（REC 旁边那个）。"""
@@ -240,6 +392,9 @@ class CaptureControl:
         host = self.host
         StreamResolver = resolver_type
         tile = session.tile
+        if isinstance(tile, BackgroundRecordingSource):
+            host.auto_recording.resolve_source(session)
+            return
         platform = host.plugins.platform_for(session.room_id)
         if host._closing or tile not in host.wall.tiles or (':' in session.room_id and platform is None):
             host.recorder.source_failed(session, '直播间已关闭或平台不可用')
@@ -255,8 +410,13 @@ class CaptureControl:
                     and tile in host.wall.tiles
                     and str(tile.room.get('room_id') or '') == session.room_id)
 
-        def resolved(_rid, url, _quality, profile, _options):
+        def resolved(_rid, url, quality, profile, _options):
             if current():
+                if ((tile.room.keys() & {'_streamer_recording_height', '_streamer_recording_choice'})
+                        and tile in host._capture_quality
+                        and quality != tile.quality):
+                    host.recorder.source_failed(session, '直播源未提供锁定的录制画质')
+                    return
                 codec = resolver.source_codec if platform is not None else bili.codec_from_profile(profile)
                 host.recorder.source_resolved(session, url, dict(resolver.headers), codec)
 

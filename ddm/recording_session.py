@@ -1,14 +1,26 @@
-"""Per-tile recording session state and completed segment bookkeeping."""
+"""Recording source, session state and completed segment bookkeeping."""
 from __future__ import annotations
 import subprocess
 import time
 import uuid
 from concurrent.futures import Future
+from dataclasses import dataclass, field
 from pathlib import Path
+
+
+@dataclass(eq=False)
+class BackgroundRecordingSource:
+    room: dict
+    quality: int | dict | None
+    stream_url: str = ''
+    stream_headers: dict = field(default_factory=dict)
+    stream_codec: str = ''
+    recording_mode: str | None = None
 
 
 class _Session:
     supports_replay = True
+    wants_danmaku = False
 
     def __init__(self, tile, settings: dict, recording: bool, folder: Path,
                  video_codec: str = ""):
@@ -34,6 +46,7 @@ class _Session:
         self.url = ""
         self.chunk = 0
         self.stopping = False
+        self.stopped_on_offline = False
         self.save_cache_on_stop = False
         self.next_url = ""
         self.next_headers: dict = {}
@@ -45,6 +58,7 @@ class _Session:
         self.retry_count = 0
         self.retry_at = 0.0
         self.started_at = 0.0
+        self.recording_started_at = 0.0
         self.output_started_at = 0.0
         self.rotating = False
         self.resolver = None
@@ -68,6 +82,17 @@ class _Session:
     def update_review(self) -> None:
         """Optional recording backend hook; only publish completed segments."""
 
+    def recording_started(self) -> bool:
+        """Return True if promotion from a replay cache needs a new output chunk."""
+        return False
+
+    def recording_directories(self):
+        return [self.folder]
+
+    def additional_recordings(self):
+        """Completed auxiliary outputs and an optional error, after full save."""
+        return [], ''
+
     def save_recording(self, parts: list[Path]) -> Path | None:
         """Return a durable recording path when the backend already saved it."""
         return None
@@ -82,6 +107,9 @@ class _Session:
 
     def snapshot_info(self, parts: list[Path]) -> dict:
         return {}
+
+    def review_parts(self):
+        return list(dict.fromkeys(self.replay_parts + self.finished_parts()))
 
     def finished_parts(self) -> list[Path]:
         result = list(self.parts)

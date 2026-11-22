@@ -42,7 +42,7 @@ class SidebarFilter:
                 item.check.setChecked(False)
 
     def matches(self, item, words: list[str], folder_id=None) -> bool:
-        """主播名 / 房间号 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
+        """主播名 / 房间号 / 直播间标题 / 文件夹名，大小写不敏感；多个词必须全匹配。"""
         host = self.host
         if host.live_only and not item.room.get('live'):
             return False
@@ -50,7 +50,7 @@ class SidebarFilter:
             return True
         room = item.room
         haystack = " ".join(str(room.get(key) or "")
-                            for key in ("uname", "room_id", "display_room_id")).lower()
+                            for key in ("uname", "room_id", "display_room_id", "title")).lower()
         folder_id = folder_id or host.folder_for(str(room.get("room_id")))
         haystack += " " + next((folder["name"].lower() for folder in host.folders
                                 if folder["id"] == folder_id), "")

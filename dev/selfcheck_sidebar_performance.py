@@ -128,10 +128,10 @@ def main():
     sidebar._finish_collapse = finish
     original_geometry = wall._relayout_preset
     geometry_observations = []
-    def geometry_after_sidebar(*args, **kwargs):
+    def geometry_before_sidebar_paint(*args, **kwargs):
         geometry_observations.append((counter.sidebar_paints > 0, sidebar.updatesEnabled()))
         return original_geometry(*args, **kwargs)
-    wall._relayout_preset = geometry_after_sidebar
+    wall._relayout_preset = geometry_before_sidebar_paint
     previous_layer = wall._quick_danmaku_layer
     quick = Mock(wraps=previous_layer) if previous_layer is not None else Mock()
     wall._quick_danmaku_layer = quick
@@ -150,8 +150,8 @@ def main():
             elapsed = (time.perf_counter() - started) * 1000
             assert not sidebar._collapse_animating and not wall._sidebar_animating
             assert wall.updatesEnabled() and wall.grid.isEnabled() and sidebar.updatesEnabled()
-            assert geometry_observations and all(painted and enabled for painted, enabled in geometry_observations), \
-                'Final sidebar must paint before player geometry changes'
+            assert geometry_observations and not any(painted or enabled for painted, enabled in geometry_observations), \
+                'Player geometry must settle while the sidebar is waiting to paint'
             assert quick.resize.called, 'Quick surface must settle before the call returns'
             assert sidebar._column.width() == (theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH)
             assert len(counter.frames) == 1, 'Width must change directly to its final value'

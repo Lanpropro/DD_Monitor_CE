@@ -154,6 +154,7 @@ def check_caption_wave(app):
         scale = snapshot.devicePixelRatio()
         before = overlay.grab().toImage()
         assert before.pixelColor(round(300*scale), round(top/2*scale)).alpha() > 200
+        assert before.pixelColor(round(300*scale), round((top+100)*scale)).alpha() > 200, 'Client content must start below the native caption'
         assert before.pixelColor(round(550*scale), round((top+190)*scale)).alpha() == 0, 'Video holes must move with the client offset'
         theme.apply('light')
         window_fullscreen.sync_titlebar(window)

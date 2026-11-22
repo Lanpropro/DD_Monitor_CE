@@ -1,7 +1,7 @@
 """Named wall snapshots: validate only the fields belonging to a room combination."""
 from copy import deepcopy
 
-from . import layouts, resize_layout
+from . import layouts, resize_layout, snap_grid
 
 
 def collection(value):
@@ -26,6 +26,41 @@ def partition(identifier):
         return resize_layout.portrait_partition(small, preset.get("danmaku") is not None,
                                                layouts.PORTRAIT_SMALL_COLUMNS)
     return resize_layout.build_partition(preset["spec"][2])
+
+
+def validate_ratios(identifier, ratios):
+    if not isinstance(ratios, dict):
+        raise ValueError("布局比例无效")
+    if size := layouts.snap_grid_size(identifier):
+        if not ratios:
+            return {}
+        return {'grid': snap_grid.validate(size, ratios.get('grid'))}
+    if identifier == "corner":
+        keys = ("width", "height", "right")
+        values = [ratios.get(key) for key in keys]
+        bottom = ratios.get("bottom")
+        if (not isinstance(bottom, (list, tuple)) or len(bottom) != 2
+                or not all(type(v) in (int, float) and 0 < v < 1 for v in values + list(bottom))
+                or bottom[0] >= bottom[1]):
+            raise ValueError("布局比例无效")
+        return dict(zip(keys, values), bottom=list(bottom))
+    weights = resize_layout.validated_weights(ratios, partition(identifier))
+    if weights.keys() != ratios.keys():
+        raise ValueError("布局比例无效")
+    return weights
+
+
+def snapshot_ratios(wall):
+    if wall.layout_id == 'corner':
+        return wall.corner_ratios()
+    if layouts.snap_grid_size(wall.layout_id):
+        cells = wall.snap_grid.cells()
+        return {'grid': cells} if cells != wall._cells() else {}
+    ratios = {key: list(values) for key, values in wall._layout_ratios.get(wall.layout_id, {}).items()}
+    # Freeze viewport-dependent defaults, such as the portrait main pane's 16:9 ratio.
+    for (key, _), (_, _, sizes) in wall._preset_dividers.items():
+        ratios.setdefault(key, [size / sum(sizes) for size in sizes])
+    return ratios
 
 
 def validate(snapshot):
@@ -53,24 +88,7 @@ def validate(snapshot):
     elif type(dm) is not int or not 0 <= dm < count or (
             layouts.is_portrait_layout(identifier) and dm != default_dm):
         raise ValueError("弹幕格位置无效")
-    ratios = source.get("ratios")
-    if not isinstance(ratios, dict):
-        raise ValueError("布局比例无效")
-    if identifier == "corner":
-        values = [ratios.get(key) for key in ("width", "height", "right")]
-        bottom = ratios.get("bottom")
-        if not isinstance(bottom, (list, tuple)) or len(bottom) != 2:
-            raise ValueError("布局比例无效")
-        if not all(type(v) in (int, float) and 0 < v < 1 for v in values + list(bottom)):
-            raise ValueError("布局比例无效")
-        if bottom[0] >= bottom[1]:
-            raise ValueError("布局比例无效")
-        ratios = dict(zip(("width", "height", "right"), values), bottom=list(bottom))
-    else:
-        weights = resize_layout.validated_weights(ratios, partition(identifier))
-        if set(weights) != set(ratios):
-            raise ValueError("布局比例无效")
-        ratios = weights
+    ratios = validate_ratios(identifier, source.get("ratios"))
     slots = snapshot.get("slots")
     cells = set(range(count)) - {dm}
     if not isinstance(slots, list) or len(slots) != len(cells):
@@ -115,17 +133,48 @@ def same(first, second):
             and canonical(first) == canonical(second))
 
 
+def default_layout_ratios(identifier):
+    if identifier == 'corner':
+        return dict(width=2 / 3, height=2 / 3, right=1 / 2, bottom=[1 / 3, 2 / 3])
+    return {}
+
+
+def partition_weights(identifier, ratios):
+    if identifier != 'corner':
+        return ratios
+    first, second = ratios['bottom']
+    return {'root': [ratios['height'], 1 - ratios['height']],
+            'root/0': [ratios['width'], 1 - ratios['width']],
+            'root/0/1': [ratios['right'], 1 - ratios['right']],
+            'root/1': [first, second - first, 1 - second]}
+
+
+def corner_ratios_from_weights(weights):
+    bottom = weights['root/1']
+    return dict(width=weights['root/0'][0], height=weights['root'][0],
+                right=weights['root/0/1'][0], bottom=[bottom[0], sum(bottom[:2])])
+
+
+def partition_defaults(identifier, node, rect, gap):
+    if node.key != 'root' or not layouts.is_portrait_layout(identifier):
+        return node.weights
+    main = max(80, int(rect.width() * 9 / 16))
+    dm = max(140, int(rect.height() * .22)) if layouts.danmaku_cell(identifier) is not None else 0
+    small = max(1, rect.height() - main - dm - gap * (len(node.children) - 1))
+    return [main, small, dm] if dm else [main, small]
+
+
 def thumbnail_geometry(snapshot, area):
     """Use the same partition geometry as playback; no screenshot or player is created."""
     from PySide6.QtCore import QSize
     identifier = snapshot["layout"]["id"]
-    ratios = snapshot["layout"]["ratios"]
-    if identifier == "corner":
-        bottom = ratios["bottom"]
-        ratios = {"root": [ratios["height"], 1 - ratios["height"]],
-                  "root/0": [ratios["width"], 1 - ratios["width"]],
-                  "root/0/1": [ratios["right"], 1 - ratios["right"]],
-                  "root/1": [bottom[0], bottom[1] - bottom[0], 1 - bottom[1]]}
+    if size := layouts.snap_grid_size(identifier):
+        occupied = {slot['cell'] for slot in snapshot['slots'] if slot['room_id']}
+        occupied.update(panel['cell'] for panel in snapshot['layout'].get('panels', ()))
+        cells = snapshot['layout']['ratios'].get('grid', layouts.even_cells(size, size))
+        rectangles = snap_grid.geometry(size, snap_grid.with_occupied(cells, occupied), area, 3)
+        return {cell: rect for cell, rect in rectangles.items() if cell in occupied}
+    ratios = partition_weights(identifier, snapshot['layout']['ratios'])
     def defaults(node, rect):
         if node.key != "root" or not layouts.is_portrait_layout(identifier):
             return node.weights

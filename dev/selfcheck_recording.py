@@ -24,6 +24,7 @@ os.environ.setdefault("DDM_NO_SAVE", "1")
 from ddm.config import DEFAULT_SETTINGS  # noqa: E402
 from ddm.dialogs import SettingsDialog  # noqa: E402
 from ddm.app import MainWindow  # noqa: E402
+from ddm.auto_recording import AutoRecording
 from ddm.encoders import HARDWARE_ENCODERS, SOFTWARE_ENCODER, resolve_encoder
 from ddm.recording import (RecordingManager, ffmpeg_path, input_args, output_path,
                            safe_name, segment_args, _Session)  # noqa: E402
@@ -111,6 +112,75 @@ def until(app, condition, seconds=10):
             return True
         time.sleep(0.05)
     return False
+
+
+def check_background_recording(app, root, source):
+    folder = root / 'background'
+    settings = dict(DEFAULT_SETTINGS, recording_dir=str(folder), recording_min_free_mb=256,
+                    streamer_defaults={'fixture:1001': {'name': '后台测试', 'auto_record': True,
+                                                         'recording': {'qn': 720, 'label': '720P'}}})
+    launched = []
+    verified = []
+
+    class TestPlatform:
+        def play_url(self, room_id, quality):
+            launched.append((room_id, quality))
+            return str(source), quality, 'test', {}
+
+        def room_quality_options(self, room_id):
+            return [{'qn': 720, 'desc': '720P'}]
+
+        def rooms_status(self, room_ids):
+            verified.extend(room_ids)
+            return {room_id: {'live': False} for room_id in room_ids}
+
+    host = QObject()
+    host.settings = settings
+    host._closing = False
+    host._pending_capture = {}
+    host._resolvers_running = set()
+    host._codec_settings = lambda: {'bili_codec': 'avc'}
+    platform = TestPlatform()
+    host.plugins = SimpleNamespace(platform_for=lambda _room_id: platform)
+    auto = AutoRecording(host)
+    recorder = host.recorder = RecordingManager(settings, source_resolver=auto.resolve_source)
+    notices = []
+    transitions = []
+    activity = []
+    recorder.noticeWithRoom.connect(lambda message, room: notices.append((message, room['room_id'])))
+    recorder.backgroundTransition.connect(lambda event, room: transitions.append((event, room['room_id'])))
+    recorder.changed.connect(lambda source: activity.append(any(
+        session.started_at and not session.stopping for session in recorder.sessions.values())))
+    try:
+        status = {'fixture:1001': {'live': True, 'uid': '123', 'face': 'https://fixture.invalid/avatar.jpg'}}
+        assert auto.apply_status(status) == {'fixture:1001': status['fixture:1001']['face']}
+        assert auto.room_details['fixture:1001']['uid'] == '123'
+        assert auto.apply_status(status) == {}
+        auto.apply_status({'fixture:1001': {'live': True}})
+        session, = recorder.sessions.values()
+        assert until(app, lambda: session.retry_at > 0), '流结束后等下播状态，保留已录分段'
+        assert launched == [('fixture:1001', 720)], '状态重复上报时按配置画质只取流一次'
+        assert transitions == [('started', 'fixture:1001')]
+        assert activity == [False, True], '头像圆环在录制进程启动后才变红'
+        auto.apply_status({'fixture:1001': {'live': False, 'live_known': False}})
+        assert auto.source_for('fixture:1001') is session.tile
+        assert until(app, lambda: any(text.startswith('已保存录制：') for text, _ in notices))
+        assert verified == ['fixture:1001'], '续录前单独确认下播'
+        auto.apply_status(status)
+        assert launched == [('fixture:1001', 720)], '下播确认后旧的开播状态不得重新取流'
+        assert auto.source_for('fixture:1001') is None
+        auto.apply_status({'fixture:1001': {'live': False}})
+        assert 'fixture:1001' not in auto.attempted, '常规下播确认后解除本场标记'
+        assert transitions == [('started', 'fixture:1001'), ('stopped_offline', 'fixture:1001')]
+        assert activity[-1] is False
+        result, = folder.glob('*.mp4')
+        assert result.stat().st_size > 0 and not recorder.sessions
+        _run_text([ffmpeg_path(settings), '-v', 'error', '-i', str(result), '-f', 'null', '-'])
+        print('PASS: 独立后台录制确认下播后保存，结果可以完整解码')
+    finally:
+        host._closing = True
+        recorder.shutdown()
+        assert until(app, lambda: not host._resolvers_running)
 
 
 def check_codec_switch_queue():
@@ -385,6 +455,7 @@ def main():
                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
                    "-t", "2", "-c:v", "mpeg4", "-c:a", "aac", str(source)]
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
+        check_background_recording(app, root, source)
         bundled = root / "ffmpeg.exe"
         bundled.write_bytes(b"test")
         with patch("ddm.recording.config.REPO", str(root)):
@@ -444,6 +515,8 @@ def main():
                 side_effect=lambda url, _headers: ["-re", "-stream_loop", "-1", "-i", url]):
             assert manager.start(split, recording=True)
             split_session = manager.sessions[split]
+            recording_started_at = split_session.recording_started_at
+            assert recording_started_at > 0
             time.sleep(2.3)
             with patch("ddm.recording.time.monotonic",
                        return_value=split_session.output_started_at + 61):
@@ -452,6 +525,7 @@ def main():
             assert until(app, lambda: split_session.chunk >= 2 and
                          not split_session.rotating and not manager.exports, 10), \
                 "第一段导出后应自动启动下一段"
+            assert split_session.recording_started_at == recording_started_at < split_session.output_started_at
             time.sleep(1.3)
             manager.stop(split)
             assert until(app, lambda: split not in manager.sessions and
@@ -707,10 +781,15 @@ def main():
         cached_session = window.recorder.sessions[tile]
         cached_process = cached_session.process
         assert cached_session.manual_replay and not cached_session.recording
-        tile.recording_button.click()
+        replay_started_at = cached_session.started_at
+        assert not cached_session.recording_started_at
+        promotion_time = replay_started_at + 1
+        with patch('ddm.recording.time.monotonic', return_value=promotion_time):
+            tile.recording_button.click()
         assert tile in window.recorder.sessions
         assert window.recorder.sessions[tile] is cached_session
         assert cached_session.process is cached_process, "转为录制应复用回放进程和已有缓存"
+        assert cached_session.recording_started_at == cached_session.output_started_at == promotion_time
         assert tile.recording_button.text() == "● REC"
         assert tile.recording_button.property('replayOnly') is False
         assert tile.recording_button.property("recording") is True
@@ -798,6 +877,68 @@ def main():
         assert not tile.room.get("room_id")
         assert tile not in window._capture_quality and tile not in window._pending_capture
         assert not tile.quality_locked and tile.quality_button.isEnabled()
+
+        # A selected resolution uses the room's actual tiers even when the global lock is off.
+        tile.set_room({'room_id': '1001', 'live': True, '_streamer_recording_height': 1080})
+        tile.set_quality_options([{'qn': 400, 'desc': '1920x1080'}, {'qn': 250, 'desc': '720P'}])
+        tile.quality = tile.actual_quality = 250
+        tile.stream_url = str(source)
+        window.settings['recording_lock_quality'] = False
+        with patch.object(window, 'start_tile') as resolve, patch.object(
+                window.recorder, 'start', return_value=True) as record:
+            window._start_capture(tile, recording=True)
+            resolve.assert_called_once_with(tile)
+            assert tile.quality == 400 and tile.quality_locked
+            tile.set_quality(10000)
+            assert tile.quality == 400
+            record.assert_not_called()
+            tile.set_actual_quality(400)
+            window._finish_pending_capture(tile)
+            record.assert_called_once_with(tile, recording=True)
+            window._restore_capture_quality(tile)
+            assert tile.quality == 250 and not tile.quality_locked
+            assert resolve.call_count == 2
+
+        tile.set_actual_quality(250)
+        window.recorder.sessions[tile] = SimpleNamespace(recording=False, stopping=False)
+        with patch.object(window.recorder, 'stop') as stop, patch.object(window, 'start_tile') as resolve:
+            window._start_capture(tile, recording=True)
+            stop.assert_called_once_with(tile)
+            resolve.assert_not_called()
+            window.recorder.sessions.pop(tile)
+            window.capture_control.record_state_changed(tile)
+            resolve.assert_called_once_with(tile)
+            window.capture_control.toggle_recording(tile)
+            assert tile.quality == 250 and not tile.quality_locked
+            assert tile not in window._pending_capture
+
+        # The shared highest-quality setting also works for a fixed source with no selectable tiers.
+        tile.set_room({'room_id': 'fixture:7', 'live': True, '_streamer_recording_height': 0})
+        tile.set_quality_options([{'qn': 0, 'desc': '直播源决定'}])
+        tile.stream_url = str(source)
+        with patch.object(window, 'start_tile') as resolve, patch.object(
+                window.recorder, 'start', return_value=True) as record:
+            window._start_capture(tile, recording=True)
+            record.assert_called_once_with(tile, recording=True)
+            resolve.assert_not_called()
+            assert tile not in window._pending_capture
+
+        # A platform-specific tier may have no numerical resolution mapping.
+        tile.set_room({'room_id': 'fixture:7', 'live': True,
+                       '_streamer_recording_choice': {'qn': 7, 'label': '原始码率'}})
+        tile.quality = 2
+        tile.set_actual_quality(2)
+        tile.stream_url = str(source)
+        with patch.object(window, 'start_tile') as resolve, patch.object(
+                window.recorder, 'start', return_value=True) as record, patch.object(window, '_record_notice') as notice:
+            window._start_capture(tile, recording=True)
+            assert tile.quality == 7 and tile.quality_locked
+            resolve.assert_called_once_with(tile)
+            tile.set_actual_quality(2)
+            window._finish_pending_capture(tile)
+            record.assert_not_called()
+            assert '原始码率' in notice.call_args.args[0]
+            assert tile.quality == 2 and not tile.quality_locked
         window.close()
     print("FFmpeg 双格独立录制、设置、原画锁定、即时回放、满盘停止与断流续录：通过")
 

@@ -20,7 +20,8 @@ else:
     recorder.install()
     if os.environ.get('DDM_WINDOW_RESIZE_CAPTURE') == '1':
         from dev.diagnose_window_resize import WindowResizeTrace
-        resize_trace = WindowResizeTrace(ROOT / 'logs' / 'window-resize.jsonl').install()
+        resize_trace = WindowResizeTrace(ROOT / 'logs' / 'window-resize.jsonl',
+            profile_dpi=os.environ.get('DDM_WINDOW_DPI_PROFILE') == '1').install()
     if os.environ.get('DDM_NOTICE_CLOSE_CAPTURE') == '1':
         from dev.diagnose_notice_close import NoticeCloseTrace
         notice_close_trace = NoticeCloseTrace(ROOT / 'logs' / 'notice-close.jsonl')

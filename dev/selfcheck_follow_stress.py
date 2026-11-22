@@ -179,7 +179,7 @@ def main():
             if dialog:
                 dialog.close()
             owner.close()
-    output = Path(os.environ.get('DDM_STRESS_REPORT', 'results/follow-stress.json'))
+    output = Path(os.environ.get('DDM_STRESS_REPORT', 'work/test-artifacts/host/follow-stress.json'))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report, indent=2), flush=True)

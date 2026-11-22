@@ -17,9 +17,10 @@ def wave_path(progress, width, height, origin=None):
     return path
 
 
-def ui_snapshot(window):
+def ui_snapshot(window, caption=None):
     scale = window.devicePixelRatioF()
-    snapshot = QPixmap(round(window.width()*scale), round(window.height()*scale))
+    top = round(caption.height()/caption.devicePixelRatio()) if caption is not None else 0
+    snapshot = QPixmap(round(window.width()*scale), round((window.height()+top)*scale))
     snapshot.setDevicePixelRatio(scale)
     snapshot.fill(Qt.transparent)
     # Native VLC output cannot be captured by QWidget.grab(). A hole leaves the
@@ -30,6 +31,10 @@ def ui_snapshot(window):
         if surface.isVisible() and getattr(surface.parentWidget(), '_player_active', False):
             region = region.subtracted(QRegion(QRect(surface.mapTo(window, QPoint()), surface.size())))
     painter = QPainter(snapshot)
+    if top:
+        # Compose the caption and client directly in the transition bitmap.
+        painter.drawPixmap(0, 0, caption)
+        painter.translate(0, top)
     window.render(painter, QPoint(), region, QWidget.DrawWindowBackground | QWidget.DrawChildren)
     for tile in getattr(getattr(window, 'wall', None), 'tiles', []):
         for badge in (tile.stream_badge, tile.title_badge, tile.time_badge, tile.controls):
@@ -40,20 +45,10 @@ def ui_snapshot(window):
 
 
 def framed_snapshot(window):
-    content = ui_snapshot(window)
     caption = window_fullscreen.caption_snapshot(window)
     if caption.isNull():
-        return content
-    scale = content.devicePixelRatio()
-    top = round(caption.height()/caption.devicePixelRatio())
-    snapshot = QPixmap(content.width(), round((window.height()+top)*scale))
-    snapshot.setDevicePixelRatio(scale)
-    snapshot.fill(Qt.transparent)
-    painter = QPainter(snapshot)
-    painter.drawPixmap(0, 0, caption)
-    painter.drawPixmap(0, top, content)
-    painter.end()
-    return snapshot
+        return ui_snapshot(window)
+    return ui_snapshot(window, caption)
 
 
 class WaveOverlay(QWidget):

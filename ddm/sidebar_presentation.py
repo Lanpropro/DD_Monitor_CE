@@ -180,7 +180,7 @@ class SidebarPresentation:
         host = self.host
         host.workspace_controls.sync_layout()
         host._sync_selection_controls()
-        host.appearance_button.setVisible(not host.collapsed)
+        host.appearance_button.setVisible(host.side == 'top' or not host.collapsed)
         if host.side == "left":
             host.status_row.setVisible(not host.collapsed)
             for widget in (host.count_label, host.batch_button, host.notification_button, host.refresh_button):

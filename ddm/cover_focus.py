@@ -24,11 +24,16 @@ def _detect_faces(image):
             if _DETECTORS is None:
                 assets = Path(__file__).resolve().parent / 'assets' / 'cover-focus'
                 cv2.setNumThreads(1)
-                real = cv2.FaceDetectorYN.create(
-                    str(assets / 'face_detection_yunet_2023mar.onnx'), '', (320, 320),
-                    score_threshold=0.85)
-                anime = cv2.CascadeClassifier(str(assets / 'lbpcascade_animeface.xml'))
-                if anime.empty():
+                # OpenCV's filename APIs cannot open Unicode installation paths on Windows.
+                onnx = np.frombuffer((assets / 'face_detection_yunet_2023mar.onnx').read_bytes(), dtype=np.uint8)
+                real = cv2.FaceDetectorYN.create('onnx', onnx, np.empty(0, dtype=np.uint8), (320, 320),
+                                                 score_threshold=0.85)
+                anime = cv2.CascadeClassifier()
+                cascade_xml = (assets / 'lbpcascade_animeface.xml').read_text(encoding='utf-8')
+                storage = cv2.FileStorage(cascade_xml, cv2.FILE_STORAGE_READ | cv2.FILE_STORAGE_MEMORY)
+                loaded = anime.read(storage.getFirstTopLevelNode())
+                storage.release()
+                if not loaded:
                     return None
                 _DETECTORS = real, anime
             small = image.scaled(640, 640, Qt.KeepAspectRatio, Qt.SmoothTransformation)

@@ -46,7 +46,7 @@ def normalize(values):
     for key in ('settings_glass_enabled', 'settings_no_shadows', 'settings_segment_motion'):
         if type(result[key]) is not bool:
             result[key] = DEFAULTS[key]
-    if result['settings_card_layout'] not in ('auto', 'vertical'):
+    if result['settings_card_layout'] not in ('auto', 'vertical', 'horizontal'):
         result['settings_card_layout'] = 'auto'
     for key, maximum in (('settings_glass_blur', 40), ('settings_glass_opacity', 100)):
         try:
@@ -61,15 +61,40 @@ def properties(widget):
                       if widget.property(key) is not None})
 
 
+def segment_motion_enabled(widget):
+    scope = widget.parentWidget()
+    while scope is not None:
+        enabled = scope.property('settings_segment_motion')
+        if enabled is not None:
+            return enabled is True
+        scope = scope.parentWidget()
+    return False
+
+
+def set_segment_motion(widget, enabled):
+    enabled = enabled is True
+    if widget.property('settings_segment_motion') == enabled:
+        return False
+    widget.setProperty('settings_segment_motion', enabled)
+    from .ui.selection import SegmentMotion
+    for control in widget.findChildren(SegmentMotion):
+        control.finish()
+    from .ui.color_dialog import ColorPalette
+    for palette in widget.findChildren(ColorPalette):
+        palette.finish_indicator()
+    return True
+
+
 def apply_properties(widget, values):
     from pathlib import Path
     from . import config
     changed = False
-    layout_changed = motion_changed = False
+    layout_changed = False
     for key, value in normalize(values).items():
-        if widget.property(key) != value:
+        if key == 'settings_segment_motion':
+            changed |= set_segment_motion(widget, value)
+        elif widget.property(key) != value:
             layout_changed |= key == 'settings_card_layout'
-            motion_changed |= key == 'settings_segment_motion'
             widget.setProperty(key, value)
             changed = True
     if 'settings_backdrop_path' in values or 'skin_background' in values:
@@ -85,10 +110,6 @@ def apply_properties(widget, values):
         if layout_changed:
             for columns in widget.findChildren(SettingsColumns):
                 columns._arrange()
-        from .ui.selection import SegmentedControl
-        if motion_changed:
-            for control in widget.findChildren(SegmentedControl):
-                control.finish_indicator()
         widget.update()
         from PySide6.QtWidgets import QWidget
         for child in widget.findChildren(QWidget):

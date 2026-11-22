@@ -5,14 +5,16 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 class WorkspacePages(QObject):
     changed = Signal()
 
-    def __init__(self, container):
+    def __init__(self, container, set_wall_playback_suspended=None):
         super().__init__(container)
         self.container = container
+        self.set_wall_playback_suspended = set_wall_playback_suspended
+        self.wall_playback_suspended = False
         self.active = None
         self.hidden = {}
         container.installEventFilter(self)
 
-    def show_page(self, owner, widget, *, manages_content=False):
+    def show_page(self, owner, widget, *, manages_content=False, pause_wall_playback=False):
         if self.active is not None and self.active[1] is not widget:
             if not self.close_active():
                 return False
@@ -31,6 +33,9 @@ class WorkspacePages(QObject):
                             base.installEventFilter(self)
                             base.hide()
             widget.setGeometry(self.container.rect())
+            if pause_wall_playback and self.set_wall_playback_suspended is not None:
+                self.wall_playback_suspended = True
+                self.set_wall_playback_suspended(True)
         widget.show()
         widget.raise_()
         self.changed.emit()
@@ -59,6 +64,9 @@ class WorkspacePages(QObject):
         for base, visible in hidden.items():
             base.removeEventFilter(self)
             base.setVisible(visible)
+        if self.wall_playback_suspended:
+            self.wall_playback_suspended = False
+            self.set_wall_playback_suspended(False)
         self.changed.emit()
 
     def eventFilter(self, watched, event):

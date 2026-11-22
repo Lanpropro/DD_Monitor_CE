@@ -1,4 +1,6 @@
 """Check appearance design references and readable text palettes."""
+import ast
+import json
 from pathlib import Path
 import re
 
@@ -11,10 +13,56 @@ def luminance(color):
     return sum(a * b for a, b in zip(linear, (.2126, .7152, .0722)))
 
 
+def check_gallery_vectors():
+    def assignment(path, name):
+        tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
+        return next(node.value for node in tree.body if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == name for target in node.targets))
+
+    data = (ROOT / "docs/references/ui-control-icon-data.js").read_text(encoding="utf-8")
+    vectors = [json.loads(line.strip().rstrip(",")) for line in data.splitlines()
+               if line.lstrip().startswith("[")]
+    actual = {key: (source, svg) for _, key, _, source, svg in vectors}
+    assert len(actual) == len(vectors), "duplicate inventory icon IDs"
+    rail_path = "ddm/sidebar_navigation.py"
+    settings_path = "ddm/settings_navigation.py"
+    folder_path = "ddm/folder_icons.py"
+    rail = ast.literal_eval(assignment(rail_path, "PATHS"))
+    settings = assignment(settings_path, "ICONS")
+    names = ast.literal_eval(assignment("ddm/follow_folders.py", "ICON_NAMES"))
+    folders = ast.literal_eval(assignment(folder_path, "PATHS"))
+    expected = {f"rail-{key}": (rail_path, svg) for key, svg in rail.items()}
+    for key, glyph in zip(settings.keys, settings.values):
+        svg = ast.literal_eval(glyph) if isinstance(glyph, ast.Constant) else rail[ast.literal_eval(glyph.slice)]
+        expected[f"settings-{ast.literal_eval(key)}"] = (settings_path, svg)
+    expected.update({f"folder-{key}": (folder_path, svg) for key, svg in zip(names, folders, strict=True)})
+    assert actual == expected, f"stale gallery SVG inventory: {actual.keys() ^ expected.keys()}"
+
+    examples = (ROOT / "docs/references/ui-control-app-examples.js").read_text(encoding="utf-8")
+    gallery_palette = examples.split("const labFolderColors = [", 1)[1].split("];", 1)[0]
+    qt_colors = ast.literal_eval(assignment(folder_path, "COLORS").args[0].args[1])
+    assert re.findall(r"#[\da-f]{6}", gallery_palette) == [color.lower() for color in qt_colors if color], (
+        "gallery folder swatches must match the Qt palette and order"
+    )
+
+
 def main():
-    doc = (ROOT / "docs/appearance-design.md").read_text(encoding="utf-8")
+    check_gallery_vectors()
+    gallery_styles = (ROOT / "docs/references/ui-control-playground.css").read_text(encoding="utf-8")
+    pressed_styles = re.search(r"\.lab-control:active:enabled,\s*\.lab-demo\[data-state=pressed\][^{]*\{([^}]+)\}",
+                               gallery_styles)
+    assert pressed_styles, "live and fixed gallery button states must share the pressed style"
+    pressed = pressed_styles.group(1)
+    assert "background:" in pressed and "border" not in pressed and "outline" not in pressed, (
+        "press feedback must change the fill without painting a focus border"
+    )
+    current = (ROOT / "docs/features/appearance-design.md").read_text(encoding="utf-8")
+    assert "设置 → 外观" in current
+    assert "archive/appearance-implementation-202610.md" in current
+    assert "ddm/theme.py" in current and "ddm/folder_icons.py" in current
+    doc = (ROOT / "docs/archive/appearance-implementation-202610.md").read_text(encoding="utf-8")
     assert "深浅色模式已实装" in doc
-    assert "appearance-design.md" in (ROOT / "docs/customization-plan.md").read_text(encoding="utf-8")
+    assert "appearance-design.md" in (ROOT / "docs/features/customization-plan.md").read_text(encoding="utf-8")
     rows = re.findall(r"\| [^|]+ (\w+) \| (#[0-9A-F]{6}) \|", doc)
     colors = dict(rows)
     for text in ("TEXT1", "TEXT2", "TEXT3"):

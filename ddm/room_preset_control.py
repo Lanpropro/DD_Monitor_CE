@@ -13,13 +13,7 @@ class RoomPresetController:
         host = self.host
         wall = host.wall
         identifier = wall.layout_id
-        if identifier == "corner":
-            ratios = wall.corner_ratios()
-        else:
-            ratios = deepcopy(wall._layout_ratios.get(identifier, {}))
-            # Defaults such as portrait 16:9 depend on the viewport; freeze their current proportions.
-            for (key, _index), (_node, _area, sizes) in wall._preset_dividers.items():
-                ratios.setdefault(key, [size / sum(sizes) for size in sizes])
+        ratios = room_presets.snapshot_ratios(wall)
         custom = wall.pane_danmaku.custom
         dm = None if custom else (layouts.danmaku_cell(identifier) if
             layouts.is_portrait_layout(identifier) else wall._danmaku_cell)
@@ -91,7 +85,8 @@ class RoomPresetController:
 
     def apply(self, preset_id):
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         if host._closing:
             return False
         if host.room_presets["version"] != 1:
@@ -123,7 +118,7 @@ class RoomPresetController:
         keeping = {tile for tile, slot in zip(assigned, slots) if tile is not None
                    and str(tile.room.get("room_id") or "") == slot["room_id"]}
         affected = [tile for tile, session in host.recorder.sessions.items()
-                    if tile not in keeping and session.recording and not session.stopping]
+                    if tile in host.wall.tiles and tile not in keeping and session.recording and not session.stopping]
         affected += [tile for tile, recording in host._pending_capture.items()
                      if tile not in keeping and recording and tile not in affected]
         if affected:
@@ -134,6 +129,7 @@ class RoomPresetController:
                 return False
         if host._fullscreen_tile is not None:
             host._exit_fullscreen()
+        host.wall.pane_danmaku.return_all_floating()
         host.hover_preview.cancel()
         host.wall._cancel_border_drag()
         host._pending_layout = ""
@@ -164,6 +160,8 @@ class RoomPresetController:
                     None if item["source"] is None else by_cell.get(item["source"], -1)
                     for item in snapshot["layout"]["panels"]}
             host.wall.set_layout(identifier, relayout=False)
+            if layouts.snap_grid_size(identifier):
+                host.wall.snap_grid.cancel_aspect_requests(identifier)
             host.wall._danmaku_cell = snapshot["layout"]["danmaku_cell"]
             if identifier == "corner":
                 host.wall.restore_corner_ratios(snapshot["layout"]["ratios"])
@@ -181,6 +179,7 @@ class RoomPresetController:
             starting = []
             for tile, slot in zip(assigned, slots):
                 rid = slot["room_id"]
+                volume = slot["volume"]
                 if tile not in keeping:
                     known = next((room for room in host.sidebar.rooms()
                                   if str(room.get("room_id")) == rid), None)
@@ -189,13 +188,15 @@ class RoomPresetController:
                         known = placeholders[0]
                         if rid:
                             known["uname"] = slot["label"] or f"房间 {rid}"
-                    tile.set_room(host._prepare_room(dict(known)))
+                    room = host.room_placement.prepare_wall_entry(known)
+                    volume = room.get('_streamer_initial_volume', volume)
+                    tile.set_room(room)
                     if rid:
                         starting.append(tile)
                 # These setters normally emit individual player updates; apply the whole sound state first.
                 blocked = tile.blockSignals(True)
                 try:
-                    tile.set_volume(slot["volume"])
+                    tile.set_volume(volume)
                     tile.set_audio_channel(slot["audio_channel"])
                     tile.set_muted(slot["muted"])
                 finally:

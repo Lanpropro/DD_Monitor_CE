@@ -1,10 +1,32 @@
 """Main window app notices; window remains the only state and Qt lifetime owner."""
 from pathlib import Path
+from .streamer_defaults import room_defaults
 
 
 class AppNotices:
     def __init__(self, host):
         self.host = host
+        self.official_announcement = None
+
+    def check_official_announcement(self):
+        if self.host._closing or self.official_announcement is not None:
+            return
+        from .official_announcement import OfficialAnnouncement
+        self.official_announcement = OfficialAnnouncement(self.host)
+
+    def cancel_official_announcement(self):
+        if self.official_announcement is not None:
+            self.official_announcement.cancel()
+
+    def background_recording_transition(self, event: str, room: dict) -> None:
+        host = self.host
+        if host._closing or not host.settings.get('notice_windows_recording', False):
+            return
+        if not room_defaults(host.settings, room['room_id']).get('windows_recording_notice'):
+            return
+        from .windows_recording_notifications import send_recording_notification
+        title = ('开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制')
+        send_recording_notification(title, str(room.get('uname') or room['room_id']))
 
     def record_notice(self, message: str, room=None) -> None:
         host = self.host
@@ -21,7 +43,7 @@ class AppNotices:
             return
         room_id = str((room or {}).get('room_id') or '')
         progress = any(text in message for text in (
-            '开始录制', '已开始录制切片素材', '切片素材继续录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
+            '开始录制', '开始自动录制', '已开始录制切片素材', '切片素材继续录制', '开启即时回放缓存', '正在重新获取录制地址', '取到新流，继续录制',
             '重新连接录制流', '正在保存分段', '分段已保存，', '等待 ',
             '重新获取录制地址失败', 'FFmpeg 意外退出'))
         warning = any(word in message for word in ("失败", "不足", "找不到", "请先", "只能", "意外退出"))

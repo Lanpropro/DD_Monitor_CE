@@ -1,0 +1,124 @@
+"""Acceptance data and package boundaries; no model, account, or plugin execution."""
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+import zipfile
+
+from ddm import config, plugins
+
+SPEC = importlib.util.spec_from_file_location('translation_acceptance', Path(__file__).with_name('accept_live_translate.py'))
+acceptance = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(acceptance)
+
+
+class AcceptanceIsolationTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.package = self.root / 'live_translate-0.1.zip'
+        with zipfile.ZipFile(self.package, 'w') as archive:
+            archive.writestr('live_translate/plugin.py', "raise AssertionError('installation must not execute code')")
+            archive.writestr('live_translate/plugin.json', json.dumps({
+                'id': 'live_translate', 'name': 'fixture', 'version': '0.1', 'description': 'fixture'}))
+        self.candidate = self.root / 'candidate.json'
+        self.candidate.write_text(json.dumps({
+            'package': str(self.package), 'sha256': hashlib.sha256(self.package.read_bytes()).hexdigest(),
+            'options': {'python': 'fixture/python.exe'}}), encoding='utf-8')
+        self.enterContext(patch.object(acceptance, 'ROOT', self.root))
+        self.enterContext(patch.object(config, 'DATA_ROOT', None))
+        self.enterContext(patch.object(config, 'CONFIG_PATH', 'must-not-read-personal-config.json'))
+        self.enterContext(patch.object(plugins, 'DEFAULT_PLUGINS_DIR', 'must-not-read-installed-plugins'))
+
+    def tearDown(self):
+        self.doCleanups()
+        self.temporary.cleanup()
+
+    def test_profile_and_install_are_separate_and_start_with_no_accounts(self):
+        reads = []
+        with patch.object(config, '_read_json', side_effect=lambda path: reads.append(path) or {}):
+            data, state = acceptance.prepare(self.candidate)
+        self.assertTrue(data.is_relative_to(self.root / 'work/live-translate-acceptance'))
+        self.assertEqual(state['plugins_enabled'], ['live_translate'])
+        self.assertEqual(state['rooms'], [])
+        self.assertNotIn('accounts', state)
+        self.assertEqual(state['plugins']['live_translate']['options']['python'], 'fixture/python.exe')
+        self.assertFalse(reads)
+        self.assertTrue((data / 'plugins_user/live_translate/plugin.py').is_file())
+
+    def test_changed_copy_is_refused_and_preserved(self):
+        data, _state = acceptance.prepare(self.candidate)
+        installed = data / 'plugins_user/live_translate/plugin.py'
+        installed.write_text('preserve local changes', encoding='utf-8')
+        with self.assertRaises(ValueError):
+            acceptance.prepare(self.candidate)
+        self.assertEqual(installed.read_text(encoding='utf-8'), 'preserve local changes')
+
+    def test_saved_profile_keeps_enabled_platforms_and_translation_settings(self):
+        data, _state = acceptance.prepare(self.candidate)
+        saved = {
+            'version': 1, 'rooms': ['youtube:@fixture'],
+            'plugins_enabled': ['live_translate', 'global_live'],
+            'plugins': {'live_translate': {'options': {'target_language': '繁体中文'}}},
+        }
+        path = data / 'utils/config.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(saved), encoding='utf-8')
+        _data, state = acceptance.prepare(self.candidate)
+        self.assertEqual(state, saved)
+
+    def test_wrong_package_digest_is_refused_before_install(self):
+        self.package.write_bytes(b'changed package')
+        with self.assertRaises(ValueError):
+            acceptance.prepare(self.candidate)
+        self.assertFalse((self.root / 'work').exists())
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows batch entry')
+class AcceptanceEntryTests(unittest.TestCase):
+    def test_manual_entry_reports_startup_errors_and_uses_its_own_directory(self):
+        self._check_entry(smoke=False, expected_code=17)
+
+    def test_smoke_entry_keeps_offscreen_mode_and_propagates_exit_code(self):
+        self._check_entry(smoke=True, expected_code=19)
+
+    def _check_entry(self, *, smoke, expected_code):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'acceptance root with spaces'
+            dev = root / 'dev'
+            dev.mkdir(parents=True)
+            (dev / 'accept_live_translate.py').write_text(
+                'import json, os, sys\n'
+                'print(json.dumps(dict(cwd=os.getcwd(), args=sys.argv[1:], '
+                'platform=os.environ.get("QT_QPA_PLATFORM"))))\n'
+                'print("fixture startup failure", file=sys.stderr)\n'
+                f'raise SystemExit({expected_code})\n', encoding='utf-8')
+            source = (Path(__file__).resolve().parents[1] / 'run.cmd').read_text(encoding='utf-8')
+            entry = source.split('\n:liveTranslateAcceptance\n', 1)[1].split('\n:mediaSourcesCheck', 1)[0]
+            batch = root / 'entry.cmd'
+            batch.write_text('@echo off\n'
+                             f'set "PY={sys.executable}"\n'
+                             f'set "PROJ={root}{os.sep}"\n'
+                             ':liveTranslateAcceptance\n' + entry, encoding='utf-8')
+            command = [os.environ.get('COMSPEC', 'cmd.exe'), '/d', '/c', str(batch), '--accept-live-translate']
+            if smoke:
+                command.append('--smoke')
+            result = subprocess.run(command, cwd=folder, text=True, capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, expected_code, result.stderr)
+            self.assertIn('fixture startup failure', result.stderr)
+            record = json.loads(result.stdout.strip())
+            self.assertEqual(record['args'], ['--smoke'] if smoke else [])
+            if smoke:
+                self.assertEqual(record['platform'], 'offscreen')
+            else:
+                self.assertEqual(Path(record['cwd']), root)
+
+
+if __name__ == '__main__':
+    unittest.main()

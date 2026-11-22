@@ -18,7 +18,7 @@ MAX_BYTES = 5 * 1024 * 1024
 BACKUP_COUNT = 5
 RETENTION_DAYS = 14
 _session = None
-_OWN_LOG = re.compile(r"^ddm-(?:\d{4}-\d{2}-\d{2}|startup)\.log(?:\.[1-5])?$")
+_OWN_LOG = re.compile(r"^ddm-(?:\d{4}-\d{2}-\d{2}|startup|crash-\d+)\.log(?:\.[1-5])?$")
 _SECRET = re.compile(
     r"""(?ix)(["']?\b(?:cookie|set-cookie|authorization|proxy-authorization|sessdata|bili_jct|dedeuserid|access_token|refresh_token|token|password|passwd)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\r\n,;}]+)""")
 _URL_QUERY = re.compile(r"((?:https?|wss?|rtmps?)://[^\s?\"'<>]+)\?[^\s\"'<>]+")
@@ -139,7 +139,7 @@ class LogSession:
             if _OWN_LOG.fullmatch(path.name) and path.is_file() and path.stat().st_mtime < cutoff:
                 path.unlink()
         self.path = str(self.directory / time.strftime("ddm-%Y-%m-%d.log"))
-        self.crash_path = str(self.directory / "ddm-crash.log")
+        self.crash_path = str(self.directory / f"ddm-crash-{os.getpid()}.log")
         # The native crash descriptor must never be renamed while faulthandler uses it.
         crash = Path(self.crash_path)
         if crash.exists() and crash.stat().st_size > MAX_BYTES:

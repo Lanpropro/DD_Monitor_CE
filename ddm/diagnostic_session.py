@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 MODES = ('folders', 'responsiveness', 'notices', 'danmaku', 'drag',
-         'douyu', 'douyu-deep', 'theme', 'fullscreen')
+         'douyu', 'douyu-deep', 'theme', 'fullscreen', 'tiles', 'dock-hover')
 PROTOCOL = 1
 
 
@@ -103,6 +103,16 @@ def install(mode, directory):
             links[mode] = metadata.probe.session
         if hasattr(window, '_douyu_capture'):
             links['douyu'] = window._douyu_capture.run
+        if mode == 'tiles':
+            from .tile_diagnostics import TileTrace
+            window._tile_trace = TileTrace(window, metadata)
+            links[mode] = metadata.run
+        elif mode == 'dock-hover':
+            from .dock_hover_diagnostics import DockHoverTrace
+            window._dock_hover_trace = DockHoverTrace(window, metadata.emit)
+            window._dock_hover_trace.start()
+            metadata.probes.append(window._dock_hover_trace)
+            links[mode] = metadata.run
         metadata.emit('window-ready', mode=mode, linked_sessions=links)
         from PySide6.QtWidgets import QApplication
         QApplication.instance().aboutToQuit.connect(metadata.close)

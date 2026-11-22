@@ -131,10 +131,11 @@ class ResultNotice(UpdateNotice):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if self.artwork.source is not None:
-            from .room_artwork import paint_room_background, notice_frost
+        from .room_artwork import paint_room_background, notice_frost, notice_source
+        source = notice_source(self, self.artwork)
+        if source is not None:
             painter = QPainter(self)
-            paint_room_background(painter, self.rect(), self.artwork.source, theme.RADIUS_LG,
+            paint_room_background(painter, self.rect(), source, theme.RADIUS_LG,
                                   focus=self.artwork.banner is None, frost=notice_frost(self, self.artwork))
 
     def set_room_avatar(self, room_id, pixmap):
@@ -158,12 +159,12 @@ class ResultNotice(UpdateNotice):
         self.title.setWordWrap(not bool(self._file_path))
         self.title.setText(self._file_message)
         self.category.setText(('正在导出' if pending else '导出失败' if kind == 'warning' else '已完成') if self._file_path else
-                              {'live': '开播提醒', 'warning': '需要留意'}.get(kind, '操作提示'))
+                              {'live': '开播提醒', 'warning': '需要留意', 'announcement': '官方公告'}.get(kind, '操作提示'))
         self.action.setVisible(pending or self._on_click is not None)
         self.action.setEnabled(not pending)
         self.action.setText('正在导出…' if pending else '打开文件位置' if self._file_path else
                             (live_notice_action(self.parentWidget()) if kind == 'live' else
-                             ('前往登录' if '登录' in message else '查看详情')))
+                             ('前往登录' if kind != 'announcement' and '登录' in message else '查看详情')))
         self._set_rooms(rooms)
         symbol, colour = {'live': ('●', theme.PINK),
                           'warning': ('!', '#e8b86d')}.get(kind, ('i', theme.ACCENT))

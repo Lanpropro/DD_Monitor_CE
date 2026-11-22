@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -13,7 +14,7 @@ from ddm.diagnostic_session import MODES, requested_mode
 
 
 def child(mode, directory):
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QEvent, Qt
     from PySide6.QtTest import QTest
     from ddm.diagnostic_session import install
     from ddm.online_ui import show_result
@@ -39,6 +40,50 @@ def child(mode, directory):
             show_result(window, 'PRIVATE_NOTICE_MUST_NOT_BE_CAPTURED', persistent=True, kind='live')
         elif mode == 'drag':
             assert capture.recorder.profile_first_drag
+        elif mode == 'dock-hover':
+            from PySide6.QtWidgets import QApplication
+            button = window.sidebar.workspace_controls.launcher
+            button.setAccessibleName('PRIVATE_DOCK_LABEL_MUST_NOT_BE_CAPTURED')
+            trace = window._dock_hover_trace
+            trace.timer.stop()
+            position = button.mapToGlobal(button.rect().center())
+            with patch('ddm.dock_hover_diagnostics.QCursor.pos', return_value=position), \
+                    patch.object(QApplication, 'widgetAt', return_value=button) as hit:
+                button.setAttribute(Qt.WA_UnderMouse, False)
+                for _ in range(3):
+                    trace.sample_pointer()
+                event = QEvent(QEvent.Enter)
+                event.ignore()
+                assert trace.eventFilter(button, event) is False and not event.isAccepted()
+                button.setAttribute(Qt.WA_UnderMouse, True)
+                trace.sample_pointer()
+                trace.eventFilter(button, QEvent(QEvent.ActionChanged))
+                trace.eventFilter(button, QEvent(QEvent.Leave))
+                button.setAttribute(Qt.WA_UnderMouse, False)
+                for _ in range(3):
+                    trace.sample_pointer()
+                with patch('ddm.sidebar_navigation.QCursor.pos', return_value=position):
+                    window.sidebar.navigation.sync_pointer_hover()
+                for _ in range(3):
+                    trace.sample_pointer()
+                hit.return_value = None
+                window.sidebar.navigation.sync_pointer_hover()
+                for _ in range(3):
+                    trace.sample_pointer()
+        elif mode == 'tiles':
+            first, second = window.wall.visible_tiles()[:2]
+            trace = window._tile_trace
+            with patch('ddm.tile_diagnostics.QCursor') as cursor:
+                for tile in (first, second):
+                    cursor.pos.return_value = tile.mapToGlobal(tile.rect().center())
+                    trace.sample_pointer()
+                    tile.set_controls_visible(True)
+                    trace.sample_pointer()
+                    event = QEvent(QEvent.Leave)
+                    event.ignore()
+                    assert trace.eventFilter(tile, event) is False
+                    assert not event.isAccepted()
+                    tile.set_controls_visible(False)
         if mode == 'responsiveness':
             assert window._startup_scroll_capture.probe is capture.probe
         entries = window.sidebar._items + list(window.sidebar._folder_buttons.values())
@@ -52,6 +97,8 @@ def child(mode, directory):
         assert [dict(tile.room) for tile in window.wall.tiles] == before_wall
         fixture.app.aboutToQuit.emit()
         capture.close()
+        if mode == 'dock-hover':
+            assert trace.closed
         if mode in ('notices', 'danmaku'):
             # Wait for the same bounded asynchronous writer used by the frozen app.
             import atexit
@@ -60,6 +107,7 @@ def child(mode, directory):
         content = '\n'.join(path.read_text(encoding='utf-8') for path in files)
         assert 'PRIVATE_NAME_MUST_NOT_BE_CAPTURED' not in content
         assert 'PRIVATE_NOTICE_MUST_NOT_BE_CAPTURED' not in content
+        assert 'PRIVATE_DOCK_LABEL_MUST_NOT_BE_CAPTURED' not in content
         metadata = [json.loads(line) for line in (Path(directory) / 'diagnostic-session.jsonl').read_text().splitlines()]
         assert {'session-start', 'window-ready', 'user-marker'} <= {row['stage'] for row in metadata}
         ready = next(row for row in metadata if row['stage'] == 'window-ready')
@@ -75,6 +123,27 @@ def child(mode, directory):
         if mode == 'notices':
             records = [json.loads(line) for line in (Path(directory) / 'notice-close.jsonl').read_text().splitlines()]
             assert any(row['stage'] == 'manual-snapshot' for row in records)
+        if mode == 'dock-hover':
+            misses = [row for row in metadata if row['stage'] == 'dock-hover-mismatch']
+            assert [row['reason'] for row in misses] == ['missing-on-entry', 'lost-while-inside']
+            assert all(row['qtHit'] == 'button' and not row['underMouse'] for row in misses)
+            events = [row for row in metadata if row['stage'] == 'dock-hover-event']
+            assert {'Enter', 'Leave', 'ActionChanged'} <= {row['event'] for row in events}
+            assert any(row['stage'] == 'dock-hover-pointer' and row.get('qtHit') == 'none'
+                       for row in metadata)
+            assert any(row['stage'] == 'dock-hover-pointer' and row.get('effectiveHover')
+                       and not row.get('underMouse') for row in metadata)
+            assert ready['linked_sessions']['dock-hover'] == ready['run']
+        if mode == 'tiles':
+            startup = [row for row in metadata if row['stage'] == 'tile-startup']
+            assert any(row['event'] == 'ready' and not row['visible'] for row in startup)
+            assert any(row['event'] == 'Paint' and row['tileGeometry'] for row in startup)
+            pointer = [row for row in metadata if row['stage'] == 'tile-pointer' and row['tile'] is not None]
+            assert len({row['tile'] for row in pointer}) == 2
+            assert any(row['controlsVisible'] for row in pointer)
+            events = [row for row in metadata if row['stage'] == 'tile-event']
+            assert {'Show', 'Hide', 'Leave'} <= {row['event'] for row in events}
+            assert ready['linked_sessions']['tiles'] == ready['run']
         print('capture mode passed:', mode)
     finally:
         capture.close()
@@ -85,6 +154,7 @@ class SessionTests(unittest.TestCase):
     def test_mode_selection_is_explicit_and_rejects_unknown_or_repeated_modes(self):
         self.assertIsNone(requested_mode([]))
         self.assertIsNone(requested_mode(['--unrelated']))
+        self.assertEqual(requested_mode(['--diagnose-session=dock-hover']), 'dock-hover')
         for mode in MODES:
             self.assertEqual(requested_mode(['--diagnose-session=' + mode]), mode)
         for arguments in (['--diagnose-session=all'], ['--diagnose-session='],

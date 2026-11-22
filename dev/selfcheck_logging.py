@@ -52,7 +52,8 @@ class LoggingTests(unittest.TestCase):
         unrelated = self.directory / "other.log"
         unrelated.write_text("keep")
         os.utime(unrelated, (0, 0))
-        (self.directory / "ddm-crash.log").write_text("previous crash\n" * 50)
+        crash_path = self.directory / f"ddm-crash-{os.getpid()}.log"
+        crash_path.write_text("previous crash\n" * 50)
         with patch.object(diagnostics, "MAX_BYTES", 256):
             session = diagnostics.start(self.directory)
             descriptor = session.crash_handle.fileno()
@@ -65,6 +66,7 @@ class LoggingTests(unittest.TestCase):
         self.assertTrue(Path(session.path + ".1").exists())
         self.assertLessEqual(len(list(self.directory.glob(Path(session.path).name + "*"))), 6)
         self.assertGreaterEqual(descriptor, 0)
+        self.assertEqual(Path(session.crash_path), crash_path)
         self.assertIn("still open", Path(session.crash_path).read_text())
         self.assertIn("previous crash", Path(session.crash_path + ".1").read_text())
 

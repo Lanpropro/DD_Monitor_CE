@@ -26,7 +26,7 @@ def host_fixture():
     tile = Tile()
     wall = SimpleNamespace(layout_id='1x1', tiles=[tile], _layout_ratios={},
         _preset_dividers={}, _danmaku_cell=None,
-        pane_danmaku=SimpleNamespace(custom=False, settings={}),
+        pane_danmaku=SimpleNamespace(custom=False, settings={}, return_all_floating=Mock()),
         _cancel_border_drag=Mock(), set_layout=Mock(), relayout=Mock())
     host = SimpleNamespace(wall=wall, room_presets={'version': 1, 'items': []},
         _fullscreen_tile=None, _room_preset_fullscreen_layout=None,
@@ -100,6 +100,7 @@ class RoomPresetControlTests(unittest.TestCase):
         key = host.room_preset_control.save('Match')
         host._save_timer.reset_mock()
         self.assertTrue(host.room_preset_control.apply(key))
+        host.wall.pane_danmaku.return_all_floating.assert_not_called()
         host._save_timer.start.assert_not_called()
         host._active_room_preset_id = ''
         self.assertTrue(host.room_preset_control.apply(key))
@@ -164,6 +165,7 @@ class RoomPresetControlTests(unittest.TestCase):
         host._refresh_meta.side_effect = lambda: order.append('meta')
         host.refresh_status.side_effect = lambda **_: order.append('status')
         self.assertTrue(host.room_preset_control.apply(key))
+        host.wall.pane_danmaku.return_all_floating.assert_called_once_with()
         self.assertIs(host.players[tile], player)
         player.release.assert_not_called()
         player.set_volume.assert_called_once_with(40)

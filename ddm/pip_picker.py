@@ -1,79 +1,100 @@
 """Picture-in-picture room selection and composition dialog."""
-from PySide6.QtCore import QEvent, QSignalBlocker, Qt
-from PySide6.QtWidgets import QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QSignalBlocker, Qt
+from PySide6.QtGui import QPainter, QPen
+from PySide6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QVBoxLayout, QWidget
 from . import theme
+from .corner_geometry import continuous_path
 from .search import matches_text
-from .ui import ActionButton, Avatar, ElidedLabel, page_header
-from .pip_geometry import FOCUS_LAYOUT
+from .settings_window import SettingsTitleBar
+from .ui import ActionButton, HintLabel, ToggleSwitch, page_header
+from .pip_arrangements import PipArrangements
+from .pip_composition import FOCUS_LAYOUT, FREE_LAYOUT, MAIN_LAYOUT
+from .pip_placement import initial_placement, placement_bounds
 from .pip_preview import CompositionPreview
-
-
-class RoomChoice(QPushButton):
-    def __init__(self, room, name, index, pixmap, parent):
-        super().__init__(parent)
-        self.preview_name = name
-        self.setObjectName('PipRoomChoice')
-        self.setCheckable(True)
-        self.setAutoDefault(False)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(64)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setToolTip(name + ' · ' + str(room['room_id']))
-        self.setAccessibleName(self.toolTip())
-        box = QVBoxLayout(self)
-        box.setContentsMargins(5, 5, 5, 4)
-        box.setSpacing(3)
-        display = str(room.get('uname') or room['room_id'])
-        self.avatar = Avatar(display, index, size=28, parent=self)
-        self.avatar.set_pixmap_image(pixmap)
-        box.addWidget(self.avatar, 0, Qt.AlignHCenter)
-        label = ElidedLabel(display, self)
-        label.setStyleSheet(f'color: {theme.TEXT1};')
-        label.setAlignment(Qt.AlignCenter)
-        label.setTextFormat(Qt.PlainText)
-        label.setAttribute(Qt.WA_TransparentForMouseEvents)
-        box.addWidget(label)
-        self.badge = QLabel('✓', self)
-        self.badge.setObjectName('PipChoiceBadge')
-        self.badge.setAlignment(Qt.AlignCenter)
-        self.badge.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.badge.setFixedSize(16, 16)
-        self.badge.hide()
-        self.toggled.connect(self.badge.setVisible)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.badge.move(self.width() - 20, 4)
+from .panel_resize import resize_edges
+from .pip_toolbar import ToolbarPipPanel
+from .room_choice import RoomChoice
 
 
 class PictureInPictureDialog(QDialog):
-    def __init__(self, controller):
-        super().__init__(controller.floating or controller.host)
+    COMPACT_SIZE = QSize(424, 516)
+
+    def __init__(self, controller, *, compact=False):
+        parent = controller.host if compact else (controller.floating or controller.host)
+        super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.controller = controller
+        self.toolbar_panel = None
+        self._compact = compact
         self._order = list(controller.selected_choices())
         self._primary = controller.primary_choice()
+        self._placements = dict(zip(self._order, controller.placement)) if len(self._order) == len(controller.placement) else {}
+        self._vacancies = []
         self.setWindowTitle('组合画中画')
         self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setProperty('customControlSurface', True)
+        theme.signals().changed.connect(self.update)
         available = self.screen().availableGeometry()
-        self.resize(min(520, available.width() - 48), min(720, available.height() - 80))
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.addLayout(page_header('画中画', '选择画面组合；退出后恢复原监控室布局'))
+        if compact:
+            self.resize(self.COMPACT_SIZE)
+        else:
+            self.resize(min(560, available.width() - 48), min(740, available.height() - 80))
+        outer = QVBoxLayout(self)
+        margin = 12 if compact else 20
+        outer.setContentsMargins(margin, margin, margin, margin)
+        outer.setSpacing(8 if compact else 12)
+        self.titlebar = SettingsTitleBar(self)
+        self.titlebar.row.setContentsMargins(0, 0, 0, 0)
+        self.titlebar.breadcrumb.hide()
+        self.titlebar.row.takeAt(1)
+        self.titlebar.row.insertLayout(0, page_header('画中画', '选择画面组合；退出后恢复原监控室布局'), 1)
+        self.titlebar.close_button.setAccessibleName('关闭组合画中画')
+        self.titlebar.close_button.setToolTip('关闭组合画中画')
+        self.titlebar.row.setAlignment(self.titlebar.close_button, Qt.AlignTop)
+        outer.addWidget(self.titlebar)
+        scroll = QScrollArea(self)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidgetResizable(True)
+        if compact:
+            scroll.setObjectName('PipToolbarViewport')
+            scroll.setStyleSheet('#PipToolbarViewport { background: transparent; border: none; }')
+            body = QWidget()
+            layout = QVBoxLayout(body)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(8)
+            scroll.setWidget(body)
+            scroll.viewport().setAutoFillBackground(False)
+            body.setAutoFillBackground(False)
+            outer.addWidget(scroll, 1)
+        else:
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            layout = outer
         self.preview = CompositionPreview(self)
+        if compact:
+            self.titlebar.setMinimumHeight(42)
+            self.preview.setFixedHeight(106)
         self.preview.positionsSwapped.connect(self._swap_preview)
+        self.preview.positionChanged.connect(self._place_preview)
         layout.addWidget(self.preview)
-        self.columns = QComboBox(self)
-        for title, value in (('自动排列', 0), ('横向排列', 16), ('纵向排列', 1), ('两列排列', 2), ('三列排列', 3),
-                             ('单主＋五辅（6格）', FOCUS_LAYOUT)):
-            self.columns.addItem(title, value)
-        self.columns.setAccessibleName('画中画排列方式')
-        self.columns.setCurrentIndex(max(0, self.columns.findData(controller.columns)))
-        chat = controller.chat_cells(self.columns.currentData())
-        if chat and len(self._order) > 6 - len(chat):
-            wall = {key for key, _room in controller._wall_candidates()}
-            self._order = ([key for key in self._order if key in wall]
-                           + [key for key in self._order if key not in wall])[:6 - len(chat)]
-        layout.addWidget(self.columns)
+        options = QFrame(self)
+        options.setObjectName('PluginCard')
+        option_rows = QVBoxLayout(options)
+        option_margin = 8 if compact else 12
+        option_rows.setContentsMargins(option_margin, 7 if compact else 10, option_margin, 7 if compact else 10)
+        option_rows.setSpacing(6 if compact else 8)
+        self.arrangements = PipArrangements(controller.columns, options, compact=compact)
+        self.arrangements.setAccessibleName('画中画排列方式')
+        option_rows.addWidget(self.arrangements)
+        parallel_row = QHBoxLayout()
+        parallel_label = QLabel('与主窗口同时播放', options)
+        self.parallel = ToggleSwitch(parallel_label.text(), options)
+        self.parallel.setChecked(controller.parallel_preference)
+        self.parallel.setToolTip('主画面墙继续播放，小窗默认静音。')
+        parallel_label.setBuddy(self.parallel)
+        parallel_row.addWidget(parallel_label, 1)
+        parallel_row.addWidget(self.parallel)
+        option_rows.addLayout(parallel_row)
+        layout.addWidget(options)
         self.search = QLineEdit(self)
         self.search.setObjectName('Search')
         self.search.setPlaceholderText(controller.host.sidebar.search.placeholderText())
@@ -82,10 +103,6 @@ class PictureInPictureDialog(QDialog):
         self.search.setAccessibleName('搜索画中画直播间')
         self.search.textChanged.connect(self._filter)
         layout.addWidget(self.search)
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.choice_viewport = scroll.viewport()
         self.choice_viewport.installEventFilter(self)
         content = QWidget()
@@ -98,10 +115,9 @@ class PictureInPictureDialog(QDialog):
         self.sections = []
         self.choice_grids = []
         selected = self._order
-        faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in controller.host.sidebar.items()}
+        sidebar = controller.host.sidebar
+        faces = {str(item.room.get('room_id')): item.thumb.face_pixmap() for item in sidebar.items()}
         for title, entries in controller.candidate_groups():
-            if not entries:
-                continue
             holder = QFrame(content)
             holder.setObjectName('PluginCard')
             block = QVBoxLayout(holder)
@@ -118,48 +134,127 @@ class PictureInPictureDialog(QDialog):
             self.choice_grids.append(grid)
             group = []
             for key, room in entries:
-                name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
-                index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
-                check = RoomChoice(room, name, index, faces.get(str(room['room_id'])), holder)
-                check.choice = key
-                sidebar = controller.host.sidebar
                 folder = sidebar.get_folder(sidebar.folder_for(str(room['room_id'])))
-                check.folder_names = ' '.join((folder['name'] if folder else '',
-                                               title if title != '已入墙' else ''))
-                check.setChecked(key in selected)
-                self.checks.setdefault(key, check)
-                self.choice_buttons.setdefault(key, []).append(check)
-                check.toggled.connect(lambda checked, choice=key: self._toggle_choice(choice, checked))
-                self.rooms[key] = room
-                check.show()
-                group.append(check)
+                folder_names = ' '.join((folder['name'] if folder else '', title if title != '已入墙' else ''))
+                group.append(self._create_choice(key, room, holder, faces.get(str(room['room_id'])),
+                                                 key in selected, folder_names))
             self.sections.append((heading, group))
+        self._wall_count = len(self.sections[0][1])
         choices.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll, 1)
-        self.hint = QLabel(self)
-        self.hint.setObjectName('SettingsHint')
-        self.hint.setWordWrap(True)
-        layout.addWidget(self.hint)
+        if compact:
+            layout.addWidget(content, 1)
+        else:
+            scroll.setWidget(content)
+            layout.addWidget(scroll, 1)
+        self.hint = HintLabel(parent=self)
+        outer.addWidget(self.hint)
         footer = QHBoxLayout()
         cancel = ActionButton('取消', self)
         cancel.clicked.connect(self.reject)
-        footer.addWidget(cancel)
         footer.addStretch()
+        footer.addWidget(cancel)
         self.start = ActionButton('应用组合' if controller.active else '打开画中画', self)
         self.start.setObjectName('PrimaryButton')
         self.start.clicked.connect(self._apply)
         footer.addWidget(self.start)
-        layout.addLayout(footer)
-        self.columns.currentIndexChanged.connect(self._refresh)
+        outer.addLayout(footer)
+        self.arrangements.changed.connect(self._refresh)
         self._refresh()
         self._arrange_choices()
+        self.search.setFocus(Qt.OtherFocusReason)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 22)
+        painter.fillPath(path, theme.qcolor(theme.BG))
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
+        painter.drawPath(path)
+
+    def place_near(self, anchor, available, *, below):
+        gap = 8
+        area = available.adjusted(gap, gap, -gap, -gap)
+        if not area.isValid():
+            return
+        self.layout().activate()
+        self.resize(self.size().boundedTo(area.size()))
+        width, height = self.width(), self.height()
+        if below:
+            x = anchor.left()
+            y = anchor.bottom() + 1 + gap
+            above = anchor.top() - height - gap
+            if y + height > area.bottom() + 1 and above >= area.top():
+                y = above
+        else:
+            x = anchor.right() + 1 + gap
+            y = anchor.top()
+            left = anchor.left() - width - gap
+            if x + width > area.right() + 1 and left >= area.left():
+                x = left
+        self.move(self._clamp_position(QPoint(x, y), area))
+
+    def _clamp_position(self, position, area):
+        return QPoint(max(area.left(), min(position.x(), area.right() + 1 - self.width())),
+                      max(area.top(), min(position.y(), area.bottom() + 1 - self.height())))
+
+    def attach_to_toolbar(self, anchor, *, below):
+        self.toolbar_panel = ToolbarPipPanel(self, anchor, below=below)
+        return self.toolbar_panel.attach()
+
+    def mousePressEvent(self, event):
+        if not self._compact and event.button() == Qt.LeftButton and self.windowHandle() is not None:
+            edges = resize_edges(self, event.position().toPoint())
+            if edges and self.windowHandle().startSystemResize(edges):
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def _selected(self):
         checked = [index for index, check in self.checks.items() if check.isChecked()]
         previous = self._order
         return ([index for index in previous if index in checked]
                 + [index for index in checked if index not in previous])
+
+    def _create_choice(self, key, room, holder, face, checked, folder_names=''):
+        name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
+        index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
+        button = RoomChoice(room, name, index, face, holder)
+        if self._compact:
+            button.setMinimumHeight(54)
+        button.choice = key
+        button.folder_names = folder_names
+        button.setChecked(checked)
+        self.checks.setdefault(key, button)
+        self.choice_buttons.setdefault(key, []).append(button)
+        self.rooms[key] = room
+        button.toggled.connect(lambda checked, choice=key: self._toggle_choice(choice, checked))
+        button.show()
+        return button
+
+    def _sync_top_group(self, selection):
+        extras = [key for key in selection if isinstance(key, str)]
+        heading, buttons = self.sections[0]
+        mirrors = {button.choice: button for button in buttons[self._wall_count:]}
+        if extras == list(mirrors):
+            return
+        for key in tuple(mirrors):
+            if key not in extras:
+                mirror = mirrors.pop(key)
+                self.choice_buttons[key].remove(mirror)
+                mirror.hide()
+                mirror.deleteLater()
+        words = self.search.text().strip().lower().split()
+        for key in extras:
+            if key not in mirrors:
+                source = self.checks[key]
+                mirror = self._create_choice(key, self.rooms[key], heading.parentWidget(), source.avatar._source, True)
+                mirror.setVisible(self._matches(mirror, words))
+                mirrors[key] = mirror
+        buttons[self._wall_count:] = [mirrors[key] for key in extras]
+        title = '已入墙与已选' if self._wall_count else '已选直播间'
+        heading.setText(title if extras else '已入墙')
+        self._arrange_choices(top_only=True)
 
     def _toggle_choice(self, key, checked):
         for button in self.choice_buttons[key]:
@@ -170,28 +265,32 @@ class PictureInPictureDialog(QDialog):
 
     def _filter(self, value):
         words = value.strip().lower().split()
-        for heading, buttons in self.sections:
-            visible = []
+        for _heading, buttons in self.sections:
             for button in buttons:
-                room = self.rooms[button.choice]
-                text = ' '.join((str(room.get('uname') or ''), str(room['room_id']),
-                                 str(room.get('display_room_id') or ''), button.folder_names))
-                matches = all(matches_text(text, word) for word in words)
-                button.setVisible(matches)
-                visible.append(matches)
-            heading.setVisible(any(visible))
+                button.setVisible(self._matches(button, words))
         self._arrange_choices()
 
-    def _arrange_choices(self):
+    def _matches(self, button, words):
+        room = self.rooms[button.choice]
+        text = ' '.join((str(room.get('uname') or ''), str(room['room_id']),
+                         str(room.get('display_room_id') or ''), str(room.get('title') or ''),
+                         button.folder_names))
+        return all(matches_text(text, word) for word in words)
+
+    def _arrange_choices(self, *, top_only=False):
         columns = max(1, min(6, (self.choice_viewport.width() - 20 + 6) // 110))
-        for (_heading, buttons), grid in zip(self.sections, self.choice_grids):
+        section_count = 1 if top_only else len(self.sections)
+        for section in range(section_count):
+            heading, buttons = self.sections[section]
+            grid = self.choice_grids[section]
             while grid.count():
                 grid.takeAt(0)
             visible = [button for button in buttons if not button.isHidden()]
             for column in range(max(columns, grid.columnCount())):
                 grid.setColumnStretch(column, 1 if column < columns else 0)
-            for index, button in enumerate(visible):
-                grid.addWidget(button, index // columns, index % columns)
+            for position, button in enumerate(visible):
+                grid.addWidget(button, position // columns, position % columns)
+            heading.setVisible(bool(visible))
             grid.parentWidget().setVisible(bool(visible))
 
     def eventFilter(self, watched, event):
@@ -201,54 +300,76 @@ class PictureInPictureDialog(QDialog):
 
     def _swap_preview(self, first, second):
         selection = self._selected()
-        if self.controller.chat_cells(self.columns.currentData()):
-            source, target = self._preview_choices[first], self._preview_choices[second]
-            if source is None or target is None:
-                return
-            left, right = selection.index(source), selection.index(target)
-            selection[left], selection[right] = selection[right], selection[left]
-            self._order = selection
-            if first == 0 or second == 0:
-                self._primary = target if first == 0 else source
-            self._refresh()
-            return
         primary = selection.index(self._primary)
         selection[first], selection[second] = selection[second], selection[first]
         self._order = selection
-        if self.columns.currentData() == FOCUS_LAYOUT and len(selection) == 6:
+        if self.arrangements.mode in (FOCUS_LAYOUT, MAIN_LAYOUT):
             self._primary = selection[primary]
         self._refresh()
+
+    def _place_preview(self, index, rect):
+        self._placements[self._order[index]] = rect
+        self._refresh()
+
+    def _custom_placement(self, selection, aspects):
+        for key in list(self._placements):
+            if key not in selection:
+                self._vacancies.append(self._placements.pop(key))
+        if not self._placements and not self._vacancies:
+            self._placements = dict(zip(selection, initial_placement(aspects)))
+        for key, aspect in zip(selection, aspects):
+            if key in self._placements:
+                continue
+            occupied = [QRect(*value) for value in self._placements.values()]
+            slot = None
+            while self._vacancies and slot is None:
+                vacancy = QRect(*self._vacancies.pop(0))
+                if not any(vacancy.intersects(rect) for rect in occupied):
+                    size = QSize(max(1, round(vacancy.height() * aspect)), vacancy.height())
+                    size.scale(vacancy.size(), Qt.KeepAspectRatio)
+                    slot = QRect(vacancy.topLeft(), size)
+            if slot is None:
+                if occupied:
+                    bounds = placement_bounds(list(self._placements.values()))
+                    next_row = bounds.width() > bounds.height() * 2
+                    x, y = ((bounds.left(), bounds.bottom() + 1) if next_row
+                            else (bounds.right() + 1, bounds.top()))
+                    height = round(sum(rect.height() for rect in occupied) / len(occupied))
+                else:
+                    x, y, height = 0, 0, 240
+                slot = QRect(x, y, max(1, round(height * aspect)), height)
+            self._placements[key] = slot.getRect()
+        return tuple(self._placements[key] for key in selection)
 
     def _refresh(self, *_args):
         selection = self._selected()
         self._order = selection
+        self._sync_top_group(selection)
         names = [self.checks[index].preview_name for index in selection]
         if self._primary not in selection:
             self._primary = selection[0] if selection else None
-        focus = self.columns.currentData() == FOCUS_LAYOUT
-        slots, aspects, primary = self.controller.composition(selection, self.columns.currentData(), self._primary)
-        self._preview_choices = slots
-        chat = self.controller.chat_cells(self.columns.currentData())
-        if chat:
-            names = ['弹幕' if index in chat else self.checks[key].preview_name if key is not None else '未选择视频'
-                     for index, key in enumerate(slots)]
-            self.preview.set_panes(names, self.columns.currentData(), aspects, primary,
-                                   locked=[index for index, key in enumerate(slots) if key is None])
-            required = 6 - len(chat)
-            self.start.setEnabled(len(selection) == required)
-            self.hint.setText(f'此布局需要 {required} 路视频＋{len(chat)} 格弹幕，当前选择 {len(selection)} 路视频。'
-                              '弹幕来源沿用监控室；取消一路视频后可从下方替换。')
-            return
-        self.preview.set_panes(names, self.columns.currentData(), aspects, primary)
-        valid = bool(names) and (not focus or len(names) == 6)
-        self.start.setEnabled(valid)
-        self.hint.setText('单主＋五辅需要选择6路画面；在预览中拖动交换位置。' if focus and len(names) != 6 else
-                          f'已选择 {len(names)} 路，可拖动预览交换位置；墙外直播仅在本次画中画中观看。'
-                          if self.checks else '暂无可选直播间，请先添加关注或画面。')
+        mode = self.arrangements.update_context(len(selection))
+        aspects = self.controller.aspects_for(selection)
+        primary = selection.index(self._primary) if selection else 0
+        placement = self._custom_placement(selection, aspects) if mode == FREE_LAYOUT else ()
+        self.preview.set_panes(names, mode, aspects, primary, placement=placement)
+        self.start.setEnabled(bool(selection))
+        if mode == FREE_LAYOUT:
+            hint = '拖动画面自由摆放，靠近其他画面的边缘时自动吸附对齐。'
+        elif len(names) > 1:
+            hint = f'已选择 {len(names)} 路，拖到其他画面附近可吸附换位。'
+        elif names:
+            hint = '已选择 1 路。'
+        else:
+            hint = '请选择直播间。' if self.checks else '暂无可选直播间，请先添加关注或画面。'
+        if any(isinstance(key, str) for key in selection):
+            hint += '墙外直播仅在本次画中画中观看。'
+        self.hint.setText(hint)
 
     def _apply(self):
         selected = self._selected()
-        if self.controller.start(selected, self.columns.currentData(), self._primary):
+        if self.controller.start(selected, self.arrangements.mode, self._primary,
+                                 parallel=self.parallel.isChecked(), placement=self.preview.placement):
             self.accept()
         else:
             self.hint.setText('所选直播间已变化或下播，请重新选择。')

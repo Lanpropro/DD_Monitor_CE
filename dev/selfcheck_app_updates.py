@@ -5,12 +5,12 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, Signal
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 from ddm import online_ui
 from ddm.app import MainWindow
@@ -18,7 +18,7 @@ from ddm.app_updates import AppUpdates
 from ddm.update_version import update_identity
 
 
-class Host(QWidget):
+class Host(QObject):
     def __init__(self):
         super().__init__()
         self._closing = False
@@ -54,6 +54,19 @@ class Task(QObject):
         self.start = Mock()
 
 
+class Notice(QObject):
+    activated = Signal()
+    updateRequested = Signal(str)
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.show_offer, self.track_history = Mock(), Mock()
+        self._update_rows = {}
+
+    def set_updates(self, entries):
+        self._update_rows = {entry['key']: entry for entry in entries}
+
+
 class AppUpdatesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -87,7 +100,7 @@ class AppUpdatesTests(unittest.TestCase):
         host._check_startup_update()
         self.assertIs(host._startup_update_task, task)
         with patch('ddm.online.session') as session, \
-                patch('ddm.app_updates.installed_revision', return_value=2), \
+                patch('ddm.app_updates.running_revision', return_value=2), \
                 patch('ddm.online.app_release', return_value={'version': '9.0'}) as release:
             client = session.return_value.__enter__.return_value
             self.assertEqual(task.operation(Mock(), Mock()), {'version': '9.0'})
@@ -195,38 +208,41 @@ class AppUpdatesTests(unittest.TestCase):
         host = self.host
         host._available_update = {'version': '9.0', 'revision': 2}
         host._plugin_update_offers = [{'id': 'fixture', 'name': 'Fixture', 'version': '2'}]
-        start = self.stack.enter_context(patch.object(host.app_updates, 'start_notice_update'))
-        show_offer = self.stack.enter_context(patch.object(online_ui.UpdateNotice, 'show_offer', autospec=True))
-        host._show_update_notice()
-        notice = host._update_notice
-        host._show_update_notice()
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+            notice = host._update_notice
+            host._show_update_notice()
         self.assertIs(host._update_notice, notice)
         self.assertIs(notice.parent(), host)
-        self.assertEqual(show_offer.call_count, 2)
-        self.assertIn('1 个插件可更新', notice.title.text())
+        self.assertEqual(notice.show_offer.call_count, 2)
+        self.assertEqual([entry['title'] for entry in notice._update_rows.values()],
+                         ['软件 v9.0 热修复', 'Fixture v2'])
         center = host.sidebar.notification_button.center
-        mixed = center.add.call_args.kwargs
-        self.assertEqual(mixed['key'], ('update', update_identity(host._available_update), (('fixture', '2'),)))
-        self.assertEqual(notice._history_entries, {(center, center.add.return_value)})
-        notice.settings_action.click()
-        host.open_settings.assert_called_once_with('updates')
-        start.assert_not_called()
-
+        self.assertIn('1 个插件可更新', center.add.call_args.args[0])
+        key = center.add.call_args.kwargs['key']
+        self.assertEqual(key, ('update', update_identity(host._available_update), (('fixture', '2'),)))
+        notice.activated.emit()
+        host.open_settings.assert_called_with('updates')
         host.settings['seen_update_versions'] = {'app': update_identity(host._available_update)}
-        self.assertEqual(mixed['action'], '下载更新')
-        mixed['callback']()
-        start.assert_called_once_with('fixture')
-        host.open_settings.assert_called_once_with('updates')
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
         self.assertIs(host._update_notice, notice)
-        plugins = center.add.call_args.kwargs
-        self.assertEqual(plugins['key'], ('update', '', (('fixture', '2'),)))
-        notice.settings_action.click()
-        self.assertEqual(mixed['secondary_action'], '查看设置详情')
-        mixed['secondary_callback']()
-        plugins['secondary_callback']()
-        self.assertEqual(host.open_settings.call_args_list,
-                         [call('updates'), call('plugins'), call('updates'), call('plugins')])
-        start.assert_called_once_with('fixture')
+        self.assertEqual(list(notice._update_rows), ['fixture'])
+        center.add.call_args.kwargs['secondary_callback']()
+        host.open_settings.assert_called_with('plugins')
+        notice.track_history.assert_called_with((center, center.add.return_value))
+
+    def test_update_notice_is_persistent_by_default_and_can_be_timed(self):
+        from ddm.config import DEFAULT_SETTINGS
+        self.assertTrue(DEFAULT_SETTINGS['notice_persist_updates'])
+        host = self.host
+        host._available_update = {'version': '9.0'}
+        with patch.object(online_ui, 'UpdateNotice', Notice):
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=True)
+            host.settings['notice_persist_updates'] = False
+            host._show_update_notice()
+            host._update_notice.show_offer.assert_called_with(host._available_update, persistent=False)
 
     def test_failure_is_silent_during_close(self):
         output = io.StringIO()

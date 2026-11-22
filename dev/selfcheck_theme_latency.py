@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 platform._wmi_query = lambda *a: (_ for _ in ()).throw(OSError('Isolated latency test'))
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
-from ddm import app as module, config, motion, theme, theme_transition, widgets, sidebar_cards
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QScrollArea, QSlider, QWidget
+from ddm import app as module, config, continuous_corners, motion, sidebar_folders, theme, theme_transition
 from ddm.skins import import_asset
 from dev.selfcheck_tile_fullscreen import SilentPoller
 
@@ -35,6 +35,8 @@ def main():
     window.resize(2560, 1440)
     window.show()
     QTest.qWait(50)
+    check_shared_local_styles(window)
+    check_palette_polish(window)
     records = []
     original_style = QWidget.setStyleSheet
     original_snapshot = theme_transition.ui_snapshot
@@ -59,9 +61,9 @@ def main():
                 def styled(widget, source):
                     record['stylesheet_resets'] += 1
                     original_style(widget, source)
-                def snapshot(widget):
+                def snapshot(widget, *args):
                     started = time.perf_counter()
-                    result = original_snapshot(widget)
+                    result = original_snapshot(widget, *args)
                     record['snapshot_ms'] = round((time.perf_counter()-started)*1000, 2)
                     return result
                 def applied(value):
@@ -72,7 +74,7 @@ def main():
                         patch.object(QWidget, 'setStyleSheet', styled), \
                         patch.object(theme_transition, 'ui_snapshot', snapshot), \
                         patch.object(theme, 'apply', applied), \
-                        patch.object(sidebar_cards, 'folder_icon', side_effect=AssertionError('Default folder icon must be reused')):
+                        patch.object(sidebar_folders, 'folder_icon', side_effect=AssertionError('Default folder icon must be reused')):
                     started = time.perf_counter()
                     window.set_appearance(mode)
                     record['prepare_ms'] = round((time.perf_counter()-started)*1000, 2)
@@ -88,6 +90,82 @@ def main():
     output.write_text(json.dumps(records, indent=2), encoding='utf-8')
     window.close()
     print('PASS: <20 stylesheet resets, cached folder icons, stable video geometry; measured stages: ' + json.dumps(records))
+
+
+def check_shared_local_styles(window):
+    theme.apply('dark')
+    source = f'QLabel {{ color: {theme.TEXT1}; margin: 1px; }}'
+    widgets = [QWidget(window) for _ in range(3)]
+    try:
+        for widget in widgets:
+            widget.setStyleSheet(source)
+        with patch.object(continuous_corners, 'stylesheet', wraps=continuous_corners.stylesheet) as compile_style:
+            theme.apply('light')
+        target = f'QLabel {{ color: {theme.TEXT1}; margin: 1px; }}'
+        assert [widget.styleSheet() for widget in widgets] == [target] * 3
+        assert sum(call.args[0] == target for call in compile_style.call_args_list) == 1
+        theme.apply('dark')
+        assert [widget.styleSheet() for widget in widgets] == [source] * 3
+    finally:
+        for widget in widgets:
+            widget.deleteLater()
+
+
+def check_palette_polish(window):
+    theme.apply('dark')
+    hint = QLabel('Fixture', window)
+    hint.setObjectName('NavThumbHint')
+    local = QLabel('Local', window)
+    local.setObjectName('NavThumbHint')
+    local.setStyleSheet(f'#NavThumbHint {{ color: {theme.TEXT1}; }}')
+    editor = QLineEdit(window)
+    slider = QSlider(window)
+    placeholder = QColor('#8a8f98')
+    scroll = QScrollArea(window)
+    scroll.setGeometry(0, 200, 200, 120)
+    content = QWidget()
+    content.setFixedSize(160, 600)
+    scroll.setWidget(content)
+    clipped = QLabel('Clipped', content)
+    clipped.setObjectName('NavThumbHint')
+    clipped.setGeometry(0, 420, 120, 30)
+    controls = (hint, local, editor, slider)
+    for row, widget in enumerate(controls):
+        widget.setGeometry(8, 8 + row*36, 140, 30)
+    widgets = (*controls, scroll)
+    try:
+        for widget in widgets:
+            widget.show()
+        QTest.qWait(20)
+        palette = slider.palette()
+        palette.setColor(QPalette.PlaceholderText, placeholder)
+        slider.setPalette(palette)
+        dark_placeholder = editor.palette().color(QPalette.PlaceholderText)
+        for mode in ('light', 'dark', 'light'):
+            with patch.object(theme, '_refresh_widget_palette', wraps=theme._refresh_widget_palette) as polish:
+                theme.apply(mode)
+            for widget in (hint, editor):
+                calls = [call for call in polish.call_args_list if call.args[0] is widget]
+                assert len(calls) == 1 and calls[0].kwargs.get('invalidate', False) == (widget is editor)
+            assert not any(call.args[0] is local for call in polish.call_args_list)
+            assert hint.property('appearanceLight') == (mode == 'light')
+            if mode == 'light':
+                assert hint.palette().color(QPalette.WindowText) == QColor('#F1F2F5')
+            assert local.palette().color(QPalette.WindowText) == QColor(theme.TEXT1)
+            assert (editor.palette().color(QPalette.PlaceholderText) == dark_placeholder) == (mode == 'dark')
+            assert slider.palette().color(QPalette.PlaceholderText) == placeholder
+            assert clipped in theme._pending_palette
+            assert clipped.property('appearanceLight') is False, 'Clipped rows can wait to change the selector'
+        scroll.verticalScrollBar().setValue(400)
+        QTest.qWait(20)
+        assert clipped not in theme._pending_palette
+        assert clipped.property('appearanceLight') is True
+        assert clipped.palette().color(QPalette.WindowText) == QColor('#F1F2F5')
+    finally:
+        for widget in widgets:
+            widget.deleteLater()
+        QTest.qWait(20)
+        theme.apply('dark')
 
 
 if __name__ == '__main__':

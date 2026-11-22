@@ -14,8 +14,11 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QMenu, QWidget
 from ddm import config, images, motion
 from ddm.add_room_dialog import AddRoomDialog
+from ddm.plugins import RoomInfo, RoomList
 from ddm.room_add_batch import RoomAddBatch
 from ddm.room_catalog import RoomCatalog
+from ddm.room_dialogs import FollowImportDialog
+from ddm.room_navigation import RoomNavigation
 from ddm.sidebar_widgets import Sidebar
 from ddm.wall_widgets import WallGrid
 
@@ -138,7 +141,7 @@ class AddRoomEntryTests(unittest.TestCase):
         sidebar.set_collapsed(False, animate=False)
         self.assertTrue(button.isHidden())
 
-    def test_empty_slot_button_and_context_menu_route_target_and_hide_when_occupied(self):
+    def test_slot_button_routes_empty_and_offline_targets_and_hides_during_playback(self):
         wall = self.own(WallGrid([], 'grid4'))
         wall.resize(900, 650)
         wall.show()
@@ -159,9 +162,29 @@ class AddRoomEntryTests(unittest.TestCase):
         tile.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Mouse, point, tile.mapToGlobal(point)))
         self.assertEqual(targets, [tile, tile])
         tile.set_room(dict(room_id='1001', uname='测试', live=False))
+        replace = tile.replace_room_button
+        status = tile.offline_room_status
         self.assertTrue(tile.add_room_button.isHidden())
+        self.assertTrue(replace.isVisible())
+        self.assertEqual(replace.text(), '')
+        self.assertEqual(replace.accessibleName(), '替换直播间')
+        self.assertEqual(status.text(), '未开播')
+        self.assertLess(status.geometry().right(), replace.x())
+        self.assertLessEqual(abs(status.geometry().center().y() - replace.geometry().center().y()), 1)
+        replace.click()
+        self.assertEqual(targets, [tile, tile, tile])
+        tile.set_live(True)
+        self.assertFalse(replace.isVisible())
+        tile.set_offline()
+        self.assertEqual(status.text(), '已下播')
+        self.assertTrue(replace.isVisible())
+        tile.set_video_active(True)
+        self.assertFalse(replace.isVisible())
+        tile.set_room(dict(room_id='1001', live=False, live_known=False))
+        self.assertFalse(replace.isVisible())
         tile.set_room(None)
         self.assertTrue(tile.add_room_button.isVisible())
+        self.assertEqual(tile.add_room_button.text(), '＋ 添加直播间')
 
     def host(self):
         host = self.own(QWidget())
@@ -171,6 +194,205 @@ class AddRoomEntryTests(unittest.TestCase):
         host.plugins = SimpleNamespace(platform_for=lambda _rid: None)
         host._on_room_added = Mock()
         return host
+
+    def test_playlist_input_uses_channel_picker_and_normal_follow_cards(self):
+        host = self.host()
+        host.resize(900, 600)
+        host.sidebar = Sidebar([], host, auto_compact=False)
+        store = Mock()
+        sports = RoomInfo('test:5plus', 'CCTV-5+', '体育', True, platform='test',
+                          extra={'import_group': '体育'})
+        news = RoomInfo('test:news', '新闻', '资讯', True, platform='test',
+                        extra={'import_group': '资讯'})
+        plugin = SimpleNamespace(normalize=lambda value: value,
+                                 room_input_file_filter='播放列表 (*.m3u *.m3u8)',
+                                 room_list=lambda _source, _cancelled: RoomList([sports, news], store=store))
+        host.plugins = SimpleNamespace(platforms={'test': plugin}, platform_for=lambda _value: plugin)
+        host._normalize_room_input = RoomNavigation(host).normalize_room_input
+        def add(rooms, *, folder_id, on_complete):
+            host.sidebar.add_rooms(rooms)
+            on_complete()
+        host._import_selected_follows = add
+        catalog = RoomCatalog(host)
+        host.show()
+        catalog.open_add_room(resolver_type=Resolver)
+        panel = catalog._add_panel
+        self.assertTrue(panel.presets.isHidden())
+        self.assertTrue(panel.preset_button.isVisible())
+        self.assertTrue(panel.preset_button.isCheckable())
+        panel.preset_button.click()
+        self.assertTrue(panel.presets.file_button.isVisible())
+        self.assertTrue(panel.presets.isAncestorOf(panel.presets.file_button))
+        self.assertEqual(panel.presets.file_button.text(), '')
+        self.assertEqual(panel.presets.file_button.kind, 'open_folder')
+        self.assertEqual(panel.presets.file_button.accessibleName(), '选择本地播放列表')
+        self.assertTrue(panel.presets.search.isHidden())
+        observed = []
+        def select(dialog):
+            self.assertEqual(dialog.windowTitle(), '导入频道')
+            dialog.search_edit.setText('CCTV')
+            self.assertFalse(dialog.list.item(0).isHidden())
+            self.assertTrue(dialog.list.item(1).isHidden())
+            dialog.search_edit.clear()
+            dialog.group_control.setCurrentIndex(dialog.group_control.findData('体育'))
+            self.assertFalse(dialog.list.item(0).isHidden())
+            self.assertTrue(dialog.list.item(1).isHidden())
+            dialog.list.item(0).setCheckState(Qt.Checked)
+            observed.append(dialog.selected())
+            return QDialog.Accepted
+        path = 'C:/播放列表/频道.m3u'
+        with patch('ddm.room_add_panel.QFileDialog.getOpenFileNames',
+                   side_effect=[([], ''), ([path], '')]) as chooser:
+            panel.presets.file_button.click()
+            self.assertTrue(panel.presets.isVisible())
+            self.assertFalse(panel.entry.toPlainText())
+            panel.presets.file_button.click()
+        self.assertIn('*.m3u8', chooser.call_args.args[3])
+        self.assertEqual(panel.entry.toPlainText(), path)
+        with patch.object(FollowImportDialog, 'exec', select):
+            panel.submit_button.click()
+            for _ in range(100):
+                QTest.qWait(10)
+                if not panel.busy:
+                    break
+        self.assertEqual(len(observed), 1)
+        store.assert_called_once_with(['test:5plus'])
+        self.assertFalse(panel.busy)
+        self.assertEqual([room['room_id'] for room in host.sidebar.rooms()], ['test:5plus'])
+        self.assertFalse(host._platform_info_running)
+
+    def test_direct_hls_uses_normal_add_and_target(self):
+        host = self.host()
+        room = RoomInfo('test:hls', '单条直播', live=True, platform='test')
+        source = Mock(return_value=RoomList([room], choose=False))
+        host.plugins.platform_for = lambda _value: SimpleNamespace(room_list=source)
+        target = object()
+        done = Mock()
+        RoomCatalog(host).add_room_id('https://example.com/live.m3u8', resolver_type=Resolver,
+                                      target_tile=target, on_complete=done)
+        for _ in range(100):
+            QTest.qWait(10)
+            if done.called:
+                break
+        done.assert_called_once_with(True, '')
+        host._on_room_added.assert_called_once_with(room.as_dict(), folder_id='', target_tile=target)
+
+    def test_legacy_channel_restores_existing_card_and_wall_labels(self):
+        from ddm.app import MainWindow
+        from ddm.plugins import Platform, PluginManager
+
+        room_id = 'test:preset:cctv5plus'
+
+        class StationPlatform(Platform):
+            kind = 'test'
+
+            def matches(self, value):
+                return value == room_id
+
+            def restore_follow_rooms(self, rooms):
+                for room in rooms:
+                    room.update(uname='CCTV-5+', title='体育赛事', live_from_playback=True)
+
+        def load(manager):
+            manager.platforms['test'] = StationPlatform()
+            manager._platform_owner['test'] = 'test'
+
+        state = {'rooms': [room_id], 'wall': [{'room_id': room_id}], 'plugins_enabled': ['test']}
+        rooms, wall = config.build_rooms(state)
+        with patch.object(PluginManager, 'load', load), patch('ddm.app.QTimer.singleShot'):
+            window = self.own(MainWindow(rooms, wall, layout_id='1x1', state=state))
+        item = window.sidebar.items_control.items()[0]
+        tile = window.wall.tiles[0]
+        self.assertEqual(item.name_label._full_text, 'CCTV-5+')
+        self.assertEqual(item.sub._full_text, '体育赛事')
+        self.assertEqual(item.badge.text(), '待检测')
+        self.assertEqual((tile.room['uname'], tile.room['title']), ('CCTV-5+', '体育赛事'))
+        self.assertEqual(window.current_state()['platform_rooms'][room_id]['playback_mode'], 'stream')
+
+    def test_iptv_poll_result_sorts_unwalled_card_and_preserves_local_playback(self):
+        from ddm.room_status import RoomStatus
+
+        room_id = 'm3u:preset:cctv5plus'
+        offline = dict(room_id='1001', uname='离线主播', live=False)
+        channel = dict(room_id=room_id, uname='CCTV-5+', live=False, live_known=False, live_from_playback=True)
+        sidebar = self.own(Sidebar([offline, channel], auto_compact=False))
+        sidebar.set_sort_mode('live')
+        host = SimpleNamespace(sidebar=sidebar, wall=SimpleNamespace(tiles=[]), settings={},
+                               hover_preview=Mock(**{'_room_id.return_value': ''}), _startup_status_complete=True,
+                               _load_room_banners=Mock(), _sync_replay_scope=Mock(), sync_danmaku=Mock(),
+                               _show_notice=Mock())
+        status = RoomStatus(host)
+        item = sidebar.items_control.items()[1]
+        self.assertEqual(item.room['room_id'], room_id)
+        status.apply_status({room_id: dict(live=True, live_known=True, title='', viewers='')})
+        self.assertEqual(item.badge.text(), '直播中')
+        self.assertIs(sidebar.items_control.items()[0], item)
+        host._show_notice.assert_not_called()
+
+        tile = Mock(room=dict(item.room), _player_active=True)
+        host.wall.tiles = [tile]
+        unknown = {room_id: dict(live=False, live_known=False, title='', viewers='')}
+        status.apply_status(unknown)
+        self.assertEqual(item.badge.text(), '直播中')
+        tile.set_live.assert_not_called()
+        host.wall.tiles = []
+        status.apply_status(unknown)
+        self.assertEqual((item.badge.text(), item.sub._full_text), ('待检测', '待检测'))
+        self.assertEqual(sidebar.items_control.items()[0].room['room_id'], '1001')
+
+    def test_plugin_preset_from_empty_tile_adds_follow_only_and_deduplicates(self):
+        host = self.host()
+        host.resize(760, 530)
+        host.sidebar = Sidebar([], host, auto_compact=False)
+        target = self.own(WallGrid([], '1x1')).tiles[0]
+        room = RoomInfo('test:preset', '研讨会直播', '会议频道', True, platform='test')
+        host.plugins.platforms = {'test': SimpleNamespace(room_input_presets=lambda: [room])}
+        host._import_selected_follows = Mock(side_effect=lambda rooms, **_kw: host.sidebar.add_rooms(rooms))
+        folder_id = host.sidebar.create_folder('电视')
+        host.show()
+        catalog = RoomCatalog(host)
+        catalog.open_add_room(target_tile=target, resolver_type=Resolver)
+        panel = catalog._add_panel
+        self.assertTrue(panel.followed_toggle.isVisible())
+        self.assertTrue(panel.preset_button.isVisible())
+        self.assertEqual(panel.preset_button.text(), '')
+        self.assertEqual(panel.preset_button.kind, 'tv')
+        self.assertEqual(panel.preset_button.accessibleName(), '频道预设')
+        self.assertEqual(panel.preset_button.size(), panel.followed_toggle.size())
+        self.assertLess(panel.followed_toggle.x(), panel.preset_button.x())
+        collapsed_height = panel.height()
+        panel.followed_toggle.click()
+        self.assertTrue(panel.followed.isVisible())
+        panel.preset_button.click()
+        self.assertTrue(panel.preset_button.isChecked())
+        self.assertTrue(panel.followed.isHidden())
+        self.assertTrue(panel.presets.isVisible())
+        self.assertGreater(panel.height(), collapsed_height)
+        self.assertGreater(panel.presets.y(), panel.preset_button.y())
+        self.assertTrue(panel.presets.file_button.isHidden())
+        self.assertIsNone(panel.preset_button.menu())
+        panel.presets.search.setText('不存在')
+        self.assertEqual(panel.presets.model.rowCount(), 0)
+        panel.presets.search.setText('研讨会')
+        self.pump()
+        folder = next(action for action in panel.folder_button.menu().actions() if action.data() == folder_id)
+        folder.trigger()
+        preset = panel.presets.model.index(1, 0)
+        self.assertEqual(preset.data(Qt.DisplayRole), '研讨会直播')
+        self.assertEqual(preset.data(Qt.ToolTipRole), '研讨会直播')
+        for _ in range(2):
+            QTest.mouseClick(panel.presets.scroll.viewport(), Qt.LeftButton,
+                             pos=panel.presets.scroll.visualRect(preset).center())
+        host._import_selected_follows.assert_called_once_with([room.as_dict()], folder_id=folder_id, on_complete=None)
+        self.assertIn('已在关注列表', panel.error.text())
+        self.assertEqual([item['room_id'] for item in host.sidebar.rooms()], ['test:preset'])
+        host._on_room_added.assert_not_called()
+        self.assertFalse(target.room.get('room_id'))
+        host.plugins.platforms.clear()
+        catalog.open_add_room(resolver_type=Resolver)
+        self.assertTrue(panel.preset_button.isHidden())
+        self.assertTrue(panel.presets.isHidden())
+        self.assertFalse(panel.presets.rooms)
 
     def test_batch_queries_serially_skips_duplicates_continues_after_failure_and_summarizes(self):
         host = self.host()

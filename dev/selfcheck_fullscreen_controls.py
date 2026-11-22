@@ -10,10 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 
 from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
-from PySide6.QtGui import QImage, QKeyEvent, QPainter, QRegion
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QPainter, QPalette, QRegion
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
-from ddm import app as app_module, theme
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
+from ddm import app as app_module, skin_parts, theme
 from ddm.dialogs import GeneralSettingsPage
 from ddm.widgets import TimeBadge
 from dev.selfcheck_tile_fullscreen import SilentPoller
@@ -116,12 +116,11 @@ def check_transparent_bar(app, tile):
             image.fill(Qt.transparent)
             editor.paints = 0
             painter = QPainter(image)
-            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawChildren)
+            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground | QWidget.DrawChildren)
             painter.end()
             assert editor.paints > 0, 'Transparent composition must include the live editor'
             sample_x = tile.bottom.width() // 2 + 120
-            assert image.pixelColor(sample_x, 0).alpha() < 10, 'Fullscreen bar top must reveal video'
-            assert 100 < image.pixelColor(sample_x, image.height() - 1).alpha() < 200, 'Bottom gradient must remain translucent'
+            check_gradient(image, sample_x)
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
@@ -168,8 +167,429 @@ def check_transparent_bar(app, tile):
         editor.deleteLater()
 
 
+def check_gradient(image, x):
+    height = image.height()
+    alpha = [image.pixelColor(x, y).alpha() for y in range(height)]
+    assert alpha[0] < 5, 'Fullscreen bar top must reveal video'
+    assert 20 < alpha[height // 2] < 50, 'Most of the bar must stay lightly shaded'
+    assert 110 < alpha[-1] < 155, 'Bottom edge must darken without covering the video'
+    assert alpha == sorted(alpha), 'Fullscreen bar must darken smoothly toward the bottom'
+
+
+def check_skin_gradient(tile):
+    bar = tile.bottom
+    skin_parts.configure({}, {'controls': {'background': '#ff0033', 'radius': 8}})
+    try:
+        image = QImage(bar.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        bar.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+        painter.end()
+        check_gradient(image, image.width() // 2)
+        assert image.pixelColor(image.width() // 2, image.height() - 1).red() == 0, (
+            'Normal skin background must not be layered under the fullscreen gradient')
+    finally:
+        skin_parts.configure({}, {})
+
+
+def check_control_contrast(app, tile):
+    def render(widget, backdrop, flags=QWidget.DrawChildren):
+        image = QImage(widget.size(), QImage.Format_ARGB32_Premultiplied)
+        image.fill(QColor(backdrop))
+        painter = QPainter(image)
+        widget.render(painter, QPoint(), QRegion(), flags)
+        painter.end()
+        return image
+
+    composer = QWidget(tile.bottom)
+    composer.setObjectName('DanmakuComposer')
+    composer.setAttribute(Qt.WA_StyledBackground)
+    composer.setGeometry(tile.bottom.width() // 2 - 115, 4, 230, 26)
+    # Match the installed composer, including the plugin's local background and button rules.
+    composer.setStyleSheet('#DanmakuComposer {background: transparent; border: none;}'
+                           '#DanmakuComposer QLineEdit {padding: 3px 6px;}')
+    row = QHBoxLayout(composer)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
+    editor = QLineEdit(composer)
+    editor.setPlaceholderText('Local input')
+    editor.setFixedHeight(26)
+    row.addWidget(editor, 1)
+    emoji = QPushButton(composer, objectName='TileCtrl')
+    emoji.setFixedSize(24, 24)
+    emoji.setStyleSheet('QPushButton#TileCtrl {border-radius: 12px; padding: 0;}')
+    row.addWidget(emoji)
+    send = QPushButton('发送', composer, objectName='TileCtrl')
+    send.setFixedSize(44, 26)
+    send.setStyleSheet('QPushButton#TileCtrl:disabled {background: transparent; color: palette(tooltip-text);}')
+    editor.textChanged.connect(lambda text: send.setEnabled(bool(text)))
+    row.addWidget(send)
+    composer.show()
+    try:
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            app.processEvents()
+            bar = tile.bottom
+            alpha = render(bar, 'transparent', QWidget.DrawWindowBackground)
+            check_gradient(alpha, bar.width() // 2)
+            white = render(bar, '#ffffff')
+            dark = render(bar, '#101010')
+            for widget in (tile.pause_button, tile.fullscreen_button):
+                rect = widget.geometry()
+                x, y = rect.left() + 2, rect.center().y()
+                assert 85 < white.pixelColor(x, y).value() < 155, 'Local button group must dim bright video'
+                assert dark.pixelColor(x, y).value() < 40, 'Backing must blend into dark video'
+                assert any(dark.pixelColor(x, y).value() > 200 for x in range(rect.left(), rect.right())
+                           for y in range(rect.top(), rect.bottom())), 'Button must keep its light foreground'
+            # The pause glyph itself stays unoutlined when painted without its group.
+            icon = render(tile.pause_button, '#ffffff')
+            assert all(icon.pixelColor(x, y).value() > 230
+                       for x in range(icon.width()) for y in range(icon.height()))
+            sample = QPoint(3, tile.pause_button.height() // 2)
+            hover_ink = QColor(theme.mix('#ffffff', '#e7ebf0', .15))
+            for button in (tile.pause_button, tile.volume_button, tile.danmaku_button,
+                           tile.danmaku_settings_button, tile.recording_button, tile.fullscreen_button):
+                before = render(button, '#ffffff')
+                app.sendEvent(button, QEvent(QEvent.Enter))
+                hovered = render(button, '#ffffff')
+                actual = hovered.pixelColor(sample)
+                assert all(abs(a - b) <= 1 for a, b in zip(actual.getRgb()[:3], hover_ink.getRgb()[:3])), (
+                    type(button).__name__, mode, actual.name(), hover_ink.name(),
+                    button.underMouse(), button.property('hovered'))
+                assert hovered.pixelColor(0, 0) == QColor('#ffffff'), 'Hover must follow the button corners'
+                app.sendEvent(button, QEvent(QEvent.Leave))
+                assert render(button, '#ffffff') == before, 'Leaving must restore the resting surface'
+            tile.pause_button.setEnabled(False)
+            app.sendEvent(tile.pause_button, QEvent(QEvent.Enter))
+            assert render(tile.pause_button, '#ffffff').pixelColor(sample) == QColor('#ffffff')
+            app.sendEvent(tile.pause_button, QEvent(QEvent.Leave))
+            tile.pause_button.setEnabled(True)
+            row.activate()
+            gap = QPoint(editor.geometry().right() + 2, composer.height() // 2)
+            field = QPoint(editor.geometry().right() - 16, gap.y())
+            editor.clearFocus()
+            for draft in ('', 'Local draft'):
+                editor.setText(draft)
+                send.setEnabled(bool(draft))
+                for backdrop in ('#ffffff', '#101010'):
+                    surface = render(bar, backdrop)
+                    fill = surface.pixelColor(composer.pos() + field)
+                    backing = surface.pixelColor(composer.pos() + gap)
+                    assert fill == backing, (mode, backdrop, fill.name(), backing.name())
+                    assert backing.lightness() <= 104, (mode, backdrop, backing.name())
+                bright = render(composer, '#ffffff', QWidget.DrawWindowBackground | QWidget.DrawChildren)
+                assert bright.pixelColor(0, 0) == QColor('#ffffff'), 'The backing keeps its rounded corners'
+                placeholder = editor.palette().color(QPalette.PlaceholderText)
+                assert placeholder.lightness() >= 220, (mode, placeholder.getRgb())
+                assert editor.palette().color(QPalette.Text) == QColor('#ffffff')
+                ink = send.palette().color(QPalette.ButtonText)
+                assert ink.lightness() >= 200, (mode, draft, ink.getRgb())
+            for button in (emoji, send):
+                idle = render(button, '#2d333a')
+                app.sendEvent(button, QEvent(QEvent.Enter))
+                hovered = render(button, '#2d333a')
+                button.setDown(True)
+                pressed = render(button, '#2d333a')
+                button.setDown(False)
+                app.sendEvent(button, QEvent(QEvent.Leave))
+                point = QPoint(5, button.height() // 2)
+                colors = [image.pixelColor(point) for image in (idle, hovered, pressed)]
+                assert len(set(color.name() for color in colors)) == 3, (mode, colors)
+                for image in (hovered, pressed):
+                    assert image.pixelColor(0, 0) == idle.pixelColor(0, 0), (mode, colors)
+                    rgb = image.pixelColor(point).getRgb()[:3]
+                    assert max(rgb) - min(rgb) < 24, (mode, rgb)
+    finally:
+        composer.hide()
+        composer.deleteLater()
+
+
+def check_windowed_overlay(app):
+    from ddm.playback_controls import _icon_color
+    from ddm.settings_autosave_apply import apply_changes
+    from ddm.widget_support import TILE_BAR_HEIGHT
+
+    key = 'windowed_transparent_controls'
+    auto_hide = 'windowed_auto_hide_controls'
+    rooms = [{'room_id': str(index), 'uname': f'Fixture {index}', 'live': False} for index in (1, 2)]
+    with patch('ddm.app.QTimer.singleShot'):
+        window = app_module.MainWindow(rooms, rooms, layout_id='2x2',
+            state={'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit'}})
+    window.setAttribute(Qt.WA_ShowWithoutActivating)
+    window.move(-10000, -10000)
+    window.resize(1280, 800)
+    window.show()
+    page = GeneralSettingsPage(window.settings)
+    first, second, empty = window.wall.tiles[:3]
+    original_video = QRect(first.video.geometry())
+    video_handles = [tile.video.winId() for tile in (first, second)]
+    editor = QLineEdit(first.bottom)
+    editor.setStyleSheet('QLineEdit {background: #236343; color: white; border: none;}')
+    editor.setText('draft')
+    editor.show()
+
+    def check_bar(tile):
+        bar = tile.bottom
+        assert bar.windowed_overlay and bar.isVisible()
+        assert not bar.property('fullscreen') and not tile.property('fullscreen')
+        assert bar.tile_y() == tile.height() - TILE_BAR_HEIGHT - 1
+        assert tile.video.geometry().contains(QRect(1, bar.tile_y(), bar.width(), bar.height()))
+        assert not bar.mask().contains(bar.rect().bottomLeft())
+        assert not tile.video.mask().contains(tile.video.rect().bottomLeft())
+        if app.platformName() == 'windows':
+            assert bar.isWindow() and bar.qt_composited
+            assert bar.windowHandle().format().alphaBufferSize() > 0
+
+    try:
+        assert original_video.bottom() < first.bottom.tile_y()
+        assert not page.values()[key]
+        assert page.sections.section('playback').isAncestorOf(page._checks[key])
+        assert not page.values()[auto_hide] and not page._checks[auto_hide].isEnabled()
+        page._checks[key].click()
+        assert page._checks[auto_hide].isEnabled()
+        with patch.object(window, '_restart_codec_tile') as restart:
+            apply_changes(window, {'settings': {key: page.values()[key]}})
+            app.processEvents()
+            restart.assert_not_called()
+        assert window.current_state()['settings'][key]
+        for tile in (first, second, empty):
+            check_bar(tile)
+        with patch.object(window.room_placement, 'open_add_room') as add_room:
+            assert empty.add_room_button.isVisible()
+            assert (empty.add_room_button.geometry().center() - empty.video.rect().center()).manhattanLength() <= 2
+            QTest.mouseClick(empty.add_room_button, Qt.LeftButton)
+            assert add_room.call_args.kwargs['target_tile'] is empty
+        empty.set_room({'room_id': '3'})
+        check_bar(empty)
+        assert empty.add_room_button.isHidden()
+        empty.set_room(None)
+        check_bar(empty)
+        assert empty.add_room_button.isVisible()
+        assert editor.text() == 'draft'
+        editor.setGeometry(first.bottom.width() // 2 - 45, 4, 90, 24)
+        QTest.keyClicks(editor, ' only')
+        assert editor.text() == 'draft only'
+        if app.platformName() == 'windows':
+            app.processEvents()
+            native = native_bar_image(first.bottom)
+            scale = native.devicePixelRatioF()
+            point = editor.mapTo(first.bottom, QPoint(editor.width() // 2, 2))
+            assert native.pixelColor(round(point.x() * scale), round(point.y() * scale)).name() == '#236343'
+        editor.hide()
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            app.processEvents()
+            for tile in (first, empty):
+                image = QImage(tile.bottom.size(), QImage.Format_ARGB32_Premultiplied)
+                image.fill(Qt.transparent)
+                with QPainter(image) as painter:
+                    tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+                check_gradient(image, image.width() // 2)
+                assert _icon_color(tile.pause_button).name() == '#ffffff'
+        click = Mock()
+        first.pause_button.clicked.connect(click)
+        QTest.mouseClick(first.pause_button, Qt.LeftButton)
+        click.assert_called_once()
+
+        window.move(window.pos() + QPoint(24, 16))
+        window.resize(1160, 750)
+        app.processEvents()
+        for tile in (first, second):
+            check_bar(tile)
+        first.move(first.pos() + QPoint(4, 5))
+        check_bar(first)
+        first.hide()
+        assert not first.bottom.isVisible() and second.bottom.isVisible()
+        first.show()
+        check_bar(first)
+        window.hide()
+        assert not first.bottom.isVisible() and not second.bottom.isVisible()
+        window.show()
+        app.processEvents()
+        check_bar(first)
+        check_bar(second)
+
+        window.showMinimized()
+        app.processEvents()
+        assert not any(tile.bottom.isVisible() for tile in (first, second, empty))
+        window.showNormal()
+        app.processEvents()
+        for tile in (first, second, empty):
+            check_bar(tile)
+
+        if app.platformName() == 'windows':
+            settings = window._get_settings_process()
+            settings.visible = True
+            settings._set_occlusion(QRect(), force=True)
+            assert first.bottom.isHidden() and second.bottom.isHidden(), 'Wait for the settings window'
+            settings.window_hwnd = 1
+            settings._set_occlusion(QRect(first.bottom.geometry()))
+            assert first.bottom.isHidden() and second.bottom.isVisible()
+            first._layout_areas()
+            assert first.bottom.isHidden(), 'Layout must not remap an occluded bar'
+            bar = first.bottom
+            overlap = QRect(bar.geometry())
+            overlap.setWidth(bar.width() // 2)
+            settings._set_occlusion(overlap)
+            covered = bar.mapFromGlobal(overlap.center())
+            exposed = QPoint(3 * bar.width() // 4, bar.height() // 2)
+            assert bar.isVisible(), 'A partial overlap must keep the exposed controls available'
+            assert not bar.mask().contains(covered) and bar.mask().contains(exposed)
+            user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+            user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
+            gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+            gdi32.CreateRectRgn.restype = wintypes.HRGN
+            gdi32.PtInRegion.argtypes = (wintypes.HRGN, ctypes.c_int, ctypes.c_int)
+            gdi32.DeleteObject.argtypes = (wintypes.HGDIOBJ,)
+            native_region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            try:
+                assert user32.GetWindowRgn(int(bar.winId()), native_region)
+                scale = bar.devicePixelRatioF()
+                assert not gdi32.PtInRegion(native_region, round(covered.x() * scale), round(covered.y() * scale))
+                assert gdi32.PtInRegion(native_region, round(exposed.x() * scale), round(exposed.y() * scale))
+            finally:
+                gdi32.DeleteObject(native_region)
+            first._layout_areas()
+            assert not bar.mask().contains(covered) and bar.mask().contains(exposed)
+
+            with patch.dict(window.settings, {auto_hide: True}):
+                first.set_controls_visible(False)
+                assert bar.isHidden()
+                first.set_controls_visible(True)
+                assert bar.isVisible() and not bar.mask().contains(covered)
+
+            overlap.setWidth(8)
+            settings._set_occlusion(overlap)
+            edge = QPoint(4, bar.height() // 2)
+            assert not bar.mask().contains(edge)
+            position = first.pos()
+            first.move(position + QPoint(12, 0))
+            assert bar.mask().contains(edge)
+            first.move(position)
+            assert bar.isVisible() and not bar.mask().contains(edge)
+            settings._set_occlusion(QRect(second.bottom.geometry()))
+            assert first.bottom.isVisible() and second.bottom.isHidden()
+            assert bar.mask().contains(covered)
+            with patch.dict(window.settings, {auto_hide: True}):
+                second.set_controls_visible(False)
+                settings.visible = False
+                settings.window_hwnd = 0
+                settings._set_occlusion(QRect())
+                assert second.bottom.isHidden(), 'Closing settings still respects auto-hide'
+            settings._set_occlusion(QRect(), force=True)
+            check_bar(first)
+            check_bar(second)
+
+            enter = window._fullscreen_presentation.enter
+            with patch.object(window, '_upgrade_fullscreen_quality'), \
+                    patch.object(window._fullscreen_presentation, 'enter',
+                                 side_effect=lambda tile: enter(tile, QRect(-12000, -12000, 1000, 700))):
+                window._on_fullscreen(first)
+            assert first.bottom.property('fullscreen') and first.bottom.isVisible()
+            assert not second.bottom.isVisible() and not empty.bottom.isVisible()
+            window._exit_fullscreen()
+            app.processEvents()
+            check_bar(first)
+            check_bar(second)
+
+        geometry = QRect(first.video.geometry())
+        page._checks[auto_hide].click()
+        apply_changes(window, {'settings': {auto_hide: page.values()[auto_hide]}})
+        assert window.current_state()['settings'][auto_hide]
+        with patch('ddm.tile_controls.QCursor.pos') as pointer, \
+                patch('ddm.tile_controls.time') as clock, \
+                patch('ddm.tile_widgets.set_native_cursor'):
+            clock.monotonic.return_value = 10.0
+
+            def poll(x):
+                pointer.return_value = x
+                first._poll_control_hover()
+                second._poll_control_hover()
+                empty._poll_control_hover()
+
+            point = first.video.mapToGlobal(first.video.rect().center())
+            poll(second.video.mapToGlobal(second.video.rect().center()))
+            assert second.bottom.isVisible() and first.bottom.isHidden()
+            poll(point)
+            check_bar(first)
+            assert second.bottom.isHidden()
+            clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS - .1
+            poll(point)
+            assert first.bottom.isVisible()
+            with patch.object(first, 'plugin_interaction_active', return_value=True):
+                clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS
+                poll(point)
+                assert first.bottom.isVisible()
+            with patch.object(first.volume_menu, 'isVisible', return_value=True):
+                clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS
+                poll(point)
+                assert first.bottom.isVisible()
+            clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
+            poll(point)
+            assert first.bottom.isHidden() and second.bottom.isHidden()
+            assert empty.bottom.isHidden()
+            empty_point = empty.video.mapToGlobal(empty.video.rect().center())
+            poll(empty_point)
+            check_bar(empty)
+            assert first.bottom.isHidden() and second.bottom.isHidden()
+            clock.monotonic.return_value += empty.CONTROL_IDLE_SECONDS + .1
+            poll(empty_point)
+            assert empty.bottom.isHidden() and empty.add_room_button.isVisible()
+            assert first.video.geometry() == geometry
+            with patch.object(first._plugin_controls, 'focus_input') as focus, \
+                    patch.object(first.bottom, 'activateWindow'):
+                first.focus_danmaku_input()
+                focus.assert_called_once()
+                check_bar(first)
+            first.set_controls_visible(False)
+            first._control_hover_timer.stop()
+            pointer.return_value = point + QPoint(5, 0)
+            with patch.object(window, 'isActiveWindow', return_value=True):
+                window._wall_control_hover.sync()
+            check_bar(first)
+            assert second.bottom.isHidden()
+
+            if app.platformName() == 'windows':
+                clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
+                poll(point + QPoint(5, 0))
+                assert first.bottom.isHidden()
+                with patch.object(window, '_upgrade_fullscreen_quality'), \
+                        patch.object(window._fullscreen_presentation, 'enter',
+                                     side_effect=lambda tile: enter(tile, QRect(-12000, -12000, 1000, 700))):
+                    window._on_fullscreen(first)
+                assert first.bottom.property('fullscreen') and first.bottom.isVisible()
+                window._exit_fullscreen()
+                assert first.bottom.windowed_overlay
+
+        page._checks[auto_hide].click()
+        apply_changes(window, {'settings': {auto_hide: page.values()[auto_hide]}})
+        first.set_controls_visible(False)
+        check_bar(first)
+        check_bar(second)
+        page.reset()
+        apply_changes(window, {'settings': {key: page.values()[key]}})
+        app.processEvents()
+        assert not window.current_state()['settings'][key]
+        assert first.video.geometry().bottom() < first.bottom.tile_y()
+        assert not first.bottom.property('overVideo') and not first.bottom.isWindow()
+        assert not second.bottom.isWindow() and not empty.bottom.isWindow()
+        assert not empty.bottom.windowed_overlay and empty.add_room_button.isVisible()
+        if app.platformName() == 'windows':
+            assert [tile.video.winId() for tile in (first, second)] == video_handles
+    finally:
+        page.close()
+        window.close()
+        app.processEvents()
+    print('PASS: windowed video overlay, settings, per-tile idle, controls, fullscreen and cleanup')
+
+
 def main():
     app = QApplication([])
+    if '--windowed' in sys.argv:
+        app_module.StatusPoller = app_module.StatsPoller = SilentPoller
+        check_windowed_overlay(app)
+        return
     badge = TimeBadge()
     refreshed = []
     badge.refresh_theme = lambda: refreshed.append(True)
@@ -232,6 +652,8 @@ def main():
         geometry = tile.video.geometry()
         assert geometry.height() == tile.height(), 'Fullscreen video must fill the bottom too'
         check_transparent_bar(app, tile)
+        check_skin_gradient(tile)
+        check_control_contrast(app, tile)
         if '--desktop' in sys.argv:
             with patch('ddm.motion.enabled', return_value=True):
                 tile.set_fullscreen_controls_hidden(True)
@@ -366,6 +788,8 @@ def main():
             window._fullscreen_tile = None
             window.wall.set_fullscreen_tile(None)
         assert not tile.bottom.property('fullscreen')
+        assert tile.bottom.testAttribute(Qt.WA_StyledBackground)
+        assert not tile.bottom.property('customControlSurface')
         assert not getattr(tile.bottom, '_layered_hwnd', None), 'Leaving fullscreen must restore ordinary bar painting'
         assert not tile.bottom.isWindow(), 'Leaving fullscreen must restore the ordinary child bar'
         assert not tile.bottom._masked_labels, 'Leaving fullscreen must restore native label regions'
@@ -375,10 +799,28 @@ def main():
         assert all(corner.isVisible() for corner in tile.video_corners)
         if app.platformName() == 'windows':
             assert not ctypes.windll.user32.GetWindowLongW(int(tile.bottom.winId()), -20) & 0x80000, 'Normal bar retained the fullscreen layered backing store'
+            get_owner = ctypes.windll.user32.GetWindow
+            get_owner.argtypes = (wintypes.HWND, wintypes.UINT)
+            get_owner.restype = wintypes.HWND
+            popup = QWidget(tile.bottom, Qt.Tool | Qt.FramelessWindowHint)
+            popup.setAttribute(Qt.WA_ShowWithoutActivating)
+            popup.move(-20000, -20000)
+            nested_popup = QWidget(popup, Qt.Tool | Qt.FramelessWindowHint)
+            nested_popup.setAttribute(Qt.WA_ShowWithoutActivating)
+            nested_popup.move(-20000, -20000)
+            wall_windows = set(QApplication.topLevelWidgets())
             enter = window._fullscreen_presentation.enter
+            sync_danmaku_controls = window.wall._sync_danmaku_controls
+
+            def sync_danmaku_before_video_hides():
+                if window.wall.fullscreen_tile is tile:
+                    assert tile.video.isVisible(), 'Docked controls must detach while the old video is visible'
+                sync_danmaku_controls()
+
             with patch.object(window, '_upgrade_fullscreen_quality'), \
                     patch.object(window._fullscreen_presentation, 'enter',
                                  side_effect=lambda target: enter(target, QRect(-20000, -20000, 1100, 800))), \
+                    patch.object(window.wall, '_sync_danmaku_controls', side_effect=sync_danmaku_before_video_hides), \
                     patch('ddm.motion.enabled', return_value=False):
                 for _ in range(3):
                     window._on_fullscreen(tile)
@@ -386,12 +828,21 @@ def main():
                     app.processEvents()
                     assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
                     assert tile.bottom.width() == tile.width()
+                    for current, owner in ((popup, tile.bottom), (nested_popup, popup)):
+                        current.show()
+                        assert get_owner(int(current.winId()), 4) == int(owner.winId()), (
+                            'A reused popup must belong to the current native owner')
                     tile.set_fullscreen_controls_hidden(True)
                     assert not tile.bottom.isVisible()
                     tile.set_fullscreen_controls_hidden(False)
                     assert tile.bottom.isVisible() and tile.bottom.windowOpacity() == 1.0
                     native_bar_image(tile.bottom)
+                    nested_popup.hide()
+                    popup.hide()
                     window._exit_fullscreen()
+                    assert not [widget for widget in set(QApplication.topLevelWidgets()) - wall_windows
+                                if widget.parentWidget() is window and widget.isVisible()], (
+                        'A temporary presentation window is still covering the restored wall')
                     app.processEvents()
                     assert tile.bottom.isVisible() and not tile.bottom.isWindow()
         page = GeneralSettingsPage({'fullscreen_auto_hide_controls': False})

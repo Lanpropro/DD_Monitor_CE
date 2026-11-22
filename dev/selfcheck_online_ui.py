@@ -24,8 +24,12 @@ from ddm.plugins import PluginManager, read_manifest
 
 def check_store_scroll(app, root):
     from types import SimpleNamespace
+    plugins = {'bili_live': ('B站直播互动', '文字与表情'),
+               'domestic_live': ('国内直播平台', '国内平台'),
+               'global_live': ('海外直播平台', '海外平台'),
+               'match_sync': ('比赛二路同步', '比赛画面对齐')}
     entries = [dict(id=key, name=name, description=description, version='1.0', enabled=True,
-                    status='已加载', reason='') for key, (name, description) in online.KNOWN_PLUGINS.items()]
+                    status='已加载', reason='') for key, (name, description) in plugins.items()]
     manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
                               plugins_dir=str(root / 'scroll-plugins'), _removed=set())
     offers = [dict(entry, version='1.1', available=True, notes='\n'.join(['更新说明，保留阅读位置'] * 18))
@@ -72,6 +76,7 @@ def check_store_scroll(app, root):
                 store._installed((offers[1]['id'], False))
                 app.processEvents()
                 assert bar.value() == before, 'Install completion moved scroll'
+                assert '重启以应用' in store.status.text()
             page = dialog.plugin_page
             plugin_id = entries[0]['id']
             card = page.cards.itemAt(0).widget()
@@ -97,6 +102,8 @@ def check_store_scroll(app, root):
 
 def check_store_browser(app, root):
     from types import SimpleNamespace
+    from ddm.plugin_store_ui import PluginStoreLogo
+    from selfcheck_plugin_cache import CATALOG_LOGO
     offers = [dict(id=f'browser_{index:03d}', name=f'插件 {63-index:02d}', version='1.1',
                    description='直播辅助 ' + ('录制工具' if index % 2 else '弹幕工具') + ' 长说明' * 30,
                    author='Alice' if index % 2 else 'Bob', available=True,
@@ -104,6 +111,8 @@ def check_store_browser(app, root):
     entries = [dict(offer, version='1.0', enabled=True, status='已加载', reason='') for offer in offers[:3]]
     offers[1]['version'] = '1.0'
     offers[2].update(available=False, reason='需要新版主程序')
+    offers[0]['icon_png'] = CATALOG_LOGO
+    offers[1]['icon_png'] = 'invalid data'
     offers[62].update(name='插件 99 ' + '很长的插件名称' * 30, author='Bob' * 60)
     manager = SimpleNamespace(catalog=lambda: entries, enabled=None,
                               plugins_dir=str(root / 'browser-plugins'), _removed=set())
@@ -116,6 +125,12 @@ def check_store_browser(app, root):
             page.show()
             app.processEvents()
             assert page.count.text() == '64 / 64 个插件'
+            logo = page._offer_cards['browser_000'].findChild(PluginStoreLogo, 'PluginStoreLogo')
+            generic = page._offer_cards['browser_001'].findChild(PluginStoreLogo, 'PluginStoreLogo')
+            assert logo.pixmap.width() == 40 and logo.pixmap.height() == 20
+            assert generic.pixmap.isNull() and logo.size() == generic.size()
+            image = logo.grab().toImage()
+            assert image.pixelColor(image.width() // 2, image.height() // 2).red() == 230
             assert page.scroll.horizontalScrollBar().maximum() == 0
             assert all(card.height() >= card.minimumSizeHint().height() for card in page._offer_cards.values()), \
                 'Plugin cards must reserve the complete text and action-row height'
@@ -209,11 +224,22 @@ def check_plugin_page_boundaries(app, root):
 
 
 def check_installed_browser(app, root):
+    from base64 import b64decode
     from types import SimpleNamespace
+    from ddm.plugin_store_ui import PluginStoreLogo
+    from selfcheck_plugin_cache import CATALOG_LOGO, package
+
+    archive = root / 'installed-logo.zip'
+    archive.write_bytes(package('installed_00', icon='icon.png',
+                                files={'icon.png': b64decode(CATALOG_LOGO)}))
+    installer = PluginManager(plugins_dir=str(root / 'installed-logo'))
+    assert installer.install_zip(str(archive)) == 'installed_00'
+    icon = installer.catalog()[0]['icon_png']
+    assert icon == CATALOG_LOGO
     entries = [dict(id=f'installed_{index:02d}', name=f'插件 {15-index:02d}', version='1.0',
                     description='完整说明 ' * 60, enabled=index % 2 == 0,
                     status='已加载' if index % 2 == 0 else '未启用', reason='') for index in range(16)]
-    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80)
+    entries[0].update(name='长名称' * 60, status='加载失败', reason='完整失败原因 ' * 80, icon_png=icon)
     offers = [dict(entry, version='1.1', author='Alice' if index % 2 else 'Bob' * 60,
                    available=True, notes='完整更新记录末尾') for index, entry in enumerate(entries[:3])]
     manager = SimpleNamespace(catalog=lambda: [dict(entry) for entry in entries], enabled=None,
@@ -233,6 +259,12 @@ def check_installed_browser(app, root):
             dialog.show()
             QTest.qWait(180)
             assert browser.count.text() == '16 / 16 个插件'
+            logo = page._installed_cards['installed_00'].findChild(PluginStoreLogo)
+            generic = page._installed_cards['installed_01'].findChild(PluginStoreLogo)
+            assert (logo.pixmap.width(), logo.pixmap.height()) == (40, 20)
+            assert generic.pixmap.isNull()
+            image = logo.grab().toImage()
+            assert image.pixelColor(image.width() // 2, image.height() // 2).red() == 230
             assert page.installed_scroll.horizontalScrollBar().maximum() == 0
             assert all(card.height() >= card.minimumSizeHint().height() for card in page._installed_cards.values()), \
                 'Installed cards must not squeeze text below its minimum height'
@@ -435,6 +467,7 @@ def check_download_reopen(app, root):
             release.set()
             window._close_settings_host()
             window.close()
+            window.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             app.processEvents()
     print('PASS: same download/progress and prepared update after closing/reopening normal and hosted settings')
@@ -452,6 +485,8 @@ def check_download_reopen(app, root):
     window.close()
     settle(app, page)
     assert interrupted.wait(2) and page.stopping, 'Application exit must stop a hidden update task'
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def main():
@@ -459,7 +494,8 @@ def main():
     app.setStyleSheet(theme.qss())
     check_remove_prompt(app)
     ui_thread = threading.get_ident()
-    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary):
+    with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary), \
+            patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'host-plugins')):
         root = Path(temporary)
         check_store_browser(app, root)
         check_plugin_page_boundaries(app, root)
@@ -499,6 +535,7 @@ def main():
             assert page.browser.isAncestorOf(page.refresh)
             assert not page.search.geometry().intersects(page.refresh.geometry())
             bar = dialog.plugin_page.tabs.tabBar()
+            assert bar.cursor().shape() == Qt.PointingHandCursor
             tab_rect = bar.tabRect(1)
             tab_image = bar.grab().toImage()
             assert tab_image.pixelColor(tab_rect.topLeft()) != tab_image.pixelColor(
@@ -687,6 +724,8 @@ def main():
                 assert window._closing and window._update_plan == str(plan_path)
                 assert not window._restart_requested and save.called
                 finish.assert_called_once()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         # 下载取消后等待工作线程退出，避免销毁仍运行的 QThread。
         standalone = OnlinePage()
         started = threading.Event()

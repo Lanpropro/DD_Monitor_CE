@@ -1,5 +1,6 @@
 """每个画面独立的 libmpv 播放、音频与故障恢复。"""
 import os
+import math
 import re
 import sys
 import time
@@ -12,7 +13,7 @@ from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 
 from .audio_output import audio_filters, linear_volume
 from .audio_normalization import LiveVolumeNormalizer, normalize_curve
-from .auto_quality import AutoQuality
+from .auto_quality import AutoQuality, OVERSEAS_PLATFORMS
 from .bili import APP_UA, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
 from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
@@ -43,6 +44,7 @@ def decode_media_options(mode: str) -> tuple[str, ...]:
 class TilePlayer(QObject):
     stateChanged = Signal(str)
     pictureActivity = Signal()
+    videoResolutionChanged = Signal(str)
     autoQualityRequested = Signal(int)
     decoderFallback = Signal(str)
 
@@ -65,10 +67,11 @@ class TilePlayer(QObject):
                 core.terminate()
         return cls._version
 
-    def __init__(self, video_widget, parent=None, silent: bool = False):
+    def __init__(self, video_widget, parent=None, silent: bool = False, *, live_rewind=False):
         super().__init__(parent)
         self.video_widget = video_widget
         self.silent = bool(silent)
+        self._live_rewind = bool(live_rewind) and not self.silent
         self.muted = self.silent
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
@@ -97,6 +100,8 @@ class TilePlayer(QObject):
         self.source_failure = ""
         self.state_generation = 0
         self.player = None
+        self.report_video_resolution = False
+        self._reported_video_resolution = ''
         self.decode_mode = "none" if self.silent else "auto"
         self._decode_key = None
         self._decode_tried: set[str] = set()
@@ -133,6 +138,21 @@ class TilePlayer(QObject):
     def _set(self, name, value):
         if self.player is not None and not self._released:
             setattr(self.player, name.replace("-", "_"), value)
+
+    def request_video_frame(self):
+        if self.player is None or self._released or self.silent:
+            return None
+        session = self.play_session
+
+        def received(error, frame):
+            if not error and not self._released and self.play_session == session:
+                return frame
+            return None
+
+        try:
+            return self.player.command_async('screenshot-raw', 'video', callback=received)
+        except (OSError, RuntimeError, ValueError):
+            return None
 
     def _log(self, level, prefix, message):
         if (self.stream_profile == "douyu" and level in ("error", "fatal")
@@ -188,7 +208,9 @@ class TilePlayer(QObject):
                 input_builtin_dragging=False, idle=True, keep_open=True,
                 # Close WASAPI on mpv's core thread, not during GUI-thread termination.
                 gapless_audio=False,
-                cache=True, demuxer_max_bytes="16MiB", demuxer_max_back_bytes=0,
+                cache=True, demuxer_max_bytes="16MiB",
+                demuxer_max_back_bytes="32MiB" if self._live_rewind else 0,
+                **({"force_seekable": True, "demuxer_seekable_cache": True} if self._live_rewind else {}),
                 network_timeout=8, log_handler=self._log, loglevel="error",
             )
         self._bound_hwnd = hwnd
@@ -222,6 +244,7 @@ class TilePlayer(QObject):
         self.url = url
         self.stream_profile = profile
         self.play_session = uuid.uuid4().hex[:8]
+        self._reported_video_resolution = ''
         self.source_failure = ""
         self.paused = False
         self._decoder_error = False
@@ -229,8 +252,9 @@ class TilePlayer(QObject):
         self._refill_watch.reset()
         self._decode_snapshot = None
         self._decode_stall_ticks = 0
-        overseas = profile in ("twitch", "youtube")
-        hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas
+        overseas = profile in OVERSEAS_PLATFORMS
+        qie_hls = profile == "qie" and urlsplit(url).path.lower().endswith(".m3u8")
+        hls = is_hls_profile(profile) or profile in ("huya", "douyu", "douyin") or overseas or qie_hls
         self._picture_limit = 20 if overseas else 8 if hls and profile != "douyu" else self.FROZEN_TICKS
         self._buffer_limit = 20 if overseas else 6
         default_profile = "app" if profile.startswith("app") else "web"
@@ -238,7 +262,11 @@ class TilePlayer(QObject):
         if not any(name.lower() == "user-agent" for name in request_headers):
             request_headers["User-Agent"] = UA
         playback_url = url
-        if overseas or profile == "huya":
+        from .media_sources import take
+        retained = take(url)
+        if retained is not None:
+            self._hls_proxy = retained
+        elif overseas or profile == "huya" or qie_hls:
             from .global_danmaku import request_proxy
             from .hls_proxy import HlsProxy, FLV_HANDOFF_HEADER, take_flv_response
             session, room = self.play_session, self.diagnostic_room
@@ -384,6 +412,33 @@ class TilePlayer(QObject):
         elif self._media is not None:
             self._watch.start()
             self._picture_watch.start()
+
+    def playback_timing(self):
+        """Return the current media position and, when available, its seekable duration."""
+        return self._prop('time-pos'), self._prop('duration') if self._prop('seekable', False) else None
+
+    def seek_to(self, seconds):
+        if self.player is None or not self._prop('seekable', False):
+            return False
+        self.player.command('seek', seconds, 'absolute+exact')
+        return True
+
+    def cached_seek_ranges(self):
+        """Return the currently seekable intervals, including any gaps between them."""
+        if self.player is None or self._media is None:
+            return ()
+        cache = self._prop('demuxer-cache-state', {}) or {}
+        intervals = []
+        for interval in cache.get('seekable-ranges', ()):
+            start, end = interval.get('start'), interval.get('end')
+            if all(isinstance(value, (float, int)) and math.isfinite(value)
+                   for value in (start, end)) and start < end:
+                intervals.append((start, end))
+        return tuple(sorted(intervals))
+
+    def seek_cached(self, seconds):
+        """Seek only to media currently retained by libmpv."""
+        return any(start <= seconds <= end for start, end in self.cached_seek_ranges()) and self.seek_to(seconds)
 
     @property
     def actual_decoder(self) -> str:
@@ -544,6 +599,14 @@ class TilePlayer(QObject):
             self._stall_ticks = 0
             if self.state != "frozen":
                 self._set_state("playing")
+            if self.report_video_resolution:
+                params = self._prop('video-params') or {}
+                width, height = params.get('w'), params.get('h')
+                if width and height:
+                    resolution = f'{width}×{height}'
+                    if resolution != self._reported_video_resolution:
+                        self._reported_video_resolution = resolution
+                        self.videoResolutionChanged.emit(resolution)
             return
         if self._hls_proxy is not None and self._hls_proxy.live_ended.is_set():
             self._set_state("error")

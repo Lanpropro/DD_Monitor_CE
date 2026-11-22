@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 from shiboken6 import isValid
@@ -155,6 +156,67 @@ class UpdateDownloadTests(unittest.TestCase):
         notice.dismiss(animate=False)
         notice.deleteLater()
         theme.apply('dark')
+
+    def test_single_update_notice_uses_one_headline_and_horizontal_actions(self):
+        notice = UpdateNotice(self.host)
+        self.addCleanup(theme.apply, 'dark')
+        app_entry = dict(key='app', title='软件 v0.8', enabled=True)
+        notice.set_updates([app_entry])
+        notice.show_offer({'version': '0.8'}, persistent=True)
+        logo = QPixmap(str(Path(__file__).resolve().parents[1] / 'assets/logo.png'))
+        self.assertFalse(logo.isNull())
+        self.assertEqual(notice.indicator.pixmap().toImage(), logo.toImage())
+        row, progress, download = notice._update_rows['app']
+        settings = notice.settings_action
+        requested, opened = [], []
+        notice.updateRequested.connect(requested.append)
+        notice.activated.connect(lambda: opened.append(True))
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            notice._resize_to_content()
+            self.app.processEvents()
+            titles = [label.text() for label in notice.findChildren(QLabel)
+                      if label.isVisible() and 'v0.8' in label.text()]
+            self.assertEqual(titles, ['软件 v0.8 可更新'])
+            self.assertTrue(notice.indicator.isVisible())
+            self.assertTrue(download.isVisible() and settings.isVisible())
+            download_position = download.mapTo(notice, download.rect().center())
+            settings_position = settings.mapTo(notice, settings.rect().center())
+            self.assertLess(download_position.x(), settings_position.x())
+            self.assertLessEqual(abs(download_position.y() - settings_position.y()), 1)
+            self.assertLessEqual(notice.height(), 150)
+            directory = os.environ.get('DDM_UPDATE_PREVIEW')
+            if directory:
+                notice.grab().save(str(Path(directory) / f'update-toast-{mode}.png'))
+
+        QTest.mouseClick(notice.windowHandle(), Qt.LeftButton,
+                         pos=download.mapTo(notice, download.rect().center()))
+        self.assertEqual(requested, ['app'])
+        self.assertFalse(opened)
+        self.host.resize(316, 500)
+        notice.set_transfer('app', dict(phase='downloading', percent=25, received=25, total=100))
+        self.app.processEvents()
+        self.assertTrue(progress.bar.isVisible() and settings.isVisible())
+        self.assertEqual(progress.bar.value(), 25)
+        self.assertTrue(notice.rect().contains(settings.geometry()))
+        self.assertTrue(notice.rect().contains(progress.bar.mapTo(notice, progress.bar.rect().bottomRight())))
+
+        notice.set_transfer('app', dict(phase='ready', percent=100, received=100, total=100))
+        self.assertTrue(download.isVisible())
+        self.assertEqual(download.text(), '重启以应用')
+        notice.set_updates([app_entry, dict(key='plugin', title='插件 v1.0')])
+        self.assertIs(notice._update_rows['app'][2], download)
+        self.assertTrue(notice.updates_scroll.isVisible())
+        self.assertIs(row.parentWidget(), notice.updates_container)
+        notice.set_updates([app_entry])
+        self.assertIs(row.parentWidget(), notice)
+        self.assertTrue(notice.updates_scroll.isHidden())
+        self.app.processEvents()
+        QTest.mouseClick(notice.windowHandle(), Qt.LeftButton,
+                         pos=settings.mapTo(notice, settings.rect().center()))
+        self.assertEqual(opened, [True])
+        self.assertEqual(requested, ['app'])
 
     def test_pointer_click_settings_edges_and_card_never_downloads(self):
         notice = UpdateNotice(self.host)
@@ -432,13 +494,17 @@ class UpdateDownloadTests(unittest.TestCase):
         store.offers = offers
         store.show_offers(offers)
         page._show_update_notes(offers)
-        page.resize(2600, 650)
+        page.setProperty('settings_card_layout', 'vertical')
+        page.resize(1000, 650)
         page.show()
         for tab in (0, 1):
             page.tabs.setCurrentIndex(tab)
             cards = page._installed_cards if tab == 0 else store._offer_cards
             owner = page if tab == 0 else store
             self.app.processEvents()
+            self.assertEqual(owner.cards._columns, 2,
+                             (tab, page.width(), (page.installed_scroll if tab == 0 else store.scroll).viewport().width(),
+                              [card.minimumSizeHint().width() for card in cards.values()]))
             self.wait_for(lambda: cards[keys[1]].x() > cards[keys[0]].x())
             before = {key: card.geometry() for key, card in cards.items()}
             owner._detail_buttons[keys[0]].setChecked(True)
@@ -516,6 +582,157 @@ class UpdateDownloadTests(unittest.TestCase):
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         theme.configure_appearance({'appearance_font': theme.danmaku_font_family(), 'appearance_font_size': 13})
         theme.apply('dark')
+
+    def test_plugin_columns_resize_filter_sort_and_keep_download_controls(self):
+        from ddm.settings_plugins import PluginSettingsPage
+        self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        keys = [f'responsive_{n}' for n in range(4)]
+        for key in keys:
+            self.manager.install_zip(str(self.package(key, '1.0')))
+        offers = [dict(id=key, name=f'插件{4-index}', description='布局验收', author='Fixture',
+                       version='2.0', available=True) for index, key in enumerate(keys)]
+        page = PluginSettingsPage(self.manager)
+        try:
+            page.setProperty('settings_card_layout', 'vertical')
+            store = page.store_page
+            store.offers = offers
+            store.show_offers(offers)
+            page._show_update_notes(offers)
+            state = dict(received=128 * 1024 * 1024, total=256 * 1024 * 1024,
+                         speed=12 * 1024 * 1024, percent=50, phase='downloading')
+            store.downloads.states[keys[0]] = state
+            store._busy(False)
+            page._sync_update_buttons()
+            page.show()
+            for tab in (0, 1):
+                page.tabs.setCurrentIndex(tab)
+                owner = page if tab == 0 else store
+                cards = dict(page._installed_cards if tab == 0 else store._offer_cards)
+                buttons = dict(page.update_buttons if tab == 0 else store.buttons)
+                progress = page._installed_progress[keys[0]] if tab == 0 else store._progress_widgets[keys[0]]
+                browser = page.installed_browser if tab == 0 else store.browser
+                scroll = page.installed_scroll if tab == 0 else store.scroll
+                for width, columns in ((1000, 2), (680, 1), (1000, 2)):
+                    page.resize(width, 650)
+                    self.app.processEvents()
+                    self.assertEqual(owner.cards._columns, columns)
+                    self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+                    self.assertEqual(progress.bar.value(), 50)
+                    self.assertTrue(progress.bar.isVisible())
+                    self.assertFalse(progress.button.isVisible())
+                    for key in keys:
+                        current = page._installed_cards if tab == 0 else store._offer_cards
+                        self.assertIs(current[key], cards[key])
+                        self.assertIs((page.update_buttons if tab == 0 else store.buttons)[key], buttons[key])
+                browser.search.setText(keys[0])
+                self.assertEqual(owner.cards.count(), 1)
+                self.assertIs(owner.cards.itemAt(0).widget(), cards[keys[0]])
+                browser.search.clear()
+                browser.sort.setCurrentIndex(1)
+                # Installed packages retain their manifest names; store offers
+                # deliberately use the reverse name order in this fixture.
+                first = keys[0] if tab == 0 else keys[-1]
+                self.assertIs(owner.cards.itemAt(0).widget(), cards[first])
+                browser.filter.setCurrentIndex(3)
+                self.assertEqual(owner.cards.count(), 4)
+                self.assertEqual(progress.bar.value(), 50)
+                self.assertEqual(len(buttons), 4)
+                self.assertEqual(owner.cards._columns, 2)
+        finally:
+            page.store_page.stop()
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_plugin_controls_use_shared_library_and_preserve_actions_and_check_signals(self):
+        from PySide6.QtWidgets import QDialog
+        from ddm.settings_performance import SettingsProbe
+        from ddm.settings_plugins import PluginRemovePrompt, PluginSettingsPage
+        from ddm.ui import ActionButton, DisclosureButton, SelectControl, ToggleSwitch
+        self.stack.enter_context(patch.object(PluginStorePage, 'open_catalog'))
+        probe = SettingsProbe(self.root / 'plugin-settings-performance.jsonl')
+        self.stack.callback(probe.stop)
+        self.stack.enter_context(patch.object(PluginSettingsPage, '_installed_selection_changed',
+                                              PluginSettingsPage._installed_selection_changed))
+        probe.wrap(PluginSettingsPage, '_installed_selection_changed', trace_each=True)
+        key = 'shared_controls'
+        self.manager.install_zip(str(self.package(key, '1.0')))
+        page = PluginSettingsPage(self.manager)
+        prompt = PluginRemovePrompt('测试插件')
+        try:
+            store = page.store_page
+            offers = [dict(id=key, name='已安装插件', version='2.0', available=True),
+                      dict(id='new_plugin', name='新插件', version='1.0', available=True)]
+            store.offers = offers
+            store.show_offers(offers)
+            page._show_update_notes(offers)
+            page.resize(1000, 650)
+            page.show()
+            self.app.processEvents()
+            for browser in (page.installed_browser, store.browser):
+                for control in (browser.filter, browser.sort):
+                    self.assertIsInstance(control, SelectControl)
+                    changed = []
+                    control.currentIndexChanged.connect(changed.append)
+                    QTest.keyClick(control, Qt.Key_Down)
+                    self.assertEqual(control.currentIndex(), 1)
+                    self.assertEqual(changed[-1], 1)
+                    control.setCurrentIndex(0)
+                self.assertEqual(browser.search.objectName(), 'Search')
+            card = page._installed_cards[key]
+            check = page.checks[key]
+            self.assertIsInstance(check, ToggleSwitch)
+            self.assertEqual(check.text(), '启用')
+            self.assertIn(key, check.accessibleName())
+            self.assertTrue(check.accessibleDescription())
+            labels = [label for label in card.findChildren(QLabel) if label.buddy() is check]
+            self.assertEqual([label.text() for label in labels], ['启用'])
+            self.assertTrue(labels[0].isVisible())
+            states, toggled, page_changes = [], [], []
+            check.stateChanged.connect(states.append)
+            check.toggled.connect(toggled.append)
+            page.changed.connect(lambda: page_changes.append(check.isChecked()))
+            before = check.isChecked()
+            QTest.keyClick(check, Qt.Key_Space)
+            self.assertEqual(check.isChecked(), not before)
+            self.assertEqual(states, [Qt.Checked.value if check.isChecked() else Qt.Unchecked.value])
+            self.assertEqual(toggled, [not before])
+            self.assertEqual(page_changes, [not before])
+            self.assertIn('重启后生效', page.card_details[key][1].text())
+            for control in (page.install_button, page.update_buttons[key], store.refresh,
+                            *store.buttons.values(), prompt.cancel_button, prompt.delete_button):
+                self.assertIsInstance(control, ActionButton)
+            remove = next(button for button in card.findChildren(QPushButton) if button.text() == '删除')
+            self.assertIsInstance(remove, ActionButton)
+            self.assertIsInstance(page._detail_buttons[key], DisclosureButton)
+            self.assertTrue(prompt.cancel_button.isDefault())
+            self.assertFalse(prompt.delete_button.autoDefault())
+            self.assertEqual(prompt.delete_button.objectName(), 'PrimaryButton')
+            with patch('ddm.settings_plugins.QFileDialog.getOpenFileName', return_value=('', '')) as choose:
+                page.install_button.click()
+                choose.assert_called_once()
+            with patch.object(store, 'refresh_catalog') as refresh:
+                store.refresh.click()
+                refresh.assert_called_once_with(force=True)
+            with patch.object(store, 'install_offer') as install:
+                page.update_buttons[key].click()
+                store.buttons['new_plugin'].click()
+                self.assertEqual(install.call_count, 2)
+                install.assert_any_call(offers[0])
+                install.assert_any_call(offers[1])
+            with patch.object(page, '_remove') as delete:
+                remove.click()
+                delete.assert_called_once_with(key, card)
+            prompt.cancel_button.click()
+            self.assertEqual(prompt.result(), QDialog.DialogCode.Rejected)
+            prompt.delete_button.click()
+            self.assertEqual(prompt.result(), QDialog.DialogCode.Accepted)
+        finally:
+            prompt.deleteLater()
+            store.stop()
+            page.close()
+            page.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_notification_plugin_progress_reopen_and_retry(self):
         key = 'fixture'

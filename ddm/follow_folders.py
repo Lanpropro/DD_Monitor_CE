@@ -1,4 +1,5 @@
 """关注分组规则：保留手动归属，按来源及条件计算智能文件夹显示。"""
+import re
 from copy import deepcopy
 
 UNCLASSIFIED = "__unclassified__"
@@ -6,7 +7,7 @@ SORT_MODES = [("custom", "自定义顺序（拖动调整）"), ("live", "开播�
               ("frequent", "常看优先"),
               ("offline", "未开播优先"), ("imported", "导入顺序"), ("name", "主播名称")]
 PLATFORM_NAMES = {"bilibili": "哔哩哔哩", "huya": "虎牙", "douyu": "斗鱼",
-                  "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube"}
+                  "douyin": "抖音", "twitch": "Twitch", "youtube": "YouTube", "chzzk": "CHZZK"}
 ICON_NAMES = ("folder", "star", "heart", "game", "music", "video")
 ICON_COLORS = ("default", "blue", "pink", "green", "orange", "purple")
 
@@ -14,8 +15,12 @@ ICON_COLORS = ("default", "blue", "pink", "green", "orange", "purple")
 def normalize_icon(value):
     if not isinstance(value, dict):
         return None
-    if value.get("type") == "builtin" and value.get("name") in ICON_NAMES and value.get("color") in ICON_COLORS:
-        return {"type": "builtin", "name": value["name"], "color": value["color"]}
+    if value.get("type") == "builtin" and value.get("name") in ICON_NAMES:
+        color = value.get("color")
+        if color in ICON_COLORS:
+            return {"type": "builtin", "name": value["name"], "color": color}
+        if isinstance(color, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            return {"type": "builtin", "name": value["name"], "color": color.lower()}
     path = value.get("path")
     if value.get("type") == "image" and isinstance(path, str):
         parts = path.split("/")

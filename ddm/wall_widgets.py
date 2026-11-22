@@ -10,10 +10,12 @@ from PySide6.QtWidgets import QApplication, QGridLayout, QStyle, QStyleOption, Q
 from . import layouts, resize_layout, theme
 from .wall_border import WallBorderInteraction, WallPaneBorder, WallResizePreview
 from .danmaku_widgets import DanmakuPanel
+from .danmaku_sources import is_live_danmaku_source
 from .tile_widgets import Tile
 from .widget_support import TILE_BAR_HEIGHT, _repolish
 from .wall_layout import WallLayout
 from .wall_presentation import WallPresentation
+from .wall_snap_grid import WallSnapGrid
 
 
 from .wall_geometry import (best_columns)
@@ -33,14 +35,17 @@ class WallGrid(QWidget):
     paneApplyRequested = Signal(object)
     danmakuPanelCreated = Signal(object)
     paneConfigurationChanged = Signal()
+    floatingDanmakuChanged = Signal()
 
     def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None,
-                 corner_ratios=None, layout_ratios=None, pane_layouts=None):
+                 corner_ratios=None, layout_ratios=None, pane_layouts=None, seamless=False):
         super().__init__(parent)
         self.presentation_control = WallPresentation(self)
         self.layout_control = WallLayout(self)
+        self.snap_grid = WallSnapGrid(self)
         self._prepare_room = prepare_room
         self.setObjectName("WallGrid")
+        self.setProperty('seamless', bool(seamless))
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._quick_danmaku_layer = None
         self._quick_danmaku_attempted = False
@@ -51,6 +56,7 @@ class WallGrid(QWidget):
             self.setAttribute(Qt.WA_NativeWindow, True)
         # 老配置里可能存着已经删掉的布局，回落到自动布局
         self.layout_id = layout_id if layout_id in layouts.BY_ID else layouts.DEFAULT_LAYOUT
+        self.setAcceptDrops(bool(self.snap_grid.size))
         self.tiles: list[Tile] = []
         self.picture_in_picture_tiles = None
         self.picture_in_picture_columns = 0
@@ -82,13 +88,9 @@ class WallGrid(QWidget):
 
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(16, 16, 16, 16)   # 上下留白一致，隐藏顶栏时不会顶到最上面
-        self.grid.setSpacing(8)
+        self.grid.setSpacing(0 if self.seamless else 8)
 
         # 一大五小保留原播放格及父窗口，边框交互只改变几何。
-        self._corner_width_ratio = 2 / 3
-        self._corner_height_ratio = 2 / 3
-        self._corner_right_ratio = 1 / 2
-        self._corner_bottom_ratios = [1 / 3, 2 / 3]  # 底部两条分隔线的累计宽度比例
         self.restore_corner_ratios(corner_ratios)
 
         self._partitions = {}
@@ -107,6 +109,13 @@ class WallGrid(QWidget):
         self._layout_ratios = {
             identifier: resize_layout.validated_weights(saved.get(identifier), tree)
             for identifier, tree in self._partitions.items()}
+        from .room_presets import validate_ratios
+        for identifier in self._partitions:
+            if layouts.snap_grid_size(identifier):
+                try:
+                    self._layout_ratios[identifier] = validate_ratios(identifier, saved.get(identifier, {}))
+                except ValueError:
+                    pass
         self._preset_dividers = {}
         self._divider_rects = {}
 
@@ -126,8 +135,28 @@ class WallGrid(QWidget):
         self.pane_danmaku.restore_sources()
         self.relayout(force=True)
 
+    @property
+    def seamless(self):
+        return self.property('seamless')
+
+    def set_seamless(self, enabled):
+        enabled = bool(enabled)
+        if self.seamless == enabled:
+            return
+        self._cancel_border_drag()
+        self.setProperty('seamless', enabled)
+        self.grid.setSpacing(0 if enabled else 8)
+        self.relayout(force=True)
+        self.grid.activate()
+        for tile in self.tiles:
+            tile._layout_areas()
+            tile.update()
+        for pane in self.pane_danmaku.wall_widgets():
+            pane.update()
+            for child in pane.findChildren(QWidget):
+                child.update()
+
     def refresh_theme(self):
-        self.grid.setSpacing(8)
         # Finish theme-driven geometry before snapshot overlays start watching
         # video surfaces; a delayed Resize would cancel the reveal immediately.
         self.grid.activate()
@@ -144,12 +173,15 @@ class WallGrid(QWidget):
     def set_layout(self, layout_id: str, *, relayout: bool = True) -> None:
         if layout_id == self.layout_id:
             return
+        self.snap_grid.cancel_pending_drops()
+        self.pane_danmaku.return_all_floating()
         self.set_interactive_resize(False)
         self._resize_on_show = False
         self._relayout_timer.stop()
         self._cancel_border_drag()
         self._preset_dividers = {}
         self.layout_id = layout_id
+        self.setAcceptDrops(bool(self.snap_grid.size))
         self._danmaku_cell = layouts.danmaku_cell(layout_id)
         self._columns = -1
         self._last_height = 0
@@ -203,6 +235,7 @@ class WallGrid(QWidget):
         # 竖屏布局是手动 setGeometry，不经过 QGridLayout 的 addWidget；
         # 先挂到画面墙，新增空格才不会在 setVisible() 时变成顶层悬浮窗。
         tile = Tile(room, self)
+        tile.open_danmaku_float = lambda: self.pane_danmaku.open_for_tile(tile)
         if self._quick_danmaku_layer is not None:
             tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
         tile.addRoomRequested.connect(lambda t=tile: self.addRoomRequested.emit(t))
@@ -256,8 +289,7 @@ class WallGrid(QWidget):
 
     @property
     def has_danmaku(self) -> bool:
-        from .pip_composition import focus_chat_cells
-        shown = self.picture_in_picture_tiles is None or bool(focus_chat_cells(self, self.picture_in_picture_columns))
+        shown = self.picture_in_picture_tiles is None
         return shown and bool(self.pane_danmaku.bindings()) and bool(self._cells())
 
     def danmaku_target_tile(self):
@@ -265,14 +297,18 @@ class WallGrid(QWidget):
             return self.pane_danmaku.target(self.danmaku)
         main = self.main_index()
         if main is not None and 0 <= main < len(self.tiles):
-            return self.tiles[main]
-        return next((tile for tile in self.tiles if tile.room.get('room_id')), None)
+            tile = self.tiles[main]
+            return tile if is_live_danmaku_source(tile.room) else None
+        return next((tile for tile in self.tiles if is_live_danmaku_source(tile.room)), None)
 
     def sync_sc_placement(self):
-        targets = {self.pane_danmaku.target(panel) for panel in self.pane_danmaku.rendered()} if (
-            self.has_danmaku and self.fullscreen_tile is None) else set()
+        panes = self.pane_danmaku
+        linked = {panel: panes.target(panel) for panel in panes.rendered()
+                  if self.has_danmaku or panel in panes.floating}
+        targets = {tile for panel, tile in linked.items() if self.fullscreen_tile is None or panel in panes.floating}
+        independent = set(linked.values())
         for tile in self.tiles:
-            tile.video_danmaku.set_sc_independent(self.has_danmaku)
+            tile.video_danmaku.set_sc_independent(tile in independent)
             tile.video_danmaku.set_sc_in_panel(tile in targets)
 
     def cell_of(self, tile: Tile):
@@ -308,7 +344,7 @@ class WallGrid(QWidget):
         """把一路直播拖到弹幕格上：等于把弹幕换到那一格去。"""
         tile = next((item for item in self.tiles
                      if str(item.room.get("room_id") or "") == str(room_id)), None)
-        if tile is not None:
+        if tile is not None and is_live_danmaku_source(tile.room):
             self.move_danmaku_to_tile(tile)
 
     def ensure_slots(self) -> None:
@@ -321,7 +357,9 @@ class WallGrid(QWidget):
         while len(self.tiles) < target:
             self._make_tile({})
         while len(self.tiles) > target:
-            empty = next((tile for tile in reversed(self.tiles)
+            # Keep the backing tiles of custom cells in place, including an empty released slot.
+            removable = self.tiles[capacity:] if self.pane_danmaku.custom else self.tiles
+            empty = next((tile for tile in reversed(removable)
                           if not tile.room.get("room_id")), None)
             if empty is None:
                 break
@@ -351,21 +389,25 @@ class WallGrid(QWidget):
         return self.layout_control.relayout(force)
 
     def _sync_danmaku_controls(self) -> None:
-        desired = dict.fromkeys(self.pane_danmaku.all_panels())
+        panes = self.pane_danmaku
+        desired = dict.fromkeys(panes.all_panels())
         shared = {}
-        panels = sorted(self.pane_danmaku.rendered(),
+        floating_rooms = {str(tile.room['room_id']) for panel in panes.floating
+                          if (tile := panes.target(panel)) is not None}
+        panels = sorted((panel for panel in panes.rendered() if panel not in panes.floating),
                         key=lambda panel: (panel.geometry().bottom(), panel.geometry().right()), reverse=True)
         for panel in panels:
-            tile = self.pane_danmaku.target(panel) if self.has_danmaku and self.fullscreen_tile is None else None
+            tile = panes.target(panel) if self.has_danmaku and self.fullscreen_tile is None else None
             target = getattr(tile, '_plugin_controls', None)
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
-            if target is not None and not target._disposed and room not in shared:
+            if target is not None and not target._disposed and room not in shared and room not in floating_rooms:
                 desired[panel] = target
                 shared[room] = target
-        for panel in self.pane_danmaku.all_panels():
-            tile = self.pane_danmaku.target(panel)
+        for panel in panes.all_panels():
+            tile = panes.target(panel)
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
-            panel._linked_controls = shared.get(room)
+            panel._linked_controls = (getattr(tile, '_plugin_controls', None)
+                                      if room in floating_rooms else shared.get(room))
         # Detach all old owners first: two panels may exchange their input widgets.
         for panel, target in desired.items():
             previous = panel._tile_controls
@@ -489,9 +531,37 @@ class WallGrid(QWidget):
     def hidden_count(self) -> int:
         return sum(1 for tile in self.tiles if not tile.isVisible())
 
+    def dragEnterEvent(self, event):
+        self.dragMoveEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self.snap_grid.can_drop(event.mimeData(), event.position().toPoint()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if self.snap_grid.drop(event.mimeData(), event.position().toPoint()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def contextMenuEvent(self, event):
+        if self.snap_grid.open_menu(event.pos(), event.globalPos()):
+            event.accept()
+        else:
+            super().contextMenuEvent(event)
+
     def paintEvent(self, event) -> None:
         # 原生视频移动后重绘空隙；皮肤启用时保留背景层的透明通路。
-        if not theme._skin_active:
+        if theme._skin_active:
+            controller = getattr(self.window(), 'skin_controller', None)
+            if self.snap_grid.interactive() and controller is not None and controller.layer.mask > 0:
+                with QPainter(self) as painter:
+                    backdrop = theme.qcolor(theme.BG)
+                    backdrop.setAlphaF(.84)  # Same theme tint as the clip workspace.
+                    painter.fillRect(event.rect(), backdrop)
+        else:
             painter = QPainter(self)
             painter.fillRect(event.rect(), theme.qcolor(theme.BG))
             option = QStyleOption()

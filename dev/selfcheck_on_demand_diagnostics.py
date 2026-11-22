@@ -137,6 +137,26 @@ class OnDemandTests(unittest.TestCase):
                                   for entry in self.window.sidebar._items])
         self.assertNotIn('PRIVATE_', json.dumps(state))
 
+    def test_dock_hover_uses_bounded_capture_and_stops_on_disconnect(self):
+        socket = self.request('dock-hover')
+        self.assertEqual(self.reply(socket)['timeout_seconds'], 60)
+        observer = self.endpoint.active['observer']
+        self.assertTrue(observer.timer.isActive())
+        self.assertEqual(self.reply(self.request('folders'))['reason'], 'capture-busy')
+        observer.started -= 61
+        observer.sample_pointer()
+        complete = self.reply(socket)
+        self.assertEqual((complete['mode'], complete['reason']), ('dock-hover', 'timeout'))
+        self.assertIn('dock-hover-armed', [row['stage'] for row in complete['records']])
+        self.assertIsNone(self.endpoint.active)
+
+        socket = self.request('dock-hover')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        socket.abort()
+        self.wait(lambda: self.endpoint.active is None)
+        self.assertTrue(observer.closed)
+
     def test_folder_pipe_reply_and_log_are_complete_and_single_use(self):
         reply = self.reply(self.request('folders'))
         self.assertEqual(reply['status'], 'complete')
@@ -212,7 +232,7 @@ class OnDemandTests(unittest.TestCase):
         self.endpoint = DiagnosticEndpoint(self.window, self.root / 'logs', self.root)
         self.addCleanup(self.endpoint.close)
         import zipfile
-        for mode in ('folders', 'drag', 'unsupported-host'):
+        for mode in ('folders', 'drag', 'dock-hover', 'unsupported-host'):
             output = self.root / mode
             output.mkdir()
             pid = 2147483000 if mode == 'unsupported-host' else os.getpid()
@@ -223,6 +243,13 @@ class OnDemandTests(unittest.TestCase):
                 if mode == 'drag':
                     self.wait(lambda: self.endpoint.active is not None and self.endpoint.active['observer'] is not None)
                     self.assertEqual(QDrag(self.window.sidebar).exec(), Qt.IgnoreAction)
+                if mode == 'dock-hover':
+                    self.wait(lambda: self.endpoint.active is not None and self.endpoint.active['observer'] is not None)
+                    observer = self.endpoint.active['observer']
+                    for _ in range(110):
+                        observer.record('dock-hover-event', event='Paint')
+                    observer.emit('dock-hover-mismatch', reason='missing-on-entry')
+                    observer.finish('mismatch-found')
                 self.wait(lambda: process.poll() is not None, timeout=40)
                 stdout, stderr = process.communicate()
             self.assertEqual(process.returncode, 0, stderr)
@@ -231,6 +258,11 @@ class OnDemandTests(unittest.TestCase):
                 self.assertEqual(evidence['status'], 'external-only' if mode == 'unsupported-host' else 'captured')
                 if mode != 'unsupported-host':
                     self.assertEqual(evidence['host']['pid'], os.getpid())
+                if mode == 'dock-hover':
+                    self.assertEqual(evidence['host']['reason'], 'mismatch-found')
+                    stages = [row['stage'] for row in evidence['host']['records']]
+                    self.assertIn('dock-hover-armed', stages)
+                    self.assertEqual(stages[-2:], ['dock-hover-mismatch', 'capture-ended'])
                 self.assertIn('logs/on-demand.jsonl', archive.namelist())
                 self.assertNotIn('PRIVATE_', archive.read('live-capture.json').decode())
             self.assertIn(b'live capture passed', stdout)

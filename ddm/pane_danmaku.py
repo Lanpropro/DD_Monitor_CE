@@ -1,8 +1,20 @@
 """Per-layout chat panes; bindings retain Tile identity when videos exchange places."""
-from PySide6.QtCore import QRect
+from dataclasses import dataclass
+
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QMenu
 
 from . import layouts
+from .danmaku_sources import is_live_danmaku_source
+
+
+@dataclass
+class FloatingPane:
+    window: object
+    slot: object
+    cell: int | None
+    released: dict
+    source: object
 
 
 def validate_panels(value, count):
@@ -29,6 +41,8 @@ class PaneDanmaku:
         self.extra = []
         self.panels = {}
         self.groups = {}
+        self.floating = {}
+        self._pending_returns = set()
         self.rectangles = {}
         self.dividers = []
         self._saved = saved if isinstance(saved, dict) else {}
@@ -74,38 +88,74 @@ class PaneDanmaku:
     def automatic_target(self):
         if not self.custom:
             tile = self.wall.danmaku_target_tile()
-            return tile if tile is not None and tile.room.get('room_id') else None
+            return tile if tile is not None and is_live_danmaku_source(tile.room) else None
         tiles = self.cell_tiles()
         visible = {cell: tile for cell, tile in tiles.items() if cell not in self.bindings()}
         main = self.wall.main_index()
         if main is not None and main < len(self.wall.tiles):
             tile = self.wall.tiles[main]
-            if tile in visible.values() and tile.room.get('room_id'):
+            if tile in visible.values() and is_live_danmaku_source(tile.room):
                 return tile
-        return next((tile for tile in visible.values() if tile.room.get('room_id')), None)
+        return next((tile for tile in visible.values() if is_live_danmaku_source(tile.room)), None)
 
     def target(self, panel):
-        cell = next((cell for cell, item in self.panels.items() if item is panel), None)
-        if cell is None:
-            return None
-        source = self.bindings().get(cell)
-        if source is None:
-            return self.automatic_target()
+        floating = self.floating.get(panel)
+        if floating is not None and (floating.cell is None or floating.released):
+            source = floating.source
+        else:
+            cell = self.panel_cell(panel)
+            if cell is None:
+                return None
+            source = self.bindings().get(cell)
+            if source is None:
+                return self.automatic_target()
         visible = [tile for cell, tile in self.cell_tiles().items() if cell not in self.bindings()]
-        return source if source in visible and source.room.get('room_id') else None
+        return source if source in visible and is_live_danmaku_source(source.room) else None
+
+    def panel_cell(self, panel):
+        return next((cell for cell, item in self.panels.items() if item is panel), None)
 
     def all_panels(self):
-        return [self.wall.danmaku, *self.extra]
+        return [self.wall.danmaku, *self.extra,
+                *(panel for panel, floating in self.floating.items() if floating.cell is None)]
+
+    def wall_widget(self, panel):
+        floating = self.floating.get(panel)
+        return floating.slot if floating is not None else panel
+
+    def wall_widgets(self):
+        return [widget for panel in self.all_panels() if (widget := self.wall_widget(panel)) is not None]
 
     def rendered(self):
         if not self.groups:
-            return list(self.panels.values())
-        return [self.panels[cell] for cell in self.groups if cell in self.panels]
+            docked = self.panels.values()
+        else:
+            docked = [self.panels[cell] for cell in self.groups if cell in self.panels]
+        return list(dict.fromkeys((*docked, *self.floating)))
 
     def cells_for(self, cell):
         return next((cells for cells in self.groups.values() if cell in cells), (cell,))
 
+    def cell_at(self, panel, global_point):
+        cell = self.panel_cell(panel)
+        if cell is None:
+            return None
+        cells = self.cells_for(cell)
+        if len(cells) == 1:
+            return cell
+        point = self.wall.mapFromGlobal(global_point)
+
+        def distance(index):
+            rect = self.rectangles[index]
+            dx = max(rect.left() - point.x(), point.x() - rect.right(), 0)
+            dy = max(rect.top() - point.y(), point.y() - rect.bottom(), 0)
+            return dx * dx + dy * dy
+
+        return min(cells, key=distance)
+
     def reset_preset(self, identifier):
+        if identifier == self.wall.layout_id:
+            self.return_all_floating()
         changed = identifier in self.settings
         self.settings.pop(identifier, None)
         if identifier == self.wall.layout_id:
@@ -130,7 +180,7 @@ class PaneDanmaku:
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
             areas.append(([cell], QRect(rectangles[cell]), room))
         gap = self.wall.grid.spacing() if gap is None else gap
-        changed = True
+        changed = not layouts.snap_grid_size(self.wall.layout_id)
         while changed:
             changed = False
             for first, (cells, rect, room) in enumerate(areas):
@@ -157,20 +207,20 @@ class PaneDanmaku:
         visible = dict(widgets)
         for cell, rect in rectangles.items():
             if cell in self.panels:
-                self.panels[cell].setGeometry(rect)
+                self.wall_widget(self.panels[cell]).setGeometry(rect)
         for cells, rect, room in areas:
             # Keep an existing message document when an adjacent pane is added.
             keeping = [cell for cell in cells if self.panels[cell] in previous and
                        getattr(self.panels[cell], '_linked_room_id', '') == room]
             leader = max(keeping or cells, key=lambda cell: (rectangles[cell].bottom(), rectangles[cell].right()))
             self.groups[leader] = tuple(sorted(cells))
-            self.panels[leader].setGeometry(rect)
+            self.wall_widget(self.panels[leader]).setGeometry(rect)
             for cell in cells:
                 if cell != leader:
                     visible.pop(cell, None)
         active = set(visible.values())
-        for panel in self.all_panels():
-            panel.setVisible(panel in active)
+        for widget in self.wall_widgets():
+            widget.setVisible(widget in active)
         self.wall._sync_danmaku_controls()
         self.wall.sync_sc_placement()
         return visible
@@ -178,43 +228,176 @@ class PaneDanmaku:
     def prepare(self):
         from .danmaku_widgets import DanmakuPanel
         cells = sorted(self.bindings())
-        while len(self.all_panels()) < len(cells):
+        unavailable = {panel for panel, floating in self.floating.items()
+                       if floating.cell is None or floating.released}
+        while len(self.all_panels()) - len(unavailable) < len(cells):
             panel = DanmakuPanel(self.wall)
             panel.hide()
             self.extra.append(panel)
             self.wall.danmakuPanelCreated.emit(panel)
-        retained = {cell: panel for cell, panel in self.panels.items() if cell in cells}
+        retained = {cell: panel for cell, panel in self.panels.items() if cell in cells and panel not in unavailable}
         if not self.custom:
             retained = {cell: self.wall.danmaku for cell in cells}
-        available = iter(panel for panel in self.all_panels() if panel not in retained.values())
+        available = iter(panel for panel in self.all_panels() if panel not in retained.values() and panel not in unavailable)
         self.panels = {cell: retained[cell] if cell in retained else next(available) for cell in cells}
         for panel in self.all_panels():
-            if not panel.property('paneMenuInstalled'):
-                from .pane_source_picker import SourcePicker
-                panel.source_picker = SourcePicker(panel, self)
-                from PySide6.QtCore import Qt
-                panel.header.setContextMenuPolicy(Qt.CustomContextMenu)
-                panel.header.customContextMenuRequested.connect(
-                    lambda point, p=panel: self.menu(p, point))
-                panel.body.setContextMenuPolicy(Qt.CustomContextMenu)
-                panel.body.customContextMenuRequested.connect(lambda point, p=panel:
-                    self.open_menu(next(cell for cell, item in self.panels.items() if item is p),
-                                   p.body.viewport().mapToGlobal(point)))
-                panel.roomDropped.connect(lambda rid, p=panel: self.room_dropped(p, rid))
-                panel.setProperty('paneMenuInstalled', True)
+            self._install_panel_menu(panel)
             cell = next((cell for cell, item in self.panels.items() if item is panel), None)
             panel.setProperty('paneCell', cell if self.custom else None)
-            if panel not in self.panels.values():
+            if panel not in self.panels.values() and panel in self.floating and panel not in unavailable:
+                self._detach_window(panel)
+            if panel not in self.panels.values() and panel not in self.floating:
                 panel.hide()
+
+    def _install_panel_menu(self, panel):
+        if panel.property('paneMenuInstalled'):
+            return
+        from .pane_source_picker import SourcePicker
+        from .sidebar_navigation import NavigationButton
+        panel.source_picker = SourcePicker(panel, self)
+        panel.float_button = NavigationButton('弹出弹幕栏', 'pip', panel.header)
+        panel.float_button.setFixedSize(24, 24)
+        panel.float_button.clicked.connect(lambda: self.toggle_floating(panel))
+        layout = panel.header.layout()
+        layout.insertWidget(layout.indexOf(panel.source_picker), panel.float_button)
+        panel.float_button.hide()
+        panel.header.setContextMenuPolicy(Qt.CustomContextMenu)
+        panel.header.customContextMenuRequested.connect(
+            lambda point: self.menu(panel, panel.header.mapToGlobal(point)))
+        panel.body.setContextMenuPolicy(Qt.CustomContextMenu)
+        panel.body.customContextMenuRequested.connect(
+            lambda point: self.menu(panel, panel.body.viewport().mapToGlobal(point)))
+        panel.roomDropped.connect(lambda rid: self.room_dropped(panel, rid))
+        panel.tileDropped.connect(lambda rid, point: self.tile_dropped(panel, rid, point))
+        panel.setProperty('paneMenuInstalled', True)
+
+    def open_for_tile(self, tile):
+        if not tile.isVisible() or not tile.room.get('room_id'):
+            return
+        for panel, floating in self.floating.items():
+            if self.target(panel) is tile:
+                self._pending_returns.discard(panel)
+                floating.window.show()
+                floating.window.raise_()
+                floating.window.activateWindow()
+                return
+        for panel in self.rendered():
+            if panel.isVisible() and self.target(panel) is tile:
+                self.toggle_floating(panel)
+                return
+
+        from .danmaku_widgets import DanmakuPanel
+        panel = DanmakuPanel(self.wall)
+        self._install_panel_menu(panel)
+        self.wall.danmakuPanelCreated.emit(panel)
+        size = tile.size().boundedTo(QSize(360, 480))
+        self._open_window(panel, None, QRect(tile.mapToGlobal(QPoint()), size), {}, tile).show()
+        self.wall.floatingDanmakuChanged.emit()
+
+    def toggle_floating(self, panel):
+        if panel in self.floating:
+            self.return_floating(panel)
+            return
+        cell = self.panel_cell(panel)
+        if cell is None or not panel.isVisible():
+            return
+        from .danmaku_float_window import DanmakuFloatSlot
+        owner = self.wall.window()
+        reuse = bool(getattr(owner, 'settings', {}).get('danmaku_float_reuse_cell', False))
+        bindings = self.bindings()
+        released = {index: bindings[index] for index in self.cells_for(cell)} if reuse else {}
+        rect = QRect(panel.mapToGlobal(QPoint()), panel.size())
+        slot = None if reuse else DanmakuFloatSlot(self.wall, lambda: self.return_floating(panel))
+        window = self._open_window(panel, cell, rect, released, self.target(panel), slot)
+        if released:
+            self.apply({index: source for index, source in bindings.items() if index not in released})
+        else:
+            self.wall.relayout(force=True)
+        window.show()
+        self.wall.paneConfigurationChanged.emit()
+
+    def _open_window(self, panel, cell, rect, released, source, slot=None):
+        from .danmaku_float_window import DanmakuFloatWindow
+        window = DanmakuFloatWindow(self.wall.window(), panel, rect)
+        window.returnRequested.connect(lambda: self.return_floating(panel))
+        self.floating[panel] = FloatingPane(window, slot, cell, released, source)
+        self._set_float_button(panel, True)
+        # Return the composer to the source tile before reparenting its chat panel.
+        self.wall._sync_danmaku_controls()
+        window.attach_panel()
+        return window
+
+    @staticmethod
+    def _set_float_button(panel, floating):
+        button = panel.float_button
+        button.kind = 'close' if floating else 'pip'
+        label = '关闭弹幕浮窗' if floating else '弹出弹幕栏'
+        button.setToolTip(label)
+        button.setAccessibleName(label)
+        button.update()
+
+    def _detach_window(self, panel):
+        floating = self.floating.pop(panel)
+        self._pending_returns.discard(panel)
+        floating.window.hide()
+        floating.window.release_panel(self.wall)
+        self._set_float_button(panel, False)
+        if floating.slot is not None:
+            floating.slot.hide()
+            floating.slot.deleteLater()
+        floating.window.deleteLater()
+        return floating
+
+    def return_floating(self, panel, *, notify=True):
+        if panel not in self.floating:
+            return
+        if notify and self.floating[panel].cell is not None and self.wall._fullscreen_layout_pending:
+            # Fullscreen keeps a snapshot of wall widgets until its original layout returns.
+            self.floating[panel].window.hide()
+            self._pending_returns.add(panel)
+            return
+        floating = self._detach_window(panel)
+        if floating.cell is None:
+            panel.deleteLater()
+            self.wall._sync_danmaku_controls()
+            if notify:
+                self.wall.floatingDanmakuChanged.emit()
+            return
+        bindings = self.bindings()
+        tiles = self.cell_tiles()
+        keep_video = notify and getattr(self.wall.window(), 'settings', {}).get('danmaku_float_keep_video_slots', False)
+        if floating.released and not keep_video and all(
+                cell not in bindings and cell in tiles and not tiles[cell].room.get('room_id')
+                for cell in floating.released):
+            self.panels[floating.cell] = panel
+            self.apply({**bindings, **floating.released})
+        elif floating.released:
+            self.wall._sync_danmaku_controls()
+            if notify:
+                self.wall.floatingDanmakuChanged.emit()
+            return
+        else:
+            self.wall.relayout(force=True)
+        if notify:
+            self.wall.paneConfigurationChanged.emit()
+
+    def return_all_floating(self):
+        for panel in tuple(self.floating):
+            self.return_floating(panel, notify=False)
+
+    def finish_pending_returns(self):
+        for panel in tuple(self._pending_returns):
+            self.return_floating(panel)
 
     def refresh_sources(self):
         for panel in self.all_panels():
             if hasattr(panel, 'source_picker'):
                 panel.source_picker.refresh()
 
-    def apply(self, bindings):
+    def apply(self, bindings, *, exchange=None):
         wall = self.wall
-        layout_changed = not self.custom or set(bindings) != set(self.bindings())
+        previous = self.bindings()
+        layout_changed = not self.custom or set(bindings) != set(previous)
         old = dict(self.cell_tiles())
         if not self.custom and wall._danmaku_cell is not None:
             # Give the legacy chat position its own empty backing video slot once.
@@ -223,6 +406,18 @@ class PaneDanmaku:
             old[cell] = tile
             active = [old[index] for index in sorted(old)]
             wall.tiles = active + [item for item in wall.tiles if item not in active]
+        if exchange is not None:
+            first, second = (wall.tiles.index(old[cell]) for cell in exchange)
+            wall.tiles[first], wall.tiles[second] = wall.tiles[second], wall.tiles[first]
+        for leader, cells in self.groups.items():
+            panel = self.panels.get(leader)
+            if panel is None or panel in self.floating or leader not in previous or leader in bindings:
+                continue
+            remaining = next((cell for cell in cells if cell in bindings and cell in previous
+                              and bindings[cell] is previous[cell]), None)
+            if remaining is not None:
+                # Keep the visible message document when the clicked part was its original cell.
+                self.panels[remaining] = self.panels.pop(leader)
         self.settings[wall.layout_id] = dict(bindings)
         self.prepare()
         if layout_changed:
@@ -232,7 +427,13 @@ class PaneDanmaku:
             wall._sync_pane_borders(widgets, self.dividers)
 
     def swap_sources(self, first, second):
-        for bindings in self.settings.values():
+        for floating in self.floating.values():
+            if floating.source is first:
+                floating.source = second
+            elif floating.source is second:
+                floating.source = first
+        released = (floating.released for floating in self.floating.values())
+        for bindings in (*self.settings.values(), *released):
             for cell, tile in list(bindings.items()):
                 if tile is first:
                     bindings[cell] = second
@@ -241,48 +442,84 @@ class PaneDanmaku:
 
     def move(self, cell, tile):
         destination = self.cell_for_tile(tile)
-        if not self.custom or cell not in self.bindings() or destination is None:
-            return
         bindings = dict(self.bindings())
-        bindings[destination] = bindings.pop(cell)
-        slots = self.cell_tiles()
-        first, second = self.wall.tiles.index(slots[cell]), self.wall.tiles.index(tile)
-        self.wall.tiles[first], self.wall.tiles[second] = tile, slots[cell]
-        self.apply(bindings)
+        if cell not in bindings or destination is None or destination in bindings:
+            return
+        source = bindings.pop(cell)
+        bindings[destination] = (self.target(self.panels[cell]) or -1) if source is None else source
+        if len(self.cells_for(cell)) == 1:
+            self.panels[destination] = self.panels.pop(cell)
+        self.apply(bindings, exchange=(cell, destination))
         self.wall.paneConfigurationChanged.emit()
 
-    def room_dropped(self, panel, room_id):
-        if not self.custom:
-            self.wall._on_danmaku_room_dropped(room_id)
+    def tile_dropped(self, panel, room_id, point):
+        bindings = self.bindings()
+        tile = next((tile for cell, tile in self.cell_tiles().items()
+                     if cell not in bindings and str(tile.room.get('room_id') or '') == room_id), None)
+        if tile is None:
             return
+        key = 'danmaku_drag_linked_swap' if self.target(panel) is not None else 'danmaku_drag_unlinked_swap'
+        settings = getattr(self.wall.window(), 'settings', {})
+        if panel not in self.floating and settings.get(key, False):
+            if (cell := self.cell_at(panel, point)) is not None:
+                self.move(cell, tile)
+        else:
+            self.choose_source(panel, tile)
+
+    def room_dropped(self, panel, room_id):
         source = next((tile for tile in self.cell_tiles().values()
                        if str(tile.room.get('room_id') or '') == str(room_id)), None)
-        cell = next((cell for cell, item in self.panels.items() if item is panel), None)
-        if source is None or cell is None or self.cell_for_tile(source) in self.bindings():
+        if source is not None and not is_live_danmaku_source(source.room):
             return
-        self.request(cell, source)
+        if not self.custom and panel not in self.floating:
+            self.wall._on_danmaku_room_dropped(room_id)
+            return
+        if source is None or self.cell_for_tile(source) in self.bindings():
+            return
+        self.choose_source(panel, source)
+
+    def choose_source(self, panel, source):
+        if not is_live_danmaku_source(source.room):
+            return
+        floating = self.floating.get(panel)
+        if floating is not None and (floating.cell is None or floating.released):
+            floating.source = source
+            if floating.released:
+                floating.released = dict.fromkeys(floating.released, source)
+            self.wall._sync_danmaku_controls()
+            if floating.cell is None:
+                self.wall.floatingDanmakuChanged.emit()
+            else:
+                self.wall.paneConfigurationChanged.emit()
+        elif (cell := self.panel_cell(panel)) is not None:
+            self.request(cell, source)
 
     def menu(self, panel, point):
-        cell = next((cell for cell, item in self.panels.items() if item is panel), None)
-        if cell is None:
-            return
-        self.open_menu(cell, panel.header.mapToGlobal(point))
+        if panel in self.floating:
+            menu = QMenu(panel)
+            menu.addAction('关闭弹幕浮窗', lambda: self.return_floating(panel))
+            menu.exec(point)
+            menu.deleteLater()
+        elif (cell := self.cell_at(panel, point)) is not None:
+            self.open_menu(cell, point)
 
     def create_menu(self, cell):
         menu = QMenu(self.wall)
         if cell not in range(len(self.wall._cells())):
             return menu
         if cell in self.bindings():
-            menu.addAction('恢复直播画面', lambda: self.request(cell, video=True))
+            label = '移除弹幕格' if self.wall.snap_grid.size else '恢复直播画面'
+            menu.addAction(label, lambda: self.request(cell, video=True))
         return menu
 
     def request(self, cell, source=None, *, video=False):
+        if not video and source not in (None, -1) and not is_live_danmaku_source(source.room):
+            return
         bindings = dict(self.bindings())
-        cells = self.cells_for(cell) if cell in bindings else (cell,)
         if video:
-            for index in cells:
-                bindings.pop(index, None)
+            bindings.pop(cell, None)
         else:
+            cells = self.cells_for(cell) if cell in bindings else (cell,)
             for index in cells:
                 replaced = self.cell_tiles().get(index)
                 # A source replaced by a chat pane becomes unlinked, never silently retargeted.

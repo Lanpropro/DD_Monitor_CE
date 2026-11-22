@@ -5,6 +5,7 @@
 import ast
 from datetime import date, datetime, timedelta, timezone
 import re
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -107,6 +108,42 @@ def local_link_error(source, target):
 
 
 class DocumentStructureTests(unittest.TestCase):
+    def test_gallery_guides_link_to_the_same_offline_page(self):
+        for name in ("README.md", "ui-control-library-draft.md", "ui-control-coverage.md"):
+            with self.subTest(document=name):
+                self.assertIn("ui-control-library.html", links(read(DOCS / "references" / name)))
+
+    def test_match_gallery_routes_have_both_native_captures(self):
+        references = DOCS / "references"
+        catalog = read(references / "ui-control-match.js")
+        coverage = read(references / "ui-control-coverage.md")
+        routes = re.findall(r"(?m)^  \['(match-[a-z]+)',", catalog)
+        self.assertEqual(len(routes), 12)
+        self.assertCountEqual(routes, re.findall(r"`#control-(match-[a-z]+)`", coverage))
+        captures = references / "ui-control-match-qt"
+        self.assertCountEqual(
+            [image.name for image in captures.glob("*.png")],
+            [f"{route}-{mode}.png" for route in routes for mode in ("dark", "light")],
+        )
+        for route in routes:
+            with self.subTest(route=route):
+                dark, light = ((captures / f"{route}-{mode}.png").read_bytes()
+                               for mode in ("dark", "light"))
+                for image in (dark, light):
+                    self.assertEqual(image[:16], b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+                    self.assertTrue(all(struct.unpack(">II", image[16:24])))
+                self.assertEqual(dark[16:24], light[16:24])
+                self.assertNotEqual(dark, light)
+
+    def test_match_workspace_trial_links_are_catalog_routes(self):
+        references = DOCS / "references"
+        catalog = read(references / "ui-control-match.js")
+        coverage = read(references / "ui-control-coverage.md")
+        trial_links = re.findall(r"\]\(ui-control-library\.html#control-(match-[a-z]+)\)", coverage)
+        self.assertCountEqual(trial_links, ["match-console", "match-room"])
+        for route in trial_links:
+            self.assertIn(f"['{route}',", catalog)
+
     def test_link_validation_checks_same_page_and_duplicate_anchors(self):
         with tempfile.TemporaryDirectory() as directory:
             page = Path(directory) / "page.md"
@@ -251,6 +288,25 @@ class DocumentStructureTests(unittest.TestCase):
         notes = read(DOCS / "releases/UNRELEASED.md")
         self.assertNotIn("docs/local/", notes)
         self.assertNotIn("应迁入", notes)
+
+    def test_plugin_reference_covers_public_events(self):
+        constants = {}
+        for name in ("plugins.py", "plugin_credentials.py"):
+            module = ast.parse(read(ROOT / "ddm" / name))
+            for node in module.body:
+                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id.startswith("EVENT_"):
+                            constants[target.id] = ast.literal_eval(node.value)
+        module = ast.parse(read(ROOT / "ddm/plugins.py"))
+        events = next(node.value for node in module.body if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "ALL_EVENTS"
+                              for target in node.targets))
+        reference = read(DOCS / "plugins.md")
+        for event in events.elts:
+            with self.subTest(event=event.id):
+                self.assertTrue(f"`{constants[event.id]}`" in reference,
+                                f"public event missing from the plugin reference: {constants[event.id]}")
 
 
 if __name__ == "__main__":

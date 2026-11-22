@@ -11,7 +11,7 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("DDMonitorDiagnostics")]
 [assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.0.1")]
 [assembly: System.Reflection.AssemblyInformationalVersion("1.4")]
 
 namespace DDMonitorDiagnostics
@@ -410,6 +410,7 @@ namespace DDMonitorDiagnostics
         readonly BackgroundWorker worker = new BackgroundWorker { WorkerReportsProgress = true };
         readonly Button liveFolders = new DiagnosticButton { Text = "抓取文件夹现场", AutoSize = true };
         readonly Button liveDrag = new DiagnosticButton { Text = "记录一次拖放", AutoSize = true };
+        readonly Button liveDockHover = new DiagnosticButton { Text = "记录功能栏高亮", AutoSize = true };
         readonly Button cancelLive = new DiagnosticButton { Text = "取消采集", AutoSize = true, Enabled = false };
         readonly BackgroundWorker liveWorker = new BackgroundWorker();
         OnDemandClient liveClient;
@@ -486,10 +487,11 @@ namespace DDMonitorDiagnostics
             imagePanel.SetColumnSpan(imageHint, 2);
             AddRow(5, "图片附件", imagePanel, null);
             var liveButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
-            liveButtons.Controls.AddRange(new Control[] { liveFolders, liveDrag, cancelLive });
+            liveButtons.Controls.AddRange(new Control[] { liveFolders, liveDrag, liveDockHover, cancelLive });
             AddRow(6, "故障现场", liveButtons, null);
             liveFolders.Click += (s, e) => CaptureLive("folders");
             liveDrag.Click += (s, e) => CaptureLive("drag");
+            liveDockHover.Click += (s, e) => CaptureLive("dock-hover");
             cancelLive.Click += (s, e) => { if (liveClient != null) liveClient.Dispose(); };
             AddRow(7, "日志收集", new Label { Text = "生成时自动收集已有日志，无需重启或提前开启诊断", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, null);
             AddRow(8, "增强证据", includeDumps, null);
@@ -501,7 +503,7 @@ namespace DDMonitorDiagnostics
             var content = new DiagnosticTextBox {
                 Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
                 Dock = DockStyle.Fill, TabStop = false,
-                Text = "如何使用\r\n问题仍在：保持界面，点击“抓取文件夹现场”；禁止拖动则点“记录一次拖放”后回软件尝试一次，最多等待60秒，可随时取消。无需提前监测、无需重启；采集完成再生成诊断包。旧版只能抓外部窗口快照，内部证据缺失会提示。\r\n问题已消失或软件已关闭：填写发生时间和描述，直接点击“生成诊断包”收集已有日志；无需重新复现。\r\n\r\n收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动图片；白名单内已有专项日志也会收集。近期FFmpeg日志最多5份、专项最多24份，每份末尾2MB。\r\n\r\n工具不会启动或关闭主软件，不持续监测，不联网，不修改个人配置。不读取账号文件、聊天记录或录制视频，不自动截图。默认不导出内存转储；单独勾选后最多包含3份、每份256MB，二进制内存无法脱敏。图片去除元数据但不遮挡画面；请检查后手动发送。"
+                Text = "如何使用\r\n问题仍在：保持界面，点击“抓取文件夹现场”。拖放或功能栏高亮异常可选相应按钮，回到主软件操作，最长采集60秒，可随时取消。采集完成再生成诊断包。旧版只能抓外部窗口快照。\r\n问题已消失或软件已关闭：填写发生时间和描述，直接点击“生成诊断包”收集已有日志；无需重新复现。\r\n\r\n收集范围\r\n系统、显卡、版本、libmpv 依赖、脱敏配置、插件版本、日志、崩溃事件和手动图片；白名单内已有专项日志也会收集。近期FFmpeg日志最多5份、专项最多24份，每份末尾2MB。\r\n\r\n工具不会启动或关闭主软件，不持续监测，不联网，不修改个人配置。不读取账号文件、聊天记录或录制视频，不自动截图。默认不导出内存转储；单独勾选后最多包含3份、每份256MB，二进制内存无法脱敏。图片去除元数据但不遮挡画面；请检查后手动发送。"
             };
             var contentArea = new DiagnosticTextArea(content) { Margin = new Padding(3, 3, 11, 3), Padding = new Padding(8, 6, 8, 6) };
             layout.Controls.Add(contentArea, 0, 2);
@@ -565,9 +567,11 @@ namespace DDMonitorDiagnostics
             generate.Enabled = detect.Enabled = false;
             foreach (Control control in inputs.Controls) control.Enabled = false;
             cancelLive.Parent.Enabled = true;
-            liveFolders.Enabled = liveDrag.Enabled = false;
+            liveFolders.Enabled = liveDrag.Enabled = liveDockHover.Enabled = false;
             cancelLive.Enabled = true;
-            status.Text = mode == "folders" ? "正在读取当前错位现场，请保持软件界面。" : "请回到主软件尝试拖放一次；结束后自动停止，最长等待60秒。";
+            if (mode == "folders") status.Text = "正在读取当前错位现场，请保持软件界面。";
+            else if (mode == "drag") status.Text = "请回到主软件尝试拖放一次，最长等待60秒。";
+            else status.Text = "请回到主软件，将鼠标划过左侧功能栏。最长采集60秒。";
             DoWorkEventHandler run = null;
             run = (s, e) => {
                 try { e.Result = client.Capture(targetDirectory, target.Pid, mode); }
@@ -579,7 +583,7 @@ namespace DDMonitorDiagnostics
                 client.Dispose(); liveClient = null;
                 if (IsDisposed) return;
                 foreach (Control control in inputs.Controls) control.Enabled = true;
-                liveFolders.Enabled = liveDrag.Enabled = generate.Enabled = detect.Enabled = true;
+                liveFolders.Enabled = liveDrag.Enabled = liveDockHover.Enabled = generate.Enabled = detect.Enabled = true;
                 cancelLive.Enabled = false;
                 if (e.Error != null) { status.Text = e.Error is OperationCanceledException ? "已取消现场采集，主软件继续正常运行。" : "现场采集失败：" + e.Error.Message; return; }
                 liveEvidence = e.Result;
@@ -589,7 +593,7 @@ namespace DDMonitorDiagnostics
                 string reason = host == null ? "" : Convert.ToString(host["reason"]);
                 status.Text = Convert.ToString(values["status"]) != "captured"
                     ? "仅取得 Windows 窗口快照，内部状态未取得（旧版、未响应或退出）。仍可生成诊断包，不代表软件正常。"
-                    : reason == "timeout" ? "等待已结束，未捕获到完整拖放。已停止记录，可生成诊断包或再试一次。"
+                    : reason == "timeout" && mode == "drag" ? "未捕获到完整拖放。已停止记录，可生成诊断包。"
                     : reason == "capture-error" ? "内部现场采集未完成，错误已记录。可生成诊断包；不代表软件正常。"
                     : "现场记录已保存到工具内。请点击“生成诊断包”；不会继续监测。";
             };

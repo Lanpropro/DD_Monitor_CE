@@ -2,8 +2,10 @@
 from copy import deepcopy
 import sys
 import time
+from PySide6.QtCore import QTimer
 from . import layouts
 from .auto_quality import AUTO_QUALITY
+from .streamer_defaults import source_quality_option
 from .tile_widgets import Tile
 
 
@@ -41,7 +43,8 @@ class FullscreenControl:
 
     def upgrade_fullscreen_quality(self, tile: Tile) -> bool:
         host = self.host
-        if (tile.quality == AUTO_QUALITY or tile in host._capture_quality
+        if (tile.quality == AUTO_QUALITY or tile in host._capture_quality or tile.room.get('_streamer_playback')
+                or source_quality_option(tile.quality_options) is not None
                 or getattr(tile, "quality_locked", False)):
             return False
         # 平台档位按画质从高到低排列，编号大小不代表跨平台的清晰度。
@@ -54,7 +57,8 @@ class FullscreenControl:
 
     def on_fullscreen(self, tile: Tile) -> None:
         host = self.host
-        host.picture_in_picture.restore()
+        if host.picture_in_picture.moves_main_wall:
+            host.picture_in_picture.restore()
         if tile not in host.wall.tiles or not tile.room.get("room_id"):
             return
         host._cancel_interactive_resize()
@@ -98,11 +102,18 @@ class FullscreenControl:
         host._fullscreen_presentation.leave()
         switched = time.perf_counter()
         host._fullscreen_tile = None
+        host.wall.pane_danmaku.finish_pending_returns()
         host.refresh_theme()
         host._refresh_shortcuts()
         host._sync_fullscreen_audio()
         host.sync_danmaku()
         laid_out = time.perf_counter()
         tile.fullscreen_button.setToolTip("全屏查看这一路（F）")
-        host._refresh_meta()
         host._report_fullscreen_cost("退出全屏", started, covered, switched, laid_out)
+
+        def refresh_restored_wall():
+            if not host._closing and host._fullscreen_tile is None:
+                host._refresh_meta()
+
+        # Let the pending native resize run before refreshing the sidebar selection.
+        QTimer.singleShot(0, host, refresh_restored_wall)

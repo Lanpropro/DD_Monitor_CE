@@ -1,6 +1,6 @@
 """Dock icon feedback without moving buttons or changing their click targets."""
-from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QVariantAnimation
-from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QRectF, Qt, QVariantAnimation
+from PySide6.QtGui import QBrush, QColor, QEnterEvent, QIcon, QInputDevice, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QToolButton
 
 from . import motion, theme
@@ -9,6 +9,7 @@ from . import motion, theme
 # One-shot icon poses adapted from BewlyCat's favorites, home and edit motion.
 # Each pose is (scale_x, scale_y, rotation, vertical_offset); hit targets stay fixed.
 REST = (1.0, 1.0, 0.0, 0.0)
+SPEED_LINES_MS = 260
 HOVER_POSES = {
     'follow': [(0, REST), (.3, (1.2, 1.2, 10, 0)), (.62, (.96, .96, -5, 0)), (1, REST)],
     'functions': [(0, REST), (1, (1, 1, 90, 0))],
@@ -27,11 +28,16 @@ def active(button):
     return button.isChecked() if selected is None else bool(selected)
 
 
+def hovered(widget):
+    value = widget.property('dockHovered')
+    return value if value is not None and widget.property('dockRail') else widget.underMouse()
+
+
 def icon_color(button):
     if button.property('dockRail') and active(button):
         color = theme.qcolor('#ffffff' if theme.is_light() else theme.BG)
     else:
-        color = theme.qcolor(theme.ACCENT if button.underMouse() else theme.TEXT2)
+        color = theme.qcolor(theme.ACCENT if hovered(button) else theme.TEXT2)
     if not button.isEnabled():
         color.setAlpha(90)
     return color
@@ -49,11 +55,17 @@ class DockFeedback(QObject):
         self.animation.valueChanged.connect(self._set_scale)
         self.pose = REST
         self._poses = [(0, REST), (1, REST)]
+        self.has_speed_lines = button.property('dockMotion') == 'slide-in-left'
+        self.streak_progress = 1.0
         self.hover_animation = QVariantAnimation(self)
         self.hover_animation.setStartValue(0.0)
         self.hover_animation.setEndValue(1.0)
-        self.hover_animation.valueChanged.connect(self._hover_frame)
-        self.hover_animation.finished.connect(self._finish_hover)
+        if self.has_speed_lines:
+            self.hover_animation.setDuration(SPEED_LINES_MS)
+            self.hover_animation.valueChanged.connect(self._set_streak_progress)
+        else:
+            self.hover_animation.valueChanged.connect(self._hover_frame)
+            self.hover_animation.finished.connect(self._finish_hover)
         button.installEventFilter(self)
 
     def _hover_frame(self, progress):
@@ -70,8 +82,17 @@ class DockFeedback(QObject):
         self.button.update()
 
     def hover(self, *, entering=False, animate=True):
+        allowed = animate and self.button.property('dockRail') and not self.keyboard and motion.enabled()
+        if self.has_speed_lines:
+            if not allowed or not self.button.isEnabled():
+                self.hover_animation.stop()
+                self._set_streak_progress(1.0)
+            elif entering and self.hover_animation.state() != QAbstractAnimation.Running:
+                self._set_streak_progress(0.0)
+                self.hover_animation.start()
+            return
         self.hover_animation.stop()
-        if not self.button.property('dockRail') or self.keyboard or not motion.enabled() or not animate:
+        if not allowed:
             self._finish_hover()
             return
         kind = self.button.property('dockMotion') or getattr(self.button, 'kind', 'hop')
@@ -79,8 +100,35 @@ class DockFeedback(QObject):
         self._poses = [(0, self.pose), *frames[1:]]
         if self.pose == REST and not entering:
             return
-        self.hover_animation.setDuration(280 if entering else 160)
+        self.hover_animation.setDuration(280 if entering else motion.CONTROL_FEEDBACK_MS)
         self.hover_animation.start()
+
+    def _set_streak_progress(self, value):
+        self.streak_progress = float(value)
+        self.button.update()
+
+    def _paint_speed_lines(self, painter):
+        if not self.has_speed_lines or self.streak_progress >= 1.0:
+            return
+        bounds = QRectF(self.button.rect())
+        painter.save()
+        painter.setClipRect(bounds.adjusted(3, 2, -3, -2))
+        head = (bounds.width() + 24) * self.streak_progress - 5
+        center = bounds.center().y()
+        # (height offset, lead offset, length, thickness, head color)
+        for y, lead, length, thickness, tip in (
+                (-10, -1, 8, 1.0, '#ff344d'),
+                (-6, 4, 11, 1.0, '#ff344d'),
+                (0, 0, 18, 1.5, '#ffb9c0'),
+                (6, -5, 9, 1.0, '#ff344d'),
+                (10, 2, 10, 1.0, '#ff344d')):
+            start, end = head + lead - length, head + lead
+            trail = QLinearGradient(start, 0, end, 0)
+            trail.setColorAt(0, QColor(255, 52, 77, 0))
+            trail.setColorAt(.75, QColor('#e1223c'))
+            trail.setColorAt(1, QColor(tip))
+            painter.fillRect(QRectF(start, center + y - thickness / 2, length, thickness), QBrush(trail))
+        painter.restore()
 
     def transform(self, painter):
         sx, sy, rotation, offset = self.pose
@@ -94,6 +142,8 @@ class DockFeedback(QObject):
 
     def transition(self, target, *, animate=True):
         target = float(target)
+        if self.has_speed_lines:
+            target = min(1.0, target)
         self.animation.stop()
         if not self.button.property('dockRail') or self.keyboard or not motion.enabled():
             target, animate = 1.0, False
@@ -127,12 +177,17 @@ class DockFeedback(QObject):
         elif kind == QEvent.MouseButtonPress:
             self._keyboard_focus(False)
             self.transition(.9, animate=False)
-            self.hover()
+            if not self.has_speed_lines:
+                self.hover()
         elif kind == QEvent.MouseButtonRelease:
             self.transition(1.1 if watched.underMouse() else 1.0)
         elif kind == QEvent.Enter:
-            self.transition(1.1)
-            self.hover(entering=True)
+            if self.has_speed_lines:
+                self.hover(entering=isinstance(event, QEnterEvent) and event.pointingDevice().type()
+                           in (QInputDevice.DeviceType.Mouse, QInputDevice.DeviceType.TouchPad))
+            else:
+                self.transition(1.1)
+                self.hover(entering=True)
         elif kind == QEvent.Leave:
             self.transition(1.0)
             self.hover()
@@ -141,6 +196,8 @@ class DockFeedback(QObject):
             self.transition(1.0, animate=False)
             self.hover(animate=False)
         elif kind == QEvent.Hide:
+            if watched.property('dockHovered') is not None:
+                watched.setProperty('dockHovered', None)
             self.transition(1.0, animate=False)
             self.hover(animate=False)
         elif kind == QEvent.Paint and isinstance(watched, QToolButton) and watched.property('dockRail'):
@@ -151,6 +208,7 @@ class DockFeedback(QObject):
             option.state &= ~QStyle.State_HasFocus
             painter = QPainter(watched)
             watched.style().drawComplexControl(QStyle.CC_ToolButton, option, painter, watched)
+            self._paint_speed_lines(painter)
             size = watched.iconSize()
             pixmap = watched.icon().pixmap(size, watched.devicePixelRatioF(),
                                           QIcon.Normal if watched.isEnabled() else QIcon.Disabled,
@@ -161,7 +219,9 @@ class DockFeedback(QObject):
             tint = QPainter(tinted)
             tint.drawPixmap(0, 0, pixmap)
             tint.setCompositionMode(QPainter.CompositionMode_SourceIn)
-            tint.fillRect(tinted.rect(), icon_color(watched))
+            color = (theme.qcolor(theme.TEXT2) if self.has_speed_lines and watched.isEnabled()
+                     and not active(watched) else icon_color(watched))
+            tint.fillRect(tinted.rect(), color)
             tint.end()
             width, height = size.width(), size.height()
             painter.save()

@@ -12,12 +12,24 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
-from PySide6.QtCore import QEvent, QObject, QPoint
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 from ddm.app import MainWindow
 from ddm.plugins import PluginManager
 from dev.selfcheck_display_transition import make_window, assert_settled
+
+
+class DpiProbe(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.events = []
+
+    def event(self, event):
+        if (hasattr(self, 'events') and event.type() in
+                (QEvent.ScreenChangeInternal, QEvent.DevicePixelRatioChange, QEvent.User)):
+            self.events.append((event.type(), self.size()))
+        return super().event(event)
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows native window state')
@@ -30,6 +42,8 @@ class MoveRestoreTests(unittest.TestCase):
         cls.user32.IsZoomed.argtypes = (wintypes.HWND,)
         cls.user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
         cls.user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+        cls.user32.GetParent.argtypes = (wintypes.HWND,)
+        cls.user32.GetParent.restype = wintypes.HWND
 
     def setUp(self):
         if self.app.platformName() != 'windows':
@@ -66,6 +80,107 @@ class MoveRestoreTests(unittest.TestCase):
             native.assert_called_once()
             capture.assert_not_called()
             self.assertEqual(set(QApplication.topLevelWidgets()), windows)
+
+    def test_native_video_and_bar_keep_handles_without_promoting_bar_children(self):
+        window = self.window
+        self.assertFalse(window.sidebar.internalWinId(), 'Sidebar does not need a native sibling window')
+        tile = window.wall.tiles[0]
+        tile.video.winId()  # The same explicit native binding used by TilePlayer.bind.
+        self.assertTrue(window.centralWidget().internalWinId())
+        self.assertTrue(window._content.internalWinId())
+        self.assertIs(window.wall.parentWidget(), window._content)
+        self.assertEqual(self.user32.GetParent(int(window.wall.internalWinId())),
+                         int(window._content.internalWinId()))
+        for widget in (tile.video, tile.bottom, tile.controls, tile.stream_badge):
+            self.assertTrue(widget.internalWinId(), type(widget).__name__)
+        for widget in (tile.pause_button, tile.volume_slider, tile.volume_label,
+                       tile.danmaku_button, tile.recording_button):
+            self.assertFalse(widget.internalWinId(), type(widget).__name__)
+        paused = []
+        tile.pauseToggled.connect(paused.append)
+        point = tile.pause_button.mapTo(tile.bottom, tile.pause_button.rect().center())
+        scale = tile.bottom.devicePixelRatioF()
+        packed = round(point.x()*scale) | (round(point.y()*scale) << 16)
+        hwnd = int(tile.bottom.internalWinId())
+        self.user32.SendMessageW(hwnd, 0x0201, 1, packed)
+        self.user32.SendMessageW(hwnd, 0x0202, 0, packed)
+        self.app.processEvents()
+        self.assertEqual(paused, [tile.room], f'bar={tile.bottom.isVisible()} button={tile.pause_button.isVisible()}')
+
+    def test_dpi_notifications_wait_for_geometry_and_merge(self):
+        probe, foreign = DpiProbe(self.window), DpiProbe()
+        try:
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            self.assertEqual(len(probe.events), 1)
+            probe.events.clear()
+            message = wintypes.MSG()
+            message.hWnd, message.message = int(self.window.winId()), 0x02e0
+            self.send(0x0231)
+            with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)) as native:
+                self.assertEqual(self.window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message)),
+                                 (False, 0))
+                native.assert_called_once()
+            for _ in range(10):
+                for kind in (QEvent.DevicePixelRatioChange, QEvent.ScreenChangeInternal):
+                    QApplication.sendEvent(probe, QEvent(kind))
+            with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                self.window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+            QApplication.sendEvent(probe, QEvent(QEvent.User))
+            QApplication.sendEvent(foreign, QEvent(QEvent.DevicePixelRatioChange))
+            self.assertEqual([kind for kind, _ in probe.events], [QEvent.User])
+            self.assertEqual(len(foreign.events), 1)
+            probe.resize(230, 120)  # Stand in for Qt's native geometry tail, not a performance sample.
+            self.app.processEvents()
+            delivered = [(kind, size) for kind, size in probe.events if kind != QEvent.User]
+            self.assertEqual([kind for kind, _ in delivered],
+                             [QEvent.DevicePixelRatioChange, QEvent.ScreenChangeInternal])
+            self.assertTrue(all(size == probe.size() for _, size in delivered))
+            self.send(0x0232)
+            assert_settled(self.window)
+        finally:
+            foreign.close()
+            foreign.deleteLater()
+
+    def test_dpi_batch_skips_deleted_children_and_stops_with_owner(self):
+        from shiboken6 import isValid
+        from ddm.window_dpi import DpiEventBatch
+        owner = QWidget()
+        batch = DpiEventBatch(owner)
+        probe = DpiProbe(owner)
+        seen = probe.events
+        try:
+            batch.begin()
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            probe.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+            self.assertEqual(seen, [])
+            self.assertFalse(batch._timer.isActive())
+            probe = DpiProbe(owner)
+            seen = probe.events
+            batch.begin()
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            owner.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+            self.assertFalse(isValid(batch))
+            self.assertEqual(seen, [])
+        finally:
+            if isValid(owner):
+                owner.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        window = make_window(1, '1x1')
+        probe = DpiProbe(window)
+        seen = probe.events
+        try:
+            window.dpi_control.begin()
+            QApplication.sendEvent(probe, QEvent(QEvent.DevicePixelRatioChange))
+            window.close()
+            self.app.processEvents()
+            self.assertEqual(seen, [], 'Application exit must cancel queued DPI delivery')
+        finally:
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_ordinary_move_keeps_real_window_visible_and_does_not_relayout(self):
         window = self.window
@@ -138,49 +253,271 @@ class MoveRestoreTests(unittest.TestCase):
 
     def test_first_native_size_arms_wall_before_qt_resizes_children(self):
         window = self.window
-        self.send(0x0231)
-        self.assertFalse(window.wall._interactive_resize, 'Pure movement must not activate wall resize')
         message = wintypes.MSG()
         message.hWnd = int(window.winId())
-        message.message, message.wParam = 0x0005, 0
+        message.message = 0x02e0
         with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
-            window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
-        self.assertTrue(window.wall._interactive_resize)
-        with patch.object(window.wall, '_relayout_corner', wraps=window.wall._relayout_corner) as layout:
-            window.resize(window.width() + 30, window.height() + 15)
-            layout.assert_not_called()
-            self.assertTrue(window.wall._resize_timer.isActive())
-            self.send(0x0232)
-            layout.assert_called_once()
-        assert_settled(window)
+            self.assertEqual(window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message)),
+                             (False, 0))
+        self.assertFalse(window.wall._interactive_resize, 'DPI outside a native gesture stays unchanged')
+        tiles = list(window.wall.tiles)
+        video_handles = [int(tile.video.internalWinId()) for tile in tiles]
+        for code in (0x0005, 0x02e0):  # WM_SIZE and cross-screen WM_DPICHANGED
+            with self.subTest(message=hex(code)):
+                window._startup_layout_pending = True  # Parent can be covered by native children.
+                self.send(0x0231)
+                self.assertFalse(window._startup_layout_pending)
+                self.assertFalse(window.wall._interactive_resize,
+                                 'Pure movement must not activate wall resize')
+                message = wintypes.MSG()
+                message.hWnd = int(window.winId())
+                message.message, message.wParam = code, 0
+                with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                    window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+                self.assertTrue(window.wall._interactive_resize)
+                with patch.object(window.wall, '_relayout_corner', wraps=window.wall._relayout_corner) as layout:
+                    window.resize(window.width() + 30, window.height() + 15)
+                    layout.assert_not_called()
+                    self.assertTrue(window.wall._resize_timer.isActive())
+                    self.send(0x0232)
+                    layout.assert_called_once()
+                assert_settled(window)
+                self.assertEqual(window.wall.tiles, tiles)
+                self.assertEqual([int(tile.video.internalWinId()) for tile in tiles], video_handles)
 
     def test_resize_trace_records_native_order_and_nested_layout_work(self):
         from dev.diagnose_window_resize import WindowResizeTrace
+        class Probe:
+            def event(self, event):
+                if event.type() == QEvent.ScreenChangeInternal:
+                    raise RuntimeError('probe')
+                return 42
+        original_event = Probe.event
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'resize.jsonl'
-            trace = WindowResizeTrace(path)
+            trace = WindowResizeTrace(path, profile_dpi=True)
             with trace:
+                trace.wrap(Probe, 'event', event_types=(QEvent.ScreenChangeInternal,
+                                                       QEvent.DevicePixelRatioChange))
                 # PySide caches virtual overrides when constructing an object;
                 # install before construction, as the diagnostic launcher does.
                 window = make_window(6, 'corner')
                 try:
                     hwnd = int(window.winId())
                     self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
+                    message = wintypes.MSG()
+                    message.hWnd, message.message = hwnd, 0x02e0
+                    with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                        window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
+                    window.dpi_control.flush()  # The following direct event tests the collector, not batching.
+                    probe = Probe()
+                    self.assertEqual(probe.event(QEvent(QEvent.Resize)), 42)
+                    self.assertEqual(probe.event(QEvent(QEvent.DevicePixelRatioChange)), 42)
+                    with self.assertRaisesRegex(RuntimeError, 'probe'):
+                        probe.event(QEvent(QEvent.ScreenChangeInternal))
+                    trace.next_geometry_sample = 0
+                    QApplication.sendEvent(window.wall.tiles[0].video, QEvent(QEvent.DevicePixelRatioChange))
+                    window.move(window.pos() + QPoint(20, 10))
+                    self.assertIsNone(trace.dpi_profiler)
                     window.resize(window.width() + 40, window.height() + 20)
                     QTest.qWait(70)
+                    self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
+                    trace.MAX_CALLS = 2
+                    trace.MAX_GEOMETRY_SAMPLES = 1
+                    self.user32.SendMessageW(hwnd, 0x0231, 0, 0)
+                    window.move(window.pos() + QPoint(20, 10))
+                    window.move(window.pos() + QPoint(20, 10))
+                    with patch.object(QMainWindow, 'nativeEvent', return_value=(False, 0)):
+                        window.nativeEvent(b'windows_generic_MSG', ctypes.addressof(message))
                     self.user32.SendMessageW(hwnd, 0x0232, 0, 0)
                 finally:
                     window.close()
                     window.deleteLater()
                     self.app.processEvents()
-            row = json.loads(path.read_text())
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            contents = path.read_text()
+            self.app.processEvents()
+            self.assertEqual(path.read_text(), contents, 'Queued geometry must not write after capture closes')
+            row = next(row for row in rows if row['source'] == 'native-resize')
+            capped = [row for row in rows if row['source'] == 'native-resize'][1]
+        self.assertTrue(capped['messagesCapped'])
+        self.assertEqual(len(capped['messages']), 2)
+        self.assertLessEqual(len(capped['calls']), 2)
+        self.assertFalse(capped['final']['interactive'])
+        self.assertTrue(capped['geometryCapped'])
+        self.assertEqual(len(capped['geometrySamples']), 1)
         self.assertFalse(row['final']['interactive'])
         self.assertFalse(row['final']['wallInteractive'])
         self.assertEqual([x['message'] for x in row['messages'] if x['message'] in (0x0231, 0x0232)],
                          [0x0231, 0x0232])
+        self.assertIn(0x0003, [x['message'] for x in row['messages']])
+        self.assertFalse(row['messagesCapped'])
+        self.assertEqual({s['phase'] for s in row['geometrySamples']},
+                         {'dpi-entry', 'dpi-propagation', 'dpi-move', 'dpi-queued', 'dpi-ui-flushed'})
+        self.assertFalse(row['geometryCapped'])
+        for sample in row['geometrySamples']:
+            self.assertGreater(sample['nativeDpi'], 0)
+            self.assertTrue(sample['windows'])
+            self.assertTrue(all(node['hwnd'] and len(node['nativeRect']) == 4
+                                and len(node['qtRect']) == 4 for node in sample['windows']))
+            root = next(node for node in sample['windows'] if node['instance'] == id(window))
+            self.assertEqual(root['nativeRect'][:2], [0, 0])
+            self.assertTrue(root['qtWindow'])
+        self.assertNotIn('uname', json.dumps(row))
+        self.assertEqual(len(row['dpiProfiles']), 1)
+        profile = row['dpiProfiles'][0]
+        self.assertLessEqual(len(profile['functions']), 120)
+        self.assertTrue(profile['functions'])
+        self.assertIsNone(trace.dpi_profiler)
+        self.assertGreaterEqual(row['cpuMs'], 0)
+        self.assertTrue(all(x['cpuAtMs'] >= 0 for x in row['messages']))
+        for key in ('initialTopology', 'finalTopology'):
+            topology = row[key]
+            self.assertGreater(topology['nativeWidgets'], 0)
+            self.assertLessEqual(topology['nativeWidgets'], topology['widgets'])
+            self.assertEqual(topology['nativeWidgets'], sum(topology['nativeTypes'].values()))
         self.assertTrue(any(x['method'] == 'WallGrid._flush_resize' for x in row['calls']))
         self.assertTrue(any(x['method'] == 'Tile._layout_areas' for x in row['calls']))
         self.assertTrue(all(x['elapsedMs'] >= x['selfMs'] >= 0 for x in row['calls']))
+        self.assertTrue(all(x['cpuMs'] >= x['selfCpuMs'] >= 0 for x in row['calls']))
+        self.assertIs(Probe.event, original_event)
+        self.assertEqual([x['eventType'] for x in row['calls'] if x['method'] == 'Probe.event'],
+                         [int(QEvent.DevicePixelRatioChange), int(QEvent.ScreenChangeInternal)])
+        screen = self.window.screen()
+        self.assertEqual(row['initial']['screenGeometry'], list(screen.geometry().getRect()))
+        self.assertEqual(row['final']['screenAvailable'], list(screen.availableGeometry().getRect()))
+        self.assertEqual(row['final']['screenScale'], screen.devicePixelRatio())
+        self.assertNotIn('screenName', row['final'])
+        self.assertEqual(row['source'], 'native-resize')
+        self.assertIn('orientation', row['initial'])
+        self.assertIn('sidebarSide', row['final'])
+
+    def test_resize_trace_covers_menu_orientation_and_restores_wrappers(self):
+        from ddm.window_layout import WindowLayout
+        from dev.diagnose_window_resize import WindowResizeTrace
+        original = WindowLayout.on_layout_changed
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            with trace:
+                window = make_window(6, 'corner')
+                try:
+                    window._on_layout_changed('portrait_main2')
+                    window._on_layout_changed('corner')
+                finally:
+                    window.close()
+                    window.deleteLater()
+                    self.app.processEvents()
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertIs(WindowLayout.on_layout_changed, original)
+        menus = [row for row in rows if row['source'] == 'WindowLayout.on_layout_changed']
+        self.assertEqual(len(menus), 2)
+        self.assertEqual([row['final']['orientation'] for row in menus], ['portrait', 'landscape'])
+        self.assertTrue(any(call['method'] == 'SidebarOrientation.set_side'
+                            for row in menus for call in row['calls']))
+        self.assertTrue(any(call['method'] == 'WindowLayout.apply_orientation'
+                            for row in menus for call in row['calls']))
+        self.assertTrue(all(len(row['calls']) <= trace.MAX_CALLS for row in rows))
+        self.assertNotIn('uname', json.dumps(rows))
+
+    def test_resize_trace_stops_at_session_limit(self):
+        from dev.diagnose_window_resize import WindowResizeTrace
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            trace.MAX_GESTURES = 2
+            for _ in range(4):
+                trace.begin(self.window)
+                trace.flush()
+            rows = path.read_text().splitlines()
+        self.assertEqual(len(rows), 2)
+
+    def test_resize_trace_keeps_sidebar_toggles_and_queued_geometry_separate(self):
+        from ddm.sidebar_collapse import SidebarCollapse
+        from dev.diagnose_window_resize import WindowResizeTrace
+        window = self.window
+        sidebar = window.sidebar
+        video = window.wall.tiles[0].video
+        hwnd = int(video.winId())
+        original = SidebarCollapse.set_collapsed
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            with WindowResizeTrace(path):
+                sidebar.set_collapsed(False)
+                self.assertFalse(path.exists(), 'Unchanged sidebar state needs no trace')
+                sidebar.set_collapsed(True)
+                sidebar.set_collapsed(False)  # Start a second operation before the first queued sample.
+                self.app.processEvents()
+                rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertIs(SidebarCollapse.set_collapsed, original)
+        self.assertEqual([row['source'] for row in rows], ['SidebarCollapse.set_collapsed'] * 2)
+        phases = ['sidebar-before', 'sidebar-before-wall-settle', 'sidebar-returned']
+        self.assertEqual([sample['phase'] for sample in rows[0]['geometrySamples']], phases)
+        self.assertEqual([sample['phase'] for sample in rows[1]['geometrySamples']], phases + ['sidebar-queued'])
+        for row in rows:
+            self.assertNotEqual(row['initial']['sidebar'][2], row['final']['sidebar'][2])
+            self.assertEqual(row['initial']['players'], row['final']['players'])
+            names = {call['method'] for call in row['calls']}
+            self.assertTrue({'SidebarCollapse.finish_collapse', 'SidebarCollapse.set_collapsed',
+                             'WallPresentation.set_sidebar_animating', 'WallGrid._flush_resize'} <= names)
+            for sample in row['geometrySamples']:
+                self.assertIn('wall', sample['state'])
+                self.assertTrue(any(node['hwnd'] == hwnd for node in sample['windows']))
+        self.assertEqual(int(video.internalWinId()), hwnd)
+
+    def test_dpi_profile_is_opt_in_bounded_and_stops_on_flush(self):
+        from dev.diagnose_window_resize import WindowResizeTrace
+        previous = sys.getprofile()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'resize.jsonl'
+            trace = WindowResizeTrace(path)
+            trace.begin(self.window)
+            topology, geometry = trace.topology(), self.window.geometry()
+            trace.sample_geometry('static')
+            self.assertEqual(trace.topology(), topology, 'Sampling must not create native windows')
+            self.assertEqual(self.window.geometry(), geometry)
+            sample = trace.geometry_samples[-1]
+            wall = next(node for node in sample['windows'] if node['instance'] == id(self.window.wall))
+            expected = [round(value*sample['scale']) for value in wall['qtRect']]
+            self.assertTrue(all(abs(a-b) <= 2 for a, b in zip(expected, wall['nativeRect'])))
+            self.user32.CreateWindowExW.argtypes = (wintypes.DWORD, wintypes.LPCWSTR,
+                wintypes.LPCWSTR, wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                ctypes.c_int, wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p)
+            self.user32.CreateWindowExW.restype = wintypes.HWND
+            self.user32.DestroyWindow.argtypes = (wintypes.HWND,)
+            child = self.user32.CreateWindowExW(0, 'STATIC', 'sample-private-text', 0x50000000,
+                10, 20, 30, 40, int(self.window.internalWinId()), None, None, None)
+            self.assertTrue(child)
+            try:
+                trace.sample_geometry('external')
+                node = next(n for n in trace.geometry_samples[-1]['externalWindows'] if n['hwnd'] == child)
+                self.assertEqual(node['nativeRect'], [10, 20, 30, 40])
+                self.assertEqual(node['nativeParent'], int(self.window.internalWinId()))
+                self.assertNotIn('sample-private-text', json.dumps(trace.geometry_samples))
+            finally:
+                self.user32.DestroyWindow(child)
+            trace.start_dpi_profile()
+            self.assertIsNone(trace.dpi_profiler)
+            trace.flush()
+            trace = WindowResizeTrace(path, profile_dpi=True)
+            trace.MAX_DPI_PROFILES = 1
+            trace.begin(self.window)
+            trace.start_dpi_profile()
+            sum(range(100))
+            trace.finish_dpi_profile()
+            trace.start_dpi_profile()
+            self.assertIsNone(trace.dpi_profiler)
+            trace.flush()
+            trace.begin(self.window)
+            trace.start_dpi_profile()
+            trace.flush()  # Exit without a subsequent move must also disable profiling.
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertIs(sys.getprofile(), previous)
+        self.assertEqual([len(row['dpiProfiles']) for row in rows], [0, 1, 1])
+        self.assertTrue(any('builtins.sum' in f['function'] for f in rows[1]['dpiProfiles'][0]['functions']))
+        self.assertTrue(all(len(p['functions']) <= 120 for row in rows for p in row['dpiProfiles']))
+        self.assertNotIn('uname', json.dumps(rows))
+        self.assertIsNone(trace.dpi_profiler)
 
     def test_same_size_native_message_still_clears_wall_mode_on_exit(self):
         window = self.window

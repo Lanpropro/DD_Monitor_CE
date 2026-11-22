@@ -55,8 +55,12 @@ class RoomStatus:
                 return
         except RuntimeError:                 # 对象已被 Qt 回收
             host._poller = None
+        parallel = getattr(getattr(host, 'picture_in_picture', None), 'parallel_tiles', ())
         room_ids = list(dict.fromkeys(str(room.get("room_id")) for room in
-            host.sidebar.rooms() + [tile.room for tile in host.wall.tiles] if room.get("room_id")))
+            host.sidebar.rooms() + [tile.room for tile in (*host.wall.tiles, *parallel)] if room.get("room_id")))
+        auto_recording = getattr(host, 'auto_recording', None)
+        if auto_recording is not None:
+            room_ids = list(dict.fromkeys((*room_ids, *auto_recording.monitored_rooms())))
         if not room_ids:
             return
         platform_ids = [rid for rid in room_ids if ":" in rid]
@@ -107,14 +111,32 @@ class RoomStatus:
         if host._poller is None:            # 列表是空的，没真的开轮询
             host.sidebar.set_refreshing(False)
 
+    def confirm_playback_live(self, tile) -> None:
+        """原生播放器已出画，同步用播放确认状态的关注卡片。"""
+        sidebar = self.host.sidebar
+        room_id = tile.room["room_id"]
+        for item in sidebar.items_control.items():
+            if item.room["room_id"] == room_id and not (item.room.get("live") and item.room.get("live_known")):
+                item.room["live_known"] = True
+                item.set_live(True)
+                sidebar._folder_pending.discard(room_id)
+                sidebar.resort()
+                break
+        tile.room["live_known"] = True
+        tile.set_live(True)
+
     def apply_status(self, status: dict) -> None:
         host = self.host
         preview_status = status.get(host.hover_preview._room_id())
-        if preview_status and not preview_status.get("live"):
+        if preview_status and not preview_status.get("live") and preview_status.get("live_known", True):
             host.hover_preview.cancel()
         # 画面格可能直接持有侧栏条目的 room 字典。必须先记住两边旧状态，
         # 否则先更新画面格会让侧栏误以为状态没有变化，徽标仍停在“直播中”。
-        tile_was_live = {tile: bool(tile.room.get("live")) for tile in host.wall.tiles}
+        parallel = getattr(getattr(host, 'picture_in_picture', None), 'parallel_tiles', ())
+        playback_tiles = (*host.wall.tiles, *parallel)
+        playing_channels = {str(tile.room["room_id"]) for tile in playback_tiles
+                            if tile.room.get("live_from_playback") and tile._player_active}
+        tile_was_live = {tile: bool(tile.room.get("live")) for tile in playback_tiles}
         item_was_live = {item: bool(item.room.get("live")) for item in host.sidebar._items}
         item_was_known = {item: bool(item.room.get("live_known", True))
                           for item in host.sidebar._items}
@@ -130,9 +152,9 @@ class RoomStatus:
         )
         faces: dict[str, str] = {}
         covers: dict[str, str] = {}
-        for tile in host.wall.tiles:
+        for tile in playback_tiles:
             info = status.get(str(tile.room.get("room_id") or ""))
-            if not info:
+            if not info or (tile.room.get("live_from_playback") and not info.get("live_known", True)):
                 continue
             was_live = tile_was_live[tile]
             tile.room["live_known"] = info.get("live_known", True)
@@ -149,25 +171,30 @@ class RoomStatus:
                         or tile in host._retry_timers or tile._status_text not in ("未开播", "已下播")):
                     host._offline_tile(tile)
                 if was_live:
-                    host.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
-                                      room=dict(tile.room or {}))
+                    if tile not in parallel:
+                        host.plugins.emit(plugin_api.EVENT_ROOM_OFFLINE, tile=tile,
+                                          room=dict(tile.room or {}))
                 else:
                     tile.set_status("未开播")
             elif not was_live and info["live"]:
                 print(f"[开播] {tile.room.get('uname')} 自动开始播放",
                       file=sys.stderr, flush=True)
-                host.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile,
-                                  room=dict(tile.room or {}))
+                if tile not in parallel:
+                    host.plugins.emit(plugin_api.EVENT_ROOM_LIVE, tile=tile, room=dict(tile.room or {}))
                 if tile not in host._resolvers:
                     host.start_tile(tile)         # 已在取流的格子继续等待，不重复请求
         just_went_live: list = []
         filter_changed = False
         for item in host.sidebar._items:            # noqa: SLF001
-            info = status.get(str(item.room.get("room_id")))
-            if not info:
+            room_id = str(item.room.get("room_id"))
+            info = status.get(room_id)
+            if not info or (room_id in playing_channels and not info.get("live_known", True)):
                 continue
             was_live = item_was_live[item]
+            item.room["live_known"] = info.get("live_known", True)
             if info["title"]:
+                if info["title"] != item.room.get("title") and host.sidebar.filter_text:
+                    filter_changed = True
                 item.set_title(info["title"])
             if info.get("uname"):
                 item.set_uname(info["uname"])
@@ -205,8 +232,7 @@ class RoomStatus:
                 item.room["face"] = face
                 faces[str(item.room.get("room_id"))] = face
                 # 缓存命中也由 AvatarLoader 后台读取，批量状态回调不在 UI 线程解码图片。
-            item.room["live_known"] = info.get("live_known", True)
-            host.sidebar._folder_pending.discard(str(item.room.get("room_id")))
+            host.sidebar._folder_pending.discard(room_id)
         after_live = (
             tuple((str(tile.room.get("room_id") or ""),
                    bool(tile.room.get("live")),
@@ -233,6 +259,9 @@ class RoomStatus:
         if covers:
             host._aside_cover_loader = host._start_avatar_loader(
                 covers, host._on_room_cover, subdir="covers")
+        host._load_room_banners(host.sidebar.rooms())
+        auto_recording = getattr(host, 'auto_recording', None)
+        if auto_recording is not None:
+            faces.update(auto_recording.apply_status(status))
         if faces:
             host._status_avatar_loader = host._start_avatar_loader(faces, host._on_room_avatar)
-        host._load_room_banners(host.sidebar.rooms())

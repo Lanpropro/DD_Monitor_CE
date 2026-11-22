@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QWidget
 from shiboken6 import isValid
@@ -50,7 +50,7 @@ class NoticeCloseTests(unittest.TestCase):
             native_visible.argtypes = (wintypes.HWND,)
             self.assertFalse(native_visible(int(notice.internalWinId())), 'Native and Qt visibility must agree')
 
-    def test_original_manual_close_removes_records_then_hides_each_notice(self):
+    def test_manual_close_hides_each_notice_and_marks_the_kept_record_read(self):
         notices = []
         for index in range(4):
             show_result(self.owner, f'Fixture {index}', persistent=True)
@@ -59,6 +59,8 @@ class NoticeCloseTests(unittest.TestCase):
             notices.append(notice)
         self.assertEqual(len(self.button.center.entries), 4)
         for index, notice in enumerate(notices):
+            _, entry = next(iter(notice._history_entries))
+            self.assertTrue(entry.unread)
             with patch.object(notice, '_animate_to', wraps=notice._animate_to) as animate:
                 QTest.mouseClick(notice.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
                 self.assertTrue(notice._leaving)
@@ -66,10 +68,83 @@ class NoticeCloseTests(unittest.TestCase):
                 notice._motion.setCurrentTime(notice._motion.duration())
                 self.assert_hidden(notice)
                 animate.assert_called_once_with(0.0, 180)
-            self.assertEqual(len(self.button.center.entries), 3 - index)
+            self.assertFalse(entry.unread)
+            self.assertIn(entry, self.button.center.entries)
+            self.assertEqual(len(self.button.center.entries), 4)
             self.assertEqual(len(self.owner._notices), 3 - index)
             for remaining in notices[index + 1:]:
                 self.assertTrue(remaining.isVisible())
+
+    def test_native_quick_mask_recovers_in_notice_hide_and_tracks_the_remaining_notice(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('Requires a native Windows Quick window')
+        import PySide6
+        from ddm.video_danmaku_quick import QuickDanmakuLayer
+
+        qt_dir = Path(PySide6.__file__).parent
+        with os.add_dll_directory(str(qt_dir)):
+            ctypes.WinDLL(str(qt_dir / 'Qt6QuickEffects.dll'))
+        flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
+        presentation = QWidget(self.owner, flags)
+        presentation.setAttribute(Qt.WA_ShowWithoutActivating)
+        presentation.setGeometry(QRect(self.owner.mapToGlobal(QPoint()), self.owner.size()))
+        presentation.show()
+        self.addCleanup(presentation.close)
+        wall = QWidget(self.owner)
+        wall.setGeometry(self.owner.rect())
+        wall.visible_tiles = lambda: []
+        wall.show()
+        self.owner.wall = wall
+        layer = wall._quick_danmaku_layer = QuickDanmakuLayer(wall)
+        self.addCleanup(layer.window.hide)
+        layer.set_presentation_window(presentation)
+        group = layer.create_group(0, 0, wall.width(), wall.height(), 100, False)
+        image = QImage(300, 24, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.white)
+        layer.add(group, image, 30, 60, 300, 24)
+
+        def in_mask(point):
+            point = layer.window.mapFromGlobal(point)
+            ratio = layer.window.devicePixelRatio()
+            user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+            user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
+            gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+            gdi32.CreateRectRgn.restype = wintypes.HRGN
+            gdi32.PtInRegion.argtypes = (wintypes.HRGN, ctypes.c_int, ctypes.c_int)
+            gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+            region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            try:
+                self.assertTrue(user32.GetWindowRgn(int(layer.window.winId()), region))
+                return bool(gdi32.PtInRegion(region, round(point.x() * ratio), round(point.y() * ratio)))
+            finally:
+                gdi32.DeleteObject(region)
+
+        for closing in ('manual', 'timeout', 'immediate'):
+            with self.subTest(closing=closing):
+                first, second = ResultNotice(self.owner), ResultNotice(self.owner)
+                for notice in (first, second):
+                    notice.show_message('Fixture', kind='live', persistent=True)
+                    notice._motion.setCurrentTime(notice._motion.duration())
+                QTest.qWait(20)
+                old_second = second.frameGeometry().center()
+                self.assertTrue(layer.window.isVisible())
+                self.assertFalse(in_mask(old_second))
+                if closing == 'manual':
+                    QTest.mouseClick(first.findChild(QPushButton, 'NoticeClose'), Qt.LeftButton)
+                elif closing == 'timeout':
+                    first.timer.timeout.emit()
+                else:
+                    first.dismiss(animate=False)
+                if closing != 'immediate':
+                    self.assertTrue(first.isVisible())
+                    self.assertFalse(in_mask(first.frameGeometry().center()))
+                    first._motion.setCurrentTime(first._motion.duration())
+                self.assert_hidden(first)
+                self.assertTrue(second.isVisible())
+                self.assertFalse(in_mask(second.frameGeometry().center()))
+                self.assertTrue(in_mask(old_second), 'The vacated region must be available before the next event turn')
+                second.dismiss(animate=False)
+                self.assertTrue(in_mask(second.frameGeometry().center()))
 
     def test_close_during_entrance_and_reopen_update_notice(self):
         notice = UpdateNotice(self.owner)

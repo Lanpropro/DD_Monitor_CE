@@ -31,7 +31,8 @@ class Host:
     def __init__(self):
         self.orientation, self._layout_by_orientation, self._pending_layout = 'landscape', {}, ''
         self.state, self._applying_room_preset, self._settling_resize = {}, False, False
-        self.picture_in_picture = Mock(active=False)
+        self.settings = {}
+        self.picture_in_picture = Mock(active=False, moves_main_wall=False)
         self._root_layout, self._content, self.sidebar = Mock(), Mock(), Mock()
         self._root_layout.isEnabled.return_value = True
         self._root_layout.indexOf.side_effect = lambda widget: 0 if widget is self.sidebar else 1
@@ -120,10 +121,10 @@ class WindowLayoutTests(unittest.TestCase):
     def test_guard_and_exception_restore_root_layout_enabled_state(self):
         host = Host()
         for applying, pip in ((True, False), (False, True)):
-            host._applying_room_preset, host.picture_in_picture.active = applying, pip
+            host._applying_room_preset, host.picture_in_picture.moves_main_wall = applying, pip
             host._apply_orientation('portrait')
             host._root_layout.setEnabled.assert_not_called()
-        host._applying_room_preset = host.picture_in_picture.active = False
+        host._applying_room_preset = host.picture_in_picture.moves_main_wall = False
         for enabled in (True, False):
             host.orientation = 'landscape'
             host._root_layout.isEnabled.return_value = enabled
@@ -160,6 +161,17 @@ class WindowLayoutTests(unittest.TestCase):
         live_player.reapply_audio_channel.assert_called_once_with()
         live_player.release.assert_not_called()
         self.assertEqual(live.room['audio_channel'], 3)
+
+    def test_shrinking_moves_audio_with_promoted_room_when_enabled(self):
+        host = Host()
+        host.settings['audio_follows_room'] = True
+        offline, live = Tile('off', False, 20, True, 3), Tile('live', True, 75, False, 4)
+        host.wall.tiles, host.wall._capacity = [offline, live], lambda: 2
+        player = host.players[live] = Mock()
+        host._prioritize_live_tiles('1x1')
+        self.assertEqual(host.wall.tiles, [live, offline])
+        self.assertEqual((live.volume, live.muted, live.audio_channel), (75, False, 4))
+        self.assertEqual(player.mock_calls, [])
 
     def test_current_layout_reset_only_refreshes_playback_when_panes_changed(self):
         host = Host()

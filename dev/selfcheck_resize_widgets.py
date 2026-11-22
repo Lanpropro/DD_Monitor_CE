@@ -176,6 +176,20 @@ def check_interactive_decorations(app, wall):
         assert repaint.call_count == before + 1
     wall._relayout_corner()
 
+    overlays = (tile.controls, tile.stream_badge, tile.title_badge, tile.time_badge,
+                tile.spinner, tile.pause_overlay, tile.bottom)
+    with ExitStack() as stack:
+        raises = [stack.enter_context(patch.object(widget, 'raise_', wraps=widget.raise_))
+                  for widget in overlays]
+        tile.set_interactive_resize(True)
+        for _ in range(4):
+            tile.raise_overlays()
+        assert not any(raise_.called for raise_ in raises), 'Intermediate requests must not restack native overlays'
+        assert tile._resize_raise_pending
+        tile.set_interactive_resize(False)
+        assert all(raise_.call_count == 1 for raise_ in raises), 'Final stacking repair must remain synchronous and complete'
+        assert not tile._resize_raise_pending
+
 
 def check_covers(app, wall):
     tile, playing = wall.tiles[:2]

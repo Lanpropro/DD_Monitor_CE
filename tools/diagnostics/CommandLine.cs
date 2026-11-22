@@ -33,7 +33,7 @@ namespace DDMonitorDiagnostics
                 if (request == null) throw new ArgumentException("诊断请求为空。");
                 if (args[0] == "--capture-json")
                 {
-                    if (request.pid <= 0 || (request.mode != "folders" && request.mode != "drag")) throw new ArgumentException("现场采集类型无效。");
+                    if (request.pid <= 0 || !OnDemandClient.SupportsMode(request.mode)) throw new ArgumentException("现场采集类型无效。");
                     using (var client = new OnDemandClient())
                         send(new { kind = "capture", evidence = client.Capture(request.root, request.pid, request.mode) });
                 }

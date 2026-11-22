@@ -11,6 +11,33 @@ from .widget_support import (
 class SidebarItems:
     def __init__(self, host):
         self.host = host
+        self._auto_record_rooms = set()
+        self._recording_rooms = set()
+        self._recording_states = {}
+
+    def set_auto_record_rooms(self, room_ids) -> None:
+        enabled = set(room_ids)
+        if enabled == self._auto_record_rooms:
+            return
+        self._auto_record_rooms = enabled
+        self._sync_recording_states()
+
+    def set_recording_rooms(self, room_ids) -> None:
+        active = set(room_ids)
+        if active == self._recording_rooms:
+            return
+        self._recording_rooms = active
+        self._sync_recording_states()
+
+    def _sync_recording_states(self) -> None:
+        states = {room_id: 'recording' if room_id in self._recording_rooms else 'ready'
+                  for room_id in self._auto_record_rooms}
+        if states == self._recording_states:
+            return
+        self._recording_states = states
+        for item in self.host._items:
+            item.set_recording_state(states.get(str(item.room.get('room_id')), ''))
+        self.host._head_strip.set_recording_states(states)
 
     def on_strip_room(self, room_id: str) -> None:
         """点横栏里的头像 = 点列表里那一条（行为和横屏一致）。"""
@@ -119,6 +146,7 @@ class SidebarItems:
         host = self.host
         NavItem = item_type
         item = NavItem(room, len(host._items), parent=host.list_box)
+        self.apply_room_card_branding(item)
         room_id = str(room.get("room_id"))
         if room_id and room_id not in host.import_order:
             host.import_order.append(room_id)     # 「导入顺序」排序用
@@ -137,12 +165,34 @@ class SidebarItems:
         item.thumb.set_compact_background(host.compact_background)
         item.set_portrait_strip(host.side == "top" and not host.card_mode)
         item.set_on_wall(room_id in host._wall_room_ids)
+        if room_id in self._recording_states:
+            item.set_recording_state(self._recording_states[room_id])
         item.set_select_mode(host.select_mode)
         host._items.append(item)
         item_height = NAV_ITEM_HEIGHT if host.card_mode else NAV_LIST_ITEM_HEIGHT
         item.resize(host.list_box.width(), item_height)
         item.show()
         return item
+
+    @staticmethod
+    def apply_room_card_branding(item, manager=None):
+        if manager is None:
+            from .plugins import manager as active_manager
+            manager = active_manager()
+        platform = manager.platforms.get(item.room.get('platform')) if manager is not None else None
+        artwork = getattr(platform, 'room_card_branding', None)
+        if callable(artwork) and (branding := artwork(str(item.room['room_id']))):
+            item.set_room_card_branding(branding)
+            return True
+        return False
+
+    def refresh_room_card_branding(self, manager):
+        changed = False
+        for item in self.host._items:
+            changed = self.apply_room_card_branding(item, manager) or changed
+        if changed:
+            self.host._sync_count()
+            self.host.refresh_strip()
 
     def add_room(self, room: dict) -> bool:
         host = self.host
@@ -251,7 +301,7 @@ class SidebarItems:
                      if ":" in str(item.room.get("room_id", "")) else "bilibili"
                      for item in host._items}
         for item in host._items:
-            show = len(platforms) > 1 and getattr(host, "show_platform_logos", True)
+            show = (len(platforms) > 1 or item.has_station_badge) and getattr(host, "show_platform_logos", True)
             changed = item.platform_badge.property("showPlatform") != show
             if changed:
                 item.platform_badge.setProperty("showPlatform", show)

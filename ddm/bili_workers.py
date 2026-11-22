@@ -5,6 +5,7 @@ import time
 import requests
 from PySide6.QtCore import QThread, Signal
 from . import qt_lifecycle
+from .streamer_defaults import quality_tiers, source_quality_option
 
 
 class StreamResolver(QThread):
@@ -32,6 +33,9 @@ class StreamResolver(QThread):
         self.headers: dict = {}          # 本次取流的请求头，交给播放器/插件
         self.login_required = False
         self.failure_quality_options = []
+        self.streamer_height = None
+        self.streamer_allow_lower = True
+        self.applied_streamer_quality = False
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -70,7 +74,9 @@ class StreamResolver(QThread):
                 raise api.Cancelled()
             try:
                 if callable(hook):
-                    result = hook(self.room_id, self.quality, codec=codec)
+                    arguments = ({'cancelled': self.is_cancelled} if
+                                 'cancelled' in inspect.signature(hook).parameters else {})
+                    result = hook(self.room_id, self.quality, codec=codec, **arguments)
                     if not isinstance(result, (tuple, list)) or len(result) != 5:
                         raise ValueError("平台编码接口必须返回五项取流结果")
                     actual_codec = result[4]
@@ -116,8 +122,13 @@ class StreamResolver(QThread):
             return
         try:
             if self.platform is not None:
-                result = (self.platform.preview_url(self.room_id) if self.preview
-                          else self._platform_play_url())
+                if self.preview:
+                    hook = self.platform.preview_url
+                    arguments = ({'cancelled': self.is_cancelled} if
+                                 'cancelled' in inspect.signature(hook).parameters else {})
+                    result = hook(self.room_id, **arguments)
+                else:
+                    result = self._platform_play_url()
                 url, current, profile = result[:3]
                 headers = dict(result[3]) if len(result) > 3 else {}
                 current = int(current)
@@ -133,11 +144,13 @@ class StreamResolver(QThread):
             else:
                 raise ValueError("请启用对应的平台插件并重启")
             if self._cancelled:
+                from .media_sources import discard
+                discard(url)
                 return
             options = ([] if self.preview else
                        self.platform.room_quality_options(self.room_id) if self.platform
-                       else api.room_quality_options(self.room_id,
-                                                 api.codec_from_profile(profile) or self.codec))
+                       else api.room_quality_options(
+                           self.room_id, api.codec_from_profile(profile) or self.codec, profile=profile))
             if (self.platform is None and not self.preview
                     and (self.strict_codec or api.codec_from_profile(profile) in api.HLS_ONLY_CODECS)
                     and not any(int(option["qn"]) >= 10000 for option in options)):
@@ -153,10 +166,17 @@ class StreamResolver(QThread):
                     source_offset=self.source_offset, codec="avc")
                 if self._cancelled:
                     return
-                options = api.room_quality_options(self.room_id, "avc")
+                options = api.room_quality_options(self.room_id, "avc", profile=profile)
             options = options or []
             if not isinstance(options, list):
                 raise TypeError("平台画质档位必须为列表")
+            if self.streamer_height is not None:
+                previous_profile = profile
+                url, current, profile, headers = self._prefer_streamer_resolution(
+                    (url, current, profile, headers), options)
+                if self.platform is None and not self.preview and profile != previous_profile:
+                    options = api.room_quality_options(
+                        self.room_id, api.codec_from_profile(profile) or self.codec, profile=profile)
             if options:
                 print(f"[画质档位] {self.room_id}: "
                       + " / ".join(f"{item['desc']}({item['qn']})" for item in options),
@@ -176,7 +196,8 @@ class StreamResolver(QThread):
                 try:
                     options = self.platform.room_quality_options(self.room_id)
                     self.failure_quality_options = [dict(item) for item in options]
-                    if not any(int(item["qn"]) == 10000 for item in self.failure_quality_options):
+                    if (source_quality_option(self.failure_quality_options) is None
+                            and not any(int(item["qn"]) == 10000 for item in self.failure_quality_options)):
                         self.failure_quality_options.insert(0, {"qn": 10000, "desc": "最高可用"})
                 except Exception:  # A menu lookup must not replace the original playback error.
                     self.failure_quality_options = [{"qn": 10000, "desc": "最高可用"}]
@@ -184,11 +205,90 @@ class StreamResolver(QThread):
                 self.failed.emit(self.room_id, str(error))
             return
         if self._cancelled:
+            from .media_sources import discard
+            discard(url)
             return
         self.headers = headers
         if self.platform is None:
             self.source_codec = api.codec_from_profile(profile)
         self.resolved.emit(self.room_id, url, current, profile, options)
+
+    def _prefer_streamer_resolution(self, fallback, options):
+        from . import bili as api
+
+        quality, source_codec, note = self.quality, self.source_codec, self.codec_probe_note
+        _, current, profile, _ = fallback
+        tiers = quality_tiers(self.room_id, options, self.streamer_height, allow_lower=self.streamer_allow_lower)
+        for target in tiers:
+            if self.is_cancelled():
+                raise api.Cancelled()
+            if target == current:
+                self.applied_streamer_quality = True
+                return fallback
+            try:
+                if self.platform is None:
+                    result = api.play_url(self.room_id, target, cancelled=self.is_cancelled,
+                                          source_offset=self.source_offset,
+                                          codec=api.codec_from_profile(profile) or self.codec,
+                                          allow_codec_fallback=not self.strict_codec)
+                else:
+                    self.quality = target
+                    result = self._platform_play_url()
+                url, actual, channel, headers = result
+                if int(actual) == target and isinstance(url, str) and url.strip() and isinstance(channel, str):
+                    self.applied_streamer_quality = True
+                    return url, target, channel, headers
+            except api.Cancelled:
+                raise
+            except Exception:  # A rejected preferred tier can fall back to the already valid source.
+                pass
+            finally:
+                self.quality = quality
+                if not self.applied_streamer_quality:
+                    self.source_codec, self.codec_probe_note = source_codec, note
+        return fallback
+
+
+class RecordingStreamResolver(StreamResolver):
+    """Check a single room before retrying a background recording."""
+
+    offline = Signal()
+
+    def __init__(self, *args, check_status=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.check_status = check_status
+
+    def _confirmed_offline(self):
+        from . import bili as api
+
+        try:
+            if self.platform is None:
+                status = api._room_init(self.room_id, timeout=2).get('live_status')
+                return type(status) is int and status in (0, 2)
+            status = self.platform.rooms_status([self.room_id]).get(self.room_id) or {}
+            return status.get('live_known', True) is True and status.get('live') is False
+        except Exception:  # Platform lookup can fail without saying anything about the broadcast.
+            return False
+
+    def run(self):
+        if self.is_cancelled():
+            return
+        if self.check_status and self._confirmed_offline():
+            if not self.is_cancelled():
+                self.offline.emit()
+            return
+        super().run()
+
+
+class RoomOrientation(QThread):
+    def __init__(self, room_id, parent):
+        super().__init__(parent)
+        self.room_id = room_id
+        self.portrait = None
+
+    def run(self):
+        from .bili import room_is_portrait
+        self.portrait = room_is_portrait(self.room_id)
 
 
 class InfoResolver(QThread):
@@ -213,8 +313,9 @@ class InfoResolver(QThread):
                 result = self.platform.room_info(self.room_id)
                 info = result.as_dict() if result is not None else None
             else:
-                from .room_input import is_bili_short_url, resolve_bili_share
-                room_id = resolve_bili_share(self.room_id) if is_bili_short_url(self.room_id) else self.room_id
+                from .room_input import bili_profile_uid, is_bili_short_url, resolve_bili_share
+                deferred = is_bili_short_url(self.room_id) or bili_profile_uid(self.room_id)
+                room_id = resolve_bili_share(self.room_id) if deferred else self.room_id
                 info = api.room_info(room_id) if room_id.isdigit() else None
         except Exception as error:  # noqa: BLE001
             self.browser_verification = getattr(error, "browser_verification", False) is True

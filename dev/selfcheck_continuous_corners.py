@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainterPath
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox, QFrame, QLineEdit, QMenu, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QApplication, QCheckBox, QFrame, QLineEdit, QMenu, QPushButton,
+                              QToolButton, QVBoxLayout, QWidget)
 from ddm import theme
 from ddm import continuous_corners as corners
 from ddm.corner_geometry import continuous_path
@@ -70,7 +71,7 @@ class ContinuousCornersTests(unittest.TestCase):
         self.assertEqual(editor.size(),size)
         values = corners._filter.values(editor)
         self.assertEqual(values['border-radius'],'8px')
-        self.assertNotEqual(editor.grab().toImage().pixelColor(editor.width()//2,3).alpha(),0)
+        self.assertGreater(editor.grab().toImage().pixelColor(editor.width()//2,0).alpha(), 0)
 
     def test_local_surface_states_update_without_changing_layout(self):
         button = QPushButton('Action',self.host)
@@ -127,17 +128,82 @@ class ContinuousCornersTests(unittest.TestCase):
         plain = 'QPushButton {background: #227744; border: none;}'
         self.assertEqual(corners.stylesheet(plain),plain)
 
+    def test_rounded_buttons_keep_their_corners_while_held(self):
+        from ddm.tile_widgets import Tile
+
+        tile = Tile({}, self.host)
+        self.box.addWidget(tile)
+        navigation = QToolButton(self.host)
+        navigation.setObjectName('NavigationButton')
+        navigation.setText('Navigation')
+        self.box.addWidget(navigation)
+        buttons = [tile.add_room_button, navigation]
+        for name in ('PrimaryButton', 'AppearanceChoice', 'ChipButton', 'DangerButton',
+                     'GhostButton', 'ShortcutAction', 'PipRoomChoice'):
+            button = QPushButton(name, self.host)
+            button.setObjectName(name)
+            self.box.addWidget(button)
+            buttons.append(button)
+        self.show()
+
+        def corner_pixels(image):
+            right, bottom = image.width() - 1, image.height() - 1
+            return [image.pixelColor(x, y) for x, y in ((0, 0), (right, 0),
+                                                         (0, bottom), (right, bottom))]
+
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            for button in buttons:
+                with self.subTest(theme=mode, control=button.objectName()):
+                    self.assertTrue(button.isVisible())
+                    button.setFocus(Qt.TabFocusReason)
+                    APP.processEvents()
+                    before = button.geometry()
+                    idle = button.grab().toImage()
+                    for key in (None, Qt.Key_Space):
+                        if key is None:
+                            QTest.mousePress(button, Qt.LeftButton)
+                        else:
+                            QTest.keyPress(button, key)
+                        try:
+                            self.assertTrue(button.isDown())
+                            held = button.grab().toImage()
+                            self.assertEqual(corner_pixels(held), corner_pixels(idle))
+                            self.assertEqual(button.geometry(), before)
+                            if button.objectName() in ('IconButton', 'PrimaryButton'):
+                                self.assertNotEqual(held, idle)
+                        finally:
+                            if key is None:
+                                QTest.mouseRelease(button, Qt.LeftButton)
+                            else:
+                                QTest.keyRelease(button, key)
+
+    def test_typed_local_states_keep_the_shared_surface(self):
+        button = QPushButton('Account', self.host)
+        button.setObjectName('IconButton')
+        button.setCheckable(True)
+        button.setStyleSheet('QPushButton#IconButton:checked {background: #227744;}')
+        self.box.addWidget(button)
+        self.show()
+        idle = button.grab().toImage()
+        button.setChecked(True)
+        checked = button.grab().toImage()
+        self.assertEqual(checked.pixelColor(0, 0), idle.pixelColor(0, 0))
+        self.assertEqual(checked.pixelColor(checked.width() // 2, 4), QColor('#227744'))
+
     def test_theme_uses_stable_qss_and_current_surface_palette(self):
-        editor = QLineEdit(self.host)
-        self.box.addWidget(editor)
+        button = QPushButton('Action', self.host)
+        button.setObjectName('IconButton')
+        button.setFocusPolicy(Qt.NoFocus)
+        self.box.addWidget(button)
         self.show()
         stable = APP.styleSheet()
         for mode in ('light','dark','light'):
             theme.apply(mode)
             APP.processEvents()
             self.assertEqual(APP.styleSheet(),stable)
-            image = editor.grab().toImage()
-            self.assertEqual(image.pixelColor(editor.width()//2,4),theme.qcolor(theme.CONTENT))
+            image = button.grab().toImage()
+            self.assertEqual(image.pixelColor(image.width()//2,4),theme.qcolor(theme.CONTENT))
 
     def test_menu_and_checkbox_keep_original_actions(self):
         check = QCheckBox('Enable',self.host)

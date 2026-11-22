@@ -29,13 +29,15 @@ class FollowImportDialog(QDialog):
     """
 
     def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None,
-                 folder_creator=None, room_menu=False):
+                 folder_creator=None, room_menu=False, channels=False, sidebar_avatars=None):
         super().__init__(parent)
         self.room_menu = room_menu
-        self.setWindowTitle("导入关注")
+        self.channels = channels
+        self.setWindowTitle("导入频道" if channels else "导入关注")
         self.resize(660, 620)
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
+        self._sidebar_avatars = sidebar_avatars or {}
         self._explicitly_checked = set()
         self.folder_id = ""
         self.folder_changed = False
@@ -57,7 +59,7 @@ class FollowImportDialog(QDialog):
         self._summary_timer.timeout.connect(self._update_header)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("搜索主播名称")
+        self.search_edit.setPlaceholderText("搜索频道名称" if channels else "搜索主播名称")
         self.search_edit.setToolTip("支持中文、全拼和拼音首字母")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_rooms)
@@ -74,6 +76,17 @@ class FollowImportDialog(QDialog):
         self.sort_control.setToolTip("只调整显示顺序；名称按拼音及字母排序，不改变勾选")
         self.sort_control.currentIndexChanged.connect(lambda _: self._sort_rooms())
         search_row.addWidget(self.sort_control)
+        self.group_control = None
+        groups = sorted({room.get('import_group') for room in rooms if room.get('import_group')}) if channels else []
+        if groups:
+            self.group_control = SelectControl()
+            self.group_control.setAccessibleName('频道分组')
+            self.group_control.setFixedWidth(126)
+            self.group_control.addItem('全部分组', '')
+            for group in groups:
+                self.group_control.addItem(group, group)
+            self.group_control.currentIndexChanged.connect(lambda _: self._filter_rooms(self.search_edit.text()))
+            search_row.addWidget(self.group_control)
         layout.addLayout(search_row)
 
         self.folder_controls = QWidget()
@@ -83,7 +96,8 @@ class FollowImportDialog(QDialog):
         self.folder_button.setObjectName("IconButton")
         self.folder_button.setMaximumWidth(160)
         self.folder_button.setAutoDefault(False)
-        self.folder_button.setToolTip("仅调整新增或主动勾选的主播；默认勾选的已有关注保留原归属")
+        self.folder_button.setToolTip("仅为新增频道设置文件夹" if channels else
+                                      "仅调整新增或主动勾选的主播；默认勾选的已有关注保留原归属")
         folder_menu = QMenu(self.folder_button)
         options = [("", default_folder(folders)["name"])] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
@@ -106,6 +120,8 @@ class FollowImportDialog(QDialog):
         for text, handler in (("全选", lambda: self._check_all(True)),
                               ("不选", lambda: self._check_all(False)),
                               ("选直播中", self._check_live)):
+            if channels and handler == self._check_live:
+                continue
             button = QPushButton(text)
             button.setObjectName("IconButton")
             button.setCursor(Qt.PointingHandCursor)
@@ -132,7 +148,7 @@ class FollowImportDialog(QDialog):
 
         self.list = FollowImportList()
         self.list.setObjectName("FollowList")
-        self.list.setItemDelegate(FollowImportDelegate(self.existing, self.list))
+        self.list.setItemDelegate(FollowImportDelegate(self.existing, self.list, channels=channels))
         self.list.itemDelegate().checkChanged.connect(self._update_header)
         self.list.setMouseTracking(True)
         self._avatar_items = {}
@@ -253,9 +269,15 @@ class FollowImportDialog(QDialog):
                 continue
             room = item.data(Qt.UserRole)
             key = str(room.get('room_id') or 'account:' + str(room.get('anchor_uid')))
-            if room.get('face') and key not in self._requested_avatars:
+            if key in self._requested_avatars:
+                continue
+            pixmap, saved_face = self._sidebar_avatars.get(key, (None, None))
+            if pixmap is not None and item.icon().isNull():
+                self.set_avatar(key, pixmap)
+            face = room.get('face') or saved_face
+            if face and (pixmap is None or face != saved_face):
                 self._requested_avatars.add(key)
-                faces[key] = room['face']
+                faces[key] = face
         if faces:
             self.avatarRequested.emit(faces)
 
@@ -277,7 +299,9 @@ class FollowImportDialog(QDialog):
         self._update_header()
 
     def _room_hidden(self, room):
+        group = self.group_control.currentData() if self.group_control is not None else ''
         return (not matches_text(room['uname'], self.search_edit.text().strip().casefold())
+                or (group and room.get('import_group') != group)
                 or (self.hide_existing.isChecked() and str(room['room_id']) in self.existing)
                 or (self.room_menu and not self.show_pending.isChecked() and not room.get('room_id')))
 
@@ -332,10 +356,19 @@ class FollowImportDialog(QDialog):
 
     def _update_header(self) -> None:
         if self._populating:
-            self.header.setText(f'共 {len(self.rooms)} 个关注，正在显示 {self.list.count()} 个…')
+            kind = '频道' if self.channels else '关注'
+            self.header.setText(f'共 {len(self.rooms)} 个{kind}，正在显示 {self.list.count()} 个…')
             return
         chosen = self.selected()
         shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
+        if self.channels:
+            added = sum(str(room["room_id"]) not in self.existing for room in chosen)
+            self.header.setText(f'共 {len(self.rooms)} 个频道 · 已选 {len(chosen)} · 新增 {added}')
+            self.import_button.setText('导入频道')
+            self.import_button.setEnabled(bool(chosen))
+            self.empty_label.setText('没有匹配的频道，请调整搜索或分组。')
+            self.empty_label.setVisible(not shown)
+            return
         pending = sum(not room.get("room_id") for room in self.rooms)
         added = sum(bool(room.get("room_id")) and str(room["room_id"]) not in self.existing for room in chosen)
         removed = len(self.deselected_existing())
@@ -383,6 +416,8 @@ class FollowImportDialog(QDialog):
 
     @staticmethod
     def _room_text(room):
+        if room.get('platform') and 'import_group' in room:
+            return '　'.join(filter(None, (room['uname'], room['import_group'], room.get('import_source'))))
         status = ("直播间待识别" if not room.get("room_id") else
                   "直播状态待刷新" if room.get("live_known") is False else
                   "直播中" if room["live"] else "未开播")

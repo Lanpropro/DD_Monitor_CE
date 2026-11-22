@@ -1,11 +1,11 @@
 """Responsive settings sections; pages keep ownership of controls and values."""
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QGridLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 from .ui import SettingsSurface
 
 
 class SettingsSection(SettingsSurface):
-    def __init__(self, title, parent=None):
+    def __init__(self, title, parent=None, *, heading_action=None):
         super().__init__(parent)
         self.setObjectName('SettingsSection')
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -14,7 +14,15 @@ class SettingsSection(SettingsSurface):
         box.setSpacing(14)
         heading = QLabel(title, self)
         heading.setObjectName('SettingsSectionTitle')
-        box.addWidget(heading)
+        if heading_action is None:
+            box.addWidget(heading)
+        else:
+            header = QHBoxLayout()
+            header.setSpacing(6)
+            header.addWidget(heading)
+            header.addWidget(heading_action)
+            header.addStretch(1)
+            box.addLayout(header)
         self.grid = QGridLayout()
         self.grid.setHorizontalSpacing(12)
         self.grid.setVerticalSpacing(12)
@@ -36,10 +44,25 @@ class SettingsColumns(QWidget):
         self.grid.setSpacing(16)
         self.entries = []
         self.columns = 0
+        self._layout_window = None
 
     def add_section(self, key, widget, *, wide=False):
         self.entries.append((key, widget, wide))
-        self._arrange()
+        if self._column_count() != self.columns:
+            self._arrange()
+            return
+        row, column = 0, 0
+        if len(self.entries) > 1:
+            previous = self.grid.indexOf(self.entries[-2][1])
+            row, column, _rows, span = self.grid.getItemPosition(previous)
+            column += span
+            if column == self.columns:
+                row, column = row + 1, 0
+        if wide and column:
+            row, column = row + 1, 0
+        alignment = Qt.AlignTop if widget.sizePolicy().verticalPolicy() == QSizePolicy.Maximum else Qt.Alignment()
+        self.grid.addWidget(widget, row, column, 1, self.columns if wide else 1, alignment)
+        self.updateGeometry()
 
     def section(self, key):
         return next(widget for name, widget, _wide in self.entries if name == key)
@@ -85,12 +108,37 @@ class SettingsColumns(QWidget):
 
     def _column_count(self):
         from . import theme
-        vertical = self.respect_preference and self.window().property('settings_card_layout') == 'vertical'
+        window = self.window()
+        mode = window.property('settings_card_layout') if self.respect_preference else 'auto'
+        vertical = mode == 'vertical' or (mode != 'horizontal' and
+            (window.property('settings_portrait') or window.height() > window.width()))
         threshold = round(self.BREAKPOINT * max(1, theme.FONT_CONTROL / 13))
         return 2 if not vertical and self.width() >= threshold else 1
 
+    def _watch_window(self):
+        window = self.window()
+        if window is self._layout_window:
+            return
+        if self._layout_window is not None:
+            self._layout_window.removeEventFilter(self)
+            self._layout_window.destroyed.disconnect(self._window_destroyed)
+        self._layout_window = window
+        window.installEventFilter(self)
+        window.destroyed.connect(self._window_destroyed)
+
+    def _window_destroyed(self):
+        self._layout_window = None
+
+    def eventFilter(self, watched, event):
+        if watched is self._layout_window and (event.type() == QEvent.Resize or
+                (event.type() == QEvent.DynamicPropertyChange and event.propertyName() == b'settings_portrait')):
+            if self._column_count() != self.columns:
+                self._arrange()
+        return super().eventFilter(watched, event)
+
     def showEvent(self, event):
         super().showEvent(event)
+        self._watch_window()
         self._arrange()
 
 

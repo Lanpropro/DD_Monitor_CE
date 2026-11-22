@@ -1,5 +1,5 @@
 """Frameless settings shell and its draggable, accessible window header."""
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
@@ -43,7 +43,8 @@ class SettingsTitleBar(QWidget):
         super().__init__(window)
         self.setMinimumHeight(52)
         self.row = QHBoxLayout(self)
-        self.row.setContentsMargins(20, 6, 16, 6)
+        # Keep the close button's hit area clear of the vertical scrollbars below.
+        self.row.setContentsMargins(20, 6, 40, 6)
         self.row.setSpacing(14)
         self.breadcrumb = QLabel('设置', self)
         self.breadcrumb.setObjectName('SettingsBreadcrumb')
@@ -69,12 +70,19 @@ class SettingsTitleBar(QWidget):
 
 
 class SettingsWindow(QDialog):
+    PORTRAIT_WIDTH = 840
+    SINGLE_COLUMN_WIDTH = 1040
+    DEFAULT_WIDTH = 1200
+    DEFAULT_HEIGHT = 800
+
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setProperty('settingsGlassWindow', True)
         self.setProperty('appearanceLight', theme.is_light())
         self.setProperty('customControlSurface', True)
+        self._host_work_area = None
+        self._layout_restore_width = None
         self._native_corners = False
         self._native_glass = False
         from .settings_focus import SettingsInputFocus
@@ -100,14 +108,50 @@ class SettingsWindow(QDialog):
         from .settings_material import apply_properties
         previous = self.property('settings_card_layout')
         if apply_properties(self, values):
-            if previous is not None and previous != self.property('settings_card_layout') and not self.isMaximized():
-                if self.property('settings_card_layout') == 'vertical':
-                    self._layout_restore_width = self.width()
-                    self.resize(min(self.width(), 1040), self.height())
-                elif getattr(self, '_layout_restore_width', None) is not None:
-                    self.resize(min(self._layout_restore_width, self.screen().availableGeometry().width() - 48), self.height())
-                    self._layout_restore_width = None
+            if previous is not None and previous != self.property('settings_card_layout'):
+                self._fit_settings_window()
             self._sync_frame()
+
+    def set_host_layout(self, portrait, work_area=None):
+        area = QRect(*work_area) if work_area is not None else (self._host_work_area or self.screen().availableGeometry())
+        previous = self._host_work_area
+        if previous == area and self.property('settings_portrait') == portrait:
+            return
+        self.setProperty('settings_portrait', portrait)
+        self._host_work_area = area
+        self._fit_settings_window(initial=previous is None,
+                                  center=previous is None or not previous.intersects(area))
+
+    def _fit_settings_window(self, *, initial=False, center=False):
+        if self.isMaximized():
+            return
+        area = self._host_work_area or self.screen().availableGeometry()
+        bounds = area.adjusted(24, 36, -24, -36)
+        mode = self.property('settings_card_layout')
+        width, height = self.width(), self.height()
+        if initial:
+            width = self.SINGLE_COLUMN_WIDTH if mode == 'vertical' else self.DEFAULT_WIDTH
+            height = self.DEFAULT_HEIGHT
+        limit = None
+        if self.property('settings_portrait') and mode != 'horizontal':
+            limit = self.PORTRAIT_WIDTH
+        elif mode == 'vertical':
+            limit = self.SINGLE_COLUMN_WIDTH
+        if limit is not None and width > limit:
+            if self._layout_restore_width is None:
+                self._layout_restore_width = width
+            width = limit
+        elif limit is None and self._layout_restore_width is not None:
+            width, self._layout_restore_width = self._layout_restore_width, None
+        self.setMinimumSize(min(760, bounds.width()), min(520, bounds.height()))
+        self.resize(min(width, bounds.width()), min(height, bounds.height()))
+        if self._host_work_area is None:
+            return
+        if center:
+            self.move(bounds.center() - self.rect().center())
+        else:
+            self.move(max(bounds.left(), min(self.x(), bounds.right() - self.width() + 1)),
+                      max(bounds.top(), min(self.y(), bounds.bottom() - self.height() + 1)))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -131,9 +175,8 @@ class SettingsWindow(QDialog):
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
-        from .skin_parts import resolve_values, values_for
-        preview = getattr(self, '_settings_material_preview', None)
-        values = resolve_values('settings', preview[1], preview[0]) if preview is not None else values_for('settings')
+        from .settings_material_paint import glass_tint, window_background_tint
+        tint = window_background_tint(self)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -146,10 +189,13 @@ class SettingsWindow(QDialog):
             path = continuous_path(rect, 22)
         painter.setClipPath(path)
         from .settings_material import base_color
-        color = theme.qcolor(values.get('background', base_color(self, 'background', theme.BG)))
-        from .settings_material_paint import glass_tint
-        color = glass_tint(self, values.get('background')) if self._native_glass else color
-        if not self._native_glass:
+        if self._native_glass:
+            color = glass_tint(self, tint)
+            if color.alpha() == 0:
+                # Windows passes mouse input through fully transparent layered pixels.
+                color.setAlpha(1)
+        else:
+            color = theme.qcolor(tint or base_color(self, 'background', theme.BG))
             color.setAlpha(255)
         painter.fillPath(path, color)
         if not self._native_corners:

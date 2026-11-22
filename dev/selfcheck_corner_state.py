@@ -62,11 +62,12 @@ def main():
     with tempfile.TemporaryDirectory(dir=directory) as temporary, ExitStack() as stack:
         path = Path(temporary) / 'config.json'
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(path)))
+        stack.enter_context(patch('ddm.plugins.DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'plugins')))
         stack.enter_context(patch.dict(os.environ, {'DDM_NO_SAVE': ''}))
         stack.enter_context(patch.object(bili, 'SESSION_DATA', ''))
         for method in ('start_tile', 'refresh_status', 'refresh_stats', 'refresh_account',
                        'sync_danmaku', 'load_avatars_for', 'load_room_avatars',
-                       'load_cached_covers', 'load_cached_avatars'):
+                       'load_cached_covers', 'load_cached_avatars', '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, method))
         state = dict(plugins_enabled=[], settings=dict(recording_enabled=False,
                      recording_replay_enabled=False, preview_on_hover=False, auto_update=False))
@@ -137,9 +138,8 @@ def main():
             move_to(border, origin + QPoint(40, 0))
             restarted.sidebar.open_layout_picker()
             picker = restarted.sidebar._picker
-            assert picker.reset_button.isVisible() and picker.reset_button.isEnabled()
-            picker.grab().save(str(directory.parent / 'corner-reset-picker.png'))
-            QTest.mouseClick(picker.reset_button, Qt.LeftButton)
+            card = next(card for card in picker._cards[picker.group()] if card.property('layoutId') == 'corner')
+            QTest.mouseClick(card, Qt.LeftButton)
             app.processEvents()
             assert restarted.wall.corner_ratios() == DEFAULT
             assert not picker.isVisible()
@@ -152,7 +152,7 @@ def main():
             other = LayoutPicker('1x1')
             other.show()
             app.processEvents()
-            assert not other.reset_button.isVisible()
+            assert other.edit_button is None
             other.close()
             border, point = border_for(restarted.wall, CORNER_KEYS[Qt.Horizontal])
             origin = begin(border, pos=point)

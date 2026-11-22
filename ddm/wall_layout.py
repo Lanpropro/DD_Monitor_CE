@@ -1,7 +1,7 @@
 """Video wall layout geometry, ratios and resize settlement; WallGrid owns all mutable state."""
 import math
 from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
-from . import layouts, resize_layout, theme
+from . import layouts, resize_layout, snap_grid, theme
 from .tile_widgets import Tile
 
 
@@ -38,7 +38,11 @@ class WallLayout:
         order = host._cell_order()
         if not cells or not order:
             return None
-        areas = [0 if cell in host.pane_danmaku.bindings() else cells[cell][2] * cells[cell][3]
+        if host.snap_grid.size:
+            cells = host.snap_grid.cells()
+            occupied = host.snap_grid.occupied()
+            cells = [cell if index in occupied else None for index, cell in enumerate(cells)]
+        areas = [0 if not cells[cell] or cell in host.pane_danmaku.bindings() else cells[cell][2] * cells[cell][3]
                  for cell in order]
         if len(set(areas)) <= 1:
             return None
@@ -55,7 +59,7 @@ class WallLayout:
         cells = host._cells()
         if not cells or index >= len(order):
             return None
-        return cells[order[index]]
+        return (host.snap_grid.cells() if host.snap_grid.size else cells)[order[index]]
 
     def danmaku_geometry_cell(self):
         """弹幕格当前用的 cell。"""
@@ -102,11 +106,10 @@ class WallLayout:
             if host._auto_columns() == host._columns:
                 return
         host._clear()
-        for panel in host.pane_danmaku.all_panels():
-            panel.hide()
+        for widget in host.pane_danmaku.wall_widgets():
+            widget.hide()
 
         if host.fullscreen_tile is not None:
-            host.danmaku.setVisible(False)
             for tile in host.tiles:
                 if tile is host.fullscreen_tile:
                     host.grid.addWidget(tile, 0, 0)
@@ -122,7 +125,6 @@ class WallLayout:
             return
 
         if spec is None:
-            host.danmaku.setVisible(False)
             columns = host._auto_columns()
             host._columns = columns
             for index, tile in enumerate(host.tiles):
@@ -141,6 +143,12 @@ class WallLayout:
         return {identifier: {key: list(values) for key, values in ratios.items()}
                 for identifier, ratios in host._layout_ratios.items() if ratios}
 
+    def set_preset_ratios(self, identifier, ratios):
+        if identifier == 'corner':
+            self.host.restore_corner_ratios(ratios)
+        else:
+            self.host._layout_ratios[identifier] = {key: list(values) for key, values in ratios.items()}
+
     def reset_layout_ratios(self) -> None:
         """只恢复当前预设，不影响其他预设保存的比例。"""
         host = self.host
@@ -151,42 +159,50 @@ class WallLayout:
         changed = bool(host._layout_ratios.get(host.layout_id))
         host._layout_ratios[host.layout_id] = {}
         if host.fullscreen_tile is None:
-            host._relayout_preset()
+            if layouts.snap_grid_size(host.layout_id):
+                host._relayout_preset(apply_visibility=True)
+            else:
+                host._relayout_preset()
         if changed:
             host.layoutRatiosChanged.emit()
 
     def preset_defaults(self, node, area):
+        from .room_presets import partition_defaults
         host = self.host
-        if node.key != "root" or not layouts.is_portrait_layout(host.layout_id):
-            return node.weights
-        gap = host.grid.spacing()
-        main = max(80, int(area.width() * 9 / 16))
-        danmaku = max(140, int(area.height() * .22)) if layouts.danmaku_cell(host.layout_id) is not None else 0
-        small = max(1, area.height() - main - danmaku - gap * (len(node.children) - 1))
-        return [main, small, danmaku] if layouts.danmaku_cell(host.layout_id) is not None else [main, small]
+        return partition_defaults(host.layout_id, node, area, host.grid.spacing())
 
     def preset_widgets(self):
         host = self.host
+        if host.snap_grid.size:
+            cells = host.snap_grid.cells()
+            widgets = {cell: tile for cell, tile in host.pane_danmaku.cell_tiles().items()
+                       if cells[cell] is not None and tile.room.get('room_id')}
+            widgets.update({cell: host.pane_danmaku.wall_widget(panel)
+                            for cell, panel in host.pane_danmaku.panels.items() if cells[cell] is not None})
+            return widgets
         if host.pane_danmaku.custom:
             widgets = host.pane_danmaku.cell_tiles()
-            widgets.update(host.pane_danmaku.panels)
+            widgets.update({cell: host.pane_danmaku.wall_widget(panel)
+                            for cell, panel in host.pane_danmaku.panels.items()})
             return widgets
         if layouts.is_portrait_layout(host.layout_id):
             # 竖屏弹幕始终占底部，与原竖屏规则一致。
             count = host._capacity()
             widgets = {index: tile for index, tile in enumerate(host.tiles[:count])}
             if host.has_danmaku:
-                widgets[count] = host.danmaku
+                widgets[count] = host.pane_danmaku.wall_widget(host.danmaku)
             return widgets
         widgets = {cell: tile for cell, tile in zip(host._cell_order(), host.tiles)}
         if host.has_danmaku:
-            widgets[host._danmaku_cell] = host.danmaku
+            widgets[host._danmaku_cell] = host.pane_danmaku.wall_widget(host.danmaku)
         return widgets
 
     def preset_minimum(self, cell):
         host = self.host
+        if host.snap_grid.size:
+            return QSize(200, 150)
         widget = host._preset_widgets().get(cell)
-        if widget in host.pane_danmaku.all_panels():
+        if widget in host.pane_danmaku.wall_widgets():
             return QSize(max(200, widget.minimumWidth()), max(140, widget.minimumHeight()))
         return QSize(max(200, widget.minimumWidth()), max(150, widget.minimumHeight()))
 
@@ -198,7 +214,7 @@ class WallLayout:
         if host.fullscreen_tile is not None or host.layout_id not in host._partitions:
             return
         widgets = host._preset_widgets()
-        if len(widgets) < len(host._cells()):
+        if not host.snap_grid.size and len(widgets) < len(host._cells()):
             # 应用切方向时先选预设、再调整窗口、最后补齐格子；中间的 resize 不排布。
             return
         tree = host._partitions[host.layout_id]
@@ -211,9 +227,14 @@ class WallLayout:
         # 顶层窗口尺寸变更可能在下一次事件循环才完成，计算区域也遵守最小尺寸。
         area.setWidth(max(area.width(), minimum.width()))
         area.setHeight(max(area.height(), minimum.height()))
-        leaves, dividers = resize_layout.geometry(
-            tree, area, gap, host._preset_minimum,
-            host._layout_ratios[host.layout_id], host._preset_defaults)
+        if size := host.snap_grid.size:
+            geometry = snap_grid.geometry(size, host.snap_grid.cells(), area, gap)
+            leaves = {cell: geometry[cell] for cell in widgets}
+            dividers = []
+        else:
+            leaves, dividers = resize_layout.geometry(
+                tree, area, gap, host._preset_minimum,
+                host._layout_ratios[host.layout_id], host._preset_defaults)
         for cell, rect in leaves.items():
             widget = widgets[cell]
             same_size = widget.size() == rect.size()
@@ -234,8 +255,8 @@ class WallLayout:
                     host._pending_reveal.append(tile)
                 else:
                     tile.show()
-            for panel in host.pane_danmaku.all_panels():
-                panel.setVisible(panel in active)
+            for widget in host.pane_danmaku.wall_widgets():
+                widget.setVisible(widget in active)
         old_regions = list(host._divider_rects.values())
         host._preset_dividers = {}
         host._divider_rects = {}
@@ -252,7 +273,7 @@ class WallLayout:
         host = self.host
         WallPaneBorder = border_type
         for pane, border in list(host._pane_borders.items()):
-            if pane not in host.tiles and pane not in host.pane_danmaku.all_panels():
+            if pane not in host.tiles and pane not in host.pane_danmaku.wall_widgets():
                 del host._pane_borders[pane]
             elif pane not in widgets.values() or pane.isHidden():
                 border.hide()
@@ -280,12 +301,9 @@ class WallLayout:
     def border_model(self):
         host = self.host
         if host.layout_id == "corner":
+            from .room_presets import partition_weights
             tree = resize_layout.build_partition(layouts.BY_ID["corner"]["spec"][2])
-            first, second = host._corner_bottom_ratios
-            weights = {"root": [host._corner_height_ratio, 1 - host._corner_height_ratio],
-                       "root/0": [host._corner_width_ratio, 1 - host._corner_width_ratio],
-                       "root/0/1": [host._corner_right_ratio, 1 - host._corner_right_ratio],
-                       "root/1": [first, second - first, 1 - second]}
+            weights = partition_weights(host.layout_id, host.corner_ratios())
             widgets = host._preset_widgets()
             minimum = lambda cell: widgets[cell].minimumSize()
             return tree, weights, widgets, minimum, None
@@ -295,12 +313,8 @@ class WallLayout:
     def apply_border_weights(self, weights):
         host = self.host
         if host.layout_id == "corner":
-            host._corner_height_ratio = weights["root"][0]
-            host._corner_width_ratio = weights["root/0"][0]
-            host._corner_right_ratio = weights["root/0/1"][0]
-            bottom = weights["root/1"]
-            host._corner_bottom_ratios = [bottom[0], bottom[0] + bottom[1]]
-            host._relayout_corner()
+            from .room_presets import corner_ratios_from_weights
+            host.restore_corner_ratios(corner_ratios_from_weights(weights))
         else:
             host._layout_ratios[host.layout_id] = weights
             host._relayout_preset()
@@ -350,23 +364,23 @@ class WallLayout:
 
     def restore_corner_ratios(self, saved) -> None:
         """旧配置或非法字段使用默认值；边界也排除 NaN、无穷值和布尔值。"""
+        from .room_presets import default_layout_ratios
         host = self.host
         saved = saved if isinstance(saved, dict) else {}
+        defaults = default_layout_ratios('corner')
 
         def valid(value):
             return type(value) in (int, float) and 0 < value < 1
 
-        for name, attribute, default in (("width", "_corner_width_ratio", 2 / 3),
-                                         ("height", "_corner_height_ratio", 2 / 3),
-                                         ("right", "_corner_right_ratio", 1 / 2)):
+        for name in ('width', 'height', 'right'):
             value = saved.get(name)
-            setattr(host, attribute, float(value) if valid(value) else default)
+            setattr(host, f'_corner_{name}_ratio', float(value) if valid(value) else defaults[name])
         bottom = saved.get("bottom")
         if (isinstance(bottom, (list, tuple)) and len(bottom) == 2
                 and all(valid(value) for value in bottom) and bottom[0] < bottom[1]):
             host._corner_bottom_ratios = [float(value) for value in bottom]
         else:
-            host._corner_bottom_ratios = [1 / 3, 2 / 3]
+            host._corner_bottom_ratios = defaults['bottom']
         if host.tiles and host.layout_id == "corner" and host.fullscreen_tile is None:
             host._relayout_corner()
 
@@ -485,8 +499,8 @@ class WallLayout:
         widgets = host.pane_danmaku.arrange(rectangles, widgets)
         host._resize_on_show = False
         if apply_visibility:
-            for panel in host.pane_danmaku.all_panels():
-                panel.setVisible(panel in widgets.values())
+            for widget in host.pane_danmaku.wall_widgets():
+                widget.setVisible(widget in widgets.values())
             for index, tile in enumerate(host.tiles):
                 if tile not in widgets.values():
                     tile.hide()

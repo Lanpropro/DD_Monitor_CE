@@ -12,11 +12,25 @@ class SettingsControl:
     def __init__(self, host):
         self.host = host
 
+    def streamer_rooms(self):
+        from .streamer_settings_catalog import room_choices
+        return room_choices(self.host)
+
+    def request_streamer_quality(self, room_id, reply):
+        if getattr(self, '_streamer_catalog', None) is None:
+            from .streamer_settings_catalog import StreamerSettingsCatalog
+            self._streamer_catalog = StreamerSettingsCatalog(self.host)
+        self._streamer_catalog.request(room_id, reply)
+
     def open_sidebar_settings(self):
         host = self.host
         if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
             return host.open_settings()
-        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context())
+        session = getattr(host, '_settings_host', None)
+        if session is not None:
+            session.sync()
+        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(),
+                                          streamer_rooms=self.streamer_rooms())
         return False
 
     def sc_preview_context(self):
@@ -52,12 +66,19 @@ class SettingsControl:
             host._settings_process.autoSaveRequested.connect(lambda message: handle_request(host, message))
             host._settings_process.hostRequest.connect(host._settings_host_request)
             host._settings_process.closed.connect(host._close_settings_host)
-            host._settings_process.occlusionChanged.connect(
-                lambda: host.wall._quick_danmaku_layer.show()
-                if host.wall._quick_danmaku_layer is not None else None)
+            host._settings_process.occlusionChanged.connect(self._sync_settings_occlusion)
             host._settings_process.failed.connect(lambda message: host._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=host.open_settings))
         return host._settings_process
+
+    def _sync_settings_occlusion(self):
+        host = self.host
+        if host._closing:
+            return
+        for tile in host.wall.tiles:
+            tile.bottom.sync_windowed_visibility()
+        if host.wall._quick_danmaku_layer is not None:
+            host.wall._quick_danmaku_layer.show()
 
     def remote_settings_saved(self, changes):
         host = self.host
@@ -76,6 +97,16 @@ class SettingsControl:
     def settings_host_request(self, message):
         host = self.host
         if getattr(host, '_closing', False):
+            return
+        if message['kind'] == 'streamer-quality':
+            room_id, token = message.get('room_id'), message.get('token')
+            client = host._settings_process
+            if isinstance(room_id, str) and room_id and isinstance(token, str):
+                def reply(options, error):
+                    if client.visible and not client.closing:
+                        client._send({'kind': 'streamer-quality-result', 'room_id': room_id,
+                                      'token': token, 'options': options, 'error': error})
+                self.request_streamer_quality(room_id, reply)
             return
         session = getattr(host, '_settings_host', None)
         if session is None:
@@ -103,7 +134,7 @@ class SettingsControl:
         page.auto.setChecked(bool(settings.get('auto_update', False)))
         return page
 
-    def create_settings_dialog(self, settings=None, shortcuts=None, *, dialog_class):
+    def create_settings_dialog(self, settings=None, shortcuts=None, *, dialog_class, hosted=False):
         host = self.host
         SettingsDialog = dialog_class
         seen = dict(host.settings.get('seen_update_entry_versions') or {})
@@ -116,7 +147,12 @@ class SettingsControl:
             config_module.save(host.current_state())
         dialog = SettingsDialog(host.settings if settings is None else settings,
                                 host.shortcuts if shortcuts is None else shortcuts, host,
-                                plugin_manager=host.plugins, update_page_factory=host._get_update_page)
+                                plugin_manager=host.plugins, update_page_factory=host._get_update_page,
+                                streamer_rooms=self.streamer_rooms(),
+                                **({'hosted': True} if hosted else {}))
+        from .settings_process import host_layout_context
+        dialog.set_host_layout(**host_layout_context(host))
+
         def page_created(index, widget):
             key = dialog.PAGES[index][0]
             if key == 'danmaku':
@@ -134,6 +170,16 @@ class SettingsControl:
                     widget._release_ready(host._available_update)
                     widget._busy(False)
         dialog.pageCreated.connect(page_created)
+        def request_streamer_quality(room_id, token):
+            from shiboken6 import isValid
+
+            def reply(options, error):
+                if isValid(dialog):
+                    dialog.receive_streamer_quality(room_id, token, options, error)
+
+            self.request_streamer_quality(room_id, reply)
+
+        dialog.streamerQualityRequested.connect(request_streamer_quality)
         dialog.updatesViewed.connect(host._remember_updates)
         dialog.appearanceChanged.connect(host.set_appearance)
         dialog._mark_update_page('plugins', any(dialog.seen_versions.get(offer['id']) != offer['version']
@@ -166,6 +212,27 @@ class SettingsControl:
         finally:
             dialog.deleteLater()
 
+    def apply_plugin_selection(self, enabled_plugins):
+        from .settings_performance import measure
+
+        host = self.host
+        manager = host.plugins
+        before = manager.enabled
+        after = None if enabled_plugins is None else set(enabled_plugins)
+        manager.enabled = after
+
+        def eligibility_changed(owner):
+            return (before is None or owner in before) != (after is None or owner in after)
+
+        if any(plugin.skin is not None and eligibility_changed(plugin.context.name)
+               for plugin in manager.plugins):
+            measure('SettingsControl.plugin_selection_skin', host.refresh_skin)
+        if any(eligibility_changed(owner) for owner in manager._platform_owner.values()):
+            measure('SettingsControl.plugin_selection_rooms', host._sync_platform_rooms)
+        host.state['settings'] = dict(host.settings)
+        state = measure('SettingsControl.plugin_selection_state', host.current_state)
+        measure('SettingsControl.plugin_selection_save', config_module.save, state, raise_errors=True)
+
     def apply_settings_dialog(self, dialog, plugins_before, *, dialog_class):
         host = self.host
         SettingsDialog = dialog_class
@@ -175,19 +242,47 @@ class SettingsControl:
         codecs_before = {tile: host._codec_settings(tile) for tile in host.wall.tiles}
         updated_settings = dialog.settings()
         changed_keys = {key for key, value in updated_settings.items() if host.settings.get(key) != value}
-        from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
+        from .settings_material import DEFAULTS as MATERIAL_DEFAULTS, set_segment_motion
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
-        presentation_only = bool(changed_keys) and changed_keys <= MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+        windowed_bar_settings = {'windowed_transparent_controls', 'windowed_auto_hide_controls'}
+        presentation_only = bool(changed_keys) and changed_keys <= (
+            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+            | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu',
+                                       'settings_wheel_speed', 'wall_seamless'})
         host.settings.update(updated_settings)
+        if 'wall_seamless' in changed_keys:
+            host.wall.set_seamless(host.settings['wall_seamless'])
+        elif changed_keys & windowed_bar_settings:
+            for tile in host.wall.tiles:
+                tile._layout_areas()
+        if 'settings_segment_motion' in changed_keys:
+            set_segment_motion(host, host.settings['settings_segment_motion'])
+        if changed_keys & {"settings_glass_enabled", "settings_glass_opacity", "settings_no_shadows"}:
+            from .notice_dialog import NoticeDialog
+            for notice in host.findChildren(NoticeDialog):
+                notice.set_material(host.settings)
         from . import theme
         if theme.configure_appearance(host.settings):
             theme.apply(host.settings['appearance_mode'])
+        playback_material = {'settings_glass_enabled', 'settings_glass_opacity'}
+        if changed_keys & playback_material:
+            from .playback_material import refresh_plugin_popups, sync_controls
+            for tile in host.wall.tiles:
+                sync_controls(tile, host.settings)
+            refresh_plugin_popups(host)
+        if changed_keys & (playback_material | {'settings_no_shadows'}):
+            for stream_info in getattr(host, '_stream_info_dialogs', {}).values():
+                stream_info.set_material(host.settings)
         from .native_diagnostics import set_dump_enabled
         set_dump_enabled(host.settings.get("native_crash_dump", False))
         from .notification_center import NoticeRow
         from .online_ui import ResultNotice
         for notice in [*host.findChildren(NoticeRow), *host.findChildren(ResultNotice)]:
-            notice.update()
+            if 'notice_banner_enabled' in changed_keys:
+                from .room_artwork import style_room_notice
+                style_room_notice(notice, notice.artwork)
+            else:
+                notice.update()
         for codec_dialog in host._codec_dialogs.values():
             codec_dialog.controls.set_defaults(config_module.codec_settings(host.settings))
         if not host.settings.get("auto_update", False):

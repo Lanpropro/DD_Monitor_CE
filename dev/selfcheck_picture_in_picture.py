@@ -13,14 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'dev')]
 os.environ['DDM_NO_SAVE'] = '1'
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QFocusEvent, QMouseEvent, QPixmap, QRegion, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 from ddm import config, plugins, theme
 from ddm.app import MainWindow
+from ddm.pip_composition import FREE_LAYOUT, GRID_LAYOUT, MAIN_LAYOUT
 from ddm.picture_in_picture import (PictureInPictureDialog, PictureInPictureWindow,
-    FOCUS_LAYOUT, composition_aspect, composition_ratio, composition_rows, pane_rectangles, video_aspect)
+    FOCUS_LAYOUT, composition_ratio, pane_rectangles, video_aspect)
 
 
 def pointer(surface, kind, local, global_pos, button, buttons):
@@ -254,14 +255,52 @@ def check_audio_controls(pip):
         floating.tools.reorder.setChecked(False)
         QTest.keyClick(row.slider, Qt.Key_Escape)
         assert pip.active and not panel.isVisible(), 'Esc must close the panel before returning'
+        first_volume = tiles[0].volume
+        target = tiles[1]
+        target.set_volume(50)
+        target.set_muted(True)
+        feedback = floating.audio_feedback
+        with patch.dict(pip.host.settings, {'wheel_volume_step': 7}):
+            wheel(target.video, 120, Qt.ShiftModifier)
+            assert target.volume == 57 and not target.muted and tiles[0].volume == first_volume
+            assert feedback.isVisible() and feedback.text() == f"{target.room['uname']}  57%"
+            assert feedback.timer.isActive()
+            with patch.dict(pip.host.shortcuts, {'volume_down': 'Alt+WheelDown'}):
+                wheel(target.video, -120, Qt.ShiftModifier)
+                assert target.volume == 57
+                wheel(target.video, -240, Qt.AltModifier)
+                assert target.volume == 43 and feedback.text() == f"{target.room['uname']}  43%"
+        feedback.hide()
         # Deliver shortcuts to a PiP video without moving the desktop pointer.
         with patch.object(floating, '_tile_at', return_value=tiles[0]), patch.object(floating, '_pointer_over', return_value=True):
             before = tiles[0].volume
             QTest.keyClick(tiles[0].video, Qt.Key_Up)
             assert tiles[0].volume == min(100, before + 5)
             from PySide6.QtGui import QKeySequence
-            QTest.keySequence(tiles[0].video, QKeySequence(pip.host.shortcuts['solo']))
+            QTest.keySequence(tiles[0].video, QKeySequence(pip.host.shortcuts['pip_solo']))
             assert not tiles[0].muted and tiles[1].muted
+            tile = tiles[0]
+            with patch.dict(pip.host.shortcuts, {'pip_volume_up': 'Ctrl+U', 'fullscreen_volume_up': 'Ctrl+P',
+                                                'mute': 'M', 'pip_mute': 'Ctrl+M',
+                                                'solo': 'Alt+M', 'pip_solo': 'Ctrl+J', 'pip_exit': 'Ctrl+Q'}):
+                tile.set_volume(40)
+                QTest.keyClick(tile.video, Qt.Key_P, Qt.ControlModifier)
+                assert tile.volume == 40
+                QTest.keyClick(tile.video, Qt.Key_U, Qt.ControlModifier)
+                assert tile.volume == 45
+                QTest.keyClick(tile.video, Qt.Key_M)
+                assert not tile.muted
+                QTest.keyClick(tile.video, Qt.Key_M, Qt.ControlModifier)
+                assert tile.muted
+                QTest.keyClick(tile.video, Qt.Key_M, Qt.AltModifier)
+                assert tile.muted
+                QTest.keyClick(tile.video, Qt.Key_J, Qt.ControlModifier)
+                assert not tile.muted and tiles[1].muted
+                with patch.object(floating, '_escape') as exit_pip:
+                    QTest.keyClick(tile.video, Qt.Key_Escape)
+                    exit_pip.assert_not_called()
+                    QTest.keyClick(tile.video, Qt.Key_Q, Qt.ControlModifier)
+                    exit_pip.assert_called_once_with()
         assert (other.volume, other.muted) == other_audio, 'Solo must leave unselected rooms alone'
     finally:
         panel.hide()
@@ -364,6 +403,44 @@ def check_native_corners(pip):
         backdrop.close()
         backdrop.deleteLater()
         QTest.qWait(80)
+
+
+def check_resize_corner_motion():
+    controller = Mock(pinned=False, dialog=None, display_wall=Mock())
+    controller.display_wall.visible_tiles.return_value = []
+    floating = PictureInPictureWindow(controller)
+    floating.setAttribute(Qt.WA_ShowWithoutActivating)
+    floating.setGeometry(-15000, 0, 640, 180)
+    floating.aspect = 32 / 9  # Two 16:9 streams side by side.
+    floating.setMinimumSize(192, 54)
+    floating.show()
+    try:
+        bounds = floating.geometry()
+        for x_sign, y_sign in ((1, 1), (-1, -1), (-1, 1), (1, -1)):
+            floating.setGeometry(bounds)
+            corner = QPoint(3 if x_sign < 0 else bounds.width() - 4,
+                            3 if y_sign < 0 else bounds.height() - 4)
+            pressed = floating.mapToGlobal(corner)
+            pointer(floating, QEvent.MouseButtonPress, corner, pressed, Qt.LeftButton, Qt.LeftButton)
+            widths = []
+            for dx, dy in ((-56, 15), (-56, 16), (-600, -150), (0, 0), (64, 18)):
+                delta = QPoint(x_sign * dx, y_sign * dy)
+                pointer(floating, QEvent.MouseMove, corner + delta, pressed + delta, Qt.NoButton, Qt.LeftButton)
+                preview = floating._pending_geometry
+                widths.append(preview.width())
+                assert abs(preview.width() / floating.aspect - preview.height()) <= 1
+                assert (preview.right() if x_sign < 0 else preview.left()) == (bounds.right() if x_sign < 0 else bounds.left())
+                assert (preview.bottom() if y_sign < 0 else preview.top()) == (bounds.bottom() if y_sign < 0 else bounds.top())
+            assert abs(widths[1] - widths[0]) <= 2, 'A one-pixel move across axes must not jump the window'
+            assert widths[2:] == [floating.minimumWidth(), bounds.width(), bounds.width() + 64]
+            delta = QPoint(x_sign * 96, y_sign * 27)
+            pointer(floating, QEvent.MouseButtonRelease, corner + delta, pressed + delta, Qt.LeftButton, Qt.NoButton)
+            assert floating.size() == QSize(bounds.width() + 96, bounds.height() + 27), 'Use the final pointer on release'
+    finally:
+        floating.stop()
+        floating.close()
+        floating.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def check_resize_burst(pip, wall):
@@ -519,7 +596,7 @@ def check_buffer_scale(pip):
             assert indicator.height() <= max(1, tile.height() - 12) + 1
             assert abs(indicator.width() - indicator.natural_size().width() * indicator._presentation_scale) <= 1
             assert abs(indicator.height() - indicator.natural_size().height() * indicator._presentation_scale) <= 1
-            assert tile.pause_overlay._presentation_scale == 1, 'Pause presentation was not requested to change'
+            assert tile.pause_overlay.width() == tile.pause_overlay.height() == 48, 'The pause glyph retains its fixed size'
             tile.set_buffering(False)
     floating.setGeometry(previous)
 
@@ -915,6 +992,22 @@ def check_focus_geometry():
         assert all(rect.size() == QSize(320, 180) for index, rect in enumerate(rectangles) if index != primary)
 
 
+def check_adaptive_geometry():
+    for count in range(3, 17):
+        aspects = [16 / 9] * count
+        area = QRect(0, 0, 760, 490)
+        for mode in (GRID_LAYOUT, MAIN_LAYOUT):
+            rects = pane_rectangles(count, area, mode, aspects, primary=count - 1)
+            assert len(rects) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rects)
+            assert not any(a.intersects(b) for index, a in enumerate(rects) for b in rects[index + 1:])
+            if mode == GRID_LAYOUT:
+                assert max(rect.width() for rect in rects) - min(rect.width() for rect in rects) <= 1
+                assert max(rect.height() for rect in rects) - min(rect.height() for rect in rects) <= 1
+            else:
+                main = rects[-1]
+                assert all(main.width() * main.height() > rect.width() * rect.height() for rect in rects[:-1])
+
+
 def exercise_focus(app, native, directory):
     rooms = [dict(room_id=str(2200 + index), uname=f'Focus {index}', live=False, muted=True) for index in range(6)]
     window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x2',
@@ -948,13 +1041,14 @@ def exercise_focus(app, native, directory):
         pip.manage()
         dialog = pip.dialog
         QTest.qWait(30)
-        assert dialog.columns.currentData() == FOCUS_LAYOUT
+        assert dialog.arrangements.mode == FOCUS_LAYOUT
         assert dialog._primary == 4 and not hasattr(dialog, 'primary_row')
         assert dialog.rect().contains(dialog.start.geometry()) and dialog.start.isVisible()
         dialog.checks[5].setChecked(False)
-        assert not dialog.start.isEnabled() and len(dialog._selected()) == 5
+        assert dialog.start.isEnabled() and len(dialog._selected()) == 5
+        assert dialog.arrangements.mode == 0 and dialog.arrangements.buttons[FOCUS_LAYOUT].isHidden()
         dialog.checks[5].setChecked(True)
-        assert dialog.start.isEnabled() and dialog._primary == 4
+        assert dialog.start.isEnabled() and dialog._primary == 4 and dialog.arrangements.mode == FOCUS_LAYOUT
         drag_preview(dialog, 0, 4)
         assert dialog._primary == 0 and not any(label.text().startswith('主画面') for label in dialog.preview.labels)
         dialog.start.click()
@@ -1000,7 +1094,7 @@ def exercise_focus(app, native, directory):
         pip.manage()
         assert pip.dialog._primary == 1
         pip.dialog.reject()
-        # Preserve the existing chat panes when the same six-cell layout enters PiP.
+        # Separate chat stays on the main wall while selected videos are presented in PiP.
         wall.set_layout('corner')
         window.configure_wall_panes({1: tiles[0], 2: tiles[4]})
         bindings = wall.pane_danmaku.state()
@@ -1012,19 +1106,18 @@ def exercise_focus(app, native, directory):
         pip.manage()
         dialog = pip.dialog
         assert set(dialog._selected()) == {0, 3, 4, 5}
-        assert [dialog.preview.labels[cell].text() for cell in (1, 2)] == ['弹幕', '弹幕']
+        assert len(dialog.preview.labels) == 4
         if native and os.environ.get('DDM_PIP_CHAT_PREVIEW_IMAGE'):
             QTest.qWait(30)
             dialog.grab().save(os.environ['DDM_PIP_CHAT_PREVIEW_IMAGE'])
         dialog.start.click()
         QTest.qWait(50)
-        assert pip.active and wall.has_danmaku
-        assert all(panel.isVisible() for panel in panels.values())
+        assert pip.active and not wall.has_danmaku
+        assert all(panel.isHidden() for panel in panels.values())
         pip.floating.resize_to_width(820)
         QTest.qWait(50)
-        expected = pane_rectangles(6, wall.rect(), FOCUS_LAYOUT, wall.picture_in_picture_aspects)
         for cell, panel in panels.items():
-            assert panel.geometry() == expected[cell]
+            assert panel.isHidden()
             assert panel.body.document() is documents[cell]
         panels[1].add_message('Fixture', 'chat during PiP')
         assert 'chat before PiP' in panels[1].body.toPlainText()
@@ -1074,7 +1167,7 @@ def exercise_live_room_picker(app, native, directory):
         dialog = pip.dialog
         for rid in ('3101', '3102', '3103', '3104'):
             dialog.checks[rid].setChecked(True)
-        dialog.columns.setCurrentIndex(dialog.columns.findData(FOCUS_LAYOUT))
+        dialog.arrangements.select(FOCUS_LAYOUT)
         drag_preview(dialog, '3102', 0)
         assert dialog.start.isEnabled() and dialog.preview.primary == 0
         expected_wall_selection = [key for key in dialog._selected() if isinstance(key, int)]
@@ -1154,7 +1247,7 @@ def exercise_live_room_picker(app, native, directory):
         # A follow can go offline while the non-modal picker is open.
         pip.manage()
         dialog = pip.dialog
-        dialog.columns.setCurrentIndex(dialog.columns.findData(0))
+        dialog.arrangements.select(0)
         for check in dialog.checks.values():
             check.setChecked(False)
         dialog.checks['3101'].setChecked(True)
@@ -1194,27 +1287,175 @@ def exercise_live_room_picker(app, native, directory):
         app.processEvents()
 
 
+def check_resize_handoff(floating):
+    from ddm.window_capture import print_window
+
+    initial = floating.geometry()
+    for change in (128, -96):
+        bounds = floating.geometry()
+        local = floating.rect().bottomRight() - QPoint(3, 3)
+        start = floating.mapToGlobal(local)
+        delta = QPoint(change, round(change / floating.aspect))
+        pointer(floating, QEvent.MouseButtonPress, local, start, Qt.LeftButton, Qt.LeftButton)
+        pointer(floating, QEvent.MouseMove, local + delta, start + delta, Qt.NoButton, Qt.LeftButton)
+        floating._flush_geometry()
+        live = floating._live_resize
+        assert live is not None and live.preview.isVisible() and live.thumbnails
+        QTest.qWait(60)
+        assert floating.size() == bounds.size()
+        apply = floating.setGeometry
+
+        def check_before_applying(rect):
+            frame = live.preview.frame.toImage()
+            assert live.preview.isVisible() and not live.thumbnails
+            assert not frame.isNull(), 'Freeze the composed frame before resizing the source'
+            assert frame.size() == live._client_rect(live.preview).size()
+            live.dwm.DwmFlush()
+            painted = print_window(int(live.preview.winId()), frame.width(), frame.height(), client_only=True)
+            for pane in (0, 1):
+                samples = [(frame.width() * (5 * pane + x) // 10, frame.height() * y // 5)
+                           for x in (1, 2, 3, 4) for y in (1, 2, 3, 4)]
+                colors = [frame.pixel(x, y) for x, y in samples]
+                assert len(set(colors)) > 4, 'The handoff frame must include both native videos'
+                assert [painted.pixel(x, y) for x, y in samples] == colors, 'Paint before exposing the native resize'
+            apply(rect)
+
+        with patch.object(floating, 'setGeometry', side_effect=check_before_applying) as apply_geometry:
+            pointer(floating, QEvent.MouseButtonRelease, local + delta, start + delta, Qt.LeftButton, Qt.NoButton)
+            apply_geometry.assert_called_once()
+        assert floating.geometry() == live.preview.geometry(), (floating.geometry(), live.preview.geometry())
+        QTest.qWait(140)
+        assert floating._live_resize is None
+    floating.setGeometry(initial)
+
+
+def exercise_parallel(app, window, directory):
+    from selfcheck_mpv import ready
+
+    media = str(Path(directory) / 'parallel.mp4')
+    subprocess.run([shutil.which('ffmpeg') or 'ffmpeg', '-hide_banner', '-loglevel', 'error',
+        '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30', '-t', '18', '-c:v', 'libx264',
+        '-preset', 'ultrafast', media], check=True, timeout=30)
+
+    class LocalResolver(QObject):
+        resolved = Signal(str, str, int, str, list)
+        failed = Signal(str, str)
+        finished = Signal()
+        headers = {}
+
+        def __init__(self, room_id, quality, parent, **_kwargs):
+            super().__init__(parent)
+            self.room_id, self.quality = room_id, quality
+            self.cancelled = False
+            self.running = False
+
+        def start(self):
+            self.running = True
+            QTimer.singleShot(0, self, self.complete)
+
+        def complete(self):
+            self.running = False
+            self.resolved.emit(self.room_id, media, self.quality, 'web', [])
+            self.finished.emit()
+
+        def cancel(self):
+            self.cancelled = True
+
+        def is_cancelled(self):
+            return self.cancelled
+
+        def isRunning(self):
+            return self.running
+
+    def wait_for_players(tiles):
+        deadline = time.monotonic() + 5
+        while not all(tile in window.players for tile in tiles) and time.monotonic() < deadline:
+            QTest.qWait(40)
+        assert all(tile in window.players for tile in tiles), [tile._status_text for tile in tiles]
+
+    pip, wall = window.picture_in_picture, window.wall
+    main = wall.tiles[0]
+    main.set_live(True)
+    main.set_muted(True)
+    window.sidebar.add_rooms([dict(room_id=rid, uname=f'Parallel {rid}', live=True)
+                              for rid in ('3199', '3198')])
+    def start_local(tile):
+        window.stream_playback.start_tile(tile, resolver_type=LocalResolver)
+
+    with patch.object(window, 'start_tile', side_effect=start_local):
+        window.start_tile(main)
+        wait_for_players([main])
+        main_player = window.players[main]
+        ready(app, main_player)
+        handle, generation = int(main.video.winId()), main_player.state_generation
+        main_parent = wall.parentWidget()
+        assert pip.start([0, '3199'], parallel=True)
+        panes = list(pip.parallel_tiles)
+        assert len(panes) == 2
+        wait_for_players(panes)
+        assert pip.audio_tiles() == panes
+        for pane in panes:
+            ready(app, window.players[pane])
+            assert pane.window() is pip.floating and pane.muted
+        assert window.players[panes[0]] is not main_player
+        assert wall.parentWidget() is main_parent and not window.isMinimized()
+        assert window.players[main] is main_player and main_player.state_generation == generation
+        check_resize_handoff(pip.floating)
+        retained = [window.players[pane] for pane in panes]
+        assert pip.start([0, '3199', '3198'], MAIN_LAYOUT, '3199', parallel=True)
+        panes = list(pip.parallel_tiles)
+        wait_for_players(panes)
+        assert [window.players[pane] for pane in panes[:2]] == retained
+        assert pip.display_wall.picture_in_picture_primary == 1
+        assert panes[1].height() > panes[2].height()
+        placement = ((0, 30, 320, 180), (320, 0, 152, 270), (0, 210, 286, 161))
+        assert pip.start([0, '3199', '3198'], FREE_LAYOUT, parallel=True, placement=placement)
+        QTest.qWait(80)
+        assert [tile.geometry() for tile in pip.audio_tiles()] == pane_rectangles(
+            3, pip.display_wall.rect(), FREE_LAYOUT, placement=placement)
+        assert [window.players[pane] for pane in panes[:2]] == retained
+        assert pip.state()['placement'] == placement
+        pip.floating.close()
+        QTest.qWait(100)
+        assert not pip.active and all(pane not in window.players for pane in panes)
+        assert window.players[main] is main_player and main_player.state_generation == generation
+        assert int(main.video.winId()) == handle and wall.parentWidget() is main_parent
+        assert wall.isVisible() and window.isVisible() and not window.isMinimized()
+
+
 def main():
     app = QApplication([])
-    native = '--native' in sys.argv or app.platformName() == 'windows'
+    shortcuts_only = '--shortcuts-only' in sys.argv
+    native = not shortcuts_only and ('--native' in sys.argv or app.platformName() == 'windows')
     if native:
         os.environ['DDM_QTQUICK_DANMAKU'] = '1'
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
+    check_resize_corner_motion()
+    if '--resize-geometry' in sys.argv:
+        print('PASS: continuous PiP corner resizing and final pointer geometry')
+        return
     check_quick_mask_batch()
     check_focus_geometry()
+    check_adaptive_geometry()
     if native:
         assert app.platformName() == 'windows'
     for count in range(1, 17):
         for columns in (0, 1, 2, 3, 16):
             for aspects in ([16 / 9] * count, [9 / 16 if index % 2 else 4 / 3 for index in range(count)]):
-                aspect = composition_aspect(composition_rows(aspects, columns))
+                aspect = composition_ratio(aspects, columns)
                 area = QRect(0, 0, 1280, round(1280 / aspect))
                 rectangles = pane_rectangles(count, area, columns, aspects)
                 assert len(rectangles) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
                 assert not any(first.intersects(second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
-                assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height(), 'Partial final rows must fill their width, without vacant grid slots'
-                assert all(abs(rect.width() - rect.height() * ratio) <= 2 for rect, ratio in zip(rectangles, aspects))
+                if columns or count <= 2:
+                    assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height()
+                    assert all(abs(rect.width() - rect.height() * ratio) <= 2 for rect, ratio in zip(rectangles, aspects))
+                else:
+                    assert all(abs(rect.width() - rect.height() * ratio) <= 4
+                               for rect, ratio in zip(rectangles, aspects))
+                    areas = [rect.width() * rect.height() for rect in rectangles]
+                    assert max(areas) < 1.1 * min(areas)
     assert video_aspect(Mock(_prop=lambda name: {'w': 1440, 'h': 1080, 'dw': 1920, 'dh': 1080})) == 16 / 9
     assert video_aspect(Mock(_prop=lambda name: {'dw': 1920, 'dh': 1080, 'rotate': 90})) == 9 / 16
     assert video_aspect(Mock(_prop=lambda name: None)) is None
@@ -1253,17 +1494,39 @@ def main():
             tray.window.setWindowState(tray.window.windowState() & ~Qt.WindowMinimized)
             tray.window.show()
         stack.enter_context(patch.object(SystemTray, 'restore', autospec=True, side_effect=restore_without_activation))
-        rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
-                      muted=True, volume=20 + index * 10) for index in range(4)]
-        window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
-            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False,
-                'auto_update': False, 'recording_enabled': False, 'recording_replay_enabled': False}})
-        window.setAttribute(Qt.WA_ShowWithoutActivating)
-        window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
-        window.setGeometry(-12000, 0, 1100, 750)
-        window.show()
-        QTest.qWait(100)
+        def make_window():
+            rooms = [dict(room_id=str(1100 + index), uname=f'Local {index}', live=False,
+                          muted=True, volume=20 + index * 10) for index in range(4)]
+            window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='2x2',
+                state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit', 'auto_quality': False,
+                    'auto_update': False, 'recording_enabled': False, 'recording_replay_enabled': False}})
+            window.setAttribute(Qt.WA_ShowWithoutActivating)
+            window.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+            window.setGeometry(-12000, 0, 1100, 750)
+            window.show()
+            QTest.qWait(100)
+            return window
+
+        if native:
+            parallel_window = make_window()
+            try:
+                exercise_parallel(app, parallel_window, directory)
+            finally:
+                parallel_window.close()
+                app.processEvents()
+            if '--parallel-only' in sys.argv:
+                print('PASS: native independent PiP and main-wall playback without reconnect')
+                return
+
+        window = make_window()
         try:
+            if shortcuts_only:
+                pip = window.picture_in_picture
+                assert pip.start([0, 1])
+                QTest.qWait(150)
+                check_audio_controls(pip)
+                print('PASS: PiP audio and exit shortcuts are isolated from main-window bindings')
+                return
             exercise(app, window, native, directory)
         finally:
             window.close()

@@ -7,17 +7,19 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_ONLY = (
-    "HANDOFF-*.md", "docs/HANDOFF-*.md", "docs/local/*", "videos/*",
+    "PROJECT_STATE.md", "HANDOFF-*.md", "docs/HANDOFF-*.md", "docs/local/*", "videos/*",
     "docs/VIDEO-*.md", "docs/PROMO-*.md", "dev/*promo*",
     "dev/*highlight*", "dev/*videotogether*", "dev/test_video_*.py",
     "dev/preview_*.py", "dev/watch_layout_preview.py", "dev/run-preview.cmd", "dev/make_shots.py",
     "dev/thumb_sheet.py", "dev/mock_portrait2.py",
-    "docs/portrait-bar.png", "docs/portrait-current.png", "docs/portrait-mock.png",
+    "docs/local/archive/prototypes/portrait-bar.png", "docs/local/archive/prototypes/portrait-current.png", "docs/local/archive/prototypes/portrait-mock.png",
     "dev/mock_portrait.py", "dev/portrait_mock.html", "console.log*",
     "utils/*", "plugins_user/.updates/*", "plugins_user/match_sync/*",
     "plugins_user/domestic_live/*", "plugins_user/global_live/*",
+    "plugins_user/huya_live/*", "plugins_user/douyu_live/*", "plugins_user/douyin_live/*",
+    "plugins_user/twitch_live/*", "plugins_user/youtube_live/*", "plugins_user/chzzk_live/*",
     "plugins_user/huya_watch/*", "plugins_user/_danmaku_log/*",
-    "work/test-artifacts/*",
+    "work/test-artifacts/*", "work/records/*",
 )
 REQUIRED = (
     "main.py", "requirements.txt", "run.cmd", "run-console.cmd",
@@ -26,24 +28,22 @@ REQUIRED = (
     ".gitattributes",
     "dev/README.md", "dev/run_checks.py", "dev/checks/suites.json", "dev/checks/bootstrap.py",
     "dev/checks/README.md", "docs/development/testing.md",
-    "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py",
+    "ddm/app.py", "ddm/widgets.py", "blivedm/clients/web.py", "blivedm/LICENSE",
     "dev/build_release.ps1", "dev/build_windows_version.py",
     "dev/pyi_rth_pyside6_paths.py", "dev/selfcheck_video_danmaku.py",
-    "docs/overview1_Landscape_mode.png", "docs/overview2_Landscape_mode.png",
-    "docs/overview1_Portrait_Mode.png", "README.md",
+    "docs/assets/screenshots/overview1_Landscape_mode.png", "docs/assets/screenshots/overview2_Landscape_mode.png",
+    "docs/assets/screenshots/overview1_Portrait_Mode.png", "README.md",
 )
 
 
 class RepositoryFilesTests(unittest.TestCase):
-    def test_website_cleanup_preserves_screenshots(self):
+    def test_website_cleanup_keeps_only_readme_overviews(self):
         self.assertFalse((ROOT / 'publish.cmd').exists())
         self.assertFalse((ROOT / 'docs/website-plan.md').exists())
         tracked = subprocess.check_output(['git', 'ls-files', 'website-prototype'], cwd=ROOT)
         self.assertFalse(tracked)
-        archive = ROOT / 'docs/archive/website-screenshots'
-        self.assertEqual(len(list(archive.rglob('*.png'))), 3)
-        self.assertEqual(len(list(archive.rglob('*.jpg'))), 7)
-        self.assertEqual(len(list((ROOT / 'docs').glob('overview*.png'))), 7)
+        self.assertFalse((ROOT / 'docs/archive/website-screenshots').exists())
+        self.assertEqual(len(list((ROOT / 'docs/assets/screenshots').glob('overview*.png'))), 7)
 
     def test_local_material_is_not_in_source_manifest(self):
         tracked = subprocess.check_output(
@@ -71,13 +71,12 @@ class RepositoryFilesTests(unittest.TestCase):
         tracked = subprocess.check_output(
             ['git', 'ls-files', 'plugins_user'], cwd=ROOT, text=True).splitlines()
         self.assertEqual({Path(path).parts[1] for path in tracked},
-                         {'_match_sync', '_template_platform'})
+                         {'_template_platform'})
         doc = (ROOT / 'docs/plugins.md').read_text(encoding='utf-8')
-        for path in ('plugins_user/_match_sync/', 'plugins_user/_template_platform/',
+        for path in ('plugins_user/_template_platform/',
                      'plugins_user/match_sync/', 'plugins_user/.updates/',
                      'plugins_user/domestic_live/'):
             self.assertIn(path, doc)
-        self.assertIn('python dev/build_match_sync.py', doc)
         self.assertIn('DD_Monitor_Plugins', doc)
         build = (ROOT / 'dev/build_release.ps1').read_text(encoding='utf-8')
         self.assertIn("'plugins_user/*'", build)

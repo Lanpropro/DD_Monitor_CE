@@ -139,9 +139,14 @@ namespace DDMonitorDiagnostics
             throw new IOException("现场记录超过大小限制。");
         }
 
+        internal static bool SupportsMode(string mode)
+        {
+            return mode == "folders" || mode == "drag" || mode == "dock-hover";
+        }
+
         internal object Capture(string directory, int pid, string mode)
         {
-            if (mode != "folders" && mode != "drag") throw new ArgumentException("未知的现场类型。");
+            if (!SupportsMode(mode)) throw new ArgumentException("未知的现场类型。");
             string root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
             var external = ExternalSnapshot(pid);
             try

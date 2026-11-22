@@ -44,6 +44,17 @@ class SidebarFolderControlTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.stack.close()
 
+    def test_smart_folder_popup_rows_use_the_pointing_cursor(self):
+        from ddm import theme
+        from ddm.sidebar_folders import SmartFolderDialog
+        theme.apply(theme.mode())
+        dialog = SmartFolderDialog(self.sidebar)
+        dialog.ensurePolished()
+        for combo in (dialog.status_combo, dialog.sort_combo, dialog.display_combo):
+            combo.ensurePolished()
+            self.assertEqual(combo.cursor().shape(), Qt.PointingHandCursor)
+            self.assertEqual(combo.view().viewport().cursor().shape(), Qt.PointingHandCursor)
+
     def test_independent_imports_and_legacy_sidebar_identity(self):
         for name in ('sidebar_folder_control', 'sidebar_filter'):
             code = 'import sys; import ddm.' + name + '; ' + \

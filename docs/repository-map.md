@@ -2,12 +2,21 @@
 
 > 类型：参考 ｜ 状态：维护中 ｜ 适用版本：0.7.x ｜ 更新：2026-11-17 ｜ 读者：维护者
 
-## 导读
+## 本页用法
 
-本页保留当前分支的技术内容与历史记录。先按下列主题定位；具体版本、结果和待验收范围以对应正文为准：软件本体与插件功能范围、已跟踪的其他文件：逐项标注、仅本机存在的其他资料、六项既有未跟踪保护项、整理结论。
+本页是文件级清单，不是架构说明。
 
-盘点日期：2026-10-19。用户已确认深浅色功能完成；首轮完成分类盘点；本轮按用户要求集中说明并删除四个过时脚本，详见 repository-cleanup-review.md。
+- 找某个文件归谁管：先看“软件本体与插件功能范围”，再在“已跟踪的其他文件”中按分类查找。
+- 新增或删除已跟踪文件时同步更新对应清单；`dev/selfcheck_repository_map.py` 会核对清单与 Git 索引一致。
+- 目录与运行入口的整体关系见[架构总览](architecture/overview.md)；本机资料不进入版本库和发布包。
+
+盘点日期：2026-10-19；当时完成分类盘点并删除四个过时脚本，详见[整理审查](archive/repository-cleanup-review.md)。
+最近整理：2026-11-15，移除不再使用的旧网站原型截图；2026-11-14 的文档分层调整见[归档记录](archive/docs-organization-20261114.md)。
 以下按当前工作区与 Git 索引盘点，不代表远端仓库状态；未读取真实配置、账号数据或媒体内容。
+
+关注栏和菜单让位共用 `ddm/row_motion.py`，托盘选项及设置预览由 `ddm/tray_menu.py` 管理；菜单专项为 `dev/selfcheck_menu_drag.py`，在现有离屏套件登记。
+
+托盘布局示意模块为 `ddm/tray_preview.py`，窗口与暂停协调沿用 `ddm/system_tray.py`；职责见[架构总览](architecture/overview.md)。
 
 ## 软件本体与插件功能范围
 
@@ -17,51 +26,23 @@
 | `blivedm/` | B站弹幕协议实现 |
 | `assets/`、`favicon.ico` | 软件图标、平台图标与资源 |
 | `main.py`、`requirements.txt`、`run.cmd`、`run-console.cmd` | 软件入口、依赖和启动脚本 |
-| `plugins_user/` | 插件源码、模板、本机安装副本与更新暂存；不能整体当杂项 |
+| `plugins_user/` | 本仓库只跟踪 `_template_platform/` 开发模板；其余为本机安装副本、旧目录或更新暂存，现行插件源码在独立插件仓库 |
 | `libmpv-2.dll` | 本机播放运行库；使用 `dev/fetch_mpv.py` 下载并按来源清单校验，不进入 Git |
 
-头像绘制、圆形裁切与关注头像条集中在 `ddm/avatar_widgets.py`，不依赖主窗口、播放器或 `ddm/widgets.py`。`widgets.py` 保留原组件名的导入兼容；通知和提示组件直接引用头像模块。关注栏拖拽会话由 `ddm/sidebar_drag.py` 管理，排序、归类和播放仍使用原有业务接口。播放恢复调度集中在 `ddm/playback_recovery.py`，独立持有重连与冻结恢复状态及定时器；主窗口负责播放器操作、界面和插件事件，并保留原有内部入口的委托。房间拖入、换格和保留播放器的格子互换策略集中在 `ddm/room_placement.py`，不导入 Qt 或播放器；主窗口保留原入口委托，继续提供播放、录制和界面服务。
-
-开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
-
-未决问题的显式专项入口由 `ddm/diagnostic_session.py` 统一安装；通知、弹幕数值运动和原生拖放采集分别位于 `notice_diagnostics.py`、`danmaku_diagnostics.py`、`drag_diagnostics.py`，原 `dev/diagnose_*` 保留兼容入口。独立诊断工具只在点击专项启动按钮后启动主软件，生成包时仅收集白名单已有日志，不自动采集或上传。
-
-直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
-
-房间头像、封面和横幅的加载协调及界面回填集中在 `ddm/room_images.py`；主窗口保留原入口和调用时加载器构造器，继续持有线程引用及退出等待。缓存读写与下载仍由 `ddm/images.py` 实现，图片协调器不负责账号头像和播放器。
-
-录制开关、即时回放范围与额度、录制前画质锁定/恢复及录制计时集中在 `ddm/capture_control.py`；主窗口保留原方法入口，继续持有会话、待开始任务、画质记录和退出流程。FFmpeg 执行仍在 `ddm/recording.py`，录制源解析及通知入口保留在主窗口。
-
-画面墙右键的格子类型、多个弹幕栏及来源绑定由 `ddm/pane_danmaku.py` 管理，关联跟随画面换位，并随布局与直播间组合保存。`ddm/pane_source_picker.py` 管理信号图标左侧的头像来源条、从右向左展开／收起、溢出滚动和缓存头像更新。
-
-弹幕连接共享、按需订阅及连接/SC 快照线程退役集中在 `ddm/danmaku_lifecycle.py`。主窗口保留旧入口与回调、按调用时构造器创建线程，继续拥有 Qt 对象、连接状态和退出等待；消息分发、账号凭据与 SC 展示策略保持原归属。
-
-播放状态浮标（LIVE/时长/标题/加载提示）集中在 `ddm/playback_badges.py`，只依赖 Qt、主题与 `BadgeSurface`，不依赖播放器、Tile、WallGrid 或 Sidebar。`ddm/widgets.py` 兼容导出旧类名、尺寸常量与字体辅助入口；绘制、资源路径、Qt 归属和动画生命周期不变。
-
-多画面画中画由 `ddm/picture_in_picture.py` 管理全局入口、选流与独立小窗，WallGrid复用原播放格及共享弹幕层。说明见 `docs/picture-in-picture.md`，隔离回归为 `dev/selfcheck_picture_in_picture.py`。
-
-矩形表面的连续圆角几何集中在 `ddm/corner_geometry.py`，无 QWidget、播放器或主题依赖；`ddm/continuous_corners.py` 读取原 QSS 的底色、描边、半径及状态并绘制表面，原控件继续处理文字、输入和布局。自绘图片与原生视频遮罩复用相同路径，系统窗口外框仍由 Windows 控制。
-
-播放控制按钮及音量弹窗集中在 `ddm/playback_controls.py`，依赖 Qt、主题、动效和默认音量，不导入播放器或 `widgets`。`ddm.ui` 按需从此模块提供原有按钮，`widgets` 保留旧类及绘制辅助函数的兼容导出；播放状态、格子信号连接与弹窗管理仍由原宿主负责，刷新动画仍以按钮为父对象。
-
-省略标签与工具条图标按钮分别在 `ddm/ui/labels.py`、`ddm/ui/toolbar.py` 维护，`ddm.ui` 按需导入；`widgets` 在原定义位置兼容导出同一类，保留原 Qt 子类加载顺序，`_repolish` 从共享辅助模块兼容导出。基础控件不依赖画面墙、播放器或主窗口，Qt 父子归属与信号行为沿用原实现。
-
-`ddm/widgets.py` 仅保留兼容导出，项目内部直接导入职责模块。弹幕/SC展示在 `ddm/danmaku_widgets.py`，账号行在 `ddm/account_widgets.py`，关注卡片/文件夹/列表在 `ddm/sidebar_item.py`、`sidebar_thumbnail.py`、`sidebar_folders.py`、`sidebar_list.py`，开播动画在 `live_alert.py`，`sidebar_cards.py` 仅作兼容导出，侧栏协调在 `ddm/sidebar_widgets.py`，单格播放UI在 `ddm/tile_widgets.py`，画面墙与分区几何在 `ddm/wall_widgets.py`，布局选择在 `ddm/layout_picker.py`；共有常量和绘制辅助在 `ddm/widget_support.py`。旧类、常量和辅助函数仍是同一对象。布局选择与格子到画面墙的类型判断按需导入，避免模块导入循环；Qt父子关系、信号和播放器/连接/账号的状态所有权沿用原实现。
-
-侧栏的全局功能轨和关注管理入口位于 `ddm/sidebar_navigation.py`；插件入口的搜索、固定及受限尺寸面板由 `ddm/workspace_controls.py` 管理，复用原插件动作。关注排序、分组与拖放仍由原有组件负责。
-
-网页登录职责：`ddm/account_browser.py`只管理本应用临时浏览器与回环控制连接；`ddm/browser_account_worker.py`处理取消、身份确认和关注读取；`ddm/browser_account_dialog.py`负责交互、加密保存和会话接线。平台接口解析留在独立插件，OAuth仍由原模块负责。浏览器只在用户发起登录且保存会话不可用时启动，结束或取消后释放，不读取个人浏览器资料。
+模块职责与状态所有权见[架构总览](architecture/overview.md#10-详细模块职责)。
 
 ## 已跟踪的其他文件：逐项标注
 
-### 文档规范与校验
+- `ddm/cache_cleanup.py`：固定缓存类别、HTTP清理请求及历史日志边界。
+- `ddm/cache_cleanup_ui.py`：额外缓存的后台统计、选择与清理反馈。
+- `ddm/sidebar_portrait.py`：借用既有关注控件的竖屏工具栏与横向列表。
+- `dev/selfcheck_settings_card_layout.py`
+- `dev/selfcheck_portrait_ui.py`
+- `dev/selfcheck_diagnostic_settings_layout.py`
+- `dev/selfcheck_extra_cache.py`
 
-- `docs/standards/documentation.md`
-- `docs/releases/README.md`
-- `dev/selfcheck_documents.py`
-
-- `docs/image-cache.md`
-- `docs/picture-in-picture.md`
+- `docs/features/image-cache.md`
+- `docs/features/picture-in-picture.md`
 - `docs/development/ui-components.md`
 
 ### 独立诊断工具
@@ -142,7 +123,6 @@
 - `dev/selfcheck_auto_quality.py`
 - `dev/selfcheck_auto_quality_live.py`
 - `dev/selfcheck_auto_quality_switch_live.py`
-- `dev/selfcheck_avatars.py`
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
 - `dev/selfcheck_bili_cookies.py`
@@ -151,6 +131,7 @@
 - `dev/selfcheck_brand_assets.py`
 - `dev/selfcheck_button_feedback.py`
 - `dev/selfcheck_button_focus.py`
+- `dev/selfcheck_caption_interaction.py`
 - `dev/selfcheck_check_runner.py`
 - `dev/selfcheck_close_release.py`
 - `dev/selfcheck_completion_motion.py`
@@ -241,6 +222,7 @@
 - `dev/selfcheck_fullscreen_volume.py`
 - `dev/selfcheck_fullscreen_border.py`
 - `dev/selfcheck_playback_badges.py`
+- `dev/selfcheck_playback_feedback.py`
 - `dev/selfcheck_playback_controls.py`
 - `dev/selfcheck_fullscreen_controls.py`
 - `dev/selfcheck_fullscreen_cursor.py`
@@ -255,8 +237,11 @@
 - `dev/selfcheck_card_drop.py`
 - `dev/selfcheck_settings_navigation.py`
 - `dev/selfcheck_settings_layout.py`
+- `dev/selfcheck_shortcut_settings.py`
+- `dev/selfcheck_menu_drag.py`
 - `dev/selfcheck_system_tray.py`
 - `dev/selfcheck_settings_process.py`
+- `dev/selfcheck_settings_performance.py`
 - `dev/selfcheck_settings_control.py`
 - `dev/selfcheck_settings_occlusion.py`
 - `dev/check_settings_process_playback.py`
@@ -280,55 +265,9 @@
 - `dev/selfcheck_live_platforms.py`
 - `dev/selfcheck_localization.py`
 - `dev/selfcheck_main_notices.py`
+- `dev/selfcheck_media_sources.py`
 - `dev/selfcheck_notification_center.py`
-- `dev/selfcheck_match_sync.py`
-- `dev/selfcheck_match_sync_admission.py`
-- `dev/selfcheck_match_sync_alignment.py`
-- `dev/selfcheck_match_sync_appearance.py`
-- `dev/selfcheck_match_sync_assistance.py`
-- `dev/selfcheck_match_sync_audio_thread.py`
-- `dev/selfcheck_match_sync_chat.py`
-- `dev/selfcheck_match_sync_comparison.py`
-- `dev/selfcheck_match_sync_control.py`
-- `dev/selfcheck_match_sync_crop_generation.py`
-- `dev/selfcheck_match_sync_crop_style.py`
-- `dev/selfcheck_match_sync_danmaku_settings.py`
-- `dev/selfcheck_match_sync_douyu_picture.py`
-- `dev/selfcheck_match_sync_empty.py`
-- `dev/selfcheck_match_sync_entry.py`
-- `dev/selfcheck_match_sync_exe.py`
-- `dev/selfcheck_match_sync_feedback.py`
-- `dev/selfcheck_match_sync_four_compare.py`
-- `dev/selfcheck_match_sync_fullscreen_cursor.py`
-- `dev/selfcheck_match_sync_health.py`
 - `dev/selfcheck_match_sync_host_release.py`
-- `dev/selfcheck_match_sync_late_buffer.py`
-- `dev/selfcheck_match_sync_live.py`
-- `dev/selfcheck_match_sync_lock.py`
-- `dev/selfcheck_match_sync_main_quality.py`
-- `dev/selfcheck_match_sync_media.py`
-- `dev/selfcheck_match_sync_mpv_compat.py`
-- `dev/selfcheck_match_sync_multistream.py`
-- `dev/selfcheck_match_sync_native.py`
-- `dev/selfcheck_match_sync_offsets.py`
-- `dev/selfcheck_match_sync_overseas.py`
-- `dev/selfcheck_match_sync_playback.py`
-- `dev/selfcheck_match_sync_recovery.py`
-- `dev/selfcheck_match_sync_refinement.py`
-- `dev/selfcheck_match_sync_refinement_media.py`
-- `dev/selfcheck_match_sync_responsiveness.py`
-- `dev/selfcheck_match_sync_retry_rows.py`
-- `dev/selfcheck_match_sync_session.py`
-- `dev/selfcheck_match_sync_shortcuts.py`
-- `dev/selfcheck_match_sync_smoothing.py`
-- `dev/selfcheck_match_sync_startup_clock.py`
-- `dev/selfcheck_match_sync_status.py`
-- `dev/selfcheck_match_sync_timer.py`
-- `dev/selfcheck_match_sync_tracking.py`
-- `dev/selfcheck_match_sync_two_stream.py`
-- `dev/selfcheck_match_sync_ui.py`
-- `dev/selfcheck_match_sync_video.py`
-- `dev/selfcheck_match_sync_volume.py`
 - `dev/selfcheck_menu_motion.py`
 - `dev/selfcheck_mpv.py`
 - `dev/selfcheck_mpv_com_lifetime.py`
@@ -347,6 +286,7 @@
 - `dev/selfcheck_oauth_accounts.py`
 - `dev/selfcheck_oauth_guide.py`
 - `dev/selfcheck_offline_badges.py`
+- `dev/selfcheck_official_announcement.py`
 - `dev/selfcheck_online.py`
 - `dev/selfcheck_online_ui.py`
 - `dev/selfcheck_orientation_layout.py`
@@ -378,6 +318,7 @@
 - `dev/selfcheck_plugin_windows_lock.py`
 - `dev/selfcheck_plugins.py`
 - `dev/selfcheck_plugin_contract.py`
+- `dev/selfcheck_plugin_replacements.py`
 - `dev/selfcheck_plugin_worker.py`
 - `dev/selfcheck_poller_lifecycle.py`
 - `dev/selfcheck_portrait.py`
@@ -400,6 +341,7 @@
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
 - `dev/selfcheck_recording_service.py`
+- `dev/selfcheck_recording_plugin_settings.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
 - `dev/selfcheck_hotfix_updates.py`
@@ -453,11 +395,15 @@
 - `dev/selfcheck_update_install.py`
 - `dev/selfcheck_update_notifications.py`
 - `dev/selfcheck_update_download_progress.py`
+- `dev/selfcheck_update_settings.py`
 - `dev/selfcheck_update_preview.py`
 - `dev/folder_stress_preview.py`
 - `dev/update_preview.py`
 - `dev/update_preview_server.py`
 - `dev/selfcheck_user_notice.py`
+- `dev/accept_live_translate.py`
+- `dev/selfcheck_live_translate_acceptance.py`
+- `dev/selfcheck_video_caption.py`
 - `dev/selfcheck_video_danmaku.py`
 - `dev/selfcheck_danmaku_color.py`
 - `dev/selfcheck_video_danmaku_controls.py`
@@ -485,12 +431,26 @@
 ### 其他已跟踪文件
 
 - `results/.gitignore`
-- `docs/overview3_Landscape_mode.png`
+- `docs/assets/screenshots/overview3_Landscape_mode.png`
 
 ### 历史记录
 
 - `docs/archive/BUG-STATUS-2026-10-02.md`
+- `docs/archive/douyu-playback-202611.md`
+- `docs/archive/window-interaction-investigations-202610.md`
+- `docs/archive/testing-isolation-202611.md`
 - `docs/archive/README.md`
+- `docs/archive/appearance-implementation-202610.md`
+- `docs/archive/skins-implementation-202610.md`
+- `docs/archive/resize-performance-202611.md`
+- `docs/archive/responsiveness-capture-202611.md`
+- `docs/archive/ui-components-202611.md`
+- `docs/archive/workspace-maintenance-202610.md`
+- `docs/archive/customization-plan-202610.md`
+- `docs/archive/docs-organization-20261114.md`
+- `docs/archive/bili-shadowreplay-learning.md`
+- `docs/archive/liveaquarium-learning.md`
+- `docs/archive/match-sync-ocr-evaluation.md`
 - `docs/archive/pr11-pr12-integration-testing.md`
 - `docs/archive/pr6-pr7-layout-testing.md`
 - `docs/archive/repository-cleanup-review.md`
@@ -498,12 +458,19 @@
 
 ### 开发指南
 
-- `docs/development/liveaquarium-learning.md`
-- `docs/development/bili-shadowreplay-learning.md`
+- `docs/development/README.md`
 - `docs/development/testing.md`
+- `docs/development/douyu-diagnostics.md`
 - `docs/development/responsiveness-capture.md`
 - `docs/development/windows-installer.md`
 - `docs/development/workspace-maintenance.md`
+
+### 架构与文档规范
+
+- `docs/architecture/README.md`
+- `docs/architecture/overview.md`
+- `docs/architecture/ui-boundaries.md`
+- `docs/standards/documentation.md`
 
 ### 性能基准
 
@@ -513,13 +480,7 @@
 
 ### 构建、维护与复现工具
 
-- `dev/build_match_sync.py`
 - `dev/benchmark_match_sync_ocr.ps1`
-- `dev/selfcheck_match_sync_reserve.py`
-- `docs/development/match-sync-ocr-evaluation.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.9.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.10.md`
-- `docs/releases/PLUGIN-match-sync-v1.3.md`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
 - `dev/fetch_mpv.py`
@@ -537,6 +498,7 @@
 - `CONTRIBUTING.md`
 - `LICENSE`
 - `README.md`
+- `open-control-library.cmd`
 
 ### 检查入口与分类
 
@@ -549,18 +511,11 @@
 - `dev/checks/suites.json`
 - `dev/run-checks.cmd`
 - `dev/run_checks.py`
+- `dev/selfcheck_documents.py`
 
 ### 版本说明
 
-- `docs/releases/PLUGIN-match-sync-v1.2.1.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.2.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.3.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.4.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.5.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.6.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.7.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.8.md`
-- `docs/releases/PLUGIN-match-sync-v1.2.md`
+- `docs/releases/README.md`
 - `docs/releases/RELEASE-v0.1.md`
 - `docs/releases/RELEASE-v0.2.md`
 - `docs/releases/RELEASE-v0.3.1.md`
@@ -574,7 +529,12 @@
 - `docs/releases/RELEASE-v0.7.md`
 - `docs/releases/RELEASE-v0.7.1.md`
 - `docs/releases/RELEASE-v0.7.2.md`
+- `docs/releases/RELEASE-v0.7.2-hotfix.2.md`
 - `docs/releases/RELEASE-v0.7.3.md`
+- `docs/releases/RELEASE-v0.8.md`
+- `docs/releases/RELEASE-v0.8-hotfix.1.md`
+- `docs/releases/RELEASE-v0.9.md`
+- `docs/releases/announcement.json`
 - `docs/releases/UNRELEASED.md`
 
 ### 资源与发布辅助工具
@@ -588,34 +548,64 @@
 
 - `docs/NOTICE.md`
 - `docs/README.md`
-- `docs/appearance-design.md`
+- `docs/features/README.md`
+- `docs/references/README.md`
+- `docs/references/biliup-recording.md`
+- `docs/references/ui-control-coverage.md`
+- `docs/references/ui-control-icon-data.js`
+- `docs/references/ui-control-icons.js`
+- `docs/references/ui-control-library-draft.md`
+- `docs/references/ui-control-library-qt-application.png`
+- `docs/references/ui-control-library-qt-extra.png`
+- `docs/references/ui-control-library-qt.png`
+- `docs/references/ui-control-library.html`
+- `docs/references/ui-control-library.js`
+- `docs/references/ui-control-match.js`
+- `docs/references/ui-control-match-qt/match-batch-dark.png`
+- `docs/references/ui-control-match-qt/match-batch-light.png`
+- `docs/references/ui-control-match-qt/match-clock-dark.png`
+- `docs/references/ui-control-match-qt/match-clock-light.png`
+- `docs/references/ui-control-match-qt/match-compare-dark.png`
+- `docs/references/ui-control-match-qt/match-compare-light.png`
+- `docs/references/ui-control-match-qt/match-console-dark.png`
+- `docs/references/ui-control-match-qt/match-console-light.png`
+- `docs/references/ui-control-match-qt/match-danmaku-dark.png`
+- `docs/references/ui-control-match-qt/match-danmaku-light.png`
+- `docs/references/ui-control-match-qt/match-float-dark.png`
+- `docs/references/ui-control-match-qt/match-float-light.png`
+- `docs/references/ui-control-match-qt/match-launch-dark.png`
+- `docs/references/ui-control-match-qt/match-launch-light.png`
+- `docs/references/ui-control-match-qt/match-record-dark.png`
+- `docs/references/ui-control-match-qt/match-record-light.png`
+- `docs/references/ui-control-match-qt/match-replay-dark.png`
+- `docs/references/ui-control-match-qt/match-replay-light.png`
+- `docs/references/ui-control-match-qt/match-room-dark.png`
+- `docs/references/ui-control-match-qt/match-room-light.png`
+- `docs/references/ui-control-match-qt/match-send-dark.png`
+- `docs/references/ui-control-match-qt/match-send-light.png`
+- `docs/references/ui-control-match-qt/match-settings-dark.png`
+- `docs/references/ui-control-match-qt/match-settings-light.png`
+- `docs/references/ui-control-motion.js`
+- `docs/references/ui-control-examples.js`
+- `docs/references/ui-control-app-examples.js`
+- `docs/references/ui-control-playground.css`
+- `docs/references/ui-control-playground.js`
+- `docs/references/ui-control-types.js`
+- `docs/features/appearance-design.md`
 - `docs/bug-cases.md`
-- `docs/customization-plan.md`
+- `docs/features/customization-plan.md`
 - `docs/online-updates.md`
-- `docs/overview1_Landscape_mode.png`
-- `docs/overview1_Portrait_Mode.png`
-- `docs/overview2_Landscape_mode.png`
-- `docs/overview2_Portrait_Mode.png`
-- `docs/overview4_Landscape_mode.png`
-- `docs/overview5_Landscape_mode.png`
+- `docs/assets/screenshots/overview1_Landscape_mode.png`
+- `docs/assets/screenshots/overview1_Portrait_Mode.png`
+- `docs/assets/screenshots/overview2_Landscape_mode.png`
+- `docs/assets/screenshots/overview2_Portrait_Mode.png`
+- `docs/assets/screenshots/overview4_Landscape_mode.png`
+- `docs/assets/screenshots/overview5_Landscape_mode.png`
 - `docs/plugins.md`
 - `docs/repository-map.md`
-- `docs/resize-performance.md`
-- `docs/room-presets-design.md`
-- `docs/skins.md`
-
-### 网站原型截图归档
-
-- `docs/archive/website-screenshots/assets/hero-main.jpg`
-- `docs/archive/website-screenshots/assets/tile-danmaku.jpg`
-- `docs/archive/website-screenshots/assets/tile-game.jpg`
-- `docs/archive/website-screenshots/assets/tile-portrait.jpg`
-- `docs/archive/website-screenshots/assets/wall-danmaku.jpg`
-- `docs/archive/website-screenshots/assets/wall-landscape.jpg`
-- `docs/archive/website-screenshots/assets/wall-portrait.jpg`
-- `docs/archive/website-screenshots/shots/desktop.png`
-- `docs/archive/website-screenshots/shots/hero.png`
-- `docs/archive/website-screenshots/shots/mobile.png`
+- `docs/features/resize-performance.md`
+- `docs/features/room-presets-design.md`
+- `docs/features/skins.md`
 
 - `dev/native_diagnostics_fixture.cpp`
 - `dev/build_native_diagnostics.cmd`
@@ -623,7 +613,6 @@
 - `dev/selfcheck_settings_diagnostics.py`
 - `tools/diagnostics/CommandLine.cs`
 - `tools/native_diagnostics/capture.cpp`
-
 
 ## 仅本机存在的其他资料
 
@@ -636,23 +625,22 @@
 | `Video_reference/` | 宣传片参考视频和音乐 | 已忽略；保留 |
 | `raw/` | 原始录制素材目录，未核验具体来源与保留价值 | 现有规则判定为忽略；保留 |
 | `results/promo-final/` | 最终宣传成片与封面 | 已忽略；保留 |
-| `results/*promo*` | 宣传片归档和校验记录 | 已忽略；保留 |
-| `results/` 其他内容 | 软件/插件发布包、发布校验及测试产物，不能整目录归为宣传资料 | 已忽略（除 .gitignore）；保留 |
+| `results/` 其他内容 | `archive/` 保存本体旧版本 ZIP；最新本体的正式附件与一个解压入口、各插件最新正式 ZIP 的边界见[本机工作区维护](development/workspace-maintenance.md) | 已忽略（除 .gitignore）；非最终资料移入 `work/` |
 | `work/` | 混合临时目录：构建、依赖、Git 工作树、测试截图及宣传资料 | 已忽略；不整体清理 |
-| `docs/local/HANDOFF-*.md`、`docs/HANDOFF-*.md`、`PROJECT_STATE.md` | 本机交接及状态记录，涉及多个历史任务 | 已忽略；保留当前交接 |
-| `docs/local/idea.md` | 本机需求建议 | 已忽略；保留 |
-| `docs/VIDEO-*.md`、`docs/PROMO-*.md` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
+| `work/README.md`、`work/records/` | 本机工作资料索引与顶层文字记录分类，保留原文件名及待验收／未合入状态 | 已忽略；迁移清单与原件备份保存在本机，不执行旧 PR 或发布脚本 |
+| `docs/local/archive/handoffs/`、`PROJECT_STATE.md` | 按阶段保留的历史交接、未决线索与根目录当前工作区摘要 | 已忽略；不进入 `results/` 或发布包 |
+| `docs/local/README.md`、`docs/local/idea.md` | 本机资料索引与需求建议 | 已忽略；待办、诊断、验收及历史资料按目录收口 |
+| `docs/local/archive/promo/` | 宣传片脚本、素材、封面及交付过程文档 | 已忽略；保留 |
 | `dev/*promo*`、`dev/*highlight*`、`dev/*videotogether*`、`dev/test_video_*.py` | 宣传片专项脚本与校验工具；不含 selfcheck_video_* 软件测试 | 已忽略；保留 |
 | `dev/preview_*.py`、`dev/run-preview.cmd`、`dev/make_shots.py`、`dev/thumb_sheet.py` | 软件开发预览、截图工具，仍与软件维护相关 | 已忽略；保留 |
-| `dev/mock_portrait2.py`、`docs/portrait-bar.png`、`docs/portrait-current.png`、`docs/portrait-mock.png` | 旧竖屏原型及截图 | 已忽略；保留 |
+| `dev/mock_portrait2.py`、`docs/local/archive/prototypes/portrait-bar.png`、`docs/local/archive/prototypes/portrait-current.png`、`docs/local/archive/prototypes/portrait-mock.png` | 旧竖屏原型及截图 | 已忽略；保留 |
 | `cache/`、`logs/`、`recordings/`、`__pycache__/` | 软件运行数据、录制与 Python 缓存 | 已忽略；不读取内容、不清理 |
-| `ddm_plugins_dd3l0oxq/` | 空目录，名称疑似插件临时目录；来源未核实 | 不属于已跟踪源码；保留 |
+| `ddm_plugins_dd3l0oxq/` | 名称疑似插件临时目录；当前无法核实目录内容及来源 | 不属于已跟踪源码；保留 |
 
-## 六项既有未跟踪保护项
+## 本机未跟踪保护项
 
 以下只标记现状，不删除、不一并暂存：
 
-- `console.log('ERR'`：疑似误生成文件，未核验内容。
 - `dev/mock_portrait.py`：竖屏开发原型。
 - `dev/portrait_mock.html`：竖屏网页原型。
 - `plugins_user/.updates/`：插件更新暂存。
@@ -666,83 +654,11 @@
 本轮文档移动与四项删除见 [整理审查](archive/repository-cleanup-review.md)，软件和打包读取路径已相应调整。
 清单自身及其检查脚本也是仓库维护文件，新增后纳入上方逐项列表。
 
-画面墙边框组件与拖动会话由 `ddm/wall_border.py` 维护：`WallBorderInteraction` 以画面墙为QObject父对象，统一持有悬停、拖动、待处理位置与32ms合并定时器；预览仍是画面墙的直接Qt子控件，格子边框仍归原格子。WallGrid保留布局/比例/格子状态与旧方法及只读诊断别名，不重复保存活动拖动状态。
+逐模块职责与状态归属见[详细模块职责](architecture/overview.md#10-详细模块职责)。
 
-直播间组合的快照、保存、重命名、删除和恢复由 `ddm/room_preset_control.py` 的 `RoomPresetController` 协调；校验/比较留在 `room_presets.py`，卡片/管理交互留在 `room_presets_ui.py`。主窗口保留旧方法委托，仍是配置集合、活动组合、恢复事务标志、退役格子及播放器/录制服务的唯一状态所有者，控制器不另存副本。
+插件字幕展示由 `video_caption.py` 管理，Tile 持有按需创建的控件；换房清理、播放栏安全区和浮层排列分别接入 `tile_state.py`、`tile_controls.py`、`tile_presentation.py`。公开字幕接口在 `plugin_types.py`，字幕所有者映射唯一保留在 PluginManager，装载失败及卸载通过上下文统一收尾。
 
-更新协调由 `ddm/app_updates.py` 的 `AppUpdates` 管理：启动软件/插件检查、结果回填、已读筛选、红点及通知；在线协议、任务和页面仍在 `online`/`online_ui`。主窗口唯一持有任务、检查标志、候选版本、启动定时器和通知，任务Qt父对象及连接的旧回调不变，关闭时仍由主窗口中断和等待。旧方法保留薄委托，控制器仅引用宿主。
-
-设置协调由 `ddm/settings_control.py` 的 `SettingsControl` 维护普通/独立设置入口、预览上下文、页面连接与保存应用流程；`settings_process`/`settings_host` 继续维护进程通信和嵌入宿主页。主窗口唯一持有配置、进程、宿主页、更新页及退出状态，旧方法保留薄委托；三个涉及对话框类型的方法由主窗口传入原 `SettingsDialog` 工厂，保留既有替换入口，协调器不反向导入主窗口。
-
-窗口方向与布局协调由 `ddm/window_layout.py` 的 `WindowLayout` 维护排布、方向布局记忆、显式布局选择、扩容清空隐藏房间、缩容开播优先和窗口限位；主窗口保留旧委托、方向检测/事件入口，唯一持有方向与布局记忆及Qt控件。墙的布局模型、比例与边框拖动仍在原模块，原生窗口父对象不变。
-
-设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
-
-添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。
-
-关注文件夹编辑器、智能文件夹显示副本和标题按钮由 `ddm/sidebar_folders.py` 维护；`sidebar_cards` 和 `widgets` 保留同类兼容导出，侧栏内部直接使用职责模块。显示副本沿用原卡片及同一room对象，预览定时器仍是副本的Qt子对象，模型/关注集合仍归侧栏。
-
-播放请求与应用由 `ddm/stream_playback.py` 的 `StreamPlayback` 维护逐格启动、画质策略、取流回调、播放器接线及失败分支。窗口唯一持有播放器、解析器代次集合、录制/重试和Qt子对象；旧入口委托并传入原解析器/播放器工厂，保留既有替换契约。回调仍经窗口入口动态路由，不反向导入主窗口，不新增定时器或复制状态。
-
-单格编码/解码设置协调由 `ddm/codec_control.py` 的 `CodecControl` 维护继承值、重取流决策、编码保留回写、实际状态和对话框接线。窗口唯一持有codec_overrides所属格子、原解析器/播放器及对话框映射，旧工厂由主窗口传入，Qt父对象和迟到结果检查保持；设置页控件、协议和解码实现不迁移。
-
-关注文件夹协调由 `ddm/sidebar_folder_control.py` 的 `SidebarFolderControl` 维护创建/归类/默认/智能副本、标题拖动和分组条目；筛选由 `ddm/sidebar_filter.py` 的 `SidebarFilter` 维护搜索、折叠/开播过滤及可见条目。Sidebar唯一持有文件夹、归属、卡片/标题缓存、选择和拖动状态，旧方法继续委托；对话框/标题/副本的旧工厂由Sidebar传入，Qt父对象及动画参数不变，不新增计时器或复制状态。`follow_folders`继续维护纯数据规则，`sidebar_folders`继续维护控件本体。 批量展开／折叠与实际折叠判断仍归该控制器；顶部头像条实际显示时才补同步，隐藏时不创建或重建整排头像；封面仍使用既有屏外dirty延后裁切；收起策略沿用常规设置保存／热应用链，恢复模式的先前收起ID集合仅由Sidebar持有，不持久化第二份文件夹模型；Sidebar唯一持有临时搜索自动展开策略，普通持久化状态仍使用原文件夹collapsed字段，不复制状态；按钮和可配置快捷键均调用同一批量入口。
-
-关注栏多选由 `ddm/sidebar_selection.py` 的 `SidebarSelection` 维护批量选择、Ctrl/Shift选择、拖动分组与删除信号；顺序由 `ddm/sidebar_sort.py` 的 `SidebarSort` 维护过滤落点换算、组内换位、置顶、文件夹排序及常看缓存协调。Sidebar唯一持有选择/锚点、卡片顺序、配置和WatchHistory，旧Qt入口保留薄委托；排序菜单的QActionGroup仍归菜单，实际卡片/定时器归属不变。计分模型仍在watch_history，拖放会话仍在sidebar_drag。
-
-关注栏账号展示/菜单协调由 `ddm/sidebar_account_control.py` 的 `SidebarAccountControl` 维护，登录/退出仍向宿主既有信号派发；原菜单/账号行工厂由Sidebar传入，延迟登录保留Sidebar的Qt上下文。横竖布局、借用控件、账号形状和收起/展开由 `ddm/sidebar_presentation.py` 的 `SidebarPresentation` 维护，Sidebar仍唯一持有所有控件/布局/状态。控件身份、父子迁移、滚动约束及收起异常收尾沿用原行为，Qt虚方法和旧入口留在Sidebar。
-
-Sidebar卡片集合和显示同步由 `ddm/sidebar_items.py` 维护，指针命中/拖动展示由 `ddm/sidebar_interaction.py` 维护；布局选择器协调复用SidebarPresentation。Sidebar保留组装、Qt事件和旧委托，卡片/预览计时器/拖放会话仍由原Qt宿主持有。
-
-播放格职责：`tile_widgets.py` 保留 Qt 宿主、组装与事件；`tile_state.py` 维护媒体状态/画质/音频展示，`tile_controls.py` 协调控制条交互，`tile_presentation.py` 排列浮层与原生遮罩，`tile_context_menu.py` 构建运行时菜单。状态、信号、定时器与子控件仍只由 Tile 持有。
-
-主窗口协调：`app_accounts.py` 账号与关注导入；`app_shortcuts.py` 快捷键绑定；`fullscreen_control.py` 全屏业务；`app_notices.py` 用户通知。播放状态、房间管理、录制源刷新、弹幕消息和设置应用分别归并至原有 StreamPlayback、RoomPlacement、CaptureControl、DanmakuLifecycle、SettingsControl。MainWindow 保留组装、Qt 事件、状态快照与关闭收尾；旧方法继续薄委托，异步任务/Qt 父对象/共享映射仍归窗口。
-
-SC 职责：`super_chat_model.py` 为无 Qt/网络依赖的数据归一化、过期和排序；`super_chat_api.py` 为 B 站快照协议/工作线程；`super_chat_presentation.py` 为布局、预览、头像和绘制；`super_chat_widgets.py` 为弹幕面板卡片，`video_super_chat.py` 为画面 SC 浮层。`super_chat.py` 保留旧导出，滚动画面弹幕继续由 VideoDanmaku 负责。
-
-小窗职责：`pip_geometry.py` 合成几何；`pip_preview.py` 布局预览；`pip_picker.py` 房间选择；`pip_window.py` 原生浮窗及控制。`picture_in_picture.py` 保留原有播放格借用/归还与业务状态，不复制播放器；旧类名兼容导出保持身份。
-
-在线界面职责：`online_tasks.py` 工作线程与页面关闭后的退役清理；`plugin_downloads.py` 由主窗口持有插件下载／安装任务和状态，设置关闭后继续；`download_progress.py` 采样字节和速度，`update_progress_ui.py` 在通知、更新页和插件卡片显示进度及完成反馈，`ui/progress.py` 提供主题进度条。`plugin_store_ui.py` 插件商店；`plugin_details_ui.py` 卡片内详情展开、文本自适应高度和共享下载操作，由卡片拥有并随外层列表滚动；`app_update_ui.py` 软件更新页；`update_notice.py` 更新提示与标记；`result_notice.py` 用户结果通知；`update_offers.py` 版本提示数据。`online_ui.py` 保留旧导出和已有任务/通知替换入口，退役集合只保留一份。 `plugin_card_layout.py` 按筛选后顺序将卡片分入等宽独立列，统一计算单列／双列高度；卡片、详情控件和下载状态仍由原页面持有。 `update_errors.py` 将在线任务异常分类为可读失败原因，`update_progress_ui.py` 在原操作行显示换行反馈；更新历史保留在通知中心，同一任务状态仍由宿主持有。
-
-B 站职责：`bili.py` 统一持有 HTTP 接口、凭据和协议参数；`bili_workers.py` 持有六种 Qt 取流/查询工作线程。工作线程在调用时读取原 API 模块，未复制凭据或函数引用，旧类导出与测试替换入口保持。
-
-画面墙职责：`wall_geometry.py` 自动列数计算；`wall_layout.py` 格子几何、预设/角点比例、边框比例应用与缩放收敛；`wall_presentation.py` 全屏/小窗/侧栏动画期间的原生呈现。WallGrid 保留容器、格子与弹幕分区接线、Qt 事件，所有比例/定时器状态仍归 WallGrid，拖边会话继续归 WallBorderInteraction。
-
-录制职责：`recording_process.py` 为 Windows 后台进程/Job Object；`recording_output.py` 为 FFmpeg 参数与容器/路径；`recording_session.py` 为每路会话数据与分段簿记；`recording_replay.py` 为租约、回放保留和导出。RecordingManager 保留编码器/取流/子进程轮询与关闭协调；会话、租约、导出和定时器仍只有一份。
-
-插件职责：`plugin_types.py` 为公开协议/平台数据/上下文；`plugin_manifest.py` 为目录身份和元数据验证；`plugin_packages.py` 为安装、移除和目录清单。PluginManager 继续管理装载、事件分发与注册，凭据、控件、工作区和通知仍复用既有独立模块。旧插件 API 导出和单例注册表不变。
-
-皮肤编辑职责：`skin_controls.py` 为共享素材控件/文件名显示；`skin_part_settings.py` 为分区外观编辑与预览；`skin_settings.py` 保留全局背景/遮罩控件和旧导出。分区对话框按需构造全局控件，避免互相提前导入，皮肤素材/预览/应用继续复用原有独立模块。
-
-弹幕呈现职责：`danmaku_format.py` 为富文本/勋章格式；`danmaku_document.py` 为文档、表情和有界历史；`danmaku_scrolling.py` 为跟随及滚动位置；面板保留 Qt 控件和事件。`video_danmaku_raster.py` 为异步光栅资源，`video_danmaku_surface.py` 为原生/Quick 表面接线；VideoDanmaku 继续负责弹幕准入、轨道与时钟，SC 画笔归 video_super_chat，旧静态入口保留。
-
-其他边界：`image_workers.py` 为图片缓存/下载工作线程，路径和缓存代次仍由 images API 持有；`account_workers.py` 为关注账号解析线程；`live_danmaku_protocol.py` 为三站只读弹幕编解码，连接/重连仍由 LiveDanmakuClient 负责；`add_room_dialog.py` 为添加房间，`room_dialogs.py` 为关注导入，文件夹动作归 `room_folder_controls.py`；`skin_assets.py` 为素材验证/导入，`skin_background.py` 为背景表面，SkinController 仍在 skins；`settings_worker.py` 为独立设置进程界面，SettingsProcess 保留宿主 QProcess 传输和公共协议入口。
-
-登录边界：`bili_login_worker.py`、`oauth_worker.py`、`platform_follow_worker.py` 分别持有扫码、OAuth、平台关注协议工作线程；原 login/oauth_login/platform_login 保留具体登录界面及旧工厂。`platform_profiles.py` 统一持有浏览器 profile 注册表与退出清理，原模块只是同一字典的兼容引用。
-
-房间细分：`room_add_batch.py` 管多行添加的逐条后台查询与结果汇总，复用原识别器和放置规则；`room_catalog.py` 管关注目录、异步添加/删除与平台启停；`room_navigation.py` 管房间输入、主页识别和浏览器入口；`watch_history_sampling.py` 将可见播放状态采样交给既有 WatchHistory。RoomPlacement 保留格子放置/互换与旧方法委托，catalog/navigation 只引用同一窗口。`room_configuration.py` 管配置中的房间整理、平台挂起恢复与启动占位数据，config 保留路径、读写、设置定义及兼容导出。
-
-SC 展示细分：`super_chat_layout.py` 为测量/位置/画笔原语，`super_chat_animation.py` 为运行时展开/折叠期限，`super_chat_avatar.py` 为头像资源与绘制，`super_chat_preview.py` 为设置预览与位置编辑。原 super_chat_presentation 保留兼容导出，项目内部按实际职责导入，QObject/定时器父对象不变。
-
-关注栏呈现细分：`sidebar_orientation.py` 管横竖布局与借用控件，`sidebar_collapse.py` 管收起/展开协调，`sidebar_layout_picker.py` 管布局选择器；账号形状/显隐归既有 SidebarAccountControl，焦点交互归 SidebarInteraction。SidebarPresentation 保留兼容委托及外观行同步，控件、动画、计时器、状态全部仍归 Sidebar。
-
-响应采集细分：`responsiveness_probe.py` 为通用心跳、调用计时、进程计数和有界堆栈；`folder_motion_capture.py` 为文件夹动画证据；`theme_capture.py` 为主题及其动画证据。responsiveness 保留通用安装协调与旧导出，旧监测替换点在调用时解析；原 Probe/采样线程、上限、输出字段和隐私规则不变。
-
-在线协议细分：`release_repository.py` 为官方仓库 HTTP/ETag/清单与产物校验；`app_release_api.py` 为本体版本及发布说明；`plugin_catalog_api.py` 为插件目录、兼容性和持久缓存；`verified_download.py` 为取消/大小/hash校验/有限重试下载。online 保留公开 API 导出及既有替换点，目录字典只有一份，缓存状态仍由调用者传入。
-
-### 诊断中心与崩溃证据
-
-- `ddm/settings_diagnostics.py`：设置内诊断表单、采集状态及手动导出反馈。
-- `ddm/diagnostic_export.py`：QProcess 导出/现场采集协调、临时请求与取消清理；复用独立工具后端。
-- `ddm/native_diagnostics.py`：Qt导入前安装原生采集、组件状态与转储开关。
-- `ddm/qt_lifecycle.py`：关键对象生命周期的有界记录，不持有QObject。
-- `tools/native_diagnostics/capture.cpp`：原生未处理异常通知DLL和独立栈/可选转储进程；`dev/build_native_diagnostics.cmd` 构建。
-- `tools/diagnostics/CommandLine.cs`：固定JSON请求的无界面入口；WinForms和设置页共用 `Collector.cs`。
-- `dev/native_diagnostics_fixture.cpp`、`dev/selfcheck_native_diagnostics.py`：隔离受控崩溃、正常退出、栈与转储回归。
-- `dev/selfcheck_settings_diagnostics.py`：临时安装目录中的设置页、实际导出、取消及生命周期回归。
-
-
-画中画的六格视频/弹幕组合由 `ddm/pip_composition.py` 维护无状态的格位规则：读取既有辅格弹幕绑定，不持有或复制Qt控件和可变配置。控制器协调选择和宽高比，预览与墙的画中画呈现共用格位；弹幕面板、消息文档及来源继续由原PaneDanmaku/WallGrid持有。
+添加职责：`room_add_batch.py` 管多行添加的逐条后台查询与结果汇总，复用原识别器和放置规则；窗口持有查询线程与目标格，退出时停止后续队列。
 
 原位添加：`room_add_panel.py` 管统一的展开式添加面板、焦点与定位，不替换搜索或关注区域，保持画面墙布局；`room_add_input.py` 管行号校验和去重；RoomCatalog 持有目标格、查询工厂与完成回调，复用原解析器。
 

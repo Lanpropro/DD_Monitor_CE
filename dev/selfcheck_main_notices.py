@@ -193,7 +193,7 @@ class MainNoticesTests(unittest.TestCase):
         def check_updates(enabled):
             if enabled:
                 self.assertFalse(sidebar._collapse_animating)
-                self.assertTrue(wall._sidebar_animating)
+                self.assertFalse(wall._sidebar_animating)
                 self.assertEqual(sidebar._column.width(), theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
                 for item in sidebar.items():
                     self.assertEqual(item._compact, sidebar.collapsed)
@@ -223,7 +223,7 @@ class MainNoticesTests(unittest.TestCase):
         self.assertEqual(sidebar.width(), width)
         self.assertFalse(sidebar._collapse_animating)
 
-    def test_sidebar_final_paint_precedes_player_resize(self):
+    def test_sidebar_paint_waits_for_wall_geometry(self):
         window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(12)])
         sidebar, wall = window.sidebar, window.wall
         paints = []
@@ -231,28 +231,61 @@ class MainNoticesTests(unittest.TestCase):
         class PaintRecorder(QObject):
             def eventFilter(self, watched, event):
                 if event.type() == QEvent.Paint:
-                    paints.append((sidebar.collapsed, sidebar._column.width()))
+                    right = max(tile.geometry().right() + 1 for tile in wall.visible_tiles())
+                    settled = (not wall._sidebar_animating
+                               and right == wall.width() - wall.grid.contentsMargins().right())
+                    paints.append((sidebar.collapsed, sidebar._column.width(), settled))
                 return False
 
         recorder = PaintRecorder(sidebar)
         sidebar.installEventFilter(recorder)
         original = wall._relayout_preset
         observations = []
-        def resize_after_paint():
-            expected = (sidebar.collapsed,
-                        theme.SIDEBAR_RAIL_WIDTH if sidebar.collapsed else theme.SIDEBAR_WIDTH)
-            observations.append((expected in paints, sidebar.updatesEnabled()))
+        def resize_while_held():
+            observations.append((bool(paints), sidebar.updatesEnabled()))
             return original()
 
-        with patch.object(wall, '_relayout_preset', side_effect=resize_after_paint) as resize:
+        with patch.object(wall, '_relayout_preset', side_effect=resize_while_held) as resize:
             for collapsed in (True, False) * 3:
                 paints.clear()
                 sidebar.set_collapsed(collapsed)
                 self.assertTrue(wall.updatesEnabled() and wall.grid.isEnabled())
                 self.assertFalse(wall._sidebar_animating)
+                self.app.processEvents()
+                width = theme.SIDEBAR_RAIL_WIDTH if collapsed else theme.SIDEBAR_WIDTH
+                self.assertTrue(paints)
+                self.assertEqual(set(paints), {(collapsed, width, True)})
             self.assertEqual(resize.call_count, 6)
-        self.assertEqual(observations, [(True, True)] * 6,
-                         'Final sidebar paint must precede native player resize')
+        self.assertEqual(observations, [(False, False)] * 6,
+                         'The wall must resize before the sidebar can paint again')
+
+    def test_sidebar_width_settles_all_video_areas_before_raising_overlays(self):
+        window = self.window([dict(room_id=str(i), uname='Fixture') for i in range(4)])
+        sidebar, wall = window.sidebar, window.wall
+        tiles = wall.visible_tiles()
+        tile = tiles[-1]
+        prior_sizes = [item.video.size() for item in tiles]
+        layout = wall._relayout_preset
+
+        with patch.object(tile.bottom, 'raise_', wraps=tile.bottom.raise_) as restack, \
+                patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
+                patch.object(tile.bottom, 'update', wraps=tile.bottom.update) as update:
+            def resize_video_areas():
+                self.assertTrue(all(item._interactive_resize for item in tiles))
+                layout()
+                self.assertTrue(all(item.video.size() != size for item, size in zip(tiles, prior_sizes)))
+                restack.assert_not_called()
+                tile._move_repaint_timer.start(0)
+
+            with patch.object(wall, '_relayout_preset', side_effect=resize_video_areas) as resize:
+                sidebar.set_collapsed(True)
+            resize.assert_called_once()
+            self.assertTrue(all(not item._interactive_resize for item in tiles))
+            restack.assert_called_once()
+            self.assertFalse(tile._move_repaint_timer.isActive())
+            update.assert_called()
+            self.app.processEvents()
+            repaint.assert_not_called()
 
     def test_sidebar_switch_restores_repaint_after_preparation_failure(self):
         window = self.window([dict(room_id='1001', uname='Fixture')])
@@ -535,12 +568,19 @@ class MainNoticesTests(unittest.TestCase):
         from ddm import cover_focus
         assets = ROOT / 'ddm/assets'
         records = json.loads((assets / 'licenses/cover-focus-SOURCE.json').read_text())
-        for record in records:
-            self.assertEqual(hashlib.sha256((assets / record['file']).read_bytes()).hexdigest(),
-                             record['sha256'])
-        cover = QPixmap(412, 232)
-        cover.fill(QColor('black'))
-        self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
+        with tempfile.TemporaryDirectory(prefix='ddm-封面-') as temporary:
+            module_dir = Path(temporary)
+            for record in records:
+                model = (assets / record['file']).read_bytes()
+                self.assertEqual(hashlib.sha256(model).hexdigest(), record['sha256'])
+                model_path = module_dir / 'assets' / record['file']
+                model_path.parent.mkdir(parents=True, exist_ok=True)
+                model_path.write_bytes(model)
+            cover = QPixmap(412, 232)
+            cover.fill(QColor('black'))
+            with patch.object(cover_focus, '__file__', str(module_dir / 'cover_focus.py')), \
+                    patch.object(cover_focus, '_DETECTORS', None):
+                self.assertEqual(cover_focus._detect_faces(cover.toImage()), [])
 
     def test_room_background_crops_the_center_and_clips_corners(self):
         from PySide6.QtCore import QRectF
@@ -1405,6 +1445,57 @@ class MainNoticesTests(unittest.TestCase):
         self.assertFalse(window.room_placement.replacement.replacement_rooms)
         self.assertIsNone(QApplication.overrideCursor())
 
+    def test_live_notice_places_room_in_clicked_custom_grid_vacancy(self):
+        from ddm import layouts, snap_grid
+
+        for base, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+            with self.subTest(base=base):
+                window = self.window([{'room_id': '1', 'live': False}], offscreen=True)
+                window.layout_presets.select_builtin(base)
+                wall = window.wall
+                units = snap_grid.geometry(size, layouts.even_cells(size, size),
+                                           wall._corner_area(), wall.grid.spacing())
+                wall.snap_grid.add_danmaku(units[1].center())
+                panel = next(iter(wall.pane_danmaku.panels.values()))
+                target = units[size + 1].center()
+                window._show_notice('新主播开播了', rooms=[{'room_id': '999', 'live': True}], kind='live')
+                button = window.sidebar.notification_button
+                button.click()
+                center = button.center
+                entry = next(entry for entry in center.entries if entry.kind == 'live')
+                action = center.rows[entry].action
+                self.assertEqual(action.text(), '替换')
+                QTest.mouseClick(action, Qt.LeftButton)
+                self.assertFalse(center.isVisible())
+                selection = window.room_placement.replacement
+                self.assertTrue(selection.replacement_rooms)
+                QTest.mouseClick(panel, Qt.LeftButton, pos=panel.rect().center())
+                QTest.mousePress(wall, Qt.LeftButton, pos=units[2].center())
+                QTest.mouseRelease(wall, Qt.LeftButton, pos=target)
+                self.app.processEvents()
+                self.assertIsNone(window._tile_of('999'))
+                self.assertTrue(selection.replacement_rooms)
+
+                window.start_tile.reset_mock()
+                with patch.object(window, '_room_dict', side_effect=AssertionError('No network lookup')):
+                    QTest.mouseClick(wall, Qt.LeftButton, pos=target)
+                    self.app.processEvents()
+                added = window._tile_of('999')
+                self.assertIsNotNone(added)
+                self.assertTrue(added.isVisible())
+                self.assertEqual(added.geometry(), units[size + 1])
+                self.assertTrue(window._tile_of('1').isVisible())
+                self.assertEqual(added.state_control.pending_grid_aspect, base)
+                window.start_tile.assert_called_once_with(added)
+                self.assertFalse(selection.replacement_rooms)
+                self.assertIsNone(QApplication.overrideCursor())
+
+                window._place_live_notice_rooms([{'room_id': '998'}])
+                QTest.mouseClick(added.video, Qt.LeftButton, pos=added.video.rect().center())
+                self.app.processEvents()
+                self.assertIs(window._tile_of('998'), added)
+                self.assertEqual(added.geometry(), units[size + 1])
+
     @unittest.skipUnless(sys.platform == 'win32', 'Windows click diagnostics')
     def test_live_replacement_trace_preserves_window_dispatch(self):
         from ddm.wall_replacement import WallReplacement
@@ -2185,6 +2276,7 @@ class MainNoticesTests(unittest.TestCase):
 
     def test_background_avatar_loader_uses_disk_cache_without_network(self):
         import threading
+        import time
         from ddm import images
         with tempfile.TemporaryDirectory() as directory, patch.object(images, 'REPO', directory):
             url = 'https://example.invalid/avatar.png'
@@ -2202,9 +2294,16 @@ class MainNoticesTests(unittest.TestCase):
             loader.loaded.connect(lambda rid, pixmap: loaded.append((rid, pixmap)))
             with patch.object(images, 'load_pixmap', side_effect=read), \
                     patch.object(images.requests, 'get', side_effect=AssertionError('Cache hit must not use network')):
-                loader.start()
-                self.assertTrue(loader.wait(3000))
-                self.app.processEvents()
+                try:
+                    loader.start()
+                    deadline = time.monotonic() + 5
+                    while loader.isRunning() and time.monotonic() < deadline:
+                        self.app.processEvents()
+                        time.sleep(.01)  # Release the GIL for the Python image workers.
+                    self.assertTrue(loader.isFinished())
+                    self.app.processEvents()
+                finally:
+                    loader.wait(15000)  # Keep the cache fixture alive until all worker handles close.
             self.assertEqual([rid for rid, _ in loaded], ['1001'])
             self.assertFalse(loaded[0][1].isNull())
             self.assertTrue(threads and all(t != threading.get_ident() for t in threads))

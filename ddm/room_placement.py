@@ -2,6 +2,13 @@
 import sys
 from .room_catalog import RoomCatalog
 from .room_navigation import RoomNavigation
+from .streamer_defaults import room_defaults
+
+
+def _swap_audio_settings(first, second):
+    first.volume, second.volume = second.volume, first.volume
+    first.muted, second.muted = second.muted, first.muted
+    first.audio_channel, second.audio_channel = second.audio_channel, first.audio_channel
 
 
 class RoomPlacement:
@@ -10,6 +17,9 @@ class RoomPlacement:
         self.navigation = RoomNavigation(self.host)
         self.catalog = RoomCatalog(self.host)
         self.replacement = None
+
+    def _audio_follows_room(self):
+        return getattr(self.host, "settings", {}).get("audio_follows_room", False)
 
     def place_live_notice_rooms(self, rooms):
         from .wall_replacement import WallReplacement
@@ -28,7 +38,6 @@ class RoomPlacement:
             print(f"拖入的直播间 {room_id} 查询失败")
             return
         host.sidebar.watch_history.select(str(room_id))
-        host._prepare_room(room)
         other = host._tile_of(room_id)
         if other is tile:
             return
@@ -37,21 +46,32 @@ class RoomPlacement:
             print(f"{room.get('uname')} ↔ 第 {position} 个格子",
                   file=sys.stderr, flush=True)
             return
+        if other is None:
+            room = self.prepare_wall_entry(room)
+        newly_placed = other is None and not tile.room.get("room_id")
         to_start = []
+        follows_room = other is not None and self._audio_follows_room()
         if other is not None and other is not tile:
             # 已经在别的格子里：两边交换，避免同一个直播间出现两次
             room = dict(other.room)  # 包括该房间独立的弹幕开关，侧栏副本不带格子设置。
             previous = dict(tile.room) if tile.room.get("room_id") else None
             host.recorder.stop(other)
             host._stop_tile(other)
+        host.recorder.stop(tile)
+        host._stop_tile(tile)
+        if other is not None:
+            if follows_room:
+                _swap_audio_settings(other, tile)
             other.set_room(previous)
             if previous and previous.get("room_id"):
                 to_start.append(other)
-        host.recorder.stop(tile)
-        host._stop_tile(tile)
         tile.set_room(room)
+        self._sync_snap_grid(new_tile=tile if newly_placed else None)
         if other is not None:
             host.wall.pane_danmaku.swap_sources(other, tile)
+            if follows_room:
+                other.sync_audio_ui()
+                tile.sync_audio_ui()
         to_start.append(tile)
         restarted = host.apply_quality_policy()
         for candidate in to_start:
@@ -78,8 +98,15 @@ class RoomPlacement:
         host.recorder.stop(target_tile)
         host._stop_tile(source)
         host._stop_tile(target_tile)
+        follows_room = self._audio_follows_room()
+        if follows_room:
+            _swap_audio_settings(source, target_tile)
         source.set_room(second if second.get("room_id") else None)
         target_tile.set_room(first if first.get("room_id") else None)
+        self._sync_snap_grid()
+        if follows_room:
+            source.sync_audio_ui()
+            target_tile.sync_audio_ui()
         host.wall.pane_danmaku.swap_sources(source, target_tile)
         restarted = host.apply_quality_policy()
         for tile in (source, target_tile):
@@ -114,25 +141,20 @@ class RoomPlacement:
             return False
         # 1) 两个格子换位置（房间里的一切跟着格子走：画质、取流结果、计时都还在）
         tiles[first_index], tiles[second_index] = tiles[second_index], tiles[first_index]
-        # 2) 音量 / 静音 / 声道属于**格子（位置）**，不跟着主播走：
-        #    两个格子的这几项设置对调，再把它们下发给自己那个（没挪窝的）播放器
-        source.volume, target.volume = target.volume, source.volume
-        source.muted, target.muted = target.muted, source.muted
-        source.audio_channel, target.audio_channel = \
-            target.audio_channel, source.audio_channel
+        follows_room = self._audio_follows_room()
+        if not follows_room:
+            # 格子本身已换位。对调其音频设置，让声音留在原位置。
+            _swap_audio_settings(source, target)
+            for tile in (source, target):
+                tile.room.update(volume=tile.volume, muted=tile.muted, audio_channel=tile.audio_channel)
+                player = host.players.get(tile)
+                if player is not None:
+                    player.set_volume(int(tile.volume))
+                    player.set_muted(tile.muted)
+                    player.set_audio_channel(int(tile.audio_channel))
+                    player.reapply_audio_channel()
         source.video_danmaku_overrides, target.video_danmaku_overrides = \
             target.video_danmaku_overrides, source.video_danmaku_overrides
-        for tile in (source, target):
-            tile.room["volume"] = tile.volume
-            tile.room["muted"] = tile.muted
-            tile.room["audio_channel"] = tile.audio_channel
-            player = host.players.get(tile)
-            if player is None:
-                continue
-            player.set_volume(int(tile.volume))
-            player.set_muted(tile.muted)
-            player.set_audio_channel(int(tile.audio_channel))
-            player.reapply_audio_channel()
         # Disabling paint alone still lets child HWNDs move with stale pixels
         # while the composer is reparented. Apply each bar's layout only once.
         bars = [(tile.bottom, tile.bottom.updatesEnabled(), tile.bottom.layout().isEnabled())
@@ -143,7 +165,7 @@ class RoomPlacement:
         try:
             host.wall.relayout(force=True)         # 换完位置重新摆一遍
             for tile in (source, target):
-                if host.players.get(tile) is not None:
+                if not follows_room:
                     tile.sync_audio_ui()
                 tile.raise_overlays()
         finally:
@@ -190,6 +212,26 @@ class RoomPlacement:
             if str(room.get("room_id", "")).partition(":")[0] in OVERSEAS_PLATFORMS else 250)
         return room
 
+    def prepare_wall_entry(self, room: dict) -> dict:
+        room = self.prepare_room(dict(room))
+        defaults = room_defaults(self.host.settings, room.get('room_id'))
+        if 'playback' in defaults:
+            room['_streamer_playback'] = True
+            playback = defaults['playback']
+            if isinstance(playback, dict):
+                room['quality'] = playback['qn']
+            else:
+                room['_streamer_pending_height'] = playback
+        if 'recording' in defaults:
+            recording = defaults['recording']
+            if isinstance(recording, dict):
+                room['_streamer_recording_choice'] = recording
+            else:
+                room['_streamer_recording_height'] = recording
+        if 'volume' in defaults:
+            room['volume'] = room['_streamer_initial_volume'] = defaults['volume']
+        return room
+
     def room_dict(self, room_id: str) -> dict | None:
         return self.catalog.room_dict(room_id)
 
@@ -221,20 +263,25 @@ class RoomPlacement:
     def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None):
         return self.catalog.on_platform_room_failed(resolver, platform, room_id, folder_id=folder_id, target_tile=target_tile)
 
-    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> None:
+    def on_room_added(self, room: dict, *, folder_id: str = "", max_tiles, target_tile=None, notify=True) -> str | None:
         return self.catalog.on_room_added(room, folder_id=folder_id, max_tiles=max_tiles, target_tile=target_tile, notify=notify)
 
     def add_to_wall(self, room: dict, *, empty_only=False, max_tiles) -> None:
         from . import plugins as plugin_api
         host = self.host
         MAX_TILES = max_tiles
-        host._prepare_room(room)
         room_id = str(room.get("room_id"))
         host.sidebar.watch_history.select(room_id)
         if host._tile_of(room_id) is not None:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
-        candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
+        room = self.prepare_wall_entry(room)
+        grid = getattr(host.wall, 'snap_grid', None)
+        custom_grid = grid is not None and grid.size
+        if custom_grid:
+            candidates = grid.free_tiles()
+        else:
+            candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
         panes = host.wall.pane_danmaku
         chat_cells = panes.bindings()
         chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
@@ -244,6 +291,7 @@ class RoomPlacement:
             host.recorder.stop(empty)
             host._stop_tile(empty)
             empty.set_room(room)
+            self._sync_snap_grid(new_tile=empty)
             host._wire_tile(empty)
             host.start_tile(empty)
             host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=empty,
@@ -251,6 +299,9 @@ class RoomPlacement:
             host._refresh_meta()
             return
         if empty_only:
+            return
+        if custom_grid:
+            print('自定义网格没有空闲的画面格')
             return
         if len(host.wall.tiles) >= MAX_TILES:
             print(f"画面墙已满（{MAX_TILES} 路）")
@@ -261,6 +312,13 @@ class RoomPlacement:
         host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,
                           room=dict(tile.room or {}))
         host._refresh_meta()
+
+    def _sync_snap_grid(self, *, new_tile=None):
+        grid = getattr(self.host.wall, 'snap_grid', None)
+        if grid is not None:
+            if new_tile is not None:
+                grid.watch_new_room_aspect(new_tile)
+            grid.sync_visibility()
 
     def remove_room(self, room: dict) -> None:
         return self.catalog.remove_room(room)

@@ -95,11 +95,13 @@ class ScSimulator(QMainWindow):
             form.addRow(label, widget)
         self.add_button = QPushButton('添加 / 更新')
         self.add_button.clicked.connect(self.add_chat)
+        self.add_batch_button = QPushButton('添加 20 条测试 SC')
+        self.add_batch_button.clicked.connect(self.add_batch)
         self.delete_button = QPushButton('删除当前编号')
         self.delete_button.clicked.connect(self.delete_chat)
         self.clear_button = QPushButton('清空全部')
         self.clear_button.clicked.connect(self.clear_chats)
-        for button in (self.add_button, self.delete_button, self.clear_button):
+        for button in (self.add_button, self.add_batch_button, self.delete_button, self.clear_button):
             button.setObjectName('IconButton')
             form.addRow(button)
         self.add_button.setObjectName('PrimaryButton')
@@ -193,6 +195,15 @@ class ScSimulator(QMainWindow):
     def delete_chat(self):
         self.store.remove([str(self.number.value())])
         self.number.setValue(self.number.value() + 1)
+        self.publish()
+
+    def add_batch(self):
+        now = int(time.time())
+        for index in range(20):
+            amount = SC_PRICE_TIERS[index % len(SC_PRICE_TIERS)][0]
+            self.store.upsert({'id': f'batch-{index}', 'uname': f'虚拟用户 {index + 1}',
+                               'price': amount, 'message': f'第 {index + 1} 条测试 SC。' * 4,
+                               'start_time': now, 'end_time': now + 300})
         self.publish()
 
     def clear_chats(self):

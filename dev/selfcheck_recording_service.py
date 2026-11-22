@@ -4,20 +4,297 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from xml.etree.ElementTree import fromstring
 
+from requests.exceptions import Timeout
 from PySide6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ddm.recording import RecordingManager, RecordingSession, _Session
 from ddm.recording_service import RecordingService
+from ddm.auto_recording import AutoRecording
+from ddm.app_notices import AppNotices
+from ddm.bili_workers import RecordingStreamResolver, StreamResolver
+from ddm.capture_control import CaptureControl
+from ddm.tile_widgets import Tile
+from ddm.windows_recording_notifications import toast_xml
 from ddm.plugins import PluginContext, PluginManager
 
 APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_background_retry_only_skips_stream_lookup_when_offline_is_confirmed(self):
+        for status in (0, 2, 1, None, False):
+            with self.subTest(status=status):
+                resolver = RecordingStreamResolver('1001', check_status=True)
+                offline = Mock()
+                resolver.offline.connect(offline)
+                with patch('ddm.bili._room_init', return_value={'live_status': status}) as check, \
+                        patch.object(StreamResolver, 'run') as resolve:
+                    resolver.run()
+                check.assert_called_once_with('1001', timeout=2)
+                if type(status) is int and status in (0, 2):
+                    offline.assert_called_once_with()
+                    resolve.assert_not_called()
+                else:
+                    offline.assert_not_called()
+                    resolve.assert_called_once_with()
+
+        with patch('ddm.bili._room_init', side_effect=Timeout) as check, \
+                patch.object(StreamResolver, 'run') as resolve:
+            RecordingStreamResolver('1001').run()
+            check.assert_not_called()
+            resolve.assert_called_once_with()
+            resolve.reset_mock()
+            RecordingStreamResolver('1001', check_status=True).run()
+            check.assert_called_once_with('1001', timeout=2)
+            resolve.assert_called_once_with()
+
+        platform = SimpleNamespace(rooms_status=Mock(return_value={'fixture:1001': {
+            'live': False, 'live_known': False}}))
+        resolver = RecordingStreamResolver('fixture:1001', platform=platform, check_status=True)
+        offline = Mock()
+        resolver.offline.connect(offline)
+        with patch.object(StreamResolver, 'run') as resolve:
+            resolver.run()
+        platform.rooms_status.assert_called_once_with(['fixture:1001'])
+        offline.assert_not_called()
+        resolve.assert_called_once_with()
+
+    def test_background_recording_uses_the_recording_center_and_waits_for_next_live(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = {'recording_dir': '', 'streamer_defaults': {
+                '1001': {'name': '示例主播', 'recording': 720, 'auto_record': True},
+                '1002': {'name': '旧配置'},
+            }}
+            resolve = Mock()
+            recorder = RecordingManager(settings, source_resolver=resolve)
+            recorder.timer.stop()
+            host = SimpleNamespace(settings=settings, recorder=recorder, _closing=False,
+                                   wall=SimpleNamespace(tiles=[]), _pending_capture={},
+                                   refresh_status=Mock(), capture_control=Mock())
+            auto = host.auto_recording = AutoRecording(host)
+            service = RecordingService(SimpleNamespace(window=host, _active=True))
+            transitions = []
+            recorder.backgroundTransition.connect(lambda event, _room: transitions.append(event))
+            live = {'1001': {'live': True, 'live_start_ts': 100}, '1002': {'live': True}}
+            with patch('ddm.recording.ffmpeg_path', return_value='fixture-ffmpeg'), \
+                    patch.object(recorder, '_free_enough', return_value=True):
+                auto.apply_status(live)
+                resolve.assert_not_called()
+                settings['recording_dir'] = directory
+                auto.settings_changed()
+                host.refresh_status.assert_called_once_with(force=True)
+                auto.apply_status(live)
+                auto.apply_status(live)
+                resolve.assert_called_once()
+                source = auto.source_for('1001')
+                self.assertEqual(source.quality, 720)
+                self.assertEqual(source.room['uname'], '示例主播')
+                self.assertIsNone(auto.source_for('1002'))
+                row, = service.sources()
+                self.assertEqual(row['state'], 'reconnecting')
+                self.assertEqual(row['room']['room_id'], '1001')
+                auto.apply_status({'1001': {'live': False, 'live_known': False}})
+                self.assertIs(auto.source_for('1001'), source)
+                recorder.sessions[source].started_at = 1
+                with self.assertRaisesRegex(RuntimeError, '主播监控'):
+                    service.control(row['source_id'], 'stop', session_id=row['session_id'])
+                self.assertIs(auto.source_for('1001'), source)
+                profile = settings['streamer_defaults']['1001']
+                profile.pop('auto_record')
+                auto.settings_changed()
+                self.assertFalse(service.sources())
+                self.assertFalse(transitions, '关闭监控不会被当作下播')
+                auto.apply_status(live)
+                self.assertFalse(service.sources())
+                profile['auto_record'] = True
+                auto.settings_changed()
+                auto.apply_status({'1001': {'live': True, 'live_start_ts': 200}})
+                self.assertEqual(resolve.call_count, 2)
+                self.assertIsNot(auto.source_for('1001'), source)
+                auto.apply_status({'1001': {'live': False}})
+                self.assertFalse(service.sources())
+                self.assertFalse(transitions, '尚未开录的任务下播时也不发送停止通知')
+                auto.apply_status({'1001': {'live': True, 'live_start_ts': 300}})
+                self.assertEqual(resolve.call_count, 3)
+                session = recorder.sessions[auto.source_for('1001')]
+                session.started_at = 1
+                process = session.process = Mock(returncode=0)
+                process.poll.return_value = None
+                auto.apply_status({'1001': {'live': False}})
+                self.assertFalse(transitions, '录制进程仍在收尾时不会提前通知')
+                process.stdin.write.assert_called_once_with(b'q\n')
+                process.poll.return_value = 0
+                recorder._poll()
+                auto.apply_status({'1001': {'live': False}})
+                self.assertEqual(transitions, ['stopped_offline'])
+                auto.apply_status({'1001': {'live': True, 'live_start_ts': 400}})
+                settings['recording_enabled'] = False
+                auto.settings_changed()
+                self.assertFalse(service.sources())
+                self.assertFalse(auto.monitored_rooms())
+
+    def test_only_opted_in_recording_transitions_use_windows(self):
+        host = SimpleNamespace(settings={}, _closing=False, _show_notice=Mock())
+        notices = AppNotices(host)
+        room = {'room_id': '1001', 'uname': '示例主播'}
+        with patch('ddm.windows_recording_notifications.send_recording_notification') as send:
+            notices.record_notice('示例主播 开始自动录制', room)
+            send.assert_not_called()
+            notices.background_recording_transition('started', room)
+            send.assert_not_called()
+            host.settings.update(notice_windows_recording=True, notifications_enabled=False)
+            notices.background_recording_transition('started', room)
+            send.assert_not_called()
+            host.settings['streamer_defaults'] = {'1001': {'auto_record': True, 'windows_recording_notice': True}}
+            notices.background_recording_transition('started', {'room_id': '1002', 'uname': '未开启通知'})
+            send.assert_not_called()
+            notices.background_recording_transition('started', room)
+            notices.record_notice('示例主播 重新获取录制地址失败：网络断开；稍后重试', room)
+            notices.record_notice('已保存录制：C:/fixture/示例.mp4', room)
+            notices.background_recording_transition('stopped_offline', room)
+            notices.record_notice('导出录制失败（原始分段保留）：C:/fixture/示例.mp4', room)
+            self.assertEqual([call.args for call in send.call_args_list], [
+                ('开播 · 已开启自动录制', '示例主播'),
+                ('下播 · 已停止自动录制', '示例主播'),
+            ])
+            self.assertEqual(host._show_notice.call_count, 4)
+            host.settings['notice_windows_recording'] = False
+            notices.background_recording_transition('started', room)
+            self.assertEqual(send.call_count, 2)
+        xml = fromstring(toast_xml('测试 <A>', '文件 & 目录'))
+        self.assertEqual(xml.get('activationType'), 'protocol')
+        self.assertEqual([node.text for node in xml.iter('text')], ['测试 <A>', '文件 & 目录'])
+
+    def test_streamer_modes_override_global_backend_and_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            native_dir, clip_dir = root / 'native', root / 'clip'
+
+            class ClipSession(RecordingSession):
+                supports_replay = False
+                recording_directory = str(clip_dir)
+
+            class DualSession(RecordingSession):
+                pass
+
+            profiles = dict(normal={'auto_record': True, 'auto_record_mode': 'normal'},
+                            clip={'auto_record': True, 'auto_record_mode': 'clip'},
+                            inherited={'auto_record': True})
+            settings = {'recording_dir': str(native_dir), 'streamer_defaults': profiles}
+            host = SimpleNamespace(settings=settings, _pending_capture={}, capture_control=Mock(), _closing=False)
+            recorder = host.recorder = RecordingManager(settings, source_resolver=Mock())
+            recorder.timer.stop()
+            service = RecordingService(SimpleNamespace(window=host, name='DDCut_Replay', _active=True))
+            auto = AutoRecording(host)
+            notices = []
+            recorder.notice.connect(notices.append)
+            live = {room_id: {'live': True} for room_id in profiles}
+            service.register_backend(ClipSession, enabled=False)
+            self.assertIs(recorder.background_clip_factory, ClipSession)
+            service.register_backend(DualSession)
+            with patch('ddm.recording.ffmpeg_path', return_value='fixture-ffmpeg'), \
+                    patch.object(recorder, '_free_enough', return_value=True):
+                auto.apply_status(live)
+                self.assertIsNone(auto.source_for('clip'))
+                self.assertTrue(any('DDCut 切片录制不可用' in message for message in notices))
+                service.register_background_clip_backend(ClipSession)
+                auto.apply_status(live)
+                for room_id, factory, folder in (('normal', RecordingSession, native_dir),
+                                                 ('clip', ClipSession, clip_dir),
+                                                 ('inherited', DualSession, native_dir)):
+                    session = recorder.sessions[auto.source_for(room_id)]
+                    self.assertIs(type(session), factory)
+                    self.assertEqual(session.folder, folder)
+                    self.assertTrue(folder.is_dir())
+                profiles['clip']['auto_record_mode'] = 'normal'
+                auto.apply_status(live)
+                current = recorder.sessions[auto.source_for('clip')]
+                self.assertIsInstance(current, ClipSession)
+                auto.apply_status({'clip': {'live': False}})
+                auto.apply_status({'clip': {'live': True}})
+                self.assertIs(type(recorder.sessions[auto.source_for('clip')]), RecordingSession)
+                self.assertIs(recorder.session_factory, DualSession)
+            recorder.shutdown()
+            service.close()
+
+    def test_wall_tile_displays_background_recording_and_rejects_manual_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = {'auto_record': True}
+            settings = {'recording_dir': directory, 'streamer_defaults': {'1001': profile}}
+            tile = Tile({})
+            self.addCleanup(tile.deleteLater)
+            host = SimpleNamespace(settings=settings, wall=SimpleNamespace(tiles=[tile]), _closing=False,
+                                   _recording_since={}, _pending_capture={}, _preset_retired_tiles=set())
+            recorder = host.recorder = RecordingManager(settings, source_resolver=Mock())
+            recorder.timer.stop()
+            auto = host.auto_recording = AutoRecording(host)
+            capture = host.capture_control = CaptureControl(host)
+            service = RecordingService(SimpleNamespace(window=host, _active=True))
+            recorder.changed.connect(capture.record_state_changed)
+            tile.roomChanged.connect(lambda: capture.sync_tile_recording(tile))
+            tile.recordingRequested.connect(lambda: capture.toggle_recording(tile))
+            live = {'1001': {'live': True}}
+            with patch('ddm.recording.ffmpeg_path', return_value='fixture-ffmpeg'), \
+                    patch.object(recorder, '_free_enough', return_value=True):
+                auto.apply_status(live)
+                source = auto.source_for('1001')
+                session = recorder.sessions[source]
+                tile.set_room({'room_id': '1001'})
+                self.assertFalse(tile.recording_button.isEnabled())
+                self.assertNotIn('REC', tile.recording_button.text())
+                session.started_at = 10
+                recorder.changed.emit(source)
+                self.assertIn('REC', tile.recording_button.text())
+                self.assertEqual(host._recording_since[tile], 10)
+                tile.recording_button.click()
+                capture.toggle_recording(tile)
+                capture.start_capture(tile, recording=True)
+                for action in ('record', 'stop'):
+                    with self.assertRaisesRegex(RuntimeError, '主播监控'):
+                        service.control(str(id(tile)), action)
+                self.assertEqual(list(recorder.sessions), [source])
+                self.assertFalse(session.stopping)
+                tile.set_room({'room_id': '1002'})
+                self.assertTrue(tile.recording_button.isEnabled())
+                self.assertNotIn('REC', tile.recording_button.text())
+                tile.set_room({'room_id': '1001'})
+                self.assertIn('REC', tile.recording_button.text())
+                auto.apply_status({'1001': {'live': False}})
+                self.assertFalse(tile.recording_button.isEnabled())
+                self.assertNotIn('REC', tile.recording_button.text())
+                profile.pop('auto_record')
+                capture.sync_tile_recording(tile)
+                self.assertTrue(tile.recording_button.isEnabled())
+            recorder.shutdown()
+
+    def test_public_backend_selection_and_chat_delivery(self):
+        class DualSession(RecordingSession):
+            pass
+        recorder = RecordingManager({})
+        recorder.timer.stop()
+        service = RecordingService(SimpleNamespace(window=SimpleNamespace(recorder=recorder, capture_control=Mock()), _active=True))
+        service.register_backend(DualSession, enabled=False)
+        service.select_backend(DualSession)
+        self.assertTrue(recorder.supports_replay)
+        tile = Mock(room={'room_id': 'offline'})
+        session = DualSession(tile, {}, True, Path('unused'))
+        session.record_danmaku = Mock()
+        recorder.sessions[tile] = session
+        service.record_danmaku('offline', {'text': 'test'})
+        session.record_danmaku.assert_called_once_with({'text': 'test'})
+        service.record_danmaku('other', {'text': 'ignored'})
+        with self.assertRaisesRegex(RuntimeError, '请先停止'):
+            service.select_backend()
+        recorder.sessions.clear()
+        service.select_backend()
+        self.assertIs(recorder.session_factory, RecordingSession)
+        service.close()
+
     def test_capture_modes_are_exclusive_and_running_captures_block_switch(self):
         class ClipSession(RecordingSession):
             supports_replay = False

@@ -7,6 +7,7 @@ from . import theme
 from .ui import page_header as _page_head
 from .ui import SegmentedControl
 from .settings_layout import SettingsColumns, SettingsSection
+from .settings_performance import measure
 
 
 class AppearanceSettingsPage(QWidget):
@@ -41,12 +42,12 @@ class AppearanceSettingsPage(QWidget):
         self.mode_control.valueChanged.connect(self._choose)
         colors.grid.addWidget(self.mode_control, 0, 1, Qt.AlignRight)
         from .settings_theme_editor import SettingsThemeEditor
-        self.theme_editor = SettingsThemeEditor(settings)
+        self.theme_editor = measure('appearance.theme-editor', SettingsThemeEditor, settings)
         self.theme_editor.changed.connect(self._preferences_changed)
         colors.grid.addWidget(self.theme_editor, 1, 0, 1, 2)
         self.sections.add_section('theme', colors)
         from .settings_material_editor import SettingsMaterialEditor
-        self.material_editor = SettingsMaterialEditor(settings, content)
+        self.material_editor = measure('appearance.material-editor', SettingsMaterialEditor, settings, content)
         self.material_editor.changed.connect(self._emit_material)
         self.material_editor.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections.add_section('material', self.material_editor)
@@ -54,7 +55,8 @@ class AppearanceSettingsPage(QWidget):
         from .skin_settings import PartSettings, SkinSettings
         self.parts_editor = None
         if skin_controller is not None:
-            self.parts_editor = PartSettings(skin_controller.window, content, embedded=True)
+            self.parts_editor = measure('appearance.parts-editor', PartSettings,
+                                        skin_controller.window, content, embedded=True)
             self.skin_settings = self.parts_editor.background_controls
             layout.addWidget(self.parts_editor)
         else:

@@ -14,12 +14,14 @@ _MODULES = {
     'ui.color_dialog': ('ColorDialog',),
     'ui.scale_curve': ('ScaleCurveControl',),
     'corner_geometry': ('continuous_path',),
+    'playback_material': ('paint_playback_popup',),
     'avatar_widgets': ('Avatar', 'RoomStrip', 'PinnedArc', 'circular_pixmap'),
     'motion': ('AnimatedDialog', 'AnimatedMenu', 'SlidingTabs', 'SettingsStack'),
     'playback_controls': ('TileButton', 'VolumeButton', 'RecordingButton', 'SidebarToggleButton',
                           'PauseButton', 'RefreshButton', 'DanmakuToggleButton'),
     'ui.labels': ('ElidedLabel',),
     'ui.toolbar': ('BarIconButton',),
+    'sidebar_navigation': ('NavigationButton',),
 }
 _EXPORTS = {name: module for module, names in _MODULES.items() for name in names}
 __all__ = ['ActionButton', 'HintLabel', 'TitleLabel', 'page_header', 'step_button', *_EXPORTS]

@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 import subprocess
 import sys
+from threading import get_ident
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -11,6 +12,7 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Signal
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 from ddm import app as app_module
@@ -30,6 +32,7 @@ class Dialog(QObject):
     PAGES = (('general', ''), ('plugins', ''), ('updates', ''), ('danmaku', ''))
     PAGE_INDEX = {key: index for index, (key, _) in enumerate(PAGES)}
     pageCreated = Signal(int, object)
+    streamerQualityRequested = Signal(str, str)
     updatesViewed = Signal(dict)
     appearanceChanged = Signal(str)
 
@@ -38,6 +41,7 @@ class Dialog(QObject):
         self.initial_settings, self.initial_shortcuts, self.options = settings, shortcuts, options
         self.seen_versions, self._loaded_pages = {}, {}
         self.nav, self.plugin_page, self._mark_update_page = Mock(), Mock(), Mock()
+        self.set_host_layout = Mock()
         self.exec = Mock(return_value=self.Rejected)
         self.settings = Mock(return_value={})
         self.shortcuts = Mock(return_value=shortcuts)
@@ -76,6 +80,7 @@ class Host(QObject):
         self.settings = {'appearance_mode': 'dark', 'auto_update': False}
         self.shortcuts, self.state = {'focus': 'F'}, {}
         self.plugins = SimpleNamespace(enabled={'alpha'}, _platform_owner={'p': 'alpha'}, _removed=set())
+        self.sidebar = SimpleNamespace(rooms=lambda: [{'room_id': '1001', 'uname': '主播'}])
         self.wall = SimpleNamespace(tiles=[], _quick_danmaku_layer=Mock())
         self.players, self._codec_dialogs = {}, {}
         self._available_update, self._update_notice = None, Mock()
@@ -125,6 +130,8 @@ class SettingsControlTests(unittest.TestCase):
 
     def test_sidebar_entry_preserves_normal_and_process_modes(self):
         host = self.host
+        self.assertFalse(host.settings_control.streamer_rooms()['1001']['clip_recording_available'])
+        host.recorder = SimpleNamespace(background_clip_factory=object())
         with patch.object(host, 'open_settings', return_value=True) as normal, \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '0'}):
             self.assertTrue(host._open_sidebar_settings())
@@ -133,7 +140,55 @@ class SettingsControlTests(unittest.TestCase):
                 patch.object(host, '_sc_preview_context', return_value={'fixture': True}), \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}):
             self.assertFalse(host._open_sidebar_settings())
-        host._settings_process.open.assert_called_once_with(host.settings, host.shortcuts, {'fixture': True})
+        host._settings_process.open.assert_called_once_with(
+            host.settings, host.shortcuts, {'fixture': True}, streamer_rooms=host.settings_control.streamer_rooms())
+        room = host._settings_process.open.call_args.kwargs['streamer_rooms']['1001']
+        self.assertEqual((room['name'], room['followed']), ('主播', True))
+        self.assertTrue(room['clip_recording_available'])
+
+    def test_streamer_snapshot_includes_sidebar_folder_order_and_default_membership(self):
+        sidebar = self.host.sidebar
+        sidebar.folders = [{'id': 'music', 'name': '音乐'}, {'id': 'default', 'name': '关注'}]
+        sidebar.default_folder = lambda: sidebar.folders[1]
+        sidebar.folder_for = lambda room_id: 'music' if room_id == '1002' else ''
+        sidebar.rooms = lambda: [{'room_id': '1001'}, {'room_id': '1002'}]
+        rooms = self.host.settings_control.streamer_rooms()
+        self.assertEqual((rooms['1002']['folder_id'], rooms['1002']['folder_order']), ('music', 0))
+        self.assertEqual((rooms['1001']['folder'], rooms['1001']['folder_order']), ('关注', 1))
+
+    def test_streamer_quality_reads_platform_in_worker_and_reuses_visible_tiers(self):
+        host = self.host
+        host._platform_info_running = set()
+        host._tile_of = Mock(return_value=None)
+        worker_threads = []
+        replies = []
+
+        def options(room_id):
+            worker_threads.append(get_ident())
+            self.assertEqual(room_id, 'fixture:7')
+            return [{'qn': 8, 'desc': '原画'}, {'qn': 2, 'desc': '流畅'}]
+
+        plugin = SimpleNamespace(room_quality_options=Mock(side_effect=options), label='测试平台')
+        host.plugins.platform_for = Mock(return_value=plugin)
+        host.plugins.platforms = {'fixture': plugin}
+        host.sidebar.rooms = lambda: [{'room_id': 'fixture:7', 'uname': '主播'}]
+        self.assertEqual(host.settings_control.streamer_rooms()['fixture:7']['platform'], '测试平台')
+        host.settings_control.request_streamer_quality('fixture:7', lambda values, error: replies.append((values, error)))
+        host.settings_control.request_streamer_quality('fixture:7', lambda values, error: replies.append((values, error)))
+        for _ in range(100):
+            if not host._platform_info_running:
+                break
+            QTest.qWait(10)
+        self.assertFalse(host._platform_info_running)
+        self.assertEqual(len(replies), 2)
+        self.assertEqual(replies[0], ([{'qn': 8, 'label': '原画'}, {'qn': 2, 'label': '流畅'}], ''))
+        self.assertEqual(replies[1], replies[0])
+        self.assertEqual(len(worker_threads), 1)
+        self.assertNotEqual(worker_threads[0], get_ident())
+        host._tile_of.return_value = SimpleNamespace(quality_options=[{'qn': 13, 'desc': '当前可用'}])
+        host.settings_control.request_streamer_quality('fixture:7', lambda values, error: replies.append((values, error)))
+        self.assertEqual(replies[-1], ([{'qn': 13, 'label': '当前可用'}], ''))
+        plugin.room_quality_options.assert_called_once_with('fixture:7')
 
     def test_process_is_reused_and_old_signal_entries_keep_host_parent(self):
         host = self.host
@@ -209,6 +264,18 @@ class SettingsControlTests(unittest.TestCase):
             host._settings_host_request(message)
             self.assertEqual(factory.call_count, 1)
 
+    def test_settings_shutdown_does_not_reshow_the_quick_surface(self):
+        host = self.host
+        with patch('ddm.settings_process.SettingsProcess', Process):
+            process = host._get_settings_process()
+        host.wall._quick_danmaku_layer.show.reset_mock()
+        host._closing = True
+        process.occlusionChanged.emit()
+        host.wall._quick_danmaku_layer.show.assert_not_called()
+        host._closing = False
+        process.occlusionChanged.emit()
+        host.wall._quick_danmaku_layer.show.assert_called_once_with()
+
     def test_update_page_is_reused_and_release_signal_keeps_old_target(self):
         host = self.host
         with patch('ddm.online_ui.AppUpdatePage', UpdatePage):
@@ -229,6 +296,7 @@ class SettingsControlTests(unittest.TestCase):
         self.assertIsInstance(dialog, Dialog)
         self.assertIs(dialog.parent(), host)
         self.assertEqual(dialog.initial_shortcuts, {'focus': 'G'})
+        self.assertEqual(dialog.options['streamer_rooms']['1001']['name'], '主播')
         self.assertEqual(host.settings['seen_update_entry_versions'], {'app': '9.0', 'alpha': '2'})
         self.save.assert_called_once()
         preview = Mock()
@@ -254,6 +322,13 @@ class SettingsControlTests(unittest.TestCase):
         self.assertEqual(update._release_ready.call_count, 1)
         dialog.updatesViewed.emit({'alpha': '2'})
         host._remember_updates.assert_called_once_with({'alpha': '2'})
+
+    def test_hidden_host_factory_requests_contribution_only_general_page(self):
+        dialog = self.host._create_settings_dialog({'default_volume': 17}, {}, hosted=True)
+        self.assertIsInstance(dialog, Dialog)
+        self.assertTrue(dialog.options['hosted'])
+        dialog.set_host_layout.assert_called_once_with(portrait=False)
+        self.assertEqual(dialog.initial_settings['default_volume'], 17)
 
     def test_accept_cancel_and_failure_always_release_dialog(self):
         host = self.host
@@ -333,6 +408,86 @@ class SettingsControlTests(unittest.TestCase):
         dialog.settings.return_value = {'danmaku_font_size': 17}
         host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
         host.apply_danmaku_settings.assert_called_once_with()
+
+    def test_glass_autosave_updates_open_announcement(self):
+        from ddm.notice_dialog import NoticeDialog
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        announcement = NoticeDialog('官方公告', '维护通知', '我知道了', settings=host.settings)
+        self.addCleanup(announcement.deleteLater)
+        find_children = host.findChildren
+        with patch.object(host, 'findChildren', side_effect=lambda kind:
+                          [announcement] if kind is NoticeDialog else find_children(kind)):
+            apply_changes(host, {'settings': {'settings_glass_enabled': True, 'settings_glass_opacity': 48}})
+            self.assertIs(announcement.property('settings_glass_enabled'), True)
+            self.assertEqual(announcement.property('settings_glass_opacity'), 48)
+            apply_changes(host, {'settings': {'settings_glass_enabled': False}})
+            self.assertIs(announcement.property('settings_glass_enabled'), False)
+
+    def test_plugin_selection_autosave_only_updates_affected_features(self):
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        host.plugins.plugins = [SimpleNamespace(skin={}, context=SimpleNamespace(name='artwork'))]
+        host.plugins.enabled = None
+        for enabled in (['alpha', 'artwork'], None):
+            apply_changes(host, {'enabled_plugins': enabled})
+            self.assertEqual(host.plugins.enabled, None if enabled is None else set(enabled))
+        host.refresh_skin.assert_not_called()
+        host._sync_platform_rooms.assert_not_called()
+        for name in ('_refresh_shortcuts', '_sync_recording_switch', 'apply_danmaku_settings', 'apply_preview_settings'):
+            getattr(host, name).assert_not_called()
+        self.assertEqual(self.save.call_count, 2)
+        self.assertEqual(self.save.call_args.kwargs, {'raise_errors': True})
+
+        apply_changes(host, {'enabled_plugins': ['artwork']})
+        host._sync_platform_rooms.assert_called_once_with()
+        host.refresh_skin.assert_not_called()
+        host.refresh_skin.side_effect = lambda: host.settings.update(skin_package_owner='')
+        apply_changes(host, {'enabled_plugins': []})
+        host.refresh_skin.assert_called_once_with()
+        host._sync_platform_rooms.assert_called_once_with()
+        self.assertEqual(self.save.call_args.args[0]['settings']['skin_package_owner'], '')
+
+    def test_mixed_settings_and_plugin_removal_keep_full_save(self):
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        apply_changes(host, {'enabled_plugins': [], 'settings': {'default_volume': 50}})
+        self.assertEqual(host.settings['default_volume'], 50)
+        host.apply_danmaku_settings.assert_called_once_with()
+        host.plugins._removed.add('alpha')
+        apply_changes(host, {'enabled_plugins': None})
+        self.assertIsNone(host.plugins.enabled)
+        self.assertEqual(host.apply_danmaku_settings.call_count, 2)
+
+    def test_banner_only_save_restyles_existing_notices_without_reapplying_danmaku(self):
+        from ddm.notification_center import NoticeRow
+        host = self.host
+        dialog = host._create_settings_dialog()
+        dialog.settings.return_value = {'notice_banner_enabled': False}
+        card = SimpleNamespace(artwork=object(), update=Mock())
+        with patch.object(host, 'findChildren', side_effect=lambda cls: [card] if cls is NoticeRow else []), \
+                patch('ddm.room_artwork.style_room_notice') as restyle:
+            host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
+        restyle.assert_called_once_with(card, card.artwork)
+        card.update.assert_not_called()
+        self.assertFalse(host.settings['notice_banner_enabled'])
+        host.apply_danmaku_settings.assert_not_called()
+        self.save.assert_called_once()
+
+    def test_tray_menu_only_save_is_persisted_without_reapplying_danmaku(self):
+        from ddm.tray_menu import tray_menu_choices
+        host = self.host
+        dialog = host._create_settings_dialog()
+        choices = tray_menu_choices(None)
+        choices[0]['enabled'] = False
+        dialog.settings.return_value = {'tray_context_menu': choices}
+        host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
+        self.assertEqual(host.settings['tray_context_menu'], choices)
+        host.apply_danmaku_settings.assert_not_called()
+        self.save.assert_called_once()
 
     def test_sc_preview_context_uses_current_surface_and_fullscreen_source(self):
         host = self.host
