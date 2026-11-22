@@ -1,6 +1,8 @@
 """Run opted-in room recordings independently of the playback wall."""
+import sys
+
 from . import media_sources
-from .bili_workers import StreamResolver
+from .bili_workers import RecordingStreamResolver
 from .recording_session import BackgroundRecordingSource
 from .streamer_defaults import room_defaults
 
@@ -130,8 +132,9 @@ class AutoRecording:
         exact = isinstance(quality, dict) and quality['label'] not in ('最高', '最高可用')
         request = quality['qn'] if isinstance(quality, dict) else (
             10000 if quality is not None or host.settings.get('recording_lock_quality', True) else 250)
-        resolver = StreamResolver(session.room_id, request, host, platform=platform,
-                                  codec=session.video_codec or host._codec_settings()['bili_codec'])
+        resolver = RecordingStreamResolver(session.room_id, request, host, platform=platform,
+                                           codec=session.video_codec or host._codec_settings()['bili_codec'],
+                                           check_status=session.retry_count > 0)
         if isinstance(quality, int):
             resolver.streamer_height = quality
             resolver.streamer_allow_lower = False
@@ -163,8 +166,15 @@ class AutoRecording:
             if current():
                 host.recorder.source_failed(session, reason)
 
+        def offline():
+            if current():
+                # Keep this broadcast marked as attempted until the regular poll catches up.
+                print(f'[录制] {session.name} 续录前确认下播，结束自动录制', file=sys.stderr, flush=True)
+                host.recorder.stop(source, confirmed_offline=True)
+
         resolver.resolved.connect(resolved)
         resolver.failed.connect(failed)
+        resolver.offline.connect(offline)
         resolver.finished.connect(lambda: host._resolvers_running.discard(resolver))
         resolver.finished.connect(resolver.deleteLater)
         host._resolvers_running.add(resolver)

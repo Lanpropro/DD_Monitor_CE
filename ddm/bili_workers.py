@@ -245,6 +245,37 @@ class StreamResolver(QThread):
         return fallback
 
 
+class RecordingStreamResolver(StreamResolver):
+    """Check a single room before retrying a background recording."""
+
+    offline = Signal()
+
+    def __init__(self, *args, check_status=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.check_status = check_status
+
+    def _confirmed_offline(self):
+        from . import bili as api
+
+        try:
+            if self.platform is None:
+                status = api._room_init(self.room_id, timeout=2).get('live_status')
+                return type(status) is int and status in (0, 2)
+            status = self.platform.rooms_status([self.room_id]).get(self.room_id) or {}
+            return status.get('live_known', True) is True and status.get('live') is False
+        except Exception:  # Platform lookup can fail without saying anything about the broadcast.
+            return False
+
+    def run(self):
+        if self.is_cancelled():
+            return
+        if self.check_status and self._confirmed_offline():
+            if not self.is_cancelled():
+                self.offline.emit()
+            return
+        super().run()
+
+
 class RoomOrientation(QThread):
     def __init__(self, room_id, parent):
         super().__init__(parent)

@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 from xml.etree.ElementTree import fromstring
 
+from requests.exceptions import Timeout
 from PySide6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ from ddm.recording import RecordingManager, RecordingSession, _Session
 from ddm.recording_service import RecordingService
 from ddm.auto_recording import AutoRecording
 from ddm.app_notices import AppNotices
+from ddm.bili_workers import RecordingStreamResolver, StreamResolver
 from ddm.capture_control import CaptureControl
 from ddm.tile_widgets import Tile
 from ddm.windows_recording_notifications import toast_xml
@@ -24,6 +26,44 @@ APP = QApplication.instance() or QApplication([])
 
 
 class RecordingServiceTests(unittest.TestCase):
+    def test_background_retry_only_skips_stream_lookup_when_offline_is_confirmed(self):
+        for status in (0, 2, 1, None, False):
+            with self.subTest(status=status):
+                resolver = RecordingStreamResolver('1001', check_status=True)
+                offline = Mock()
+                resolver.offline.connect(offline)
+                with patch('ddm.bili._room_init', return_value={'live_status': status}) as check, \
+                        patch.object(StreamResolver, 'run') as resolve:
+                    resolver.run()
+                check.assert_called_once_with('1001', timeout=2)
+                if type(status) is int and status in (0, 2):
+                    offline.assert_called_once_with()
+                    resolve.assert_not_called()
+                else:
+                    offline.assert_not_called()
+                    resolve.assert_called_once_with()
+
+        with patch('ddm.bili._room_init', side_effect=Timeout) as check, \
+                patch.object(StreamResolver, 'run') as resolve:
+            RecordingStreamResolver('1001').run()
+            check.assert_not_called()
+            resolve.assert_called_once_with()
+            resolve.reset_mock()
+            RecordingStreamResolver('1001', check_status=True).run()
+            check.assert_called_once_with('1001', timeout=2)
+            resolve.assert_called_once_with()
+
+        platform = SimpleNamespace(rooms_status=Mock(return_value={'fixture:1001': {
+            'live': False, 'live_known': False}}))
+        resolver = RecordingStreamResolver('fixture:1001', platform=platform, check_status=True)
+        offline = Mock()
+        resolver.offline.connect(offline)
+        with patch.object(StreamResolver, 'run') as resolve:
+            resolver.run()
+        platform.rooms_status.assert_called_once_with(['fixture:1001'])
+        offline.assert_not_called()
+        resolve.assert_called_once_with()
+
     def test_background_recording_uses_the_recording_center_and_waits_for_next_live(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = {'recording_dir': '', 'streamer_defaults': {

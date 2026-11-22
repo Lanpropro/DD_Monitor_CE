@@ -120,6 +120,7 @@ def check_background_recording(app, root, source):
                     streamer_defaults={'fixture:1001': {'name': '后台测试', 'auto_record': True,
                                                          'recording': {'qn': 720, 'label': '720P'}}})
     launched = []
+    verified = []
 
     class TestPlatform:
         def play_url(self, room_id, quality):
@@ -128,6 +129,10 @@ def check_background_recording(app, root, source):
 
         def room_quality_options(self, room_id):
             return [{'qn': 720, 'desc': '720P'}]
+
+        def rooms_status(self, room_ids):
+            verified.extend(room_ids)
+            return {room_id: {'live': False} for room_id in room_ids}
 
     host = QObject()
     host.settings = settings
@@ -159,9 +164,13 @@ def check_background_recording(app, root, source):
         assert activity == [False, True], '头像圆环在录制进程启动后才变红'
         auto.apply_status({'fixture:1001': {'live': False, 'live_known': False}})
         assert auto.source_for('fixture:1001') is session.tile
-        auto.apply_status({'fixture:1001': {'live': False}})
-        auto.apply_status({'fixture:1001': {'live': False}})
         assert until(app, lambda: any(text.startswith('已保存录制：') for text, _ in notices))
+        assert verified == ['fixture:1001'], '续录前单独确认下播'
+        auto.apply_status(status)
+        assert launched == [('fixture:1001', 720)], '下播确认后旧的开播状态不得重新取流'
+        assert auto.source_for('fixture:1001') is None
+        auto.apply_status({'fixture:1001': {'live': False}})
+        assert 'fixture:1001' not in auto.attempted, '常规下播确认后解除本场标记'
         assert transitions == [('started', 'fixture:1001'), ('stopped_offline', 'fixture:1001')]
         assert activity[-1] is False
         result, = folder.glob('*.mp4')
