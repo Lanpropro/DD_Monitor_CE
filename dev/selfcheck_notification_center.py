@@ -151,15 +151,25 @@ class NotificationTests(unittest.TestCase):
         self.app.processEvents()
         for card in (notice, row):
             self.assertTrue(card.property('roomBackdrop'))
+
+        paint_count = 0
+        paint_background = room_artwork.paint_room_background
+
+        def count_paint(*args, **kwargs):
+            # A recording mock retains the active QPainter beyond paintEvent.
+            nonlocal paint_count
+            paint_count += 1
+            paint_background(*args, **kwargs)
+
         window.settings['notice_banner_enabled'] = False
         for card in (notice, row):
             room_artwork.style_room_notice(card, card.artwork)
-        with patch.object(room_artwork, 'paint_room_background') as paint:
+        with patch.object(room_artwork, 'paint_room_background', count_paint):
             self.app.processEvents()
             for card in (notice, row):
                 self.assertFalse(card.property('roomBackdrop'))
                 card.grab()
-            paint.assert_not_called()
+            self.assertEqual(paint_count, 0)
         notice.set_room_artwork('1001', picture, 'banners')
         row.set_room_artwork('1001', picture, 'banners')
         self.assertFalse(notice.property('roomBackdrop'))
@@ -170,10 +180,10 @@ class NotificationTests(unittest.TestCase):
             room_artwork.style_room_notice(card, card.artwork)
         for card in (notice, row):
             self.assertTrue(card.property('roomBackdrop'))
-        with patch.object(room_artwork, 'paint_room_background', wraps=room_artwork.paint_room_background) as paint:
+        with patch.object(room_artwork, 'paint_room_background', count_paint):
             notice.grab()
             row.grab()
-            self.assertGreaterEqual(paint.call_count, 2)
+            self.assertGreaterEqual(paint_count, 2)
 
     def test_banner_blur_settings_roundtrip_and_reset(self):
         dialog = SettingsDialog({'notice_banner_blur': 30}, {}, preview=True)
