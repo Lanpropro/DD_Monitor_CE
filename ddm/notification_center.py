@@ -449,7 +449,7 @@ class NotificationCenter(QFrame):
             if self._clear_pending:
                 return
             self.hide()
-        self._sync(resize=False)
+        self._sync(resize=not self.entries)
 
     def _clear_from_button(self):
         if not self.isVisible() or self._clear_pending or not self.entries:
@@ -469,6 +469,9 @@ class NotificationCenter(QFrame):
     def _sync(self, *, resize=True):
         count = len(self.entries)
         self.summary.setText(f'本次启动 · {count} 条')
+        # Avoid the combined minimum height of the list and the empty label.
+        if not count and self.scroll.isVisible():
+            self.scroll.hide()
         self.empty.setVisible(not count)
         self.scroll.setVisible(bool(count))
         self.clear_button.setEnabled(bool(count) and not self._clear_pending)

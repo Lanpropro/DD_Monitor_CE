@@ -630,6 +630,33 @@ class NotificationTests(unittest.TestCase):
         self.assertIn('1 条', self.center.summary.text())
         entry.callback.assert_not_called()
 
+    def test_last_manual_removal_returns_to_compact_empty_geometry(self):
+        for dock in (False, True):
+            for animate in (False, True):
+                with self.subTest(dock=dock, animate=animate), patch.object(motion, 'enabled', return_value=animate):
+                    self.button.setProperty('dockRail', dock)
+                    self.open()
+                    empty_geometry = self.center.geometry()
+                    entry = self.center.add('最后一条通知')
+                    self.app.processEvents()
+                    filled_height = self.center.height()
+                    self.assertGreater(filled_height, empty_geometry.height())
+                    heights = []
+                    on_resize = self.center.resizeEvent
+
+                    def record_resize(event):
+                        heights.append(event.size().height())
+                        on_resize(event)
+
+                    with patch.object(self.center, 'resizeEvent', side_effect=record_resize):
+                        QTest.mouseClick(self.center.rows[entry].remove_button, Qt.LeftButton)
+                        self.wait_until(lambda: self.center.empty.isVisible(), 500)
+                        self.app.processEvents()
+                    self.assertTrue(self.center.isVisible())
+                    self.assertEqual(self.center.geometry(), empty_geometry)
+                    self.assertTrue(all(height <= filled_height for height in heights))
+                    self.center.hide()
+
     def test_clear_button_closes_with_the_last_card(self):
         for animate in (True, False):
             with self.subTest(animate=animate), patch.object(motion, 'enabled', return_value=animate):
