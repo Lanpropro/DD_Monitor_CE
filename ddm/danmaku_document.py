@@ -104,14 +104,16 @@ class DanmakuDocument:
         name = (f'<span style="color:{entry["color"]}">{_escape(entry["uname"])}</span>')
         mark = (f'<span style="color:{theme.PINK};font-weight:700">▍</span> '
                 if entry.get("self_sent") else "")
-        return (f'<div style="font-size:{size}px;line-height:150%;margin:0 0 4px 0">'
+        body = host._body_html(entry)
+        line_height = 120 if '<img ' in body else 150
+        return (f'<div style="font-size:{size}px;line-height:{line_height}%;margin:0 0 4px 0">'
                 f'{mark}{host._medal_html(entry["medal"])}{name}'
-                f'<span style="color:{color}">：{host._body_html(entry)}</span></div>')
+                f'<span style="color:{color}">：{body}</span></div>')
 
     def body_html(self, entry: dict) -> str:
         host = self.host
-        height = max(host.EMOTICON_HEIGHT // 2, round(host._font_size() * 1.7))
-        return content_html(content_runs(entry), host._images, height)
+        height = max(host.MIN_EMOTICON_HEIGHT, round(host._font_size() * 2.5))
+        return content_html(content_runs(entry), host._images, height, align_middle=True)
 
     def medal_html(self, medal: dict) -> str:
         """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""

@@ -19,8 +19,9 @@ def content_runs(event: dict) -> list[tuple[str, str]]:
     return [(part, emotes.get(part, "")) for part in re.split(pattern, text) if part]
 
 
-def content_html(runs, images, height: int) -> str:
+def content_html(runs, images, height: int, *, align_middle: bool = False) -> str:
     parts = []
+    alignment = ' style="vertical-align:middle"' if align_middle else ''
     for text, url in runs:
         image = images.get(url) if url else None
         if image is None or image.isNull():
@@ -28,5 +29,5 @@ def content_html(runs, images, height: int) -> str:
         else:
             width = max(1, round(image.width() * height / max(1, image.height())))
             parts.append(f'<img src="{html.escape(url, quote=True)}" '
-                         f'width="{width}" height="{height}">')
+                         f'width="{width}" height="{height}"{alignment}>')
     return "".join(parts)

@@ -13,13 +13,18 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QImage, QMouseEvent, QPixmap, QTextCharFormat
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import bili, config, plugins
 from ddm.app import MainWindow
 from ddm.bili_interaction.composer import DanmakuComposer
 from ddm.bili_interaction.emoticon_order import EmoticonOrder
+from ddm.bili_interaction.emoticons import EmoticonPopup
 from ddm.bili_interaction.gift_api import GiftItem
 from ddm.bili_interaction.gift_controller import GiftController
+from ddm.danmaku_widgets import DanmakuPanel
 
 APP = QApplication.instance() or QApplication([])
 
@@ -122,6 +127,81 @@ class BiliPluginBoundaryTests(unittest.TestCase):
                     image = popup.grab().toImage()
                     self.assertEqual(image.pixelColor(0, 0).alpha(), 0)
                     self.assertEqual(image.pixelColor(image.width() // 2, 4).alpha(), expected)
+
+    def test_emoticon_picker_keeps_larger_cells_clickable_and_scrollable(self):
+        tile = self.window.wall.tiles[0]
+        composer, = tile.bottom.findChildren(DanmakuComposer)
+        popup = EmoticonPopup(composer, order=EmoticonOrder())
+        self.addCleanup(popup.shutdown)
+        image = QImage(160, 80, QImage.Format_ARGB32)
+        image.fill(Qt.magenta)
+        url = 'https://example.invalid/sticker.png'
+        emotes = [{'emoji': f'[表情{i}]', 'perm': int(i != 1), 'url': url} for i in range(17)]
+        selected = []
+        popup.selected.connect(lambda kind, emote: selected.append((kind, emote)))
+        with patch('ddm.bili_interaction.emoticons._load_image', return_value=image):
+            self.window.show()
+            APP.processEvents()
+            popup.open_at(composer.emote_button)
+            popup.set_packages([{'pkg_type': 3, 'pkg_id': 1, 'emoticons': emotes}])
+            for _ in range(100):
+                if len(popup._buttons) == len(emotes) and not popup._buttons[-1].icon().isNull():
+                    break
+                QTest.qWait(10)
+        buttons = popup._buttons
+        self.assertEqual(len(buttons), len(emotes))
+        first = buttons[0]
+        self.assertEqual(first.size().toTuple(), (70, 70))
+        self.assertEqual(first.iconSize().toTuple(), (48, 48))
+        self.assertEqual(first.icon().actualSize(first.iconSize()).toTuple(), (48, 24))
+        self.assertEqual(popup.grid.getItemPosition(popup.grid.indexOf(buttons[4]))[:2], (1, 0))
+        self.assertEqual(popup.scroll.horizontalScrollBar().maximum(), 0)
+        self.assertFalse(buttons[1].isEnabled())
+        self.assertGreater(popup.scroll.verticalScrollBar().maximum(), 0)
+
+        target = buttons[4].mapToGlobal(buttons[4].rect().center())
+        QTest.mousePress(first, Qt.LeftButton, pos=first.rect().center())
+        APP.sendEvent(first, QMouseEvent(QEvent.MouseMove, QPointF(first.mapFromGlobal(target)), QPointF(target),
+                                        Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+        QTest.mouseRelease(first, Qt.LeftButton, pos=first.mapFromGlobal(target))
+        self.assertIs(popup._buttons[4], first)
+        self.assertEqual(selected, [])
+
+        popup.scroll.ensureWidgetVisible(buttons[-1])
+        self.assertTrue(popup.scroll.viewport().rect().contains(
+            buttons[-1].mapTo(popup.scroll.viewport(), buttons[-1].rect().center())))
+        QTest.mouseClick(buttons[-1], Qt.LeftButton, pos=buttons[-1].rect().center() + QPoint(28, 0))
+        self.assertEqual(selected, [(3, emotes[-1])])
+
+    def test_danmaku_panel_enlarges_inline_and_standalone_emoticons(self):
+        panel = DanmakuPanel()
+        self.addCleanup(panel.close)
+        panel.resize(240, 380)
+        panel.show()
+        url = 'https://example.invalid/sticker.png'
+        pixmap = QPixmap(80, 40)
+        pixmap.fill(Qt.magenta)
+        with patch.object(panel, '_ensure_emoticon'):
+            panel.add_event({'uname': '测试', 'text': '前缀[表情]后缀', 'emoticons': {'[表情]': url}})
+            panel.add_event({'uname': '测试', 'text': '[表情]', 'emoticon': url})
+            panel.add_event({'uname': '测试', 'text': '普通弹幕'})
+            self.assertIn('[表情]', panel.body.toPlainText())
+            panel._on_emoticon_loaded(url, pixmap)
+        for font_size, height in ((13, 32), (8, 26), (20, 50)):
+            panel.apply_style('', font_size)
+            rendered = panel.body.toHtml()
+            self.assertEqual(rendered.count(f'width="{2 * height}" height="{height}"'), 2)
+            self.assertIn('前缀', panel.body.toPlainText())
+            self.assertIn('后缀', panel.body.toPlainText())
+            self.assertEqual(panel.body.horizontalScrollBar().maximum(), 0)
+        block = panel.body.document().begin()
+        self.assertEqual(block.blockFormat().lineHeight(), 120)
+        self.assertEqual(panel.body.document().lastBlock().blockFormat().lineHeight(), 150)
+        fragment = block.begin()
+        while not fragment.atEnd() and not fragment.fragment().charFormat().isImageFormat():
+            fragment += 1
+        self.assertFalse(fragment.atEnd())
+        self.assertEqual(fragment.fragment().charFormat().verticalAlignment(), QTextCharFormat.AlignMiddle)
 
     def test_cookie_restoration_room_and_fullscreen_without_plugin(self):
         self.assertEqual(bili._cookies(), {'SESSDATA': 'fake-session',
