@@ -10,7 +10,7 @@
 [![版本](https://img.shields.io/badge/版本-0.8%20Hotfix%202-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/latest)
 [![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
 
-[下载软件](#下载) · [快速开始](#快速开始) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
+[下载软件](#下载) · [移动端项目](https://github.com/Lanpropro/DD_Monitor_Mobile) · [快速开始](#快速开始) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
 
 </div>
 

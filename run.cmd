@@ -457,16 +457,9 @@ pause
 exit /b 1
 
 :mobile
-where flutter.bat >nul 2>nul
-if errorlevel 1 (
-    echo 请先将 Flutter SDK 的 bin 目录加入 PATH。
-    exit /b 1
-)
-pushd "%PROJ%mobile"
-call flutter.bat run
-set "MOBILE_EXIT=%ERRORLEVEL%"
-popd
-exit /b %MOBILE_EXIT%
+echo 移动端已迁移到独立仓库，请在该仓库运行 run.cmd。
+echo https://github.com/Lanpropro/DD_Monitor_Mobile
+exit /b 1
 
 :functionalModulesCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
