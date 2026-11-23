@@ -69,6 +69,7 @@ class MotionTrace:
         timer.start()
 
     def install(self):
+        from ddm.danmaku_float_window import DanmakuFloatWindow
         from ddm.video_danmaku_quick import QuickDanmakuLayer
         trace = self
         original_init = QuickDanmakuLayer.__init__
@@ -91,3 +92,38 @@ class MotionTrace:
                                      for frame in traceback.extract_stack(limit=4)[:-1]])
             return original_move(layer, identifier, x, y, speed)
         QuickDanmakuLayer.move = move
+
+        groups = weakref.WeakKeyDictionary()
+        original_group_move = DanmakuFloatWindow._move_group
+        original_finish_move = DanmakuFloatWindow._finish_move
+
+        @functools.wraps(original_group_move)
+        def move_group(window, delta):
+            now = time.perf_counter()
+            sample = groups.get(window)
+            if sample is None:
+                sample = groups[window] = dict(windows=1 + len(window._move_followers), updates=0,
+                                                last=now, maxGapMs=0.0, maxMoveMs=0.0)
+            try:
+                return original_group_move(window, delta)
+            finally:
+                sample['updates'] += 1
+                sample['maxGapMs'] = max(sample['maxGapMs'], (now - sample['last']) * 1000)
+                sample['maxMoveMs'] = max(sample['maxMoveMs'], (time.perf_counter() - now) * 1000)
+                sample['last'] = now
+
+        @functools.wraps(original_finish_move)
+        def finish_move(window):
+            sample = groups.pop(window, None)
+            start = time.perf_counter()
+            result = original_finish_move(window)
+            if sample is not None:
+                trace.write('float-group-move', windows=sample['windows'], pointerUpdates=sample['updates'],
+                            maxPointerGapMs=round(sample['maxGapMs'], 3),
+                            maxMoveMs=round(sample['maxMoveMs'], 3),
+                            finishMs=round((time.perf_counter() - start) * 1000, 3),
+                            glass=bool(window.property('danmakuFloatGlass')))
+            return result
+
+        DanmakuFloatWindow._move_group = move_group
+        DanmakuFloatWindow._finish_move = finish_move

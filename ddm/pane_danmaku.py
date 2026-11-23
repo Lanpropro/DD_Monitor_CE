@@ -113,8 +113,12 @@ class PaneDanmaku:
             source = self.bindings().get(cell)
             if source is None:
                 return self.automatic_target()
-        visible = [tile for cell, tile in self.cell_tiles().items() if cell not in self.bindings()]
-        return source if source in visible and is_live_danmaku_source(source.room) else None
+        source_cell = self.cell_for_tile(source)
+        if (source_cell is not None and is_live_danmaku_source(source.room)
+                and (source_cell not in self.bindings() or self.panels.get(source_cell) is panel)):
+            # A pane can replace its own video and continue showing that room's chat.
+            return source
+        return None
 
     def panel_cell(self, panel):
         return next((cell for cell, item in self.panels.items() if item is panel), None)
@@ -395,15 +399,15 @@ class PaneDanmaku:
             return None
         wall = self.wall
         tiles = self.cell_tiles()
-        if wall.snap_grid.interactive():
+        bindings = self.bindings()
+        target = next(((cell, tile.geometry(), None) for cell, tile in tiles.items()
+                       if cell not in bindings and tile.isVisible() and tile.geometry().contains(point)), None)
+        if target is None and wall.snap_grid.interactive():
             target = wall.snap_grid.floating_chat_target(point)
-        else:
-            target = next(((cell, tile.geometry(), None) for cell, tile in tiles.items()
-                           if tile.isVisible() and tile.geometry().contains(point)), None)
         if target is not None:
             cell, _, _ = target
             tile = tiles.get(cell)
-            if tile is not None and cell not in self.bindings() and not tile.room.get('room_id'):
+            if tile is not None and cell not in bindings:
                 host = wall.window()
                 session = host.recorder.sessions.get(tile)
                 if not (session is not None and session.recording) and not host._pending_capture.get(tile):

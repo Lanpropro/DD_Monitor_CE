@@ -15,6 +15,7 @@ class DanmakuFloatTabs(QTabBar):
         super().__init__(window)
         self.floating = window
         self._press = None
+        self._dock_press = None
         self._ghost = None
         self._target = None
         self._insertion = None
@@ -130,7 +131,7 @@ class DanmakuFloatTabs(QTabBar):
             if index >= 0:
                 self._press = (self.tabData(index), event.globalPosition().toPoint())
             else:
-                self.floating.start_move()
+                self.floating.start_move(event.globalPosition().toPoint())
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -138,28 +139,11 @@ class DanmakuFloatTabs(QTabBar):
             return super().mouseMoveEvent(event)
         panel, start = self._press
         point = event.globalPosition().toPoint()
-        if self._ghost is None:
-            if (point - start).manhattanLength() < QApplication.startDragDistance():
-                return
-            self._ghost = QLabel(self, Qt.ToolTip | Qt.WindowTransparentForInput | Qt.NoDropShadowWindowHint)
-            self._ghost.setAttribute(Qt.WA_ShowWithoutActivating)
-            self._ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
-            rect = self.tabRect(self.panels().index(panel))
-            self._ghost.setPixmap(self.grab(rect.intersected(self.rect())))
-            self._ghost.setStyleSheet(f'background: {theme.ELEVATED}; border: 1px solid {theme.ACCENT};')
-            self._ghost.adjustSize()
-            self._ghost.move(point + QPoint(12, 12))
-            self._ghost.show()
-        else:
-            self._ghost.move(point + QPoint(12, 12))
+        if not self._move_ghost(panel, start, point):
+            return
         widget = widget_at(point)
         window = widget.window() if widget is not None else None
         self._show_destination(self.destination(window, point))
-        wall_point = self._wall_point(window, point)
-        if wall_point is not None:
-            self.floating.controller.show_floating_dock(wall_point)
-        else:
-            self.floating.controller.wall.snap_grid.hide_drag_guide()
         event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -173,16 +157,72 @@ class DanmakuFloatTabs(QTabBar):
         widget = widget_at(point)
         window = widget.window() if widget is not None else None
         destination = self.destination(window, point)
-        wall_point = self._wall_point(window, point)
         self.cancel_drag()
         super().mouseReleaseEvent(event)
         if destination is not None:
             bar, index = destination
             self.floating.controller.move_floating_tab(panel, bar.floating, index)
-        elif wall_point is not None:
-            self.floating.controller.dock_floating_tab(panel, wall_point)
         elif self.count() > 1 and not self.floating.frameGeometry().contains(point):
             self.floating.controller.split_floating_tab(panel, point)
+
+    def _move_ghost(self, panel, start, point):
+        if self._ghost is None:
+            if (point - start).manhattanLength() < QApplication.startDragDistance():
+                return False
+            self._ghost = QLabel(self, Qt.ToolTip | Qt.WindowTransparentForInput | Qt.NoDropShadowWindowHint)
+            self._ghost.setAttribute(Qt.WA_ShowWithoutActivating)
+            self._ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
+            rect = self.tabRect(self.panels().index(panel))
+            self._ghost.setPixmap(self.grab(rect.intersected(self.rect())))
+            self._ghost.setStyleSheet(f'background: {theme.ELEVATED}; border: 1px solid {theme.ACCENT};')
+            self._ghost.adjustSize()
+            self._ghost.move(point + QPoint(12, 12))
+            self._ghost.show()
+        else:
+            self._ghost.move(point + QPoint(12, 12))
+        return True
+
+    def eventFilter(self, watched, event):
+        if watched is not self.floating.dock:
+            return super().eventFilter(watched, event)
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            panel = self.floating.stack.currentWidget()
+            if panel is not None:
+                self._dock_press = (panel, event.globalPosition().toPoint())
+                watched.setFocus(Qt.MouseFocusReason)
+                watched.setDown(True)
+                return True
+        if self._dock_press is not None:
+            panel, start = self._dock_press
+            controller = self.floating.controller
+            if kind == QEvent.MouseMove and event.buttons() & Qt.LeftButton:
+                point = event.globalPosition().toPoint()
+                if self._move_ghost(panel, start, point):
+                    local = self._dock_point(point)
+                    if local is not None:
+                        controller.show_floating_dock(local)
+                    else:
+                        controller.wall.snap_grid.hide_drag_guide()
+                return True
+            if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                local = self._dock_point(event.globalPosition().toPoint()) if self._ghost is not None else None
+                self.cancel_drag()
+                if local is not None:
+                    controller.dock_floating_tab(panel, local)
+                return True
+            if kind in (QEvent.Hide, QEvent.UngrabMouse):
+                self.cancel_drag()
+            if kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and event.key() == Qt.Key_Escape:
+                if kind == QEvent.KeyPress:
+                    self.cancel_drag()
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _dock_point(self, point):
+        widget = widget_at(point)
+        return self._wall_point(widget.window() if widget is not None else None, point)
 
     def _wall_point(self, window, point):
         controller = self.floating.controller
@@ -216,6 +256,9 @@ class DanmakuFloatTabs(QTabBar):
 
     def cancel_drag(self):
         self._press = None
+        if self._dock_press is not None:
+            self._dock_press = None
+            self.floating.dock.setDown(False)
         self._show_destination(None)
         if self._ghost is not None:
             self.floating.controller.wall.snap_grid.hide_drag_guide()
