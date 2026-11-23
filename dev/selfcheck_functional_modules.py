@@ -121,7 +121,7 @@ class FunctionalModulesTests(unittest.TestCase):
                      if key not in ('destroyed', 'objectNameChanged')}
             expected = {'host': host}
             if module == 'app_notices':
-                expected['official_announcement'] = None
+                expected.update(official_announcement=None, _windows_live={})
             self.assertEqual(state, expected)
 
     def test_super_chat_model_is_independent_and_legacy_exports_keep_identity(self):
