@@ -26,6 +26,38 @@ def set_window_topmost(widget, pinned):
         widget.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
 
 
+def raise_below_native_windows(widget, anchors):
+    """Raise an overlay just behind its lowest anchor in the same topmost group."""
+    if not anchors:
+        return False
+    user32 = ctypes.windll.user32
+    user32.GetTopWindow.argtypes = (wintypes.HWND,)
+    user32.GetTopWindow.restype = wintypes.HWND
+    user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.GetWindowLongW.restype = ctypes.c_long
+    hwnd = int(widget.winId())
+    topmost = user32.GetWindowLongW(hwnd, -20) & 0x8  # GWL_EXSTYLE / WS_EX_TOPMOST
+    remaining = {anchor for anchor in anchors if (user32.GetWindowLongW(anchor, -20) & 0x8) == topmost}
+    if not remaining:
+        return False
+    anchor = user32.GetTopWindow(None)
+    while anchor:
+        remaining.discard(anchor)
+        next_window = user32.GetWindow(anchor, 2)  # GW_HWNDNEXT
+        if not remaining:
+            if next_window == hwnd:
+                return True
+            user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                           ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+            user32.SetWindowPos.restype = wintypes.BOOL
+            # SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE
+            return bool(user32.SetWindowPos(hwnd, anchor, 0, 0, 0, 0, 0x213))
+        anchor = next_window
+    return False
+
+
 def set_presentation_owner(widget, owner):
     """Switch an owned window between the main window and detached fullscreen."""
     owner_id = int(owner.winId())

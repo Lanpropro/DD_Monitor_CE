@@ -1658,6 +1658,66 @@ class PaneDanmakuTests(unittest.TestCase):
             room_presets.validate(invalid)
 
     @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
+    def test_native_bottom_bar_stays_below_float_when_controls_reappear(self):
+        import ctypes
+        from ctypes import wintypes
+
+        window = self.wall_window()
+        window.settings.update(windowed_transparent_controls=True, windowed_auto_hide_controls=True,
+                               danmaku_float_glass_enabled=True, danmaku_float_glass_opacity=60)
+        panes = window.wall.pane_danmaku
+        tile = window.wall.tiles[0]
+        tile._layout_areas()
+        tile.set_controls_visible(True)
+        bar = tile.bottom
+        self.assertTrue(bar.isVisible() and bar.qt_composited)
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(tile)
+        floating, = panes.floating_windows()
+        user32 = ctypes.windll.user32
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+
+        def assert_bar_behind_float(window):
+            handle = int(window.winId())
+            above = user32.GetWindow(int(bar.winId()), 3)  # GW_HWNDPREV
+            while above and above != handle:
+                above = user32.GetWindow(above, 3)
+            self.assertEqual(above, handle, 'Native controls were raised over the floating chat')
+
+        floating.resize(max(200, bar.width() // 2), 180)
+        floating.move(bar.geometry().topLeft() - QPoint(30, 130))
+        self.app.processEvents()
+        self.assertTrue(floating.geometry().intersects(bar.geometry()))
+        floating.raise_()
+        assert_bar_behind_float(floating)
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(window.wall.tiles[1])
+        other, = (item for item in panes.floating_windows() if item is not floating)
+        other.move(floating.pos() + QPoint(40, 18))
+        other.raise_()
+        tile.set_controls_visible(False)
+        self.assertTrue(bar.isHidden())
+        tile.set_controls_visible(True)
+        self.app.processEvents()
+        self.assertTrue(bar.isVisible())
+        assert_bar_behind_float(floating)
+        assert_bar_behind_float(other)
+        self.assertTrue(bar.mask().contains(QPoint(bar.width() - 18, bar.height() // 2)))
+        bar.hide()
+        bar.show()
+        self.app.processEvents()
+        assert_bar_behind_float(floating)
+        assert_bar_behind_float(other)
+        QTest.mouseClick(other.pin, Qt.LeftButton)
+        tile.raise_overlays()
+        assert_bar_behind_float(floating)
+        assert_bar_behind_float(other)
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        user32.GetWindowLongW.restype = ctypes.c_long
+        self.assertFalse(user32.GetWindowLongW(int(bar.winId()), -20) & 0x8)
+
+    @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
     def test_native_detached_fullscreen_keeps_existing_and_new_floats_above_video(self):
         import ctypes
         from ctypes import wintypes
@@ -1697,6 +1757,11 @@ class PaneDanmakuTests(unittest.TestCase):
                     above = user32.GetWindow(above, 3)
                 self.assertEqual(above, handle)
                 self.assertTrue(floating.isVisible() and source.frameGeometry().intersects(floating.frameGeometry()))
+                source.bottom.raise_()
+                above = user32.GetWindow(int(source.bottom.winId()), 3)  # GW_HWNDPREV
+                while above and above != handle:
+                    above = user32.GetWindow(above, 3)
+                self.assertEqual(above, handle, 'Detached fullscreen must keep the bar below floating chat')
                 picker = panel.source_picker
                 with patch('ddm.motion.enabled', return_value=False):
                     QTest.mouseClick(picker.anchor, Qt.LeftButton)
