@@ -14,6 +14,24 @@ from . import theme
 _FRAME_SWITCH_FLAGS = 0x0020 | 0x0004 | 0x0100
 
 
+def set_presentation_owner(widget, owner):
+    """Switch an owned window between the main window and detached fullscreen."""
+    owner_id = int(owner.winId())
+    widget_id = int(widget.winId())
+    handle = widget.windowHandle()
+    handle.setTransientParent(owner.windowHandle())
+    if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+        # Qt applies transient ownership on show. Update the existing HWND too,
+        # before the previous owner can be destroyed during a fullscreen switch.
+        user32 = ctypes.windll.user32
+        set_window_long = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
+        set_window_long.argtypes = (wintypes.HWND, wintypes.INT, ctypes.c_ssize_t)
+        set_window_long.restype = ctypes.c_ssize_t
+        set_window_long(widget_id, -8, owner_id)  # GWLP_HWNDPARENT
+    if handle.isVisible():
+        widget.raise_()
+
+
 def keyboard_tick_ms() -> int:
     tick_count = ctypes.windll.kernel32.GetTickCount64
     tick_count.restype = ctypes.c_uint64

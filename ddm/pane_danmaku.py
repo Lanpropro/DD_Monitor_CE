@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QMenu
 
 from . import layouts
 from .danmaku_sources import is_live_danmaku_source
+from .window_fullscreen import set_presentation_owner
 
 
 @dataclass
@@ -43,6 +44,7 @@ class PaneDanmaku:
         self.groups = {}
         self.floating = {}
         self._pending_returns = set()
+        self._layout_changed_in_fullscreen = False
         self.rectangles = {}
         self.dividers = []
         self._saved = saved if isinstance(saved, dict) else {}
@@ -336,7 +338,14 @@ class PaneDanmaku:
         # Return the composer to the source tile before reparenting its chat panel.
         self.wall._sync_danmaku_controls()
         window.attach_panel()
+        tile = self.wall.fullscreen_tile
+        if tile is not None and tile.isWindow():
+            set_presentation_owner(window, tile)
         return window
+
+    def set_floating_owner(self, owner):
+        for floating in tuple(self.floating.values()):
+            set_presentation_owner(floating.window, owner)
 
     @staticmethod
     def _set_float_button(panel, floating):
@@ -399,6 +408,9 @@ class PaneDanmaku:
     def finish_pending_returns(self):
         for panel in tuple(self._pending_returns):
             self.return_floating(panel)
+        if self._layout_changed_in_fullscreen:
+            self._layout_changed_in_fullscreen = False
+            self.wall.relayout(force=True)
 
     def refresh_sources(self):
         for panel in self.all_panels():
@@ -431,7 +443,12 @@ class PaneDanmaku:
                 self.panels[remaining] = self.panels.pop(leader)
         self.settings[wall.layout_id] = dict(bindings)
         self.prepare()
-        if layout_changed:
+        if wall._fullscreen_layout_pending:
+            # Keep the fullscreen visibility snapshot intact while changing sources.
+            if layout_changed:
+                self._layout_changed_in_fullscreen = True
+            wall._sync_danmaku_controls()
+        elif layout_changed:
             wall.relayout(force=True)
         else:
             widgets = self.arrange(self.rectangles, wall._preset_widgets())

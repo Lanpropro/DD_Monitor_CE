@@ -18,19 +18,28 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QSize, Qt
+from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
 from ddm.bili_interaction.composer import DanmakuComposer
+from ddm.danmaku_float_window import DanmakuFloatWindow
 from ddm.widget_support import TILE_MIME
 from ddm.widgets import DanmakuPanel, WallGrid
 from selfcheck_video_danmaku import Client, Snapshot
 
 
 REAL_SYNC = MainWindow.sync_danmaku
+FLOAT_SHOW = DanmakuFloatWindow.show
+FULLSCREEN_RECT = QRect(-10000, -10000, 960, 620)
+
+
+def show_float_offscreen(floating):
+    floating.setAttribute(Qt.WA_ShowWithoutActivating)
+    floating.move(FULLSCREEN_RECT.topLeft() + QPoint(20, 50))
+    FLOAT_SHOW(floating)
 
 
 class PaneDanmakuTests(unittest.TestCase):
@@ -226,6 +235,46 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(slot.isVisible())
         self.assertEqual(slot.room['room_id'], '7001')
         self.assertFalse(panel.isVisible())
+
+    def test_fullscreen_float_can_change_room_without_syncing_wall_playback(self):
+        window = self.wall_window()
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, other = wall.tiles[:2]
+        window.configure_wall_panes({3: source})
+        panel = panes.panels[3]
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panel.float_button.click()
+        floated = panes.floating[panel]
+        enter = window._fullscreen_presentation.enter
+        with patch.object(window._fullscreen_presentation, 'enter',
+                          side_effect=lambda tile: enter(tile, FULLSCREEN_RECT)):
+            window._on_fullscreen(source)
+        self.app.processEvents()
+        try:
+            self.assertTrue(floated.slot.isHidden())
+            self.assertTrue(other.isHidden())
+            picker = panel.source_picker
+            with patch('ddm.motion.enabled', return_value=False), \
+                    patch.object(window, '_sync_tile_playback') as playback:
+                QTest.mouseClick(picker.anchor, Qt.LeftButton)
+                self.assertTrue(picker.expanded)
+                QTest.mouseClick(picker.buttons[other], Qt.LeftButton)
+                playback.assert_not_called()
+            self.assertFalse(picker.expanded)
+            self.assertIs(panes.target(panel), other)
+            self.assertEqual(panel._linked_room_id, '1002')
+            window._danmaku_clients['1002'].message.emit(dict(kind='danmaku', text='换源成功'))
+            self.assertEqual(panel._blocks[-1]['text'], '换源成功')
+            self.assertTrue(floated.slot.isHidden())
+            self.assertTrue(other.isHidden())
+            self.assertIs(wall.fullscreen_tile, source)
+        finally:
+            window._exit_fullscreen()
+        self.assertIs(panes.target(panel), other)
+        floated.window.close()
+        self.app.processEvents()
+        self.assertIs(panes.target(panes.panels[3]), other)
 
     def test_close_can_keep_the_empty_video_cells_created_by_a_merged_float(self):
         window = self.wall_window()
@@ -1127,6 +1176,51 @@ class PaneDanmakuTests(unittest.TestCase):
         invalid['layout']['panels'][0]['source'] = 3
         with self.assertRaises(ValueError):
             room_presets.validate(invalid)
+
+    @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
+    def test_native_detached_fullscreen_keeps_existing_and_new_floats_above_video(self):
+        import ctypes
+        from ctypes import wintypes
+
+        window = self.wall_window()
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, other = wall.tiles[:2]
+
+        user32 = ctypes.windll.user32
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(source)
+            panel, = panes.floating
+            floating = panes.floating[panel].window
+            handle = int(floating.winId())
+            enter = window._fullscreen_presentation.enter
+            with patch.object(window._fullscreen_presentation, 'enter',
+                              side_effect=lambda tile: enter(tile, FULLSCREEN_RECT)):
+                window._on_fullscreen(source)
+            try:
+                video = int(source.winId())
+                source.raise_()
+                self.assertEqual(user32.GetWindow(handle, 4), video)  # GW_OWNER
+                above = user32.GetWindow(video, 3)  # GW_HWNDPREV
+                while above and above != handle:
+                    above = user32.GetWindow(above, 3)
+                self.assertEqual(above, handle)
+                self.assertTrue(floating.isVisible() and source.frameGeometry().intersects(floating.frameGeometry()))
+                picker = panel.source_picker
+                with patch('ddm.motion.enabled', return_value=False):
+                    QTest.mouseClick(picker.anchor, Qt.LeftButton)
+                    QTest.mouseClick(picker.buttons[other], Qt.LeftButton)
+                self.assertIs(panes.target(panel), other)
+                panes.open_for_tile(source)
+                extra, = (entry.window for item, entry in panes.floating.items() if item is not panel)
+                self.assertEqual(user32.GetWindow(int(extra.winId()), 4), video)
+            finally:
+                window._exit_fullscreen()
+            self.assertEqual(int(floating.winId()), handle)
+            for entry in panes.floating.values():
+                self.assertEqual(user32.GetWindow(int(entry.window.winId()), 4), int(window.winId()))
 
     @unittest.skipUnless(NATIVE, 'Windows native window stacking check')
     def test_native_quick_layer_stays_below_moving_chat_without_mask_holes(self):

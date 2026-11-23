@@ -239,7 +239,8 @@ class DanmakuLifecycle:
 
     def pane_configuration_changed(self):
         host = self.host
-        host._sync_tile_playback(start_visible=True)
+        if not host.wall._fullscreen_layout_pending:
+            host._sync_tile_playback(start_visible=True)
         host.sync_danmaku()
         host._refresh_meta()
         host._save_timer.start()
