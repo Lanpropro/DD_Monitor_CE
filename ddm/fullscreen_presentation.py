@@ -177,7 +177,17 @@ class FullscreenPresentation(QObject):
         layer = wall._quick_danmaku_layer
         self._set_comments_changing(True)
         if in_main_window:
-            tile.bottom.hide()
+            # Rebuild the hidden bar while the existing video still fills the
+            # main window, so the restored video needn't wait for its controls.
+            tile._presentation_changing = True
+            try:
+                tile._bar_clock.stop()
+                tile._bar_animation.stop()
+                tile.bottom.hide()
+                tile.bottom.set_fullscreen(False,
+                    windowed_overlay=tile.presentation_control.windowed_bar_over_video())
+            finally:
+                tile._presentation_changing = False
             if self._maximized_frame is not None:
                 window_fullscreen.exit(self.window, self._maximized_frame)
                 self._maximized_frame = None
@@ -228,6 +238,9 @@ class FullscreenPresentation(QObject):
         tile.bottom.setUpdatesEnabled(True)
         if native_bar and (not in_main_window or tile.bottom.qt_composited):
             tile.bottom.repaint()
+        if in_main_window and self.window.sidebar.isVisible():
+            self.window.sidebar._refresh_visible_covers()
+            self.window.sidebar.repaint()
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
         self._visible = self._borders = []

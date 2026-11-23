@@ -15,7 +15,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QScrollArea, QWidget
 from ddm import fullscreen_diagnostics as diag
 
 APP = QApplication.instance() or QApplication([])
@@ -128,15 +128,18 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(all(row['phase'] == 'fullscreen-key' and row['queue_ms'] == 160 for row in rows))
         self.assertNotIn('private-text', self.path.read_text(encoding='utf-8'))
 
-    def test_bar_first_paint_is_part_of_handoff_evidence(self):
+    def test_bar_and_sidebar_first_paint_are_part_of_handoff_evidence(self):
         tile = self.window.wall.tiles[0]
         tile.bottom = QWidget(self.window)
         tile.bottom.resize(300, 36)
+        sidebar = self.window.sidebar = QWidget(self.window)
+        sidebar.scroll = QScrollArea(sidebar)
         self.capture.begin('enter', tile)
-        self.capture.eventFilter(tile.bottom, diag.QEvent(diag.QEvent.Paint))
+        for widget in (tile.bottom, sidebar, sidebar.scroll.viewport()):
+            self.capture.eventFilter(widget, diag.QEvent(diag.QEvent.Paint))
         self.capture.finish()
         events = self.rows()[-1]['geometry']
-        self.assertTrue(any(e['role'] == 'bar' and e['event'] == 'Paint' for e in events))
+        self.assertEqual({e['role'] for e in events if e['event'] == 'Paint'}, {'bar', 'sidebar', 'sidebar-cards'})
         self.assertNotIn('private-', self.path.read_text(encoding='utf-8'))
 
     def test_explicit_capture_records_known_bars_and_visible_native_windows(self):

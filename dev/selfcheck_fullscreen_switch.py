@@ -107,6 +107,8 @@ def check_window_capture(window):
                 enter_native = window_fullscreen.enter
                 peers = [pane for pane in (*visible, *panels, window.sidebar) if pane is not tile]
                 entry_exposures, old_bar_paints, exit_exposures, restored_sizes = [], [], [], []
+                exit_bar_modes = []
+                exit_native = window_fullscreen.exit
 
                 class RestoreEvents(QObject):
                     def eventFilter(self, watched, event):
@@ -118,6 +120,8 @@ def check_window_capture(window):
                             old_bar_paints.append(True)
                         elif watched is window and event.type() == QEvent.Resize:
                             restored_sizes.append(event.size())
+                        elif watched is tile.video and event.type() == QEvent.Resize:
+                            exit_bar_modes.append((tile.bottom.isHidden(), tile.bottom.qt_composited))
                         elif watched in peers and event.type() == QEvent.Show:
                             exit_exposures.append(QRect(tile.video.geometry()))
                         return False
@@ -128,6 +132,12 @@ def check_window_capture(window):
                     assert wall.mapToGlobal(QPoint()) == original_origin, (
                         'The sidebar layout moved the ordinary wall before the native frame changed')
                     return enter_native(widget)
+
+                def exit_with_prepared_bar(widget, frame):
+                    assert tile.bottom.isHidden() and not tile.bottom.qt_composited, (
+                        'Prepare the ordinary bar before restoring the native frame')
+                    assert tile.video.geometry() == tile.rect(), 'The video should still cover the fullscreen frame'
+                    return exit_native(widget, frame)
 
                 events = RestoreEvents()
                 tile.video.installEventFilter(events)
@@ -161,21 +171,26 @@ def check_window_capture(window):
                 assert all(not panel.isVisible() for panel in panels)
                 assert window.players[tile] is player
 
-                for widget in (window, *peers):
+                for widget in (window, tile.video, *peers):
                     widget.installEventFilter(events)
                 try:
                     with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta, \
                             patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
-                            patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as exit_frame:
+                            patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as exit_frame, \
+                            patch.object(window_fullscreen, 'exit', side_effect=exit_with_prepared_bar), \
+                            patch.object(window.sidebar, 'repaint', wraps=window.sidebar.repaint) as sidebar_paint:
                         next(shortcut for shortcut in window._window_shortcuts
                              if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
                         refresh_meta.assert_not_called()
                         repaint.assert_not_called()
+                        sidebar_paint.assert_called_once_with()
                         QTest.qWait(90)
                         refresh_meta.assert_called()
                 finally:
-                    for widget in (window, *peers):
+                    for widget in (window, tile.video, *peers):
                         widget.removeEventFilter(events)
+                assert exit_bar_modes and all(hidden and not composited for hidden, composited in exit_bar_modes), (
+                    'The normal video must resize with the ordinary bar ready and hidden', exit_bar_modes)
                 assert exit_exposures and all(rect == original_video for rect in exit_exposures), (
                     'Wall panes were shown before the target video returned to its slot', exit_exposures)
                 assert not window.isFullScreen() and window.windowState() == original_state
