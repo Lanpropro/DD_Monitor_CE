@@ -186,6 +186,12 @@ class StreamerProfileCard(QFrame):
         self.auto_record.toggled.connect(lambda enabled: page.edit(
             'auto_record', dict.fromkeys(self.editing_rooms, True if enabled else None)))
         capture_form.addRow('开播时自动录制', self.auto_record)
+        self.windows_notice = ToggleSwitch('录制时发送 Windows 通知')
+        self.windows_notice.setToolTip('自动开录和确认下播收尾时发送 Windows 通知。')
+        self.windows_notice.setAccessibleDescription(self.windows_notice.toolTip())
+        self.windows_notice.toggled.connect(lambda enabled: page.edit(
+            'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
+        capture_form.addRow('录制时发送 Windows 通知', self.windows_notice)
         self.playback, self.recording = SelectControl(), SelectControl()
         for key, label, control, form in (('playback', '默认播放画质', self.playback, playback_form),
                                           ('recording', '录制画质', self.recording, capture_form)):
@@ -216,12 +222,6 @@ class StreamerProfileCard(QFrame):
             self.auto_record_mode.currentIndexChanged.connect(lambda _index: page.edit(
                 'auto_record_mode', dict.fromkeys(self.editing_rooms, self.auto_record_mode.currentData())))
             capture_form.addRow('自动录制方式', self.auto_record_mode)
-        self.windows_notice = ToggleSwitch('录制状态通知（Windows）')
-        self.windows_notice.setToolTip('自动开录和确认下播收尾时发送 Windows 通知。')
-        self.windows_notice.setAccessibleDescription(self.windows_notice.toolTip())
-        self.windows_notice.toggled.connect(lambda enabled: page.edit(
-            'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
-        capture_form.addRow('录制状态通知（Windows）', self.windows_notice)
         self._loading = False
         self.load()
 

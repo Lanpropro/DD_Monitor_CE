@@ -320,6 +320,15 @@ class SettingsNavigationTests(unittest.TestCase):
             left, right = card.details.section('playback'), card.details.section('capture')
             self.assertIs(card.monitor_live.parentWidget(), left)
             self.assertIs(card.live_notice.parentWidget(), left)
+            live_label = left.layout().labelForField(card.live_notice)
+            recording_label = right.layout().labelForField(card.windows_notice)
+            if columns == 2:
+                self.assertEqual(live_label.mapTo(card.details, live_label.rect().center()).y(),
+                                 recording_label.mapTo(card.details, recording_label.rect().center()).y())
+            self.assertEqual(live_label.text(), '开播时发送 Windows 通知')
+            self.assertEqual(recording_label.text(), '录制时发送 Windows 通知')
+            self.assertLess(card.auto_record.y(), card.windows_notice.y())
+            self.assertLess(card.windows_notice.y(), card.recording.y())
             for control in (card.auto_record, card.recording, card.auto_record_mode, card.windows_notice):
                 self.assertIs(control.parentWidget(), right)
                 self.assertTrue(right.rect().contains(control.geometry()))
