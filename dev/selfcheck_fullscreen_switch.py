@@ -78,6 +78,8 @@ def check_window_capture(window):
     user32 = ctypes.windll.user32
     user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
     user32.GetAncestor.restype = ctypes.c_void_p
+    user32.SetWindowPos.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+                                    ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint)
     main_hwnd, video_hwnd = int(window.winId()), int(tile.video.winId())
     window.players[tile] = player
     try:
@@ -120,7 +122,8 @@ def check_window_capture(window):
                 events = RestoreEvents()
                 tile.video.installEventFilter(events)
                 try:
-                    with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native:
+                    with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native, \
+                            patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as enter_frame:
                         window._on_fullscreen(tile)
                         assert native.called == (state == Qt.WindowMaximized)
                 finally:
@@ -146,10 +149,13 @@ def check_window_capture(window):
                 for widget in (window, *peers):
                     widget.installEventFilter(events)
                 try:
-                    with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta:
+                    with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta, \
+                            patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
+                            patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as exit_frame:
                         next(shortcut for shortcut in window._window_shortcuts
                              if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
                         refresh_meta.assert_not_called()
+                        repaint.assert_not_called()
                         QTest.qWait(90)
                         refresh_meta.assert_called()
                 finally:
@@ -161,6 +167,9 @@ def check_window_capture(window):
                 assert window.geometry() == original_geometry and wall.geometry() == original_wall
                 assert window.normalGeometry() == normal_geometry
                 if state == Qt.WindowMaximized:
+                    for frame in (enter_frame, exit_frame):
+                        assert any(call.args[0] == main_hwnd and call.args[-1] & 0x0100
+                                   for call in frame.call_args_list), 'Native frame change copied old client pixels'
                     normal_size = normal_geometry.size()
                     assert normal_size != original_geometry.size(), 'Fixture needs distinct normal and maximized sizes'
                     assert normal_size not in restored_sizes, f'Exit exposed the normal window size: {restored_sizes}'

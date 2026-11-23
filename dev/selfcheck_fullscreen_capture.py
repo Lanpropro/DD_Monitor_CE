@@ -13,7 +13,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm import fullscreen_diagnostics as diag
 
@@ -104,6 +105,28 @@ class CaptureTests(unittest.TestCase):
 
     def rows(self):
         return [json.loads(line) for line in self.path.read_text(encoding='utf-8').splitlines()]
+
+    def test_explicit_capture_records_only_fullscreen_shortcut_edges(self):
+        self.window.shortcuts = {'focus': 'F', 'restore': 'Esc'}
+        self.window.winId()
+        receiver = self.window.windowHandle()
+        with patch.object(diag, '_key_queue_ms', return_value=160):
+            for enabled, key, repeat, event_type in (
+                    (False, Qt.Key_F, False, QEvent.ShortcutOverride),
+                    (True, Qt.Key_A, False, QEvent.ShortcutOverride),
+                    (True, Qt.Key_F, True, QEvent.ShortcutOverride),
+                    (True, Qt.Key_F, False, QEvent.ShortcutOverride),
+                    (True, Qt.Key_F, False, QEvent.KeyRelease),
+                    (True, Qt.Key_Escape, False, QEvent.ShortcutOverride)):
+                self.capture.native_windows = enabled
+                event = QKeyEvent(event_type, key, Qt.NoModifier, 'private-text', repeat)
+                event.setTimestamp(1234)
+                self.assertFalse(self.capture.eventFilter(receiver, event))
+        rows = self.rows()
+        self.assertEqual([(row['action'], row['edge']) for row in rows],
+                         [('focus', 'press'), ('focus', 'release'), ('restore', 'press')])
+        self.assertTrue(all(row['phase'] == 'fullscreen-key' and row['queue_ms'] == 160 for row in rows))
+        self.assertNotIn('private-text', self.path.read_text(encoding='utf-8'))
 
     def test_bar_first_paint_is_part_of_handoff_evidence(self):
         tile = self.window.wall.tiles[0]

@@ -1,14 +1,24 @@
 """Bounded fullscreen evidence; never poll mpv properties on the GUI thread."""
 import cProfile
+import ctypes
 import functools
+import sys
 import threading
 import time
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt
-from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QCursor, QKeySequence, QWindow
+from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit, QWidget
 
 from .responsiveness import Probe, profile_functions
+
+
+def _key_queue_ms(timestamp):
+    if sys.platform != 'win32' or not timestamp:
+        return None
+    # Qt's Windows key mapper passes the 32-bit MSG.time tick to QKeyEvent.
+    delay = (ctypes.windll.kernel32.GetTickCount() - timestamp) & 0xffffffff
+    return delay if delay < 0x80000000 else None
 
 
 class FullscreenCapture(QObject):
@@ -20,6 +30,7 @@ class FullscreenCapture(QObject):
         self.probe, self.window = probe, window
         self.profile_calls = profile_calls
         self.native_windows = native_windows
+        self.key_samples = 0
         self.record = None
         self.depth = 0
         self.lock = threading.Lock()
@@ -45,7 +56,6 @@ class FullscreenCapture(QObject):
         self.idle_frame()
 
     def idle_frame(self):
-        from PySide6.QtWidgets import QApplication, QLineEdit
         tile, cursor = self.idle_tile, self.window._fullscreen_cursor
         now = time.monotonic()
         point = QCursor.pos()
@@ -96,7 +106,8 @@ class FullscreenCapture(QObject):
         for widget, role in watched:
             if isinstance(widget, QWidget):
                 self.geometry_widgets[widget] = role
-                widget.installEventFilter(self)
+                if not self.native_windows:
+                    widget.installEventFilter(self)
         ordered = ([tile] if tile in tiles else []) + [other for other in tiles if other is not tile]
         for candidate in ordered:
             player = self.window.players.get(candidate)
@@ -150,6 +161,9 @@ class FullscreenCapture(QObject):
             'bars': bars, 'windows': windows, 'truncated': snapshot['truncated']})
 
     def eventFilter(self, watched, event):
+        if (self.native_windows and event.type() in (QEvent.ShortcutOverride, QEvent.KeyRelease)
+                and isinstance(watched, QWindow)):
+            self._record_key(watched, event)
         record = self.record
         if (record is not None and watched in self.geometry_widgets
                 and (event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide)
@@ -164,6 +178,26 @@ class FullscreenCapture(QObject):
                 item['opacity'] = watched.windowOpacity()
             record['geometry'].append(item)
         return super().eventFilter(watched, event)
+
+    def _record_key(self, receiver, event):
+        if (self.key_samples >= 512 or event.isAutoRepeat() or self.probe.stopped.is_set()
+                or isinstance(QApplication.focusWidget(), (QLineEdit, QPlainTextEdit, QTextEdit))):
+            return
+        host = self.window
+        for action in ('focus', 'restore'):
+            shortcut = QKeySequence(host.shortcuts.get(action, ''))
+            if shortcut.count() == 1 and shortcut[0] == event.keyCombination():
+                break
+        else:
+            return
+        if receiver is not host.windowHandle() and not any(
+                receiver is tile.windowHandle() or receiver is tile.bottom.windowHandle()
+                for tile in host.wall.tiles):
+            return
+        edge = 'press' if event.type() == QEvent.ShortcutOverride else 'release'
+        self.key_samples += 1
+        self.probe.write('fullscreen-key', action=action, edge=edge, input_tick=event.timestamp(),
+                         queue_ms=_key_queue_ms(event.timestamp()))
 
     def stage(self, name, started):
         record = self.record
@@ -209,8 +243,9 @@ class FullscreenCapture(QObject):
         if record is None:
             return
         self.capture_native_windows(record, reason)
-        for widget in self.geometry_widgets:
-            widget.removeEventFilter(self)
+        if not self.native_windows:
+            for widget in self.geometry_widgets:
+                widget.removeEventFilter(self)
         self.geometry_widgets.clear()
         for core, name, changed in self.observers:
             try:
@@ -244,9 +279,12 @@ def install(path, *, profile_calls=False, native_windows=False):
         original_init(window, *args, **kwargs)
         capture = window._fullscreen_probe = FullscreenCapture(
             probe, window, profile_calls=profile_calls, native_windows=native_windows)
-        QApplication.instance().aboutToQuit.connect(capture.finish)
-        QApplication.instance().aboutToQuit.connect(capture.finish_idle)
-        QApplication.instance().aboutToQuit.connect(probe.stop)
+        application = QApplication.instance()
+        if native_windows:
+            application.installEventFilter(capture)
+        application.aboutToQuit.connect(capture.finish)
+        application.aboutToQuit.connect(capture.finish_idle)
+        application.aboutToQuit.connect(probe.stop)
 
     MainWindow.__init__ = initialize
 

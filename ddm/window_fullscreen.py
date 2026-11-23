@@ -9,6 +9,11 @@ from PySide6.QtWidgets import QApplication
 from . import theme
 
 
+# SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOCOPYBITS. The caption moves the
+# client origin, so copied pixels from the previous layout can shift upward.
+_FRAME_SWITCH_FLAGS = 0x0020 | 0x0004 | 0x0100
+
+
 class _MonitorInfo(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
                 ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
@@ -103,7 +108,7 @@ def enter(widget) -> tuple[int, int, tuple[int, int, int, int], tuple[int | None
         _dwm_set(hwnd, 34, 0xFFFFFFFE)  # DWMWA_BORDER_COLOR: COLOR_NONE
     user32.SetWindowLongW(hwnd, -16, (style & ~0x00CF0000) | 0x80000000)
     user32.SetWindowPos(hwnd, None, area.left, area.top,
-                        area.right - area.left, area.bottom - area.top, 0x0020 | 0x0004)
+                        area.right - area.left, area.bottom - area.top, _FRAME_SWITCH_FLAGS)
     return hwnd, style, (original.left, original.top, original.right, original.bottom), frame
 
 
@@ -112,6 +117,6 @@ def exit(widget, state: tuple[int, int, tuple[int, int, int, int], tuple[int | N
     hwnd, style, (left, top, right, bottom), frame = state
     user32.SetWindowLongW(hwnd, -16, style)
     user32.SetWindowPos(hwnd, None, left, top, right - left, bottom - top,
-                        0x0020 | 0x0004)
+                        _FRAME_SWITCH_FLAGS)
     _dwm_set(hwnd, 33, frame[0])
     _dwm_set(hwnd, 34, frame[1])

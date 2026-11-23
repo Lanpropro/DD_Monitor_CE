@@ -218,7 +218,7 @@ class FullscreenPresentation(QObject):
         wall._sync_danmaku_controls()
         tile._layout_areas()
         tile.bottom.setUpdatesEnabled(True)
-        if native_bar:
+        if native_bar and (not in_main_window or tile.bottom.qt_composited):
             tile.bottom.repaint()
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
