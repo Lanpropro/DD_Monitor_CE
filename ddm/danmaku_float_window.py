@@ -6,13 +6,13 @@ from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSignalBlocker, QTimer
 from PySide6.QtGui import QAction, QCursor, QPainter, QPen
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu, QSizeGrip,
                                QStackedLayout, QVBoxLayout, QWidget)
+from shiboken6 import isValid
 
 from . import theme
 from .corner_geometry import continuous_path
-from .danmaku_float_snap import snapped_position
+from .danmaku_float_snap import snapped_position, touching_windows
 from .danmaku_float_tabs import DanmakuFloatTabs
 from .panel_resize import resize_edges, set_resize_cursor
-from .pip_window import PictureInPictureButton
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
 from .window_fullscreen import set_window_topmost
@@ -49,6 +49,7 @@ class DanmakuFloatWindow(QWidget):
         super().__init__(owner, Qt.Window | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.controller = controller
         self._move_origin = None
+        self._move_followers = {}
         self._snap_edges = Qt.Edge(0)
         self._move_watch = QTimer(self, interval=25)
         self._move_watch.timeout.connect(self._check_move_release)
@@ -65,18 +66,21 @@ class DanmakuFloatWindow(QWidget):
         self.move_handle = _MoveHandle(self)
         self.move_handle.setFixedWidth(14)
         self.move_handle.setCursor(Qt.SizeAllCursor)
-        self.move_handle.setToolTip('拖动浮窗')
+        self.move_handle.setToolTip('拖动浮窗及与它吸附的浮窗')
         self.move_handle.installEventFilter(self)
         self.tabs = DanmakuFloatTabs(self)
         self.tabs.currentChanged.connect(self._tab_changed)
         self.tabs.tabCloseRequested.connect(lambda index: controller.return_floating(self.tabs.tabData(index)))
-        self.pin = PictureInPictureButton('pin', '未置顶，点击置顶', self)
+        self.pin = NavigationButton('未置顶，点击置顶', 'pin', self)
+        self.pin.setFixedSize(24, 24)
+        self.pin.setProperty('accentWhenChecked', True)
         self.pin.setCheckable(True)
         self.pin.toggled.connect(self._set_pinned)
         self.more = NavigationButton('浮窗选项', 'more', self)
         self.more.setFixedSize(24, 24)
         self.more.clicked.connect(self._open_menu)
-        close = PictureInPictureButton('close', '关闭浮窗', self)
+        close = NavigationButton('关闭浮窗', 'close', self)
+        close.setFixedSize(24, 24)
         close.clicked.connect(self.close)
         for widget in (self.move_handle, self.tabs, self.pin, self.more, close):
             controls.addWidget(widget)
@@ -161,11 +165,12 @@ class DanmakuFloatWindow(QWidget):
         if self.tabs.count() > 1:
             current = self.tabs.currentIndex()
             panel = self.tabs.tabData(current)
+            menu.addAction('关闭当前标签', lambda: self.controller.return_floating(panel))
             menu.addAction('拆出当前标签', lambda: self.controller.split_floating_tab(
                 panel, self.frameGeometry().topLeft() + QPoint(28, 28)))
             menu.addSeparator()
             for index, panel in enumerate(self.tabs.panels()):
-                action = menu.addAction(self.tabs.tabIcon(index), self.tabs.tabText(index),
+                action = menu.addAction(self.tabs.tabIcon(index), self.tabs.tabToolTip(index).replace('&', '&&'),
                                         lambda p=panel: self.select_panel(p))
                 action.setCheckable(True)
                 action.setChecked(index == current)
@@ -177,8 +182,13 @@ class DanmakuFloatWindow(QWidget):
         if handle is None:
             return False
         self._move_origin = self.frameGeometry().topLeft()
+        if self.snap.isChecked():
+            frames = {window: window.frameGeometry() for window in self._magnetic_windows()}
+            frames[self] = self.frameGeometry()
+            self._move_followers = touching_windows(self, frames)
         if not handle.startSystemMove():
             self._move_origin = None
+            self._move_followers.clear()
             return False
         if QApplication.platformName() != 'windows':
             self._move_watch.start()
@@ -188,11 +198,21 @@ class DanmakuFloatWindow(QWidget):
         if not QApplication.mouseButtons() & Qt.LeftButton:
             self._finish_move()
 
+    def _magnetic_windows(self):
+        return [window for window in self.controller.floating_windows()
+                if window is not self and window.isVisible() and not window.isMinimized() and window.snap.isChecked()]
+
     def _snap_candidate(self):
         screen = QApplication.screenAt(QCursor.pos()) or self.screen()
-        neighbors = [window.frameGeometry() for window in self.controller.floating_windows()
-                     if window is not self and window.isVisible() and not window.isMinimized()]
-        return snapped_position(self.frameGeometry(), screen.availableGeometry(), neighbors)
+        neighbors, companions = [], []
+        for window in self._magnetic_windows():
+            (companions if window in self._move_followers else neighbors).append(window.frameGeometry())
+        return snapped_position(self.frameGeometry(), screen.availableGeometry(), neighbors, companions=companions)
+
+    def _move_attached(self, delta):
+        for window, origin in self._move_followers.items():
+            if isValid(window) and window.isVisible():
+                window.move(origin + delta)
 
     def _finish_move(self):
         origin, self._move_origin = self._move_origin, None
@@ -201,6 +221,8 @@ class DanmakuFloatWindow(QWidget):
             position, edges = self._snap_candidate()
             if edges:
                 self.move(position)
+                self._move_attached(self.frameGeometry().topLeft() - origin)
+        self._move_followers.clear()
         self._snap_edges = Qt.Edge(0)
         self.update()
 
@@ -212,6 +234,8 @@ class DanmakuFloatWindow(QWidget):
 
     def moveEvent(self, event):
         super().moveEvent(event)
+        if self._move_origin is not None:
+            self._move_attached(self.frameGeometry().topLeft() - self._move_origin)
         if self._move_origin is not None and self.snap.isChecked():
             _, self._snap_edges = self._snap_candidate()
             self.update()

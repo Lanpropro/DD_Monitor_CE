@@ -16,6 +16,7 @@ class FloatingPane:
     cell: int | None
     released: dict
     source: object
+    reserved: tuple = ()
 
 
 def validate_panels(value, count):
@@ -45,6 +46,7 @@ class PaneDanmaku:
         self.floating = {}
         self._pending_returns = set()
         self._layout_changed_in_fullscreen = False
+        self._docking_panel = None
         self.rectangles = {}
         self.dividers = []
         self._saved = saved if isinstance(saved, dict) else {}
@@ -225,7 +227,9 @@ class PaneDanmaku:
             # Keep an existing message document when an adjacent pane is added.
             keeping = [cell for cell in cells if self.panels[cell] in previous and
                        getattr(self.panels[cell], '_linked_room_id', '') == room]
-            leader = max(keeping or cells, key=lambda cell: (rectangles[cell].bottom(), rectangles[cell].right()))
+            docked = next((cell for cell in cells if self.panels[cell] is self._docking_panel), None)
+            leader = (docked if docked is not None else
+                      max(keeping or cells, key=lambda cell: (rectangles[cell].bottom(), rectangles[cell].right())))
             self.groups[leader] = tuple(sorted(cells))
             self.wall_widget(self.panels[leader]).setGeometry(rect)
             for cell in cells:
@@ -321,10 +325,11 @@ class PaneDanmaku:
         owner = self.wall.window()
         reuse = bool(getattr(owner, 'settings', {}).get('danmaku_float_reuse_cell', False))
         bindings = self.bindings()
-        released = {index: bindings[index] for index in self.cells_for(cell)} if reuse else {}
+        group = self.cells_for(cell)
+        released = {index: bindings[index] for index in group} if reuse else {}
         rect = QRect(panel.mapToGlobal(QPoint()), panel.size())
         slot = None if reuse else DanmakuFloatSlot(self.wall, lambda: self.return_floating(panel))
-        window = self._open_window(panel, cell, rect, released, self.target(panel), slot)
+        window = self._open_window(panel, cell, rect, released, self.target(panel), slot, () if reuse else group)
         if released:
             self.apply({index: source for index, source in bindings.items() if index not in released})
         else:
@@ -332,9 +337,9 @@ class PaneDanmaku:
         window.show()
         self.wall.paneConfigurationChanged.emit()
 
-    def _open_window(self, panel, cell, rect, released, source, slot=None):
+    def _open_window(self, panel, cell, rect, released, source, slot=None, reserved=()):
         window = self._create_floating_window(rect)
-        self.floating[panel] = FloatingPane(window, slot, cell, released, source)
+        self.floating[panel] = FloatingPane(window, slot, cell, released, source, reserved)
         self._set_float_button(panel, True)
         # Return the composer to the source tile before reparenting its chat panel.
         self.wall._sync_danmaku_controls()
@@ -379,6 +384,71 @@ class PaneDanmaku:
         if source.tabs.count() > 1:
             rect = QRect(position - QPoint(24, 16), source.size())
             self.move_floating_tab(panel, self._create_floating_window(rect), 0)
+
+    def floating_dock_available(self):
+        wall = self.wall
+        return (wall.fullscreen_tile is None and not wall._fullscreen_layout_pending
+                and wall.picture_in_picture_tiles is None and bool(wall._cells()))
+
+    def _floating_dock_target(self, point):
+        if not self.floating_dock_available():
+            return None
+        wall = self.wall
+        tiles = self.cell_tiles()
+        if wall.snap_grid.interactive():
+            target = wall.snap_grid.floating_chat_target(point)
+        else:
+            target = next(((cell, tile.geometry(), None) for cell, tile in tiles.items()
+                           if tile.isVisible() and tile.geometry().contains(point)), None)
+        if target is not None:
+            cell, _, _ = target
+            tile = tiles.get(cell)
+            if tile is not None and cell not in self.bindings() and not tile.room.get('room_id'):
+                host = wall.window()
+                session = host.recorder.sessions.get(tile)
+                if not (session is not None and session.recording) and not host._pending_capture.get(tile):
+                    return target
+        return None
+
+    def show_floating_dock(self, point):
+        grid = self.wall.snap_grid
+        target = self._floating_dock_target(point)
+        if target is not None or grid.interactive():
+            grid.present_drag_guide(grid.drag_units() if grid.interactive() else (),
+                                    target[1] if target is not None else None)
+        else:
+            grid.hide_drag_guide()
+
+    def dock_floating_tab(self, panel, point):
+        target = self._floating_dock_target(point)
+        if target is None or panel not in self.floating:
+            return False
+        cell, _, grid_cells = target
+        source = self.target(panel) or -1
+        scroll = panel.scroll_control.scroll_state()
+        bindings = dict(self.bindings())
+        for index in self.floating[panel].reserved:
+            resident = self.panels.get(index)
+            if resident is None or resident is panel or resident not in self.floating:
+                bindings.pop(index, None)
+                self.panels.pop(index, None)
+        self._detach_window(panel)
+        if panel is not self.wall.danmaku and panel not in self.extra:
+            self.extra.append(panel)
+        self.panels[cell] = panel
+        bindings[cell] = source
+        if grid_cells is not None:
+            self.wall.layout_control.set_preset_ratios(self.wall.layout_id, {'grid': grid_cells})
+        self._docking_panel = panel
+        try:
+            self.apply(bindings)
+        finally:
+            self._docking_panel = None
+        panel.scroll_control.restore_scroll_state(scroll)
+        if grid_cells is not None:
+            self.wall.layoutRatiosChanged.emit()
+        self.wall.paneConfigurationChanged.emit()
+        return True
 
     def _return_window(self, window):
         for panel in window.tabs.panels():

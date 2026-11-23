@@ -212,6 +212,22 @@ class WallSnapGrid:
         result = snap_grid.place(self.size, cells, index, unit, self.occupied())
         return self._place_room(_Placement(index, unit, result, result != cells, room_id), assign)
 
+    def floating_chat_target(self, point):
+        unit = self._unit_at(point)
+        vacancy = self._vacancy(unit)
+        if vacancy is None:
+            return None
+        index, cells = vacancy
+        planned = snap_grid.place(self.size, cells, index, unit, self.occupied())
+        if planned[index] == unit:
+            wall = self.wall
+            rect = snap_grid.geometry(self.size, [unit], wall._corner_area(), wall.grid.spacing())[0]
+            return index, rect, planned
+
+    def drag_units(self):
+        wall = self.wall
+        return tuple(snap_grid.geometry(self.size, wall._cells(), wall._corner_area(), wall.grid.spacing()).values())
+
     def mark_drag(self, mime, tile, press):
         if not self.interactive():
             return False
@@ -230,19 +246,22 @@ class WallSnapGrid:
         if not self.interactive():
             self.hide_drag_guide()
             return
-        if self.guide is None:
-            from .snap_grid_guide import SnapGridGuide
-            self.guide = SnapGridGuide(self.wall)
         wall = self.wall
         area, gap = wall._corner_area(), wall.grid.spacing()
-        units = tuple(snap_grid.geometry(self.size, wall._cells(), area, gap).values())
+        units = self.drag_units()
         plan = self._placement(mime, point)
         if isinstance(plan, _TileSwap):
-            self.guide.present(units, plan.destination.geometry(), swap_source=plan.source.geometry())
+            self.present_drag_guide(units, plan.destination.geometry(), swap_source=plan.source.geometry())
             return
         target = (snap_grid.geometry(self.size, [plan.target], area, gap)[0]
                   if plan and plan.new_room not in self._orientation_checks else None)
-        self.guide.present(units, target)
+        self.present_drag_guide(units, target)
+
+    def present_drag_guide(self, units, target, *, swap_source=None):
+        if self.guide is None:
+            from .snap_grid_guide import SnapGridGuide
+            self.guide = SnapGridGuide(self.wall)
+        self.guide.present(units, target, swap_source=swap_source)
 
     def hide_drag_guide(self):
         if self.guide is not None:

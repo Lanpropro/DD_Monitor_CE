@@ -1,11 +1,13 @@
 """Tab strip and pointer interaction shared by floating danmaku windows."""
 from PySide6.QtCore import QEvent, QPoint, QSize, Qt
-from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy, QTabBar, QToolButton
+from PySide6.QtGui import QFontMetrics, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy, QTabBar
 from shiboken6 import isValid
 
 from . import theme
 from .avatar_widgets import AVATAR_COLORS
+from .sidebar_hit_test import widget_at
+from .sidebar_navigation import NavigationButton
 
 
 class DanmakuFloatTabs(QTabBar):
@@ -17,6 +19,7 @@ class DanmakuFloatTabs(QTabBar):
         self._target = None
         self._insertion = None
         self._sources = {}
+        self._avatar_only = False
         self.setAccessibleName('弹幕直播间标签')
         self.setFocusPolicy(Qt.StrongFocus)
         self.setIconSize(QSize(16, 16))
@@ -26,19 +29,45 @@ class DanmakuFloatTabs(QTabBar):
         self.setDrawBase(False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.refresh_theme()
-        theme.signals().changed.connect(self.refresh_theme)
+        theme.signals().changed.connect(self._theme_changed)
 
     def refresh_theme(self):
+        width = 'min-width: 16px; max-width: 16px;' if self._avatar_only else 'min-width: 35px; max-width: 112px;'
+        background = theme.ELEVATED if self._avatar_only else 'transparent'
         self.setStyleSheet(f'''
-            QTabBar::tab {{ color: {theme.TEXT2}; background: transparent; padding: 4px 6px;
-                min-width: 35px; max-width: 112px; margin-right: 2px; border-radius: 6px;
+            QTabBar::tab {{ color: {theme.TEXT2}; background: {background}; padding: 4px 6px;
+                {width} margin-right: 2px; border-radius: 6px;
                 font-size: {theme.FONT_CAPTION}px; }}
             QTabBar::tab:hover {{ background: {theme.CONTENT_HOVER}; }}
             QTabBar::tab:selected {{ color: {theme.TEXT1}; background: {theme.ACCENT_SOFT}; }}
-            QToolButton#DanmakuTabClose {{ color: {theme.TEXT2}; background: transparent; border: none;
-                border-radius: 4px; padding: 0; font-size: 14px; }}
-            QToolButton#DanmakuTabClose:hover {{ color: {theme.TEXT1}; background: {theme.CONTENT_HOVER}; }}
+            QTabBar QToolButton {{ color: {theme.TEXT2}; background: {theme.CONTENT};
+                border: none; border-radius: 5px; padding: 0; }}
+            QTabBar QToolButton:hover {{ color: {theme.ACCENT}; background: {theme.CONTENT_HOVER}; }}
         ''')
+
+    def _theme_changed(self):
+        self.refresh_theme()
+        self._refresh_density()
+
+    def _refresh_density(self):
+        font = self.font()
+        font.setPixelSize(theme.FONT_CAPTION)
+        metrics = QFontMetrics(font)
+        width = 16 + sum(max(68, min(116, metrics.horizontalAdvance(self.tabToolTip(index)) + 38))
+                         for index in range(self.count()))
+        avatar_only = self.count() > 1 and width > self.width()
+        if avatar_only == self._avatar_only:
+            return
+        self._avatar_only = avatar_only
+        self.refresh_theme()
+        for index in range(self.count()):
+            self._set_tab_label(index)
+        self.refresh_close_button()
+
+    def _set_tab_label(self, index):
+        name = self.tabToolTip(index)
+        self.setTabText(index, '' if self._avatar_only else name.replace('&', '&&'))
+        self.setAccessibleTabName(index, name)
 
     def panels(self):
         return [self.tabData(index) for index in range(self.count())]
@@ -46,14 +75,10 @@ class DanmakuFloatTabs(QTabBar):
     def refresh_close_button(self):
         for index in range(self.count()):
             button = self.tabButton(index, QTabBar.RightSide)
-            if self.count() > 1 and index == self.currentIndex():
+            if not self._avatar_only and self.count() > 1 and index == self.currentIndex():
                 if button is None:
-                    button = QToolButton(self)
-                    button.setObjectName('DanmakuTabClose')
-                    button.setText('×')
-                    button.setFixedSize(16, 16)
-                    button.setToolTip('关闭当前标签')
-                    button.setAccessibleName('关闭当前标签')
+                    button = NavigationButton('关闭当前标签', 'close', self)
+                    button.setFixedSize(18, 18)
                     button.clicked.connect(lambda: self.tabCloseRequested.emit(self.currentIndex()))
                     self.setTabButton(index, QTabBar.RightSide, button)
             elif button is not None:
@@ -69,29 +94,34 @@ class DanmakuFloatTabs(QTabBar):
         if self._sources.get(panel) == source:
             return
         self._sources[panel] = source
-        self.setTabText(index, name.replace('&', '&&'))
         self.setTabToolTip(index, name)
+        self._set_tab_label(index)
         if anchor.avatar is not None:
             icon = QIcon(anchor.avatar.pixmap())
-        elif room:
+        else:
             image = QPixmap(self.iconSize())
             image.fill(Qt.transparent)
             painter = QPainter(image)
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(theme.qcolor(AVATAR_COLORS[sum(map(ord, room)) % len(AVATAR_COLORS)]))
+            color = AVATAR_COLORS[sum(map(ord, room)) % len(AVATAR_COLORS)] if room else theme.CONTENT_HOVER
+            painter.setBrush(theme.qcolor(color))
             painter.drawEllipse(image.rect())
-            painter.setPen(Qt.white)
-            painter.drawText(image.rect(), Qt.AlignCenter, name[0])
+            painter.setPen(theme.qcolor('#ffffff' if room else theme.TEXT2))
+            painter.drawText(image.rect(), Qt.AlignCenter, name[0] if room else '?')
             painter.end()
             icon = QIcon(image)
-        else:
-            icon = QIcon()
         self.setTabIcon(index, icon)
+        self._refresh_density()
 
     def tabRemoved(self, index):
         self._sources = {panel: self._sources[panel] for panel in self.panels() if panel in self._sources}
         super().tabRemoved(index)
+        self._refresh_density()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_density()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -113,6 +143,7 @@ class DanmakuFloatTabs(QTabBar):
                 return
             self._ghost = QLabel(self, Qt.ToolTip | Qt.WindowTransparentForInput | Qt.NoDropShadowWindowHint)
             self._ghost.setAttribute(Qt.WA_ShowWithoutActivating)
+            self._ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
             rect = self.tabRect(self.panels().index(panel))
             self._ghost.setPixmap(self.grab(rect.intersected(self.rect())))
             self._ghost.setStyleSheet(f'background: {theme.ELEVATED}; border: 1px solid {theme.ACCENT};')
@@ -121,7 +152,14 @@ class DanmakuFloatTabs(QTabBar):
             self._ghost.show()
         else:
             self._ghost.move(point + QPoint(12, 12))
-        self._show_destination(self.destination(point))
+        widget = widget_at(point)
+        window = widget.window() if widget is not None else None
+        self._show_destination(self.destination(window, point))
+        wall_point = self._wall_point(window, point)
+        if wall_point is not None:
+            self.floating.controller.show_floating_dock(wall_point)
+        else:
+            self.floating.controller.wall.snap_grid.hide_drag_guide()
         event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -132,17 +170,31 @@ class DanmakuFloatTabs(QTabBar):
             return super().mouseReleaseEvent(event)
         panel, _ = self._press
         point = event.globalPosition().toPoint()
-        destination = self.destination(point)
+        widget = widget_at(point)
+        window = widget.window() if widget is not None else None
+        destination = self.destination(window, point)
+        wall_point = self._wall_point(window, point)
         self.cancel_drag()
         super().mouseReleaseEvent(event)
         if destination is not None:
             bar, index = destination
             self.floating.controller.move_floating_tab(panel, bar.floating, index)
+        elif wall_point is not None:
+            self.floating.controller.dock_floating_tab(panel, wall_point)
         elif self.count() > 1 and not self.floating.frameGeometry().contains(point):
             self.floating.controller.split_floating_tab(panel, point)
 
-    def destination(self, point):
-        window = QApplication.topLevelAt(point)
+    def _wall_point(self, window, point):
+        controller = self.floating.controller
+        wall = controller.wall
+        if (window is not None and window in (wall.window(), wall.snap_grid.guide)
+                and controller.floating_dock_available()):
+            local = wall.mapFromGlobal(point)
+            if wall.isVisible() and wall.rect().contains(local):
+                return local
+        return None
+
+    def destination(self, window, point):
         bar = getattr(window, 'tabs', None)
         if not isinstance(bar, DanmakuFloatTabs) or bar.floating.controller is not self.floating.controller:
             return None
@@ -166,6 +218,7 @@ class DanmakuFloatTabs(QTabBar):
         self._press = None
         self._show_destination(None)
         if self._ghost is not None:
+            self.floating.controller.wall.snap_grid.hide_drag_guide()
             self._ghost.hide()
             self._ghost.deleteLater()
             self._ghost = None
