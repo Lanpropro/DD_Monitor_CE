@@ -456,9 +456,20 @@ def check_snap_grid_and_other_presets(app):
                 second.state_control.pending_grid_aspect = wall.layout_id
                 window._save_timer.stop()
                 begin_wall_drag(units[0].center())
+                assert not any(marker.isVisible() for marker in guide.swap_markers)
                 session.position = wall.mapToGlobal(second_rect.center())
                 session._update_target()
                 assert guide.isVisible() and (guide.swap_source, guide.target) == (first_rect, second_rect)
+                for marker, rect in zip(guide.swap_markers, (first_rect, second_rect), strict=True):
+                    assert type(marker) is type(first.replace_room_button)
+                    assert marker.kind == first.replace_room_button.kind == 'replace'
+                    assert marker.size() == first.replace_room_button.size()
+                    assert marker.isVisible() and marker.geometry().center() == rect.center()
+                    assert marker.focusPolicy() == Qt.NoFocus and marker.testAttribute(Qt.WA_TransparentForMouseEvents)
+                session.position = wall.mapToGlobal(units[0].center())
+                session._update_target()
+                assert guide.target == first_rect and not any(marker.isVisible() for marker in guide.swap_markers)
+                session.position = wall.mapToGlobal(second_rect.center())
                 assert first.geometry() == first_rect and second.geometry() == second_rect
                 assert session.finish() and not guide.isVisible()
                 assert first.geometry() == second_rect and second.geometry() == first_rect
