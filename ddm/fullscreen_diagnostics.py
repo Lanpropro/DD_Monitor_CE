@@ -15,10 +15,11 @@ class FullscreenCapture(QObject):
     PROPERTIES = ('time-pos', 'audio-pts', 'pause', 'paused-for-cache',
                   'vo-configured', 'frame-drop-count')
 
-    def __init__(self, probe, window, *, profile_calls=False):
+    def __init__(self, probe, window, *, profile_calls=False, native_windows=False):
         super().__init__(window)
         self.probe, self.window = probe, window
         self.profile_calls = profile_calls
+        self.native_windows = native_windows
         self.record = None
         self.depth = 0
         self.lock = threading.Lock()
@@ -126,8 +127,27 @@ class FullscreenCapture(QObject):
             if len(self.players) == 2:
                 break
         self.record['observer_setup_ms'] = round((time.perf_counter()-self.started)*1000, 3)
+        self.capture_native_windows(self.record, 'before')
         self.timer.start()
         self.frame()
+
+    def capture_native_windows(self, record, stage):
+        if not self.native_windows:
+            return
+        from .on_demand_diagnostics import native_snapshot
+        snapshot = native_snapshot()
+        if not snapshot['available']:
+            return
+        bars = {}
+        for index, tile in enumerate(self.window.wall.tiles):
+            bar = getattr(tile, 'bottom', None)
+            if bar is not None and (hwnd := int(bar.internalWinId())):
+                bars[hex(hwnd)] = index
+        windows = [{key: row.get(key) for key in ('hwnd', 'parent', 'cls', 'rect', 'visible')}
+                   for row in snapshot['windows'] if row['visible'] or row['hwnd'] in bars]
+        record.setdefault('native_windows', []).append({
+            'stage': stage, 'at_ms': round((time.perf_counter()-self.started)*1000, 3),
+            'bars': bars, 'windows': windows, 'truncated': snapshot['truncated']})
 
     def eventFilter(self, watched, event):
         record = self.record
@@ -188,6 +208,7 @@ class FullscreenCapture(QObject):
             record, self.record = self.record, None
         if record is None:
             return
+        self.capture_native_windows(record, reason)
         for widget in self.geometry_widgets:
             widget.removeEventFilter(self)
         self.geometry_widgets.clear()
@@ -205,7 +226,7 @@ class FullscreenCapture(QObject):
                          duration_ms=round((time.perf_counter()-self.started)*1000, 3), **record)
 
 
-def install(path, *, profile_calls=False):
+def install(path, *, profile_calls=False, native_windows=False):
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
     from .fullscreen_bar import FullscreenBar
@@ -221,7 +242,8 @@ def install(path, *, profile_calls=False):
     @functools.wraps(original_init)
     def initialize(window, *args, **kwargs):
         original_init(window, *args, **kwargs)
-        capture = window._fullscreen_probe = FullscreenCapture(probe, window, profile_calls=profile_calls)
+        capture = window._fullscreen_probe = FullscreenCapture(
+            probe, window, profile_calls=profile_calls, native_windows=native_windows)
         QApplication.instance().aboutToQuit.connect(capture.finish)
         QApplication.instance().aboutToQuit.connect(capture.finish_idle)
         QApplication.instance().aboutToQuit.connect(probe.stop)
@@ -259,6 +281,7 @@ def install(path, *, profile_calls=False):
                     capture.record['call_ms'] = round((time.perf_counter()-started)*1000, 3)
                     capture.record['functions'] = profile_functions(profile) if profile is not None else []
                     capture.returned = time.perf_counter()
+                    capture.capture_native_windows(capture.record, 'returned')
                     if failed:
                         capture.finish('exception')
                 if not failed and direction == 'enter':

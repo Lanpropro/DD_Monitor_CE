@@ -116,6 +116,26 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(any(e['role'] == 'bar' and e['event'] == 'Paint' for e in events))
         self.assertNotIn('private-', self.path.read_text(encoding='utf-8'))
 
+    def test_explicit_capture_records_known_bars_and_visible_native_windows(self):
+        tile = self.window.wall.tiles[0]
+        tile.bottom = QWidget(self.window)
+        self.capture.native_windows = True
+        snapshot = {'available': True, 'truncated': False, 'cursor': [100, 200], 'windows': [
+            dict(hwnd='0x123', parent='0x0', cls='Qt', rect=[1, 2, 3, 4], visible=False),
+            dict(hwnd='0x456', parent='0x0', cls='Qt', rect=[10, 20, 30, 40], visible=True),
+            dict(hwnd='0x789', parent='0x0', cls='Qt', visible=False),
+        ]}
+        with patch('ddm.on_demand_diagnostics.native_snapshot', return_value=snapshot), \
+                patch.object(tile.bottom, 'internalWinId', return_value=0x123):
+            self.capture.begin('enter', tile)
+            self.capture.capture_native_windows(self.capture.record, 'returned')
+            self.capture.finish('interrupted')
+        entries = self.rows()[-1]['native_windows']
+        self.assertEqual([entry['stage'] for entry in entries], ['before', 'returned', 'interrupted'])
+        self.assertEqual(entries[-1]['bars'], {'0x123': 0})
+        self.assertEqual([row['hwnd'] for row in entries[-1]['windows']], ['0x123', '0x456'])
+        self.assertNotIn('cursor', entries[-1])
+
     def test_idle_capture_records_animation_without_content_and_stops(self):
         from ddm.widgets import Tile as RuntimeTile
         from ddm.fullscreen_cursor import FullscreenCursor

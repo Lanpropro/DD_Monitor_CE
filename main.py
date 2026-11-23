@@ -95,8 +95,9 @@ if __name__ == "__main__":
             install_theme_animation_capture(theme_probe)
         if os.environ.get('DDM_FULLSCREEN_CAPTURE') == '1' or '--diagnose-fullscreen' in sys.argv:
             from ddm.fullscreen_diagnostics import install as install_fullscreen_capture
+            fullscreen_diagnostics = '--diagnose-fullscreen' in sys.argv
             install_fullscreen_capture(os.path.join(config.data_root(), 'logs', 'fullscreen.jsonl'),
-                                       profile_calls='--diagnose-fullscreen' in sys.argv)
+                                       profile_calls=fullscreen_diagnostics, native_windows=fullscreen_diagnostics)
         if '--diagnose-responsiveness' in sys.argv:
             from ddm.responsiveness import install
             install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))
