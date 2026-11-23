@@ -1,4 +1,4 @@
-"""Render the chat panel and check medal alignment and image resolution."""
+"""Render the chat panel and check medal size, alignment and image resolution."""
 import argparse
 import os
 from pathlib import Path
@@ -18,10 +18,10 @@ from ddm.danmaku_widgets import DanmakuPanel
 
 
 MEDALS = (
-    ('绿冻', '7', '#184f48'),
-    ('满皇', '21', '#f5c542'),
+    ('芒果韬', '4', '#184f48'),
+    ('芒果韬', '24', '#f5c542'),
     ('茶水间', '1000', '#122a74'),
-    ('非常长的粉丝牌名字', '3', '#651c7b'),
+    ('非常长的粉丝牌名字', '31', ''),
 )
 NAME_COLOR = '#00a1d6'
 MESSAGE_COLOR = '#e6e9ee'
@@ -63,10 +63,12 @@ def main():
     image, dpr = shot.toImage(), shot.devicePixelRatioF()
     document = panel.body.document()
     block = document.firstBlock()
-    heights = []
-    for _, _, color in MEDALS:
-        _, top, right, bottom = bounds(image, color)
-        heights.append(bottom - top + 1)
+    rectangles = [bounds(image, color or '#c792ea') for _, _, color in MEDALS]
+    widths = [right - left + 1 for left, _, right, _ in rectangles]
+    heights = [bottom - top + 1 for _, top, _, bottom in rectangles]
+    assert max(widths) - min(widths) <= 1, widths
+    assert max(heights) - min(heights) <= 1, heights
+    for (_, _, color), (_, top, right, bottom) in zip(MEDALS, rectangles, strict=True):
         midpoint = (top + bottom) / 2
         padding = round(10 * dpr)
         for ink in (NAME_COLOR, MESSAGE_COLOR):
@@ -81,7 +83,6 @@ def main():
         assert abs(badge.width() - fmt.width() * dpr) <= 1
         assert abs(badge.height() - fmt.height() * dpr) <= 1
         block = block.next()
-    assert max(heights) - min(heights) <= 1, heights
     medal_count = len(panel._images)
     new_dpr = 2 if dpr != 2 else 1.5
     with patch.object(panel.body.viewport(), 'devicePixelRatioF', return_value=new_dpr):
@@ -92,7 +93,7 @@ def main():
             assert document.resource(QTextDocument.ImageResource, QUrl(url)).devicePixelRatioF() == new_dpr
     assert len(panel._images) == medal_count and document.blockCount() == len(MEDALS)
     panel.close()
-    print(f'PASS: centered fan medals and DPI-matched text at {dpr:g}×')
+    print(f'PASS: uniform, centered fan medals and DPI-matched text at {dpr:g}×')
 
 
 if __name__ == '__main__':

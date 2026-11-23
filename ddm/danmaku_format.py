@@ -27,11 +27,14 @@ def _medal_chip(name: str, level: str, color: str, font_size: int, *,
     """
     font = theme.danmaku_font(font_family, max(8, round(font_size * 0.88)))
     font.setWeight(QFont.Weight.DemiBold)
-    text = f"{name}{level}"
     metrics = QFontMetricsF(font)
     padding = max(4, round(font_size * 0.42))
     height = max(12, round(font_size * 1.2))
-    width = ceil(metrics.horizontalAdvance(text)) + padding * 2
+    content_width = ceil(metrics.horizontalAdvance("粉丝徽章99"))
+    level = metrics.elidedText(level, Qt.ElideLeft, content_width)
+    name_width = max(0, content_width - metrics.horizontalAdvance(level))
+    text = metrics.elidedText(name, Qt.ElideRight, name_width) + level
+    width = content_width + padding * 2
     pixmap = QPixmap(round(width * dpr), round(height * dpr))
     pixmap.setDevicePixelRatio(dpr)
     pixmap.fill(Qt.transparent)

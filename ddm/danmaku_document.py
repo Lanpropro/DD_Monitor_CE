@@ -119,15 +119,13 @@ class DanmakuDocument:
         return content_html(content_runs(entry), host._images, height, fit_line=True)
 
     def medal_html(self, medal: dict) -> str:
-        """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""
+        """粉丝牌使用同尺寸圆角底图，缺少颜色时使用默认色。"""
         host = self.host
         name = str(medal.get("name") or "")
         if not name:
             return ""
         level = str(medal.get("level") or "")
-        color = str(medal.get("color") or "")
-        if not color:
-            return f'<span style="color:#c792ea">[{_escape(name)}{_escape(level)}]</span>&#160;'
+        color = str(medal.get("color") or "#c792ea")
         size = host._font_size()
         dpr = host.body.viewport().devicePixelRatioF()
         family = host._font_family
