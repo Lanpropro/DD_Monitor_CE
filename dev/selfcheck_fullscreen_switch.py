@@ -97,6 +97,7 @@ def check_window_capture(window):
                 original_wall = QRect(wall.geometry())
                 original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
                 original_video = QRect(tile.video.geometry())
+                original_video_origin = tile.video.mapToGlobal(QPoint())
                 original_bar = QRect(tile.bottom.geometry())
                 original_origin = wall.mapToGlobal(QPoint())
                 visible = wall.visible_tiles()
@@ -108,6 +109,7 @@ def check_window_capture(window):
                 peers = [pane for pane in (*visible, *panels, window.sidebar) if pane is not tile]
                 entry_exposures, old_bar_paints, exit_exposures, restored_sizes = [], [], [], []
                 exit_bar_modes = []
+                sidebar_repaints = []
                 exit_native = window_fullscreen.exit
 
                 class RestoreEvents(QObject):
@@ -121,8 +123,9 @@ def check_window_capture(window):
                         elif watched is window and event.type() == QEvent.Resize:
                             restored_sizes.append(event.size())
                         elif watched is tile.video and event.type() == QEvent.Resize:
-                            exit_bar_modes.append((tile.bottom.isHidden(), tile.bottom.qt_composited))
-                        elif watched in peers and event.type() == QEvent.Show:
+                            exit_bar_modes.append((tile.bottom.isHidden(), tile.bottom.qt_composited,
+                                                   tile.video.mapToGlobal(QPoint())))
+                        elif watched in peers and watched is not window.sidebar and event.type() == QEvent.Show:
                             exit_exposures.append(QRect(tile.video.geometry()))
                         return False
 
@@ -138,6 +141,12 @@ def check_window_capture(window):
                         'Prepare the ordinary bar before restoring the native frame')
                     assert tile.video.geometry() == tile.rect(), 'The video should still cover the fullscreen frame'
                     return exit_native(widget, frame)
+
+                repaint_sidebar = window.sidebar.repaint
+
+                def repaint_sidebar_before_video_shrinks():
+                    sidebar_repaints.append(QRect(tile.video.geometry()))
+                    return repaint_sidebar()
 
                 events = RestoreEvents()
                 tile.video.installEventFilter(events)
@@ -178,19 +187,21 @@ def check_window_capture(window):
                             patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
                             patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as exit_frame, \
                             patch.object(window_fullscreen, 'exit', side_effect=exit_with_prepared_bar), \
-                            patch.object(window.sidebar, 'repaint', wraps=window.sidebar.repaint) as sidebar_paint:
+                            patch.object(window.sidebar, 'repaint', side_effect=repaint_sidebar_before_video_shrinks):
                         next(shortcut for shortcut in window._window_shortcuts
                              if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
                         refresh_meta.assert_not_called()
                         repaint.assert_not_called()
-                        sidebar_paint.assert_called_once_with()
                         QTest.qWait(90)
                         refresh_meta.assert_called()
                 finally:
                     for widget in (window, tile.video, *peers):
                         widget.removeEventFilter(events)
-                assert exit_bar_modes and all(hidden and not composited for hidden, composited in exit_bar_modes), (
-                    'The normal video must resize with the ordinary bar ready and hidden', exit_bar_modes)
+                assert exit_bar_modes and all(hidden and not composited and origin == original_video_origin
+                    for hidden, composited, origin in exit_bar_modes), (
+                    'The normal video must resize directly at its final screen position', exit_bar_modes)
+                assert sidebar_repaints == [QRect(QPoint(), screen.size())], (
+                    'The sidebar must paint before the video shrinks', sidebar_repaints)
                 assert exit_exposures and all(rect == original_video for rect in exit_exposures), (
                     'Wall panes were shown before the target video returned to its slot', exit_exposures)
                 assert not window.isFullScreen() and window.windowState() == original_state

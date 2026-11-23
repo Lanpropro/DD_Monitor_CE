@@ -194,6 +194,14 @@ class FullscreenPresentation(QObject):
             else:
                 self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None
+            # Commit the sidebar's space before resizing the video. Otherwise
+            # the restored-size video is first exposed at the fullscreen origin.
+            sidebar = self.window.sidebar
+            sidebar.setVisible(next(visible for pane, visible in self._visible if pane is sidebar))
+            self._activate_main_layout()
+            if sidebar.isVisible():
+                sidebar._refresh_visible_covers()
+                sidebar.repaint()
         else:
             wall.pane_danmaku.set_floating_owner(self.window)
             self._restore_wall(tile, repaint_covered_bars=native_bar)
@@ -238,9 +246,6 @@ class FullscreenPresentation(QObject):
         tile.bottom.setUpdatesEnabled(True)
         if native_bar and (not in_main_window or tile.bottom.qt_composited):
             tile.bottom.repaint()
-        if in_main_window and self.window.sidebar.isVisible():
-            self.window.sidebar._refresh_visible_covers()
-            self.window.sidebar.repaint()
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
         self._visible = self._borders = []
