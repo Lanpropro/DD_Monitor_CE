@@ -8,7 +8,6 @@ from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
-from PySide6.QtGui import QKeyEvent, QWindow
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -79,6 +78,8 @@ def check_window_capture(window):
     user32 = ctypes.windll.user32
     user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
     user32.GetAncestor.restype = ctypes.c_void_p
+    user32.GetClassLongW.argtypes = (ctypes.c_void_p, ctypes.c_int)
+    user32.GetClassLongW.restype = ctypes.c_uint
     user32.SetWindowPos.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
                                     ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint)
     main_hwnd, video_hwnd = int(window.winId()), int(tile.video.winId())
@@ -143,6 +144,9 @@ def check_window_capture(window):
                     tile.video.geometry(), tile.rect(), wall.geometry(), window.rect())
                 assert tile.video.mapToGlobal(QPoint()) == window.mapToGlobal(QPoint())
                 assert tile.bottom.geometry() == tile.bottom._tile_rect.translated(tile.mapToGlobal(QPoint()))
+                assert tile.bottom.windowHandle().transientParent() is window.windowHandle()
+                assert not user32.GetClassLongW(int(tile.bottom.winId()), -26) & 0x0800, (
+                    'Fullscreen controls must not use the CS_SAVEBITS window class')
                 assert not window.sidebar.isVisible() and wall.visible_tiles() == [tile]
                 assert all(not panel.isVisible() for panel in panels)
                 assert window.players[tile] is player
@@ -193,30 +197,29 @@ def check_queued_fullscreen_key(window):
     window.showNormal()
     QTest.qWait(60)
     tile = window.wall.tiles[0]
+    post_message = ctypes.windll.user32.PostMessageW
+    post_message.argtypes = (ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
 
-    def key_event(key, virtual_key, timestamp):
-        event = QKeyEvent(QEvent.ShortcutOverride, key, Qt.NoModifier, 1, virtual_key, 0)
-        event.setTimestamp(timestamp)
-        event.ignore()
-        return event
+    def post_f():
+        hwnd = int(window.winId())
+        assert post_message(hwnd, 0x0100, 0x46, 0x00210001)
+        assert post_message(hwnd, 0x0101, 0x46, 0xc0210001)
 
-    def consumed(receiver, key, virtual_key, timestamp):
-        event = key_event(key, virtual_key, timestamp)
-        QCoreApplication.sendEvent(receiver, event)
-        return event.isAccepted()
-
-    with patch.object(window_fullscreen, 'keyboard_tick_ms', return_value=1200), \
-            patch.object(window, '_tile_under_cursor', return_value=tile):
+    with patch.object(window, '_tile_under_cursor', return_value=tile):
+        post_f()
         assert window._handle_shortcut(window.shortcuts['focus'])
-        handle = window.windowHandle()
-        assert consumed(handle, Qt.Key_F, 0x46, 1100), 'F queued during a toggle was replayed'
-        assert not consumed(handle, Qt.Key_Escape, 0x1b, 1100), 'Escape must remain available'
-        assert not consumed(QWindow(), Qt.Key_F, 0x46, 1100), 'Another window is outside this shortcut'
-    with patch.object(window_fullscreen, 'keyboard_tick_ms', return_value=1300):
-        assert not consumed(handle, Qt.Key_F, 0x46, 1280), 'A new F must still toggle fullscreen'
-        assert not consumed(handle, Qt.Key_F, 0, 1100), 'Synthetic inputs have no native timestamp'
+        QApplication.setActiveWindow(window)
+        QTest.qWait(90)
+        assert window.isFullScreen(), 'F queued during a toggle was replayed'
+        QApplication.setActiveWindow(window)
+        post_f()
+        QTest.qWait(90)
+        assert not window.isFullScreen(), 'A fresh native F must exit fullscreen'
         assert window._handle_shortcut(window.shortcuts['focus'])
-    assert not window.isFullScreen()
+        QApplication.setActiveWindow(tile.bottom)
+        assert QApplication.activeWindow() is tile.bottom
+        QTest.keyClick(tile.bottom.windowHandle(), Qt.Key_Escape)
+        assert not window.isFullScreen(), 'Escape must still work while the fullscreen bar is active'
     print('PASS: stale native fullscreen keys are consumed and fresh keys and Escape remain available')
 
 

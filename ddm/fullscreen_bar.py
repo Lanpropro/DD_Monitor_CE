@@ -97,7 +97,13 @@ class FullscreenBar(QWidget):
             # the complete interactive bar its own Qt-managed alpha backing store.
             self.setAttribute(Qt.WA_TranslucentBackground, over_video)
             self.setAttribute(Qt.WA_NoSystemBackground, over_video)
-            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint if over_video else Qt.Widget)
+            if over_video:
+                # Qt.Tool uses CS_SAVEBITS on Windows. A fullscreen-width bar
+                # must not ask Windows to restore the pixels it covered.
+                window_type = Qt.Dialog if enabled and not self.parentWidget().isWindow() else Qt.Tool
+                self.setWindowFlags(window_type | Qt.FramelessWindowHint)
+            else:
+                self.setWindowFlags(Qt.Widget)
             self.set_tile_geometry(local.x(), local.y(), local.width(), local.height())
         for widget in (self, *self.findChildren(QWidget)):
             widget.setProperty('fullscreen', enabled)

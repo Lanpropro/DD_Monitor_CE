@@ -18,6 +18,7 @@ class AppShortcuts(QObject):
         super().__init__(host)
         self.host = host
         self._fullscreen_toggle_finished = None
+        self._queued_fullscreen_toggle = False
 
     def refresh_shortcuts(self) -> None:
         host = self.host
@@ -45,25 +46,30 @@ class AppShortcuts(QObject):
         presets = getattr(host, 'layout_presets', None)
         layout_sequences = presets.shortcuts() if presets is not None else {}
         sequences.extend(layout_sequences)
+        tile = host._fullscreen_tile
+        owners = (tile or host,)
+        if tile is not None and tile.bottom.windowType() == Qt.Dialog:
+            owners += (tile.bottom,)
         for sequence in dict.fromkeys(sequences):
             if not sequence:
                 continue
-            shortcut = QShortcut(QKeySequence(sequence), host._fullscreen_tile or host)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
-            shortcut.setProperty('fullscreenVolume', sequence in fullscreen_volume)
-            shortcut.setProperty('layoutPreset', sequence in layout_sequences)
-            shortcut.setProperty("danmakuInput", sequence in (
-                host.shortcuts.get("danmaku_input"),
-                "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
-            shortcut.activated.connect(lambda key=sequence: host._handle_shortcut(key))
-            host._window_shortcuts.append(shortcut)
+            for owner in owners:
+                shortcut = QShortcut(QKeySequence(sequence), owner)
+                shortcut.setContext(Qt.WindowShortcut)
+                shortcut.setAutoRepeat(False)
+                shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
+                shortcut.setProperty('fullscreenVolume', sequence in fullscreen_volume)
+                shortcut.setProperty('layoutPreset', sequence in layout_sequences)
+                shortcut.setProperty("danmakuInput", sequence in (
+                    host.shortcuts.get("danmaku_input"),
+                    "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
+                shortcut.activated.connect(lambda key=sequence: self._activate_shortcut(key))
+                host._window_shortcuts.append(shortcut)
         host._sync_input_shortcuts()
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.ShortcutOverride and isinstance(watched, QWindow):
-            return self._discard_queued_fullscreen_toggle(watched, event)
+            self._queued_fullscreen_toggle = self._is_queued_fullscreen_toggle(watched, event)
         if event.type() != QEvent.Wheel:
             return False
         host = self.host
@@ -111,9 +117,9 @@ class AppShortcuts(QObject):
         event.accept()
         return True
 
-    def _discard_queued_fullscreen_toggle(self, receiver, event):
+    def _is_queued_fullscreen_toggle(self, receiver, event):
         finished = self._fullscreen_toggle_finished
-        if finished is None or event.isAutoRepeat() or not event.nativeVirtualKey():
+        if finished is None or event.isAutoRepeat():
             return False
         host = self.host
         shortcut = QKeySequence(host.shortcuts.get('focus', ''))
@@ -123,14 +129,15 @@ class AppShortcuts(QObject):
         age = window_fullscreen.key_message_age_ms(event.timestamp(), now)
         if age is None or now - age >= finished:
             return False
-        if receiver is not host.windowHandle() and not any(
-                receiver is tile.windowHandle() or receiver is tile.bottom.windowHandle()
-                for tile in host.wall.tiles):
-            return False
-        # The native message was already pending when the previous toggle
-        # returned. A fresh press after that point can toggle again immediately.
-        event.accept()
-        return True
+        return receiver is host.windowHandle() or any(
+            receiver is tile.windowHandle() or receiver is tile.bottom.windowHandle()
+            for tile in host.wall.tiles)
+
+    def _activate_shortcut(self, sequence):
+        # Qt can match the shortcut again when it forwards the key to a QWidget.
+        queued, self._queued_fullscreen_toggle = self._queued_fullscreen_toggle, False
+        if not queued or sequence != self.host.shortcuts.get('focus'):
+            self.host._handle_shortcut(sequence)
 
     def _matches_volume_wheel(self, pressed, delta):
         key = 'volume_up' if delta > 0 else 'volume_down'
