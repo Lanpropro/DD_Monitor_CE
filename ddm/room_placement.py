@@ -73,10 +73,9 @@ class RoomPlacement:
                 other.sync_audio_ui()
                 tile.sync_audio_ui()
         to_start.append(tile)
-        restarted = host.apply_quality_policy()
+        host.apply_quality_policy(restart=False, tiles=to_start)
         for candidate in to_start:
-            if candidate not in restarted:
-                host.start_tile(candidate)
+            host.start_tile(candidate)
         host._refresh_meta()
         print(f"{room.get('uname')} → 第 {position} 个格子")
 
@@ -110,10 +109,10 @@ class RoomPlacement:
             source.sync_audio_ui()
             target_tile.sync_audio_ui()
         host.wall.pane_danmaku.swap_sources(source, target_tile)
-        restarted = host.apply_quality_policy()
-        for tile in (source, target_tile):
-            if tile.room.get("room_id") and tile not in restarted:
-                host.start_tile(tile)
+        to_start = [tile for tile in (source, target_tile) if tile.room.get("room_id")]
+        host.apply_quality_policy(restart=False, tiles=to_start)
+        for tile in to_start:
+            host.start_tile(tile)
         host._refresh_meta()
         print("两个格子的直播间已互换")
 

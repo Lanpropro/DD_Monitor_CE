@@ -86,6 +86,23 @@ class RoomPlacementTests(unittest.TestCase):
         host.sidebar.watch_history.select.assert_called_once_with('new')
         host._refresh_meta.assert_called_once_with()
 
+    def test_quick_drops_only_start_the_changed_slots(self):
+        existing, first, second = Tile('1001'), Tile(), Tile()
+        host = Host(existing, first, second)
+        host.rooms.update({rid: dict(room_id=rid, live=True) for rid in ('1002', '1003')})
+
+        def quality_policy(*, restart=True, tiles=None):
+            if restart and (tiles is None or existing in tiles):
+                host.start_tile(existing)
+                return [existing]
+            return []
+
+        host.apply_quality_policy.side_effect = quality_policy
+        host.placement.drop_room(first, '1002')
+        host.placement.drop_room(second, '1003')
+        self.assertEqual([call.args[0] for call in host.start_tile.call_args_list], [first, second])
+        self.assertEqual([call.args[0] for call in host._stop_tile.call_args_list], [first, second])
+
     def test_streamer_overrides_apply_on_entry_without_changing_catalog_or_swap(self):
         target, other = Tile('old'), Tile('other')
         host = Host(target, other)
@@ -138,16 +155,13 @@ class RoomPlacementTests(unittest.TestCase):
         host = Host(source, target)
         host._hot_swap = Mock(return_value=False)
         original = source.room
-        def quality_policy():
-            host.start_tile(source)
-            return [source]
-        host.apply_quality_policy.side_effect = quality_policy
         host.placement.drop_room(target, 'first')
         self.assertEqual([source.room['room_id'], target.room['room_id']], ['second', 'first'])
         self.assertTrue(target.room['video_danmaku_enabled'])
         self.assertIsNot(target.room, original)
         self.assertNotIn('video_danmaku_enabled', host.rooms['second'])
         self.assertEqual([call.args[0] for call in host.start_tile.call_args_list], [source, target])
+        host.apply_quality_policy.assert_called_once_with(restart=False, tiles=[source, target])
         self.assertEqual([call.args[0] for call in host.recorder.stop.call_args_list], [source, target])
         host._hot_swap.assert_called_once_with(source, target)
 
@@ -274,6 +288,7 @@ class RoomPlacementTests(unittest.TestCase):
         self.assertFalse(source.room.get('room_id'))
         self.assertEqual(empty.room['room_id'], 'first')
         host.start_tile.assert_called_once_with(empty)
+        host.apply_quality_policy.assert_called_once_with(restart=False, tiles=[empty])
         self.assertIsNot(empty.room, host.rooms['first'])
 
     def test_swap_of_missing_or_same_source_is_noop(self):

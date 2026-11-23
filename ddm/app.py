@@ -1009,9 +1009,9 @@ class MainWindow(QMainWindow):
     def start_all(self) -> None:
         return self.stream_playback.start_all()
 
-    def apply_quality_policy(self, *, restart: bool = True) -> list:
+    def apply_quality_policy(self, *, restart: bool = True, tiles=None) -> list:
         """有主次布局时：主画面自动用原画，其余用 720P。"""
-        return self.stream_playback.apply_quality_policy(restart=restart)
+        return self.stream_playback.apply_quality_policy(restart=restart, tiles=tiles)
 
     def start_tile(self, tile, *, stream_quality: int | None = None, wall_quality=None) -> None:
         return self.stream_playback.start_tile(tile, stream_quality=stream_quality,
