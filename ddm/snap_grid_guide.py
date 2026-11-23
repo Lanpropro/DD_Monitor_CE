@@ -15,13 +15,14 @@ class SnapGridGuide(QWidget):
         self.wall = wall
         self.units = ()
         self.target = None
+        self.swap_source = None
 
-    def present(self, units, target):
+    def present(self, units, target, *, swap_source=None):
         bounds = QRect(self.wall.mapToGlobal(QPoint()), self.wall.size())
         if self.geometry() != bounds:
             self.setGeometry(bounds)
-        if (units, target) != (self.units, self.target):
-            self.units, self.target = units, target
+        if (units, target, swap_source) != (self.units, self.target, self.swap_source):
+            self.units, self.target, self.swap_source = units, target, swap_source
             self.update()
         if not self.isVisible():
             self.show()
@@ -35,9 +36,23 @@ class SnapGridGuide(QWidget):
                 painter.setPen(pen)
                 for rect in self.units:
                     painter.drawRect(QRectF(rect).adjusted(2, 2, -2, -2))
-            if self.target is not None:
-                accent = theme.qcolor(theme.ACCENT)
-                painter.setPen(QPen(accent, 2))
-                accent.setAlpha(56)
-                painter.setBrush(accent)
-                painter.drawRoundedRect(QRectF(self.target).adjusted(1, 1, -1, -1), 8, 8)
+            accent = theme.qcolor(theme.ACCENT)
+            painter.setPen(QPen(accent, 2))
+            fill = QColor(accent)
+            fill.setAlpha(56)
+            painter.setBrush(fill)
+            for rect in (self.target, self.swap_source):
+                if rect is not None:
+                    painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 8, 8)
+            if self.swap_source is not None:
+                font = painter.font()
+                font.setPixelSize(19)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(accent)
+                painter.setBrush(theme.qcolor(theme.BG))
+                for rect in (self.target, self.swap_source):
+                    badge = QRectF(0, 0, 32, 28)
+                    badge.moveCenter(QRectF(rect).center())
+                    painter.drawRoundedRect(badge, 7, 7)
+                    painter.drawText(badge, Qt.AlignCenter, '↔')

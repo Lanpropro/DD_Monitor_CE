@@ -81,6 +81,9 @@ class RoomPlacement:
         print(f"{room.get('uname')} → 第 {position} 个格子")
 
     def swap_tiles(self, source_room_id: str, target_tile) -> None:
+        self.swap_tile_widgets(self.host._tile_of(source_room_id), target_tile)
+
+    def swap_tile_widgets(self, source, target_tile) -> None:
         """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。
 
         两边都在播的时候走**秒切**：播放器和它绑定的原生窗口都还在，只是换个
@@ -88,7 +91,6 @@ class RoomPlacement:
         （空格子、取流还没回来）或者要换音频输出路径时，退回「停掉再各自起」。
         """
         host = self.host
-        source = host._tile_of(source_room_id)
         if source is None or source is target_tile:
             return
         if host._hot_swap(source, target_tile):

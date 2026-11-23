@@ -403,6 +403,7 @@ class MainWindow(QMainWindow):
         self.wall.addRoomRequested.connect(self.open_add_room)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
+        self.wall.tilePairSwapRequested.connect(self._on_grid_tile_swap)
         self.wall.tileCreated.connect(self._wire_tile)
         for tile in self.wall.tiles:
             self._wire_tile(tile)
@@ -1150,6 +1151,10 @@ class MainWindow(QMainWindow):
 
     def _on_tile_swapped(self, source_room_id: str, target_tile) -> None:
         return self.room_placement.swap_tiles(source_room_id, target_tile)
+
+    def _on_grid_tile_swap(self, source_tile, target_tile) -> None:
+        self.room_placement.swap_tile_widgets(source_tile, target_tile)
+        self._save_timer.start()
 
     def _hot_swap(self, source, target) -> bool:
         return self.room_placement.hot_swap(source, target)

@@ -29,6 +29,7 @@ class WallGrid(QWidget):
     tileCreated = Signal(object)
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
+    tilePairSwapRequested = Signal(object, object)  # 自定义布局中实际拖起的格子、目标格子
     cornerRatiosChanged = Signal()         # 松开或重置后通知外层保存，不在拖动帧中写配置
     layoutRatiosChanged = Signal()
     paneEditRequested = Signal(int)
